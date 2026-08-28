@@ -317,6 +317,25 @@ def get_agent_instance(engine: Any, instance_id: str) -> dict[str, Any] | None:
     return row
 
 
+def _validate_activation_identity(agent_name: str, tenant: str) -> None:
+    if not str(agent_name or "").strip():
+        raise ValueError("register_agent_instance requires a non-empty agent_name")
+    if not str(tenant or "").strip():
+        raise ValueError("register_agent_instance requires a non-empty tenant")
+
+
+def _instantiate_lifecycle_statechart(engine: Any, agent_name: str) -> tuple[str, str]:
+    """``(def_id, sc_instance_id)`` for a fresh ``dormant`` MachineInstance."""
+    def_id = agent_lifecycle_def_id(engine)
+    result = engine.statechart.instantiate(def_id, context={})
+    sc_instance_id = result.get("instance_id") if isinstance(result, dict) else None
+    if not sc_instance_id:
+        raise AgentActivationError(
+            f"statechart Instantiate returned no instance id for agent {agent_name!r}"
+        )
+    return def_id, str(sc_instance_id)
+
+
 def register_agent_instance(
     engine: Any,
     *,
@@ -341,22 +360,13 @@ def register_agent_instance(
     ``instance_id``.
     """
     now = now if now is not None else time.time()
-    if not str(agent_name or "").strip():
-        raise ValueError("register_agent_instance requires a non-empty agent_name")
-    if not str(tenant or "").strip():
-        raise ValueError("register_agent_instance requires a non-empty tenant")
+    _validate_activation_identity(agent_name, tenant)
     instance_id = instance_id or new_instance_id()
 
     if get_agent_instance(engine, instance_id) is not None:
         return instance_id  # idempotent
 
-    def_id = agent_lifecycle_def_id(engine)
-    result = engine.statechart.instantiate(def_id, context={})
-    sc_instance_id = result.get("instance_id") if isinstance(result, dict) else None
-    if not sc_instance_id:
-        raise AgentActivationError(
-            f"statechart Instantiate returned no instance id for agent {agent_name!r}"
-        )
+    def_id, sc_instance_id = _instantiate_lifecycle_statechart(engine, agent_name)
 
     _authority(engine).add_node(
         instance_id,
@@ -574,6 +584,58 @@ def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
 # ── the activation (event → mailbox + WorkItem) ──────────────────────────────────────
 
 
+def _validate_activatable_instance(
+    node: dict[str, Any] | None, instance_id: str
+) -> dict[str, Any]:
+    if node is None:
+        raise AgentActivationError(
+            f"cannot activate unknown agent instance {instance_id!r} — register it first"
+        )
+    if str(node.get("lifecycle_state")) == STATE_TERMINATED:
+        raise AgentActivationError(
+            f"agent instance {instance_id!r} is terminated and cannot be activated"
+        )
+    return node
+
+
+def _resolve_activation_source(
+    node: dict[str, Any],
+    tenant: str | None,
+    origin_principal: str,
+    source: ActivationSource | str,
+) -> tuple[str, str, ActivationSource, PriorityClass]:
+    """``(tenant, origin_principal, src, priority_class)`` — the QoS admission
+    class derivation (ADR-6 §5)."""
+    resolved_tenant = tenant or str(node.get("tenant") or "")
+    resolved_origin = origin_principal or str(node.get("origin_principal") or "")
+    src = (
+        ActivationSource(str(source))
+        if not isinstance(source, ActivationSource)
+        else source
+    )
+    priority_class = activation_priority_class(src)
+    return resolved_tenant, resolved_origin, src, priority_class
+
+
+def _activation_work_item_metadata(
+    instance_id: str,
+    node: dict[str, Any],
+    src: ActivationSource,
+    priority_class: PriorityClass,
+    origin_principal: str,
+    msg_id: str,
+) -> dict[str, Any]:
+    return {
+        "agent_instance_id": instance_id,
+        "agent_name": str(node.get("agent_name") or ""),
+        "statechart_instance_id": str(node.get("statechart_instance_id") or ""),
+        "activation_source": str(src),
+        "priority_class": priority_class.value,
+        "origin_principal": origin_principal,
+        "mailbox_message_id": msg_id,
+    }
+
+
 def deliver_activation(
     engine: Any,
     instance_id: str,
@@ -597,23 +659,12 @@ def deliver_activation(
     Raises :class:`AgentActivationError` if ``instance_id`` is not a registered instance.
     """
     now = now if now is not None else time.time()
-    node = get_agent_instance(engine, instance_id)
-    if node is None:
-        raise AgentActivationError(
-            f"cannot activate unknown agent instance {instance_id!r} — register it first"
-        )
-    if str(node.get("lifecycle_state")) == STATE_TERMINATED:
-        raise AgentActivationError(
-            f"agent instance {instance_id!r} is terminated and cannot be activated"
-        )
-    tenant = tenant or str(node.get("tenant") or "")
-    origin_principal = origin_principal or str(node.get("origin_principal") or "")
-    src = (
-        ActivationSource(str(source))
-        if not isinstance(source, ActivationSource)
-        else source
+    node = _validate_activatable_instance(
+        get_agent_instance(engine, instance_id), instance_id
     )
-    priority_class = activation_priority_class(src)
+    tenant, origin_principal, src, priority_class = _resolve_activation_source(
+        node, tenant, origin_principal, source
+    )
 
     msg_id = _append_mailbox_message(
         engine,
@@ -642,15 +693,9 @@ def deliver_activation(
         correlation_id=correlation_id or None,
         work_item_id=work_item_id,
         idempotency_key=work_item_id,
-        metadata={
-            "agent_instance_id": instance_id,
-            "agent_name": str(node.get("agent_name") or ""),
-            "statechart_instance_id": str(node.get("statechart_instance_id") or ""),
-            "activation_source": str(src),
-            "priority_class": priority_class.value,
-            "origin_principal": origin_principal,
-            "mailbox_message_id": msg_id,
-        },
+        metadata=_activation_work_item_metadata(
+            instance_id, node, src, priority_class, origin_principal, msg_id
+        ),
         now=now,
     )
     _link(engine, item_id, instance_id, _ACTIVATION_OF)
@@ -1069,6 +1114,287 @@ def _build_activation_delegation(
     )
 
 
+def _resolve_activation_target(
+    engine: Any, claim: dict[str, Any]
+) -> tuple[str, dict[str, Any], dict[str, Any], str, dict[str, Any] | None]:
+    """``(work_item_id, item, metadata, instance_id, node)`` — ``node`` is
+    ``None`` when the activation references a missing instance."""
+    work_item_id = str(claim["work_item_id"])
+    item = _wi.get_work_item(engine, work_item_id) or {}
+    raw_metadata = item.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    # ``payload_ref`` is the opaque machine reference and is NEVER routed through
+    # ``PersistencePrivacyGuard`` (work_item.py's ``submit_work_item``); the
+    # duplicate copy on ``metadata["agent_instance_id"]`` IS privacy-sanitized on
+    # write (it's a display/decorative field) and can be corrupted by a false
+    # positive — the IBAN pattern matches ~1-in-20 random hex ids (D-GM-3's same
+    # class of bug in envelope_ingest.py). Prefer the raw, reliable payload_ref;
+    # only fall back to metadata when it is absent.
+    instance_id = str(
+        item.get("payload_ref") or metadata.get("agent_instance_id") or ""
+    )
+    node = get_agent_instance(engine, instance_id) if instance_id else None
+    return work_item_id, item, metadata, instance_id, node
+
+
+def _commit_missing_instance(
+    engine: Any, work_item_id: str, claim: dict[str, Any], instance_id: str, now: float
+) -> str:
+    # The activation references an instance that no longer exists — commit failed,
+    # non-retryable (retrying cannot conjure the instance back).
+    logger.warning(
+        "[agents-as-data] activation %s references missing instance %s; failing",
+        work_item_id,
+        instance_id,
+    )
+    return _wi.commit_result(
+        engine,
+        work_item_id,
+        claim,
+        outcome="failed",
+        error_ref=f"agent_activation:{instance_id}:missing_instance",
+        retryable=False,
+        now=now,
+    )
+
+
+def _try_activate_statechart(
+    engine: Any,
+    sc_instance_id: str,
+    instance_id: str,
+    work_item_id: str,
+    claim: dict[str, Any],
+    now: float,
+) -> str | None:
+    """Fire the ``dormant -> active`` transition (OCC = the concurrency guard).
+
+    Returns a terminal outcome string (``"deferred"``/``"fenced"``) when a
+    concurrent activation of the SAME instance holds it — this one is
+    deferred so it retries after the holder deactivates, rather than double-
+    running the instance. Returns ``None`` to proceed with this activation.
+    """
+    if not sc_instance_id:
+        return None
+    activated = engine.statechart.send_event(sc_instance_id, EV_ACTIVATE, {})
+    fired = (
+        bool(activated.get("fired")) if isinstance(activated, dict) else bool(activated)
+    )
+    if fired or _statechart_state(activated) != STATE_ACTIVE:
+        return None
+    logger.info(
+        "[agents-as-data] instance %s already active (concurrent activation); "
+        "deferring %s",
+        instance_id,
+        work_item_id,
+    )
+    deferred = _wi.defer_work_item(
+        engine,
+        work_item_id,
+        claim,
+        next_retry_at=now + 5.0,
+        reason_ref=f"agent_activation:{instance_id}:instance_busy",
+        now=now,
+    )
+    return "deferred" if deferred else "fenced"
+
+
+def _resolve_activation_executor() -> tuple[Any, ActivationExecutorStatus]:
+    """``(executor, provisional_status)`` — ``executor`` is ``None`` when
+    refused (BUG-001 chokepoint fail-closed guard)."""
+    if _EXECUTOR is not None:
+        return _EXECUTOR, ActivationExecutorStatus.EXECUTED
+    if activation_diagnostic_mode_enabled():
+        return _default_executor, ActivationExecutorStatus.UNAVAILABLE
+    return None, ActivationExecutorStatus.UNAVAILABLE
+
+
+def _refuse_activation(
+    engine: Any,
+    work_item_id: str,
+    claim: dict[str, Any],
+    instance_id: str,
+    sc_instance_id: str,
+    now: float,
+) -> str:
+    """BUG-001 chokepoint refusal: no canonical executor bound and diagnostic
+    mode is not enabled — commit failed/UNAVAILABLE, never a silent success."""
+    logger.error(
+        "[agents-as-data] activation %s for instance %s REFUSED: no canonical "
+        "executor bound and diagnostic mode is not enabled (BUG-001 fail-closed) — "
+        "committing failed/UNAVAILABLE, never a silent success",
+        work_item_id,
+        instance_id,
+    )
+    if sc_instance_id:
+        engine.statechart.send_event(sc_instance_id, EV_DEACTIVATE, {})
+    _mirror_lifecycle_state(engine, instance_id, STATE_DORMANT)
+    return _wi.commit_result(
+        engine,
+        work_item_id,
+        claim,
+        outcome="failed",
+        error_ref=f"agent_activation:{instance_id}:executor_unavailable",
+        retryable=True,
+        now=now,
+    )
+
+
+def _run_activation_executor(
+    engine: Any,
+    ctx: ActivationContext,
+    executor: Any,
+    provisional_status: ActivationExecutorStatus,
+) -> ActivationResult:
+    """Run the bound executor and stamp the authoritative ``executor_status``.
+
+    Never trusted from the executor's own return value (BUG-001: a plugin
+    cannot self-report EXECUTED). A bound executor that reports a
+    non-succeeded outcome ran for real but failed; that's FAILED, not
+    UNAVAILABLE. Writes the receipt-only diagnostic record OR the full
+    provenance, mutually exclusive (acceptance gate 6: no receipt-only
+    ToolCall on a path that succeeds).
+    """
+    result = executor(ctx)
+    final_status = provisional_status
+    if (
+        final_status is ActivationExecutorStatus.EXECUTED
+        and result.outcome != "succeeded"
+    ):
+        final_status = ActivationExecutorStatus.FAILED
+    result = replace(result, executor_status=final_status)
+    if final_status is ActivationExecutorStatus.UNAVAILABLE:
+        _write_activation_receipt(engine, ctx, result)
+    else:
+        _write_provenance(engine, ctx, result)
+    return result
+
+
+@dataclass
+class _ActivationPlan:
+    """Everything :func:`_execute_activation` needs to run one activation."""
+
+    work_item_id: str
+    claim: dict[str, Any]
+    instance_id: str
+    agent_name: str
+    tenant: str
+    sc_instance_id: str
+    priority_class: PriorityClass
+    run_id: str
+    node: dict[str, Any]
+    delegation: Any
+    executor: Any
+    provisional_status: ActivationExecutorStatus
+    heartbeat_interval_s: float
+    lease_ttl_s: float
+
+
+def _execute_activation(
+    engine: Any, plan: _ActivationPlan
+) -> tuple[str, ActivationResult]:
+    """Run the executor under heartbeat + delegation + priority scope.
+
+    Never raises: an exception escaping the executor call means a real
+    attempt was made and blew up uncaught — FAILED (a genuine attempt),
+    never UNAVAILABLE (no attempt).
+    """
+    outcome = "failed"
+    result = ActivationResult(outcome="failed", retryable=True)
+    stop_heartbeat = threading.Event()
+    heartbeat_thread: threading.Thread | None = None
+    try:
+        # (5) heartbeat WHILE active: the lease is the liveness signal; renewal also
+        # revalidates the delegated credential's expiry (bounded-time revocation).
+        heartbeat_thread = _start_heartbeat(
+            engine,
+            plan.work_item_id,
+            plan.claim,
+            stop_heartbeat,
+            interval_s=plan.heartbeat_interval_s,
+            lease_ttl_s=plan.lease_ttl_s,
+        )
+        with (
+            _delegation.use_delegation(plan.delegation),
+            priority_scope(plan.priority_class),
+        ):
+            messages = drain_mailbox(engine, plan.instance_id)
+            ctx = ActivationContext(
+                engine=engine,
+                instance_id=plan.instance_id,
+                agent_name=plan.agent_name,
+                tenant=plan.tenant,
+                work_item_id=plan.work_item_id,
+                run_id=plan.run_id,
+                messages=tuple(messages),
+                priority_class=plan.priority_class,
+                delegation=plan.delegation,
+                model_id=str(plan.node.get("model_id") or ""),
+                tool_ids=tuple(plan.node.get("tool_ids") or ()),
+            )
+            result = _run_activation_executor(
+                engine, ctx, plan.executor, plan.provisional_status
+            )
+        outcome = result.outcome
+    except Exception as exc:  # noqa: BLE001 — record + commit failed so ADR-5 retry applies
+        logger.error(
+            "[agents-as-data] activation %s for instance %s errored: %s",
+            plan.work_item_id,
+            plan.instance_id,
+            exc,
+        )
+        result = ActivationResult(
+            outcome="failed",
+            error_ref=f"agent_activation:{plan.instance_id}:{type(exc).__name__}",
+            retryable=True,
+            executor_status=ActivationExecutorStatus.FAILED,
+        )
+        outcome = "failed"
+    finally:
+        stop_heartbeat.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=1.0)
+    return outcome, result
+
+
+def _commit_activation_terminal(
+    engine: Any,
+    work_item_id: str,
+    claim: dict[str, Any],
+    instance_id: str,
+    outcome: str,
+    result: ActivationResult,
+    now: float,
+) -> str:
+    return _wi.commit_result(
+        engine,
+        work_item_id,
+        claim,
+        outcome=outcome,
+        result_ref=result.result_ref
+        or (
+            f"outcome:agent_activation:{instance_id}"
+            if outcome == "succeeded"
+            else None
+        ),
+        error_ref=result.error_ref
+        or (
+            None
+            if outcome == "succeeded"
+            else f"agent_activation:{instance_id}:{outcome}"
+        ),
+        retryable=result.retryable,
+        now=now,
+    )
+
+
+def _release_activation_instance(
+    engine: Any, sc_instance_id: str, instance_id: str
+) -> None:
+    if sc_instance_id:
+        engine.statechart.send_event(sc_instance_id, EV_DEACTIVATE, {})
+    _mirror_lifecycle_state(engine, instance_id, STATE_DORMANT)
+
+
 def process_one_activation(
     engine: Any,
     claim: dict[str, Any],
@@ -1099,115 +1425,38 @@ def process_one_activation(
     dead_letter machinery applies.
     """
     now = now if now is not None else time.time()
-    work_item_id = str(claim["work_item_id"])
-    item = _wi.get_work_item(engine, work_item_id) or {}
-    raw_metadata = item.get("metadata")
-    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
-    # ``payload_ref`` is the opaque machine reference and is NEVER routed through
-    # ``PersistencePrivacyGuard`` (work_item.py's ``submit_work_item``); the
-    # duplicate copy on ``metadata["agent_instance_id"]`` IS privacy-sanitized on
-    # write (it's a display/decorative field) and can be corrupted by a false
-    # positive — the IBAN pattern matches ~1-in-20 random hex ids (D-GM-3's same
-    # class of bug in envelope_ingest.py). Prefer the raw, reliable payload_ref;
-    # only fall back to metadata when it is absent.
-    instance_id = str(
-        item.get("payload_ref") or metadata.get("agent_instance_id") or ""
+    work_item_id, item, metadata, instance_id, node = _resolve_activation_target(
+        engine, claim
     )
-    node = get_agent_instance(engine, instance_id) if instance_id else None
     if node is None:
-        # The activation references an instance that no longer exists — commit failed,
-        # non-retryable (retrying cannot conjure the instance back).
-        logger.warning(
-            "[agents-as-data] activation %s references missing instance %s; failing",
-            work_item_id,
-            instance_id,
-        )
-        return _wi.commit_result(
-            engine,
-            work_item_id,
-            claim,
-            outcome="failed",
-            error_ref=f"agent_activation:{instance_id}:missing_instance",
-            retryable=False,
-            now=now,
-        )
+        return _commit_missing_instance(engine, work_item_id, claim, instance_id, now)
 
-    agent_name = str(node.get("agent_name") or "agent")
-    tenant = str(node.get("tenant") or item.get("tenant") or "")
-    sc_instance_id = str(node.get("statechart_instance_id") or "")
-    priority_class = _priority_class_from(metadata)
+    agent_name, tenant, sc_instance_id, priority_class = _activation_identity_fields(
+        node, item, metadata
+    )
     run_id = work_item_id  # the WorkItem id is the stable, traceable run identity
 
-    # (2) authoritative activation: dormant → active. A no-op (already active) means a
-    # concurrent activation of the SAME instance holds it — defer this one so it retries
-    # after the holder deactivates, rather than double-running the instance. Concurrency
-    # control is orthogonal to executor truthfulness and takes precedence: a deferred
-    # item is retried later (possibly by a correctly-configured worker), so it must not
-    # be shortcut into a false "no executor" failure here.
-    if sc_instance_id:
-        activated = engine.statechart.send_event(sc_instance_id, EV_ACTIVATE, {})
-        fired = (
-            bool(activated.get("fired"))
-            if isinstance(activated, dict)
-            else bool(activated)
-        )
-        if not fired and _statechart_state(activated) == STATE_ACTIVE:
-            logger.info(
-                "[agents-as-data] instance %s already active (concurrent activation); "
-                "deferring %s",
-                instance_id,
-                work_item_id,
-            )
-            deferred = _wi.defer_work_item(
-                engine,
-                work_item_id,
-                claim,
-                next_retry_at=now + 5.0,
-                reason_ref=f"agent_activation:{instance_id}:instance_busy",
-                now=now,
-            )
-            return "deferred" if deferred else "fenced"
+    # (2) authoritative activation: dormant → active. Concurrency control is
+    # orthogonal to executor truthfulness and takes precedence: a deferred item is
+    # retried later, so it must not be shortcut into a false "no executor" failure.
+    deferred_outcome = _try_activate_statechart(
+        engine, sc_instance_id, instance_id, work_item_id, claim, now
+    )
+    if deferred_outcome is not None:
+        return deferred_outcome
 
     # ── BUG-001 CHOKEPOINT GUARD ── resolve which executor will run BEFORE any FURTHER
     # state mutation (mailbox drain, identity chain, provenance write). This is the
     # single point every activation path converges on (run_activation_worker_loop AND
     # any direct caller of process_one_activation), so it is where the fail-closed
     # decision belongs — not only at main()'s/start_activation_worker_pool's startup
-    # readiness check, which a direct caller can bypass entirely. An absent/unbound
-    # executor with diagnostic mode off refuses the WorkItem outright: no mailbox drain,
-    # no provenance, no success — the messages remain intact in the mailbox for a
-    # correctly-configured worker to retry. The instance is released back to dormant
-    # immediately (it was only just marked active above) so a refused activation leaves
-    # NO lingering active-state side effect either.
-    if _EXECUTOR is not None:
-        executor = _EXECUTOR
-        provisional_status = ActivationExecutorStatus.EXECUTED
-    elif activation_diagnostic_mode_enabled():
-        executor = _default_executor
-        provisional_status = ActivationExecutorStatus.UNAVAILABLE
-    else:
-        executor = None
-        provisional_status = ActivationExecutorStatus.UNAVAILABLE
-
+    # readiness check, which a direct caller can bypass entirely. The instance is
+    # released back to dormant immediately on refusal so it leaves no lingering
+    # active-state side effect.
+    executor, provisional_status = _resolve_activation_executor()
     if executor is None:
-        logger.error(
-            "[agents-as-data] activation %s for instance %s REFUSED: no canonical "
-            "executor bound and diagnostic mode is not enabled (BUG-001 fail-closed) — "
-            "committing failed/UNAVAILABLE, never a silent success",
-            work_item_id,
-            instance_id,
-        )
-        if sc_instance_id:
-            engine.statechart.send_event(sc_instance_id, EV_DEACTIVATE, {})
-        _mirror_lifecycle_state(engine, instance_id, STATE_DORMANT)
-        return _wi.commit_result(
-            engine,
-            work_item_id,
-            claim,
-            outcome="failed",
-            error_ref=f"agent_activation:{instance_id}:executor_unavailable",
-            retryable=True,
-            now=now,
+        return _refuse_activation(
+            engine, work_item_id, claim, instance_id, sc_instance_id, now
         )
 
     _mirror_lifecycle_state(engine, instance_id, STATE_ACTIVE)
@@ -1217,110 +1466,36 @@ def process_one_activation(
         agent_name=agent_name,
         run_id=run_id,
         tenant=tenant,
-        origin_principal=str(
-            metadata.get("origin_principal") or node.get("origin_principal") or ""
-        ),
+        origin_principal=_activation_origin_principal(metadata, node),
         tool_ids=node.get("tool_ids") or (),
     )
 
-    outcome = "failed"
-    result = ActivationResult(outcome="failed", retryable=True)
-    stop_heartbeat = threading.Event()
-    heartbeat_thread: threading.Thread | None = None
-    try:
-        # (5) heartbeat WHILE active: the lease is the liveness signal; renewal also
-        # revalidates the delegated credential's expiry (bounded-time revocation).
-        heartbeat_thread = _start_heartbeat(
-            engine,
-            work_item_id,
-            claim,
-            stop_heartbeat,
-            interval_s=heartbeat_interval_s,
-            lease_ttl_s=lease_ttl_s,
-        )
-        with _delegation.use_delegation(delegation), priority_scope(priority_class):
-            messages = drain_mailbox(engine, instance_id)
-            ctx = ActivationContext(
-                engine=engine,
-                instance_id=instance_id,
-                agent_name=agent_name,
-                tenant=tenant,
-                work_item_id=work_item_id,
-                run_id=run_id,
-                messages=tuple(messages),
-                priority_class=priority_class,
-                delegation=delegation,
-                model_id=str(node.get("model_id") or ""),
-                tool_ids=tuple(node.get("tool_ids") or ()),
-            )
-            result = executor(ctx)
-            # The chokepoint stamps executor_status authoritatively — it is NEVER
-            # trusted from the executor's own return value (BUG-001: a plugin cannot
-            # self-report EXECUTED). A bound executor that reports a non-succeeded
-            # outcome ran for real but failed; that's FAILED, not UNAVAILABLE.
-            final_status = provisional_status
-            if (
-                final_status is ActivationExecutorStatus.EXECUTED
-                and result.outcome != "succeeded"
-            ):
-                final_status = ActivationExecutorStatus.FAILED
-            result = replace(result, executor_status=final_status)
-            if final_status is ActivationExecutorStatus.UNAVAILABLE:
-                # Receipt-only diagnostic path: NEVER a :ToolCall, NEVER a :RunTrace —
-                # acceptance gate 6 (no receipt-only ToolCall on a path that succeeds).
-                _write_activation_receipt(engine, ctx, result)
-            else:
-                _write_provenance(engine, ctx, result)
-        outcome = result.outcome
-    except Exception as exc:  # noqa: BLE001 — record + commit failed so ADR-5 retry applies
-        logger.error(
-            "[agents-as-data] activation %s for instance %s errored: %s",
-            work_item_id,
-            instance_id,
-            exc,
-        )
-        # An exception escaping the executor call means a real attempt was made and
-        # blew up uncaught — FAILED (a genuine attempt), never UNAVAILABLE (no attempt).
-        # If the guard above already refused (executor is None) this branch is
-        # unreachable, since that path returns before entering the try block.
-        result = ActivationResult(
-            outcome="failed",
-            error_ref=f"agent_activation:{instance_id}:{type(exc).__name__}",
-            retryable=True,
-            executor_status=ActivationExecutorStatus.FAILED,
-        )
-        outcome = "failed"
-    finally:
-        stop_heartbeat.set()
-        if heartbeat_thread is not None:
-            heartbeat_thread.join(timeout=1.0)
+    # (4)+(5) drain mailbox, run the executor, write provenance, all under a heartbeat.
+    plan = _ActivationPlan(
+        work_item_id=work_item_id,
+        claim=claim,
+        instance_id=instance_id,
+        agent_name=agent_name,
+        tenant=tenant,
+        sc_instance_id=sc_instance_id,
+        priority_class=priority_class,
+        run_id=run_id,
+        node=node,
+        delegation=delegation,
+        executor=executor,
+        provisional_status=provisional_status,
+        heartbeat_interval_s=heartbeat_interval_s,
+        lease_ttl_s=lease_ttl_s,
+    )
+    outcome, result = _execute_activation(engine, plan)
 
     # (6) commit the WorkItem terminally — the lifecycle authority.
-    commit_outcome = _wi.commit_result(
-        engine,
-        work_item_id,
-        claim,
-        outcome=outcome,
-        result_ref=result.result_ref
-        or (
-            f"outcome:agent_activation:{instance_id}"
-            if outcome == "succeeded"
-            else None
-        ),
-        error_ref=result.error_ref
-        or (
-            None
-            if outcome == "succeeded"
-            else f"agent_activation:{instance_id}:{outcome}"
-        ),
-        retryable=result.retryable,
-        now=now,
+    commit_outcome = _commit_activation_terminal(
+        engine, work_item_id, claim, instance_id, outcome, result, now
     )
 
     # (7) release the instance back to dormant (authoritative), save state, mirror.
-    if sc_instance_id:
-        engine.statechart.send_event(sc_instance_id, EV_DEACTIVATE, {})
-    _mirror_lifecycle_state(engine, instance_id, STATE_DORMANT)
+    _release_activation_instance(engine, sc_instance_id, instance_id)
     logger.info(
         "[agents-as-data] activation %s instance=%s outcome=%s commit=%s",
         work_item_id,
@@ -1329,6 +1504,22 @@ def process_one_activation(
         commit_outcome,
     )
     return commit_outcome
+
+
+def _activation_identity_fields(
+    node: dict[str, Any], item: dict[str, Any], metadata: dict[str, Any]
+) -> tuple[str, str, str, PriorityClass]:
+    """``(agent_name, tenant, sc_instance_id, priority_class)`` resolved from
+    the instance node + WorkItem + metadata."""
+    agent_name = str(node.get("agent_name") or "agent")
+    tenant = str(node.get("tenant") or item.get("tenant") or "")
+    sc_instance_id = str(node.get("statechart_instance_id") or "")
+    priority_class = _priority_class_from(metadata)
+    return agent_name, tenant, sc_instance_id, priority_class
+
+
+def _activation_origin_principal(metadata: dict[str, Any], node: dict[str, Any]) -> str:
+    return str(metadata.get("origin_principal") or node.get("origin_principal") or "")
 
 
 def _priority_class_from(metadata: dict[str, Any]) -> PriorityClass:
@@ -1411,6 +1602,71 @@ def _start_heartbeat(
     return thread
 
 
+def _claim_from_tenant_ring(
+    engine: Any,
+    tenant_ring: list[str | None],
+    cursor: int,
+    token: str,
+    lease_ttl_s: float,
+    stop_event: threading.Event,
+) -> tuple[dict[str, Any] | None, int]:
+    """One full pass over the tenant ring looking for a claimable activation.
+
+    Returns ``(claim, next_cursor)``. A transient transport error backs off
+    (``stop_event.wait``) and returns ``(None, next_cursor)`` rather than
+    propagating — never let one bad tenant wedge the whole ring scan.
+    """
+    for _ in range(len(tenant_ring)):
+        tenant = tenant_ring[cursor % len(tenant_ring)]
+        cursor += 1
+        try:
+            claim = _wi.claim_next(
+                engine,
+                resource_class=WORK_ITEM_KIND,
+                queue=WORK_ITEM_KIND,
+                tenant=tenant,
+                token=token,
+                lease_ttl_s=lease_ttl_s,
+            )
+        except _wi.NativeWorkItemRequired:
+            raise
+        except Exception as exc:  # noqa: BLE001 — transient transport error: back off
+            logger.warning(
+                "[agents-as-data] claim error (%s); backing off",
+                type(exc).__name__,
+            )
+            stop_event.wait(2.0)
+            return None, cursor
+        if claim is not None:
+            return claim, cursor
+    return None, cursor
+
+
+def _run_claimed_activation(
+    engine: Any,
+    claim: dict[str, Any],
+    *,
+    token: str,
+    heartbeat_interval_s: float,
+    lease_ttl_s: float,
+) -> None:
+    try:
+        _wi.mark_running(engine, claim["work_item_id"], claim)
+        process_one_activation(
+            engine,
+            claim,
+            token=token,
+            heartbeat_interval_s=heartbeat_interval_s,
+            lease_ttl_s=lease_ttl_s,
+        )
+    except Exception as exc:  # noqa: BLE001 — never let one bad activation wedge the loop
+        logger.error(
+            "[agents-as-data] worker error on %s (%s)",
+            claim.get("work_item_id"),
+            type(exc).__name__,
+        )
+
+
 def run_activation_worker_loop(
     engine: Any,
     stop_event: threading.Event,
@@ -1441,52 +1697,21 @@ def run_activation_worker_loop(
     while not stop_event.is_set():
         if max_activations is not None and processed >= max_activations:
             break
-        claim = None
-        # One full pass over the tenant ring looking for a claimable activation.
-        for _ in range(len(tenant_ring)):
-            tenant = tenant_ring[cursor % len(tenant_ring)]
-            cursor += 1
-            try:
-                claim = _wi.claim_next(
-                    engine,
-                    resource_class=WORK_ITEM_KIND,
-                    queue=WORK_ITEM_KIND,
-                    tenant=tenant,
-                    token=token,
-                    lease_ttl_s=lease_ttl_s,
-                )
-            except _wi.NativeWorkItemRequired:
-                raise
-            except Exception as exc:  # noqa: BLE001 — transient transport error: back off
-                logger.warning(
-                    "[agents-as-data] claim error (%s); backing off",
-                    type(exc).__name__,
-                )
-                stop_event.wait(2.0)
-                claim = None
-                break
-            if claim is not None:
-                break
+        claim, cursor = _claim_from_tenant_ring(
+            engine, tenant_ring, cursor, token, lease_ttl_s, stop_event
+        )
         if claim is None:
             if max_activations is not None:
                 break  # one-shot drain: nothing ready across all tenants, we're done
             stop_event.wait(idle_sleep_s)
             continue
-        try:
-            _wi.mark_running(engine, claim["work_item_id"], claim)
-            process_one_activation(
-                engine,
-                claim,
-                token=token,
-                heartbeat_interval_s=heartbeat_interval_s,
-                lease_ttl_s=lease_ttl_s,
-            )
-        except Exception as exc:  # noqa: BLE001 — never let one bad activation wedge the loop
-            logger.error(
-                "[agents-as-data] worker error on %s (%s)",
-                claim.get("work_item_id"),
-                type(exc).__name__,
-            )
+        _run_claimed_activation(
+            engine,
+            claim,
+            token=token,
+            heartbeat_interval_s=heartbeat_interval_s,
+            lease_ttl_s=lease_ttl_s,
+        )
         processed += 1
     return processed
 
