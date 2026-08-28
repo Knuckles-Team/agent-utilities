@@ -211,6 +211,283 @@ async def _router_resolve_static_routing_tags(deps: Any) -> dict[str, str]:
     return routing_tags
 
 
+async def _router_run_discovery_bundle(ctx: StepContext, deps: Any) -> dict[str, Any]:
+    """Direct tool lookup + hybrid search + policy/process discovery, off the event loop.
+
+    Extracted verbatim from ``_router_topological_pre_routing`` (pure extract-method,
+    no behaviour change).
+
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the pre-LLM discovery below is several SYNCHRONOUS engine
+    # round-trips (tool lookup, hybrid search, policy/process discovery). Running them
+    # directly on the event loop stalled the async reply path. Run the whole bundle ONCE
+    # in a worker thread via ``to_thread`` so the loop stays free. The keyword tool lookup
+    # was also an N+1 — ``find_agent_for_tool`` once PER query word — now collapsed to a
+    # single de-duplicated pass over the unique keyword set.
+    #
+    # NOTE (CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2, future optimization): this whole bundle could collapse to
+    # a single engine ``discover(query, k)`` round-trip (see
+    # docs/architecture/non-blocking-execution.md §8) returning matched agents + hybrid hits
+    # + policy/process matches in one Rust call, so the router's pre-LLM discovery is one
+    # async hop instead of a thread-offloaded fan-out. Until the engine surfaces
+    # ``discover()``, this dedupe/batch + ``to_thread`` is the Python-side mitigation (which
+    # the current dedupe/batch implementation is complete and correct today).
+    """
+
+    def _run_discovery() -> dict[str, Any]:
+        ke = deps.knowledge_engine
+        # 1. Direct tool lookup — ONE pass over the unique keyword set (was N+1).
+        words = set(re.findall(r"\b[a-z0-9_]{3,}\b", ctx.state.query.lower()))
+        _matched: set[str] = set()
+        for word in words:
+            agents = ke.find_agent_for_tool(word)
+            if agents:
+                _matched.update(agents)
+        # 1b. CONCEPT:AU-KG.memory.tiered-memory-caching — KG-driven designation (ANN capability index).
+        try:
+            from .routing.enrichers.capability_designation import (
+                designate_specialists,
+            )
+
+            designated = designate_specialists(ke, ctx.state.query, k=5)
+            if designated:
+                _matched.update(designated)
+        except Exception as e:  # noqa: BLE001 — one of several matching mechanisms feeding `_matched` (keyword lookup above, hybrid search / policy / process discovery below); a failure here just leaves out the ANN-designated specialists this pass, the others still populate the router's candidate set
+            logger.debug("Router: capability designation skipped: %s", e)
+        # 2. Hybrid Search (Semantic + Keyword)
+        _hybrid = ke.search_hybrid(ctx.state.query, top_k=5)
+        # 3. Policy and Process Discovery
+        _policies = ke.find_relevant_policies(ctx.state.query)
+        _processes = ke.find_relevant_processes(ctx.state.query)
+        return {
+            "matched": _matched,
+            "hybrid": _hybrid,
+            "policies": _policies,
+            "processes": _processes,
+        }
+
+    return await asyncio.to_thread(_run_discovery)
+
+
+def _router_build_discovery_context(discovery: dict[str, Any]) -> str:
+    """Format the discovery-bundle dict into the KG-discovery prompt section.
+
+    Extracted verbatim from ``_router_topological_pre_routing`` (pure extract-method,
+    no behaviour change). Returns ``""`` when there is nothing to report.
+    """
+    matched_agents = discovery["matched"]
+    hybrid_results = discovery["hybrid"]
+    relevant_policies = discovery["policies"]
+    relevant_processes = discovery["processes"]
+
+    discovery_sections = []
+    if relevant_policies:
+        discovery_sections.append(
+            "### APPLICABLE POLICIES (Governance)\n"
+            + "\n".join(
+                [f"- {p['name']}: {p['description']}" for p in relevant_policies]
+            )
+        )
+
+    if relevant_processes:
+        discovery_sections.append(
+            "### MATCHING PROCESS FLOWS (SOPs)\n"
+            + "\n".join(
+                [f"- {f['name']}: Goal={f['goal']}" for f in relevant_processes]
+            )
+        )
+    if matched_agents:
+        discovery_sections.append(
+            f"The following agents are confirmed to provide tools matching keywords in the query:\n"
+            f"- {', '.join(matched_agents)}"
+        )
+
+    if hybrid_results:
+        results_text = []
+        for res in hybrid_results:
+            rtype = res.get("type", "node").upper()
+            name = res.get("name", res.get("id"))
+            results_text.append(
+                f"- [{rtype}] {name}: {res.get('description', '')[:150]}..."
+            )
+
+        discovery_sections.append(
+            "Knowledge Graph search found the following relevant entities:\n"
+            + "\n".join(results_text)
+        )
+
+    if not discovery_sections:
+        return ""
+
+    logger.info(
+        f"Router: Knowledge Graph discovery found {len(matched_agents)} tool-matched agents and {len(hybrid_results)} hybrid results."
+    )
+    return (
+        "### KNOWLEDGE GRAPH DISCOVERY\n"
+        + "\n\n".join(discovery_sections)
+        + "\n\nPRIORITIZE using these agents or referencing this context in your plan.\n\n"
+    )
+
+
+async def _router_try_team_config_reuse(ctx: StepContext, deps: Any) -> str | None:
+    """CONCEPT:AU-AHE.harness.team-config-precheck — Check for matching TeamConfig before LLM planning.
+
+    Extracted verbatim from ``_router_topological_pre_routing`` (pure extract-method,
+    no behaviour change; the nested ``if deps.knowledge_engine:`` / ``if isinstance(...)
+    and hasattr(...):`` / ``if team:`` chain is flattened to early returns). Returns
+    "dispatcher" (having already set ``ctx.state.plan`` and emitted events) on a
+    successful reuse, else None to fall through to LLM planning.
+    """
+    if not deps.knowledge_engine:
+        return None
+    try:
+        from ..core.registry.kg_adapter import RegistryMixin
+
+        if not (
+            isinstance(deps.knowledge_engine, RegistryMixin)
+            and hasattr(deps.knowledge_engine, "find_matching_team_config")
+        ):
+            return None
+
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — sync KG round-trip; run off the event loop.
+        matching_teams = await asyncio.to_thread(
+            deps.knowledge_engine.find_matching_team_config,
+            ctx.state.query,
+            1,
+        )
+        # R2 (CONCEPT:AU-AHE.harness.team-config-precheck): reuse decision owned by the team_reuse
+        # strategy (single source of truth).
+        from .routing.strategies.team_reuse import select_reusable_team
+
+        team = select_reusable_team(matching_teams)
+        if not team:
+            return None
+
+        logger.info(
+            f"Router: Reusing TeamConfig '{team.task_pattern}' "
+            f"(success_rate={team.success_rate:.0%}, usage={team.usage_count})"
+        )
+        steps = [
+            ExecutionStep(id=sid, description=ctx.state.query)
+            for sid in team.specialist_ids
+        ]
+        plan = GraphPlan(
+            steps=steps,
+            metadata={
+                "reasoning": f"Reused proven TeamConfig: {team.task_pattern}",
+                "team_config_id": team.id,
+            },
+        )
+        ctx.state.plan = plan
+        emit_graph_event(
+            deps.event_queue,
+            "routing_completed",
+            plan=plan.model_dump(),
+            reasoning=f"TeamConfig reuse: {team.task_pattern}",
+        )
+        _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
+        return "dispatcher"
+    except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
+        logger.debug(f"TeamConfig lookup failed, continuing with LLM planning: {e}")
+        return None
+
+
+async def _router_try_kg_graph_materialization(
+    ctx: StepContext, deps: Any
+) -> str | None:
+    """CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization.
+
+    Check for AgentTemplate nodes before falling back to LLM planning. Extracted
+    verbatim from ``_router_topological_pre_routing`` (pure extract-method, no
+    behaviour change; flattened to early returns). Returns "dispatcher" (having
+    already set ``ctx.state.plan`` and emitted events) on success, else None.
+    """
+    if not deps.knowledge_engine:
+        return None
+    try:
+        from .kg_graph_factory import build_pydantic_graph_from_kg
+
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — KG AgentTemplate materialization
+        # is several SYNCHRONOUS engine round-trips (template search, KGTeamComposer
+        # reuse-lookup, TeamConfig/synthesize_team fallback); run off the event loop.
+        kg_result = await asyncio.to_thread(
+            build_pydantic_graph_from_kg,
+            query=ctx.state.query,
+            engine=deps.knowledge_engine,
+            deps=deps,
+            top_k=7,
+        )
+        if not kg_result.specialist_configs:
+            return None
+
+        logger.info(
+            "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KG graph materialized with %d steps. "
+            "Using KG-driven topology.",
+            len(kg_result.specialist_configs),
+        )
+        # Convert KG result into a standard GraphPlan for the dispatcher
+        steps = [
+            ExecutionStep(
+                id=cfg["agent_id"],
+                description=ctx.state.query,
+            )
+            for cfg in kg_result.specialist_configs.values()
+        ]
+        plan = GraphPlan(
+            steps=steps,
+            metadata={
+                "reasoning": f"KG-driven graph materialization ({len(steps)} templates)",
+                "kg_topology_id": kg_result.topology_id,
+                "kg_provenance": kg_result.kg_provenance,
+            },
+        )
+        ctx.state.plan = plan
+
+        # Store KG provenance in state for observability
+        if hasattr(ctx.state, "output_data") and isinstance(
+            ctx.state.output_data, dict
+        ):
+            ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
+            ctx.state.output_data["kg_specialist_configs"] = (
+                kg_result.specialist_configs
+            )
+
+        emit_graph_event(
+            deps.event_queue,
+            "routing_completed",
+            plan=plan.model_dump(),
+            reasoning="KG AgentTemplate materialization",
+        )
+        _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
+        return "dispatcher"
+    except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
+        logger.debug(
+            f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
+        )
+        return None
+
+
+async def _router_inject_self_model_context(deps: Any) -> str:
+    """R4 (CONCEPT:AU-KG.memory.tiered-memory-caching) Self-Model proficiency + R5 ACO pheromone affinities.
+
+    Extracted verbatim from ``_router_topological_pre_routing`` (pure extract-method,
+    no behaviour change). Returns the additional discovery-context text to append
+    (context formatting owned by the self_model enricher, single source), or ""
+    on failure/absence.
+    """
+    if not deps.knowledge_engine:
+        return ""
+    try:
+        from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
+        from .routing.enrichers.self_model import self_model_context
+
+        memory_retriever = MemoryRetriever(deps.knowledge_engine)
+        current = await asyncio.to_thread(memory_retriever.get_current)
+        return self_model_context(current)
+    except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
+        logger.debug(f"Self-Model proficiency injection failed: {e}")
+        return ""
+
+
 async def _router_topological_pre_routing(
     ctx: StepContext, deps: Any
 ) -> tuple[str, str | None]:
@@ -226,236 +503,27 @@ async def _router_topological_pre_routing(
     # shape calls for it; a lean shape skips it.
     _shape = getattr(deps, "execution_shape", None)
     discovery_context = ""
-    if deps.knowledge_engine and (
-        _shape is None or getattr(_shape, "run_discovery", True)
+    if not (
+        deps.knowledge_engine
+        and (_shape is None or getattr(_shape, "run_discovery", True))
     ):
-        logger.info(
-            "[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery..."
-        )
+        return discovery_context, None
 
-        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — the pre-LLM discovery below is several SYNCHRONOUS engine
-        # round-trips (tool lookup, hybrid search, policy/process discovery). Running them
-        # directly on the event loop stalled the async reply path. Run the whole bundle ONCE
-        # in a worker thread via ``to_thread`` so the loop stays free. The keyword tool lookup
-        # was also an N+1 — ``find_agent_for_tool`` once PER query word — now collapsed to a
-        # single de-duplicated pass over the unique keyword set.
-        #
-        # NOTE (CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2, future optimization): this whole bundle could collapse to
-        # a single engine ``discover(query, k)`` round-trip (see
-        # docs/architecture/non-blocking-execution.md §8) returning matched agents + hybrid hits
-        # + policy/process matches in one Rust call, so the router's pre-LLM discovery is one
-        # async hop instead of a thread-offloaded fan-out. Until the engine surfaces
-        # ``discover()``, this dedupe/batch + ``to_thread`` is the Python-side mitigation (which
-        # the current dedupe/batch implementation is complete and correct today).
-        def _run_discovery() -> dict[str, Any]:
-            ke = deps.knowledge_engine
-            # 1. Direct tool lookup — ONE pass over the unique keyword set (was N+1).
-            words = set(re.findall(r"\b[a-z0-9_]{3,}\b", ctx.state.query.lower()))
-            _matched: set[str] = set()
-            for word in words:
-                agents = ke.find_agent_for_tool(word)
-                if agents:
-                    _matched.update(agents)
-            # 1b. CONCEPT:AU-KG.memory.tiered-memory-caching — KG-driven designation (ANN capability index).
-            try:
-                from .routing.enrichers.capability_designation import (
-                    designate_specialists,
-                )
+    logger.info("[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery...")
 
-                designated = designate_specialists(ke, ctx.state.query, k=5)
-                if designated:
-                    _matched.update(designated)
-            except Exception as e:  # noqa: BLE001 — one of several matching mechanisms feeding `_matched` (keyword lookup above, hybrid search / policy / process discovery below); a failure here just leaves out the ANN-designated specialists this pass, the others still populate the router's candidate set
-                logger.debug("Router: capability designation skipped: %s", e)
-            # 2. Hybrid Search (Semantic + Keyword)
-            _hybrid = ke.search_hybrid(ctx.state.query, top_k=5)
-            # 3. Policy and Process Discovery
-            _policies = ke.find_relevant_policies(ctx.state.query)
-            _processes = ke.find_relevant_processes(ctx.state.query)
-            return {
-                "matched": _matched,
-                "hybrid": _hybrid,
-                "policies": _policies,
-                "processes": _processes,
-            }
+    discovery = await _router_run_discovery_bundle(ctx, deps)
+    discovery_context = _router_build_discovery_context(discovery)
 
-        _discovery = await asyncio.to_thread(_run_discovery)
-        matched_agents = _discovery["matched"]
-        hybrid_results = _discovery["hybrid"]
-        relevant_policies = _discovery["policies"]
-        relevant_processes = _discovery["processes"]
+    team_result = await _router_try_team_config_reuse(ctx, deps)
+    if team_result is not None:
+        return discovery_context, team_result
 
-        discovery_sections = []
-        if relevant_policies:
-            discovery_sections.append(
-                "### APPLICABLE POLICIES (Governance)\n"
-                + "\n".join(
-                    [f"- {p['name']}: {p['description']}" for p in relevant_policies]
-                )
-            )
+    kg_result = await _router_try_kg_graph_materialization(ctx, deps)
+    if kg_result is not None:
+        return discovery_context, kg_result
 
-        if relevant_processes:
-            discovery_sections.append(
-                "### MATCHING PROCESS FLOWS (SOPs)\n"
-                + "\n".join(
-                    [f"- {f['name']}: Goal={f['goal']}" for f in relevant_processes]
-                )
-            )
-        if matched_agents:
-            discovery_sections.append(
-                f"The following agents are confirmed to provide tools matching keywords in the query:\n"
-                f"- {', '.join(matched_agents)}"
-            )
+    discovery_context += await _router_inject_self_model_context(deps)
 
-        if hybrid_results:
-            results_text = []
-            for res in hybrid_results:
-                rtype = res.get("type", "node").upper()
-                name = res.get("name", res.get("id"))
-                results_text.append(
-                    f"- [{rtype}] {name}: {res.get('description', '')[:150]}..."
-                )
-
-            discovery_sections.append(
-                "Knowledge Graph search found the following relevant entities:\n"
-                + "\n".join(results_text)
-            )
-
-        if discovery_sections:
-            discovery_context = (
-                "### KNOWLEDGE GRAPH DISCOVERY\n"
-                + "\n\n".join(discovery_sections)
-                + "\n\nPRIORITIZE using these agents or referencing this context in your plan.\n\n"
-            )
-            logger.info(
-                f"Router: Knowledge Graph discovery found {len(matched_agents)} tool-matched agents and {len(hybrid_results)} hybrid results."
-            )
-
-        # CONCEPT:AU-AHE.harness.team-config-precheck — Check for matching TeamConfig before LLM planning
-        if deps.knowledge_engine:
-            try:
-                from ..core.registry.kg_adapter import RegistryMixin
-
-                if isinstance(deps.knowledge_engine, RegistryMixin) and hasattr(
-                    deps.knowledge_engine, "find_matching_team_config"
-                ):
-                    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — sync KG round-trip; run off the event loop.
-                    matching_teams = await asyncio.to_thread(
-                        deps.knowledge_engine.find_matching_team_config,
-                        ctx.state.query,
-                        1,
-                    )
-                    # R2 (CONCEPT:AU-AHE.harness.team-config-precheck): reuse decision owned by the team_reuse
-                    # strategy (single source of truth).
-                    from .routing.strategies.team_reuse import select_reusable_team
-
-                    team = select_reusable_team(matching_teams)
-                    if team:
-                        logger.info(
-                            f"Router: Reusing TeamConfig '{team.task_pattern}' "
-                            f"(success_rate={team.success_rate:.0%}, usage={team.usage_count})"
-                        )
-                        steps = [
-                            ExecutionStep(id=sid, description=ctx.state.query)
-                            for sid in team.specialist_ids
-                        ]
-                        plan = GraphPlan(
-                            steps=steps,
-                            metadata={
-                                "reasoning": f"Reused proven TeamConfig: {team.task_pattern}",
-                                "team_config_id": team.id,
-                            },
-                        )
-                        ctx.state.plan = plan
-                        emit_graph_event(
-                            deps.event_queue,
-                            "routing_completed",
-                            plan=plan.model_dump(),
-                            reasoning=f"TeamConfig reuse: {team.task_pattern}",
-                        )
-                        _emit_node_lifecycle(
-                            deps.event_queue, "router", "node_complete"
-                        )
-                        return discovery_context, "dispatcher"
-            except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
-                logger.debug(
-                    f"TeamConfig lookup failed, continuing with LLM planning: {e}"
-                )
-
-        # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — KG-Driven Graph Materialization
-        # Check for AgentTemplate nodes before falling back to LLM planning
-        if deps.knowledge_engine:
-            try:
-                from .kg_graph_factory import build_pydantic_graph_from_kg
-
-                # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — KG AgentTemplate materialization
-                # is several SYNCHRONOUS engine round-trips (template search, KGTeamComposer
-                # reuse-lookup, TeamConfig/synthesize_team fallback); run off the event loop.
-                kg_result = await asyncio.to_thread(
-                    build_pydantic_graph_from_kg,
-                    query=ctx.state.query,
-                    engine=deps.knowledge_engine,
-                    deps=deps,
-                    top_k=7,
-                )
-                if kg_result.specialist_configs:
-                    logger.info(
-                        "[CONCEPT:AU-ORCH.adapter.kg-graph-materialization] KG graph materialized with %d steps. "
-                        "Using KG-driven topology.",
-                        len(kg_result.specialist_configs),
-                    )
-                    # Convert KG result into a standard GraphPlan for the dispatcher
-                    steps = [
-                        ExecutionStep(
-                            id=cfg["agent_id"],
-                            description=ctx.state.query,
-                        )
-                        for cfg in kg_result.specialist_configs.values()
-                    ]
-                    plan = GraphPlan(
-                        steps=steps,
-                        metadata={
-                            "reasoning": f"KG-driven graph materialization ({len(steps)} templates)",
-                            "kg_topology_id": kg_result.topology_id,
-                            "kg_provenance": kg_result.kg_provenance,
-                        },
-                    )
-                    ctx.state.plan = plan
-
-                    # Store KG provenance in state for observability
-                    if hasattr(ctx.state, "output_data") and isinstance(
-                        ctx.state.output_data, dict
-                    ):
-                        ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data["kg_specialist_configs"] = (
-                            kg_result.specialist_configs
-                        )
-
-                    emit_graph_event(
-                        deps.event_queue,
-                        "routing_completed",
-                        plan=plan.model_dump(),
-                        reasoning="KG AgentTemplate materialization",
-                    )
-                    _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
-                    return discovery_context, "dispatcher"
-            except Exception as e:  # noqa: BLE001 — same fallback chain as the TeamConfig lookup above; falls through to the LLM planner, which reassigns ctx.state.plan unconditionally
-                logger.debug(
-                    f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
-                )
-
-        # R4 (CONCEPT:AU-KG.memory.tiered-memory-caching) Self-Model proficiency + R5 ACO pheromone affinities —
-        # context formatting owned by the self_model enricher (single source).
-        if deps.knowledge_engine:
-            try:
-                from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
-                from .routing.enrichers.self_model import self_model_context
-
-                memory_retriever = MemoryRetriever(deps.knowledge_engine)
-                current = await asyncio.to_thread(memory_retriever.get_current)
-                discovery_context += self_model_context(current)
-            except Exception as e:  # noqa: BLE001 — pure prompt-context string enrichment (discovery_context +=); failure just omits the extra text, router prompt still built normally
-                logger.debug(f"Self-Model proficiency injection failed: {e}")
     return discovery_context, None
 
 
@@ -567,6 +635,547 @@ async def _router_try_direct_dispatch(
     return None
 
 
+async def _router_resolve_workflow_context(ctx: StepContext, deps: Any) -> Any:
+    """Phase 4 Edge-Computed Scopes: edge-computed JWT scope vs KG-routed workflow context.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change). Only the KG-routed branch reassigns
+    ``ctx.state.workflow_context`` (mirrors the original — the edge-computed branch
+    reads it, never rewrites it).
+    """
+    # Phase 4 Edge-Computed Scopes: Check if the workflow scope was already computed
+    # and signed at the JWT edge layer, bypassing the persistent graph hit.
+    if ctx.state.workflow_context and ctx.state.workflow_context.get(
+        "edge_computed", False
+    ):
+        logger.info(
+            "Using edge-computed JWT workflow context; bypassing persistent graph."
+        )
+        from .routing.strategies.workflow_context import ShieldedResult
+
+        # Ensure workflow_id is present for Pydantic validation
+        payload = dict(ctx.state.workflow_context)
+        if "workflow_id" not in payload:
+            payload["workflow_id"] = "jwt_edge_computed"
+        return ShieldedResult(**payload)
+
+    from .routing.strategies.workflow_context import WorkflowContextRouter
+
+    router = WorkflowContextRouter(deps.knowledge_engine)
+    workflow_context = await router.route_context(ctx.state.query)
+    ctx.state.workflow_context = workflow_context.model_dump()
+    return workflow_context
+
+
+async def _router_resolve_specialist_tags(deps: Any) -> dict[str, str]:
+    """Fetch specialist tags for planning, falling back to the discovery registry.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change).
+    """
+    logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
+    specialist_tags = deps.tag_prompts
+    if not specialist_tags:
+        registry = await asyncio.to_thread(get_discovery_registry)
+        specialist_tags = {a.name: a.description for a in registry.agents}
+        if specialist_tags:
+            logger.info(
+                f"[LAYER:GRAPH:ROUTER] Specialist tags loaded (count: {len(specialist_tags)}). Tags: {list(specialist_tags.keys())}"
+            )
+    return specialist_tags
+
+
+async def _router_apply_pheromone_filter(
+    ctx: StepContext, deps: Any, relevant: list[Any]
+) -> list[Any]:
+    """R7 (CONCEPT:AU-KG.memory.tiered-memory-caching) — Reward-Driven Optimization (pheromone filtering).
+
+    Extracted verbatim from ``_router_filter_relevant_specialists`` (pure
+    extract-method, no behaviour change). Owned by the optimization strategy
+    (single source).
+    """
+    from .routing.strategies.optimization import filter_by_pheromone
+
+    try:
+        if deps.knowledge_engine:
+            from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
+
+            memory_retriever = MemoryRetriever(deps.knowledge_engine)
+            current = await asyncio.to_thread(memory_retriever.get_current)
+            if current and current.pheromone_trails and relevant:
+                relevant = filter_by_pheromone(relevant, current.pheromone_trails)
+    except Exception as e:  # noqa: BLE001 — `relevant` keeps its pre-filter value on failure, identical shape to the sibling telemetry-pruning block just below (already annotated in this codebase)
+        logger.debug(f"Reward-driven routing optimization failed: {e}")
+    return relevant
+
+
+async def _router_apply_telemetry_prune(
+    ctx: StepContext, deps: Any, relevant: list[Any]
+) -> list[Any]:
+    """R8 (CONCEPT:AU-AHE.optimization.telemetry-optimization) — Telemetry-Driven Optimization (anomaly pruning).
+
+    Extracted verbatim from ``_router_filter_relevant_specialists`` (pure
+    extract-method, no behaviour change). Owned by the optimization strategy
+    (single source).
+    """
+    from .routing.strategies.optimization import prune_by_telemetry
+
+    try:
+        if deps.knowledge_engine:
+            anomaly_results = await asyncio.to_thread(
+                deps.knowledge_engine.query_cypher,
+                "MATCH (a:Agent)-[:CAUSED]->(p:PerformanceAnomaly) "
+                "RETURN a.id AS agent_name, count(p) AS anomaly_count",
+            )
+            if anomaly_results:
+                anomaly_map = {
+                    r.get("agent_name"): r.get("anomaly_count", 0)
+                    for r in anomaly_results
+                    if r.get("agent_name")
+                }
+                relevant = prune_by_telemetry(relevant, anomaly_map)
+    except Exception as e:  # noqa: BLE001 — per-request routing refinement; `relevant` just keeps its pre-prune value on failure, this pass falls back to the unpruned specialist set rather than an incorrect or stale one
+        logger.debug(f"Telemetry-driven routing optimization failed: {e}")
+
+    return relevant
+
+
+async def _router_filter_relevant_specialists(
+    ctx: StepContext, deps: Any, relevant: list[Any]
+) -> list[Any]:
+    """R7/R8: pheromone-trail filtering + anomaly-telemetry pruning of the relevant-specialist list.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change; the two independent try/except passes are their own helpers,
+    ``_router_apply_pheromone_filter`` / ``_router_apply_telemetry_prune``).
+    """
+    relevant = await _router_apply_pheromone_filter(ctx, deps, relevant)
+    return await _router_apply_telemetry_prune(ctx, deps, relevant)
+
+
+async def _router_build_planning_system_prompt(
+    discovery_context: str, failure_context: str, step_info: str, agent_context: str
+) -> str:
+    """Assemble the router's planning-only system prompt.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change).
+
+    # R9 (CONCEPT:AU-ORCH.routing.transition-state-checkpoint): subtask-spec + wide-search instructions — owned by
+    # the llm_planner strategy (single source of truth).
+    """
+    from .routing.strategies.llm_planner import subtask_and_widesearch_instructions
+
+    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
+    # lookup; keep it off the event loop.
+    router_prompt = await asyncio.to_thread(load_specialized_prompts, "router")
+    return (
+        f"{router_prompt}\n\n"
+        f"### IMPORTANT: PLANNING ONLY MODE\n"
+        f"You are a HIGH-LEVEL ARCHITECT. You DO NOT have access to functional tools (e.g. get_stack, Docker tools, etc.).\n"
+        f"Your ONLY responsibility is to create the execution plan. DO NOT attempt to fulfill the query yourself.\n\n"
+        f"{subtask_and_widesearch_instructions()}"
+        f"### FAILURE CONTEXT\n{failure_context}\n\n"
+        f"{discovery_context}"
+        f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
+        f"### PROJECT CONTEXT\n{agent_context}"
+    )
+
+
+async def _router_run_rlm_planning(
+    ctx: StepContext,
+    deps: Any,
+    system_prompt_str: str,
+    agent_context: str,
+    rlm_config: Any,
+) -> Any:
+    """R10 RLM (Recursive Language Model) planning path, with fallback parser.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change).
+    """
+    logger.info("[LAYER:GRAPH:ROUTER] Running in RLM (Recursive Language Model) mode.")
+    from ..rlm.repl import RLMEnvironment
+
+    env = RLMEnvironment(
+        context=f"SYSTEM_PROMPT:\n{system_prompt_str}\n\nPROJECT_CONTEXT:\n{agent_context}",
+        config=rlm_config,
+        graph_deps=ctx.deps,
+    )
+    # R10 (CONCEPT:AU-ORCH.execution.predict-rlm-runtime) — RLM planning + fallback parser. The
+    # instruction text and JSON->GraphPlan parse are owned by the
+    # llm_planner strategy (single source); the async RLM run + re-parse
+    # agent stay here.
+    from .routing.strategies.llm_planner import parse_rlm_plan, rlm_plan_instruction
+
+    rlm_result = await env.run_full_rlm(rlm_plan_instruction(ctx.state.query))
+
+    plan_output = parse_rlm_plan(rlm_result, GraphPlan)
+    if plan_output is None:
+        logger.warning(
+            "RLM output was not valid GraphPlan JSON. Running fallback parser."
+        )
+        router_agent = create_context_agent(
+            model=deps.router_model,
+            output_type=GraphPlan,
+            system_prompt="Parse the following text into a valid GraphPlan JSON structure.",
+        )
+        parse_res = await router_agent.run(f"Text to parse:\n{rlm_result}")
+        plan_output = parse_res.output
+    return plan_output
+
+
+def _router_detect_text_complexity_and_reasoning(
+    ctx: StepContext, relevant: list[Any]
+) -> tuple[bool, bool]:
+    """R11 (CONCEPT:AU-AHE.evaluation.backtest-harness) — text-heuristic complexity/reasoning detection.
+
+    Extracted verbatim from ``_router_detect_complexity_and_reasoning`` (pure
+    extract-method, no behaviour change). Owned by the llm_planner strategy
+    (single source); topology/quant escalation is a separate, KG-dependent
+    helper (``_router_detect_topological_overrides``).
+    """
+    is_complex = False
+    requires_reasoning = False
+
+    from .routing.strategies.llm_planner import is_complex_query
+
+    if is_complex_query(ctx.state.query, len(relevant)):
+        is_complex = True
+
+    if (
+        "step by step" in ctx.state.query.lower()
+        or "think through" in ctx.state.query.lower()
+    ):
+        requires_reasoning = True
+
+    return is_complex, requires_reasoning
+
+
+async def _router_detect_topological_overrides(
+    ctx: StepContext, deps: Any, is_complex: bool, requires_reasoning: bool
+) -> tuple[bool, bool]:
+    """CONCEPT:AU-AHE.evaluation.backtest-harness — KG-Native topological/quant escalation overrides.
+
+    Extracted verbatim from ``_router_detect_complexity_and_reasoning`` (pure
+    extract-method, no behaviour change). Takes the text-heuristic
+    ``(is_complex, requires_reasoning)`` and may escalate either to True based
+    on live KG topology signals; never de-escalates.
+    """
+    if not deps.knowledge_engine:
+        return is_complex, requires_reasoning
+
+    try:
+
+        def _read_topology_signals() -> tuple[list[Any], list[Any]]:
+            return (
+                deps.knowledge_engine.search_hybrid(
+                    ctx.state.query + " TradingPipeline RiskScoringOntology",
+                    top_k=2,
+                ),
+                deps.knowledge_engine.search_hybrid(
+                    ctx.state.query
+                    + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
+                    top_k=2,
+                ),
+            )
+
+        # CONCEPT:AU-AHE.evaluation.backtest-harness Agentic detection
+        task_topologies, math_topologies = await asyncio.to_thread(
+            _read_topology_signals
+        )
+        if any(
+            "Trading" in t.get("name", "") or "Risk" in t.get("name", "")
+            for t in task_topologies
+        ):
+            is_complex = True
+            logger.info(
+                "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected complex topological subgraphs. Escalate to complex model."
+            )
+
+        # CONCEPT:AU-AHE.evaluation.backtest-harness Reasoning detection
+        if any(
+            "Math" in t.get("name", "")
+            or "Quant" in t.get("name", "")
+            or "Almgren" in t.get("name", "")
+            for t in math_topologies
+        ):
+            requires_reasoning = True
+            logger.info(
+                "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected mathematical/quantitative topology. Escalate to reasoning model."
+            )
+    except Exception as e:
+        logger.warning(f"Topological routing detection failed: {e}")
+
+    return is_complex, requires_reasoning
+
+
+async def _router_detect_complexity_and_reasoning(
+    ctx: StepContext, deps: Any, relevant: list[Any]
+) -> tuple[bool, bool]:
+    """R11 text-heuristic complexity/reasoning detection + KG-Native topological overrides.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change). Returns ``(is_complex, requires_reasoning)``.
+
+    # CONCEPT:AU-KG.memory.tiered-memory-caching — Adaptive Model Routing (Planner Path)
+    # CONCEPT:AU-AHE.evaluation.backtest-harness — KG-Native Agentic Task Detection
+    # CONCEPT:AU-AHE.evaluation.backtest-harness — Topological Reasoning Detection
+    """
+    is_complex, requires_reasoning = _router_detect_text_complexity_and_reasoning(
+        ctx, relevant
+    )
+    return await _router_detect_topological_overrides(
+        ctx, deps, is_complex, requires_reasoning
+    )
+
+
+def _router_select_adaptive_model(
+    ctx: StepContext, deps: Any, is_complex: bool, requires_reasoning: bool
+) -> Any:
+    """CONCEPT:AU-OS.safety.doom-loop-detection — Topological Session Persistence + adaptive model routing.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change).
+    """
+    if ctx.state.pinned_model_id:
+        from ..core.model_factory import create_model
+
+        adaptive_model = create_model(model_id=ctx.state.pinned_model_id)
+        logger.info(
+            f"[LAYER:GRAPH:ROUTER] OS-5.19: Reusing pinned session model: {ctx.state.pinned_model_id}"
+        )
+    elif requires_reasoning:
+        from ..core.model_factory import create_model
+
+        _super = config.super_chat_model
+        # CONCEPT:AU-ORCH.execution.direct-completion-shape — no hard-coded remote model; an unset super-model falls
+        # back to the local default (``create_model(None)``), never an unreachable
+        # a model identifier the configured deployment cannot serve.
+        reasoning_model_id = _super.id if _super else None
+        logger.debug(
+            "Router: pinning reasoning model %s",
+            reasoning_model_id or "local-default",
+        )
+        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — this branch IS the
+        # opt-in: the router detected the query genuinely needs deliberation
+        # (mathematical/quantitative topology, "think through", etc.), so thinking
+        # must be explicitly turned ON here — create_model's own default is OFF, so
+        # omitting reasoning_effort would silently leave this "reasoning" branch
+        # exactly as fast (and as un-reasoned) as every other one.
+        adaptive_model = create_model(
+            model_id=reasoning_model_id, reasoning_effort="high"
+        )
+        if reasoning_model_id:
+            ctx.state.pinned_model_id = reasoning_model_id
+        logger.info(
+            f"[LAYER:GRAPH:ROUTER] Selected Reasoning Model: {reasoning_model_id}"
+        )
+    elif len(ctx.state.query.split()) < 20 and not is_complex:
+        from ..core.model_factory import create_model
+
+        _lite2 = config.lite_chat_model
+        # CONCEPT:AU-ORCH.execution.direct-completion-shape — local default when no lite model is configured.
+        adaptive_model = create_model(model_id=_lite2.id if _lite2 else None)
+        logger.info(
+            "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."
+        )
+    else:
+        adaptive_model = deps.router_model
+        # Only pin if it has a string name we can recover later
+        if hasattr(deps.router_model, "model_name"):
+            ctx.state.pinned_model_id = deps.router_model.model_name
+
+    return adaptive_model
+
+
+async def _router_call_planning_llm(
+    ctx: StepContext, deps: Any, adaptive_model: Any, system_prompt_str: str
+) -> Any:
+    """Create the planning agent, run it under the router timeout, and unwrap the result.
+
+    Extracted verbatim from ``_router_plan_and_dispatch`` (pure extract-method, no
+    behaviour change). Raises ``ValueError`` on timeout or an empty result (mirrors
+    the original inline raises); on any raise, ``ctx.state._update_usage`` is
+    correctly NOT reached, exactly as in the original (it sits after the
+    try/except in both versions).
+    """
+    router_agent = create_context_agent(
+        model=adaptive_model,
+        output_type=GraphPlan,
+        system_prompt=system_prompt_str,
+    )
+
+    logger.info(
+        f"[LAYER:GRAPH:ROUTER] Planning for query: '{ctx.state.query}' using model {deps.router_model}"
+    )
+    try:
+        logger.debug(
+            f"[LAYER:GRAPH:ROUTER] LLM Call Starting: system_prompt length={len(system_prompt_str)}"
+        )
+        async with router_agent.run_stream(ctx.state.query) as stream:
+            plan_output = await asyncio.wait_for(
+                stream.get_output(), timeout=ctx.deps.router_timeout
+            )
+        if plan_output is None:
+            raise ValueError("LLM planning returned no plan")
+        logger.info(
+            f"[LAYER:GRAPH:ROUTER] LLM Call Completed. Plan Reasoning: {plan_output.metadata.get('reasoning', 'N/A')}"
+        )
+        logger.info(f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(plan_output.steps)}")
+    except TimeoutError:
+        logger.warning("Router: LLM planning timed out. Escalating to fallbacks.")
+        raise ValueError("LLM planning timed out") from None
+
+    ctx.state._update_usage(stream.usage)
+    return plan_output
+
+
+# Sentinel marking "adaptive_model was never assigned" in ``_router_plan_and_dispatch``.
+# The original inline code left the ``adaptive_model`` name completely unbound
+# whenever the RLM planning branch ran (or a failure hit before the non-RLM
+# branch's model-selection line); the unstructured-fallback except block then
+# referenced that bare name, so a failure on the RLM path always hit an
+# ``UnboundLocalError`` there, silently swallowed by the fallback's own broad
+# ``except Exception``. This sentinel reproduces that same fail-fast-and-swallow
+# control flow explicitly (see ``_router_attempt_unstructured_fallback``) instead
+# of relying on frame-local unbound-name semantics across a function boundary.
+# BUGS FOUND (preserved, not fixed — see lane report): the unstructured fallback
+# can therefore never actually succeed for a failure on the RLM planning path.
+_ADAPTIVE_MODEL_UNSET = object()
+
+
+async def _router_run_unstructured_fallback_agent(
+    ctx: StepContext,
+    deps: Any,
+    system_prompt_str: str,
+    adaptive_model: Any,
+) -> str:
+    """Create + run the unstructured-fallback agent, bounded by the router timeout.
+
+    Extracted verbatim from ``_router_attempt_unstructured_fallback`` (pure
+    extract-method, no behaviour change). Raises on the ``_ADAPTIVE_MODEL_UNSET``
+    sentinel (see that sentinel's docstring) or on a timeout; the caller's broad
+    ``except`` handles both identically. ``deps`` is currently unused here (kept
+    for a uniform helper signature with its siblings; the original inline block
+    it was extracted from also never referenced it directly in this span).
+    """
+    from .routing.strategies.fallback import unstructured_fallback_prompt
+
+    if adaptive_model is _ADAPTIVE_MODEL_UNSET:
+        raise UnboundLocalError(
+            "local variable 'adaptive_model' referenced before assignment"
+        )
+
+    fallback_agent = create_context_agent(
+        model=adaptive_model,
+        system_prompt=unstructured_fallback_prompt(system_prompt_str),
+    )
+    # D-RTR-1: the structured planning call above is bounded by
+    # ``ctx.deps.router_timeout`` (~12s for the ``chat`` profile), but this
+    # unstructured fallback previously had NO timeout — a bare ``await`` that
+    # hit the very same degraded backend that just stalled the structured
+    # call. Two sequential unbounded-then-bounded LLM calls against a
+    # degraded provider is how a single turn reached 264s with no answer.
+    # Reuse the same profile budget so the two calls together can never
+    # exceed roughly 2x the router timeout.
+    try:
+        fallback_res = await asyncio.wait_for(
+            fallback_agent.run(ctx.state.query),
+            timeout=ctx.deps.router_timeout,
+        )
+    except TimeoutError:
+        raise ValueError(
+            f"Unstructured fallback planning timed out after {ctx.deps.router_timeout}s"
+        ) from None
+
+    return str(getattr(fallback_res, "data", getattr(fallback_res, "output", "")))
+
+
+def _router_extract_fallback_steps(
+    ctx: StepContext,
+    deps: Any,
+    raw_text: str,
+    specialist_tags: dict[str, str] | None,
+) -> tuple[str | None, str | None]:
+    """Match specialist names in the fallback text and build a GraphPlan from them.
+
+    Extracted verbatim from ``_router_attempt_unstructured_fallback`` (pure
+    extract-method, no behaviour change). The
+    ``"specialist_tags" in locals()`` check from the original is replaced with an
+    explicit ``is not None`` check on the threaded-through parameter —
+    behaviourally identical (both ask "was this successfully computed before the
+    failure"). Returns ``("dispatcher", None)`` on a successful extraction (having
+    already set ``ctx.state.plan``), or ``(None, fallback_failure_detail)`` if no
+    known specialist matched.
+    """
+    from .routing.strategies.fallback import match_specialists_in_text
+
+    available = list(specialist_tags.keys()) if specialist_tags is not None else []
+    if not available and hasattr(deps, "tag_prompts"):
+        available = list(deps.tag_prompts.keys())
+
+    steps = [
+        ExecutionStep(id=spec, description=ctx.state.query)
+        for spec in match_specialists_in_text(raw_text, available)
+    ]
+
+    if steps:
+        logger.info(
+            f"Router Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
+        )
+        ctx.state.plan = GraphPlan(
+            steps=steps,
+            metadata={"reasoning": "Fallback natural language extraction"},
+        )
+        ctx.state.step_cursor = 0
+        return "dispatcher", None
+
+    # D-RTR-4: make the no-match case actionable instead of a silent
+    # fall-through — name what the model proposed and what the
+    # registry actually has, so the eventual failure message tells the
+    # operator why (e.g. the model named a specialist the registry
+    # doesn't know about) rather than just "no answer".
+    fallback_failure_detail = (
+        f"the model proposed '{raw_text.strip()[:200]}' but no known "
+        f"specialist matched. Available specialists: {available or 'none registered'}."
+    )
+    logger.warning(
+        f"Router Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
+    )
+    return None, fallback_failure_detail
+
+
+async def _router_attempt_unstructured_fallback(
+    ctx: StepContext,
+    deps: Any,
+    system_prompt_str: str,
+    adaptive_model: Any,
+    specialist_tags: dict[str, str] | None,
+) -> tuple[str | None, str | None]:
+    """R13 multi-level fallback chain: unstructured natural-language extraction.
+
+    Extracted verbatim from ``_router_plan_and_dispatch``'s outer ``except`` block
+    (pure extract-method). See the ``_ADAPTIVE_MODEL_UNSET`` sentinel docstring for
+    the one preserved-not-fixed latent-bug shape this carries forward.
+
+    Returns ``("dispatcher", None)`` on a successful fallback extraction (having
+    already set ``ctx.state.plan``), or ``(None, fallback_failure_detail)`` if the
+    whole fallback attempt failed too.
+    """
+    try:
+        # R13 (multi-level fallback chain) — unstructured natural-language
+        # extraction. The prompt + specialist name-matching are owned by the
+        # fallback strategy (single source).
+        raw_text = await _router_run_unstructured_fallback_agent(
+            ctx, deps, system_prompt_str, adaptive_model
+        )
+        return _router_extract_fallback_steps(ctx, deps, raw_text, specialist_tags)
+    except Exception as fallback_e:
+        logger.error(f"Router fallback also failed: {fallback_e}")
+        return None, f"the fallback attempt itself failed: {fallback_e}"
+
+
 async def _router_plan_and_dispatch(
     ctx: StepContext, deps: Any, discovery_context: str
 ) -> str:
@@ -583,40 +1192,18 @@ async def _router_plan_and_dispatch(
     if ctx.state.error:
         failure_context = f"### PREVIOUS FAILURE CONTEXT\nThe last attempt failed with the following error:\n{ctx.state.error}\nUse this information to update your plan. You may need more research or a different approach."
 
+    # See ``_router_attempt_unstructured_fallback`` / ``_ADAPTIVE_MODEL_UNSET``:
+    # these three are pre-bound to sentinels so the ``except`` block below can
+    # be called unconditionally without itself raising on an unbound name.
+    adaptive_model: Any = _ADAPTIVE_MODEL_UNSET
+    system_prompt_str = ""
+    specialist_tags: dict[str, str] | None = None
+
     try:
-        # Phase 4 Edge-Computed Scopes: Check if the workflow scope was already computed
-        # and signed at the JWT edge layer, bypassing the persistent graph hit.
-        if ctx.state.workflow_context and ctx.state.workflow_context.get(
-            "edge_computed", False
-        ):
-            logger.info(
-                "Using edge-computed JWT workflow context; bypassing persistent graph."
-            )
-            from .routing.strategies.workflow_context import ShieldedResult
-
-            # Ensure workflow_id is present for Pydantic validation
-            payload = dict(ctx.state.workflow_context)
-            if "workflow_id" not in payload:
-                payload["workflow_id"] = "jwt_edge_computed"
-            workflow_context = ShieldedResult(**payload)
-        else:
-            from .routing.strategies.workflow_context import WorkflowContextRouter
-
-            router = WorkflowContextRouter(deps.knowledge_engine)
-            workflow_context = await router.route_context(ctx.state.query)
-            ctx.state.workflow_context = workflow_context.model_dump()
-
+        workflow_context = await _router_resolve_workflow_context(ctx, deps)
         agent_context = workflow_context.to_prompt_string()
 
-        logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
-        specialist_tags = deps.tag_prompts
-        if not specialist_tags:
-            registry = await asyncio.to_thread(get_discovery_registry)
-            specialist_tags = {a.name: a.description for a in registry.agents}
-            if specialist_tags:
-                logger.info(
-                    f"[LAYER:GRAPH:ROUTER] Specialist tags loaded (count: {len(specialist_tags)}). Tags: {list(specialist_tags.keys())}"
-                )
+        specialist_tags = await _router_resolve_specialist_tags(deps)
 
         # CONCEPT:AU-ORCH.routing.filtered-specialist-injection — Filtered specialist injection for prompt bloat reduction
         relevant = await asyncio.to_thread(
@@ -625,72 +1212,21 @@ async def _router_plan_and_dispatch(
             engine=deps.knowledge_engine,
             top_n=7,
         )
-
-        # R7 (CONCEPT:AU-KG.memory.tiered-memory-caching) — Reward-Driven Optimization (pheromone filtering) and
-        # R8 (CONCEPT:AU-AHE.optimization.telemetry-optimization) — Telemetry-Driven Optimization (anomaly pruning).
-        # Both filters are owned by the optimization strategy (single source).
-        from .routing.strategies.optimization import (
-            filter_by_pheromone,
-            format_specialist_step_info,
-            prune_by_telemetry,
-        )
-
-        try:
-            if deps.knowledge_engine:
-                from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
-
-                memory_retriever = MemoryRetriever(deps.knowledge_engine)
-                current = await asyncio.to_thread(memory_retriever.get_current)
-                if current and current.pheromone_trails and relevant:
-                    relevant = filter_by_pheromone(relevant, current.pheromone_trails)
-        except Exception as e:  # noqa: BLE001 — `relevant` keeps its pre-filter value on failure, identical shape to the sibling telemetry-pruning block just below (already annotated in this codebase)
-            logger.debug(f"Reward-driven routing optimization failed: {e}")
-
-        try:
-            if deps.knowledge_engine:
-                anomaly_results = await asyncio.to_thread(
-                    deps.knowledge_engine.query_cypher,
-                    "MATCH (a:Agent)-[:CAUSED]->(p:PerformanceAnomaly) "
-                    "RETURN a.id AS agent_name, count(p) AS anomaly_count",
-                )
-                if anomaly_results:
-                    anomaly_map = {
-                        r.get("agent_name"): r.get("anomaly_count", 0)
-                        for r in anomaly_results
-                        if r.get("agent_name")
-                    }
-                    relevant = prune_by_telemetry(relevant, anomaly_map)
-        except Exception as e:  # noqa: BLE001 — per-request routing refinement; `relevant` just keeps its pre-prune value on failure, this pass falls back to the unpruned specialist set rather than an incorrect or stale one
-            logger.debug(f"Telemetry-driven routing optimization failed: {e}")
+        relevant = await _router_filter_relevant_specialists(ctx, deps, relevant)
 
         # R6 (CONCEPT:AU-ORCH.routing.filtered-specialist-injection) — filtered specialist injection (prompt-bloat reduction).
+        from .routing.strategies.optimization import format_specialist_step_info
+
         step_info = format_specialist_step_info(relevant, specialist_tags)
         logger.info(
             f"Router: Specialists count: {len(specialist_tags)}, Context length: {len(agent_context)}"
         )
 
-        # R9 (CONCEPT:AU-ORCH.routing.transition-state-checkpoint): subtask-spec + wide-search instructions — owned by
-        # the llm_planner strategy (single source of truth).
-        from .routing.strategies.llm_planner import (
-            subtask_and_widesearch_instructions,
+        system_prompt_str = await _router_build_planning_system_prompt(
+            discovery_context, failure_context, step_info, agent_context
         )
 
-        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — prompt load is file I/O + registry
-        # lookup; keep it off the event loop.
-        router_prompt = await asyncio.to_thread(load_specialized_prompts, "router")
-        system_prompt_str = (
-            f"{router_prompt}\n\n"
-            f"### IMPORTANT: PLANNING ONLY MODE\n"
-            f"You are a HIGH-LEVEL ARCHITECT. You DO NOT have access to functional tools (e.g. get_stack, Docker tools, etc.).\n"
-            f"Your ONLY responsibility is to create the execution plan. DO NOT attempt to fulfill the query yourself.\n\n"
-            f"{subtask_and_widesearch_instructions()}"
-            f"### FAILURE CONTEXT\n{failure_context}\n\n"
-            f"{discovery_context}"
-            f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
-            f"### PROJECT CONTEXT\n{agent_context}"
-        )
         from ..rlm.config import RLMConfig
-        from ..rlm.repl import RLMEnvironment
 
         rlm_config = RLMConfig()
         use_rlm = (
@@ -698,186 +1234,21 @@ async def _router_plan_and_dispatch(
         )
 
         if use_rlm:
-            logger.info(
-                "[LAYER:GRAPH:ROUTER] Running in RLM (Recursive Language Model) mode."
+            plan_output = await _router_run_rlm_planning(
+                ctx, deps, system_prompt_str, agent_context, rlm_config
             )
-            env = RLMEnvironment(
-                context=f"SYSTEM_PROMPT:\n{system_prompt_str}\n\nPROJECT_CONTEXT:\n{agent_context}",
-                config=rlm_config,
-                graph_deps=ctx.deps,
-            )
-            # R10 (CONCEPT:AU-ORCH.execution.predict-rlm-runtime) — RLM planning + fallback parser. The
-            # instruction text and JSON->GraphPlan parse are owned by the
-            # llm_planner strategy (single source); the async RLM run + re-parse
-            # agent stay here.
-            from .routing.strategies.llm_planner import (
-                parse_rlm_plan,
-                rlm_plan_instruction,
-            )
-
-            rlm_result = await env.run_full_rlm(rlm_plan_instruction(ctx.state.query))
-
-            plan_output = parse_rlm_plan(rlm_result, GraphPlan)
-            if plan_output is None:
-                logger.warning(
-                    "RLM output was not valid GraphPlan JSON. Running fallback parser."
-                )
-                router_agent = create_context_agent(
-                    model=deps.router_model,
-                    output_type=GraphPlan,
-                    system_prompt="Parse the following text into a valid GraphPlan JSON structure.",
-                )
-                parse_res = await router_agent.run(f"Text to parse:\n{rlm_result}")
-                plan_output = parse_res.output
         else:
-            # CONCEPT:AU-KG.memory.tiered-memory-caching — Adaptive Model Routing (Planner Path)
-            # CONCEPT:AU-AHE.evaluation.backtest-harness — KG-Native Agentic Task Detection
-            # CONCEPT:AU-AHE.evaluation.backtest-harness — Topological Reasoning Detection
-
-            query_length = len(ctx.state.query.split())
-            is_complex = False
-            requires_reasoning = False
-
-            # R11 (CONCEPT:AU-AHE.evaluation.backtest-harness) — text-heuristic complexity detection, owned by
-            # the llm_planner strategy (single source). Topology/quant escalation
-            # below stays in the router (depends on live KG state).
-            from .routing.strategies.llm_planner import is_complex_query
-
-            if is_complex_query(ctx.state.query, len(relevant)):
-                is_complex = True
-
-            if (
-                "step by step" in ctx.state.query.lower()
-                or "think through" in ctx.state.query.lower()
-            ):
-                requires_reasoning = True
-
-            # KG-Native Topological overrides
-            if deps.knowledge_engine:
-                try:
-
-                    def _read_topology_signals() -> tuple[list[Any], list[Any]]:
-                        return (
-                            deps.knowledge_engine.search_hybrid(
-                                ctx.state.query
-                                + " TradingPipeline RiskScoringOntology",
-                                top_k=2,
-                            ),
-                            deps.knowledge_engine.search_hybrid(
-                                ctx.state.query
-                                + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
-                                top_k=2,
-                            ),
-                        )
-
-                    # CONCEPT:AU-AHE.evaluation.backtest-harness Agentic detection
-                    task_topologies, math_topologies = await asyncio.to_thread(
-                        _read_topology_signals
-                    )
-                    if any(
-                        "Trading" in t.get("name", "") or "Risk" in t.get("name", "")
-                        for t in task_topologies
-                    ):
-                        is_complex = True
-                        logger.info(
-                            "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected complex topological subgraphs. Escalate to complex model."
-                        )
-
-                    # CONCEPT:AU-AHE.evaluation.backtest-harness Reasoning detection
-                    if any(
-                        "Math" in t.get("name", "")
-                        or "Quant" in t.get("name", "")
-                        or "Almgren" in t.get("name", "")
-                        for t in math_topologies
-                    ):
-                        requires_reasoning = True
-                        logger.info(
-                            "Router: CONCEPT:AU-AHE.evaluation.backtest-harness — Detected mathematical/quantitative topology. Escalate to reasoning model."
-                        )
-                except Exception as e:
-                    logger.warning(f"Topological routing detection failed: {e}")
-
-            # CONCEPT:AU-OS.safety.doom-loop-detection — Topological Session Persistence
-            if ctx.state.pinned_model_id:
-                from ..core.model_factory import create_model
-
-                adaptive_model = create_model(model_id=ctx.state.pinned_model_id)
-                logger.info(
-                    f"[LAYER:GRAPH:ROUTER] OS-5.19: Reusing pinned session model: {ctx.state.pinned_model_id}"
-                )
-            elif requires_reasoning:
-                from ..core.model_factory import create_model
-
-                _super = config.super_chat_model
-                # CONCEPT:AU-ORCH.execution.direct-completion-shape — no hard-coded remote model; an unset super-model falls
-                # back to the local default (``create_model(None)``), never an unreachable
-                # a model identifier the configured deployment cannot serve.
-                reasoning_model_id = _super.id if _super else None
-                logger.debug(
-                    "Router: pinning reasoning model %s",
-                    reasoning_model_id or "local-default",
-                )
-                # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — this branch IS the
-                # opt-in: the router detected the query genuinely needs deliberation
-                # (mathematical/quantitative topology, "think through", etc.), so thinking
-                # must be explicitly turned ON here — create_model's own default is OFF, so
-                # omitting reasoning_effort would silently leave this "reasoning" branch
-                # exactly as fast (and as un-reasoned) as every other one.
-                adaptive_model = create_model(
-                    model_id=reasoning_model_id, reasoning_effort="high"
-                )
-                if reasoning_model_id:
-                    ctx.state.pinned_model_id = reasoning_model_id
-                logger.info(
-                    f"[LAYER:GRAPH:ROUTER] Selected Reasoning Model: {reasoning_model_id}"
-                )
-            elif query_length < 20 and not is_complex:
-                from ..core.model_factory import create_model
-
-                _lite2 = config.lite_chat_model
-                # CONCEPT:AU-ORCH.execution.direct-completion-shape — local default when no lite model is configured.
-                adaptive_model = create_model(model_id=_lite2.id if _lite2 else None)
-                logger.info(
-                    "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."
-                )
-            else:
-                adaptive_model = deps.router_model
-                # Only pin if it has a string name we can recover later
-                if hasattr(deps.router_model, "model_name"):
-                    ctx.state.pinned_model_id = deps.router_model.model_name
-
-            router_agent = create_context_agent(
-                model=adaptive_model,
-                output_type=GraphPlan,
-                system_prompt=system_prompt_str,
+            (
+                is_complex,
+                requires_reasoning,
+            ) = await _router_detect_complexity_and_reasoning(ctx, deps, relevant)
+            adaptive_model = _router_select_adaptive_model(
+                ctx, deps, is_complex, requires_reasoning
+            )
+            plan_output = await _router_call_planning_llm(
+                ctx, deps, adaptive_model, system_prompt_str
             )
 
-            logger.info(
-                f"[LAYER:GRAPH:ROUTER] Planning for query: '{ctx.state.query}' using model {deps.router_model}"
-            )
-            try:
-                logger.debug(
-                    f"[LAYER:GRAPH:ROUTER] LLM Call Starting: system_prompt length={len(system_prompt_str)}"
-                )
-                async with router_agent.run_stream(ctx.state.query) as stream:
-                    plan_output = await asyncio.wait_for(
-                        stream.get_output(), timeout=ctx.deps.router_timeout
-                    )
-                if plan_output is None:
-                    raise ValueError("LLM planning returned no plan")
-                logger.info(
-                    f"[LAYER:GRAPH:ROUTER] LLM Call Completed. Plan Reasoning: {plan_output.metadata.get('reasoning', 'N/A')}"
-                )
-                logger.info(
-                    f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(plan_output.steps)}"
-                )
-            except TimeoutError:
-                logger.warning(
-                    "Router: LLM planning timed out. Escalating to fallbacks."
-                )
-                raise ValueError("LLM planning timed out") from None
-
-            ctx.state._update_usage(stream.usage)
         ctx.state.plan = plan_output
         ctx.state.step_cursor = 0
 
@@ -908,81 +1279,11 @@ async def _router_plan_and_dispatch(
         return "dispatcher"
     except Exception as e:
         logger.error(f"Router planning failed: {e}. Attempting unstructured fallback.")
-        fallback_failure_detail: str | None = None
-        try:
-            # R13 (multi-level fallback chain) — unstructured natural-language
-            # extraction. The prompt + specialist name-matching are owned by the
-            # fallback strategy (single source).
-            from .routing.strategies.fallback import (
-                match_specialists_in_text,
-                unstructured_fallback_prompt,
-            )
-
-            fallback_agent = create_context_agent(
-                model=adaptive_model,
-                system_prompt=unstructured_fallback_prompt(system_prompt_str),
-            )
-            # D-RTR-1: the structured planning call above is bounded by
-            # ``ctx.deps.router_timeout`` (~12s for the ``chat`` profile), but this
-            # unstructured fallback previously had NO timeout — a bare ``await`` that
-            # hit the very same degraded backend that just stalled the structured
-            # call. Two sequential unbounded-then-bounded LLM calls against a
-            # degraded provider is how a single turn reached 264s with no answer.
-            # Reuse the same profile budget so the two calls together can never
-            # exceed roughly 2x the router timeout.
-            try:
-                fallback_res = await asyncio.wait_for(
-                    fallback_agent.run(ctx.state.query),
-                    timeout=ctx.deps.router_timeout,
-                )
-            except TimeoutError:
-                raise ValueError(
-                    "Unstructured fallback planning timed out after "
-                    f"{ctx.deps.router_timeout}s"
-                ) from None
-
-            raw_text = str(
-                getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
-            )
-            available = (
-                list(specialist_tags.keys()) if "specialist_tags" in locals() else []
-            )
-            if not available and hasattr(deps, "tag_prompts"):
-                available = list(deps.tag_prompts.keys())
-
-            steps = [
-                ExecutionStep(id=spec, description=ctx.state.query)
-                for spec in match_specialists_in_text(raw_text, available)
-            ]
-
-            if steps:
-                logger.info(
-                    f"Router Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
-                )
-                ctx.state.plan = GraphPlan(
-                    steps=steps,
-                    metadata={"reasoning": "Fallback natural language extraction"},
-                )
-                ctx.state.step_cursor = 0
-                return "dispatcher"
-            else:
-                # D-RTR-4: make the no-match case actionable instead of a silent
-                # fall-through — name what the model proposed and what the
-                # registry actually has, so the eventual failure message tells the
-                # operator why (e.g. the model named a specialist the registry
-                # doesn't know about) rather than just "no answer".
-                fallback_failure_detail = (
-                    f"the model proposed '{raw_text.strip()[:200]}' but no known "
-                    f"specialist matched. Available specialists: {available or 'none registered'}."
-                )
-                logger.warning(
-                    f"Router Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
-                )
-        except Exception as fallback_e:
-            fallback_failure_detail = (
-                f"the fallback attempt itself failed: {fallback_e}"
-            )
-            logger.error(f"Router fallback also failed: {fallback_e}")
+        node_id, fallback_failure_detail = await _router_attempt_unstructured_fallback(
+            ctx, deps, system_prompt_str, adaptive_model, specialist_tags
+        )
+        if node_id is not None:
+            return node_id
 
         # D-RTR-2: this used to ``return "__end__"``, implying the router could
         # terminate the graph run here. It cannot: ``graph/builder.py`` gives the
@@ -1477,16 +1778,13 @@ async def parallel_batch_processor(
     return batch.tasks
 
 
-async def _expert_dispatch_step_handler(
-    ctx: StepContext, node_id: str, step: Any
-) -> None:
-    """Dispatch a single expert-execution step to its handler.
+async def _expert_try_static_handler(ctx: StepContext, node_id: str, step: Any) -> bool:
+    """Dispatch to a known static step handler, if ``node_id`` matches one.
 
-    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
-    behaviour change). Covers the known static handlers (researcher/architect/
-    planner/verifier/mcp_server) and the dynamic graph-native agent spawning
-    fallback. Writes results into ``ctx.state.results_registry`` exactly as the
-    original inline code did; has no return value.
+    Extracted verbatim from ``_expert_dispatch_step_handler`` (pure extract-method,
+    no behaviour change). Returns True if a static handler ran (each handler
+    writes its own result into ``ctx.state.results_registry``), or False if the
+    caller must fall through to dynamic agent spawning.
     """
     # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
     # Lazy imports to avoid circular dependencies between submodules
@@ -1513,142 +1811,195 @@ async def _expert_dispatch_step_handler(
         if isinstance(input_data, dict):
             domain = input_data.get("domain", "")
         await _execute_domain_logic(cast(Any, ctx), domain)
+    else:
+        return False
+    return True
+
+
+async def _expert_resolve_dynamic_bindings(
+    ctx: StepContext, node_id: str
+) -> tuple[str, list[str]]:
+    """Query the KG for an explicit prompt-node match + ranked candidate tools.
+
+    Extracted verbatim from ``_expert_dispatch_step_handler`` (pure extract-method,
+    no behaviour change; step "1. Query Knowledge Graph for best tools & prompts"
+    of the dynamic-agent-spawning fallback). Returns
+    ``(system_prompt, tools_to_inject)``.
+    """
+    engine = ctx.deps.knowledge_engine
+    system_prompt = f"You are a specialized agent handling the task: {node_id}."
+    tools_to_inject: list[str] = []
+
+    if not engine:
+        return system_prompt, tools_to_inject
+
+    def _read_dynamic_bindings(
+        kg_engine: Any = engine,
+        dynamic_node_id: str = node_id,
+    ) -> tuple[list[Any], list[Any]]:
+        return (
+            kg_engine.query_cypher(
+                "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
+                {"name": dynamic_node_id},
+            ),
+            kg_engine.query_cypher(
+                # D-CDX-53: does NOT ``ORDER BY t.relevance_score``
+                # in Cypher. The live graph can hold both legacy
+                # ``[0, 1]`` float scores and canonical ``[0, 100]``
+                # int points on persisted Tool rows at the same
+                # time, and ordering raw mixed-scale values in the
+                # database ranks semantically-equal scores ~100x
+                # apart and can truncate the better legacy tool out
+                # of the result before it is ever normalized. A
+                # deterministic ``ORDER BY t.name`` plus a bounded
+                # candidate pool (``_TOOL_CANDIDATE_POOL_LIMIT``)
+                # is used instead, and the caller ranks the
+                # candidates in Python via
+                # ``_rank_tool_rows_by_relevance`` — which
+                # normalizes every row through the SAME canonical
+                # boundary as ``ToolNode``/``MCPToolInfo``
+                # (``agent_utilities.models.tool_score``) before
+                # comparing scores.
+                "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) "
+                "RETURN t.name AS name, t.mcp_server AS server, t.relevance_score AS relevance_score "
+                f"ORDER BY t.name LIMIT {_TOOL_CANDIDATE_POOL_LIMIT}",
+                {"name": dynamic_node_id},
+            ),
+        )
+
+    # Check for explicit prompt node
+    prompt_res, tool_res = await asyncio.to_thread(_read_dynamic_bindings)
+    if prompt_res and "sp" in prompt_res[0]:
+        system_prompt = prompt_res[0]["sp"]
+
+    # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
+    ranked_tool_rows = _rank_tool_rows_by_relevance(tool_res, limit=_TOOL_RESULT_LIMIT)
+    tools_to_inject = [t["name"] for t in ranked_tool_rows]
+
+    return system_prompt, tools_to_inject
+
+
+async def _expert_prepare_dynamic_toolsets(
+    ctx: StepContext, tools_to_inject: list[str]
+) -> tuple[list[Any], list[Any]]:
+    """Fetch domain tools/toolsets, splice in native GraphOS toolsets, filter to injected tools.
+
+    Extracted verbatim from ``_expert_dispatch_step_handler`` (pure extract-method,
+    no behaviour change; step "2. Execute Dynamic Agent" setup of the
+    dynamic-agent-spawning fallback, through the ``apply_tool_scope`` call).
+    """
+    from .executor import _get_domain_tools
+
+    domain_tools, domain_toolsets = await _get_domain_tools(
+        "mcp_server_execution", ctx.deps
+    )
+
+    # A delegated skill's native GraphOS toolset is scoped to this
+    # run and is therefore authoritative even when the planner
+    # emits a dynamic node name that does not match a fleet-server
+    # tag. Preserve it through the fallback path and apply the
+    # same signed identity policy used by specialist execution.
+    native_toolsets = [
+        toolset
+        for toolset in ctx.deps.mcp_toolsets
+        if isinstance((metadata := getattr(toolset, "metadata", None)), dict)
+        and metadata.get("graphos_native") is True
+    ]
+    if native_toolsets:
+        from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
+
+        domain_toolsets = [
+            *flag_mcp_tool_definitions(
+                native_toolsets,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                engine=ctx.deps.knowledge_engine,
+            ),
+            *domain_toolsets,
+        ]
+
+    # Filter down to the exact tools
+    if tools_to_inject:
+        filtered_tools = [t for t in domain_tools if t.__name__ in tools_to_inject]
+        if filtered_tools:
+            domain_tools = filtered_tools
+
+    return apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
+        ctx.state, domain_tools, domain_toolsets
+    )
+
+
+async def _expert_spawn_dynamic_agent(
+    ctx: StepContext, node_id: str, step: Any
+) -> None:
+    """Dynamic graph-native agent spawning fallback for an expert-execution step.
+
+    Extracted verbatim from ``_expert_dispatch_step_handler`` (pure extract-method,
+    no behaviour change). Writes the result into
+    ``ctx.state.results_registry[node_id]``.
+    """
+    logger.info(f"Expert Execution: Spawning dynamic agent for task '{node_id}'")
+
+    system_prompt, tools_to_inject = await _expert_resolve_dynamic_bindings(
+        ctx, node_id
+    )
+
+    logger.info(
+        f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."
+    )
+
+    domain_tools, domain_toolsets = await _expert_prepare_dynamic_toolsets(
+        ctx, tools_to_inject
+    )
+
+    dynamic_agent = create_context_agent(
+        model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
+        system_prompt=system_prompt + invoker_context_section(ctx.state),
+        tools=domain_tools,
+        toolsets=domain_toolsets,
+    )
+
+    # The injected developer_tools/sdd_tools are RunContext[AgentDeps]-typed and
+    # read ctx.deps.workspace_path; the graph context is GraphDeps (no
+    # workspace_path). Running without deps left ctx.deps=None →
+    # "'NoneType' object has no attribute 'workspace_path'". Adapt the graph
+    # context into a valid AgentDeps so injected tools AND MCP toolsets work.
+    from .executor import agent_deps_from_graph
+
+    _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
+
+    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
+    async with dynamic_agent.run_stream(
+        f"Task context: {step.description}",
+        deps=_agent_deps,
+        usage_limits=spawn_usage_limits(ctx.state),
+    ) as stream:
+        res = await asyncio.wait_for(
+            stream.get_output(), timeout=ctx.deps.verifier_timeout
+        )
+
+    ctx.state.results_registry[node_id] = str(res)
+
+
+async def _expert_dispatch_step_handler(
+    ctx: StepContext, node_id: str, step: Any
+) -> None:
+    """Dispatch a single expert-execution step to its handler.
+
+    Extracted verbatim from ``expert_executor_step`` (pure extract-method, no
+    behaviour change). Covers the known static handlers (researcher/architect/
+    planner/verifier/mcp_server) and the dynamic graph-native agent spawning
+    fallback. Writes results into ``ctx.state.results_registry`` exactly as the
+    original inline code did; has no return value.
+    """
+    if await _expert_try_static_handler(ctx, node_id, step):
+        return
 
     # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
-    else:
-        logger.info(f"Expert Execution: Spawning dynamic agent for task '{node_id}'")
-
-        # 1. Query Knowledge Graph for best tools & prompts
-        engine = ctx.deps.knowledge_engine
-        system_prompt = f"You are a specialized agent handling the task: {node_id}."
-        tools_to_inject = []
-
-        if engine:
-
-            def _read_dynamic_bindings(
-                kg_engine: Any = engine,
-                dynamic_node_id: str = node_id,
-            ) -> tuple[list[Any], list[Any]]:
-                return (
-                    kg_engine.query_cypher(
-                        "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
-                        {"name": dynamic_node_id},
-                    ),
-                    kg_engine.query_cypher(
-                        # D-CDX-53: does NOT ``ORDER BY t.relevance_score``
-                        # in Cypher. The live graph can hold both legacy
-                        # ``[0, 1]`` float scores and canonical ``[0, 100]``
-                        # int points on persisted Tool rows at the same
-                        # time, and ordering raw mixed-scale values in the
-                        # database ranks semantically-equal scores ~100x
-                        # apart and can truncate the better legacy tool out
-                        # of the result before it is ever normalized. A
-                        # deterministic ``ORDER BY t.name`` plus a bounded
-                        # candidate pool (``_TOOL_CANDIDATE_POOL_LIMIT``)
-                        # is used instead, and the caller ranks the
-                        # candidates in Python via
-                        # ``_rank_tool_rows_by_relevance`` — which
-                        # normalizes every row through the SAME canonical
-                        # boundary as ``ToolNode``/``MCPToolInfo``
-                        # (``agent_utilities.models.tool_score``) before
-                        # comparing scores.
-                        "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) "
-                        "RETURN t.name AS name, t.mcp_server AS server, t.relevance_score AS relevance_score "
-                        f"ORDER BY t.name LIMIT {_TOOL_CANDIDATE_POOL_LIMIT}",
-                        {"name": dynamic_node_id},
-                    ),
-                )
-
-            # Check for explicit prompt node
-            prompt_res, tool_res = await asyncio.to_thread(_read_dynamic_bindings)
-            if prompt_res and "sp" in prompt_res[0]:
-                system_prompt = prompt_res[0]["sp"]
-
-            # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
-            ranked_tool_rows = _rank_tool_rows_by_relevance(
-                tool_res, limit=_TOOL_RESULT_LIMIT
-            )
-            tools_to_inject = [t["name"] for t in ranked_tool_rows]
-
-        logger.info(
-            f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."
-        )
-
-        # 2. Execute Dynamic Agent
-        from .executor import _get_domain_tools
-
-        domain_tools, domain_toolsets = await _get_domain_tools(
-            "mcp_server_execution", ctx.deps
-        )
-
-        # A delegated skill's native GraphOS toolset is scoped to this
-        # run and is therefore authoritative even when the planner
-        # emits a dynamic node name that does not match a fleet-server
-        # tag. Preserve it through the fallback path and apply the
-        # same signed identity policy used by specialist execution.
-        native_toolsets = [
-            toolset
-            for toolset in ctx.deps.mcp_toolsets
-            if isinstance((metadata := getattr(toolset, "metadata", None)), dict)
-            and metadata.get("graphos_native") is True
-        ]
-        if native_toolsets:
-            from agent_utilities.security.tool_guard import (
-                flag_mcp_tool_definitions,
-            )
-
-            domain_toolsets = [
-                *flag_mcp_tool_definitions(
-                    native_toolsets,
-                    permissions_kernel=ctx.deps.permissions_kernel,
-                    agent_identity=ctx.deps.agent_identity,
-                    engine=ctx.deps.knowledge_engine,
-                ),
-                *domain_toolsets,
-            ]
-
-        # Filter down to the exact tools
-        if tools_to_inject:
-            filtered_tools = [t for t in domain_tools if t.__name__ in tools_to_inject]
-            if filtered_tools:
-                domain_tools = filtered_tools
-
-        (
-            domain_tools,
-            domain_toolsets,
-        ) = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            ctx.state, domain_tools, domain_toolsets
-        )
-        dynamic_agent = create_context_agent(
-            model=ctx.deps.agent_model,
-            permissions_kernel=ctx.deps.permissions_kernel,
-            agent_identity=ctx.deps.agent_identity,
-            permission_engine=ctx.deps.knowledge_engine,
-            system_prompt=system_prompt + invoker_context_section(ctx.state),
-            tools=domain_tools,
-            toolsets=domain_toolsets,
-        )
-
-        # The injected developer_tools/sdd_tools are RunContext[AgentDeps]-typed and
-        # read ctx.deps.workspace_path; the graph context is GraphDeps (no
-        # workspace_path). Running without deps left ctx.deps=None →
-        # "'NoneType' object has no attribute 'workspace_path'". Adapt the graph
-        # context into a valid AgentDeps so injected tools AND MCP toolsets work.
-        from .executor import agent_deps_from_graph
-
-        _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
-
-        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid/1.38 — bound requests + enforce the invoker's token budget.
-        async with dynamic_agent.run_stream(
-            f"Task context: {step.description}",
-            deps=_agent_deps,
-            usage_limits=spawn_usage_limits(ctx.state),
-        ) as stream:
-            res = await asyncio.wait_for(
-                stream.get_output(), timeout=ctx.deps.verifier_timeout
-            )
-
-        ctx.state.results_registry[node_id] = str(res)
+    await _expert_spawn_dynamic_agent(ctx, node_id, step)
 
 
 async def _expert_execute_attempt(
@@ -1863,6 +2214,197 @@ async def dynamic_mcp_routing_step(
     return targets
 
 
+async def _mcp_lookup_resource_node(ctx: StepContext, server_name: str) -> Any | None:
+    """``CallableResourceNode`` lookup for this MCP server, if the KG engine supports it.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    engine = ctx.deps.knowledge_engine
+    if not (engine and hasattr(engine, "ogm")):
+        return None
+
+    from ..models.knowledge_graph import CallableResourceNode
+
+    nodes = await asyncio.to_thread(
+        engine.ogm.find,
+        CallableResourceNode,
+        properties={"name": server_name},
+    )
+    return nodes[0] if nodes else None
+
+
+async def _mcp_find_matching_specialist_agents(server_name: str) -> list[Any]:
+    """Registry lookup for specialist agents bound to this MCP server.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    registry = await asyncio.to_thread(get_discovery_registry)
+    return [a for a in registry.agents if a.mcp_server == server_name]
+
+
+async def _mcp_execute_matching_specialists(
+    ctx: StepContext, matching_agents: list[Any]
+) -> None:
+    """Execute each matching specialist agent for this server.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    for mcp_agent in matching_agents:
+        await _execute_dynamic_mcp_agent(ctx, mcp_agent)
+
+
+async def _mcp_build_fallback_toolsets(ctx: StepContext, server_name: str) -> list[Any]:
+    """Match + guard + scope the toolsets for the ad-hoc fallback agent.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    # Fallback: create ad-hoc agent with all tools from this server
+    matched_toolsets = []
+    for toolset in ctx.deps.mcp_toolsets:
+        server_id = getattr(toolset, "id", getattr(toolset, "name", None))
+        if server_id and server_name in str(server_id):
+            matched_toolsets.append(toolset)
+
+    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
+
+    guarded_toolsets = flag_mcp_tool_definitions(
+        matched_toolsets,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        engine=ctx.deps.knowledge_engine,
+    )
+    _, scoped_toolsets = apply_tool_scope(ctx.state, [], guarded_toolsets)
+    return scoped_toolsets
+
+
+async def _mcp_run_fallback_agent(
+    ctx: StepContext,
+    server_name: str,
+    query: str,
+    resource_node: Any | None,
+    scoped_toolsets: list[Any],
+) -> tuple[str, Any]:
+    """Build the ad-hoc fallback agent, run it streaming, and store the result.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change). Returns ``(result_key, stream)`` — ``stream`` stays valid for
+    provenance/WebUI-event use after the ``async with`` exits, exactly as the
+    original inline code relied on.
+    """
+    # Use unified resource metadata if available, otherwise fallback
+    system_prompt = f"You are a specialist for the '{server_name}' resource. Use the available tools to answer queries."
+    if resource_node and resource_node.description:
+        system_prompt += f" Context: {resource_node.description}"
+
+    agent = create_context_agent(
+        model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
+        system_prompt=system_prompt + invoker_context_section(ctx.state),  # ORCH-1.39
+        toolsets=scoped_toolsets,
+    )
+
+    async with agent.run_stream(query, deps=ctx.deps) as stream:
+        async for chunk in stream.stream_text(delta=True):
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "agent_node_delta",
+                content=chunk,
+                node="mcp_server_execution",
+            )
+        output = await stream.get_output()
+    ctx.state._update_usage(stream.usage)
+    result_key = f"{server_name}_{ctx.state.step_cursor}"
+    ctx.state.results_registry[result_key] = str(output)
+    return result_key, stream
+
+
+def _mcp_record_tool_call_provenance(ctx: StepContext, stream: Any) -> None:
+    """Accumulate this MCP server's tool calls for :ToolCall provenance on the graph path.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change). NOTE: the pre-refactor inline code called this exact block TWICE in a
+    row (byte-identical, back to back) -- preserved as-is by the caller invoking
+    this helper twice; not something this decomposition introduced. See BUGS FOUND
+    in the lane report (double-appends every MCP-fallback step's tool calls into
+    ``ctx.state.tool_calls``).
+
+    (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
+    block below is gated on ``event_queue`` and skipped for headless
+    (MCP/telegram) delegations, which is exactly the MCP-execution path a
+    fleet-server delegation takes.
+    """
+    try:
+        from ..orchestration.tool_provenance import extract_tool_calls
+
+        ctx.state.tool_calls.extend(extract_tool_calls(stream))
+    except Exception as _tc_exc:  # noqa: BLE001 — never break a run
+        logger.debug("mcp_server tool-call provenance skipped: %s", _tc_exc)
+
+
+def _mcp_emit_tool_call_events(ctx: StepContext, server_name: str, msg: Any) -> None:
+    """Emit ``expert_tool_call`` events for each ``ToolCallPart`` in a ``ModelResponse``.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    from pydantic_ai.messages import ToolCallPart
+
+    for part in msg.parts:
+        if isinstance(part, ToolCallPart):
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "expert_tool_call",
+                domain=server_name,
+                tool_name=part.tool_name,
+                args=part.args,
+            )
+
+
+def _mcp_emit_tool_result_events(ctx: StepContext, server_name: str, msg: Any) -> None:
+    """Emit ``tool_result`` events for each ``ToolReturnPart`` in a ``ModelRequest``.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    from pydantic_ai.messages import ToolReturnPart
+
+    for req_part in msg.parts:
+        if isinstance(req_part, ToolReturnPart):
+            emit_graph_event(
+                ctx.deps.event_queue,
+                event_type="tool_result",
+                agent=server_name,
+                tool=req_part.tool_name,
+                result=str(req_part.content)[:500],
+            )
+
+
+def _mcp_stream_events_to_webui(
+    ctx: StepContext, server_name: str, stream: Any
+) -> None:
+    """Stream tool-call/tool-result events to the WebUI, if an event queue is present.
+
+    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
+    change).
+    """
+    if not ctx.deps.event_queue:
+        return
+
+    from pydantic_ai.messages import ModelRequest, ModelResponse
+
+    for msg in stream.all_messages():
+        if isinstance(msg, ModelResponse):
+            _mcp_emit_tool_call_events(ctx, server_name, msg)
+        elif isinstance(msg, ModelRequest):
+            _mcp_emit_tool_result_events(ctx, server_name, msg)
+
+
 async def mcp_server_step(
     ctx: StepContext,
 ) -> str | End[Any]:
@@ -1895,129 +2437,25 @@ async def mcp_server_step(
     )
 
     try:
-        engine = ctx.deps.knowledge_engine
-        resource_node = None
-        if engine and hasattr(engine, "ogm"):
-            from ..models.knowledge_graph import CallableResourceNode
-
-            nodes = await asyncio.to_thread(
-                engine.ogm.find,
-                CallableResourceNode,
-                properties={"name": server_name},
-            )
-            if nodes:
-                resource_node = nodes[0]
+        resource_node = await _mcp_lookup_resource_node(ctx, server_name)
 
         # Check if there's a matching dynamic MCP agent in the registry
-        registry = await asyncio.to_thread(get_discovery_registry)
-        matching_agents = [a for a in registry.agents if a.mcp_server == server_name]
+        matching_agents = await _mcp_find_matching_specialist_agents(server_name)
 
         if matching_agents:
             # Execute each matching specialist agent for this server
-            for mcp_agent in matching_agents:
-                await _execute_dynamic_mcp_agent(ctx, mcp_agent)
+            await _mcp_execute_matching_specialists(ctx, matching_agents)
         else:
-            # Use unified resource metadata if available, otherwise fallback
-            system_prompt = f"You are a specialist for the '{server_name}' resource. Use the available tools to answer queries."
-            if resource_node and resource_node.description:
-                system_prompt += f" Context: {resource_node.description}"
-
-            # Fallback: create ad-hoc agent with all tools from this server
-            matched_toolsets = []
-            for toolset in ctx.deps.mcp_toolsets:
-                server_id = getattr(toolset, "id", getattr(toolset, "name", None))
-                if server_id and server_name in str(server_id):
-                    matched_toolsets.append(toolset)
-
-            from agent_utilities.security.tool_guard import (
-                flag_mcp_tool_definitions,
+            scoped_toolsets = await _mcp_build_fallback_toolsets(ctx, server_name)
+            result_key, stream = await _mcp_run_fallback_agent(
+                ctx, server_name, query, resource_node, scoped_toolsets
             )
-
-            guarded_toolsets = flag_mcp_tool_definitions(
-                matched_toolsets,
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
-                engine=ctx.deps.knowledge_engine,
-            )
-            _, scoped_toolsets = apply_tool_scope(ctx.state, [], guarded_toolsets)
-
-            agent = create_context_agent(
-                model=ctx.deps.agent_model,
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
-                permission_engine=ctx.deps.knowledge_engine,
-                system_prompt=system_prompt
-                + invoker_context_section(ctx.state),  # ORCH-1.39
-                toolsets=scoped_toolsets,
-            )
-
-            async with agent.run_stream(query, deps=ctx.deps) as stream:
-                async for chunk in stream.stream_text(delta=True):
-                    emit_graph_event(
-                        ctx.deps.event_queue,
-                        "agent_node_delta",
-                        content=chunk,
-                        node="mcp_server_execution",
-                    )
-                output = await stream.get_output()
-            ctx.state._update_usage(stream.usage)
-            result_key = f"{server_name}_{ctx.state.step_cursor}"
-            ctx.state.results_registry[result_key] = str(output)
-
-            # Accumulate this MCP server's tool calls for :ToolCall provenance on the
-            # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
-            # block below is gated on ``event_queue`` and skipped for headless
-            # (MCP/telegram) delegations, which is exactly the MCP-execution path a
-            # fleet-server delegation takes.
-            try:
-                from ..orchestration.tool_provenance import extract_tool_calls
-
-                ctx.state.tool_calls.extend(extract_tool_calls(stream))
-            except Exception as _tc_exc:  # noqa: BLE001 — never break a run
-                logger.debug("mcp_server tool-call provenance skipped: %s", _tc_exc)
-
-            # Accumulate this MCP server's tool calls for :ToolCall provenance on the
-            # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
-            # block below is gated on ``event_queue`` and skipped for headless
-            # (MCP/telegram) delegations, which is exactly the MCP-execution path a
-            # fleet-server delegation takes.
-            try:
-                from ..orchestration.tool_provenance import extract_tool_calls
-
-                ctx.state.tool_calls.extend(extract_tool_calls(stream))
-            except Exception as _tc_exc:  # noqa: BLE001 — never break a run
-                logger.debug("mcp_server tool-call provenance skipped: %s", _tc_exc)
-
+            # NOTE: called twice, matching the pre-refactor inline duplication —
+            # see ``_mcp_record_tool_call_provenance``'s docstring / BUGS FOUND.
+            _mcp_record_tool_call_provenance(ctx, stream)
+            _mcp_record_tool_call_provenance(ctx, stream)
             # Stream events to WebUI
-            if ctx.deps.event_queue:
-                from pydantic_ai.messages import (
-                    ModelRequest,
-                    ModelResponse,
-                    ToolCallPart,
-                    ToolReturnPart,
-                )
-
-                for msg in stream.all_messages():
-                    if isinstance(msg, ModelResponse):
-                        for part in msg.parts:
-                            if isinstance(part, ToolCallPart):
-                                emit_graph_event(
-                                    ctx.deps.event_queue,
-                                    "expert_tool_call",
-                                    domain=server_name,
-                                    tool_name=part.tool_name,
-                                    args=part.args,
-                                )
-                    elif isinstance(msg, ModelRequest):
-                        for req_part in msg.parts:
-                            if isinstance(req_part, ToolReturnPart):
-                                emit_graph_event(
-                                    ctx.deps.event_queue,
-                                    event_type="tool_result",
-                                    agent=server_name,
-                                    tool=req_part.tool_name,
-                                    result=str(req_part.content)[:500],
-                                )
+            _mcp_stream_events_to_webui(ctx, server_name, stream)
 
         emit_graph_event(
             ctx.deps.event_queue,
