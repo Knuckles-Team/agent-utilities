@@ -12,6 +12,7 @@ import json
 import logging
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -167,6 +168,17 @@ def _parse_instant(value: Any) -> datetime | None:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
+
+
+@dataclass
+class _RetrievalPassArgs:
+    """Shared per-query-list args for a ``retrieve_hybrid`` pass in ``plan_and_retrieve``."""
+
+    sub_window: int
+    corpus_id: str | None
+    hard_negatives: set[str] | None
+    active_task: str | None
+    session: Any | None
 
 
 def _bfs_next_frontier(
@@ -1852,6 +1864,67 @@ class HybridRetriever:
             raw = ""
         return parse_hyde_plan(raw, original_query=query, mode_hint=mode_hint)
 
+    def _trivial_query_result(
+        self, query: str, with_ledger: bool
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
+        """``None`` if not trivial; otherwise the short-circuit result."""
+        from .hyde_planner import HydePlan, build_evidence_ledger, is_trivial_query
+
+        # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
+        if not is_trivial_query(query):
+            return None
+        empty: list[dict[str, Any]] = []
+        if with_ledger:
+            return {
+                "nodes": empty,
+                "ledger": build_evidence_ledger(query, empty),
+                "plan": HydePlan(vector_queries=[query]).model_dump(),
+                "trivial": True,
+            }
+        return empty
+
+    def _resolve_hyde_plan(self, query: str, mode: str) -> Any:
+        from .hyde_planner import HydePlan
+
+        if mode in ("standard", "deep"):
+            return HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
+        return self._generate_hyde_plan(query)
+
+    def _run_retrieval_pass(
+        self, queries: list[str], threshold: float, args: _RetrievalPassArgs
+    ) -> list[list[dict[str, Any]]]:
+        return [
+            self.retrieve_hybrid(
+                q,
+                context_window=args.sub_window,
+                corpus_id=args.corpus_id,
+                hard_negatives=args.hard_negatives,
+                relevance_threshold=threshold,
+                active_task=args.active_task,
+                session=args.session,  # GOC-83-W04: thread through, no-op when None
+            )
+            for q in queries
+        ]
+
+    def _maybe_self_correct(
+        self,
+        nodes: list[dict[str, Any]],
+        queries: list[str],
+        args: _RetrievalPassArgs,
+        context_window: int,
+        self_correct: bool,
+    ) -> list[dict[str, Any]]:
+        # Self-correcting second pass — fire only when the quality gate measured a failure.
+        from .hyde_planner import merge_retrievals, threshold_for_mode
+
+        report = self.last_quality_report
+        gate_failed = report is not None and not getattr(report, "gate_passed", True)
+        if not (self_correct and gate_failed):
+            return nodes
+        deep_threshold = threshold_for_mode("deep")
+        second_lists = self._run_retrieval_pass(queries, deep_threshold, args)
+        return merge_retrievals([nodes, *second_lists], context_window)
+
     def plan_and_retrieve(
         self,
         query: str,
@@ -1882,66 +1955,33 @@ class HybridRetriever:
         when ``with_ledger`` is set. Keeps the 3-hop Wire-First ceiling (method, not a service).
         """
         from .hyde_planner import (
-            HydePlan,
             build_evidence_ledger,
-            is_trivial_query,
             merge_retrievals,
             threshold_for_mode,
         )
 
-        # CONCEPT:AU-KG.retrieval.triviality-gate — social-closer gate: trivial turns skip the planner + retrieval entirely.
-        if is_trivial_query(query):
-            empty: list[dict[str, Any]] = []
-            if with_ledger:
-                return {
-                    "nodes": empty,
-                    "ledger": build_evidence_ledger(query, empty),
-                    "plan": HydePlan(vector_queries=[query]).model_dump(),
-                    "trivial": True,
-                }
-            return empty
+        trivial = self._trivial_query_result(query, with_ledger)
+        if trivial is not None:
+            return trivial
 
-        if mode in ("standard", "deep"):
-            plan = HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
-        else:
-            plan = self._generate_hyde_plan(query)
-
+        plan = self._resolve_hyde_plan(query, mode)
         threshold = threshold_for_mode(plan.search_mode)
         queries = plan.effective_queries(query)
         sub_window = max(2, context_window)
+        args = _RetrievalPassArgs(
+            sub_window=sub_window,
+            corpus_id=corpus_id,
+            hard_negatives=hard_negatives,
+            active_task=active_task,
+            session=session,
+        )
 
-        first_lists = [
-            self.retrieve_hybrid(
-                q,
-                context_window=sub_window,
-                corpus_id=corpus_id,
-                hard_negatives=hard_negatives,
-                relevance_threshold=threshold,
-                active_task=active_task,
-                session=session,  # GOC-83-W04: thread through, no-op when None
-            )
-            for q in queries
-        ]
+        first_lists = self._run_retrieval_pass(queries, threshold, args)
         nodes = merge_retrievals(first_lists, context_window)
 
-        # Self-correcting second pass — fire only when the quality gate measured a failure.
-        report = self.last_quality_report
-        gate_failed = report is not None and not getattr(report, "gate_passed", True)
-        if self_correct and gate_failed:
-            deep_threshold = threshold_for_mode("deep")
-            second_lists = [
-                self.retrieve_hybrid(
-                    q,
-                    context_window=sub_window,
-                    corpus_id=corpus_id,
-                    hard_negatives=hard_negatives,
-                    relevance_threshold=deep_threshold,
-                    active_task=active_task,
-                    session=session,  # GOC-83-W04: thread through, no-op when None
-                )
-                for q in queries
-            ]
-            nodes = merge_retrievals([nodes, *second_lists], context_window)
+        nodes = self._maybe_self_correct(
+            nodes, queries, args, context_window, self_correct
+        )
 
         # CONCEPT:AU-KG.retrieval.triviality-gate — 4-level fallback cascade: hybrid (above) → dense-only is already
         # inside retrieve_hybrid → lexical keyword scan → backend scan. If the vector path yielded
