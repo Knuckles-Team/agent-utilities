@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -589,3 +590,84 @@ def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     )
     report = drift.analyze(root)
     assert "DEMO_REPORTSTOOL" in _types(report, "UNDOCUMENTED")
+
+
+def test_setting_passthrough_helper_reads_not_dead(tmp_path: Path) -> None:
+    """A local ``_any_setting(*keys)``/``_all_settings(*keys)``-shaped helper
+    (agent_utilities/knowledge_graph/core/hydration.py's real pattern) that
+    loops its own varargs into ``setting()`` must count each literal passed
+    at a CALL site as a genuine read -- not DEAD -- even though the var name
+    never appears next to ``setting(`` itself."""
+    root = _make_pkg(
+        tmp_path,
+        env_example=(
+            "DEMO_BASE_URL=http://x\nJIRA_TOKEN=\nJIRA_API_TOKEN=\nSERVICENOW_USERNAME=\nSERVICENOW_PASSWORD=\n"
+        ),
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n\n'
+            "def _any_setting(*keys: str) -> bool:\n"
+            "    return any(setting(key) for key in keys)\n\n"
+            "def _all_settings(*keys: str) -> bool:\n"
+            "    return all(setting(key) for key in keys)\n\n"
+            '_any_setting("JIRA_TOKEN", "JIRA_API_TOKEN")\n'
+            '_all_settings("SERVICENOW_USERNAME", "SERVICENOW_PASSWORD")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    dead = _types(report, "DEAD")
+    assert "JIRA_TOKEN" not in dead
+    assert "JIRA_API_TOKEN" not in dead
+    assert "SERVICENOW_USERNAME" not in dead
+    assert "SERVICENOW_PASSWORD" not in dead
+
+
+def test_setting_passthrough_helper_undocumented_still_flagged(tmp_path: Path) -> None:
+    """The passthrough-helper recognition must still surface a genuinely
+    undocumented var passed through it -- it widens what counts as a read,
+    it does not blind the UNDOCUMENTED side of the gate."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n\n'
+            "def _any_setting(*keys: str) -> bool:\n"
+            "    return any(setting(key) for key in keys)\n\n"
+            '_any_setting("NOT_IN_ENV_EXAMPLE_TOKEN")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    assert "NOT_IN_ENV_EXAMPLE_TOKEN" in _types(report, "UNDOCUMENTED")
+
+
+def test_collect_setting_passthrough_helpers_direct() -> None:
+    """Unit-level pin on the AST helper itself: it must recognize both the
+    ``any(setting(key) for key in keys)`` and ``all(...)`` shapes, and must
+    NOT flag an unrelated function that merely also takes ``*args``."""
+    src = (
+        "def _any_setting(*keys: str) -> bool:\n"
+        "    return any(setting(key) for key in keys)\n\n"
+        "def _all_settings(*keys: str) -> bool:\n"
+        "    return all(setting(key) for key in keys)\n\n"
+        "def _sum_all(*nums: int) -> int:\n"
+        "    return sum(n for n in nums)\n"
+    )
+    helpers = drift._collect_setting_passthrough_helpers(ast.parse(src))
+    assert helpers == {"_any_setting", "_all_settings"}
+
+
+def test_passthrough_helper_call_literals_direct() -> None:
+    """Unit-level pin: a call to a recognized helper yields every literal
+    string positional argument; a call to a name NOT in the helper set
+    yields nothing."""
+    tree = ast.parse('_any_setting("A_TOKEN", "B_TOKEN")\nother("C_TOKEN")\n')
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    any_call, other_call = calls[0], calls[1]
+    assert drift._passthrough_helper_call_literals(any_call, {"_any_setting"}) == [
+        "A_TOKEN",
+        "B_TOKEN",
+    ]
+    assert drift._passthrough_helper_call_literals(other_call, {"_any_setting"}) == []
