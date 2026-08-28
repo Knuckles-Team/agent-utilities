@@ -64,6 +64,7 @@ import re
 import stat
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import anyio
@@ -112,29 +113,45 @@ def _runtime_secret_reference(ref_name: str) -> str | None:
     return ref
 
 
+def _resolve_env_secret(target: str) -> str:
+    """Resolve an ``env://`` secret reference from this process's own environment.
+
+    Environment references are already materialized at the process boundary.
+    Resolving them must not construct the durable secret backend: doing so
+    can recursively autostart an engine merely to read this process's own
+    environment.
+    """
+    if not target or target[0].isdigit() or not target.replace("_", "a").isalnum():
+        raise RuntimeError("outbound MCP credential reference is invalid")
+    return str(setting(target, "") or "")
+
+
+def _resolve_vault_secret(ref: str) -> str:
+    """Resolve a non-``env://`` secret reference through the secrets backend."""
+    from agent_utilities.security.secrets_client import create_secrets_client
+
+    return str(create_secrets_client().resolve_ref(ref) or "")
+
+
+def _validate_secret_value(value: str) -> str | None:
+    """Return ``value`` if non-empty and safe, else None; raises if unsafe."""
+    if not value:
+        return None
+    if len(value) > 16_384 or any(character in value for character in "\r\n\x00"):
+        raise RuntimeError("outbound MCP credential is invalid")
+    return value
+
+
 def _resolve_runtime_secret(ref_name: str) -> str | None:
     """Resolve a referenced credential only at the outbound request boundary."""
     ref = _runtime_secret_reference(ref_name)
     if not ref:
         return None
     scheme, _, target = ref.partition("://")
-    if scheme == "env":
-        # Environment references are already materialized at the process
-        # boundary. Resolving them must not construct the durable secret
-        # backend: doing so can recursively autostart an engine merely to
-        # read this process's own environment.
-        if not target or target[0].isdigit() or not target.replace("_", "a").isalnum():
-            raise RuntimeError("outbound MCP credential reference is invalid")
-        value = str(setting(target, "") or "")
-    else:
-        from agent_utilities.security.secrets_client import create_secrets_client
-
-        value = str(create_secrets_client().resolve_ref(ref) or "")
-    if not value:
-        return None
-    if len(value) > 16_384 or any(character in value for character in "\r\n\x00"):
-        raise RuntimeError("outbound MCP credential is invalid")
-    return value
+    value = (
+        _resolve_env_secret(target) if scheme == "env" else _resolve_vault_secret(ref)
+    )
+    return _validate_secret_value(value)
 
 
 def _auth_mode() -> str:
@@ -173,59 +190,84 @@ def _derive_token_url() -> str | None:
     return token_endpoint_for(primary_issuer)
 
 
+def _invalid_oidc_text_fields(required: dict[str, str]) -> list[str]:
+    """Which of the OIDC text fields exceed the length/control-char bounds."""
+    return [
+        name
+        for name in ("OIDC_CLIENT_ID", "OIDC_AUDIENCE")
+        if required[name]
+        and (
+            len(required[name]) > 4_096
+            or any(character in required[name] for character in "\r\n\x00")
+        )
+    ]
+
+
+def _oidc_config_problems() -> tuple[list[str], list[str]]:
+    """Missing/invalid config names for ``oidc-client-credentials`` mode."""
+    required = {
+        "OIDC_CLIENT_ID": _configured_text("OIDC_CLIENT_ID"),
+        "OIDC_CLIENT_SECRET_REF": _configured_text("OIDC_CLIENT_SECRET_REF"),
+        "OIDC_AUDIENCE": _configured_text("OIDC_AUDIENCE"),
+    }
+    missing = [name for name, value in required.items() if not value]
+    invalid = _invalid_oidc_text_fields(required)
+    if not (_configured_text("OIDC_TOKEN_URL") or _configured_text("OIDC_ISSUER")):
+        missing.append("OIDC_TOKEN_URL_OR_OIDC_ISSUER")
+    try:
+        _runtime_secret_reference("OIDC_CLIENT_SECRET_REF")
+    except RuntimeError:
+        invalid.append("OIDC_CLIENT_SECRET_REF")
+    return missing, invalid
+
+
+def _basic_config_problems() -> tuple[list[str], list[str]]:
+    """Missing/invalid config names for ``basic`` mode."""
+    missing: list[str] = []
+    invalid: list[str] = []
+    required = {
+        "MCP_BASIC_AUTH_USERNAME": _configured_text("MCP_BASIC_AUTH_USERNAME"),
+        "MCP_BASIC_AUTH_PASSWORD_REF": _configured_text("MCP_BASIC_AUTH_PASSWORD_REF"),
+    }
+    missing.extend(name for name, value in required.items() if not value)
+    username = required["MCP_BASIC_AUTH_USERNAME"]
+    if username and (
+        len(username) > 4_096 or any(character in username for character in "\r\n\x00:")
+    ):
+        invalid.append("MCP_BASIC_AUTH_USERNAME")
+    try:
+        _runtime_secret_reference("MCP_BASIC_AUTH_PASSWORD_REF")
+    except RuntimeError:
+        invalid.append("MCP_BASIC_AUTH_PASSWORD_REF")
+    return missing, invalid
+
+
+def _rotating_file_bearer_config_problems() -> tuple[list[str], list[str]]:
+    """Missing/invalid config names for ``rotating-file-bearer`` mode."""
+    missing: list[str] = []
+    invalid: list[str] = []
+    path_text = _configured_text("MCP_BEARER_TOKEN_FILE")
+    if not path_text:
+        missing.append("MCP_BEARER_TOKEN_FILE")
+    elif len(path_text) > 4_096 or any(
+        character in path_text for character in "\r\n\x00"
+    ):
+        invalid.append("MCP_BEARER_TOKEN_FILE")
+    return missing, invalid
+
+
+_MODE_CONFIG_PROBLEM_CHECKS: dict[str, Callable[[], tuple[list[str], list[str]]]] = {
+    _MODE_OIDC: _oidc_config_problems,
+    _MODE_BASIC: _basic_config_problems,
+    _MODE_ROTATING_FILE_BEARER: _rotating_file_bearer_config_problems,
+}
+
+
 def outbound_auth_configuration_status() -> dict[str, object]:
     """Return redacted outbound-auth readiness without resolving any secret."""
     mode = _auth_mode()
-    missing: list[str] = []
-    invalid: list[str] = []
-    if mode == _MODE_OIDC:
-        required = {
-            "OIDC_CLIENT_ID": _configured_text("OIDC_CLIENT_ID"),
-            "OIDC_CLIENT_SECRET_REF": _configured_text("OIDC_CLIENT_SECRET_REF"),
-            "OIDC_AUDIENCE": _configured_text("OIDC_AUDIENCE"),
-        }
-        missing.extend(name for name, value in required.items() if not value)
-        invalid.extend(
-            name
-            for name in ("OIDC_CLIENT_ID", "OIDC_AUDIENCE")
-            if required[name]
-            and (
-                len(required[name]) > 4_096
-                or any(character in required[name] for character in "\r\n\x00")
-            )
-        )
-        if not (_configured_text("OIDC_TOKEN_URL") or _configured_text("OIDC_ISSUER")):
-            missing.append("OIDC_TOKEN_URL_OR_OIDC_ISSUER")
-        try:
-            _runtime_secret_reference("OIDC_CLIENT_SECRET_REF")
-        except RuntimeError:
-            invalid.append("OIDC_CLIENT_SECRET_REF")
-    elif mode == _MODE_BASIC:
-        required = {
-            "MCP_BASIC_AUTH_USERNAME": _configured_text("MCP_BASIC_AUTH_USERNAME"),
-            "MCP_BASIC_AUTH_PASSWORD_REF": _configured_text(
-                "MCP_BASIC_AUTH_PASSWORD_REF"
-            ),
-        }
-        missing.extend(name for name, value in required.items() if not value)
-        username = required["MCP_BASIC_AUTH_USERNAME"]
-        if username and (
-            len(username) > 4_096
-            or any(character in username for character in "\r\n\x00:")
-        ):
-            invalid.append("MCP_BASIC_AUTH_USERNAME")
-        try:
-            _runtime_secret_reference("MCP_BASIC_AUTH_PASSWORD_REF")
-        except RuntimeError:
-            invalid.append("MCP_BASIC_AUTH_PASSWORD_REF")
-    elif mode == _MODE_ROTATING_FILE_BEARER:
-        path_text = _configured_text("MCP_BEARER_TOKEN_FILE")
-        if not path_text:
-            missing.append("MCP_BEARER_TOKEN_FILE")
-        elif len(path_text) > 4_096 or any(
-            character in path_text for character in "\r\n\x00"
-        ):
-            invalid.append("MCP_BEARER_TOKEN_FILE")
+    check = _MODE_CONFIG_PROBLEM_CHECKS.get(mode)
+    missing, invalid = check() if check else ([], [])
     return {
         "mode": mode,
         "ready": not missing and not invalid,
@@ -420,6 +462,50 @@ class ClientCredentialsTokenProvider:
         so they never outlive their bearer."""
         return self._ttl_seconds if self._ttl_seconds > 0 else _DEFAULT_TOKEN_TTL_S
 
+    def _fetch_oidc_token_body(self) -> bytes:
+        """POST the client-credentials grant; return the raw response body,
+        enforcing the response-size safety boundary."""
+        data = {"grant_type": "client_credentials"}
+        if self.audience:
+            data["audience"] = self.audience
+        if self.scope:
+            data["scope"] = self.scope
+        from agent_utilities.security.oidc_discovery import oidc_http_client
+
+        with oidc_http_client(timeout=float(self.timeout)) as client:
+            with client.stream(
+                "POST",
+                self.token_url,
+                data=data,
+                auth=(self.client_id, self.client_secret),
+            ) as response:
+                response.raise_for_status()
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) > _MAX_TOKEN_RESPONSE_BYTES:
+                        raise RuntimeError(
+                            "OIDC token response exceeded its safety boundary"
+                        )
+        return bytes(body)
+
+    @staticmethod
+    def _parse_oidc_token_response(body: bytes) -> tuple[str, float]:
+        """Validate + extract ``(access_token, ttl_seconds)`` from a raw response body."""
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            raise RuntimeError("OIDC token response had an invalid shape")
+        token = payload.get("access_token")
+        if not isinstance(token, str) or not 1 <= len(token) <= 65_536:
+            raise RuntimeError("OIDC token response had an invalid token")
+        try:
+            ttl = float(payload.get("expires_in", 300))
+        except (TypeError, ValueError):
+            ttl = 300.0
+        if not 1.0 <= ttl <= 86_400.0:
+            raise RuntimeError("OIDC token response had an invalid lifetime")
+        return token, ttl
+
     def get_token(self, *, force: bool = False) -> str:
         """Return a cached access token, refreshing it if missing or near expiry.
 
@@ -430,40 +516,8 @@ class ClientCredentialsTokenProvider:
             now = time.monotonic()
             if not force and self._token and now < self._expires_at - _EXPIRY_SKEW_S:
                 return self._token
-            data = {"grant_type": "client_credentials"}
-            if self.audience:
-                data["audience"] = self.audience
-            if self.scope:
-                data["scope"] = self.scope
-            from agent_utilities.security.oidc_discovery import oidc_http_client
-
-            with oidc_http_client(timeout=float(self.timeout)) as client:
-                with client.stream(
-                    "POST",
-                    self.token_url,
-                    data=data,
-                    auth=(self.client_id, self.client_secret),
-                ) as response:
-                    response.raise_for_status()
-                    body = bytearray()
-                    for chunk in response.iter_bytes():
-                        body.extend(chunk)
-                        if len(body) > _MAX_TOKEN_RESPONSE_BYTES:
-                            raise RuntimeError(
-                                "OIDC token response exceeded its safety boundary"
-                            )
-            payload = json.loads(body)
-            if not isinstance(payload, dict):
-                raise RuntimeError("OIDC token response had an invalid shape")
-            token = payload.get("access_token")
-            if not isinstance(token, str) or not 1 <= len(token) <= 65_536:
-                raise RuntimeError("OIDC token response had an invalid token")
-            try:
-                ttl = float(payload.get("expires_in", 300))
-            except (TypeError, ValueError):
-                ttl = 300.0
-            if not 1.0 <= ttl <= 86_400.0:
-                raise RuntimeError("OIDC token response had an invalid lifetime")
+            body = self._fetch_oidc_token_body()
+            token, ttl = self._parse_oidc_token_response(body)
             self._token = token
             self._ttl_seconds = ttl
             self._expires_at = now + self._ttl_seconds
@@ -536,6 +590,27 @@ def _basic_header_value(user: str, password: str) -> str:
     return f"Basic {token}"
 
 
+def _rotating_file_bearer_header() -> dict[str, str]:
+    path = _bearer_token_file()
+    if path is None:  # defensive: mode=rotating-file-bearer always has a path
+        raise RuntimeError("Outbound MCP service identity is unavailable")
+    return {"Authorization": f"Bearer {read_rotating_bearer_token(path)}"}
+
+
+def _oidc_bearer_header() -> dict[str, str]:
+    provider = get_provider()
+    if provider is None:  # defensive: mode=OIDC always returns or raises
+        raise RuntimeError("Outbound MCP service identity is unavailable")
+    try:
+        return {"Authorization": f"Bearer {provider.get_token()}"}
+    except Exception as exc:  # pragma: no cover - network/permission failure
+        logger.warning(
+            "Could not mint multiplexer service token (exception_type=%s)",
+            type(exc).__name__,
+        )
+        raise RuntimeError("Could not mint outbound MCP credential") from None
+
+
 def child_auth_header(existing: dict | None) -> dict:
     """Authorization header for a remote child, or ``{}`` if not applicable.
 
@@ -560,21 +635,8 @@ def child_auth_header(existing: dict | None) -> dict:
     if mode == _MODE_BASIC and basic is not None:
         return {"Authorization": _basic_header_value(*basic)}
     if mode == _MODE_ROTATING_FILE_BEARER:
-        path = _bearer_token_file()
-        if path is None:  # defensive: mode=rotating-file-bearer always has a path
-            raise RuntimeError("Outbound MCP service identity is unavailable")
-        return {"Authorization": f"Bearer {read_rotating_bearer_token(path)}"}
-    provider = get_provider()
-    if provider is None:  # defensive: mode=OIDC always returns or raises
-        raise RuntimeError("Outbound MCP service identity is unavailable")
-    try:
-        return {"Authorization": f"Bearer {provider.get_token()}"}
-    except Exception as exc:  # pragma: no cover - network/permission failure
-        logger.warning(
-            "Could not mint multiplexer service token (exception_type=%s)",
-            type(exc).__name__,
-        )
-        raise RuntimeError("Could not mint outbound MCP credential") from None
+        return _rotating_file_bearer_header()
+    return _oidc_bearer_header()
 
 
 class ClientCredentialsAuth(httpx.Auth):
