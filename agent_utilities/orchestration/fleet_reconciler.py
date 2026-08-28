@@ -1675,155 +1675,188 @@ class FleetReconciler:
             logger.warning("fleet recovery completion failed: %s", exc)
             return None
 
-    def _drain_approved(self, budget: int) -> list[dict[str, Any]]:
-        """Execute fleet actions a human approved via /api/fleet/approvals/grant."""
-        if budget <= 0 or self.engine is None:
-            return []
+    def _scan_approved_candidates(self) -> list[Any]:
         try:
-            rows = self.engine.query_cypher(
+            return self.engine.query_cypher(
                 "MATCH (a:ActionApproval {status: 'approved'}) "
                 f"RETURN a LIMIT {_APPROVAL_DRAIN_LIMIT}"
             )
         except Exception as e:  # noqa: BLE001 — read-only candidate scan; on failure nothing is mutated (no approvals drained, budget untouched) and every approved row is re-selected on the next tick
             logger.debug("fleet_reconciler: approval drain scan failed: %s", e)
             return []
+
+    def _build_approval_request(self, props: dict[str, Any]) -> ActionRequest:
+        try:
+            params = json.loads(props.get("params_json") or "{}")
+        except (TypeError, ValueError):
+            params = {}
+        request = ActionRequest(
+            kind=str(props.get("kind") or ""),
+            target=str(props.get("target") or ""),
+            params=params if isinstance(params, dict) else {},
+            source=f"approved:{props.get('source') or 'unknown'}",
+            reason=str(props.get("reason") or ""),
+        )
+        return self._bind_kubernetes_resource(
+            request, load_desired_state().get(request.target)
+        )
+
+    def _execute_direct_scale_approval(
+        self, request: ActionRequest, props: dict[str, Any]
+    ) -> dict[str, Any]:
+        direct_allowed, direct_reason = self._direct_scale_allowed(request.target)
+        if not direct_allowed:
+            return {
+                "ok": False,
+                "dry_run": False,
+                "state": _SCALE_INTENT_REJECTED,
+                "detail": direct_reason,
+            }
+        return execute_action(
+            self.engine,
+            request,
+            self.actuator,
+            outbox_store=self.action_outbox_store,
+            idempotency_key=f"approval:{props['id']}",
+            approval_id=str(props["id"]),
+        )
+
+    def _execute_approved_action(
+        self, request: ActionRequest, props: dict[str, Any]
+    ) -> dict[str, Any]:
+        if request.kind == "scale_service" and request.params.get("scale_intent_id"):
+            return self._accept_approved_scale_intent(request)
+        if request.kind == "scale_service":
+            return self._execute_direct_scale_approval(request, props)
+        return execute_action(
+            self.engine,
+            request,
+            self.actuator,
+            outbox_store=self.action_outbox_store,
+            idempotency_key=f"approval:{props['id']}",
+            approval_id=str(props["id"]),
+        )
+
+    @staticmethod
+    def _new_approval_status(execution: dict[str, Any]) -> str:
+        if execution.get("intent_accepted"):
+            return _SCALE_INTENT_ACCEPTED
+        state = execution.get("state")
+        if state == _SCALE_INTENT_SIMULATED:
+            return _SCALE_INTENT_SIMULATED
+        if state == _SCALE_INTENT_REJECTED:
+            return _SCALE_INTENT_REJECTED
+        if state == _SCALE_INTENT_RECOVERY_PENDING:
+            return _SCALE_INTENT_RECOVERY_PENDING
+        if state == _SCALE_INTENT_OBSERVED:
+            return _SCALE_INTENT_OBSERVED
+        if execution.get("ok"):
+            return "executed"
+        return "failed"
+
+    def _stamp_approval_if_needed(
+        self, props: dict[str, Any], new_status: str, execution: dict[str, Any]
+    ) -> None:
+        # A real action's outbox completion is the atomic approval-close
+        # boundary. Never perform a second best-effort approval write after
+        # the side effect: if completion was lost, leave the row approved
+        # so the next delivery retries completion without re-running the
+        # actuator. Dry-runs, intent acceptance, rejections, and legacy
+        # non-actuating paths still use the existing status stamp.
+        stamp_approval = not execution.get("outbox_prepared") and not execution.get(
+            "durability_unavailable"
+        )
+        if not stamp_approval:
+            return
+        for _attempt in (1, 2):
+            try:
+                self.engine.backend.execute(
+                    "MATCH (a:ActionApproval {id: $id}) "
+                    "SET a.status = $status, a.executed_at = $ts",
+                    {
+                        "id": props["id"],
+                        "status": new_status,
+                        "ts": _now_iso(),
+                    },
+                )
+                break
+            except Exception as e:  # noqa: BLE001 — retry once for non-outbox status-only paths
+                if _attempt == 2:
+                    logger.warning(
+                        "fleet_reconciler: approval %s stamp failed twice: %s",
+                        props.get("id"),
+                        e,
+                    )
+                else:
+                    logger.debug(
+                        "fleet_reconciler: approval stamp failed, retrying once: %s",
+                        e,
+                    )
+
+    def _watch_approved_action(
+        self, request: ActionRequest, execution: dict[str, Any]
+    ) -> None:
+        if not (
+            _should_watch(request, self.policy)
+            and execution.get("ok")
+            and execution.get("state") != _SCALE_INTENT_SIMULATED
+        ):
+            return
+        from agent_utilities.orchestration.deploy_watch import watch_deploy
+
+        watch_deploy(
+            self.engine,
+            request.target,
+            version=str(request.params.get("version") or ""),
+            source="approval",
+        )
+
+    def _process_one_approval(self, props: dict[str, Any]) -> dict[str, Any]:
+        request = self._build_approval_request(props)
+        execution = self._execute_approved_action(request, props)
+        execution = self._reconcile_recovery_approval(
+            request, execution, str(props["id"])
+        )
+        new_status = self._new_approval_status(execution)
+        self._stamp_approval_if_needed(props, new_status, execution)
+        self._watch_approved_action(request, execution)
+        return {
+            "approval_id": props["id"],
+            "kind": request.kind,
+            "target": request.target,
+            "status": new_status,
+            "execution": execution,
+        }
+
+    @staticmethod
+    def _approval_candidate_props(row: Any) -> dict[str, Any] | None:
+        """None means: skip this row — invalid, or not actuatable via this drain path."""
+        props = row.get("a") if isinstance(row, dict) else None
+        if not isinstance(props, dict) or not props.get("id"):
+            return None
+        if str(props.get("kind") or "") == "merge_promotion":
+            # Code-evolution publications are NOT fleet actuations: a
+            # granted merge_promotion approval is consumed by the
+            # evolution→branch bridge's ``publish_proposal`` action
+            # (CONCEPT:AU-AHE.harness.evolution-branch-bridge), never by the fleet actuator — which
+            # would dry-run/fail it and silently eat the grant.
+            return None
+        return props
+
+    def _drain_approved(self, budget: int) -> list[dict[str, Any]]:
+        """Execute fleet actions a human approved via /api/fleet/approvals/grant."""
+        if budget <= 0 or self.engine is None:
+            return []
+        rows = self._scan_approved_candidates()
         drained: list[dict[str, Any]] = []
         for row in rows or []:
             if budget <= 0:
                 break
-            props = row.get("a") if isinstance(row, dict) else None
-            if not isinstance(props, dict) or not props.get("id"):
+            props = self._approval_candidate_props(row)
+            if props is None:
                 continue
-            if str(props.get("kind") or "") == "merge_promotion":
-                # Code-evolution publications are NOT fleet actuations: a
-                # granted merge_promotion approval is consumed by the
-                # evolution→branch bridge's ``publish_proposal`` action
-                # (CONCEPT:AU-AHE.harness.evolution-branch-bridge), never by the fleet actuator — which
-                # would dry-run/fail it and silently eat the grant.
-                continue
-            try:
-                params = json.loads(props.get("params_json") or "{}")
-            except (TypeError, ValueError):
-                params = {}
-            request = ActionRequest(
-                kind=str(props.get("kind") or ""),
-                target=str(props.get("target") or ""),
-                params=params if isinstance(params, dict) else {},
-                source=f"approved:{props.get('source') or 'unknown'}",
-                reason=str(props.get("reason") or ""),
-            )
-            request = self._bind_kubernetes_resource(
-                request, load_desired_state().get(request.target)
-            )
-            if request.kind == "scale_service" and request.params.get(
-                "scale_intent_id"
-            ):
-                execution = self._accept_approved_scale_intent(request)
-            elif request.kind == "scale_service":
-                direct_allowed, direct_reason = self._direct_scale_allowed(
-                    request.target
-                )
-                execution = (
-                    {
-                        "ok": False,
-                        "dry_run": False,
-                        "state": _SCALE_INTENT_REJECTED,
-                        "detail": direct_reason,
-                    }
-                    if not direct_allowed
-                    else execute_action(
-                        self.engine,
-                        request,
-                        self.actuator,
-                        outbox_store=self.action_outbox_store,
-                        idempotency_key=f"approval:{props['id']}",
-                        approval_id=str(props["id"]),
-                    )
-                )
-            else:
-                execution = execute_action(
-                    self.engine,
-                    request,
-                    self.actuator,
-                    outbox_store=self.action_outbox_store,
-                    idempotency_key=f"approval:{props['id']}",
-                    approval_id=str(props["id"]),
-                )
-            execution = self._reconcile_recovery_approval(
-                request, execution, str(props["id"])
-            )
+            drained.append(self._process_one_approval(props))
             budget -= 1
-            new_status = (
-                _SCALE_INTENT_ACCEPTED
-                if execution.get("intent_accepted")
-                else _SCALE_INTENT_SIMULATED
-                if execution.get("state") == _SCALE_INTENT_SIMULATED
-                else _SCALE_INTENT_REJECTED
-                if execution.get("state") == _SCALE_INTENT_REJECTED
-                else _SCALE_INTENT_RECOVERY_PENDING
-                if execution.get("state") == _SCALE_INTENT_RECOVERY_PENDING
-                else _SCALE_INTENT_OBSERVED
-                if execution.get("state") == _SCALE_INTENT_OBSERVED
-                else "executed"
-                if execution.get("ok")
-                else "failed"
-            )
-            # A real action's outbox completion is the atomic approval-close
-            # boundary. Never perform a second best-effort approval write after
-            # the side effect: if completion was lost, leave the row approved
-            # so the next delivery retries completion without re-running the
-            # actuator. Dry-runs, intent acceptance, rejections, and legacy
-            # non-actuating paths still use the existing status stamp.
-            stamp_approval = not execution.get("outbox_prepared") and not execution.get(
-                "durability_unavailable"
-            )
-            if stamp_approval:
-                for _attempt in (1, 2):
-                    try:
-                        self.engine.backend.execute(
-                            "MATCH (a:ActionApproval {id: $id}) "
-                            "SET a.status = $status, a.executed_at = $ts",
-                            {
-                                "id": props["id"],
-                                "status": new_status,
-                                "ts": _now_iso(),
-                            },
-                        )
-                        break
-                    except Exception as e:  # noqa: BLE001 — retry once for non-outbox status-only paths
-                        if _attempt == 2:
-                            logger.warning(
-                                "fleet_reconciler: approval %s stamp failed twice: %s",
-                                props.get("id"),
-                                e,
-                            )
-                        else:
-                            logger.debug(
-                                "fleet_reconciler: approval stamp failed, retrying once: %s",
-                                e,
-                            )
-            if (
-                _should_watch(request, self.policy)
-                and execution.get("ok")
-                and execution.get("state") != _SCALE_INTENT_SIMULATED
-            ):
-                from agent_utilities.orchestration.deploy_watch import watch_deploy
-
-                watch_deploy(
-                    self.engine,
-                    request.target,
-                    version=str(request.params.get("version") or ""),
-                    source="approval",
-                )
-            drained.append(
-                {
-                    "approval_id": props["id"],
-                    "kind": request.kind,
-                    "target": request.target,
-                    "status": new_status,
-                    "execution": execution,
-                }
-            )
         return drained
 
     def reconcile(self) -> dict[str, Any]:
