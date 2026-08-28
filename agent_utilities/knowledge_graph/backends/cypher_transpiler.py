@@ -275,6 +275,41 @@ def _try_label_lookup(
     )
 
 
+def _select_column_for_item(item: str, r_alias: str) -> tuple[str, str, bool] | None:
+    """Resolve one RETURN-clause item to ``(select_expr, return_alias,
+    is_count)`` for ``_relationship_select_columns``, or ``None`` if it does
+    not match any recognized relationship-return shape."""
+    # ``RETURN count(r) AS c`` / ``count(*)`` — an aggregate over the matched
+    # edges, not a property projection. Emit ``count(*) AS <alias>`` (mirrors
+    # _build_traversal's count handling); without this branch the item matched
+    # nothing and the projection silently fell back to ``SELECT properties``,
+    # so ``rows[0]["c"]`` was a JSONB blob instead of the integer count.
+    m_count = re.search(
+        r"count\s*\(\s*(?:\*|\w+)\s*\)\s*(?:AS\s+(\w+))?",
+        item,
+        re.IGNORECASE,
+    )
+    if m_count:
+        cnt_alias = m_count.group(1) or "count"
+        return f"count(*) AS {cnt_alias}", cnt_alias, True
+
+    m_prop = re.search(rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE)
+    if m_prop:
+        prop_name = m_prop.group(1)
+        prop_alias = m_prop.group(2)
+        return f"(properties->>'{prop_name}') AS {prop_alias}", prop_alias, False
+
+    m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
+    if m_prop_simple:
+        prop_name = m_prop_simple.group(1)
+        return f"(properties->>'{prop_name}') AS {prop_name}", prop_name, False
+
+    if item == r_alias:
+        return "properties", r_alias, False
+
+    return None
+
+
 def _relationship_select_columns(
     cypher_stripped: str, r_alias: str
 ) -> tuple[list[str], list[str], bool]:
@@ -286,39 +321,14 @@ def _relationship_select_columns(
         ret_raw = m_ret.group(1).strip()
         items = [item.strip() for item in ret_raw.split(",")]
         for item in items:
-            # ``RETURN count(r) AS c`` / ``count(*)`` — an aggregate over the matched
-            # edges, not a property projection. Emit ``count(*) AS <alias>`` (mirrors
-            # _build_traversal's count handling); without this branch the item matched
-            # nothing and the projection silently fell back to ``SELECT properties``,
-            # so ``rows[0]["c"]`` was a JSONB blob instead of the integer count.
-            m_count = re.search(
-                r"count\s*\(\s*(?:\*|\w+)\s*\)\s*(?:AS\s+(\w+))?",
-                item,
-                re.IGNORECASE,
-            )
-            if m_count:
-                cnt_alias = m_count.group(1) or "count"
-                select_cols.append(f"count(*) AS {cnt_alias}")
-                return_cols.append(cnt_alias)
-                is_count = True
+            resolved = _select_column_for_item(item, r_alias)
+            if resolved is None:
                 continue
-            m_prop = re.search(
-                rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE
-            )
-            if m_prop:
-                prop_name = m_prop.group(1)
-                prop_alias = m_prop.group(2)
-                select_cols.append(f"(properties->>'{prop_name}') AS {prop_alias}")
-                return_cols.append(prop_alias)
-            else:
-                m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
-                if m_prop_simple:
-                    prop_name = m_prop_simple.group(1)
-                    select_cols.append(f"(properties->>'{prop_name}') AS {prop_name}")
-                    return_cols.append(prop_name)
-                elif item == r_alias:
-                    select_cols.append("properties")
-                    return_cols.append(r_alias)
+            select_col, return_col, item_is_count = resolved
+            select_cols.append(select_col)
+            return_cols.append(return_col)
+            if item_is_count:
+                is_count = True
 
     if not select_cols:
         select_cols = ["properties"]
@@ -477,6 +487,21 @@ def _try_delete_pattern(
     return None
 
 
+def _parse_merge_value(v_raw: str) -> Any:
+    """Coerce one MERGE-edge property value for ``_parse_merge_edge_props``: a
+    quoted string literal, else a best-effort int/float, else the raw text."""
+    if (v_raw.startswith("'") and v_raw.endswith("'")) or (
+        v_raw.startswith('"') and v_raw.endswith('"')
+    ):
+        return v_raw[1:-1]
+    try:
+        if "." in v_raw:
+            return float(v_raw)
+        return int(v_raw)
+    except ValueError:
+        return v_raw
+
+
 def _parse_merge_edge_props(props_str: str | None) -> dict[str, Any]:
     edge_props: dict[str, Any] = {}
     if not props_str:
@@ -485,19 +510,7 @@ def _parse_merge_edge_props(props_str: str | None) -> dict[str, Any]:
         parts = pair.split(":")
         if len(parts) == 2:
             k_prop = parts[0].strip()
-            v_raw = parts[1].strip()
-            if (v_raw.startswith("'") and v_raw.endswith("'")) or (
-                v_raw.startswith('"') and v_raw.endswith('"')
-            ):
-                edge_props[k_prop] = v_raw[1:-1]
-            else:
-                try:
-                    if "." in v_raw:
-                        edge_props[k_prop] = float(v_raw)
-                    else:
-                        edge_props[k_prop] = int(v_raw)
-                except ValueError:
-                    edge_props[k_prop] = v_raw
+            edge_props[k_prop] = _parse_merge_value(parts[1].strip())
     return edge_props
 
 
@@ -539,6 +552,22 @@ def _try_merge_relationship(
     )
 
 
+def _project_return_columns(ret_raw: str, alias: str) -> list[str]:
+    """Build the SELECT-item list for a projecting RETURN clause
+    (``RETURN n.x AS y, ...``), for ``_determine_select_columns``."""
+    cols_sql = []
+    for item in [it.strip() for it in ret_raw.split(",")]:
+        m_item = re.search(
+            rf"{alias}\.`?(\w+)`?(?:\s+AS\s+(\w+))?", item, re.IGNORECASE
+        )
+        if not m_item:
+            continue
+        col = m_item.group(1)
+        out_alias = m_item.group(2) or col
+        cols_sql.append(f'"{col}" AS "{out_alias}"')
+    return cols_sql
+
+
 def _determine_select_columns(cypher_stripped: str, alias: str) -> tuple[str, bool]:
     # Determine return columns
     m_ret = _RETURN_CLAUSE.search(cypher_stripped)
@@ -559,16 +588,7 @@ def _determine_select_columns(cypher_stripped: str, alias: str) -> tuple[str, bo
         if ret_raw == alias:
             sel_cols = "*"
         elif f"{alias}." in ret_raw:
-            cols_sql = []
-            for item in [it.strip() for it in ret_raw.split(",")]:
-                m_item = re.search(
-                    rf"{alias}\.`?(\w+)`?(?:\s+AS\s+(\w+))?", item, re.IGNORECASE
-                )
-                if not m_item:
-                    continue
-                col = m_item.group(1)
-                out_alias = m_item.group(2) or col
-                cols_sql.append(f'"{col}" AS "{out_alias}"')
+            cols_sql = _project_return_columns(ret_raw, alias)
             if cols_sql:
                 sel_cols = ", ".join(cols_sql)
                 projecting = True
@@ -755,6 +775,77 @@ def _try_simple_patterns(
     return None
 
 
+def _traversal_limit_sql(cypher: str, params: dict[str, Any]) -> str:
+    """LIMIT clause for ``_build_traversal``, resolving a ``$param`` or a
+    literal integer."""
+    m_lim = _LIMIT_CLAUSE.search(cypher)
+    if not m_lim:
+        return ""
+    lim = m_lim.group(1)
+    if lim.startswith("$"):
+        lv = params.get(lim[1:])
+        if isinstance(lv, int):
+            return f" LIMIT {int(lv)}"
+        return ""
+    if lim.isdigit():
+        return f" LIMIT {int(lim)}"
+    return ""
+
+
+def _traversal_count_query(
+    ret_raw: str,
+    s_alias: str,
+    t_alias: str,
+    join: str,
+    params_list: list[Any],
+) -> TranspiledQuery:
+    """``RETURN count(...)`` (incl. ``DISTINCT``) shape of ``_build_traversal``."""
+    mc = re.search(
+        r"count\s*\(\s*(distinct\s+)?(\*|\w+)\s*\)\s*(?:as\s+(\w+))?",
+        ret_raw,
+        re.IGNORECASE,
+    )
+    alias = mc.group(3) if (mc and mc.group(3)) else "count"
+    distinct = bool(mc and mc.group(1))
+    tgt = mc.group(2) if mc else "*"
+    if distinct and tgt == s_alias:
+        expr = f"count(DISTINCT {s_alias}.id)"
+    elif distinct and tgt == t_alias:
+        expr = f"count(DISTINCT {t_alias}.id)"
+    else:
+        expr = "count(*)"
+    return TranspiledQuery(
+        sql=f"SELECT {expr} AS {alias} {join}",
+        params=params_list,
+        query_type=QueryType.COUNT,
+        return_columns=[alias],
+    )
+
+
+def _traversal_projection_columns(
+    ret_raw: str, s_alias: str, t_alias: str
+) -> tuple[list[str], list[str]]:
+    """``RETURN alias.col [AS name], ...`` shape of ``_build_traversal``."""
+    select_cols: list[str] = []
+    return_cols: list[str] = []
+    for item in [i.strip() for i in ret_raw.split(",") if i.strip()]:
+        mp = re.match(
+            rf"(?:{re.escape(s_alias)}|{re.escape(t_alias)})\.(\w+)\s*(?:as\s+(\w+))?$",
+            item,
+            re.IGNORECASE,
+        )
+        if mp:
+            a = item.split(".")[0].strip()
+            col = mp.group(1)
+            al = mp.group(2) or col
+            select_cols.append(f'{a}."{col}" AS {al}')
+            return_cols.append(al)
+        elif item in (s_alias, t_alias):
+            select_cols.append(f"{item}.id AS {item}_id")
+            return_cols.append(f"{item}_id")
+    return select_cols, return_cols
+
+
 def _build_traversal(
     cypher: str,
     s_alias: str,
@@ -786,58 +877,14 @@ def _build_traversal(
         params_list.append(r_type)
     join += f' JOIN "{t_label}" {t_alias} ON {t_alias}.id = e.target_id'
 
-    limit_sql = ""
-    m_lim = _LIMIT_CLAUSE.search(cypher)
-    if m_lim:
-        lim = m_lim.group(1)
-        if lim.startswith("$"):
-            lv = params.get(lim[1:])
-            if isinstance(lv, int):
-                limit_sql = f" LIMIT {int(lv)}"
-        elif lim.isdigit():
-            limit_sql = f" LIMIT {int(lim)}"
+    limit_sql = _traversal_limit_sql(cypher, params)
 
     # RETURN count(...)
     if re.search(r"\bcount\s*\(", ret_raw, re.IGNORECASE):
-        mc = re.search(
-            r"count\s*\(\s*(distinct\s+)?(\*|\w+)\s*\)\s*(?:as\s+(\w+))?",
-            ret_raw,
-            re.IGNORECASE,
-        )
-        alias = mc.group(3) if (mc and mc.group(3)) else "count"
-        distinct = bool(mc and mc.group(1))
-        tgt = mc.group(2) if mc else "*"
-        if distinct and tgt == s_alias:
-            expr = f"count(DISTINCT {s_alias}.id)"
-        elif distinct and tgt == t_alias:
-            expr = f"count(DISTINCT {t_alias}.id)"
-        else:
-            expr = "count(*)"
-        return TranspiledQuery(
-            sql=f"SELECT {expr} AS {alias} {join}",
-            params=params_list,
-            query_type=QueryType.COUNT,
-            return_columns=[alias],
-        )
+        return _traversal_count_query(ret_raw, s_alias, t_alias, join, params_list)
 
     # RETURN alias.col [AS name], ...
-    select_cols: list[str] = []
-    return_cols: list[str] = []
-    for item in [i.strip() for i in ret_raw.split(",") if i.strip()]:
-        mp = re.match(
-            rf"(?:{re.escape(s_alias)}|{re.escape(t_alias)})\.(\w+)\s*(?:as\s+(\w+))?$",
-            item,
-            re.IGNORECASE,
-        )
-        if mp:
-            a = item.split(".")[0].strip()
-            col = mp.group(1)
-            al = mp.group(2) or col
-            select_cols.append(f'{a}."{col}" AS {al}')
-            return_cols.append(al)
-        elif item in (s_alias, t_alias):
-            select_cols.append(f"{item}.id AS {item}_id")
-            return_cols.append(f"{item}_id")
+    select_cols, return_cols = _traversal_projection_columns(ret_raw, s_alias, t_alias)
     if not select_cols:
         return None
     return TranspiledQuery(
@@ -846,6 +893,108 @@ def _build_traversal(
         query_type=QueryType.SELECT,
         return_columns=return_cols,
     )
+
+
+def _where_contains(
+    where_raw: str, params: dict[str, Any], sql_parts: list[str], values: list[Any]
+) -> None:
+    """``CONTAINS`` conditions, one tier of ``_build_where``."""
+    for m in _CONTAINS.finditer(where_raw):
+        col = m.group(2)
+        param_name = m.group(3)
+        val = params.get(param_name, "")
+        sql_parts.append(f'LOWER("{col}") LIKE %s')
+        values.append(f"%{val}%")
+
+
+def _where_equality(
+    where_raw: str,
+    alias: str,
+    params: dict[str, Any],
+    sql_parts: list[str],
+    values: list[Any],
+) -> None:
+    """Simple equality ``n.prop = $param``, one tier of ``_build_where``."""
+    for m in re.finditer(rf"{alias}\.(\w+)\s*=\s*\$(\w+)", where_raw):
+        col, param_name = m.group(1), m.group(2)
+        if any(col in p for p in sql_parts):
+            continue
+        val = params.get(param_name)
+        sql_parts.append(f'"{col}" = %s')
+        values.append(val)
+
+
+def _where_inline_props(
+    cypher: str, params: dict[str, Any], sql_parts: list[str], values: list[Any]
+) -> None:
+    """Inline property match ``{id: $id}``, one tier of ``_build_where``."""
+    for m in re.finditer(r"\{(\w+)\s*:\s*\$(\w+)\}", cypher):
+        col, param_name = m.group(1), m.group(2)
+        if any(col in p for p in sql_parts):
+            continue
+        val = params.get(param_name)
+        sql_parts.append(f'"{col}" = %s')
+        values.append(val)
+
+
+def _where_coalesce(where_raw: str, sql_parts: list[str], values: list[Any]) -> None:
+    """``COALESCE`` conditions, one tier of ``_build_where``."""
+    for m in _COALESCE.finditer(where_raw):
+        col, default, op, compare_val = m.group(2), m.group(3), m.group(4), m.group(5)
+        sql_op = "!=" if op == "<>" else op
+        sql_parts.append(f'COALESCE("{col}", %s) {sql_op} %s')
+        values.extend((default, compare_val))
+
+
+def _where_in_clause(
+    where_raw: str,
+    alias: str,
+    params: dict[str, Any],
+    sql_parts: list[str],
+    values: list[Any],
+) -> None:
+    """``n.type IN $types``, one tier of ``_build_where``."""
+    for m in re.finditer(rf"{alias}\.(\w+)\s+IN\s+\$(\w+)", where_raw):
+        col, param_name = m.group(1), m.group(2)
+        val = params.get(param_name, [])
+        if isinstance(val, list) and val:
+            placeholders = ", ".join(["%s"] * len(val))
+            sql_parts.append(f'"{col}" IN ({placeholders})')
+            values.extend(val)
+
+
+def _where_comparison(
+    where_raw: str, alias: str, sql_parts: list[str], values: list[Any]
+) -> None:
+    """``n.prop < value`` numeric comparisons, one tier of ``_build_where``."""
+    for m in re.finditer(rf"{alias}\.(\w+)\s*(<|>|<=|>=)\s*([\d.]+)", where_raw):
+        col, op, val = m.group(1), m.group(2), m.group(3)
+        if any(col in p for p in sql_parts):
+            continue
+        sql_parts.append(f'"{col}" {op} %s')
+        values.append(float(val) if "." in val else int(val))
+
+
+def _where_status_literal(
+    where_raw: str, alias: str, sql_parts: list[str], values: list[Any]
+) -> None:
+    """``n.status = 'value'`` string-literal equality, one tier of
+    ``_build_where``."""
+    for m in re.finditer(rf"{alias}\.(\w+)\s*=\s*'([^']*)'", where_raw):
+        col, val = m.group(1), m.group(2)
+        if any(col in p for p in sql_parts):
+            continue
+        sql_parts.append(f'"{col}" = %s')
+        values.append(val)
+
+
+def _where_connector(where_raw: str) -> str:
+    """Join connector for ``_build_where``'s accumulated conditions."""
+    if " AND " in where_raw.upper():
+        return " AND "
+    if " OR " in where_raw.upper():
+        return " OR "
+    return " AND "
 
 
 def _build_where(
@@ -865,74 +1014,18 @@ def _build_where(
     # failure → durable row never deleted). The inline-property block below scans
     # the full Cypher, so it must run even without a WHERE clause. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     where_raw = where_match.group(1).strip() if where_match else ""
-    sql_parts = []
+    sql_parts: list[str] = []
     values: list[Any] = []
 
-    # Handle CONTAINS patterns
-    for m in _CONTAINS.finditer(where_raw):
-        col = m.group(2)
-        param_name = m.group(3)
-        val = params.get(param_name, "")
-        sql_parts.append(f'LOWER("{col}") LIKE %s')
-        values.append(f"%{val}%")
+    _where_contains(where_raw, params, sql_parts, values)
+    _where_equality(where_raw, alias, params, sql_parts, values)
+    _where_inline_props(cypher, params, sql_parts, values)
+    _where_coalesce(where_raw, sql_parts, values)
+    _where_in_clause(where_raw, alias, params, sql_parts, values)
+    _where_comparison(where_raw, alias, sql_parts, values)
+    _where_status_literal(where_raw, alias, sql_parts, values)
 
-    # Handle simple equality: n.prop = $param
-    for m in re.finditer(rf"{alias}\.(\w+)\s*=\s*\$(\w+)", where_raw):
-        col, param_name = m.group(1), m.group(2)
-        if any(col in p for p in sql_parts):
-            continue
-        val = params.get(param_name)
-        sql_parts.append(f'"{col}" = %s')
-        values.append(val)
-
-    # Handle property match: {id: $id}
-    for m in re.finditer(r"\{(\w+)\s*:\s*\$(\w+)\}", cypher):
-        col, param_name = m.group(1), m.group(2)
-        if any(col in p for p in sql_parts):
-            continue
-        val = params.get(param_name)
-        sql_parts.append(f'"{col}" = %s')
-        values.append(val)
-
-    # Handle coalesce
-    for m in _COALESCE.finditer(where_raw):
-        col, default, op, compare_val = m.group(2), m.group(3), m.group(4), m.group(5)
-        sql_op = "!=" if op == "<>" else op
-        sql_parts.append(f'COALESCE("{col}", %s) {sql_op} %s')
-        values.extend((default, compare_val))
-
-    # Handle IN clause: n.type IN $types
-    for m in re.finditer(rf"{alias}\.(\w+)\s+IN\s+\$(\w+)", where_raw):
-        col, param_name = m.group(1), m.group(2)
-        val = params.get(param_name, [])
-        if isinstance(val, list) and val:
-            placeholders = ", ".join(["%s"] * len(val))
-            sql_parts.append(f'"{col}" IN ({placeholders})')
-            values.extend(val)
-
-    # Handle comparison: n.prop < value
-    for m in re.finditer(rf"{alias}\.(\w+)\s*(<|>|<=|>=)\s*([\d.]+)", where_raw):
-        col, op, val = m.group(1), m.group(2), m.group(3)
-        if any(col in p for p in sql_parts):
-            continue
-        sql_parts.append(f'"{col}" {op} %s')
-        values.append(float(val) if "." in val else int(val))
-
-    # Handle status: n.status = 'value'
-    for m in re.finditer(rf"{alias}\.(\w+)\s*=\s*'([^']*)'", where_raw):
-        col, val = m.group(1), m.group(2)
-        if any(col in p for p in sql_parts):
-            continue
-        sql_parts.append(f'"{col}" = %s')
-        values.append(val)
-
-    connector = (
-        " AND "
-        if " AND " in where_raw.upper()
-        else " OR "
-        if " OR " in where_raw.upper()
-        else " AND "
-    )
+    connector = _where_connector(where_raw)
     return connector.join(sql_parts), values
 
 
