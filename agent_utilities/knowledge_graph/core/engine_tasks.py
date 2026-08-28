@@ -5720,21 +5720,31 @@ class TaskManagerMixin(GraphEngineProtocol):
         preserves the original priority of the three independent leading
         ``if ... return`` checks plus the first seven ``elif`` branches, all of
         which took precedence over the ``is_codebase`` catch-all in the
-        original source; ``_LATE_TASK_HANDLERS`` preserves the remaining
-        branches, which were only reachable once ``is_codebase`` was False and
-        ``task_type`` was not the literal ``"codebase"``. Unmatched task types
-        fall through to ``_bg_document``, matching the original trailing
-        ``else``.
+        original source. Unmatched task types fall through to
+        ``_bg_document``, matching the original trailing ``else``.
+
+        BUG-CX-051 (fixed): ``_LATE_TASK_HANDLERS`` (relevance_sweep,
+        self_tool_surface, connector_sync/capability_hydration,
+        connector_drain, fleet_event_triage, deploy_watch, synthesize/
+        deep_extract/background_research, cohort_synthesize, session_upload)
+        used to be checked only AFTER the ``is_codebase`` catch-all, purely
+        because of if/elif position in the pre-refactor chain -- so
+        ``is_codebase=True`` combined with one of those explicit task_types
+        silently misrouted to ``_bg_codebase`` instead of the dedicated
+        handler. An explicit, more specific ``task_type`` must win over the
+        ``is_codebase``/``"codebase"`` catch-all, which exists for a task
+        with no more specific type -- not to override one.
         """
         try:
-            handler_name = self._EARLY_TASK_HANDLERS.get(task_type)
+            handler_name = self._EARLY_TASK_HANDLERS.get(
+                task_type
+            ) or self._LATE_TASK_HANDLERS.get(task_type)
             if handler_name is None:
-                if is_codebase or task_type == "codebase":
-                    handler_name = "_bg_codebase"
-                else:
-                    handler_name = self._LATE_TASK_HANDLERS.get(
-                        task_type, "_bg_document"
-                    )
+                handler_name = (
+                    "_bg_codebase"
+                    if (is_codebase or task_type == "codebase")
+                    else "_bg_document"
+                )
             await getattr(self, handler_name)(job_id, target, task_type)
         except Exception as e:
             import traceback
