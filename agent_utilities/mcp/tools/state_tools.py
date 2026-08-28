@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
@@ -79,6 +81,1073 @@ def propose_lakehouse_maintenance_gap(
     )
 
 
+def _format_tool_response(resp: Any) -> str:
+    """Format an MCP tool's raw handler response as the final string result:
+    decode a ``JSONResponse`` body, else ``str(resp)``. Shared tail used by
+    ``graph_sessions``/``graph_goals`` in :func:`register_state_tools`.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    if isinstance(resp, JSONResponse):
+        body_bytes = bytes(resp.body)
+        return json.dumps(json.loads(body_bytes.decode("utf-8")))
+    return str(resp)
+
+
+async def _resolve_fleet_response(
+    action: str, req: Any, limit: int, offset: int, status: str
+) -> Any:
+    """``health``/``topology`` branch of ``_resolve_sessions_response``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    from agent_utilities.gateway.fleet import fleet_health, fleet_topology
+
+    query: dict[str, str | int] = {"limit": limit, "offset": offset}
+    if status:
+        query["status"] = status
+    req.scope["query_string"] = urlencode(query).encode("ascii")
+    if action == "health":
+        return await fleet_health(req)
+    return await fleet_topology(req)
+
+
+async def _resolve_session_crud_response(
+    action: str, req: Any, session_id: str
+) -> tuple[Any, str | None]:
+    """``list``/``get``/``delete``/``reply``/``cancel`` branch of
+    ``_resolve_sessions_response``.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(resp, error_json)``; when ``error_json`` is not ``None`` the caller
+    should return it directly instead of formatting ``resp``.
+    """
+    from agent_utilities.core.sessions import (
+        cancel_session_run,
+        delete_session,
+        get_all_sessions,
+        get_session_details,
+        submit_session_reply,
+    )
+
+    if action == "list":
+        return await get_all_sessions(req), None
+    if action == "get":
+        if not session_id:
+            return None, json.dumps({"error": "session_id is required"})
+        return await get_session_details(req), None
+    if action == "delete":
+        if not session_id:
+            return None, json.dumps({"error": "session_id is required"})
+        return await delete_session(req), None
+    if action == "reply":
+        if not session_id:
+            return None, json.dumps({"error": "session_id is required"})
+        return await submit_session_reply(req), None
+    if action == "cancel":
+        if not session_id:
+            return None, json.dumps({"error": "session_id is required"})
+        return await cancel_session_run(req), None
+    return None, json.dumps({"error": f"Unknown sessions action: {action}"})
+
+
+async def _resolve_sessions_response(
+    action: str,
+    session_id: str,
+    user_reply: str,
+    limit: int,
+    offset: int,
+    status: str,
+) -> tuple[Any, str | None]:
+    """Resolve the raw response object for one ``graph_sessions`` action, or
+    an already-JSON-encoded validation-error string, for
+    ``register_state_tools``'s ``graph_sessions`` tool.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(resp, error_json)``; when ``error_json`` is not ``None`` the caller
+    should return it directly instead of formatting ``resp``.
+    """
+    req = kg_server._build_dummy_request(
+        path_params={"session_id": session_id} if session_id else {},
+        json_body={"content": user_reply} if user_reply else None,
+    )
+    if action in {"health", "topology"}:
+        resp = await _resolve_fleet_response(action, req, limit, offset, status)
+        return resp, None
+    return await _resolve_session_crud_response(action, req, session_id)
+
+
+async def _resolve_goals_response(
+    action: str, goal_id: str, goal: str, max_iterations: int
+) -> tuple[Any, str | None]:
+    """Resolve the raw response object for one ``graph_goals`` action, or an
+    already-JSON-encoded validation-error string, for
+    ``register_state_tools``'s ``graph_goals`` tool.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(resp, error_json)``; when ``error_json`` is not ``None`` the caller
+    should return it directly instead of formatting ``resp``.
+    """
+    from agent_utilities.core.sessions import (
+        cancel_goal,
+        create_goal,
+        get_goal_iterations,
+        list_goals,
+    )
+
+    req = kg_server._build_dummy_request(
+        path_params={"goal_id": goal_id} if goal_id else {},
+        json_body={"objective": goal, "max_iterations": max_iterations}
+        if action == "create"
+        else None,
+    )
+    if action == "list":
+        return await list_goals(req), None
+    if action == "create":
+        if not goal:
+            return None, json.dumps({"error": "goal is required"})
+        return await create_goal(req), None
+    if action == "iterations":
+        if not goal_id:
+            return None, json.dumps({"error": "goal_id is required"})
+        req_iter = kg_server._build_dummy_request(path_params={"goal_id": goal_id})
+        return await get_goal_iterations(req_iter), None
+    if action == "cancel":
+        if not goal_id:
+            return None, json.dumps({"error": "goal_id is required"})
+        req_cancel = kg_server._build_dummy_request(path_params={"goal_id": goal_id})
+        return await cancel_goal(req_cancel), None
+    return None, json.dumps({"error": f"Unknown goals action: {action}"})
+
+
+def _sandbox_status_action() -> str:
+    """``"status"`` action of ``register_state_tools``'s ``graph_sandbox``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.deployment.doctor import _check_warm_fork
+    from agent_utilities.rlm.sandboxes.reward import SandboxRewardTracker
+
+    res = _check_warm_fork()
+    data = res.get("data") or {}
+    return _json.dumps(
+        {
+            "action": "status",
+            "status": res.get("status"),
+            "detail": res.get("detail"),
+            "rungs": data.get("rungs", {}),
+            "warm_rungs": data.get("warm_rungs", []),
+            "pool": data.get("pool", {}),
+            "rewards": SandboxRewardTracker.get().snapshot(),
+        },
+        default=str,
+    )
+
+
+def _sandbox_reap_action() -> str:
+    """``"reap"`` action of ``register_state_tools``'s ``graph_sandbox``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+    reaped = WarmParentRegistry.get().reap()
+    workspaces: list[str] = []
+    try:
+        from agent_utilities.runtime.docker_workspace import DockerWorkspace
+
+        workspaces = DockerWorkspace.reap_idle()
+    except Exception:  # noqa: BLE001 - dev-workspace reap is best-effort
+        pass
+    return _json.dumps(
+        {
+            "action": "reap",
+            "reaped_parent_count": len(reaped),
+            "reaped_workspace_count": len(workspaces),
+            "pool": WarmParentRegistry.get().stats(),
+        }
+    )
+
+
+async def _sandbox_warm_action(rung: str) -> str:
+    """``"warm"`` action of ``register_state_tools``'s ``graph_sandbox``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+    if not rung:
+        return _json.dumps({"error": "warm requires an approved rung"})
+    from agent_utilities.rlm.sandboxes.base import ForkableSandbox
+    from agent_utilities.rlm.sandboxes.registry import default_sandboxes
+
+    backend = next((b for b in default_sandboxes() if b.name == rung), None)
+    if backend is None or not isinstance(backend, ForkableSandbox):
+        return _json.dumps(
+            {"error": "requested rung is not an available confined warm-fork"}
+        )
+    registry = WarmParentRegistry.get()
+    spec = backend.warm_spec()
+    already = registry.acquire(spec.key) is not None
+    if not already:
+        parent = await backend.warm(spec)
+        registry.register(spec.key, parent, close=parent.close, kind=backend.name)
+    return _json.dumps(
+        {
+            "action": "warm",
+            "rung": rung,
+            "already_warm": already,
+            "pool": registry.stats(),
+        }
+    )
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    """Dedupe ``items``, keeping first-seen order and dropping falsy
+    entries, for ``_resolve_feed_urls``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for u in items:
+        if u and u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
+
+
+def _resolve_feed_urls(url: str, urls: str) -> list[str]:
+    """Resolve ``url`` + ``urls`` into a deduped, ordered list (JSON array
+    or delimited), for ``register_state_tools``'s ``graph_feeds``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+    import re as _re
+
+    out: list[str] = []
+    raw = (urls or "").strip()
+    if raw:
+        parsed: object = None
+        try:
+            parsed = _json.loads(raw)
+        except Exception:  # noqa: BLE001 — not JSON → fall back to delimiters
+            parsed = None
+        if isinstance(parsed, list):
+            out.extend(str(x).strip() for x in parsed)
+        else:
+            out.extend(p.strip() for p in _re.split(r"[,\n]", raw))
+    if url:
+        out.append(url.strip())
+    return _dedupe_preserve_order(out)
+
+
+def _feeds_list_action(engine: Any) -> str:
+    """``"list"`` action of ``register_state_tools``'s ``graph_feeds``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.automation.feed_sources import list_feed_sources
+
+    return _json.dumps(
+        {"action": "list", "feeds": list_feed_sources(engine)}, default=str
+    )
+
+
+def _feeds_add_action(engine: Any, targets: list[str]) -> str:
+    """``"add"`` action of ``register_state_tools``'s ``graph_feeds``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.automation.feed_sources import upsert_feed_source
+
+    if not targets:
+        return _json.dumps({"error": "add needs a feed url (url=... or urls=[...])"})
+    results: list[dict] = []
+    for u in targets:
+        try:
+            nid = upsert_feed_source(
+                engine,
+                key=u,
+                source_system="rss",
+                feed_url=u,
+                kind="RssFeed",
+            )
+            results.append({"url": u, "id": nid})
+        except Exception as e:  # noqa: BLE001 — one bad feed never aborts the batch
+            results.append(public_error_payload(e))
+    added = [r for r in results if "id" in r]
+    return _json.dumps(
+        {
+            "action": "add",
+            "added": len(added),
+            "total": len(targets),
+            "results": results,
+        }
+    )
+
+
+def _feeds_remove_action(engine: Any, targets: list[str]) -> str:
+    """``"remove"`` action of ``register_state_tools``'s ``graph_feeds``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.automation.feed_sources import remove_feed_source
+
+    if not targets:
+        return _json.dumps({"error": "remove needs a feed url (url=... or urls=[...])"})
+    results: list[dict] = []
+    for u in targets:
+        try:
+            ok = remove_feed_source(engine, key=u, source_system="rss")
+            results.append({"url": u, "ok": bool(ok)})
+        except Exception as e:  # noqa: BLE001
+            results.append(public_error_payload(e))
+    return _json.dumps(
+        {
+            "action": "remove",
+            "removed": sum(1 for r in results if r.get("ok")),
+            "total": len(targets),
+            "results": results,
+        }
+    )
+
+
+def _feeds_sync_action(engine: Any, url: str, mode: str) -> str:
+    """``"sync"`` action of ``register_state_tools``'s ``graph_feeds``: enqueue
+    a ``feed_sweep`` task off the request path (CONCEPT:AU-KG.ingest.rss-feed-connector),
+    or fall back to an inline ``sync_source`` call when the engine has no
+    task queue.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    submit = getattr(engine, "submit_task", None)
+    feed_source = (url or "rss").strip().lower()
+    if callable(submit):
+        job_id = submit(
+            target_path=f"feed_sweep:{feed_source}",
+            is_codebase=False,
+            provenance={"feed_sweep": feed_source},
+            task_type="feed_sweep",
+            priority=2,
+            skip_dedupe=True,
+            extra_meta={"feed_source": feed_source, "feed_mode": mode},
+        )
+        return _json.dumps(
+            {
+                "action": "sync",
+                "enqueued": True,
+                "job_id": job_id,
+                "source": feed_source,
+                "mode": mode,
+                "note": "sweep runs in the background (connectors lane); "
+                "watch the worldview/research lanes drain.",
+            }
+        )
+    # Fallback: no queue (embedded engine) → run inline.
+    from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+    return _json.dumps(sync_source(engine, feed_source, mode=mode), default=str)
+
+
+def _parse_json_or(raw: str, default: Any) -> Any:
+    """Common ``_json.loads(x) if x else default`` pattern used throughout
+    ``graph_runvcs``'s twin actions.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    return _json.loads(raw) if raw else default
+
+
+@dataclass
+class _RunVcsParams:
+    """Bundled ``graph_runvcs`` field arguments, so its per-action helpers
+    stay under the 7-param cap instead of threading each field through
+    individually."""
+
+    run_id: str = ""
+    commit_id: str = ""
+    label: str = ""
+    twin: str = ""
+    agent_name: str = ""
+    task: str = ""
+    versions: str = "{}"
+    outcome: str = ""
+    persist: bool = True
+    tool_calls: str = ""
+    model_exchanges: str = ""
+    policy_decisions: str = ""
+    evidence: str = ""
+    budget: str = "{}"
+    work_item_ids: str = ""
+    policy_overrides: str = ""
+    model_responses: str = ""
+
+
+def _runvcs_twin_capture_action(p: _RunVcsParams) -> str:
+    """``"twin_capture"`` action of ``register_state_tools``'s
+    ``graph_runvcs`` (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8).
+
+    Extracted verbatim (pure extract-method, no behaviour change) — same
+    eager parse order as the original inline code, so a malformed
+    ``policy_decisions``/``evidence`` JSON string still raises before the
+    ``run_id``-required check, exactly as before.
+    """
+    import json as _json
+
+    from agent_utilities.orchestration.agent_digital_twin import (
+        VersionPins,
+        capture_twin,
+        capture_twin_from_kg,
+        persist_twin,
+    )
+
+    engine = kg_server._get_engine()
+    pins = VersionPins.from_dict(_parse_json_or(p.versions, {}))
+    decisions = _parse_json_or(p.policy_decisions, [])
+    evidence_items = _parse_json_or(p.evidence, [])
+    explicit_calls = _parse_json_or(p.tool_calls, [])
+    explicit_exchanges = _parse_json_or(p.model_exchanges, [])
+
+    if explicit_calls or explicit_exchanges:
+        # EXPLICIT-DATA path (capture_twin) — the canonical path a live
+        # run (or a test standing in for one) uses: build the twin
+        # straight from data the caller already collected, never
+        # re-derived from the KG.
+        twin_obj = capture_twin(
+            agent_name=p.agent_name,
+            task=p.task,
+            versions=pins,
+            run_id=p.run_id or None,
+            budget=_json.loads(p.budget) if p.budget and p.budget != "{}" else {},
+            work_item_ids=_parse_json_or(p.work_item_ids, []),
+            tool_calls=explicit_calls,
+            model_exchanges=explicit_exchanges,
+            policy_decisions=decisions,
+            evidence=evidence_items,
+            outcome=p.outcome or "succeeded",
+            engine=engine,
+        )
+    else:
+        # KG-HYDRATION path (capture_twin_from_kg) — best-effort read of
+        # an already-running KG's existing :ToolCall/:WorkItem rows.
+        if not p.run_id:
+            return _json.dumps(
+                {
+                    "error": "twin_capture requires run_id (or explicit "
+                    "tool_calls/model_exchanges for the explicit-data path)"
+                }
+            )
+        twin_obj = capture_twin_from_kg(
+            engine,
+            p.run_id,
+            agent_name=p.agent_name,
+            task=p.task,
+            versions=pins,
+            outcome=p.outcome,
+            policy_decisions=decisions,
+            evidence=evidence_items,
+        )
+    node_id = persist_twin(engine, twin_obj) if p.persist else None
+    return _json.dumps(
+        {
+            "action": "twin_capture",
+            "twin_id": twin_obj.twin_id,
+            "node_id": node_id,
+            "twin": twin_obj.to_dict(),
+        },
+        default=str,
+    )
+
+
+def _runvcs_twin_replay_action(twin_obj: Any) -> str:
+    """``"twin_replay"`` action of ``register_state_tools``'s ``graph_runvcs``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.orchestration.agent_digital_twin import replay_twin
+
+    report = replay_twin(twin_obj)
+    return _json.dumps(
+        {
+            "action": "twin_replay",
+            "run_id": report.run_id,
+            "twin_id": report.twin_id,
+            "deterministic": report.deterministic,
+            "steps": report.regression.steps,
+            "model_calls": report.regression.model_calls,
+        }
+    )
+
+
+def _runvcs_twin_counterfactual_action(twin_obj: Any, p: _RunVcsParams) -> str:
+    """``"twin_counterfactual"`` action of ``register_state_tools``'s
+    ``graph_runvcs``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.orchestration.agent_digital_twin import (
+        VersionPins,
+        counterfactual_replay,
+    )
+
+    versions_override = (
+        VersionPins.from_dict(_json.loads(p.versions))
+        if p.versions and p.versions != "{}"
+        else None
+    )
+    overrides = _parse_json_or(p.policy_overrides, None)
+    responses = _parse_json_or(p.model_responses, None)
+    report = counterfactual_replay(
+        twin_obj,
+        versions=versions_override,
+        policy_overrides=overrides,
+        model_responses=responses,
+    )
+    return _json.dumps(
+        {
+            "action": "twin_counterfactual",
+            "run_id": report.run_id,
+            "twin_id": report.twin_id,
+            "diverged": report.diverged,
+            "deterministic": report.deterministic,
+            "version_delta": report.version_delta,
+            "decision_delta": report.decision_delta,
+        },
+        default=str,
+    )
+
+
+def _runvcs_twin_incident_action(twin_obj: Any) -> str:
+    """``"twin_incident"`` action of ``register_state_tools``'s ``graph_runvcs``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.orchestration.agent_digital_twin import twin_incident_steps
+
+    steps = twin_incident_steps(twin_obj)
+    return _json.dumps(
+        {"action": "twin_incident", "run_id": twin_obj.run_id, "steps": steps},
+        default=str,
+    )
+
+
+def _runvcs_twin_family_action(action: str, p: _RunVcsParams) -> str:
+    """``twin_replay``/``twin_counterfactual``/``twin_incident`` dispatch for
+    ``register_state_tools``'s ``graph_runvcs``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.orchestration.agent_digital_twin import AgentDigitalTwin
+
+    if not p.twin:
+        return _json.dumps(
+            {"error": f"{action} requires `twin` (JSON from action='twin_capture')"}
+        )
+    twin_obj = AgentDigitalTwin.from_dict(_json.loads(p.twin))
+
+    if action == "twin_replay":
+        return _runvcs_twin_replay_action(twin_obj)
+    if action == "twin_counterfactual":
+        return _runvcs_twin_counterfactual_action(twin_obj, p)
+    # action == "twin_incident"
+    return _runvcs_twin_incident_action(twin_obj)
+
+
+async def _runvcs_live_session_action(
+    action: str,
+    session: Any,
+    registry: Any,
+    p: _RunVcsParams,
+    replay_run: Any,
+) -> str:
+    """``status``/``commit``/``revert``/``fork``/``discard``/``replay``/unknown
+    dispatch for an already-resolved live run session, from
+    ``register_state_tools``'s ``graph_runvcs``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    if action == "status":
+        return _json.dumps({"action": "status", **session.status()}, default=str)
+    if action == "commit":
+        commit = await session.commit(p.label)
+        return _json.dumps(
+            {"action": "commit", "commit_id": commit.commit_id, "label": p.label}
+        )
+    if action == "revert":
+        res = await session.revert(p.commit_id)
+        return _json.dumps({"action": "revert", **res}, default=str)
+    if action == "fork":
+        child = await session.fork(p.commit_id)
+        registry.register(child)
+        return _json.dumps(
+            {
+                "action": "fork",
+                "parent_run": session.run_id,
+                "child_run": child.run_id,
+                "from_commit": p.commit_id,
+            }
+        )
+    if action == "discard":
+        return _json.dumps({"action": "discard", **session.discard()}, default=str)
+    if action == "replay":
+        result = replay_run(session.log)
+        return _json.dumps(
+            {
+                "action": "replay",
+                "run_id": result.run_id,
+                "steps": result.steps,
+                "model_calls": result.model_calls,
+                "deterministic": result.deterministic,
+            }
+        )
+    return _json.dumps({"error": f"unknown action {action!r}"})
+
+
+@dataclass
+class _LoopsParams:
+    """Bundled ``graph_loops`` field arguments, so its per-action helpers
+    stay under the 7-param cap instead of threading each field through
+    individually."""
+
+    objective: str = ""
+    kind: str = "research"
+    loop_id: str = ""
+    validation_cmd: str = ""
+    end_state: str = ""
+    skill_ref: str = ""
+    max_topics: int = 5
+    limit: int = 10
+    priority_bucket: int = 2
+    spec_id: str = ""
+    decision: str = ""
+    status: str = ""
+    mine_discovery: bool | None = None
+    placement_scan_limit: int = 200
+    placement_canary_tolerance: float = 0.10
+    data_json: str = "{}"
+
+
+@dataclass
+class _LoopsCore:
+    """The names ``graph_loops`` originally imported EAGERLY (before its
+    ``try`` block) — bundled so an ``ImportError`` there still surfaces
+    before any action handler runs, exactly as the original inline code
+    did, and so the six handlers that need them stay under the param cap."""
+
+    coerce_prio_bucket: Any
+    loop_controller_cls: Any
+    active_loops: Any
+    mark_loop_status: Any
+    prioritize_loop: Any
+    submit_loop: Any
+
+
+async def _loops_submit_action(engine: Any, p: _LoopsParams, core: _LoopsCore) -> str:
+    """``"submit"`` action of ``register_state_tools``'s ``graph_loops``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    if not p.objective and not p.skill_ref:
+        return _json.dumps({"error": "submit needs objective or skill_ref"})
+    loop = await run_blocking_ordered(
+        core.submit_loop,
+        engine,
+        p.objective,
+        kind=p.kind,  # type: ignore[arg-type]
+        validation_cmd=p.validation_cmd,
+        end_state=p.end_state,
+        skill_ref=p.skill_ref,
+        loop_id=p.loop_id,
+        prio_bucket=core.coerce_prio_bucket(p.priority_bucket),
+    )
+    return _json.dumps({"action": "submit", "loop": loop}, default=str)
+
+
+async def _loops_list_action(engine: Any, p: _LoopsParams, core: _LoopsCore) -> str:
+    """``"list"`` action of ``register_state_tools``'s ``graph_loops``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    loops = await run_blocking_ordered(core.active_loops, engine, p.limit)
+    return _json.dumps({"action": "list", "loops": loops}, default=str)
+
+
+async def _loops_run_action(engine: Any, p: _LoopsParams, core: _LoopsCore) -> str:
+    """``"run"`` action of ``register_state_tools``'s ``graph_loops``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    rep = await run_blocking_ordered(
+        core.loop_controller_cls(engine).run_one_cycle,
+        max_topics=p.max_topics,
+        mine_discovery=p.mine_discovery,
+    )
+    return _json.dumps(rep, indent=2, default=str)
+
+
+async def _loops_drive_action(engine: Any, p: _LoopsParams, core: _LoopsCore) -> str:
+    """``"drive"`` action of ``register_state_tools``'s ``graph_loops``: drive
+    ONE Loop to completion durably (resume/checkpoint/corrigible,
+    CONCEPT:AU-OS.state.unified-durable-state-externalization) — works for
+    any kind (research/develop/skill).
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    if not p.loop_id:
+        return _json.dumps({"error": "drive needs a loop_id"})
+    found_loops = await run_blocking_ordered(
+        core.active_loops, engine, max(p.limit, 50)
+    )
+    target = next(
+        (loop_row for loop_row in found_loops if loop_row.get("id") == p.loop_id),
+        None,
+    )
+    if target is None:
+        return _json.dumps({"error": f"no active loop {p.loop_id!r}"})
+    res = await core.loop_controller_cls(engine).run_loop(target, sleep_s=0)
+    return _json.dumps({"action": "drive", "result": res}, default=str)
+
+
+async def _loops_cancel_action(engine: Any, p: _LoopsParams, core: _LoopsCore) -> str:
+    """``"cancel"`` action of ``register_state_tools``'s ``graph_loops``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    if not p.loop_id:
+        return _json.dumps({"error": "cancel needs a loop_id"})
+    ok = await run_blocking_ordered(
+        core.mark_loop_status, engine, p.loop_id, "cancelled", source="user"
+    )
+    return _json.dumps({"action": "cancel", "id": p.loop_id, "ok": ok})
+
+
+async def _loops_prioritize_action(
+    engine: Any, p: _LoopsParams, core: _LoopsCore
+) -> str:
+    """``"prioritize"`` action of ``register_state_tools``'s ``graph_loops``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    if not p.loop_id:
+        return _json.dumps({"error": "prioritize needs a loop_id"})
+    bucket = core.coerce_prio_bucket(p.priority_bucket)
+    ok = await run_blocking_ordered(core.prioritize_loop, engine, p.loop_id, bucket)
+    return _json.dumps(
+        {
+            "action": "prioritize",
+            "id": p.loop_id,
+            "prio_bucket": bucket,
+            "ok": ok,
+        }
+    )
+
+
+async def _loops_state_action(engine: Any, p: _LoopsParams) -> str:
+    """``"state"`` action of ``register_state_tools``'s ``graph_loops``: LIVE
+    EvolutionState (CONCEPT:AU-KG.research.evolutionstate-live-surface-per/2.291)
+    — current stage + why, saturation gauge, open_gaps trend, velocity,
+    distilled-spec backlog.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.evolution_state import (
+        read_evolution_state,
+    )
+
+    evolution = await run_blocking_ordered(read_evolution_state, engine)
+    return _json.dumps(
+        {"action": "state", "evolution": evolution}, indent=2, default=str
+    )
+
+
+async def _loops_specs_action(engine: Any, p: _LoopsParams) -> str:
+    """``"specs"`` action of ``register_state_tools``'s ``graph_loops``: the
+    distilled-spec backlog (CONCEPT:AU-KG.research.close-distill-develop-seam).
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.spec_proposals import list_specs
+
+    specs = await run_blocking_ordered(
+        list_specs, engine, status=(p.status or None), limit=p.limit
+    )
+    return _json.dumps({"action": "specs", "specs": specs}, default=str)
+
+
+async def _loops_review_action(engine: Any, p: _LoopsParams) -> str:
+    """``"review"`` action of ``register_state_tools``'s ``graph_loops``:
+    spec-level review/veto BEFORE develop
+    (CONCEPT:AU-OS.config.autonomous-spec-develop-off).
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.spec_proposals import review_spec
+
+    sid = p.spec_id or p.loop_id
+    if not sid or not p.decision:
+        return _json.dumps(
+            {"error": "review needs spec_id and decision (approve|edit|reject)"}
+        )
+    review_result = await run_blocking_ordered(
+        review_spec, engine, sid, p.decision, reviewer="user"
+    )
+    return _json.dumps({"action": "review", "result": review_result}, default=str)
+
+
+async def _loops_placement_control_action(engine: Any, p: _LoopsParams) -> str:
+    """``"placement_control"`` action of ``register_state_tools``'s
+    ``graph_loops`` — Seam 4
+    (CONCEPT:AU-KG.evolution.placement-mining-canary-loop): manual-trigger
+    ONE governed placement-loop pass. Calling this action over MCP/REST IS
+    the explicit manual trigger, so ``enabled=True`` is passed
+    unconditionally here — the module itself stays opt-in/OFF for every
+    other (e.g. periodic/automatic) caller that does not pass this flag
+    explicitly.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.placement_mining import (
+        placement_control_loop,
+    )
+
+    placement_result = await run_blocking_ordered(
+        placement_control_loop,
+        engine,
+        tolerance=p.placement_canary_tolerance,
+        limit=p.placement_scan_limit,
+        enabled=True,
+    )
+    return _json.dumps(
+        {"action": "placement_control", "result": placement_result}, default=str
+    )
+
+
+async def _loops_gaps_action(engine: Any, p: _LoopsParams) -> str:
+    """``"gaps"`` action of ``register_state_tools``'s ``graph_loops``: the
+    canonical :Gap backlog (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle,
+    Wave 6) every discovery track (failure/research/skill/audit) files
+    into — highest priority (lowest bucket) first, excludes resolved.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.gaps import open_gaps
+
+    gaps = await run_blocking_ordered(open_gaps, engine, limit=p.limit)
+    return _json.dumps({"action": "gaps", "gaps": gaps}, default=str)
+
+
+def _decode_submit_gap_json(data_json: str) -> dict[str, Any] | None:
+    """Decode + type-check ``submit_gap``'s ``data_json``, for
+    ``_parse_submit_gap_fields``. Returns ``None`` if it decodes to
+    anything other than a JSON object.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    data = _json.loads(data_json) if data_json else {}
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _check_submit_gap_required(data: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Required-field validation for ``_parse_submit_gap_fields``. Returns
+    ``(source, signature, statement)``, or ``None`` if any is missing.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    source = str(data.get("source") or "").strip()
+    signature = str(data.get("signature") or "").strip()
+    statement = str(data.get("statement") or "").strip()
+    if not source or not signature or not statement:
+        return None
+    return source, signature, statement
+
+
+def _parse_submit_gap_fields(data_json: str) -> tuple[dict[str, Any], str | None]:
+    """Parse + validate ``submit_gap``'s ``data_json`` into the
+    ``submit_gap()`` kwargs, for ``_loops_submit_gap_action``.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(fields, error_json)``; when ``error_json`` is not ``None`` the caller
+    should return it directly instead of using ``fields``.
+    """
+    import json as _json
+
+    data = _decode_submit_gap_json(data_json)
+    if data is None:
+        return {}, _json.dumps({"error": "data_json must decode to an object"})
+    required = _check_submit_gap_required(data)
+    if required is None:
+        return {}, _json.dumps(
+            {"error": "submit_gap needs data_json.source, .signature, and .statement"}
+        )
+    source, signature, statement = required
+    fields = {
+        "source": source,
+        "signature": signature,
+        "statement": statement,
+        "domain": str(data.get("domain") or ""),
+        "severity": float(data.get("severity", 0.5) or 0.5),
+        "concept_ids": [str(c) for c in (data.get("concept_ids") or [])],
+    }
+    return fields, None
+
+
+async def _loops_submit_gap_action(engine: Any, p: _LoopsParams) -> str:
+    """``"submit_gap"`` action of ``register_state_tools``'s ``graph_loops``:
+    the SAME canonical entry point the failure/research/skill/audit
+    discovery tracks call internally — exposed here so an operator can file
+    one by hand (e.g. a manually-triaged issue).
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.gaps import submit_gap
+
+    fields, error_json = _parse_submit_gap_fields(p.data_json)
+    if error_json is not None:
+        return error_json
+    gap = await run_blocking_ordered(submit_gap, engine, **fields)
+    if gap is None:
+        return _json.dumps({"error": "submit_gap failed to persist"})
+    return _json.dumps({"action": "submit_gap", "gap": gap}, default=str)
+
+
+async def _resolve_gap_provenance(engine: Any, gap_id: str) -> dict[str, Any]:
+    """Best-effort SPECIFIED_BY/RESOLVES provenance lookup for the
+    ``"gap"`` action of ``graph_loops`` (D6): the SpecProposal ``gap_id``
+    was SPECIFIED_BY and the develop-Loop that RESOLVES it, when either hop
+    exists yet.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    provenance: dict[str, Any] = {
+        "specified_by_spec_id": None,
+        "resolved_by_loop_id": None,
+    }
+    try:
+        rows = await run_blocking_ordered(
+            engine.query_cypher,
+            "MATCH (g:Gap) WHERE g.id = $id "
+            "OPTIONAL MATCH (g)-[:SPECIFIED_BY]->(s) "
+            "OPTIONAL MATCH (l)-[:RESOLVES]->(g) "
+            "RETURN s.id AS spec_id, l.id AS loop_id LIMIT 1",
+            {"id": gap_id},
+        )
+        row = rows[0] if rows else {}
+        provenance["specified_by_spec_id"] = row.get("spec_id")
+        provenance["resolved_by_loop_id"] = row.get("loop_id")
+    except Exception as e:  # noqa: BLE001 — provenance is best-effort
+        logger.debug("graph_loops gap provenance query failed: %s", type(e).__name__)
+    return provenance
+
+
+async def _loops_gap_action(engine: Any, p: _LoopsParams) -> str:
+    """``"gap"`` action of ``register_state_tools``'s ``graph_loops``: one
+    :Gap plus its unified provenance chain — reuses ``loop_id`` as the
+    generic id field, the same convention 'cancel'/'prioritize'/'drive'
+    already use.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    import json as _json
+
+    from agent_utilities.knowledge_graph.research.gaps import get_gap
+
+    gap_id = p.loop_id
+    if not gap_id:
+        return _json.dumps({"error": "gap needs a gap id in loop_id"})
+    gap = await run_blocking_ordered(get_gap, engine, gap_id)
+    if gap is None:
+        return _json.dumps({"action": "gap", "id": gap_id, "error": "gap not found"})
+    provenance = await _resolve_gap_provenance(engine, gap_id)
+    return _json.dumps(
+        {"action": "gap", "gap": gap, "provenance": provenance}, default=str
+    )
+
+
+def _build_loops_dispatch(
+    engine: Any, p: _LoopsParams, core: _LoopsCore
+) -> dict[str, Callable[[], Awaitable[str]]]:
+    """Build the ``action -> handler`` dispatch table for
+    ``register_state_tools``'s ``graph_loops``. The first six entries close
+    over the SAME eagerly-imported ``core`` names the original inline code
+    used (so an ``ImportError`` there still surfaces before any handler
+    runs, exactly as before extraction); the rest import their own
+    dependency lazily, exactly as the original per-branch code did.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    return {
+        "submit": lambda: _loops_submit_action(engine, p, core),
+        "list": lambda: _loops_list_action(engine, p, core),
+        "run": lambda: _loops_run_action(engine, p, core),
+        "drive": lambda: _loops_drive_action(engine, p, core),
+        "cancel": lambda: _loops_cancel_action(engine, p, core),
+        "prioritize": lambda: _loops_prioritize_action(engine, p, core),
+        "state": lambda: _loops_state_action(engine, p),
+        "specs": lambda: _loops_specs_action(engine, p),
+        "review": lambda: _loops_review_action(engine, p),
+        "placement_control": lambda: _loops_placement_control_action(engine, p),
+        "gaps": lambda: _loops_gaps_action(engine, p),
+        "submit_gap": lambda: _loops_submit_gap_action(engine, p),
+        "gap": lambda: _loops_gap_action(engine, p),
+    }
+
+
 def register_state_tools(mcp):
     """Register the state_tools group on the given FastMCP server."""
 
@@ -110,58 +1179,13 @@ def register_state_tools(mcp):
     ) -> str:
         """Manage durable sessions and fail-closed fleet supervision."""
 
-        from agent_utilities.core.sessions import (
-            cancel_session_run,
-            delete_session,
-            get_all_sessions,
-            get_session_details,
-            submit_session_reply,
-        )
-
         try:
-            req = kg_server._build_dummy_request(
-                path_params={"session_id": session_id} if session_id else {},
-                json_body={"content": user_reply} if user_reply else None,
+            resp, error_json = await _resolve_sessions_response(
+                action, session_id, user_reply, limit, offset, status
             )
-            if action in {"health", "topology"}:
-                from agent_utilities.gateway.fleet import fleet_health, fleet_topology
-
-                query: dict[str, str | int] = {"limit": limit, "offset": offset}
-                if status:
-                    query["status"] = status
-                req.scope["query_string"] = urlencode(query).encode("ascii")
-                resp = (
-                    await fleet_health(req)
-                    if action == "health"
-                    else await fleet_topology(req)
-                )
-            elif action == "list":
-                resp = await get_all_sessions(req)
-            elif action == "get":
-                if not session_id:
-                    return json.dumps({"error": "session_id is required"})
-                resp = await get_session_details(req)
-            elif action == "delete":
-                if not session_id:
-                    return json.dumps({"error": "session_id is required"})
-                resp = await delete_session(req)
-            elif action == "reply":
-                if not session_id:
-                    return json.dumps({"error": "session_id is required"})
-                resp = await submit_session_reply(req)
-            elif action == "cancel":
-                if not session_id:
-                    return json.dumps({"error": "session_id is required"})
-                resp = await cancel_session_run(req)
-            else:
-                return json.dumps({"error": f"Unknown sessions action: {action}"})
-
-            # Check if resp is JSONResponse
-            if isinstance(resp, JSONResponse):
-                # Return the decoded json string
-                body_bytes = bytes(resp.body)
-                return json.dumps(json.loads(body_bytes.decode("utf-8")))
-            return str(resp)
+            if error_json is not None:
+                return error_json
+            return _format_tool_response(resp)
         except Exception as e:
             return public_error_json(e)
 
@@ -186,49 +1210,13 @@ def register_state_tools(mcp):
     ) -> str:
         """Orchestrate background/autonomous loops. Action: 'create', 'list', 'iterations', 'cancel'."""
 
-        from agent_utilities.core.sessions import (
-            cancel_goal,
-            create_goal,
-            get_goal_iterations,
-            list_goals,
-        )
-
         try:
-            req = kg_server._build_dummy_request(
-                path_params={"goal_id": goal_id} if goal_id else {},
-                json_body={"objective": goal, "max_iterations": max_iterations}
-                if action == "create"
-                else None,
+            resp, error_json = await _resolve_goals_response(
+                action, goal_id, goal, max_iterations
             )
-            if action == "list":
-                resp = await list_goals(req)
-            elif action == "create":
-                if not goal:
-                    return json.dumps({"error": "goal is required"})
-                resp = await create_goal(req)
-            elif action == "iterations":
-                if not goal_id:
-                    return json.dumps({"error": "goal_id is required"})
-                req_iter = kg_server._build_dummy_request(
-                    path_params={"goal_id": goal_id}
-                )
-                resp = await get_goal_iterations(req_iter)
-            elif action == "cancel":
-                if not goal_id:
-                    return json.dumps({"error": "goal_id is required"})
-                req_cancel = kg_server._build_dummy_request(
-                    path_params={"goal_id": goal_id}
-                )
-                resp = await cancel_goal(req_cancel)
-            else:
-                return json.dumps({"error": f"Unknown goals action: {action}"})
-
-            # Check if resp is JSONResponse
-            if isinstance(resp, JSONResponse):
-                # Return the decoded json string
-                body_bytes = bytes(resp.body)
-                return json.dumps(json.loads(body_bytes.decode("utf-8")))
-            return str(resp)
+            if error_json is not None:
+                return error_json
+            return _format_tool_response(resp)
         except Exception as e:
             return public_error_json(e)
 
@@ -355,238 +1343,39 @@ def register_state_tools(mcp):
             submit_loop,
         )
 
+        p = _LoopsParams(
+            objective=objective,
+            kind=kind,
+            loop_id=loop_id,
+            validation_cmd=validation_cmd,
+            end_state=end_state,
+            skill_ref=skill_ref,
+            max_topics=max_topics,
+            limit=limit,
+            priority_bucket=priority_bucket,
+            spec_id=spec_id,
+            decision=decision,
+            status=status,
+            mine_discovery=mine_discovery,
+            placement_scan_limit=placement_scan_limit,
+            placement_canary_tolerance=placement_canary_tolerance,
+            data_json=data_json,
+        )
+        core = _LoopsCore(
+            coerce_prio_bucket=_coerce_prio_bucket,
+            loop_controller_cls=LoopController,
+            active_loops=active_loops,
+            mark_loop_status=mark_loop_status,
+            prioritize_loop=prioritize_loop,
+            submit_loop=submit_loop,
+        )
         try:
             engine = kg_server._get_engine()
-            if action == "submit":
-                if not objective and not skill_ref:
-                    return _json.dumps({"error": "submit needs objective or skill_ref"})
-                loop = await run_blocking_ordered(
-                    submit_loop,
-                    engine,
-                    objective,
-                    kind=kind,  # type: ignore[arg-type]
-                    validation_cmd=validation_cmd,
-                    end_state=end_state,
-                    skill_ref=skill_ref,
-                    loop_id=loop_id,
-                    prio_bucket=_coerce_prio_bucket(priority_bucket),
-                )
-                return _json.dumps({"action": "submit", "loop": loop}, default=str)
-            if action == "list":
-                loops = await run_blocking_ordered(active_loops, engine, limit)
-                return _json.dumps(
-                    {"action": "list", "loops": loops},
-                    default=str,
-                )
-            if action == "run":
-                rep = await run_blocking_ordered(
-                    LoopController(engine).run_one_cycle,
-                    max_topics=max_topics,
-                    mine_discovery=mine_discovery,
-                )
-                return _json.dumps(rep, indent=2, default=str)
-            if action == "drive":
-                # Drive ONE Loop to completion durably (resume/checkpoint/corrigible,
-                # CONCEPT:AU-OS.state.unified-durable-state-externalization) — works for any kind (research/develop/skill).
-                if not loop_id:
-                    return _json.dumps({"error": "drive needs a loop_id"})
-                found_loops = await run_blocking_ordered(
-                    active_loops, engine, max(limit, 50)
-                )
-                target = next(
-                    (
-                        loop_row
-                        for loop_row in found_loops
-                        if loop_row.get("id") == loop_id
-                    ),
-                    None,
-                )
-                if target is None:
-                    return _json.dumps({"error": f"no active loop {loop_id!r}"})
-                res = await LoopController(engine).run_loop(target, sleep_s=0)
-                return _json.dumps({"action": "drive", "result": res}, default=str)
-            if action == "cancel":
-                if not loop_id:
-                    return _json.dumps({"error": "cancel needs a loop_id"})
-                ok = await run_blocking_ordered(
-                    mark_loop_status, engine, loop_id, "cancelled", source="user"
-                )
-                return _json.dumps({"action": "cancel", "id": loop_id, "ok": ok})
-            if action == "prioritize":
-                if not loop_id:
-                    return _json.dumps({"error": "prioritize needs a loop_id"})
-                bucket = _coerce_prio_bucket(priority_bucket)
-                ok = await run_blocking_ordered(
-                    prioritize_loop, engine, loop_id, bucket
-                )
-                return _json.dumps(
-                    {
-                        "action": "prioritize",
-                        "id": loop_id,
-                        "prio_bucket": bucket,
-                        "ok": ok,
-                    }
-                )
-            if action == "state":
-                # LIVE EvolutionState (CONCEPT:AU-KG.research.evolutionstate-live-surface-per/2.291): current stage + why,
-                # saturation gauge, open_gaps trend, velocity, distilled-spec backlog.
-                from agent_utilities.knowledge_graph.research.evolution_state import (
-                    read_evolution_state,
-                )
-
-                evolution = await run_blocking_ordered(read_evolution_state, engine)
-                return _json.dumps(
-                    {"action": "state", "evolution": evolution},
-                    indent=2,
-                    default=str,
-                )
-            if action == "specs":
-                # The distilled-spec backlog (CONCEPT:AU-KG.research.close-distill-develop-seam).
-                from agent_utilities.knowledge_graph.research.spec_proposals import (
-                    list_specs,
-                )
-
-                specs = await run_blocking_ordered(
-                    list_specs, engine, status=(status or None), limit=limit
-                )
-                return _json.dumps(
-                    {
-                        "action": "specs",
-                        "specs": specs,
-                    },
-                    default=str,
-                )
-            if action == "review":
-                # Spec-level review/veto BEFORE develop (CONCEPT:AU-OS.config.autonomous-spec-develop-off).
-                from agent_utilities.knowledge_graph.research.spec_proposals import (
-                    review_spec,
-                )
-
-                sid = spec_id or loop_id
-                if not sid or not decision:
-                    return _json.dumps(
-                        {
-                            "error": "review needs spec_id and decision (approve|edit|reject)"
-                        }
-                    )
-                review_result = await run_blocking_ordered(
-                    review_spec, engine, sid, decision, reviewer="user"
-                )
-                return _json.dumps(
-                    {
-                        "action": "review",
-                        "result": review_result,
-                    },
-                    default=str,
-                )
-            if action == "placement_control":
-                # Seam 4 (CONCEPT:AU-KG.evolution.placement-mining-canary-loop):
-                # manual-trigger ONE governed placement-loop pass. Calling this
-                # action over MCP/REST IS the explicit manual trigger, so
-                # ``enabled=True`` is passed unconditionally here — the module
-                # itself stays opt-in/OFF for every other (e.g. periodic/
-                # automatic) caller that does not pass this flag explicitly.
-                from agent_utilities.knowledge_graph.research.placement_mining import (
-                    placement_control_loop,
-                )
-
-                placement_result = await run_blocking_ordered(
-                    placement_control_loop,
-                    engine,
-                    tolerance=placement_canary_tolerance,
-                    limit=placement_scan_limit,
-                    enabled=True,
-                )
-                return _json.dumps(
-                    {
-                        "action": "placement_control",
-                        "result": placement_result,
-                    },
-                    default=str,
-                )
-            if action == "gaps":
-                # The canonical :Gap backlog (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle,
-                # Wave 6) every discovery track (failure/research/skill/audit) files
-                # into — highest priority (lowest bucket) first, excludes resolved.
-                from agent_utilities.knowledge_graph.research.gaps import open_gaps
-
-                gaps = await run_blocking_ordered(open_gaps, engine, limit=limit)
-                return _json.dumps(
-                    {"action": "gaps", "gaps": gaps},
-                    default=str,
-                )
-            if action == "submit_gap":
-                # The SAME canonical entry point the failure/research/skill/audit
-                # discovery tracks call internally — exposed here so an operator can
-                # file one by hand (e.g. a manually-triaged issue).
-                from agent_utilities.knowledge_graph.research.gaps import submit_gap
-
-                data = _json.loads(data_json) if data_json else {}
-                if not isinstance(data, dict):
-                    return _json.dumps({"error": "data_json must decode to an object"})
-                source = str(data.get("source") or "").strip()
-                signature = str(data.get("signature") or "").strip()
-                statement = str(data.get("statement") or "").strip()
-                if not source or not signature or not statement:
-                    return _json.dumps(
-                        {
-                            "error": "submit_gap needs data_json.source, .signature, "
-                            "and .statement"
-                        }
-                    )
-                gap = await run_blocking_ordered(
-                    submit_gap,
-                    engine,
-                    source=source,
-                    signature=signature,
-                    statement=statement,
-                    domain=str(data.get("domain") or ""),
-                    severity=float(data.get("severity", 0.5) or 0.5),
-                    concept_ids=[str(c) for c in (data.get("concept_ids") or [])],
-                )
-                if gap is None:
-                    return _json.dumps({"error": "submit_gap failed to persist"})
-                return _json.dumps({"action": "submit_gap", "gap": gap}, default=str)
-            if action == "gap":
-                # One :Gap plus its unified provenance chain (D6): the SpecProposal
-                # it was SPECIFIED_BY and the develop-Loop that RESOLVES it, when
-                # either hop exists yet — reuses loop_id as the generic id field,
-                # the same convention 'cancel'/'prioritize'/'drive' already use.
-                from agent_utilities.knowledge_graph.research.gaps import get_gap
-
-                gap_id = loop_id
-                if not gap_id:
-                    return _json.dumps({"error": "gap needs a gap id in loop_id"})
-                gap = await run_blocking_ordered(get_gap, engine, gap_id)
-                if gap is None:
-                    return _json.dumps(
-                        {"action": "gap", "id": gap_id, "error": "gap not found"}
-                    )
-                provenance: dict[str, Any] = {
-                    "specified_by_spec_id": None,
-                    "resolved_by_loop_id": None,
-                }
-                try:
-                    rows = await run_blocking_ordered(
-                        engine.query_cypher,
-                        "MATCH (g:Gap) WHERE g.id = $id "
-                        "OPTIONAL MATCH (g)-[:SPECIFIED_BY]->(s) "
-                        "OPTIONAL MATCH (l)-[:RESOLVES]->(g) "
-                        "RETURN s.id AS spec_id, l.id AS loop_id LIMIT 1",
-                        {"id": gap_id},
-                    )
-                    row = rows[0] if rows else {}
-                    provenance["specified_by_spec_id"] = row.get("spec_id")
-                    provenance["resolved_by_loop_id"] = row.get("loop_id")
-                except Exception as e:  # noqa: BLE001 — provenance is best-effort
-                    logger.debug(
-                        "graph_loops gap provenance query failed: %s", type(e).__name__
-                    )
-                return _json.dumps(
-                    {"action": "gap", "gap": gap, "provenance": provenance},
-                    default=str,
-                )
-            return _json.dumps({"error": f"unknown action {action!r}"})
+            dispatch = _build_loops_dispatch(engine, p, core)
+            handler = dispatch.get(action)
+            if handler is None:
+                return _json.dumps({"error": f"unknown action {action!r}"})
+            return await handler()
         except Exception as e:
             return public_error_json(e)
 
@@ -678,74 +1467,11 @@ def register_state_tools(mcp):
 
         try:
             if action == "status":
-                from agent_utilities.deployment.doctor import _check_warm_fork
-                from agent_utilities.rlm.sandboxes.reward import SandboxRewardTracker
-
-                res = _check_warm_fork()
-                data = res.get("data") or {}
-                return _json.dumps(
-                    {
-                        "action": "status",
-                        "status": res.get("status"),
-                        "detail": res.get("detail"),
-                        "rungs": data.get("rungs", {}),
-                        "warm_rungs": data.get("warm_rungs", []),
-                        "pool": data.get("pool", {}),
-                        "rewards": SandboxRewardTracker.get().snapshot(),
-                    },
-                    default=str,
-                )
-
-            from agent_utilities.runtime.warm_registry import WarmParentRegistry
-
+                return _sandbox_status_action()
             if action == "reap":
-                reaped = WarmParentRegistry.get().reap()
-                workspaces: list[str] = []
-                try:
-                    from agent_utilities.runtime.docker_workspace import DockerWorkspace
-
-                    workspaces = DockerWorkspace.reap_idle()
-                except Exception:  # noqa: BLE001 - dev-workspace reap is best-effort
-                    pass
-                return _json.dumps(
-                    {
-                        "action": "reap",
-                        "reaped_parent_count": len(reaped),
-                        "reaped_workspace_count": len(workspaces),
-                        "pool": WarmParentRegistry.get().stats(),
-                    }
-                )
-
+                return _sandbox_reap_action()
             if action == "warm":
-                if not rung:
-                    return _json.dumps({"error": "warm requires an approved rung"})
-                from agent_utilities.rlm.sandboxes.base import ForkableSandbox
-                from agent_utilities.rlm.sandboxes.registry import default_sandboxes
-
-                backend = next((b for b in default_sandboxes() if b.name == rung), None)
-                if backend is None or not isinstance(backend, ForkableSandbox):
-                    return _json.dumps(
-                        {
-                            "error": "requested rung is not an available confined warm-fork"
-                        }
-                    )
-                registry = WarmParentRegistry.get()
-                spec = backend.warm_spec()
-                already = registry.acquire(spec.key) is not None
-                if not already:
-                    parent = await backend.warm(spec)
-                    registry.register(
-                        spec.key, parent, close=parent.close, kind=backend.name
-                    )
-                return _json.dumps(
-                    {
-                        "action": "warm",
-                        "rung": rung,
-                        "already_warm": already,
-                        "pool": registry.stats(),
-                    }
-                )
-
+                return await _sandbox_warm_action(rung)
             return _json.dumps({"error": "unknown sandbox action"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
@@ -909,6 +1635,25 @@ def register_state_tools(mcp):
         from agent_utilities.runtime.run_vcs.run_session import RunSessionRegistry
 
         registry = RunSessionRegistry.get()
+        p = _RunVcsParams(
+            run_id=run_id,
+            commit_id=commit_id,
+            label=label,
+            twin=twin,
+            agent_name=agent_name,
+            task=task,
+            versions=versions,
+            outcome=outcome,
+            persist=persist,
+            tool_calls=tool_calls,
+            model_exchanges=model_exchanges,
+            policy_decisions=policy_decisions,
+            evidence=evidence,
+            budget=budget,
+            work_item_ids=work_item_ids,
+            policy_overrides=policy_overrides,
+            model_responses=model_responses,
+        )
         try:
             if action == "list":
                 return _json.dumps({"action": "list", "runs": registry.list_ids()})
@@ -917,141 +1662,9 @@ def register_state_tools(mcp):
             # Twins project a PAST run independently of any live RunSessionRegistry entry,
             # so these branch out before the live-session guard below.
             if action == "twin_capture":
-                from agent_utilities.orchestration.agent_digital_twin import (
-                    VersionPins,
-                    capture_twin,
-                    capture_twin_from_kg,
-                    persist_twin,
-                )
-
-                engine = kg_server._get_engine()
-                pins = VersionPins.from_dict(_json.loads(versions) if versions else {})
-                decisions = _json.loads(policy_decisions) if policy_decisions else []
-                evidence_items = _json.loads(evidence) if evidence else []
-                explicit_calls = _json.loads(tool_calls) if tool_calls else []
-                explicit_exchanges = (
-                    _json.loads(model_exchanges) if model_exchanges else []
-                )
-                if explicit_calls or explicit_exchanges:
-                    # EXPLICIT-DATA path (capture_twin) — the canonical path a live
-                    # run (or a test standing in for one) uses: build the twin
-                    # straight from data the caller already collected, never
-                    # re-derived from the KG.
-                    twin_obj = capture_twin(
-                        agent_name=agent_name,
-                        task=task,
-                        versions=pins,
-                        run_id=run_id or None,
-                        budget=_json.loads(budget) if budget and budget != "{}" else {},
-                        work_item_ids=(
-                            _json.loads(work_item_ids) if work_item_ids else []
-                        ),
-                        tool_calls=explicit_calls,
-                        model_exchanges=explicit_exchanges,
-                        policy_decisions=decisions,
-                        evidence=evidence_items,
-                        outcome=outcome or "succeeded",
-                        engine=engine,
-                    )
-                else:
-                    # KG-HYDRATION path (capture_twin_from_kg) — best-effort read of
-                    # an already-running KG's existing :ToolCall/:WorkItem rows.
-                    if not run_id:
-                        return _json.dumps(
-                            {
-                                "error": "twin_capture requires run_id (or explicit "
-                                "tool_calls/model_exchanges for the explicit-data path)"
-                            }
-                        )
-                    twin_obj = capture_twin_from_kg(
-                        engine,
-                        run_id,
-                        agent_name=agent_name,
-                        task=task,
-                        versions=pins,
-                        outcome=outcome,
-                        policy_decisions=decisions,
-                        evidence=evidence_items,
-                    )
-                node_id = persist_twin(engine, twin_obj) if persist else None
-                return _json.dumps(
-                    {
-                        "action": "twin_capture",
-                        "twin_id": twin_obj.twin_id,
-                        "node_id": node_id,
-                        "twin": twin_obj.to_dict(),
-                    },
-                    default=str,
-                )
+                return _runvcs_twin_capture_action(p)
             if action in ("twin_replay", "twin_counterfactual", "twin_incident"):
-                from agent_utilities.orchestration.agent_digital_twin import (
-                    AgentDigitalTwin,
-                    VersionPins,
-                    counterfactual_replay,
-                    replay_twin,
-                    twin_incident_steps,
-                )
-
-                if not twin:
-                    return _json.dumps(
-                        {
-                            "error": f"{action} requires `twin` (JSON from action='twin_capture')"
-                        }
-                    )
-                twin_obj = AgentDigitalTwin.from_dict(_json.loads(twin))
-
-                if action == "twin_replay":
-                    report = replay_twin(twin_obj)
-                    return _json.dumps(
-                        {
-                            "action": "twin_replay",
-                            "run_id": report.run_id,
-                            "twin_id": report.twin_id,
-                            "deterministic": report.deterministic,
-                            "steps": report.regression.steps,
-                            "model_calls": report.regression.model_calls,
-                        }
-                    )
-                if action == "twin_counterfactual":
-                    versions_override = (
-                        VersionPins.from_dict(_json.loads(versions))
-                        if versions and versions != "{}"
-                        else None
-                    )
-                    overrides = (
-                        _json.loads(policy_overrides) if policy_overrides else None
-                    )
-                    responses = (
-                        _json.loads(model_responses) if model_responses else None
-                    )
-                    report = counterfactual_replay(
-                        twin_obj,
-                        versions=versions_override,
-                        policy_overrides=overrides,
-                        model_responses=responses,
-                    )
-                    return _json.dumps(
-                        {
-                            "action": "twin_counterfactual",
-                            "run_id": report.run_id,
-                            "twin_id": report.twin_id,
-                            "diverged": report.diverged,
-                            "deterministic": report.deterministic,
-                            "version_delta": report.version_delta,
-                            "decision_delta": report.decision_delta,
-                        },
-                        default=str,
-                    )
-                # action == "twin_incident"
-                steps = twin_incident_steps(twin_obj)
-                return _json.dumps(
-                    {
-                        "action": "twin_incident",
-                        "run_id": twin_obj.run_id,
-                        "steps": steps,
-                    },
-                    default=str,
-                )
+                return _runvcs_twin_family_action(action, p)
 
             session = registry.acquire(run_id) if run_id else None
             if action != "list" and session is None:
@@ -1063,45 +1676,9 @@ def register_state_tools(mcp):
                 )
             assert session is not None  # for type-narrowing (guarded above)
 
-            if action == "status":
-                return _json.dumps(
-                    {"action": "status", **session.status()}, default=str
-                )
-            if action == "commit":
-                commit = await session.commit(label)
-                return _json.dumps(
-                    {"action": "commit", "commit_id": commit.commit_id, "label": label}
-                )
-            if action == "revert":
-                res = await session.revert(commit_id)
-                return _json.dumps({"action": "revert", **res}, default=str)
-            if action == "fork":
-                child = await session.fork(commit_id)
-                registry.register(child)
-                return _json.dumps(
-                    {
-                        "action": "fork",
-                        "parent_run": session.run_id,
-                        "child_run": child.run_id,
-                        "from_commit": commit_id,
-                    }
-                )
-            if action == "discard":
-                return _json.dumps(
-                    {"action": "discard", **session.discard()}, default=str
-                )
-            if action == "replay":
-                result = replay_run(session.log)
-                return _json.dumps(
-                    {
-                        "action": "replay",
-                        "run_id": result.run_id,
-                        "steps": result.steps,
-                        "model_calls": result.model_calls,
-                        "deterministic": result.deterministic,
-                    }
-                )
-            return _json.dumps({"error": f"unknown action {action!r}"})
+            return await _runvcs_live_session_action(
+                action, session, registry, p, replay_run
+            )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
@@ -1137,128 +1714,17 @@ def register_state_tools(mcp):
     ) -> str:
         """List / add / remove / sync unified RSS feed sources (add/remove are bulk-capable)."""
         import json as _json
-        import re as _re
-
-        from agent_utilities.automation.feed_sources import (
-            list_feed_sources,
-            remove_feed_source,
-            upsert_feed_source,
-        )
-
-        def _url_list() -> list[str]:
-            """Resolve url + urls into a deduped, ordered list (JSON array or delimited)."""
-            out: list[str] = []
-            raw = (urls or "").strip()
-            if raw:
-                parsed: object = None
-                try:
-                    parsed = _json.loads(raw)
-                except Exception:  # noqa: BLE001 — not JSON → fall back to delimiters
-                    parsed = None
-                if isinstance(parsed, list):
-                    out.extend(str(x).strip() for x in parsed)
-                else:
-                    out.extend(p.strip() for p in _re.split(r"[,\n]", raw))
-            if url:
-                out.append(url.strip())
-            seen: set[str] = set()
-            deduped: list[str] = []
-            for u in out:
-                if u and u not in seen:
-                    seen.add(u)
-                    deduped.append(u)
-            return deduped
 
         try:
             engine = kg_server._get_engine()
             if action == "list":
-                return _json.dumps(
-                    {"action": "list", "feeds": list_feed_sources(engine)}, default=str
-                )
+                return _feeds_list_action(engine)
             if action == "add":
-                targets = _url_list()
-                if not targets:
-                    return _json.dumps(
-                        {"error": "add needs a feed url (url=... or urls=[...])"}
-                    )
-                results: list[dict] = []
-                for u in targets:
-                    try:
-                        nid = upsert_feed_source(
-                            engine,
-                            key=u,
-                            source_system="rss",
-                            feed_url=u,
-                            kind="RssFeed",
-                        )
-                        results.append({"url": u, "id": nid})
-                    except Exception as e:  # noqa: BLE001 — one bad feed never aborts the batch
-                        results.append(public_error_payload(e))
-                added = [r for r in results if "id" in r]
-                return _json.dumps(
-                    {
-                        "action": "add",
-                        "added": len(added),
-                        "total": len(targets),
-                        "results": results,
-                    }
-                )
+                return _feeds_add_action(engine, _resolve_feed_urls(url, urls))
             if action == "remove":
-                targets = _url_list()
-                if not targets:
-                    return _json.dumps(
-                        {"error": "remove needs a feed url (url=... or urls=[...])"}
-                    )
-                results = []
-                for u in targets:
-                    try:
-                        ok = remove_feed_source(engine, key=u, source_system="rss")
-                        results.append({"url": u, "ok": bool(ok)})
-                    except Exception as e:  # noqa: BLE001
-                        results.append(public_error_payload(e))
-                return _json.dumps(
-                    {
-                        "action": "remove",
-                        "removed": sum(1 for r in results if r.get("ok")),
-                        "total": len(targets),
-                        "results": results,
-                    }
-                )
+                return _feeds_remove_action(engine, _resolve_feed_urls(url, urls))
             if action == "sync":
-                # Run the sweep OFF the request path (CONCEPT:AU-KG.ingest.rss-feed-connector): enqueue a
-                # feed_sweep task and return immediately, so a many-feed sweep (which
-                # fetches + gates + enqueues per-article worldview/research tasks)
-                # never rides — or times out — the 300s MCP call. ``url`` may name a
-                # specific source (rss|freshrss|all); defaults to the native RSS sweep.
-                submit = getattr(engine, "submit_task", None)
-                feed_source = (url or "rss").strip().lower()
-                if callable(submit):
-                    job_id = submit(
-                        target_path=f"feed_sweep:{feed_source}",
-                        is_codebase=False,
-                        provenance={"feed_sweep": feed_source},
-                        task_type="feed_sweep",
-                        priority=2,
-                        skip_dedupe=True,
-                        extra_meta={"feed_source": feed_source, "feed_mode": mode},
-                    )
-                    return _json.dumps(
-                        {
-                            "action": "sync",
-                            "enqueued": True,
-                            "job_id": job_id,
-                            "source": feed_source,
-                            "mode": mode,
-                            "note": "sweep runs in the background (connectors lane); "
-                            "watch the worldview/research lanes drain.",
-                        }
-                    )
-                # Fallback: no queue (embedded engine) → run inline.
-                from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-                return _json.dumps(
-                    sync_source(engine, feed_source, mode=mode), default=str
-                )
+                return _feeds_sync_action(engine, url, mode)
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
