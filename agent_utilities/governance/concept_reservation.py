@@ -170,6 +170,20 @@ def _validate_cursor(cursor: object, field_name: str = "cursor") -> str | None:
     return cursor
 
 
+def _parse_offset_cursor(cursor: str | None) -> int:
+    """Decode the fixture authority's plain-integer offset cursor."""
+
+    if not cursor:
+        return 0
+    try:
+        offset = int(cursor)
+    except ValueError as exc:
+        raise ConceptReservationError("cursor is invalid") from exc
+    if offset < 0:
+        raise ConceptReservationError("cursor is invalid")
+    return offset
+
+
 def _nonblank(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise ConceptReservationError(f"{field_name} must be a non-blank string")
@@ -1046,6 +1060,28 @@ def _visibility_for_target(
     return requested_visibility
 
 
+def _record_matches(
+    record: ConceptReservationRecord,
+    *,
+    tenant: str,
+    namespace: str | None,
+    state: ConceptReservationState | None,
+    concept_prefix: str | None,
+) -> bool:
+    """The tenant/namespace/state/concept_prefix filter shared by both
+    authority implementations' ``list``."""
+
+    if record.tenant_ref != tenant:
+        return False
+    if namespace and record.request.namespace != namespace:
+        return False
+    if state and record.state is not state:
+        return False
+    if concept_prefix and not record.concept_id.startswith(concept_prefix):
+        return False
+    return True
+
+
 def _next_lifecycle_times(
     target: ConceptReservationState, now: datetime, current: ConceptReservationRecord
 ) -> dict[str, datetime | None]:
@@ -1391,25 +1427,6 @@ class NativeConceptReservationAuthority:
         _node_id, record = self._find_reservation(reservation, tenant)
         return record
 
-    def _record_matches(
-        self,
-        record: ConceptReservationRecord,
-        *,
-        tenant: str,
-        namespace: str | None,
-        state: ConceptReservationState | None,
-        concept_prefix: str | None,
-    ) -> bool:
-        if record.tenant_ref != tenant:
-            return False
-        if namespace and record.request.namespace != namespace:
-            return False
-        if state and record.state is not state:
-            return False
-        if concept_prefix and not record.concept_id.startswith(concept_prefix):
-            return False
-        return True
-
     def _collect_page_matches(
         self,
         page: Sequence[tuple[str, Mapping[str, Any]]],
@@ -1425,7 +1442,7 @@ class NativeConceptReservationAuthority:
         for node_id, props in page:
             last_scanned = node_id
             record = self._parse_properties(props)
-            if self._record_matches(
+            if _record_matches(
                 record,
                 tenant=tenant,
                 namespace=namespace,
@@ -1702,34 +1719,20 @@ class FixtureConceptReservationAuthority:
     ) -> tuple[list[ConceptReservationRecord], str | None]:
         if not 1 <= limit <= _MAX_LIST_LIMIT:
             raise ConceptReservationError("limit is outside the bounded range")
-        if cursor:
-            try:
-                offset = int(cursor)
-            except ValueError as exc:
-                raise ConceptReservationError("cursor is invalid") from exc
-            if offset < 0:
-                raise ConceptReservationError("cursor is invalid")
-        else:
-            offset = 0
+        offset = _parse_offset_cursor(cursor)
         tenant = _reference(tenant_ref, "tenant_ref")
         with self._lock:
             rows = [
                 record
                 for record in self._records.values()
-                if record.tenant_ref == tenant
+                if _record_matches(
+                    record,
+                    tenant=tenant,
+                    namespace=namespace,
+                    state=state,
+                    concept_prefix=concept_prefix,
+                )
             ]
-            if namespace:
-                rows = [
-                    record for record in rows if record.request.namespace == namespace
-                ]
-            if state:
-                rows = [record for record in rows if record.state is state]
-            if concept_prefix:
-                rows = [
-                    record
-                    for record in rows
-                    if record.concept_id.startswith(concept_prefix)
-                ]
             rows.sort(key=lambda record: record.reservation_id)
             page = rows[offset : offset + limit]
             next_cursor = str(offset + limit) if offset + limit < len(rows) else None
@@ -1748,71 +1751,23 @@ class FixtureConceptReservationAuthority:
         with self._lock:
             record = self._require(reservation_id, tenant_ref)
             owner = _reference(owner_ref, "owner_ref")
-            requested_visibility = _strongest_visibility(
-                record.visibility, visibility or record.visibility
-            )
-            if (
-                target is not ConceptReservationState.TOMBSTONED
-                and _VISIBILITY_RANK[requested_visibility]
-                >= _VISIBILITY_RANK[ConceptReservationVisibility.REPOSITORY]
-            ):
-                target = ConceptReservationState.TOMBSTONED
+            target, requested_visibility = _effective_target(record, target, visibility)
             # Match native retry semantics: an exact same-owner transition is
             # idempotent when the caller presents the immediately prior fence.
-            if (
-                record.owner_ref == owner
-                and record.state is target
-                and record.fence == expected_fence + 1
-            ):
+            if _is_idempotent_retry(record, owner, target, expected_fence):
                 return record
-            if record.owner_ref != owner or record.fence != expected_fence:
-                raise ConceptReservationFenceConflict(
-                    "reservation owner or fence is stale"
-                )
-            if (
-                target is ConceptReservationState.EXPIRED
-                and datetime.now(UTC) < record.expires_at
-            ):
-                raise ConceptReservationConflict(
-                    "reservation has not reached its expiry"
-                )
-            if target not in _transition_map().get(record.state, set()):
-                raise ConceptReservationConflict(
-                    f"cannot transition {record.state.value} to {target.value}"
-                )
+            _check_transition_fence(record, owner, expected_fence)
+            _check_transition_expiry(record, target)
+            _check_transition_allowed(record, target)
             now = max(record.transitioned_at, datetime.now(UTC))
-            next_visibility = requested_visibility
-            if target is ConceptReservationState.MATERIALIZED:
-                next_visibility = _strongest_visibility(
-                    next_visibility, ConceptReservationVisibility.FRAGMENT
-                )
-            elif target is ConceptReservationState.LANDED:
-                next_visibility = _strongest_visibility(
-                    next_visibility, ConceptReservationVisibility.REPOSITORY
-                )
-            elif target is ConceptReservationState.TOMBSTONED:
-                next_visibility = ConceptReservationVisibility.EXTERNAL
+            next_visibility = _visibility_for_target(target, requested_visibility)
             return self._replace(
                 record,
                 state=target,
                 visibility=next_visibility,
                 fence=record.fence + 1,
                 transitioned_at=now,
-                materialized_at=now
-                if target is ConceptReservationState.MATERIALIZED
-                else record.materialized_at,
-                landed_at=now
-                if target is ConceptReservationState.LANDED
-                else record.landed_at,
-                released_at=now
-                if target is ConceptReservationState.RELEASED
-                else record.released_at,
-                expired_at=now
-                if target is ConceptReservationState.EXPIRED
-                else record.expired_at,
-                tombstoned_at=now
-                if target is ConceptReservationState.TOMBSTONED
-                else record.tombstoned_at,
+                **_next_lifecycle_times(target, now, record),
             )
 
     def _replace(
