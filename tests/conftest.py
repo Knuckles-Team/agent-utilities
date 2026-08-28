@@ -373,13 +373,31 @@ def _isolate_intent_outcome_learning():
         yield
         return
 
+    # `_CANDIDATES_CACHE`/`_ACTIONS_BY_TOOL_CACHE` are reset here too, and that
+    # is the chokepoint, not a belt-and-braces addition. WD5-FIX-04 traced a
+    # measured failure to their absence: a sibling test registers only 8 tools
+    # directly into `kg_server.REGISTERED_TOOLS` and then calls the real
+    # `dispatch_intent`. `_build_candidates()`'s own `ensure_tools_registered()`
+    # short-circuits on `if REGISTERED_TOOLS: return`, so the candidate table is
+    # built ONCE from those 8 tools and survives into every later test in that
+    # xdist worker. `_isolate_registered_tools` restores REGISTERED_TOOLS itself
+    # and this fixture restored the router and resolution cache -- but nothing
+    # reset the candidate cache, so `test_intent_surface_selection_accuracy_
+    # meets_measured_floor` reported 36.00% top-1 against its 60% floor while
+    # the true figure in isolation is 76.00%. A gate reporting 36% for a real
+    # 76% is not a flaky nuisance: it gets ignored, or "fixed" by lowering the
+    # floor, and either way a genuine quality signal is lost.
     intent_tools._OUTCOME_ROUTER = None
     intent_tools._RESOLUTION_CACHE.clear()
+    intent_tools._CANDIDATES_CACHE = None
+    intent_tools._ACTIONS_BY_TOOL_CACHE = None
     try:
         yield
     finally:
         intent_tools._OUTCOME_ROUTER = None
         intent_tools._RESOLUTION_CACHE.clear()
+        intent_tools._CANDIDATES_CACHE = None
+        intent_tools._ACTIONS_BY_TOOL_CACHE = None
 
 
 @pytest.fixture(autouse=True)
