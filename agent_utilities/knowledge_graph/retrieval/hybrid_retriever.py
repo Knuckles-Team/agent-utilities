@@ -541,42 +541,65 @@ class HybridRetriever:
         if not wanted or graph is None:
             return {}
 
-        if not self._neighbors_batch_unsupported:
-            client = getattr(graph, "_client", None)
-            nodes_ns = getattr(client, "nodes", None) if client is not None else None
-            true_batch = getattr(nodes_ns, "neighbors_batch", None)
-            if callable(true_batch):
-                try:
-                    result = true_batch(wanted)
-                except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
-                    self._neighbors_batch_unsupported = True
-                    logger.debug(
-                        "neighbors_batch RPC unavailable, falling back to "
-                        "per-node fetch for the rest of this retriever "
-                        "instance's lifetime: %s",
-                        e,
-                    )
-                else:
-                    return {
-                        str(nid): [str(n) for n in (neighbors or [])]
-                        for nid, neighbors in (result or {}).items()
-                    }
+        true_batch_result = self._neighbors_via_true_batch(graph, wanted)
+        if true_batch_result is not None:
+            return true_batch_result
 
+        fetch = self._resolve_neighbors_fetch_fn(graph)
+        if fetch is None:
+            return {}
+
+        return self._neighbors_parallel_fetch(fetch, wanted)
+
+    def _neighbors_via_true_batch(
+        self, graph: Any, wanted: list[str]
+    ) -> dict[str, list[str]] | None:
+        if self._neighbors_batch_unsupported:
+            return None
+        client = getattr(graph, "_client", None)
+        nodes_ns = getattr(client, "nodes", None) if client is not None else None
+        true_batch = getattr(nodes_ns, "neighbors_batch", None)
+        if not callable(true_batch):
+            return None
+        try:
+            result = true_batch(wanted)
+        except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
+            self._neighbors_batch_unsupported = True
+            logger.debug(
+                "neighbors_batch RPC unavailable, falling back to "
+                "per-node fetch for the rest of this retriever "
+                "instance's lifetime: %s",
+                e,
+            )
+            return None
+        return {
+            str(nid): [str(n) for n in (neighbors or [])]
+            for nid, neighbors in (result or {}).items()
+        }
+
+    @staticmethod
+    def _resolve_neighbors_fetch_fn(graph: Any) -> Callable[[str], list[str]] | None:
         unioned = getattr(graph, "get_neighbors", None)
         if callable(unioned):
-            fetch: Callable[[str], list[str]] = unioned
-        else:
-            # Facade without the unioned op: fall back to the directed pair so a
-            # graph double / older engine keeps the SAME id set, just at two
-            # round-trips per node instead of one.
-            succ = getattr(graph, "get_successors", None)
-            pred = getattr(graph, "get_predecessors", None)
-            if not callable(succ) or not callable(pred):
-                return {}
+            return unioned
 
-            def fetch(nid: str) -> list[str]:
-                return list(succ(nid) or []) + list(pred(nid) or [])
+        # Facade without the unioned op: fall back to the directed pair so a
+        # graph double / older engine keeps the SAME id set, just at two
+        # round-trips per node instead of one.
+        succ = getattr(graph, "get_successors", None)
+        pred = getattr(graph, "get_predecessors", None)
+        if not callable(succ) or not callable(pred):
+            return None
 
+        def fetch(nid: str) -> list[str]:
+            return list(succ(nid) or []) + list(pred(nid) or [])
+
+        return fetch
+
+    @staticmethod
+    def _neighbors_parallel_fetch(
+        fetch: Callable[[str], list[str]], wanted: list[str]
+    ) -> dict[str, list[str]]:
         if len(wanted) == 1:
             return {wanted[0]: [str(n) for n in (fetch(wanted[0]) or [])]}
 
