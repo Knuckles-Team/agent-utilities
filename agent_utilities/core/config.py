@@ -372,33 +372,45 @@ def _validate_runtime_secret_metadata(metadata: Any) -> None:
         raise PermissionError("runtime secret source posture is unsupported")
 
 
-def _read_runtime_secret_source(
-    path: "os.PathLike[str] | str",
-    *,
-    targets: frozenset[str],
-    update_status: bool = True,
-) -> tuple[bool, dict[str, str]]:
-    """Read and filter the implicit XDG runtime-secret document.
+def _reject_duplicate_secret_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """``object_pairs_hook`` that refuses a document with duplicate keys."""
+    result: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in result:
+            raise ValueError("runtime secret source has duplicate keys")
+        result[key] = item
+    return result
 
-    The path and all document data remain inside this boundary.  A missing file
-    is an optional, valid state; any present file that fails validation is
-    rejected with category-only diagnostics.
-    """
-    import json
-    import stat
 
-    descriptor = -1
-    observed = False
+def _runtime_secret_open_flags() -> int:
+    """Read-only open flags, hardened where the platform supports it."""
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    return flags
+
+
+def _assert_runtime_secret_unchanged(before, after, payload_len: int) -> None:
+    """Reject a document swapped or rewritten between the two ``fstat`` calls."""
+    if payload_len != before.st_size or (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ):
+        raise PermissionError("runtime secret source changed during read")
+
+
+def _read_runtime_secret_payload(path: "os.PathLike[str] | str", before_open) -> bytes:
+    """Read the document bytes, guarding against a TOCTOU swap of the file."""
+    descriptor = os.open(path, _runtime_secret_open_flags())
     try:
-        before_open = os.lstat(path)
-        observed = True
-        if stat.S_ISLNK(before_open.st_mode):
-            raise PermissionError("runtime secret source link is not accepted")
-        flags = os.O_RDONLY
-        flags |= getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        flags |= getattr(os, "O_BINARY", 0)
-        descriptor = os.open(path, flags)
         before_read = os.fstat(descriptor)
         _validate_runtime_secret_metadata(before_read)
         if (
@@ -413,60 +425,82 @@ def _read_runtime_secret_source(
             descriptor = -1
             payload = handle.read(_MAX_RUNTIME_SECRET_SOURCE_BYTES + 1)
             after_read = os.fstat(handle.fileno())
-        _validate_runtime_secret_metadata(after_read)
-        if len(payload) > _MAX_RUNTIME_SECRET_SOURCE_BYTES:
-            raise ValueError("runtime secret source exceeds the size limit")
-        if len(payload) != before_read.st_size or (
-            before_read.st_dev,
-            before_read.st_ino,
-            before_read.st_size,
-            before_read.st_mtime_ns,
-        ) != (
-            after_read.st_dev,
-            after_read.st_ino,
-            after_read.st_size,
-            after_read.st_mtime_ns,
-        ):
-            raise PermissionError("runtime secret source changed during read")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    _validate_runtime_secret_metadata(after_read)
+    if len(payload) > _MAX_RUNTIME_SECRET_SOURCE_BYTES:
+        raise ValueError("runtime secret source exceeds the size limit")
+    _assert_runtime_secret_unchanged(before_read, after_read, len(payload))
+    return payload
 
-        def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-            result: dict[str, Any] = {}
-            for key, item in pairs:
-                if key in result:
-                    raise ValueError("runtime secret source has duplicate keys")
-                result[key] = item
-            return result
 
-        document = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=reject_duplicates,
-        )
-        if not isinstance(document, dict):
-            raise TypeError("runtime secret source must contain a JSON object")
-        if len(document) > _MAX_RUNTIME_SECRET_ENTRIES:
-            raise ValueError("runtime secret source has too many entries")
+def _parse_runtime_secret_document(payload: bytes) -> dict[str, Any]:
+    """Decode the document, rejecting non-objects, duplicates and oversized maps."""
+    import json
 
-        selected: dict[str, str] = {}
-        casefolded_names: set[str] = set()
-        for key, value in document.items():
-            if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(key) is None:
-                raise ValueError("runtime secret source contains an invalid key")
-            folded = key.casefold()
-            if folded in casefolded_names:
-                raise ValueError("runtime secret source has ambiguous keys")
-            casefolded_names.add(folded)
-            if not isinstance(value, str):
-                raise TypeError("runtime secret source values must be strings")
-            encoded = value.encode("utf-8")
-            if (
-                not encoded
-                or len(encoded) > _MAX_RUNTIME_SECRET_VALUE_BYTES
-                or "\x00" in value
-            ):
-                raise ValueError("runtime secret source contains an invalid value")
-            if key in targets:
-                selected[key] = value
-        return True, selected
+    document = json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_secret_keys,
+    )
+    if not isinstance(document, dict):
+        raise TypeError("runtime secret source must contain a JSON object")
+    if len(document) > _MAX_RUNTIME_SECRET_ENTRIES:
+        raise ValueError("runtime secret source has too many entries")
+    return document
+
+
+def _validate_runtime_secret_value(value: Any) -> None:
+    """A runtime secret must be a non-empty, bounded, NUL-free UTF-8 string."""
+    if not isinstance(value, str):
+        raise TypeError("runtime secret source values must be strings")
+    encoded = value.encode("utf-8")
+    if not encoded or len(encoded) > _MAX_RUNTIME_SECRET_VALUE_BYTES or "\x00" in value:
+        raise ValueError("runtime secret source contains an invalid value")
+
+
+def _selected_runtime_secrets(
+    document: Mapping[str, Any], targets: frozenset[str]
+) -> dict[str, str]:
+    """Validate every entry, then keep only the referenced targets."""
+    selected: dict[str, str] = {}
+    casefolded_names: set[str] = set()
+    for key, value in document.items():
+        if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(key) is None:
+            raise ValueError("runtime secret source contains an invalid key")
+        folded = key.casefold()
+        if folded in casefolded_names:
+            raise ValueError("runtime secret source has ambiguous keys")
+        casefolded_names.add(folded)
+        _validate_runtime_secret_value(value)
+        if key in targets:
+            selected[key] = value
+    return selected
+
+
+def _read_runtime_secret_source(
+    path: "os.PathLike[str] | str",
+    *,
+    targets: frozenset[str],
+    update_status: bool = True,
+) -> tuple[bool, dict[str, str]]:
+    """Read and filter the implicit XDG runtime-secret document.
+
+    The path and all document data remain inside this boundary.  A missing file
+    is an optional, valid state; any present file that fails validation is
+    rejected with category-only diagnostics.
+    """
+    import stat
+
+    observed = False
+    try:
+        before_open = os.lstat(path)
+        observed = True
+        if stat.S_ISLNK(before_open.st_mode):
+            raise PermissionError("runtime secret source link is not accepted")
+        payload = _read_runtime_secret_payload(path, before_open)
+        document = _parse_runtime_secret_document(payload)
+        return True, _selected_runtime_secrets(document, targets)
     except FileNotFoundError as exc:
         if not observed:
             return False, {}
@@ -481,9 +515,6 @@ def _read_runtime_secret_source(
                 state="invalid", present=observed, valid=False
             )
         raise ConfigurationSourceError("runtime-secrets", type(exc).__name__) from None
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
 
 
 def _production_configuration_is_strict() -> bool:
@@ -826,6 +857,66 @@ def _is_oauth2_block(parent: str) -> bool:
     return parent == "OAUTH2" or parent.endswith("_OAUTH2")
 
 
+_DURABLE_SECRET_REF_CONTAINERS = frozenset(
+    {"MCP_FLEET_SECRET_REFS", "CREDENTIAL_REFS", "SELECTOR_REFS"}
+)
+
+
+def _is_runtime_secret_ref(value: Any) -> bool:
+    """True when ``value`` is a well-formed runtime secret reference string."""
+    return bool(
+        isinstance(value, str) and _RUNTIME_SECRET_REF_RE.fullmatch(value.strip())
+    )
+
+
+def _is_durable_credential_key(key: str) -> bool:
+    """A sensitive mapping key, or a credential suffix that is not a ``_REF``."""
+    return key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
+        key.endswith(_DURABLE_CREDENTIAL_SUFFIXES) and not key.endswith("_REF")
+    )
+
+
+def _durable_secret_policy_verdict(
+    key: str, child: Any, parent: str
+) -> tuple[bool, bool]:
+    """Classify one durable entry as ``(is_offending, should_recurse)``."""
+    if parent in _DURABLE_SECRET_REF_CONTAINERS:
+        # A ``*_REFS`` container holds reference strings and nothing else, so a
+        # verdict here is terminal either way.
+        return not _is_runtime_secret_ref(child), False
+    if key in _DURABLE_HEADER_CONTAINER_KEYS:
+        return True, True
+    if key == "CLIENT_SECRET" and _is_oauth2_block(parent):
+        # The strict OAuth2 submodel validates the URI. This is the one
+        # intentionally nested reference form in model config.
+        return not _is_runtime_secret_ref(child), True
+    return _is_durable_credential_key(key), True
+
+
+def _walk_durable_secret_policy(value: Any, parent: str, on_offense: Any) -> None:
+    """Walk durable config, calling ``on_offense(key)`` for each policy breach.
+
+    ``on_offense`` either raises (the load-time validator) or records (the
+    doctor's reporter); the walk continues exactly where the original policy
+    continued.
+    """
+    if isinstance(value, list):
+        for child in value:
+            _walk_durable_secret_policy(child, parent, on_offense)
+        return
+    if not isinstance(value, Mapping):
+        return
+    for raw_key, child in value.items():
+        key = str(raw_key).strip().upper().replace("-", "_")
+        if _durable_value_is_empty(child):
+            continue
+        offending, recurse = _durable_secret_policy_verdict(key, child, parent)
+        if offending:
+            on_offense(key)
+        if recurse:
+            _walk_durable_secret_policy(child, key, on_offense)
+
+
 def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     """Reject credential and header material from durable XDG configuration.
 
@@ -840,50 +931,17 @@ def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     details and must not cross the doctor/MCP boundary.
     """
 
-    def visit(value: Any, *, parent: str = "") -> None:
-        if isinstance(value, Mapping):
-            for raw_key, child in value.items():
-                key = str(raw_key).strip().upper().replace("-", "_")
-                if _durable_value_is_empty(child):
-                    continue
-                if parent in {
-                    "MCP_FLEET_SECRET_REFS",
-                    "CREDENTIAL_REFS",
-                    "SELECTOR_REFS",
-                }:
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        raise ConfigurationSourceError("xdg", "DurableSecretError")
-                    continue
-                if key in _DURABLE_HEADER_CONTAINER_KEYS:
-                    raise ConfigurationSourceError("xdg", "DurableSecretError")
-                if key == "CLIENT_SECRET" and _is_oauth2_block(parent):
-                    # The strict OAuth2 submodel validates the URI. This is the
-                    # one intentionally nested reference form in model config.
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        raise ConfigurationSourceError("xdg", "DurableSecretError")
-                elif key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
-                    key.endswith(_DURABLE_CREDENTIAL_SUFFIXES)
-                    and not key.endswith("_REF")
-                ):
-                    raise ConfigurationSourceError("xdg", "DurableSecretError")
-                visit(child, parent=key)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, parent=parent)
+    def reject(_key: str) -> None:
+        raise ConfigurationSourceError("xdg", "DurableSecretError")
 
-    visit(data)
+    _walk_durable_secret_policy(data, "", reject)
 
 
 def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
     """Return the config key *names* that hold an inline plaintext secret.
 
-    Mirrors :func:`_validate_durable_xdg_secret_policy` exactly, but collects the
+    Mirrors :func:`_validate_durable_xdg_secret_policy` exactly — both walk the
+    document through :func:`_walk_durable_secret_policy` — but collects the
     offending key names instead of raising a value-free ``DurableSecretError``, so
     the doctor and migration reporter can tell an operator *which* keys to relocate
     to a durable reference (``<KEY>_REF`` → OpenBao/Vault). Only key names cross
@@ -895,45 +953,8 @@ def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
     non-reference value; or when it is an inline header container — the exact
     conditions the durable-secret policy rejects at load.
     """
-
     offenders: list[str] = []
-
-    def visit(value: Any, *, parent: str = "") -> None:
-        if isinstance(value, Mapping):
-            for raw_key, child in value.items():
-                key = str(raw_key).strip().upper().replace("-", "_")
-                if _durable_value_is_empty(child):
-                    continue
-                if parent in {
-                    "MCP_FLEET_SECRET_REFS",
-                    "CREDENTIAL_REFS",
-                    "SELECTOR_REFS",
-                }:
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        offenders.append(key)
-                    continue
-                if key in _DURABLE_HEADER_CONTAINER_KEYS:
-                    offenders.append(key)
-                elif key == "CLIENT_SECRET" and _is_oauth2_block(parent):
-                    if not (
-                        isinstance(child, str)
-                        and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
-                    ):
-                        offenders.append(key)
-                elif key in _DURABLE_SENSITIVE_MAPPING_KEYS or (
-                    key.endswith(_DURABLE_CREDENTIAL_SUFFIXES)
-                    and not key.endswith("_REF")
-                ):
-                    offenders.append(key)
-                visit(child, parent=key)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, parent=parent)
-
-    visit(data)
+    _walk_durable_secret_policy(data, "", offenders.append)
     return sorted(set(offenders))
 
 
@@ -1012,97 +1033,121 @@ def _mapping_selects_production(data: Mapping[str, Any]) -> bool:
     return False
 
 
-def _load_xdg_json_config_locked() -> None:
-    import json
-    from pathlib import Path
+def _hermetic_xdg_projection_applies() -> bool:
+    """Apply and report the hermetic (test-suite) XDG projection.
 
-    import platformdirs
+    Hermetic tests never read the developer's XDG-default deployment
+    ``config.json``. Config loading injects those into ``os.environ`` and would
+    override the unit suite's defaults — making tests fail on a dev box while
+    staying green in CI (which has no such file). An explicit config root used
+    by integration fixtures is still honored.
 
-    from agent_utilities.core.paths import runtime_secrets_path
-
-    APP_NAME = "agent-utilities"
-    APP_AUTHOR = "knuckles-team"
-
-    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
-    # Hermetic tests never read the developer's XDG-default deployment
-    # ``config.json``. Config loading injects those into ``os.environ`` and would
-    # override the unit suite's defaults — making tests fail on a dev box while
-    # staying green in CI (which has no such file). An explicit config root used
-    # by integration fixtures is still honored.
-    if not override and (
+    Returns True when the hermetic projection was committed and the caller is
+    done.
+    """
+    if os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
+        return False
+    if not (
         _under_pytest()
         or to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false"))
     ):
-        _commit_xdg_environment_projection({}, {})
-        _set_runtime_secret_source_status(state="hermetic", present=False, valid=True)
-        return
-    if override:
-        cfg_dir = Path(override).expanduser()
-    else:
-        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+        return False
+    _commit_xdg_environment_projection({}, {})
+    _set_runtime_secret_source_status(state="hermetic", present=False, valid=True)
+    return True
 
-    cfg_file = cfg_dir / "config.json"
-    strict = _production_configuration_is_strict()
+
+def _staged_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
+    """Read and canonicalize the staged XDG document under the given posture."""
     data: dict[str, Any] = {}
     if not cfg_file.exists():
-        if strict and override:
+        if strict and os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
             raise ConfigurationSourceError("xdg", "FileNotFoundError")
     else:
-        data = _read_configuration_mapping(
-            cfg_file,
-            source_type="xdg",
-            strict=strict,
-        )
+        data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=strict)
     _require_current_configuration_keys(data)
-    data = _canonicalize_xdg_configuration(data)
+    return _canonicalize_xdg_configuration(data)
+
+
+def _resolved_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
+    """The validated XDG document, re-read strictly when it selects production."""
+    data = _staged_xdg_document(cfg_file, strict)
     if not strict and _mapping_selects_production(data):
         # Re-open through the production posture after the staged document has
         # selected it. The second bounded, stable read is the one projected.
-        data = _read_configuration_mapping(
-            cfg_file,
-            source_type="xdg",
-            strict=True,
-        )
+        data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=True)
         _require_current_configuration_keys(data)
         data = _canonicalize_xdg_configuration(data)
     _validate_xdg_configuration_schema(data)
-    targets = _collect_env_reference_targets(data)
+    return data
+
+
+def _assert_no_secret_target_collision(
+    data: Mapping[str, Any], targets: frozenset[str]
+) -> None:
+    """A durable key may not shadow the environment name a secret ref targets."""
     durable_env_keys = {str(key).upper() for key in data}
     if any(target.upper() in durable_env_keys for target in targets):
         raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
+
+
+def _render_xdg_projection_value(value: Any) -> str:
+    """Render one durable JSON value as the environment string it projects to."""
+    import json
+
+    if isinstance(value, list | dict):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        # Keep JSON booleans in the canonical form accepted by strict boolean
+        # settings instead of Python's ``True``/``False``.
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _validated_xdg_projection_entry(env_key: str, value: Any) -> str:
+    """Render one entry and reject anything unsafe to place in the environment."""
+    rendered = _render_xdg_projection_value(value)
+    try:
+        rendered.encode("utf-8")
+    except UnicodeError:
+        raise ConfigurationSourceError("xdg", "EnvironmentProjectionError") from None
+    if _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(env_key) is None or "\x00" in rendered:
+        raise ConfigurationSourceError("xdg", "EnvironmentProjectionError")
+    return rendered
+
+
+def _build_xdg_config_projection(
+    data: Mapping[str, Any], explicit_environment: Mapping[str, str]
+) -> dict[str, str]:
+    """The durable-config half of the projection, minus explicitly set names."""
+    projection: dict[str, str] = {}
+    for key, value in data.items():
+        env_key = key.upper()
+        if env_key in explicit_environment:
+            continue
+        projection[env_key] = _validated_xdg_projection_entry(env_key, value)
+    return projection
+
+
+def _load_xdg_json_config_locked() -> None:
+    from agent_utilities.core.paths import runtime_secrets_path
+
+    if _hermetic_xdg_projection_applies():
+        return
+
+    strict = _production_configuration_is_strict()
+    data = _resolved_xdg_document(_xdg_config_file(), strict)
+    targets = _collect_env_reference_targets(data)
+    _assert_no_secret_target_collision(data, targets)
 
     present, available = _read_runtime_secret_source(
         runtime_secrets_path(),
         targets=targets,
     )
     explicit_environment = _environment_without_xdg_projections()
-    config_projection: dict[str, str] = {}
-    for k, v in data.items():
-        env_key = k.upper()
-        if env_key not in explicit_environment:
-            if isinstance(v, list | dict):
-                rendered = json.dumps(v)
-            elif isinstance(v, bool):
-                # Keep JSON booleans in the canonical form accepted by strict
-                # boolean settings instead of Python's ``True``/``False``.
-                rendered = "true" if v else "false"
-            elif v is None:
-                rendered = ""
-            else:
-                rendered = str(v)
-            try:
-                rendered.encode("utf-8")
-            except UnicodeError:
-                raise ConfigurationSourceError(
-                    "xdg", "EnvironmentProjectionError"
-                ) from None
-            if (
-                _RUNTIME_SECRET_ENV_NAME_RE.fullmatch(env_key) is None
-                or "\x00" in rendered
-            ):
-                raise ConfigurationSourceError("xdg", "EnvironmentProjectionError")
-            config_projection[env_key] = rendered
-
+    config_projection = _build_xdg_config_projection(data, explicit_environment)
     runtime_projection = {
         key: value
         for key, value in available.items()
@@ -1177,78 +1222,71 @@ def _xdg_config_file():
     return cfg_dir / "config.json"
 
 
-def save_config_item(key: str, value) -> str:
-    """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
+def _validate_persistable_kg_connections(value: Any) -> None:
+    """Durable connection declarations are reportable configuration, not secrets.
 
-    CONCEPT:AU-KG.storage.config-writeback — the write-back companion to the read-only XDG loader, so a
-    config change made via the MCP/REST surfaces survives restart and applies live
-    for settings read at call time (``config.setting`` / re-parsed fields). Returns
-    the resolved env key. Engine-rebuild settings update the value but need a
-    restart to take effect — see the restart classifier.
+    Fails before touching disk or the process environment if endpoint, identity,
+    credential, database, or local-path material is present as a literal.
     """
-    from pathlib import Path
+    if not isinstance(value, list):
+        raise ValueError("kg_connections must be a list")
+    from agent_utilities.knowledge_graph.core.connection_registry import (
+        validate_persistable_connection_spec,
+    )
 
-    _require_current_configuration_keys((key,))
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueError("kg_connections entries must be objects")
+        validate_persistable_connection_spec(entry)
 
-    if key.lower() == "kg_connections":
-        if not isinstance(value, list):
-            raise ValueError("kg_connections must be a list")
-        # Durable connection declarations are reportable configuration, not a
-        # secret store. Fail before touching disk or the process environment if
-        # endpoint, identity, credential, database, or local-path material is
-        # present as a literal.
-        from agent_utilities.knowledge_graph.core.connection_registry import (
-            validate_persistable_connection_spec,
-        )
 
-        for entry in value:
-            if not isinstance(entry, dict):
-                raise ValueError("kg_connections entries must be objects")
-            validate_persistable_connection_spec(entry)
+def _staged_configuration_for_save(
+    prior_data: Mapping[str, Any], env_key: str, value: Any
+) -> dict[str, Any]:
+    """The fully validated document that results from setting one key."""
+    from agent_utilities.core.paths import runtime_secrets_path
 
-    env_key = key.upper()
-    with _xdg_projection_lock:
-        from agent_utilities.core.paths import runtime_secrets_path
+    staged = _canonicalize_xdg_configuration(prior_data)
+    # A dynamic ``config.setting()`` key (connector/service config) is a valid
+    # thing to persist into config.json — only retired keys are rejected, by
+    # ``_require_current_configuration_keys`` below.
+    staged[env_key] = value
+    _require_current_configuration_keys(staged)
+    staged = _canonicalize_xdg_configuration(staged)
+    _validate_xdg_configuration_schema(staged)
+    targets = _collect_env_reference_targets(staged)
+    if any(target.upper() in staged for target in targets):
+        raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
+    _read_runtime_secret_source(
+        runtime_secrets_path(), targets=targets, update_status=False
+    )
+    return staged
 
-        cfg_file = _xdg_config_file()
-        Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
-        existed = cfg_file.exists()
-        prior_data: dict[str, Any] = {}
+
+def _commit_saved_configuration(
+    cfg_file: Any,
+    staged: Mapping[str, Any],
+    prior_data: Mapping[str, Any],
+    existed: bool,
+) -> None:
+    """Write the document and reload, restoring the previous file on failure."""
+    _write_private_configuration_mapping(cfg_file, staged)
+
+    # The file write, environment projection, typed singleton, and derived
+    # cache transition share one lock, so a parallel loader cannot observe
+    # an in-progress save.
+    try:
+        load_config(reload=True)
+    except Exception:
         if existed:
-            prior_data = _read_configuration_mapping(
-                cfg_file,
-                source_type="xdg",
-                strict=_production_configuration_is_strict(),
-            )
-        staged = _canonicalize_xdg_configuration(prior_data)
-        # A dynamic ``config.setting()`` key (connector/service config) is a valid
-        # thing to persist into config.json — only retired keys are rejected, by
-        # ``_require_current_configuration_keys`` below.
-        staged[env_key] = value
-        _require_current_configuration_keys(staged)
-        staged = _canonicalize_xdg_configuration(staged)
-        _validate_xdg_configuration_schema(staged)
-        targets = _collect_env_reference_targets(staged)
-        if any(target.upper() in staged for target in targets):
-            raise ConfigurationSourceError("xdg", "SecretTargetCollisionError")
-        _read_runtime_secret_source(
-            runtime_secrets_path(), targets=targets, update_status=False
-        )
+            _write_private_configuration_mapping(cfg_file, prior_data)
+        else:
+            cfg_file.unlink(missing_ok=True)
+        raise
 
-        _write_private_configuration_mapping(cfg_file, staged)
 
-        # The file write, environment projection, typed singleton, and derived
-        # cache transition share one lock, so a parallel loader cannot observe
-        # an in-progress save.
-        try:
-            load_config(reload=True)
-        except Exception:
-            if existed:
-                _write_private_configuration_mapping(cfg_file, prior_data)
-            else:
-                cfg_file.unlink(missing_ok=True)
-            raise
-
+def _refresh_after_configuration_save(env_key: str) -> None:
+    """Drop the in-process caches whose contents depend on the saved setting."""
     if env_key.startswith(("LANGFUSE_", "TRACE_EXPORT_", "TLS_")):
         from agent_utilities.observability.langfuse_exporter import (
             reset_langfuse_exporter,
@@ -1264,6 +1302,40 @@ def save_config_item(key: str, value) -> str:
     multiplexer_module = sys.modules.get("agent_utilities.mcp.multiplexer")
     if multiplexer_module is not None:
         multiplexer_module.invalidate_live_catalogs()
+
+
+def save_config_item(key: str, value) -> str:
+    """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
+
+    CONCEPT:AU-KG.storage.config-writeback — the write-back companion to the read-only XDG loader, so a
+    config change made via the MCP/REST surfaces survives restart and applies live
+    for settings read at call time (``config.setting`` / re-parsed fields). Returns
+    the resolved env key. Engine-rebuild settings update the value but need a
+    restart to take effect — see the restart classifier.
+    """
+    from pathlib import Path
+
+    _require_current_configuration_keys((key,))
+
+    if key.lower() == "kg_connections":
+        _validate_persistable_kg_connections(value)
+
+    env_key = key.upper()
+    with _xdg_projection_lock:
+        cfg_file = _xdg_config_file()
+        Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
+        existed = cfg_file.exists()
+        prior_data: dict[str, Any] = {}
+        if existed:
+            prior_data = _read_configuration_mapping(
+                cfg_file,
+                source_type="xdg",
+                strict=_production_configuration_is_strict(),
+            )
+        staged = _staged_configuration_for_save(prior_data, env_key, value)
+        _commit_saved_configuration(cfg_file, staged, prior_data, existed)
+
+    _refresh_after_configuration_save(env_key)
     return env_key
 
 
@@ -1505,12 +1577,8 @@ _MCP_FLEET_SECRET_ALIAS_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _NEUTRAL_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 
 
-def _validated_runtime_http_url(
-    value: Any,
-    *,
-    require_server_placeholder: bool = False,
-) -> str | None:
-    """Normalize one runtime-only HTTP base URL without resolving or fetching it."""
+def _rendered_runtime_http_url(value: Any) -> str | None:
+    """The trimmed URL text, or None when unset. Rejects unbounded/whitespace."""
     if value in (None, ""):
         return None
     rendered = str(value).strip()
@@ -1520,41 +1588,75 @@ def _validated_runtime_http_url(
         raise ValueError(
             "runtime HTTP endpoints must be bounded URLs without whitespace"
         )
+    return rendered
 
+
+def _validate_server_placeholder_template(rendered: str) -> None:
+    """``FLEET_MCP_URL_TEMPLATE`` may carry only the ``{server}`` placeholder."""
     placeholders = re.findall(r"\{([^{}]+)\}", rendered)
+    if not placeholders or any(item != "server" for item in placeholders):
+        raise ValueError(
+            "FLEET_MCP_URL_TEMPLATE must contain only the '{server}' placeholder"
+        )
+    stripped = rendered.replace("{server}", "")
+    if "{" in stripped or "}" in stripped:
+        raise ValueError("FLEET_MCP_URL_TEMPLATE placeholders are malformed")
+
+
+def _validate_runtime_url_placeholders(
+    rendered: str, require_server_placeholder: bool
+) -> None:
+    """Placeholder policy: only the fleet template may carry ``{server}``."""
     if require_server_placeholder:
-        if not placeholders or any(item != "server" for item in placeholders):
-            raise ValueError(
-                "FLEET_MCP_URL_TEMPLATE must contain only the '{server}' placeholder"
-            )
-        if "{" in rendered.replace("{server}", "") or "}" in rendered.replace(
-            "{server}", ""
-        ):
-            raise ValueError("FLEET_MCP_URL_TEMPLATE placeholders are malformed")
+        _validate_server_placeholder_template(rendered)
     elif "{" in rendered or "}" in rendered:
         raise ValueError("runtime HTTP endpoints cannot contain placeholders")
     if rendered.count("{") != rendered.count("}"):
         raise ValueError("runtime HTTP endpoint placeholders are malformed")
 
+
+def _split_runtime_http_url(rendered: str) -> tuple[Any, str, Any, Any]:
+    """Split the URL, mapping any parse failure to one bounded error."""
     from urllib.parse import urlsplit
 
     try:
         parsed = urlsplit(rendered)
-        scheme = parsed.scheme.lower()
-        hostname = parsed.hostname
-        port = parsed.port
+        return parsed, parsed.scheme.lower(), parsed.hostname, parsed.port
     except ValueError as exc:
         raise ValueError("runtime HTTP endpoint is malformed") from exc
+
+
+def _assert_runtime_http_authority(parsed: Any, scheme: str, hostname: Any) -> None:
+    """Scheme and authority policy: http/https, a real host, no inline creds."""
     if scheme not in {"http", "https"} or not parsed.netloc or not hostname:
         raise ValueError("runtime HTTP endpoints must use http:// or https://")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("runtime HTTP endpoints cannot contain inline credentials")
+
+
+def _assert_runtime_http_locator(parsed: Any, port: Any) -> None:
+    """A base URL carries no query/fragment and an in-range port."""
     if parsed.query or parsed.fragment:
         raise ValueError(
             "runtime HTTP base URLs cannot contain query strings or fragments"
         )
     if port is not None and not 1 <= port <= 65_535:
         raise ValueError("runtime HTTP endpoint port is out of range")
+
+
+def _validated_runtime_http_url(
+    value: Any,
+    *,
+    require_server_placeholder: bool = False,
+) -> str | None:
+    """Normalize one runtime-only HTTP base URL without resolving or fetching it."""
+    rendered = _rendered_runtime_http_url(value)
+    if rendered is None:
+        return None
+    _validate_runtime_url_placeholders(rendered, require_server_placeholder)
+    parsed, scheme, hostname, port = _split_runtime_http_url(rendered)
+    _assert_runtime_http_authority(parsed, scheme, hostname)
+    _assert_runtime_http_locator(parsed, port)
     return f"{scheme}{rendered[len(parsed.scheme) :]}".rstrip("/")
 
 
@@ -1809,17 +1911,9 @@ class ProviderRuntimeProfile(BaseModel):
             raise ValueError("provider runtime reference mappings must be bounded")
         validated: dict[str, str] = {}
         for raw_alias, raw_reference in value.items():
-            if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
-                raise ValueError("provider runtime reference mappings are invalid")
-            alias = raw_alias.strip()
-            reference = raw_reference.strip()
-            if (
-                alias != raw_alias
-                or reference != raw_reference
-                or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
-                or _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None
-            ):
-                raise ValueError("provider runtime reference mappings are invalid")
+            alias, reference = _validated_provider_reference_entry(
+                raw_alias, raw_reference
+            )
             validated[alias] = reference
         return validated
 
@@ -1833,12 +1927,15 @@ class ProviderRuntimeProfile(BaseModel):
             raise ValueError("provider TLS profile name is invalid")
         return rendered
 
-    @model_validator(mode="after")
-    def _validate_runtime_contract(self) -> "ProviderRuntimeProfile":
+    def _assert_tls_selectors_unambiguous(self) -> None:
+        """Exactly one TLS selector, and an endpoint always requires one."""
         if self.tls_profile and self.tls_profile_ref:
             raise ValueError("provider runtime profile has ambiguous TLS selectors")
         if self.endpoint_ref and not (self.tls_profile or self.tls_profile_ref):
             raise ValueError("provider endpoints require an explicit TLS profile")
+
+    def _assert_reference_aliases_usable(self) -> None:
+        """Credential and selector aliases are distinct, and enabled means non-empty."""
         if set(self.credential_refs).intersection(self.selector_refs):
             raise ValueError(
                 "provider credential and selector aliases must be distinct"
@@ -1847,6 +1944,11 @@ class ProviderRuntimeProfile(BaseModel):
             self.endpoint_ref or self.credential_refs or self.selector_refs
         ):
             raise ValueError("enabled provider runtime profiles cannot be empty")
+
+    @model_validator(mode="after")
+    def _validate_runtime_contract(self) -> "ProviderRuntimeProfile":
+        self._assert_tls_selectors_unambiguous()
+        self._assert_reference_aliases_usable()
         return self
 
 
@@ -1877,6 +1979,284 @@ DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
     "github-mcp:github_pulls",
     "gitlab-mcp:gitlab_issues",
     "gitlab-mcp:gitlab_merge_requests",
+)
+
+
+def _validated_provider_reference_entry(
+    raw_alias: Any, raw_reference: Any
+) -> tuple[str, str]:
+    """Validate one provider ``alias -> runtime reference`` pair."""
+    if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
+        raise ValueError("provider runtime reference mappings are invalid")
+    alias = raw_alias.strip()
+    reference = raw_reference.strip()
+    if (
+        alias != raw_alias
+        or reference != raw_reference
+        or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
+        or _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None
+    ):
+        raise ValueError("provider runtime reference mappings are invalid")
+    return alias, reference
+
+
+def _is_bounded_argv_token(item: Any) -> bool:
+    """One argv token: a 1..4096 character string with no control characters."""
+    return bool(
+        isinstance(item, str)
+        and 1 <= len(item) <= 4_096
+        and not any(character in item for character in "\x00\r\n")
+    )
+
+
+def _parsed_ingestion_thresholds(value: str) -> Any:
+    """Decode the JSON string form of ``INGESTION_CONFIDENCE_THRESHOLDS``."""
+    import json as _json
+
+    try:
+        return _json.loads(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS must be a JSON object of "
+            "domain -> threshold"
+        ) from None
+
+
+def _validated_ingestion_threshold(
+    raw_domain: Any, raw_threshold: Any
+) -> tuple[str, float]:
+    """Validate one ``domain -> threshold`` pair, preserving the check order."""
+    if not isinstance(raw_domain, str) or not raw_domain.strip():
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS keys must be non-empty strings"
+        )
+    try:
+        threshold = float(raw_threshold)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "INGESTION_CONFIDENCE_THRESHOLDS values must be numeric"
+        ) from None
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("INGESTION_CONFIDENCE_THRESHOLDS values must be in [0.0, 1.0]")
+    return raw_domain.strip(), threshold
+
+
+def _raw_frontend_signer_sequence(value: Any) -> list[Any]:
+    """Accept the string, list, tuple or set form of the signer allow-list."""
+    if isinstance(value, str):
+        return to_list(value)
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    raise ValueError("frontend contribution signers must be a list")
+
+
+def _validated_frontend_signer(item: Any) -> str:
+    """One signer id: a bounded, non-empty, control-character-free string."""
+    if not isinstance(item, str):
+        raise ValueError("frontend contribution signer ids must be strings")
+    signer = item.strip()
+    if (
+        not signer
+        or len(signer.encode("utf-8")) > 256
+        or any(ord(char) < 0x20 or ord(char) == 0x7F for char in signer)
+    ):
+        raise ValueError("frontend contribution signer id is invalid")
+    return signer
+
+
+def _skill_certification_host_is_loopback(host: str) -> bool:
+    """A literal loopback IP, or one of the two accepted loopback names."""
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host in {"localhost", "localhost.localdomain"}
+
+
+def _assert_skill_certification_text(rendered: str) -> None:
+    """The endpoint text must be non-empty, bounded and control-character free."""
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > 4_096
+        or any(character in rendered for character in "\x00\r\n")
+    ):
+        raise ValueError("skill certification endpoint is invalid")
+
+
+def _split_skill_certification_endpoint(rendered: str) -> tuple[Any, str, Any]:
+    """Split the endpoint into ``(parsed, host, port)`` under one bounded error."""
+    try:
+        parsed = urlsplit(rendered)
+        return parsed, str(parsed.hostname or "").casefold().rstrip("."), parsed.port
+    except ValueError as exc:
+        raise ValueError("skill certification endpoint is invalid") from exc
+
+
+def _assert_skill_certification_loopback(parsed: Any, host: str, port: Any) -> None:
+    """The certification endpoint must be plain loopback HTTP(S), no credentials."""
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not _skill_certification_host_is_loopback(host)
+        or (port is not None and not 1 <= port <= 65_535)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("skill certification endpoint must be loopback HTTP(S)")
+
+
+def _parsed_raft_group_endpoints(v: Any) -> dict[Any, Any]:
+    """Decode ``GRAPH_RAFT_GROUP_ENDPOINTS`` from a mapping or a JSON object."""
+    if isinstance(v, dict):
+        parsed = v
+    elif isinstance(v, str):
+        import json
+
+        try:
+            parsed = json.loads(v)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object"
+            ) from exc
+    else:
+        raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a mapping")
+    if not isinstance(parsed, dict):
+        raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object")
+    return parsed
+
+
+def _validated_raft_group_endpoint(group: Any, endpoint: Any) -> tuple[str, str]:
+    """Normalize one Raft ``group -> endpoint`` pair, rejecting invalid shapes."""
+    group_text = str(group).strip()
+    if not group_text.isdigit():
+        raise ValueError("Raft group identifiers must be non-negative integers")
+    endpoint_text = str(endpoint).strip()
+    if not endpoint_text.startswith(("unix://", "tcp://", "tls://")):
+        raise ValueError(
+            "Raft group endpoints require unix://, tcp://, or tls:// schemes"
+        )
+    if endpoint_text in {"unix://", "tcp://", "tls://"}:
+        raise ValueError("Raft group endpoints must include an address")
+    return str(int(group_text)), endpoint_text
+
+
+def _coerce_mirror_targets_text(text: str) -> Any:
+    """Parse the string form of ``GRAPH_MIRROR_TARGETS``: JSON list or CSV."""
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if not stripped.startswith("["):
+        return [x.strip() for x in stripped.split(",") if x.strip()]
+    import json
+
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _parse_mcp_fleet_secret_refs(value: str) -> Any:
+    """Decode the JSON string form of ``MCP_FLEET_SECRET_REFS``."""
+    import json as _json
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in parsed:
+                raise ValueError("MCP_FLEET_SECRET_REFS contains duplicate aliases")
+            parsed[key] = item
+        return parsed
+
+    try:
+        return _json.loads(value, object_pairs_hook=reject_duplicates)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "MCP_FLEET_SECRET_REFS must be a JSON object of runtime references"
+        ) from None
+
+
+def _assert_mcp_fleet_reference_target(reference: str) -> None:
+    """An ``env://`` target must be a plain alias; a path target may not traverse."""
+    scheme, _separator, target = reference.partition("://")
+    if (scheme == "env" and _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(target) is None) or (
+        scheme in {"vault", "secret"} and ".." in target.split("/")
+    ):
+        raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid runtime reference")
+
+
+def _validated_mcp_fleet_secret_entry(
+    raw_alias: Any, raw_reference: Any
+) -> tuple[str, str]:
+    """Validate one alias/reference pair, preserving the original check order."""
+    if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
+        raise ValueError("MCP_FLEET_SECRET_REFS aliases and references must be strings")
+    alias = raw_alias.strip()
+    reference = raw_reference.strip()
+    if (
+        alias != raw_alias
+        or reference != raw_reference
+        or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
+    ):
+        raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid alias")
+    if _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None:
+        raise ValueError(
+            "MCP_FLEET_SECRET_REFS values must be runtime secret references"
+        )
+    _assert_mcp_fleet_reference_target(reference)
+    return alias, reference
+
+
+def _assert_ascii_http_host(host: str) -> None:
+    """An allow-list host must be ASCII, bounded, and free of URL punctuation."""
+    try:
+        host.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("HTTP host allow-lists require ASCII hostnames") from exc
+    if (
+        not host
+        or len(host) > 253
+        or any(ord(character) < 33 for character in host)
+        or any(character in host for character in "/@*?#[]")
+    ):
+        raise ValueError("HTTP host allow-lists require exact hostnames")
+
+
+def _is_exact_hostname_label(label: str) -> bool:
+    """One DNS label: non-empty, <=63 chars, no leading/trailing '-', LDH only."""
+    return bool(
+        label
+        and len(label) <= 63
+        and not label.startswith("-")
+        and not label.endswith("-")
+        and all(character.isalnum() or character == "-" for character in label)
+    )
+
+
+def _assert_exact_http_host(host: str) -> None:
+    """Accept a literal IP address, or a hostname whose every label is exact."""
+    _assert_ascii_http_host(host)
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if not all(_is_exact_hostname_label(label) for label in host.split(".")):
+            raise ValueError("HTTP host allow-lists require exact hostnames") from None
+
+
+# Model role keyword -> the AgentConfig property that resolves it. A dispatch
+# table in place of the original if/elif ladder.
+_MODEL_ROLE_ATTRS: dict[str, str] = {
+    "": "default_chat_model",
+    "chat": "default_chat_model",
+    "default": "default_chat_model",
+    "lite": "lite_chat_model",
+    "super": "super_chat_model",
+    "embedding": "default_embedding_model",
+    "embed": "default_embedding_model",
+}
+
+_EMBEDDING_FALLBACK_KEYS = frozenset(
+    {"embedding:fallback", "embed:fallback", "embedding-fallback"}
 )
 
 
@@ -2010,32 +2390,9 @@ class AgentConfig(BaseSettings):
         if not isinstance(value, str):
             raise ValueError("skill certification endpoint must be a string")
         rendered = value.strip()
-        if (
-            not rendered
-            or len(rendered.encode("utf-8")) > 4_096
-            or any(character in rendered for character in "\x00\r\n")
-        ):
-            raise ValueError("skill certification endpoint is invalid")
-        try:
-            parsed = urlsplit(rendered)
-            host = str(parsed.hostname or "").casefold().rstrip(".")
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("skill certification endpoint is invalid") from exc
-        try:
-            loopback = ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            loopback = host in {"localhost", "localhost.localdomain"}
-        if (
-            parsed.scheme.casefold() not in {"http", "https"}
-            or not loopback
-            or (port is not None and not 1 <= port <= 65_535)
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("skill certification endpoint must be loopback HTTP(S)")
+        _assert_skill_certification_text(rendered)
+        parsed, host, port = _split_skill_certification_endpoint(rendered)
+        _assert_skill_certification_loopback(parsed, host, port)
         return rendered
 
     @field_validator(
@@ -2050,12 +2407,7 @@ class AgentConfig(BaseSettings):
         if (
             not isinstance(value, list)
             or not 1 <= len(value) <= 32
-            or any(
-                not isinstance(item, str)
-                or not 1 <= len(item) <= 4_096
-                or any(character in item for character in "\x00\r\n")
-                for item in value
-            )
+            or not all(_is_bounded_argv_token(item) for item in value)
         ):
             raise ValueError("skill certification command must be bounded JSON argv")
         executable = pathlib.Path(value[0])
@@ -2679,17 +3031,11 @@ class AgentConfig(BaseSettings):
         ``"embedding"``/``"embed"``), or ``None`` (→ default chat model). Returns
         ``None`` when nothing matches.
         """
-        cfg: ChatModelConfig | EmbeddingModelConfig | None = None
         key = (model or "").strip().lower()
-        if key in ("", "chat", "default"):
-            cfg = self.default_chat_model
-        elif key == "lite":
-            cfg = self.lite_chat_model
-        elif key == "super":
-            cfg = self.super_chat_model
-        elif key in ("embedding", "embed"):
-            cfg = self.default_embedding_model
-        elif key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
+        role_attr = _MODEL_ROLE_ATTRS.get(key)
+        if role_attr is not None:
+            return getattr(self, role_attr)
+        if key in _EMBEDDING_FALLBACK_KEYS:
             # The automatic-failover endpoint (CONCEPT:AU-KG.enrichment.each-call-resolves-active): resolve it as a
             # first-class model key so the WHOLE capacity guard — server_ceiling,
             # adaptive capacity, gpu_group budget (CONCEPT:AU-KG.ingest.keys-off) — keys off the
@@ -2697,18 +3043,20 @@ class AgentConfig(BaseSettings):
             # while failed-over, so fallback embeds inherit the shared GPU's joint
             # budget and can't OOM it.
             primary = self.default_embedding_model
-            cfg = primary.fallback if primary is not None else None
-        else:
-            for m in self.chat_models:
-                if m.id == model:
-                    cfg = m
-                    break
-            if cfg is None:
-                for em in self.embedding_models:
-                    if em.id == model:
-                        cfg = em
-                        break
-        return cfg
+            return primary.fallback if primary is not None else None
+        return self._model_config_by_id(model)
+
+    def _model_config_by_id(
+        self, model: str | None
+    ) -> "ChatModelConfig | EmbeddingModelConfig | None":
+        """Match ``model`` against the chat registry, then the embedding registry."""
+        for m in self.chat_models:
+            if m.id == model:
+                return m
+        for em in self.embedding_models:
+            if em.id == model:
+                return em
+        return None
 
     def resolve_chat_model_config(
         self, model: str | None = None
@@ -2893,53 +3241,14 @@ class AgentConfig(BaseSettings):
         if value in (None, ""):
             return {}
         if isinstance(value, str):
-            import json as _json
-
-            def reject_duplicates(
-                pairs: list[tuple[str, Any]],
-            ) -> dict[str, Any]:
-                parsed: dict[str, Any] = {}
-                for key, item in pairs:
-                    if key in parsed:
-                        raise ValueError(
-                            "MCP_FLEET_SECRET_REFS contains duplicate aliases"
-                        )
-                    parsed[key] = item
-                return parsed
-
-            try:
-                value = _json.loads(value, object_pairs_hook=reject_duplicates)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS must be a JSON object of runtime references"
-                ) from None
+            value = _parse_mcp_fleet_secret_refs(value)
         if not isinstance(value, Mapping) or len(value) > 512:
             raise ValueError("MCP_FLEET_SECRET_REFS must be a bounded mapping")
         validated: dict[str, str] = {}
         for raw_alias, raw_reference in value.items():
-            if not isinstance(raw_alias, str) or not isinstance(raw_reference, str):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS aliases and references must be strings"
-                )
-            alias = raw_alias.strip()
-            reference = raw_reference.strip()
-            if (
-                alias != raw_alias
-                or reference != raw_reference
-                or _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(alias) is None
-            ):
-                raise ValueError("MCP_FLEET_SECRET_REFS contains an invalid alias")
-            if _RUNTIME_SECRET_REF_RE.fullmatch(reference) is None:
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS values must be runtime secret references"
-                )
-            scheme, _separator, target = reference.partition("://")
-            if (
-                scheme == "env" and _MCP_FLEET_SECRET_ALIAS_RE.fullmatch(target) is None
-            ) or (scheme in {"vault", "secret"} and ".." in target.split("/")):
-                raise ValueError(
-                    "MCP_FLEET_SECRET_REFS contains an invalid runtime reference"
-                )
+            alias, reference = _validated_mcp_fleet_secret_entry(
+                raw_alias, raw_reference
+            )
             validated[alias] = reference
         return validated
 
@@ -2966,36 +3275,17 @@ class AgentConfig(BaseSettings):
         if value in (None, ""):
             return {}
         if isinstance(value, str):
-            import json as _json
-
-            try:
-                value = _json.loads(value)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS must be a JSON object of "
-                    "domain -> threshold"
-                ) from None
+            value = _parsed_ingestion_thresholds(value)
         if not isinstance(value, Mapping) or len(value) > 512:
             raise ValueError(
                 "INGESTION_CONFIDENCE_THRESHOLDS must be a bounded mapping"
             )
         validated: dict[str, float] = {}
         for raw_domain, raw_threshold in value.items():
-            if not isinstance(raw_domain, str) or not raw_domain.strip():
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS keys must be non-empty strings"
-                )
-            try:
-                threshold = float(raw_threshold)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS values must be numeric"
-                ) from None
-            if not 0.0 <= threshold <= 1.0:
-                raise ValueError(
-                    "INGESTION_CONFIDENCE_THRESHOLDS values must be in [0.0, 1.0]"
-                )
-            validated[raw_domain.strip()] = threshold
+            domain, threshold = _validated_ingestion_threshold(
+                raw_domain, raw_threshold
+            )
+            validated[domain] = threshold
         return validated
 
     mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
@@ -3391,29 +3681,12 @@ class AgentConfig(BaseSettings):
     def _coerce_frontend_contribution_signers(cls, value: Any) -> list[str]:
         if value is None:
             return []
-        if isinstance(value, str):
-            raw = to_list(value)
-        elif isinstance(value, (list, tuple, set)):
-            raw = list(value)
-        else:
-            raise ValueError("frontend contribution signers must be a list")
+        raw = _raw_frontend_signer_sequence(value)
         if len(raw) > 64:
             raise ValueError(
                 "frontend contribution signer allowlist exceeds 64 entries"
             )
-        signers: list[str] = []
-        for item in raw:
-            if not isinstance(item, str):
-                raise ValueError("frontend contribution signer ids must be strings")
-            signer = item.strip()
-            if (
-                not signer
-                or len(signer.encode("utf-8")) > 256
-                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in signer)
-            ):
-                raise ValueError("frontend contribution signer id is invalid")
-            signers.append(signer)
-        return sorted(set(signers))
+        return sorted({_validated_frontend_signer(item) for item in raw})
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
@@ -4307,34 +4580,10 @@ class AgentConfig(BaseSettings):
     def _coerce_group_endpoint_map(cls, v: Any) -> Any:
         if v is None or (isinstance(v, str) and not v.strip()):
             return None
-        if isinstance(v, dict):
-            parsed = v
-        elif isinstance(v, str):
-            import json
-
-            try:
-                parsed = json.loads(v)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object"
-                ) from exc
-        else:
-            raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a mapping")
-        if not isinstance(parsed, dict):
-            raise ValueError("GRAPH_RAFT_GROUP_ENDPOINTS must be a JSON object")
         result: dict[str, str] = {}
-        for group, endpoint in parsed.items():
-            group_text = str(group).strip()
-            if not group_text.isdigit():
-                raise ValueError("Raft group identifiers must be non-negative integers")
-            endpoint_text = str(endpoint).strip()
-            if not endpoint_text.startswith(("unix://", "tcp://", "tls://")):
-                raise ValueError(
-                    "Raft group endpoints require unix://, tcp://, or tls:// schemes"
-                )
-            if endpoint_text in {"unix://", "tcp://", "tls://"}:
-                raise ValueError("Raft group endpoints must include an address")
-            result[str(int(group_text))] = endpoint_text
+        for group, endpoint in _parsed_raft_group_endpoints(v).items():
+            group_key, endpoint_text = _validated_raft_group_endpoint(group, endpoint)
+            result[group_key] = endpoint_text
         return result or None
 
     kg_connections: list[dict[str, Any]] | None = Field(
@@ -4432,18 +4681,7 @@ class AgentConfig(BaseSettings):
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return None
-            if s.startswith("["):
-                import json
-
-                try:
-                    parsed = json.loads(s)
-                except Exception:
-                    return None
-                return parsed if isinstance(parsed, list) else None
-            return [x.strip() for x in s.split(",") if x.strip()]
+            return _coerce_mirror_targets_text(v)
         return v
 
     @field_validator("kg_connections", mode="before")
@@ -4610,36 +4848,7 @@ class AgentConfig(BaseSettings):
         normalized: set[str] = set()
         for raw in value:
             host = str(raw).strip().lower().rstrip(".")
-            try:
-                host.encode("ascii")
-            except UnicodeEncodeError as exc:
-                raise ValueError(
-                    "HTTP host allow-lists require ASCII hostnames"
-                ) from exc
-            if (
-                not host
-                or len(host) > 253
-                or any(ord(character) < 33 for character in host)
-                or any(character in host for character in "/@*?#[]")
-            ):
-                raise ValueError("HTTP host allow-lists require exact hostnames")
-            try:
-                ipaddress.ip_address(host)
-            except ValueError:
-                labels = host.split(".")
-                if any(
-                    not label
-                    or len(label) > 63
-                    or label.startswith("-")
-                    or label.endswith("-")
-                    or not all(
-                        character.isalnum() or character == "-" for character in label
-                    )
-                    for label in labels
-                ):
-                    raise ValueError(
-                        "HTTP host allow-lists require exact hostnames"
-                    ) from None
+            _assert_exact_http_host(host)
             normalized.add(host)
         return sorted(normalized)
 
@@ -6106,6 +6315,204 @@ _LAZY_CACHE: BoundedLRUCache = BoundedLRUCache(max_size=LAZY_CACHE_MAX_SIZE)
 _CONFIG_PROXY = AgentConfigProxy()
 
 
+# Cache key -> AgentConfig attribute for every plain pass-through default. A table
+# is a dict-dispatch shape: the loop below is O(1) branches regardless of length,
+# where the original inline block cost one decision point per derived entry.
+_LAZY_PASSTHROUGH_FIELDS: tuple[tuple[str, str], ...] = (
+    ("DEFAULT_AGENT_NAME", "default_agent_name"),
+    ("DEFAULT_AGENT_DESCRIPTION", "agent_description"),
+    ("DEFAULT_AGENT_SYSTEM_PROMPT", "agent_system_prompt"),
+    ("DEFAULT_DEBUG", "debug"),
+    ("DEFAULT_MCP_URL", "mcp_url"),
+    ("DEFAULT_MCP_CONFIG", "mcp_config"),
+    ("DEFAULT_CUSTOM_SKILLS_DIRECTORY", "custom_skills_directory"),
+    ("DEFAULT_SKILL_TYPES", "skill_types"),
+    ("DEFAULT_ENABLE_WEB_UI", "enable_web_ui"),
+    ("DEFAULT_ENABLE_TERMINAL_UI", "enable_terminal_ui"),
+    ("DEFAULT_ENABLE_WEB_LOGS", "enable_web_logs"),
+    ("DEFAULT_ENABLE_OTEL", "enable_otel"),
+    ("DEFAULT_ENABLE_ACP", "enable_acp"),
+    ("DEFAULT_ACP_SESSION_ROOT", "acp_session_root"),
+    ("DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT", "otel_exporter_otlp_endpoint"),
+    ("DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL", "otel_exporter_otlp_protocol"),
+    ("DEFAULT_LANGFUSE_HOST", "langfuse_host"),
+    (
+        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD",
+        "langfuse_dataset_capture_threshold",
+    ),
+    ("DEFAULT_A2A_BROKER", "a2a_broker"),
+    ("DEFAULT_A2A_STORAGE", "a2a_storage"),
+    ("DEFAULT_A2A_CONFIG", "a2a_config"),
+    ("DEFAULT_A2A_REFRESH_INTERVAL", "a2a_refresh_interval"),
+    ("DEFAULT_MAX_TOKENS", "max_tokens"),
+    ("DEFAULT_TEMPERATURE", "temperature"),
+    ("DEFAULT_TOP_P", "top_p"),
+    ("DEFAULT_TIMEOUT", "timeout"),
+    ("DEFAULT_TOOL_TIMEOUT", "tool_timeout"),
+    ("DEFAULT_PARALLEL_TOOL_CALLS", "parallel_tool_calls"),
+    ("DEFAULT_SEED", "seed"),
+    ("DEFAULT_PRESENCE_PENALTY", "presence_penalty"),
+    ("DEFAULT_FREQUENCY_PENALTY", "frequency_penalty"),
+    ("DEFAULT_MIN_CONFIDENCE", "min_confidence"),
+    ("DEFAULT_APPROVAL_TIMEOUT", "approval_timeout"),
+    ("TOOL_GUARD_MODE", "tool_guard_mode"),
+    ("SENSITIVE_TOOL_PATTERNS", "sensitive_tool_patterns"),
+    ("DEFAULT_GRAPH_PERSISTENCE_TYPE", "graph_persistence_type"),
+    ("DEFAULT_GRAPH_PERSISTENCE_PATH", "graph_persistence_path"),
+    ("DEFAULT_ENABLE_LLM_VALIDATION", "enable_llm_validation"),
+    ("DEFAULT_ROUTING_STRATEGY", "routing_strategy"),
+    ("DEFAULT_GRAPH_ROUTER_TIMEOUT", "graph_router_timeout"),
+    ("DEFAULT_GRAPH_VERIFIER_TIMEOUT", "graph_verifier_timeout"),
+    ("DEFAULT_ENABLE_KG_EMBEDDINGS", "enable_kg_embeddings"),
+    ("DEFAULT_KG_BACKUPS", "kg_backups"),
+    ("DEFAULT_KG_INGESTION_WORKERS", "kg_ingestion_workers"),
+    ("DEFAULT_KG_LLM_CONCURRENCY", "kg_llm_concurrency"),
+    ("DEFAULT_KG_ANALYSIS_MAX_DEPTH", "kg_analysis_max_depth"),
+    ("DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "knowledge_graph_sync_background"),
+    ("DEFAULT_MAX_PARALLEL_AGENTS", "max_parallel_agents"),
+    ("DEFAULT_PARALLEL_BATCH_SIZE", "parallel_batch_size"),
+    ("DEFAULT_SYNTHESIS_STRATEGY", "synthesis_strategy"),
+    ("DEFAULT_SYNTHESIS_RATIO", "synthesis_ratio"),
+    ("DEFAULT_AGENT_EXECUTION_TIMEOUT", "agent_execution_timeout"),
+    ("DEFAULT_CIRCUIT_BREAKER_THRESHOLD", "circuit_breaker_threshold"),
+    ("DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS", "enable_progressive_synthesis"),
+    ("MAX_UPLOAD_SIZE", "max_upload_size"),
+    ("SECRETS_BACKEND", "secrets_backend"),
+    ("SECRETS_VAULT_URL", "vault_url"),
+    ("SECRETS_VAULT_MOUNT", "vault_mount"),
+    ("AUTH_JWT_JWKS_URI", "auth_jwt_jwks_uri"),
+    ("AUTH_JWT_ISSUER", "auth_jwt_issuer"),
+    ("AUTH_JWT_AUDIENCE", "auth_jwt_audience"),
+    ("KG_POLICY_VERSION", "kg_policy_version"),
+    ("ALLOWED_ORIGINS", "allowed_origins"),
+    ("ALLOWED_HOSTS", "allowed_hosts"),
+    # Agent OS Architecture defaults
+    ("DEFAULT_COGNITIVE_SCHEDULER_ENABLED", "cognitive_scheduler_enabled"),
+    ("DEFAULT_MAX_CONCURRENT_AGENTS", "max_concurrent_agents"),
+    ("DEFAULT_AGENT_TOKEN_QUOTA", "agent_token_quota"),
+    ("DEFAULT_PREEMPTION_THRESHOLD_PCT", "preemption_threshold_pct"),
+    ("DEFAULT_AGENT_POLICIES_PATH", "agent_policies_path"),
+    ("DEFAULT_PERMISSIONS_SIGNING_KEY_REF", "permissions_signing_key_ref"),
+    ("DEFAULT_SPECIALIST_REGISTRY_PATH", "specialist_registry_path"),
+    # Innovation Framework defaults
+    ("DEFAULT_HOMEOSTATIC_DOWNGRADE", "homeostatic_downgrade_enabled"),
+    ("DEFAULT_ADVERSARIAL_VERIFICATION", "adversarial_verification"),
+    ("DEFAULT_MAINTENANCE_TOKEN_BUDGET", "maintenance_token_budget"),
+    ("DEFAULT_MAINTENANCE_PRIORITY", "maintenance_priority"),
+    ("DEFAULT_WATCHDOG_PATTERNS", "watchdog_patterns"),
+)
+
+# ``DEFAULT_{prefix}_LLM_{suffix}`` <- model attribute, falling back to the
+# corresponding plain ``DEFAULT_LLM_*`` entry.
+_LLM_VARIANT_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("PROVIDER", "provider", "DEFAULT_LLM_PROVIDER"),
+    ("MODEL_ID", "id", "DEFAULT_LLM_MODEL_ID"),
+    ("BASE_URL", "base_url", "DEFAULT_LLM_BASE_URL"),
+    ("API_KEY", "api_key_ref", "DEFAULT_LLM_API_KEY"),
+)
+
+# Cache key, AgentConfig attribute, environment variable, coercion — for the
+# defaults that fall back to a raw environment string when the typed field is
+# ``None``.
+_LAZY_ENV_FALLBACK_FIELDS: tuple[tuple[str, str, str, Any], ...] = (
+    ("DEFAULT_LOGIT_BIAS", "logit_bias", "LOGIT_BIAS", to_dict),
+    ("DEFAULT_STOP_SEQUENCES", "stop_sequences", "STOP_SEQUENCES", to_list),
+    ("DEFAULT_EXTRA_HEADERS", "extra_headers", "EXTRA_HEADERS", to_dict),
+    ("DEFAULT_EXTRA_BODY", "extra_body", "EXTRA_BODY", to_dict),
+)
+
+
+def _model_attr(model: Any, attr: str) -> Any:
+    """``model.attr`` when a model is configured, else ``None``."""
+    return getattr(model, attr) if model else None
+
+
+def _resolve_lazy_config_source(
+    existing: AgentConfig | None, force: bool
+) -> AgentConfig:
+    """The AgentConfig to project into the lazy cache for this generation."""
+    if force:
+        _LAZY_CACHE.clear()
+    if existing is not None:
+        return existing
+    _ensure_env_loaded()
+    cfg = AgentConfig()
+    # Wire the production guard into the real process configuration path.
+    # Direct AgentConfig construction remains available to doctor/generator
+    # tooling so it can diagnose an incomplete candidate instead of failing
+    # before it can produce a structured report.
+    cfg.assert_production_safe(profile=cfg.app_profile)
+    return cfg
+
+
+def _populate_default_llm_defaults(chat_model: Any) -> None:
+    """Project the primary chat model into the ``DEFAULT_LLM_*`` entries."""
+    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
+        _model_attr(chat_model, "provider") or os.getenv("PROVIDER") or "openai"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
+        _model_attr(chat_model, "id") or os.getenv("MODEL_ID") or "qwen/qwen3.6-27b"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = _model_attr(chat_model, "base_url")
+    _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = _model_attr(chat_model, "api_key_ref")
+
+
+def _populate_llm_variant_defaults(prefix: str, model: Any) -> None:
+    """Project a LITE/SUPER chat model, inheriting the ``DEFAULT_LLM_*`` values."""
+    for suffix, attr, fallback_key in _LLM_VARIANT_FIELDS:
+        _LAZY_CACHE[f"DEFAULT_{prefix}_LLM_{suffix}"] = (
+            _model_attr(model, attr) or _LAZY_CACHE[fallback_key]
+        )
+
+
+def _populate_embedding_defaults(model: Any) -> None:
+    """Project the default embedding model into the ``DEFAULT_EMBEDDING_*`` entries."""
+    _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
+        _model_attr(model, "provider") or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
+        _model_attr(model, "id") or "text-embedding-nomic-embed-text-v2-moe"
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
+        _model_attr(model, "base_url") or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_API_KEY"] = (
+        _model_attr(model, "api_key_ref") or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
+    )
+
+
+def _populate_model_defaults(cfg: AgentConfig) -> None:
+    """Derive every DEFAULT_LLM_*/LITE/SUPER/EMBEDDING entry from the registries."""
+    _populate_default_llm_defaults(cfg.default_chat_model)
+    _populate_llm_variant_defaults("LITE", cfg.lite_chat_model)
+    _populate_llm_variant_defaults("SUPER", cfg.super_chat_model)
+    _populate_embedding_defaults(cfg.default_embedding_model)
+
+
+def _populate_env_fallback_defaults(cfg: AgentConfig) -> None:
+    """Project the typed fields that fall back to a raw environment string."""
+    for key, attr, env_name, coerce in _LAZY_ENV_FALLBACK_FIELDS:
+        value = getattr(cfg, attr)
+        _LAZY_CACHE[key] = value if value is not None else coerce(os.getenv(env_name))
+    _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
+        cfg.validation_mode
+        or to_boolean(os.getenv("VALIDATION_MODE", "False"))
+        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
+    )
+
+
+def _populate_routed_model_defaults(cfg: AgentConfig) -> None:
+    """Router/KG models: models flagged can_route/can_kg, else fall back to lite."""
+    lite_chat = cfg.lite_chat_model
+    router_model = next((m for m in cfg.chat_models if m.can_route), lite_chat)
+    kg_model = next((m for m in cfg.chat_models if m.can_kg), lite_chat)
+    lite_model_id = _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
+    _LAZY_CACHE["DEFAULT_ROUTER_MODEL"] = (
+        _model_attr(router_model, "id") or lite_model_id
+    )
+    _LAZY_CACHE["DEFAULT_KG_MODEL_ID"] = _model_attr(kg_model, "id") or lite_model_id
+
+
 def _populate_lazy_config(
     *, existing: AgentConfig | None = None, force: bool = False
 ) -> None:
@@ -6117,221 +6524,20 @@ def _populate_lazy_config(
     if not force and "_config" in _LAZY_CACHE:
         return
 
-    if force:
-        _LAZY_CACHE.clear()
-
-    if existing is None:
-        _ensure_env_loaded()
-        cfg = AgentConfig()
-        # Wire the production guard into the real process configuration path.
-        # Direct AgentConfig construction remains available to doctor/generator
-        # tooling so it can diagnose an incomplete candidate instead of failing
-        # before it can produce a structured report.
-        cfg.assert_production_safe(profile=cfg.app_profile)
-    else:
-        cfg = existing
+    cfg = _resolve_lazy_config_source(existing, force)
     _LAZY_CACHE["_config"] = cfg
     _LAZY_CACHE["config"] = _CONFIG_PROXY
 
-    _LAZY_CACHE["DEFAULT_AGENT_NAME"] = cfg.default_agent_name
-    _LAZY_CACHE["DEFAULT_AGENT_DESCRIPTION"] = cfg.agent_description
-    _LAZY_CACHE["DEFAULT_AGENT_SYSTEM_PROMPT"] = cfg.agent_system_prompt
-    _LAZY_CACHE["DEFAULT_DEBUG"] = cfg.debug
+    for key, attr in _LAZY_PASSTHROUGH_FIELDS:
+        _LAZY_CACHE[key] = getattr(cfg, attr)
 
-    # --- Derive DEFAULT_LLM_* from chat_models / embedding_models registry ---
-    _default_chat = cfg.default_chat_model
-    _lite_chat = cfg.lite_chat_model
-    _super_chat = cfg.super_chat_model
-    _default_embed = cfg.default_embedding_model
-
-    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
-        (_default_chat.provider if _default_chat else None)
-        or os.getenv("PROVIDER")
-        or "openai"
-    )
-    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
-        (_default_chat.id if _default_chat else None)
-        or os.getenv("MODEL_ID")
-        or "qwen/qwen3.6-27b"
-    )
-    _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = (
-        _default_chat.base_url if _default_chat else None
-    )
-    _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = (
-        _default_chat.api_key_ref if _default_chat else None
-    )
-
-    _LAZY_CACHE["DEFAULT_LITE_LLM_PROVIDER"] = (
-        _lite_chat.provider if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"] = (
-        _lite_chat.id if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_BASE_URL"] = (
-        _lite_chat.base_url if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_API_KEY"] = (
-        _lite_chat.api_key_ref if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_PROVIDER"] = (
-        _super_chat.provider if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_MODEL_ID"] = (
-        _super_chat.id if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_BASE_URL"] = (
-        _super_chat.base_url if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_API_KEY"] = (
-        _super_chat.api_key_ref if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-
-    _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
-        _default_embed.provider if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
-        _default_embed.id if _default_embed else None
-    ) or "text-embedding-nomic-embed-text-v2-moe"
-    _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
-        _default_embed.base_url if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_EMBEDDING_API_KEY"] = (
-        _default_embed.api_key_ref if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-    _LAZY_CACHE["DEFAULT_MCP_URL"] = cfg.mcp_url
-
-    _LAZY_CACHE["DEFAULT_MCP_CONFIG"] = cfg.mcp_config
-    _LAZY_CACHE["DEFAULT_CUSTOM_SKILLS_DIRECTORY"] = cfg.custom_skills_directory
-    _LAZY_CACHE["DEFAULT_SKILL_TYPES"] = cfg.skill_types
-    _LAZY_CACHE["DEFAULT_ENABLE_WEB_UI"] = cfg.enable_web_ui
-    _LAZY_CACHE["DEFAULT_ENABLE_TERMINAL_UI"] = cfg.enable_terminal_ui
-    _LAZY_CACHE["DEFAULT_ENABLE_WEB_LOGS"] = cfg.enable_web_logs
-    _LAZY_CACHE["DEFAULT_ENABLE_OTEL"] = cfg.enable_otel
-    _LAZY_CACHE["DEFAULT_ENABLE_ACP"] = cfg.enable_acp
-    _LAZY_CACHE["DEFAULT_ACP_SESSION_ROOT"] = cfg.acp_session_root
+    _populate_model_defaults(cfg)
+    _populate_env_fallback_defaults(cfg)
+    _populate_routed_model_defaults(cfg)
 
     _apply_otel_sdk_policy(cfg.enable_otel)
 
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
-
-    _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
-        cfg.langfuse_dataset_capture_threshold
-    )
-
-    _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
-    _LAZY_CACHE["DEFAULT_A2A_STORAGE"] = cfg.a2a_storage
-    _LAZY_CACHE["DEFAULT_A2A_CONFIG"] = cfg.a2a_config
-    _LAZY_CACHE["DEFAULT_A2A_REFRESH_INTERVAL"] = cfg.a2a_refresh_interval
-
-    _LAZY_CACHE["DEFAULT_MAX_TOKENS"] = cfg.max_tokens
-    _LAZY_CACHE["DEFAULT_TEMPERATURE"] = cfg.temperature
-    _LAZY_CACHE["DEFAULT_TOP_P"] = cfg.top_p
-    _LAZY_CACHE["DEFAULT_TIMEOUT"] = cfg.timeout
-    _LAZY_CACHE["DEFAULT_TOOL_TIMEOUT"] = cfg.tool_timeout
-    _LAZY_CACHE["DEFAULT_PARALLEL_TOOL_CALLS"] = cfg.parallel_tool_calls
-    _LAZY_CACHE["DEFAULT_SEED"] = cfg.seed
-    _LAZY_CACHE["DEFAULT_PRESENCE_PENALTY"] = cfg.presence_penalty
-    _LAZY_CACHE["DEFAULT_FREQUENCY_PENALTY"] = cfg.frequency_penalty
-
-    _LAZY_CACHE["DEFAULT_LOGIT_BIAS"] = (
-        cfg.logit_bias
-        if cfg.logit_bias is not None
-        else to_dict(os.getenv("LOGIT_BIAS"))
-    )
-    _LAZY_CACHE["DEFAULT_STOP_SEQUENCES"] = (
-        cfg.stop_sequences
-        if cfg.stop_sequences is not None
-        else to_list(os.getenv("STOP_SEQUENCES"))
-    )
-    _LAZY_CACHE["DEFAULT_EXTRA_HEADERS"] = (
-        cfg.extra_headers
-        if cfg.extra_headers is not None
-        else to_dict(os.getenv("EXTRA_HEADERS"))
-    )
-    _LAZY_CACHE["DEFAULT_EXTRA_BODY"] = (
-        cfg.extra_body
-        if cfg.extra_body is not None
-        else to_dict(os.getenv("EXTRA_BODY"))
-    )
-
-    _LAZY_CACHE["DEFAULT_MIN_CONFIDENCE"] = cfg.min_confidence
-    _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
-        cfg.validation_mode
-        or to_boolean(os.getenv("VALIDATION_MODE", "False"))
-        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
-    )
-    _LAZY_CACHE["DEFAULT_APPROVAL_TIMEOUT"] = cfg.approval_timeout
     _LAZY_CACHE["DEFAULT_MAX_CRON_LOG_ENTRIES"] = 50
-
-    _LAZY_CACHE["TOOL_GUARD_MODE"] = cfg.tool_guard_mode
-    _LAZY_CACHE["SENSITIVE_TOOL_PATTERNS"] = cfg.sensitive_tool_patterns
-
-    # Router/KG models: find models with can_route/can_kg flags, else fallback to lite
-    _router_model = next((m for m in cfg.chat_models if m.can_route), _lite_chat)
-    _kg_model = next((m for m in cfg.chat_models if m.can_kg), _lite_chat)
-    _LAZY_CACHE["DEFAULT_ROUTER_MODEL"] = (
-        _router_model.id if _router_model else None
-    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
-
-    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_TYPE"] = cfg.graph_persistence_type
-    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_PATH"] = cfg.graph_persistence_path
-    _LAZY_CACHE["DEFAULT_ENABLE_LLM_VALIDATION"] = cfg.enable_llm_validation
-    _LAZY_CACHE["DEFAULT_ROUTING_STRATEGY"] = cfg.routing_strategy
-    _LAZY_CACHE["DEFAULT_GRAPH_ROUTER_TIMEOUT"] = cfg.graph_router_timeout
-    _LAZY_CACHE["DEFAULT_GRAPH_VERIFIER_TIMEOUT"] = cfg.graph_verifier_timeout
-    _LAZY_CACHE["DEFAULT_ENABLE_KG_EMBEDDINGS"] = cfg.enable_kg_embeddings
-    _LAZY_CACHE["DEFAULT_KG_BACKUPS"] = cfg.kg_backups
-    _LAZY_CACHE["DEFAULT_KG_INGESTION_WORKERS"] = cfg.kg_ingestion_workers
-    _LAZY_CACHE["DEFAULT_KG_LLM_CONCURRENCY"] = cfg.kg_llm_concurrency
-    _LAZY_CACHE["DEFAULT_KG_MODEL_ID"] = (
-        _kg_model.id if _kg_model else None
-    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
-        cfg.knowledge_graph_sync_background
-    )
-    # --- Parallel Engine Defaults ---
-    _LAZY_CACHE["DEFAULT_MAX_PARALLEL_AGENTS"] = cfg.max_parallel_agents
-    _LAZY_CACHE["DEFAULT_PARALLEL_BATCH_SIZE"] = cfg.parallel_batch_size
-    _LAZY_CACHE["DEFAULT_SYNTHESIS_STRATEGY"] = cfg.synthesis_strategy
-    _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
-    _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
-    _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
-        cfg.enable_progressive_synthesis
-    )
-
-    _LAZY_CACHE["MAX_UPLOAD_SIZE"] = cfg.max_upload_size
-
-    _LAZY_CACHE["SECRETS_BACKEND"] = cfg.secrets_backend
-    _LAZY_CACHE["SECRETS_VAULT_URL"] = cfg.vault_url
-    _LAZY_CACHE["SECRETS_VAULT_MOUNT"] = cfg.vault_mount
-
-    _LAZY_CACHE["AUTH_JWT_JWKS_URI"] = cfg.auth_jwt_jwks_uri
-    _LAZY_CACHE["AUTH_JWT_ISSUER"] = cfg.auth_jwt_issuer
-    _LAZY_CACHE["AUTH_JWT_AUDIENCE"] = cfg.auth_jwt_audience
-    _LAZY_CACHE["KG_POLICY_VERSION"] = cfg.kg_policy_version
-    _LAZY_CACHE["ALLOWED_ORIGINS"] = cfg.allowed_origins
-    _LAZY_CACHE["ALLOWED_HOSTS"] = cfg.allowed_hosts
-
-    # Agent OS Architecture defaults
-    _LAZY_CACHE["DEFAULT_COGNITIVE_SCHEDULER_ENABLED"] = cfg.cognitive_scheduler_enabled
-    _LAZY_CACHE["DEFAULT_MAX_CONCURRENT_AGENTS"] = cfg.max_concurrent_agents
-    _LAZY_CACHE["DEFAULT_AGENT_TOKEN_QUOTA"] = cfg.agent_token_quota
-    _LAZY_CACHE["DEFAULT_PREEMPTION_THRESHOLD_PCT"] = cfg.preemption_threshold_pct
-    _LAZY_CACHE["DEFAULT_AGENT_POLICIES_PATH"] = cfg.agent_policies_path
-    _LAZY_CACHE["DEFAULT_PERMISSIONS_SIGNING_KEY_REF"] = cfg.permissions_signing_key_ref
-    _LAZY_CACHE["DEFAULT_SPECIALIST_REGISTRY_PATH"] = cfg.specialist_registry_path
-
-    # Innovation Framework defaults
-    _LAZY_CACHE["DEFAULT_HOMEOSTATIC_DOWNGRADE"] = cfg.homeostatic_downgrade_enabled
-    _LAZY_CACHE["DEFAULT_ADVERSARIAL_VERIFICATION"] = cfg.adversarial_verification
-    _LAZY_CACHE["DEFAULT_MAINTENANCE_TOKEN_BUDGET"] = cfg.maintenance_token_budget
-    _LAZY_CACHE["DEFAULT_MAINTENANCE_PRIORITY"] = cfg.maintenance_priority
-    _LAZY_CACHE["DEFAULT_WATCHDOG_PATTERNS"] = cfg.watchdog_patterns
 
 
 def _init_lazy_config(
@@ -6658,6 +6864,57 @@ def _fetch_registry_from_kg() -> tuple[MCPAgentRegistryModel, bool]:
     return MCPAgentRegistryModel(agents=agents, tools=tuple(tools)), not errors
 
 
+def _parsed_prompt_blueprint(row: Any) -> tuple[bool, dict[str, Any] | None]:
+    """``(accepted, blueprint)`` for one Prompt row.
+
+    A row is rejected when its blueprint is unparseable, is not a JSON object, or
+    fails canonical-structure validation.
+    """
+    blueprint = row.get("json_blueprint")
+    if isinstance(blueprint, str):
+        try:
+            blueprint = json.loads(blueprint)
+        except (TypeError, json.JSONDecodeError):
+            logger.debug("Rejected non-JSON prompt blueprint")
+            return False, None
+
+    if blueprint and not isinstance(blueprint, dict):
+        logger.debug("Rejected non-object prompt blueprint")
+        return False, None
+
+    parsed_blueprint: dict[str, Any] | None = (
+        blueprint if isinstance(blueprint, dict) else None
+    )
+    if parsed_blueprint is not None:
+        from agent_utilities.prompting.structured import validate_canonical
+
+        if validate_canonical(parsed_blueprint):
+            logger.debug("Rejected non-canonical prompt blueprint")
+            return False, None
+    return True, parsed_blueprint
+
+
+def _collect_prompt_agents(engine: Any, agents: list[MCPAgent]) -> None:
+    """Append every accepted Prompt row to ``agents`` (partial on failure)."""
+    prompt_rows = engine.backend.execute(
+        "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
+    )
+    for row in prompt_rows:
+        accepted, parsed_blueprint = _parsed_prompt_blueprint(row)
+        if not accepted:
+            continue
+        agents.append(
+            MCPAgent(
+                name=row.get("name", ""),
+                description=row.get("description", ""),
+                agent_type="specialist",
+                capabilities=row.get("capabilities", []),
+                system_prompt=row.get("system_prompt", ""),
+                json_blueprint=parsed_blueprint,
+            )
+        )
+
+
 def _fetch_prompt_agents(
     engine: Any, errors: list[str] | None = None
 ) -> list[MCPAgent]:
@@ -6670,41 +6927,7 @@ def _fetch_prompt_agents(
     """
     agents: list[MCPAgent] = []
     try:
-        prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
-        )
-        for row in prompt_rows:
-            blueprint = row.get("json_blueprint")
-            if isinstance(blueprint, str):
-                try:
-                    blueprint = json.loads(blueprint)
-                except (TypeError, json.JSONDecodeError):
-                    logger.debug("Rejected non-JSON prompt blueprint")
-                    continue
-
-            if blueprint and not isinstance(blueprint, dict):
-                logger.debug("Rejected non-object prompt blueprint")
-                continue
-
-            parsed_blueprint: dict[str, Any] | None = (
-                blueprint if isinstance(blueprint, dict) else None
-            )
-            if parsed_blueprint is not None:
-                from agent_utilities.prompting.structured import validate_canonical
-
-                if validate_canonical(parsed_blueprint):
-                    logger.debug("Rejected non-canonical prompt blueprint")
-                    continue
-            agents.append(
-                MCPAgent(
-                    name=row.get("name", ""),
-                    description=row.get("description", ""),
-                    agent_type="specialist",
-                    capabilities=row.get("capabilities", []),
-                    system_prompt=row.get("system_prompt", ""),
-                    json_blueprint=parsed_blueprint,
-                )
-            )
+        _collect_prompt_agents(engine, agents)
     except Exception as e:
         # D-DST-6 raised this to warning for visibility. D-DSTO-1 closes the
         # caching side: this failure is now reported to the caller via
@@ -6760,15 +6983,8 @@ def _fetch_specialist_agents(
     return agents
 
 
-def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
-    """Fetch Tool nodes from the KG.
-
-    Args:
-        errors: when provided, a failure appends a short description here
-            (D-DSTO-1) so the caller can decide whether the assembled
-            registry is safe to cache.
-    """
-    tools: list[MCPToolInfo] = []
+def _tool_row_iterator(engine: Any, errors: list[str] | None) -> Any:
+    """The Tool row iterator, or ``None`` when the query or iteration failed."""
     try:
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
@@ -6785,10 +7001,10 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         )
         if errors is not None:
             errors.append(f"tools: query failed ({type(exc).__name__})")
-        return tools
+        return None
 
     try:
-        row_iterator = iter(tool_rows)
+        return iter(tool_rows)
     except Exception as exc:  # noqa: BLE001 — backend iteration details may contain secrets; report only the exception class
         logger.warning(
             "Tool query returned a non-iterable result (%s); registry will retry",
@@ -6796,8 +7012,38 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         )
         if errors is not None:
             errors.append(f"tools: result is not iterable ({type(exc).__name__})")
-        return tools
+        return None
 
+
+def _tool_info_from_row(row: Any) -> MCPToolInfo:
+    """Build one tool record from an untrusted backend row."""
+    return MCPToolInfo(
+        name=row.get("t.name", ""),
+        description=row.get("t.description", ""),
+        mcp_server=row.get("t.mcp_server", "unknown"),
+        relevance_score=row.get("t.relevance_score", 0),
+        all_tags=row.get("t.tags", []),
+        requires_approval=row.get("t.requires_approval", False),
+    )
+
+
+def _report_rejected_tool_rows(rejected_rows: int, errors: list[str] | None) -> None:
+    """Surface quarantined rows and keep the registry out of the process cache."""
+    if rejected_rows:
+        logger.warning(
+            "Rejected %d malformed Tool row(s); registry will retry",
+            rejected_rows,
+        )
+    if rejected_rows and errors is not None:
+        # Preserve valid tools for this request, but keep the assembled registry
+        # out of the process-lifetime cache until the bad graph rows are fixed.
+        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
+
+
+def _drain_tool_rows(
+    row_iterator: Any, tools: list[MCPToolInfo], errors: list[str] | None
+) -> None:
+    """Append every well-formed row; a mid-stream failure keeps what was read."""
     rejected_rows = 0
     row_index = 0
     while True:
@@ -6816,34 +7062,75 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     f"tools: row stream failed after {row_index} row(s) "
                     f"({type(exc).__name__})"
                 )
-            return tools
+            return
 
         try:
-            tools.append(
-                MCPToolInfo(
-                    name=row.get("t.name", ""),
-                    description=row.get("t.description", ""),
-                    mcp_server=row.get("t.mcp_server", "unknown"),
-                    relevance_score=row.get("t.relevance_score", 0),
-                    all_tags=row.get("t.tags", []),
-                    requires_approval=row.get("t.requires_approval", False),
-                )
-            )
+            tools.append(_tool_info_from_row(row))
         except Exception:  # noqa: BLE001 — quarantine untrusted row objects without evaluating or logging their contents
             rejected_rows += 1
         finally:
             row_index += 1
 
-    if rejected_rows:
-        logger.warning(
-            "Rejected %d malformed Tool row(s); registry will retry",
-            rejected_rows,
-        )
-    if rejected_rows and errors is not None:
-        # Preserve valid tools for this request, but keep the assembled registry
-        # out of the process-lifetime cache until the bad graph rows are fixed.
-        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
+    _report_rejected_tool_rows(rejected_rows, errors)
+
+
+def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolInfo]:
+    """Fetch Tool nodes from the KG.
+
+    Args:
+        errors: when provided, a failure appends a short description here
+            (D-DSTO-1) so the caller can decide whether the assembled
+            registry is safe to cache.
+    """
+    tools: list[MCPToolInfo] = []
+    row_iterator = _tool_row_iterator(engine, errors)
+    if row_iterator is not None:
+        _drain_tool_rows(row_iterator, tools, errors)
     return tools
+
+
+def _tool_tags(tool: MCPToolInfo) -> list[str]:
+    """Every tag a tool carries, falling back to its single ``tag``."""
+    return tool.all_tags if tool.all_tags else ([tool.tag] if tool.tag else [])
+
+
+def _partition_server_tag(mcp_server: str) -> str:
+    """The server name reduced to its bare partition tag."""
+    tag = mcp_server.lower()
+    for suffix in ("-mcp", "_mcp", "-manager", "-agent", "-server"):
+        tag = tag.replace(suffix, "")
+    return tag
+
+
+def _tool_partitions(tools: list[MCPToolInfo]) -> dict[str, list[MCPToolInfo]]:
+    """Group tools by tag; untagged/general tools get a per-server partition."""
+    partitions: dict[str, list[MCPToolInfo]] = {}
+    for tool in tools:
+        tags = _tool_tags(tool)
+        if not tags or tags == ["general"]:
+            partition_tags = {f"{tool.mcp_server}_general"}
+        else:
+            partition_tags = set(tags)
+            partition_tags.add(_partition_server_tag(tool.mcp_server))
+        for tag in partition_tags:
+            partitions.setdefault(tag, []).append(tool)
+    return partitions
+
+
+def _partition_agent(tag: str, partition_tools: list[MCPToolInfo]) -> MCPAgent:
+    """The synthesized specialist agent representing one tool partition."""
+    mcp_servers = list(set(t.mcp_server for t in partition_tools))
+    primary_server = mcp_servers[0] if mcp_servers else "unknown"
+    return MCPAgent(
+        name=tag,
+        description=f"Dynamically synthesized agent for {tag} capabilities.",
+        agent_type="specialist",
+        system_prompt=f"You are the {tag} specialist.",
+        tool_count=len(partition_tools),
+        mcp_server=primary_server,
+        tools=[t.name for t in partition_tools],
+        capabilities=list({c_tag for t in partition_tools for c_tag in _tool_tags(t)}),
+    )
 
 
 def _synthesize_partition_agents(
@@ -6854,58 +7141,11 @@ def _synthesize_partition_agents(
 
     CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
     """
-    partitions: dict[str, list[MCPToolInfo]] = {}
-    for t in tools:
-        tags = t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
-        server_tag = (
-            t.mcp_server.lower()
-            .replace("-mcp", "")
-            .replace("_mcp", "")
-            .replace("-manager", "")
-            .replace("-agent", "")
-            .replace("-server", "")
-        )
-        if not tags or tags == ["general"]:
-            all_partition_tags = {f"{t.mcp_server}_general"}
-        else:
-            all_partition_tags = set(tags)
-            all_partition_tags.add(server_tag)
-
-        for tag in all_partition_tags:
-            if tag not in partitions:
-                partitions[tag] = []
-            partitions[tag].append(t)
-
-    agents: list[MCPAgent] = []
-    for tag, partition_tools in partitions.items():
-        if tag in existing_agent_names:
-            continue
-
-        mcp_servers = list(set(t.mcp_server for t in partition_tools))
-        primary_server = mcp_servers[0] if mcp_servers else "unknown"
-
-        agents.append(
-            MCPAgent(
-                name=tag,
-                description=f"Dynamically synthesized agent for {tag} capabilities.",
-                agent_type="specialist",
-                system_prompt=f"You are the {tag} specialist.",
-                tool_count=len(partition_tools),
-                mcp_server=primary_server,
-                tools=[t.name for t in partition_tools],
-                capabilities=list(
-                    set(
-                        c_tag
-                        for t in partition_tools
-                        for c_tag in (
-                            t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
-                        )
-                    )
-                ),
-            )
-        )
-
-    return agents
+    return [
+        _partition_agent(tag, partition_tools)
+        for tag, partition_tools in _tool_partitions(tools).items()
+        if tag not in existing_agent_names
+    ]
 
 
 def get_discovery_registry() -> MCPAgentRegistryModel:
@@ -6921,6 +7161,36 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
         The populated MCPAgentRegistryModel.
     """
     return _RegistryCache.get_registry()
+
+
+def _hybrid_search_matched_names(results: Any) -> set[str]:
+    """Lower-cased names appearing in a hybrid-search result set."""
+    matched_names: set[str] = set()
+    for r in results:
+        name = r.get("name", "")
+        if name:
+            matched_names.add(name.lower())
+        # Also check the node type for agent/prompt matches
+        node_type = str(r.get("type", "")).lower()
+        if node_type in ("agent", "prompt"):
+            matched_names.add(name.lower())
+    return matched_names
+
+
+def _relevant_specialists_from_search(
+    engine: Any, query: str, all_agents: list[MCPAgent], top_n: int
+) -> list[MCPAgent] | None:
+    """Agents matching hybrid search, or ``None`` to fall back to the full list."""
+    try:
+        results = engine.search_hybrid(query, top_k=top_n * 3)
+        matched_names = _hybrid_search_matched_names(results)
+        # Score agents by whether they appear in search results
+        relevant = [a for a in all_agents if a.name.lower() in matched_names]
+        if relevant:
+            return relevant[:top_n]
+    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
+        logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
+    return None
 
 
 def get_relevant_specialists(
@@ -6954,26 +7224,9 @@ def get_relevant_specialists(
     if not engine or not query:
         return all_agents[:top_n]
 
-    # Use hybrid search to find relevant nodes
-    try:
-        results = engine.search_hybrid(query, top_k=top_n * 3)
-        matched_names: set[str] = set()
-        for r in results:
-            name = r.get("name", "")
-            if name:
-                matched_names.add(name.lower())
-            # Also check the node type for agent/prompt matches
-            node_type = str(r.get("type", "")).lower()
-            if node_type in ("agent", "prompt"):
-                matched_names.add(name.lower())
-
-        # Score agents by whether they appear in search results
-        relevant = [a for a in all_agents if a.name.lower() in matched_names]
-
-        if relevant:
-            return relevant[:top_n]
-    except Exception as e:  # noqa: BLE001 — explicit fallback returned right below (all_agents[:top_n]); a search failure degrades relevance ranking, it does not lose any agent from consideration
-        logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
+    relevant = _relevant_specialists_from_search(engine, query, all_agents, top_n)
+    if relevant is not None:
+        return relevant
 
     # Fallback: return all agents (capped)
     return all_agents[:top_n]
@@ -7212,6 +7465,190 @@ import shutil
 import tempfile
 
 
+def _drop_self_referential_mcp_entries(mcp_servers: dict[str, Any]) -> bool:
+    """Drop fleet entries that point back at this process's own MCP surface.
+
+    Never mount YOURSELF as a fleet child. A self-entry — an mcp_config entry whose
+    URL targets this process's own advertised MCP surface — must resolve to
+    in-process tools, never an outbound HTTP hairpin back to our own gateway.
+    graph-os fronts the whole fleet in-process (attach_fleet_loader), so its own
+    ``graph-os`` self-entry here is erroneous to dial: it hits the external gateway,
+    which rejects the un-JWT'd self-call ``401`` (and in a no-auth or stdio/
+    self-contained deployment it is still a wrong self-hairpin). Dropped at this
+    single loader every fleet-config consumer flows through, identity-based
+    (config-driven via MCP_ALLOWED_HOSTS) and independent of the auth outcome.
+
+    Returns True when at least one entry was removed.
+    """
+    from agent_utilities.base_utilities import is_loopback_url as _is_self_mcp_url
+
+    self_entries = [
+        name
+        for name, cfg in list(mcp_servers.items())
+        if isinstance(cfg, dict) and _is_self_mcp_url(str(cfg.get("url") or ""))
+    ]
+    for name in self_entries:
+        mcp_servers.pop(name, None)
+    if self_entries:
+        logger.info(
+            "MCP Config: excluded self-referential fleet entr%s %s — graph-os "
+            "fronts its own tools in-process, never via an HTTP self-connection",
+            "y" if len(self_entries) == 1 else "ies",
+            self_entries,
+        )
+    return bool(self_entries)
+
+
+def _mcp_command_search_path() -> str:
+    """The PATH used to resolve MCP server commands, with ~/.local/bin folded in."""
+    search_path = os.environ.get("PATH", "")
+    local_bin = str(Path.home() / ".local" / "bin")
+    if local_bin not in search_path:
+        search_path = f"{local_bin}:{search_path}"
+    return search_path
+
+
+def _log_mcp_command_resolution(name: str, command: str, search_path: str) -> None:
+    """Warn loudly when an MCP server's command is not on the resolved PATH."""
+    resolved = shutil.which(command, path=search_path)
+    if not resolved:
+        logger.warning(
+            f"MCP Config: Command '{command}' for server '{name}' NOT FOUND in PATH ({search_path}). Startup will likely fail."
+        )
+    else:
+        logger.debug(f"MCP Config: Resolved command '{command}' to '{resolved}'")
+
+
+def _delegated_session_token() -> str | None:
+    """The user session token to forward to MCP subprocesses, if one is available.
+
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
+    """
+    token = os.environ.get("AGENT_USER_TOKEN")
+    if token:
+        return token
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        return create_secrets_client().get("session_token")
+    except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
+        logger.debug("Optional session-token enrichment unavailable: %s", exc)
+        return None
+
+
+_MCP_URLLIB3_WARNING_FILTER = "ignore:urllib3 (2.3.0) or chardet"
+
+
+def _apply_mcp_subprocess_warnings(env: dict[str, Any]) -> None:
+    """Suppress RequestsDependencyWarning in MCP subprocesses."""
+    if "PYTHONWARNINGS" not in env:
+        env["PYTHONWARNINGS"] = _MCP_URLLIB3_WARNING_FILTER
+    elif "ignore:urllib3" not in env["PYTHONWARNINGS"]:
+        env["PYTHONWARNINGS"] += f",{_MCP_URLLIB3_WARNING_FILTER}"
+
+
+def _enrich_mcp_server_env(cfg: dict[str, Any], search_path: str) -> None:
+    """Ensure PATH/PYTHONPATH/warning filters/token forwarding reach the subprocess."""
+    if "env" not in cfg:
+        cfg["env"] = {}
+    env = cfg["env"]
+    if "PATH" not in env:
+        env["PATH"] = search_path
+    if "PYTHONPATH" not in env and "PYTHONPATH" in os.environ:
+        env["PYTHONPATH"] = os.environ.get("PYTHONPATH", "")
+    _apply_mcp_subprocess_warnings(env)
+    if "AGENT_USER_TOKEN" not in env:
+        user_token = _delegated_session_token()
+        if user_token:
+            env["AGENT_USER_TOKEN"] = user_token
+
+
+def _prevalidate_mcp_servers(config_data: dict[str, Any]) -> bool:
+    """Check commands exist and enrich envs before pydantic-ai starts them.
+
+    Returns True when ``config_data`` was mutated and must be re-serialised.
+    """
+    mcp_servers = config_data.get("mcpServers", {})
+    modified = _drop_self_referential_mcp_entries(mcp_servers)
+    search_path = _mcp_command_search_path()
+    for name, cfg in mcp_servers.items():
+        command = cfg.get("command")
+        if not command:
+            continue
+        _log_mcp_command_resolution(name, command, search_path)
+        _enrich_mcp_server_env(cfg, search_path)
+        modified = True
+    return modified
+
+
+def _prevalidated_mcp_payload(expanded_content: str) -> str:
+    """The JSON payload to hand to pydantic-ai, pre-validated best-effort."""
+    try:
+        config_data = json.loads(expanded_content)
+        if _prevalidate_mcp_servers(config_data):
+            return json.dumps(config_data)
+    except Exception as e:
+        logger.warning(f"MCP Config: Pre-validation failed: {e}")
+    return expanded_content
+
+
+def _attach_mcp_toolset_ids(
+    servers: list[Any], mcp_servers_cfg: dict[str, Any]
+) -> None:
+    """Re-attach configured names to the loaded toolsets, positionally.
+
+    pydantic-ai returns a list in config order but does not preserve the names.
+    ``AbstractToolset.id`` is a read-only abstract property on most concrete
+    pydantic-ai toolsets (no setter) — best-effort only; a toolset that rejects the
+    assignment keeps its own id rather than failing the whole load (this used to
+    raise AttributeError here and silently return [] for every real toolset).
+    """
+    for i, name in enumerate(mcp_servers_cfg):
+        if i >= len(servers):
+            continue
+        try:
+            servers[i].id = name  # type: ignore[misc]
+        except AttributeError:
+            logger.debug(
+                f"MCP Config: toolset for '{name}' has a read-only id; keeping its own"
+            )
+            continue
+        logger.debug(f"MCP Config: Loaded server '{name}'")
+
+
+def _mcp_protocol_hooks() -> tuple[Any, Any]:
+    """Install the MCP v2 bridge and return ``(load_mcp_toolsets, legacy_mode)``.
+
+    Imported at call time so the loader stays patchable at ``pydantic_ai.mcp``.
+    """
+    from pydantic_ai.mcp import load_mcp_toolsets
+
+    from agent_utilities.mcp.protocol_compat import (
+        force_legacy_protocol_mode,
+        install_mcp_v2_bridge,
+    )
+
+    install_mcp_v2_bridge()
+    return load_mcp_toolsets, force_legacy_protocol_mode
+
+
+def _load_mcp_toolsets_from_payload(
+    expanded_content: str, load_mcp_toolsets: Any, force_legacy_protocol_mode: Any
+) -> list[Any]:
+    """Materialise the payload to a temp file and load it into toolsets."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+        tmp.write(expanded_content)
+        tmp_path = tmp.name
+    try:
+        servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
+        config_data = json.loads(expanded_content)
+        _attach_mcp_toolset_ids(servers, config_data.get("mcpServers", {}))
+        return servers
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
     """Load and expand environment variables in an MCP config file.
 
@@ -7227,166 +7664,18 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
         MCPToolSet in newer versions, but returned as list of servers here).
 
     """
-    from pydantic_ai.mcp import load_mcp_toolsets
-
     from agent_utilities.base_utilities import expand_env_vars
-    from agent_utilities.mcp.protocol_compat import (
-        force_legacy_protocol_mode,
-        install_mcp_v2_bridge,
-    )
 
-    install_mcp_v2_bridge()
+    load_mcp_toolsets, force_legacy_protocol_mode = _mcp_protocol_hooks()
 
     try:
         path = Path(config_path)
         if not path.exists():
             return []
-
-        content = path.read_text()
-        expanded_content = expand_env_vars(content)
-
-        # Robust Validation: Check if commands exist before pydantic-ai tries to start them
-        try:
-            config_data = json.loads(expanded_content)
-            mcp_servers = config_data.get("mcpServers", {})
-            modified = False
-
-            # Never mount YOURSELF as a fleet child. A self-entry — an mcp_config entry
-            # whose URL targets this process's own advertised MCP surface — must resolve
-            # to in-process tools, never an outbound HTTP hairpin back to our own gateway.
-            # graph-os fronts the whole fleet in-process (attach_fleet_loader), so its own
-            # ``graph-os`` self-entry here is erroneous to dial: it hits the external
-            # gateway, which rejects the un-JWT'd self-call ``401`` (and in a no-auth or
-            # stdio/self-contained deployment it is still a wrong self-hairpin). Drop it at
-            # this single loader every fleet-config consumer flows through, identity-based
-            # (config-driven via MCP_ALLOWED_HOSTS) and independent of the auth outcome.
-            from agent_utilities.base_utilities import (
-                is_loopback_url as _is_self_mcp_url,
-            )
-
-            _self_entries = [
-                _n
-                for _n, _c in list(mcp_servers.items())
-                if isinstance(_c, dict) and _is_self_mcp_url(str(_c.get("url") or ""))
-            ]
-            for _n in _self_entries:
-                mcp_servers.pop(_n, None)
-                modified = True
-            if _self_entries:
-                logger.info(
-                    "MCP Config: excluded self-referential fleet entr%s %s — graph-os "
-                    "fronts its own tools in-process, never via an HTTP self-connection",
-                    "y" if len(_self_entries) == 1 else "ies",
-                    _self_entries,
-                )
-
-            for name, cfg in mcp_servers.items():
-                command = cfg.get("command")
-                if command:
-                    # Resolve command path with explicit ~/.local/bin support
-                    search_path = os.environ.get("PATH", "")
-                    local_bin = str(Path.home() / ".local" / "bin")
-                    if local_bin not in search_path:
-                        search_path = f"{local_bin}:{search_path}"
-
-                    resolved = shutil.which(command, path=search_path)
-                    if not resolved:
-                        logger.warning(
-                            f"MCP Config: Command '{command}' for server '{name}' NOT FOUND in PATH ({search_path}). Startup will likely fail."
-                        )
-                    else:
-                        logger.debug(
-                            f"MCP Config: Resolved command '{command}' to '{resolved}'"
-                        )
-
-                    # Ensure PATH and PYTHONPATH are preserved if not explicitly set
-                    if "env" not in cfg:
-                        cfg["env"] = {}
-
-                    if "PATH" not in cfg["env"]:
-                        cfg["env"]["PATH"] = search_path
-                    if "PYTHONPATH" not in cfg["env"] and "PYTHONPATH" in os.environ:
-                        cfg["env"]["PYTHONPATH"] = os.environ.get("PYTHONPATH", "")
-
-                    # Suppress RequestsDependencyWarning in subprocesses
-                    if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"]["PYTHONWARNINGS"] = (
-                            "ignore:urllib3 (2.3.0) or chardet"
-                        )
-                    else:
-                        if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"]["PYTHONWARNINGS"] += (
-                                ",ignore:urllib3 (2.3.0) or chardet"
-                            )
-
-                    # Token forwarding: propagate user session token to
-                    # MCP subprocesses for delegated authentication.
-                    # CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-                    if "AGENT_USER_TOKEN" not in cfg["env"]:
-                        _user_token = os.environ.get("AGENT_USER_TOKEN")
-                        if not _user_token:
-                            try:
-                                from agent_utilities.security.secrets_client import (
-                                    create_secrets_client,
-                                )
-
-                                _sc = create_secrets_client()
-                                _user_token = _sc.get("session_token")
-                            except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
-                                logger.debug(
-                                    "Optional session-token enrichment unavailable: %s",
-                                    exc,
-                                )
-                        if _user_token:
-                            cfg["env"]["AGENT_USER_TOKEN"] = _user_token
-
-                    modified = True
-
-            if modified:
-                expanded_content = json.dumps(config_data)
-        except Exception as e:
-            logger.warning(f"MCP Config: Pre-validation failed: {e}")
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-            tmp.write(expanded_content)
-            tmp_path = tmp.name
-
-        try:
-            servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
-            # Re-attach IDs from config
-            config_data = json.loads(expanded_content)
-            mcp_servers_cfg = config_data.get("mcpServers", {})
-
-            # Match by command and args as a heuristic if pydantic-ai doesn't preserve order or names
-            for ts in servers:
-                # pydantic-ai objects might not have a clean way to match back,
-                # but they usually follow the order in the JSON.
-                pass
-
-            # Better: If we have a list, and the config had a dict, they MIGHT match by order
-            # However, pydantic-ai load_mcp_servers is internal.
-            # I'll just set the .id if they are list components.
-            # `AbstractToolset.id` is a read-only abstract property on most concrete
-            # pydantic-ai toolsets (no setter) — best-effort only; a toolset that
-            # rejects the assignment keeps its own id rather than failing the whole
-            # load (this used to raise AttributeError here and silently return []
-            # for every real toolset).
-            for i, (name, cfg) in enumerate(mcp_servers_cfg.items()):
-                if i < len(servers):
-                    try:
-                        servers[i].id = name  # type: ignore[misc]
-                    except AttributeError:
-                        logger.debug(
-                            f"MCP Config: toolset for '{name}' has a read-only id; "
-                            "keeping its own"
-                        )
-                        continue
-                    logger.debug(f"MCP Config: Loaded server '{name}'")
-
-            return servers
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        payload = _prevalidated_mcp_payload(expand_env_vars(path.read_text()))
+        return _load_mcp_toolsets_from_payload(
+            payload, load_mcp_toolsets, force_legacy_protocol_mode
+        )
     except Exception as e:
         logger.error("Failed to load MCP configuration: %s", e)
         return []
