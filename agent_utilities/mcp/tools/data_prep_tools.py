@@ -2527,6 +2527,36 @@ class _NativeDataPrepAuthority:
             raise NativeCommitUnavailable("native blob compensation failed") from exc
 
 
+def _validate_plan_shape(payload: Mapping[str, Any]) -> tuple[PrepRequest, CleanPlan]:
+    """Typed-validate the request payload and its embedded plan."""
+
+    try:
+        request = PrepRequest.model_validate(payload)
+        if len(_canonical_json(request.plan)) > _MAX_PLAN_BYTES:
+            raise DataPrepToolError("plan exceeds the bounded request size")
+        plan = CleanPlan.model_validate(request.plan)
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise DataPrepToolError("data-prep request failed its typed plan gate") from exc
+    return request, plan
+
+
+def _require_plan_matches_request(plan: CleanPlan, request: PrepRequest) -> None:
+    """Bind the immutable plan's own refs/digests to the approved request."""
+
+    if plan.plan_ref != request.plan_ref or plan.model_ref != request.model_ref:
+        raise DataPrepToolError("plan references do not match the approved request")
+    if plan.artifact_ref is not None and plan.artifact_ref != request.artifact_ref:
+        raise DataPrepToolError("plan artifact reference is not approved")
+    if plan.source_ref is not None and plan.source_ref != request.artifact_ref:
+        raise DataPrepToolError("plan source reference is not approved")
+    from agent_utilities.data_prep import plan_digest
+
+    if plan_digest(plan) != request.plan_digest:
+        raise DataPrepToolError("plan digest does not match the immutable plan")
+    if plan.model_digest != request.model_digest:
+        raise DataPrepToolError("model digest must be pinned in the immutable plan")
+
+
 class DataPrepService:
     """Thin governed adapter that delegates all data work to NE-108."""
 
@@ -2540,27 +2570,8 @@ class DataPrepService:
         self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
 
     def _request(self, payload: Mapping[str, Any]) -> PrepRequest:
-        try:
-            request = PrepRequest.model_validate(payload)
-            if len(_canonical_json(request.plan)) > _MAX_PLAN_BYTES:
-                raise DataPrepToolError("plan exceeds the bounded request size")
-            plan = CleanPlan.model_validate(request.plan)
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise DataPrepToolError(
-                "data-prep request failed its typed plan gate"
-            ) from exc
-        if plan.plan_ref != request.plan_ref or plan.model_ref != request.model_ref:
-            raise DataPrepToolError("plan references do not match the approved request")
-        if plan.artifact_ref is not None and plan.artifact_ref != request.artifact_ref:
-            raise DataPrepToolError("plan artifact reference is not approved")
-        if plan.source_ref is not None and plan.source_ref != request.artifact_ref:
-            raise DataPrepToolError("plan source reference is not approved")
-        from agent_utilities.data_prep import plan_digest
-
-        if plan_digest(plan) != request.plan_digest:
-            raise DataPrepToolError("plan digest does not match the immutable plan")
-        if plan.model_digest != request.model_digest:
-            raise DataPrepToolError("model digest must be pinned in the immutable plan")
+        request, plan = _validate_plan_shape(payload)
+        _require_plan_matches_request(plan, request)
         return request
 
     def _input(
