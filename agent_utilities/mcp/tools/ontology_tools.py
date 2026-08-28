@@ -931,6 +931,89 @@ def _source_sync_run(
     return result
 
 
+def _graph_etl_list() -> str:
+    from agent_utilities.knowledge_graph.enrichment.registry import (
+        discover_extractors,
+        list_sources,
+    )
+    from agent_utilities.knowledge_graph.enrichment.writeback.core import list_sinks
+
+    discover_extractors()
+    names = sorted({s.category for s in list_sources()})
+    reg = kg_server.get_connection_registry()
+    backends = sorted(
+        set(reg.names()) | {"stardog", "neo4j", "falkordb", "age", "jena_fuseki"}
+    )
+    return json.dumps({"sources": names, "sinks": list_sinks(), "backends": backends})
+
+
+def _graph_etl_lineage(engine: Any, source: str, sink: str, limit: int) -> str:
+    from agent_utilities.knowledge_graph.etl import query_lineage
+
+    return json.dumps(
+        {
+            "runs": query_lineage(
+                engine, source=source or None, sink=sink or None, limit=int(limit)
+            )
+        },
+        default=str,
+    )
+
+
+def _graph_etl_resolve_sink_backend(sink: str) -> Any:
+    # Write-back sinks + the native SQL-table sink need none — run_etl routes
+    # sink='table' itself (KG-2.266).
+    from agent_utilities.knowledge_graph.enrichment.writeback.core import get_sink
+
+    if not sink or sink == "table" or get_sink(sink) is not None:
+        return None
+    reg = kg_server.get_connection_registry()
+    if sink in reg.names():
+        be = getattr(reg.get_engine(sink), "backend", None)
+        return getattr(be, "_authority", be)
+    from agent_utilities.knowledge_graph.backends import create_backend
+
+    return create_backend(backend_type=sink)
+
+
+@dataclass
+class _EtlRunArgs:
+    """Bundled `graph_etl` action='run' parameters (kept under the 7-parameter
+    cap as a single dataclass rather than 8 positional args)."""
+
+    engine: Any
+    source: str
+    sink: str
+    mode: str
+    sources_json: str
+    ids_json: str
+    ops_json: str
+    dry_run: bool
+
+
+def _graph_etl_run(args: _EtlRunArgs) -> str:
+    from agent_utilities.knowledge_graph.etl import run_etl
+
+    ids = json.loads(args.ids_json) if args.ids_json else []
+    srcs = json.loads(args.sources_json) if args.sources_json else []
+    ops = json.loads(args.ops_json) if args.ops_json else {}
+    sink_backend = _graph_etl_resolve_sink_backend(args.sink)
+    return json.dumps(
+        run_etl(
+            args.engine,
+            source=args.source or None,
+            mode=str(args.mode),
+            ids=ids or None,
+            sink=args.sink or None,
+            sink_backend=sink_backend,
+            sources=srcs or None,
+            dry_run=bool(args.dry_run),
+            ops=ops or None,
+        ),
+        default=str,
+    )
+
+
 def register_ontology_tools(mcp):
     """Register the ontology_tools group on the given FastMCP server."""
 
@@ -1863,15 +1946,6 @@ def register_ontology_tools(mcp):
         limit: int = Field(default=200, description="Max rows for action='lineage'."),
     ) -> str:
         """Run / inspect a unified ETL flow over the canonical KG hub."""
-        from agent_utilities.knowledge_graph.enrichment.registry import (
-            discover_extractors,
-            list_sources,
-        )
-        from agent_utilities.knowledge_graph.enrichment.writeback.core import (
-            get_sink,
-            list_sinks,
-        )
-
         try:
             engine = kg_server._get_engine()
         except Exception:  # noqa: BLE001
@@ -1879,16 +1953,7 @@ def register_ontology_tools(mcp):
 
         try:
             if action == "list":
-                discover_extractors()
-                names = sorted({s.category for s in list_sources()})
-                reg = kg_server.get_connection_registry()
-                backends = sorted(
-                    set(reg.names())
-                    | {"stardog", "neo4j", "falkordb", "age", "jena_fuseki"}
-                )
-                return json.dumps(
-                    {"sources": names, "sinks": list_sinks(), "backends": backends}
-                )
+                return _graph_etl_list()
 
             if engine is None:
                 return json.dumps(
@@ -1896,54 +1961,20 @@ def register_ontology_tools(mcp):
                 )
 
             if action == "lineage":
-                from agent_utilities.knowledge_graph.etl import query_lineage
-
-                return json.dumps(
-                    {
-                        "runs": query_lineage(
-                            engine,
-                            source=source or None,
-                            sink=sink or None,
-                            limit=int(limit),
-                        )
-                    },
-                    default=str,
-                )
+                return _graph_etl_lineage(engine, source, sink, limit)
 
             # action == "run"
-            from agent_utilities.knowledge_graph.etl import run_etl
-
-            ids = json.loads(ids_json) if ids_json else []
-            srcs = json.loads(sources_json) if sources_json else []
-            ops = json.loads(ops_json) if ops_json else {}
-
-            # Resolve a graph-store sink backend (write-back sinks + the native
-            # SQL-table sink need none — run_etl routes sink='table' itself, KG-2.266).
-            sink_backend = None
-            if sink and sink != "table" and get_sink(sink) is None:
-                reg = kg_server.get_connection_registry()
-                if sink in reg.names():
-                    be = getattr(reg.get_engine(sink), "backend", None)
-                    sink_backend = getattr(be, "_authority", be)
-                else:
-                    from agent_utilities.knowledge_graph.backends import create_backend
-
-                    sink_backend = create_backend(backend_type=sink)
-
-            return json.dumps(
-                run_etl(
-                    engine,
-                    source=source or None,
-                    mode=str(mode),
-                    ids=ids or None,
-                    sink=sink or None,
-                    sink_backend=sink_backend,
-                    sources=srcs or None,
-                    dry_run=bool(dry_run),
-                    ops=ops or None,
-                ),
-                default=str,
+            args = _EtlRunArgs(
+                engine=engine,
+                source=source,
+                sink=sink,
+                mode=mode,
+                sources_json=sources_json,
+                ids_json=ids_json,
+                ops_json=ops_json,
+                dry_run=dry_run,
             )
+            return _graph_etl_run(args)
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
 
