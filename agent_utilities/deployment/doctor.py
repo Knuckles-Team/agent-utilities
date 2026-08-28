@@ -85,8 +85,34 @@ def _prescription(
 
 
 # ── individual checks (each returns one _result; never raises) ──────────────
-def _check_python_env() -> dict[str, Any]:
+def _optional_extras_present() -> dict[str, bool]:
+    """Which optional runtime extras are importable, keyed by human label."""
+    return {
+        label: importlib.util.find_spec(mod) is not None
+        for mod, label in (
+            ("rdflib", "owl/sparql"),
+            ("psycopg", "postgres"),
+            ("stardog", "stardog"),
+        )
+    }
+
+
+def _python_env_detail(ver: str, optional: dict[str, bool]) -> str:
+    """Render the python_env detail line from the resolved extras map."""
     import platform
+
+    present = [k for k, v in optional.items() if v]
+    missing = [k for k, v in optional.items() if not v]
+    detail = (
+        f"Python {platform.python_version()}, agent-utilities {ver}; "
+        f"optional extras present: {present or 'none'}"
+    )
+    if missing:
+        detail += f"; absent (install if needed): {missing}"
+    return detail
+
+
+def _check_python_env() -> dict[str, Any]:
     import sys
 
     try:
@@ -100,26 +126,12 @@ def _check_python_env() -> dict[str, Any]:
             f"agent_utilities not importable ({type(exc).__name__})",
             remediation="pip install agent-utilities[all]",
         )
-    optional = {}
-    for mod, label in (
-        ("rdflib", "owl/sparql"),
-        ("psycopg", "postgres"),
-        ("stardog", "stardog"),
-    ):
-        optional[label] = importlib.util.find_spec(mod) is not None
+    optional = _optional_extras_present()
     py_ok = sys.version_info >= (3, 10)
-    missing = [k for k, v in optional.items() if not v]
-    status = "ok" if py_ok else "warn"
-    detail = (
-        f"Python {platform.python_version()}, agent-utilities {ver}; "
-        f"optional extras present: {[k for k, v in optional.items() if v] or 'none'}"
-    )
-    if missing:
-        detail += f"; absent (install if needed): {missing}"
     return _result(
         "python_env",
-        status,
-        detail,
+        "ok" if py_ok else "warn",
+        _python_env_detail(str(ver), optional),
         remediation=None if py_ok else "agent-utilities needs Python 3.10+",
         data=optional,
     )
@@ -625,9 +637,7 @@ def _resolve_engine_transport_data(cfg: Any, resolver: Any) -> dict[str, Any]:
         )
         engine_data.update(
             verify_enabled=engine_trust.verify_enabled,
-            custom_ca=bool(
-                engine_trust.ca_bundle_path or engine_trust.ca_directory
-            ),
+            custom_ca=bool(engine_trust.ca_bundle_path or engine_trust.ca_directory),
             mtls=bool(engine_trust.client_cert_path),
         )
         engine_trust.cleanup()
@@ -638,13 +648,9 @@ def _connector_name_uniqueness(cfg: Any) -> tuple[bool, bool]:
     source_aliases = [
         connector.source_alias for connector in cfg.external_graph_connectors
     ]
-    connection_names = [
-        connector.name for connector in cfg.external_graph_connectors
-    ]
+    connection_names = [connector.name for connector in cfg.external_graph_connectors]
     source_aliases_unique = (
-        bool(
-            all(source_aliases) and len(set(source_aliases)) == len(source_aliases)
-        )
+        bool(all(source_aliases) and len(set(source_aliases)) == len(source_aliases))
         if source_aliases
         else True
     )
@@ -675,26 +681,18 @@ def _build_connector_sync_policy(connector: Any, property_graph: bool) -> dict |
     if not property_graph:
         return None
     return {
-        "allow_empty_snapshot": bool(
-            getattr(connector, "allow_empty_snapshot", False)
-        ),
+        "allow_empty_snapshot": bool(getattr(connector, "allow_empty_snapshot", False)),
         "max_pages": int(getattr(connector, "ingest_max_pages", 100)),
-        "max_row_bytes": int(
-            getattr(connector, "ingest_max_row_bytes", 1_048_576)
-        ),
+        "max_row_bytes": int(getattr(connector, "ingest_max_row_bytes", 1_048_576)),
         "max_total_bytes": int(
             getattr(connector, "ingest_max_total_bytes", 16_777_216)
         ),
-        "max_nesting_depth": int(
-            getattr(connector, "ingest_max_nesting_depth", 16)
-        ),
+        "max_nesting_depth": int(getattr(connector, "ingest_max_nesting_depth", 16)),
         "max_collection_items": int(
             getattr(connector, "ingest_max_collection_items", 10_000)
         ),
         "page_size": int(getattr(connector, "ingest_page_size", 500)),
-        "reconcile_deletions": bool(
-            getattr(connector, "reconcile_deletions", True)
-        ),
+        "reconcile_deletions": bool(getattr(connector, "reconcile_deletions", True)),
         "sync_mode": str(getattr(connector, "sync_mode", "auto")),
     }
 
@@ -731,9 +729,7 @@ def _graphql_connection_ref_ready(parsed: dict[str, Any]) -> bool:
 
     return parsed.get(
         "profile_format"
-    ) == GRAPHQL_CONNECTION_PROFILE_FORMAT and isinstance(
-        parsed.get("endpoint"), str
-    )
+    ) == GRAPHQL_CONNECTION_PROFILE_FORMAT and isinstance(parsed.get("endpoint"), str)
 
 
 def _graphql_mapping_ref_ready(parsed: dict[str, Any]) -> bool:
@@ -757,9 +753,7 @@ def _graphql_auth_ref_ready(parsed: dict[str, Any]) -> bool:
         GRAPHQL_AUTH_PROFILE_FORMAT,
     )
 
-    return parsed.get(
-        "profile_format"
-    ) == GRAPHQL_AUTH_PROFILE_FORMAT and isinstance(
+    return parsed.get("profile_format") == GRAPHQL_AUTH_PROFILE_FORMAT and isinstance(
         parsed.get("headers", {}), dict
     )
 
@@ -798,10 +792,7 @@ def _resolve_one_connector_ref(
         else:
             resolved = resolver(ref) if resolver is not None else None
             ready = bool(resolved)
-        if (
-            label in {"auth", "connection", "mapping", "variables"}
-            and ready
-        ):
+        if label in {"auth", "connection", "mapping", "variables"} and ready:
             parsed = _parse_bounded_secret_json(resolved)
             ready = isinstance(parsed, dict)
             if label == "mapping" and ready:
@@ -869,9 +860,7 @@ def _resolve_graphql_mapping_status(
         tls_profile_ref=connector.tls_profile_ref,
         variables_ref=getattr(connector, "variables_ref", None),
         allow_introspection=connector.allow_introspection,
-        allow_empty_snapshot=bool(
-            getattr(connector, "allow_empty_snapshot", False)
-        ),
+        allow_empty_snapshot=bool(getattr(connector, "allow_empty_snapshot", False)),
         resolver=resolver,
     )
     try:
@@ -908,9 +897,7 @@ def _resolve_property_graph_mapping_status(
     else:
         current_policy = None
     current_policy_digest = (
-        external_mapping_policy_digest(
-            {**current_policy, "sync": sync_policy}
-        )
+        external_mapping_policy_digest({**current_policy, "sync": sync_policy})
         if current_policy is not None and sync_policy is not None
         else None
     )
@@ -972,9 +959,7 @@ def _build_connector_result_dict(
         "refs_ready": readiness,
         "mapping_lifecycle": lifecycle,
         "mapping_policy_drift": mapping_policy_drift,
-        "capability_bundle_ready": (
-            property_bundle_ready if property_graph else None
-        ),
+        "capability_bundle_ready": (property_bundle_ready if property_graph else None),
         "sync_policy": sync_policy,
         "semantic_mapping": connector.semantic_mapping,
         "generated_mapping": bool(
@@ -1148,9 +1133,7 @@ def _check_transport_security() -> dict[str, Any]:
     try:
         cfg, resolver, secrets_client, tls_data = _resolve_tls_profile_data()
         engine_data = _resolve_engine_transport_data(cfg, resolver)
-        source_aliases_unique, connection_names_unique = _connector_name_uniqueness(
-            cfg
-        )
+        source_aliases_unique, connection_names_unique = _connector_name_uniqueness(cfg)
 
         connectors: list[dict[str, Any]] = []
         unresolved = [0]
@@ -1185,6 +1168,7 @@ def _check_transport_security() -> dict[str, Any]:
         engine_data,
         tls_data,
     )
+
 
 def _check_google_workspace_oauth() -> dict[str, Any]:
     """Validate optional OAuth bootstrap without disclosing tenant configuration."""
@@ -1228,14 +1212,65 @@ def _check_google_workspace_oauth() -> dict[str, Any]:
     )
 
 
+def _egress_tls_profiles(cfg: Any) -> dict[str, Any]:
+    """Resolve the model/embedding/OAuth2-token TLS profiles, in that order."""
+    from agent_utilities.core.transport_security import (
+        resolve_tls_profile,
+        tls_environment_from_config,
+    )
+
+    tls_environment = tls_environment_from_config(cfg)
+    return {
+        "model": resolve_tls_profile(
+            "model",
+            profile_name=cfg.model_tls_profile,
+            profile_ref=cfg.model_tls_profile_ref,
+            environ=tls_environment,
+        ),
+        "embedding": resolve_tls_profile(
+            "embedding",
+            profile_name=cfg.embedding_tls_profile,
+            profile_ref=cfg.embedding_tls_profile_ref,
+            environ=tls_environment,
+        ),
+        "oauth2_token": resolve_tls_profile(
+            "oauth2-token",
+            profile_name=cfg.oauth2_token_tls_profile,
+            profile_ref=cfg.oauth2_token_tls_profile_ref,
+            environ=tls_environment,
+        ),
+    }
+
+
+def _egress_tls_data(cfg: Any) -> tuple[dict[str, Any], bool]:
+    """(redacted model-transport data, whether any model proxy is configured)."""
+    profiles = _egress_tls_profiles(cfg)
+    proxy_configured = bool(
+        profiles["model"].proxy_url
+        or profiles["embedding"].proxy_url
+        or profiles["oauth2_token"].proxy_url
+    )
+    data: dict[str, Any] = {}
+    for label, profile in profiles.items():
+        data[f"{label}_verify_enabled"] = profile.verify_enabled
+        data[f"{label}_custom_ca"] = bool(
+            profile.ca_bundle_path or profile.ca_directory
+        )
+        data[f"{label}_mtls"] = bool(profile.client_cert_path)
+    data["oauth2_model_count"] = sum(
+        bool(getattr(model, "oauth2", None))
+        for model in (*cfg.chat_models, *cfg.embedding_models)
+    )
+    data["model_proxy_configured"] = proxy_configured
+    for profile in profiles.values():
+        profile.cleanup()
+    return data, proxy_configured
+
+
 def _check_source_egress() -> dict[str, Any]:
     """Report the shared SSRF/redirect/body boundary without exposing hosts."""
     try:
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.core.transport_security import (
-            resolve_tls_profile,
-            tls_environment_from_config,
-        )
         from agent_utilities.protocols.source_connectors.http_safety import (
             normalize_allowed_hosts,
         )
@@ -1246,52 +1281,7 @@ def _check_source_egress() -> dict[str, Any]:
         model_private_hosts = normalize_allowed_hosts(
             cfg.model_http_allowed_private_hosts
         )
-        tls_environment = tls_environment_from_config(cfg)
-        model_tls = resolve_tls_profile(
-            "model",
-            profile_name=cfg.model_tls_profile,
-            profile_ref=cfg.model_tls_profile_ref,
-            environ=tls_environment,
-        )
-        embedding_tls = resolve_tls_profile(
-            "embedding",
-            profile_name=cfg.embedding_tls_profile,
-            profile_ref=cfg.embedding_tls_profile_ref,
-            environ=tls_environment,
-        )
-        oauth2_token_tls = resolve_tls_profile(
-            "oauth2-token",
-            profile_name=cfg.oauth2_token_tls_profile,
-            profile_ref=cfg.oauth2_token_tls_profile_ref,
-            environ=tls_environment,
-        )
-        model_proxy_configured = bool(
-            model_tls.proxy_url or embedding_tls.proxy_url or oauth2_token_tls.proxy_url
-        )
-        oauth2_model_count = sum(
-            bool(getattr(model, "oauth2", None))
-            for model in (*cfg.chat_models, *cfg.embedding_models)
-        )
-        model_tls_data = {
-            "model_verify_enabled": model_tls.verify_enabled,
-            "model_custom_ca": bool(model_tls.ca_bundle_path or model_tls.ca_directory),
-            "model_mtls": bool(model_tls.client_cert_path),
-            "embedding_verify_enabled": embedding_tls.verify_enabled,
-            "embedding_custom_ca": bool(
-                embedding_tls.ca_bundle_path or embedding_tls.ca_directory
-            ),
-            "embedding_mtls": bool(embedding_tls.client_cert_path),
-            "oauth2_token_verify_enabled": oauth2_token_tls.verify_enabled,
-            "oauth2_token_custom_ca": bool(
-                oauth2_token_tls.ca_bundle_path or oauth2_token_tls.ca_directory
-            ),
-            "oauth2_token_mtls": bool(oauth2_token_tls.client_cert_path),
-            "oauth2_model_count": oauth2_model_count,
-            "model_proxy_configured": model_proxy_configured,
-        }
-        model_tls.cleanup()
-        embedding_tls.cleanup()
-        oauth2_token_tls.cleanup()
+        model_tls_data, model_proxy_configured = _egress_tls_data(cfg)
     except Exception as exc:  # noqa: BLE001 - doctor must remain defensive
         return _result(
             "source_egress",
@@ -1343,20 +1333,108 @@ def _check_source_egress() -> dict[str, Any]:
     )
 
 
+def _eunomia_embedded_result(cfg: Any) -> dict[str, Any]:
+    """Verdict for ``EUNOMIA_TYPE=embedded``: the policy file must be readable."""
+    from pathlib import Path
+
+    policy = str(cfg.eunomia_policy_file or "mcp_policies.json")
+    ready = Path(policy).expanduser().is_file()
+    return _result(
+        "eunomia",
+        "ok" if ready else "fail",
+        (
+            "embedded native MCP policy is configured"
+            if ready
+            else "embedded MCP policy file is unavailable"
+        ),
+        remediation=(
+            None
+            if ready
+            else "Set EUNOMIA_POLICY_FILE to a runtime-mounted policy document."
+        ),
+        data={"mode": "embedded", "ready": ready},
+    )
+
+
+def _eunomia_require_bounded_endpoint(cfg: Any, private_hosts: Any) -> None:
+    """Raise unless the remote PDP endpoint is present, allowlisted, and HTTPS."""
+    from urllib.parse import urlsplit
+
+    from agent_utilities.protocols.source_connectors.http_safety import (
+        require_safe_source_url,
+    )
+
+    endpoint = str(cfg.eunomia_remote_url or "")
+    if not endpoint:
+        raise ValueError("remote endpoint is missing")
+    host = require_safe_source_url(
+        endpoint,
+        allowed_private_hosts=private_hosts,
+        resolve_dns=False,
+    )
+    parsed = urlsplit(endpoint)
+    insecure_transport = parsed.scheme == "http" and host not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+    if insecure_transport:
+        raise ValueError("remote endpoint requires HTTPS")
+
+
+def _eunomia_tls_data(cfg: Any) -> dict[str, Any]:
+    """Redacted TLS posture for the remote PDP transport."""
+    from agent_utilities.core.transport_security import (
+        resolve_tls_profile,
+        tls_environment_from_config,
+    )
+
+    trust = resolve_tls_profile(
+        "eunomia",
+        profile_name=cfg.eunomia_tls_profile,
+        profile_ref=cfg.eunomia_tls_profile_ref,
+        environ=tls_environment_from_config(cfg),
+    )
+    tls_data = {
+        "verify_enabled": trust.verify_enabled,
+        "custom_ca": bool(trust.ca_bundle_path or trust.ca_directory),
+        "mtls": bool(trust.client_cert_path),
+        "proxy_configured": bool(trust.proxy_url),
+    }
+    trust.cleanup()
+    return tls_data
+
+
+def _eunomia_remote_result(cfg: Any, private_hosts: Any) -> dict[str, Any]:
+    """Verdict for ``EUNOMIA_TYPE=remote``; raises when the endpoint is unsound."""
+    _eunomia_require_bounded_endpoint(cfg, private_hosts)
+    tls_data = _eunomia_tls_data(cfg)
+    if tls_data["proxy_configured"]:
+        raise ValueError("remote policy proxy is incompatible with DNS pinning")
+    return _result(
+        "eunomia",
+        "ok",
+        ("remote native MCP policy authorization is bounded and TLS-verified"),
+        remediation=None,
+        data={
+            "mode": "remote",
+            "ready": True,
+            "private_host_allowlist_count": len(private_hosts),
+            "api_key_ref_configured": bool(cfg.eunomia_api_key_ref),
+            "timeout_seconds": cfg.eunomia_timeout_seconds,
+            "max_response_bytes": cfg.eunomia_max_response_bytes,
+            "bulk_check_max": cfg.eunomia_bulk_check_max,
+            **tls_data,
+        },
+    )
+
+
 def _check_eunomia() -> dict[str, Any]:
     """Validate the native policy-decision-point configuration without I/O."""
     try:
-        from pathlib import Path
-        from urllib.parse import urlsplit
-
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.core.transport_security import (
-            resolve_tls_profile,
-            tls_environment_from_config,
-        )
         from agent_utilities.protocols.source_connectors.http_safety import (
             normalize_allowed_hosts,
-            require_safe_source_url,
         )
 
         cfg = AgentConfig()
@@ -1370,72 +1448,8 @@ def _check_eunomia() -> dict[str, Any]:
                 data={"mode": "none", "ready": True},
             )
         if mode == "embedded":
-            policy = str(cfg.eunomia_policy_file or "mcp_policies.json")
-            ready = Path(policy).expanduser().is_file()
-            return _result(
-                "eunomia",
-                "ok" if ready else "fail",
-                (
-                    "embedded native MCP policy is configured"
-                    if ready
-                    else "embedded MCP policy file is unavailable"
-                ),
-                remediation=(
-                    None
-                    if ready
-                    else "Set EUNOMIA_POLICY_FILE to a runtime-mounted policy document."
-                ),
-                data={"mode": "embedded", "ready": ready},
-            )
-
-        endpoint = str(cfg.eunomia_remote_url or "")
-        if not endpoint:
-            raise ValueError("remote endpoint is missing")
-        host = require_safe_source_url(
-            endpoint,
-            allowed_private_hosts=private_hosts,
-            resolve_dns=False,
-        )
-        parsed = urlsplit(endpoint)
-        insecure_transport = parsed.scheme == "http" and host not in {
-            "localhost",
-            "127.0.0.1",
-            "::1",
-        }
-        if insecure_transport:
-            raise ValueError("remote endpoint requires HTTPS")
-        trust = resolve_tls_profile(
-            "eunomia",
-            profile_name=cfg.eunomia_tls_profile,
-            profile_ref=cfg.eunomia_tls_profile_ref,
-            environ=tls_environment_from_config(cfg),
-        )
-        tls_data = {
-            "verify_enabled": trust.verify_enabled,
-            "custom_ca": bool(trust.ca_bundle_path or trust.ca_directory),
-            "mtls": bool(trust.client_cert_path),
-            "proxy_configured": bool(trust.proxy_url),
-        }
-        trust.cleanup()
-        if tls_data["proxy_configured"]:
-            raise ValueError("remote policy proxy is incompatible with DNS pinning")
-        status = "ok"
-        return _result(
-            "eunomia",
-            status,
-            ("remote native MCP policy authorization is bounded and TLS-verified"),
-            remediation=None,
-            data={
-                "mode": "remote",
-                "ready": True,
-                "private_host_allowlist_count": len(private_hosts),
-                "api_key_ref_configured": bool(cfg.eunomia_api_key_ref),
-                "timeout_seconds": cfg.eunomia_timeout_seconds,
-                "max_response_bytes": cfg.eunomia_max_response_bytes,
-                "bulk_check_max": cfg.eunomia_bulk_check_max,
-                **tls_data,
-            },
-        )
+            return _eunomia_embedded_result(cfg)
+        return _eunomia_remote_result(cfg, private_hosts)
     except Exception as exc:  # noqa: BLE001 - doctor is a defensive boundary
         return _result(
             "eunomia",
@@ -1450,6 +1464,52 @@ def _check_eunomia() -> dict[str, Any]:
         )
 
 
+def _inventory_format_ready(inventory_path: Any) -> bool:
+    """Whether the inventory file parses as a bounded YAML mapping."""
+    try:
+        import yaml
+
+        with inventory_path.open("rb") as stream:
+            raw_inventory = stream.read(8 * 1024 * 1024 + 1)
+        if len(raw_inventory) > 8 * 1024 * 1024:
+            return False
+        return isinstance(yaml.safe_load(raw_inventory.decode("utf-8")), dict)
+    except Exception:  # noqa: BLE001 - readiness is redacted
+        return False
+
+
+def _inventory_readiness(raw_path: Any) -> tuple[bool, bool]:
+    """``(file_ready, format_ready)`` for the optional infrastructure inventory."""
+    from pathlib import Path
+
+    try:
+        inventory_path = Path(str(raw_path)).expanduser()
+        file_ready = inventory_path.is_file()
+    except (OSError, ValueError):
+        return False, False
+    if not file_ready:
+        return False, False
+    return True, _inventory_format_ready(inventory_path)
+
+
+def _media_endpoint_count(cfg: Any) -> int:
+    """How many of the nine optional media endpoints are configured."""
+    return sum(
+        bool(value)
+        for value in (
+            cfg.comfyui_url,
+            cfg.xtts_url,
+            cfg.openai_tts_url,
+            cfg.whisper_url,
+            cfg.faster_whisper_url,
+            cfg.flux_url,
+            cfg.sd35_url,
+            cfg.hunyuan_url,
+            cfg.svd_url,
+        )
+    )
+
+
 def _check_runtime_integrations() -> dict[str, Any]:
     """Validate optional fleet, inventory, and media configuration offline.
 
@@ -1458,8 +1518,6 @@ def _check_runtime_integrations() -> dict[str, Any]:
     without returning any configured value or making a network request.
     """
     try:
-        from pathlib import Path
-
         from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
@@ -1467,38 +1525,11 @@ def _check_runtime_integrations() -> dict[str, Any]:
         inventory_file_ready = False
         inventory_format_ready = False
         if inventory_configured:
-            try:
-                inventory_path = Path(str(cfg.infra_inventory_path)).expanduser()
-                inventory_file_ready = inventory_path.is_file()
-            except (OSError, ValueError):
-                inventory_file_ready = False
-            if inventory_file_ready:
-                try:
-                    import yaml
-
-                    with inventory_path.open("rb") as stream:
-                        raw_inventory = stream.read(8 * 1024 * 1024 + 1)
-                    if len(raw_inventory) <= 8 * 1024 * 1024:
-                        inventory = yaml.safe_load(raw_inventory.decode("utf-8"))
-                        inventory_format_ready = isinstance(inventory, dict)
-                except Exception:  # noqa: BLE001 - readiness is redacted
-                    inventory_format_ready = False
-
-        fleet_template_configured = bool(cfg.fleet_mcp_url_template)
-        media_endpoint_count = sum(
-            bool(value)
-            for value in (
-                cfg.comfyui_url,
-                cfg.xtts_url,
-                cfg.openai_tts_url,
-                cfg.whisper_url,
-                cfg.faster_whisper_url,
-                cfg.flux_url,
-                cfg.sd35_url,
-                cfg.hunyuan_url,
-                cfg.svd_url,
+            inventory_file_ready, inventory_format_ready = _inventory_readiness(
+                cfg.infra_inventory_path
             )
-        )
+        fleet_template_configured = bool(cfg.fleet_mcp_url_template)
+        media_endpoint_count = _media_endpoint_count(cfg)
     except Exception as exc:  # noqa: BLE001 - doctor must remain defensive
         return _result(
             "runtime_integrations",
@@ -1511,6 +1542,25 @@ def _check_runtime_integrations() -> dict[str, Any]:
             data={"ready": False, "redacted": True},
         )
 
+    return _runtime_integrations_result(
+        inventory_configured=inventory_configured,
+        inventory_file_ready=inventory_file_ready,
+        inventory_format_ready=inventory_format_ready,
+        fleet_template_configured=fleet_template_configured,
+        media_endpoint_count=media_endpoint_count,
+    )
+
+
+def _runtime_integrations_result(
+    *,
+    inventory_configured: bool,
+    inventory_file_ready: bool,
+    inventory_format_ready: bool,
+    fleet_template_configured: bool,
+    media_endpoint_count: int,
+) -> dict[str, Any]:
+    """Turn the resolved runtime-integration readiness flags into one verdict."""
+    inventory_ready = inventory_file_ready and inventory_format_ready
     configured_category_count = sum(
         (
             inventory_configured,
@@ -1520,7 +1570,7 @@ def _check_runtime_integrations() -> dict[str, Any]:
     )
     ready_category_count = sum(
         (
-            inventory_configured and inventory_file_ready and inventory_format_ready,
+            inventory_configured and inventory_ready,
             fleet_template_configured,
             media_endpoint_count > 0,
         )
@@ -1544,7 +1594,7 @@ def _check_runtime_integrations() -> dict[str, Any]:
             "optional inventory, fleet-template, and media endpoints are not configured",
             data=data,
         )
-    if inventory_configured and not (inventory_file_ready and inventory_format_ready):
+    if inventory_configured and not inventory_ready:
         return _result(
             "runtime_integrations",
             "warn",
