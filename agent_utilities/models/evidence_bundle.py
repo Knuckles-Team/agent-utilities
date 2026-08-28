@@ -33,7 +33,7 @@ Concept: evidence-bundle-envelope
 
 import json
 import re
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -54,6 +54,15 @@ def _sentences(text: str) -> list[str]:
     if not text or not text.strip():
         return []
     return [s.strip() for s in _SENTENCE_SPLIT.split(text.strip()) if s.strip()]
+
+
+def _wire_field(ws: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Mirror a chain of ``or`` fallbacks over wire dict keys: first truthy value."""
+    for k in keys:
+        v = ws.get(k)
+        if v:
+            return v
+    return default
 
 
 def _claim_text(claim: dict[str, Any], fallback_id: str) -> tuple[str, str]:
@@ -189,6 +198,57 @@ def _scan_nl_contradictions(
     return findings
 
 
+def _group_structured_comparable_claims(
+    indexed_claims: list[tuple[str, dict[str, Any]]],
+) -> dict[str, list[tuple[str, dict[str, Any]]]]:
+    """Group claims by their declared comparison domain (comparable rows only)."""
+    groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for cid, claim in indexed_claims:
+        if not _is_structured_comparable(claim):
+            continue
+        key = _structured_comparison_key(claim)
+        if key is None:  # pragma: no cover - guaranteed by the check above
+            continue
+        groups.setdefault(key, []).append((cid, claim))
+    return groups
+
+
+def _structured_pair_finding(
+    key: str,
+    id_a: str,
+    claim_a: dict[str, Any],
+    id_b: str,
+    claim_b: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build one FRICTION finding for a structured-comparable pair, or None if they agree."""
+    value_a = _canonicalize_comparison_value(_structured_comparison_value(claim_a))
+    value_b = _canonicalize_comparison_value(_structured_comparison_value(claim_b))
+    if value_a == value_b:
+        return None
+    mode = (
+        claim_a.get("comparison_mode")
+        or claim_b.get("comparison_mode")
+        or "mutually_exclusive"
+    )
+    lo_id, hi_id = sorted((id_a, id_b))
+    lo_val, hi_val = (value_a, value_b) if id_a <= id_b else (value_b, value_a)
+    reason = (
+        f"[FRICTION] structured comparison_key='{key}' mode='{mode}': "
+        f"claim '{lo_id}' asserts {lo_val!r} while "
+        f"claim '{hi_id}' asserts {hi_val!r}"
+    )
+    return {
+        "new_id": lo_id,
+        "conflict_id": hi_id,
+        "similarity": 1.0,
+        "reason": reason,
+        "severity": "high",
+        "comparison_rule": "structured_mutual_exclusivity",
+        "comparison_key": key,
+        "comparison_mode": mode,
+    }
+
+
 def _scan_structured_contradictions(
     indexed_claims: list[tuple[str, dict[str, Any]]],
 ) -> list[dict[str, Any]]:
@@ -201,14 +261,7 @@ def _scan_structured_contradictions(
     and mutual-exclusivity mode are exactly what the rows themselves declared
     — never inferred from column overlap.
     """
-    groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    for cid, claim in indexed_claims:
-        if not _is_structured_comparable(claim):
-            continue
-        key = _structured_comparison_key(claim)
-        if key is None:  # pragma: no cover - guaranteed by the check above
-            continue
-        groups.setdefault(key, []).append((cid, claim))
+    groups = _group_structured_comparable_claims(indexed_claims)
 
     findings: list[dict[str, Any]] = []
     for key, members in groups.items():
@@ -216,40 +269,9 @@ def _scan_structured_contradictions(
             for j in range(i + 1, len(members)):
                 id_a, claim_a = members[i]
                 id_b, claim_b = members[j]
-                value_a = _canonicalize_comparison_value(
-                    _structured_comparison_value(claim_a)
-                )
-                value_b = _canonicalize_comparison_value(
-                    _structured_comparison_value(claim_b)
-                )
-                if value_a == value_b:
-                    continue
-                mode = (
-                    claim_a.get("comparison_mode")
-                    or claim_b.get("comparison_mode")
-                    or "mutually_exclusive"
-                )
-                lo_id, hi_id = sorted((id_a, id_b))
-                lo_val, hi_val = (
-                    (value_a, value_b) if id_a <= id_b else (value_b, value_a)
-                )
-                reason = (
-                    f"[FRICTION] structured comparison_key='{key}' mode='{mode}': "
-                    f"claim '{lo_id}' asserts {lo_val!r} while "
-                    f"claim '{hi_id}' asserts {hi_val!r}"
-                )
-                findings.append(
-                    {
-                        "new_id": lo_id,
-                        "conflict_id": hi_id,
-                        "similarity": 1.0,
-                        "reason": reason,
-                        "severity": "high",
-                        "comparison_rule": "structured_mutual_exclusivity",
-                        "comparison_key": key,
-                        "comparison_mode": mode,
-                    }
-                )
+                finding = _structured_pair_finding(key, id_a, claim_a, id_b, claim_b)
+                if finding is not None:
+                    findings.append(finding)
     return findings
 
 
@@ -330,6 +352,153 @@ def _source_authority_from_citations(
     }
 
 
+@dataclass
+class _KnowledgeSetAccumulator:
+    """Mutable fold-state for :func:`_process_knowledge_set_row` across one KnowledgeSet."""
+
+    claims: list[dict[str, Any]] = field(default_factory=list)
+    evidence_spans: list[dict[str, Any]] = field(default_factory=list)
+    policy_labels: list[str] = field(default_factory=list)
+    valid_times: list[Any] = field(default_factory=list)
+    tx_times: list[Any] = field(default_factory=list)
+    reasoning_trace: list[dict[str, Any]] = field(default_factory=list)
+    best_row: dict[str, Any] | None = None
+    best_score: float = float("-inf")
+
+
+def _row_evidence_spans(
+    rid: Any, evidence_refs: list[Any], source_refs: list[Any]
+) -> list[dict[str, Any]]:
+    spans = [
+        {"ref": ref, "row_id": rid, "type": "evidence_ref"} for ref in evidence_refs
+    ]
+    spans.extend(
+        {"ref": ref, "row_id": rid, "type": "source_ref"} for ref in source_refs
+    )
+    return spans
+
+
+def _append_deduped(target: list[str], values: list[str]) -> None:
+    for v in values:
+        if v not in target:
+            target.append(v)
+
+
+def _parse_numeric_score(score: Any) -> float | None:
+    try:
+        return float(score) if score is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _process_knowledge_set_row(
+    i: int, row: dict[str, Any], acc: _KnowledgeSetAccumulator
+) -> None:
+    """Fold one E3 KnowledgeSet row into ``acc`` in place."""
+    rid = row.get("id")
+    kind = row.get("kind")
+    score = row.get("score")
+    row_confidence = row.get("confidence")
+    valid_time = row.get("valid_time")
+    tx_time = row.get("tx_time")
+    source_refs = list(row.get("source_refs") or [])
+    evidence_refs = list(row.get("evidence_refs") or [])
+    labels = list(row.get("policy_labels") or [])
+
+    cid, text = _claim_text(row, fallback_id=str(rid or f"row:{i}"))
+    acc.claims.append({"id": cid, "text": text, "kind": kind})
+    acc.evidence_spans.extend(_row_evidence_spans(rid, evidence_refs, source_refs))
+    _append_deduped(acc.policy_labels, labels)
+    if valid_time is not None:
+        acc.valid_times.append(valid_time)
+    if tx_time is not None:
+        acc.tx_times.append(tx_time)
+
+    acc.reasoning_trace.append(
+        {
+            "step": "knowledge_set_row",
+            "id": rid,
+            "kind": kind,
+            "score": score,
+            "confidence": row_confidence,
+            "valid_time": valid_time,
+            "tx_time": tx_time,
+            "source_refs": source_refs,
+            "evidence_refs": evidence_refs,
+            "policy_labels": labels,
+        }
+    )
+
+    numeric_score = _parse_numeric_score(score)
+    if numeric_score is not None and numeric_score > acc.best_score:
+        acc.best_score = numeric_score
+        acc.best_row = row
+
+
+def _clamp_unit(value: Any) -> float | None:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _knowledge_set_confidence(
+    best_row: dict[str, Any] | None, ws: dict[str, Any]
+) -> float | None:
+    """The top-scoring row's own confidence — never an invented cross-row average.
+
+    Falls back to a top-level ``ws["confidence"]`` when no row carries one.
+    """
+    if best_row is not None and best_row.get("confidence") is not None:
+        confidence = _clamp_unit(best_row["confidence"])
+        if confidence is not None:
+            return confidence
+    if ws.get("confidence") is not None:
+        return _clamp_unit(ws["confidence"])
+    return None
+
+
+def _knowledge_set_answer_candidate(ws: dict[str, Any], rows: list[Any]) -> str:
+    answer_candidate = str(_wire_field(ws, "answer_candidate", "answer", default=""))
+    if answer_candidate:
+        return answer_candidate
+    query = str(_wire_field(ws, "query", "question", default=""))
+    if query:
+        return f"{len(rows)} row(s) for: {query}".strip()
+    return f"{len(rows)} row(s) from the engine KnowledgeSet"
+
+
+def _knowledge_set_freshness(
+    valid_times: list[Any], tx_times: list[Any]
+) -> dict[str, Any]:
+    freshness: dict[str, Any] = {}
+    try:
+        if valid_times:
+            freshness["valid_time"] = {"min": min(valid_times), "max": max(valid_times)}
+        if tx_times:
+            freshness["tx_time"] = {"min": min(tx_times), "max": max(tx_times)}
+    except TypeError:
+        # Heterogeneous/uncomparable timestamp types — degrade to no
+        # freshness signal rather than raising.
+        return {}
+    return freshness
+
+
+_KNOWLEDGE_SET_MAPPED_KEYS = {
+    "rows",
+    "answer_candidate",
+    "answer",
+    "confidence",
+    "query",
+    "question",
+    "next_actions",
+}
+
+
+def _knowledge_set_meta_extras(ws: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in ws.items() if k not in _KNOWLEDGE_SET_MAPPED_KEYS}
+
+
 class EvidenceBundle(BaseModel):
     """Unified epistemic envelope wrapping any of the KG's structured answers.
 
@@ -399,6 +568,75 @@ class EvidenceBundle(BaseModel):
     )
 
     @classmethod
+    def _from_embedded_bundle(
+        cls, payload: dict[str, Any], operation: str
+    ) -> EvidenceBundle | None:
+        """If ``payload`` wraps an ``evidence_bundle``, validate + append siblings."""
+        embedded = payload.get("evidence_bundle")
+        if not isinstance(embedded, dict):
+            return None
+        bundle = cls.model_validate(embedded)
+        siblings = {k: v for k, v in payload.items() if k != "evidence_bundle"}
+        if siblings:
+            bundle.reasoning_trace.append({"step": operation, "payload": siblings})
+        return bundle
+
+    @staticmethod
+    def _dict_payload_claims(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = payload.get("rows")
+        results = payload.get("results")
+        candidate_rows = rows if isinstance(rows, list) else results
+        if isinstance(candidate_rows, list):
+            return [dict(row) for row in candidate_rows if isinstance(row, dict)]
+        return [dict(payload)]
+
+    @staticmethod
+    def _dict_payload_error(payload: dict[str, Any]) -> dict[str, Any] | None:
+        error = payload.get("error")
+        if isinstance(error, dict):
+            return error
+        if error and payload.get("status") == "failed":
+            # A truthy non-dict ``error`` alongside an explicit ``status:
+            # "failed"`` still names a real failure — echo the status the
+            # payload already carries rather than dropping the signal.
+            return {"code": "operation_failed", "message": str(error)}
+        if payload.get("status") == "failed":
+            return {"code": "operation_failed"}
+        return None
+
+    @classmethod
+    def _from_dict_payload(
+        cls, payload: dict[str, Any], operation: str
+    ) -> EvidenceBundle:
+        embedded_bundle = cls._from_embedded_bundle(payload, operation)
+        if embedded_bundle is not None:
+            return embedded_bundle
+        if set(payload).issubset(set(cls.model_fields)):
+            return cls.model_validate(payload)
+        claims = cls._dict_payload_claims(payload)
+        error = payload.get("error")
+        bundle_error = cls._dict_payload_error(payload)
+        answer = str(payload.get("answer") or payload.get("output") or "")
+        return cls(
+            answer_candidate="" if error else answer,
+            claims=claims,
+            contradictions=_scan_contradictions(claims),
+            reasoning_trace=[{"step": operation, "payload": payload}],
+            next_actions=["review the structured error and retry"] if error else [],
+            error=bundle_error,
+        )
+
+    @classmethod
+    def _from_list_payload(cls, payload: list[Any], operation: str) -> EvidenceBundle:
+        claims = [dict(row) for row in payload if isinstance(row, dict)]
+        return cls(
+            answer_candidate=f"{len(payload)} row(s)",
+            claims=claims,
+            contradictions=_scan_contradictions(claims),
+            reasoning_trace=[{"step": operation, "payload": payload}],
+        )
+
+    @classmethod
     def from_payload(
         cls,
         payload: Any,
@@ -426,55 +664,10 @@ class EvidenceBundle(BaseModel):
                 )
 
         if isinstance(payload, dict):
-            embedded = payload.get("evidence_bundle")
-            if isinstance(embedded, dict):
-                bundle = cls.model_validate(embedded)
-                siblings = {k: v for k, v in payload.items() if k != "evidence_bundle"}
-                if siblings:
-                    bundle.reasoning_trace.append(
-                        {"step": operation, "payload": siblings}
-                    )
-                return bundle
-            if set(payload).issubset(set(cls.model_fields)):
-                return cls.model_validate(payload)
-            rows = payload.get("rows")
-            results = payload.get("results")
-            candidate_rows = rows if isinstance(rows, list) else results
-            claims = (
-                [dict(row) for row in candidate_rows if isinstance(row, dict)]
-                if isinstance(candidate_rows, list)
-                else [dict(payload)]
-            )
-            error = payload.get("error")
-            answer = str(payload.get("answer") or payload.get("output") or "")
-            if isinstance(error, dict):
-                bundle_error: dict[str, Any] | None = error
-            elif error and payload.get("status") == "failed":
-                # A truthy non-dict ``error`` alongside an explicit ``status:
-                # "failed"`` still names a real failure — echo the status the
-                # payload already carries rather than dropping the signal.
-                bundle_error = {"code": "operation_failed", "message": str(error)}
-            elif payload.get("status") == "failed":
-                bundle_error = {"code": "operation_failed"}
-            else:
-                bundle_error = None
-            return cls(
-                answer_candidate="" if error else answer,
-                claims=claims,
-                contradictions=_scan_contradictions(claims),
-                reasoning_trace=[{"step": operation, "payload": payload}],
-                next_actions=["review the structured error and retry"] if error else [],
-                error=bundle_error,
-            )
+            return cls._from_dict_payload(payload, operation)
 
         if isinstance(payload, list):
-            claims = [dict(row) for row in payload if isinstance(row, dict)]
-            return cls(
-                answer_candidate=f"{len(payload)} row(s)",
-                claims=claims,
-                contradictions=_scan_contradictions(claims),
-                reasoning_trace=[{"step": operation, "payload": payload}],
-            )
+            return cls._from_list_payload(payload, operation)
         return cls(
             answer_candidate=str(payload),
             reasoning_trace=[{"step": operation, "payload": payload}],
@@ -483,6 +676,73 @@ class EvidenceBundle(BaseModel):
     # ------------------------------------------------------------------
     # CodeContextAnswer
     # ------------------------------------------------------------------
+    @staticmethod
+    def _code_context_error(payload: dict[str, Any]) -> dict[str, Any] | None:
+        # BUG-004: ``build_code_context`` marks ``status: "degraded"`` (plus a
+        # structured ``error``) when the KG engine itself was unreachable —
+        # distinct from ``status: "ok"`` with genuinely empty sections. That
+        # distinction must survive the wrap: a degraded read is a real
+        # ``EvidenceBundle.error``, not a silent empty-but-successful bundle
+        # (which is exactly how the sparse-evidence-coverage defect this
+        # closes went unnoticed — an engine outage read identically to "no
+        # such symbol").
+        raw_status = payload.get("status")
+        raw_error = payload.get("error")
+        error = dict(raw_error) if isinstance(raw_error, dict) else None
+        if error is None and raw_status == "degraded":
+            error = {"code": "engine_degraded"}
+        return error
+
+    @staticmethod
+    def _code_context_claims(answer: str) -> list[dict[str, Any]]:
+        # semantic_role="assertion" opts these system-synthesized sentences into
+        # contradiction analysis (U-124/U-131) — they are genuine natural-language
+        # claims, unlike a raw KG query row with no distinguishing assertion text.
+        return [
+            {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
+            for i, s in enumerate(_sentences(answer))
+        ]
+
+    @staticmethod
+    def _code_context_reasoning_trace(
+        payload: dict[str, Any], used_primitives: list[Any]
+    ) -> list[dict[str, Any]]:
+        reasoning_trace: list[dict[str, Any]] = [
+            {"primitive": p} for p in used_primitives
+        ]
+        reasoning_trace.append(
+            {
+                "step": "meta",
+                "query": payload.get("query"),
+                "intent": payload.get("intent"),
+                "capability_id": payload.get("capability_id"),
+                "cross_repo": payload.get("cross_repo"),
+            }
+        )
+        if payload.get("sections"):
+            reasoning_trace.append(
+                {"step": "sections", "sections": payload.get("sections")}
+            )
+        return reasoning_trace
+
+    @staticmethod
+    def _code_context_next_actions(
+        code_context_error: dict[str, Any] | None, anchors: list[Any]
+    ) -> list[str]:
+        if code_context_error is not None:
+            return [
+                "The knowledge graph engine was degraded/unreachable for this "
+                "read — retry shortly. This is NOT evidence the queried area "
+                "is unindexed; do not re-ingest on the strength of this "
+                "result alone."
+            ]
+        if not anchors:
+            return [
+                "source_sync source=all mode=delta (re-ingest so this area resolves), "
+                "or refine the query with a more specific symbol name."
+            ]
+        return []
+
     @classmethod
     def from_code_context_answer(cls, ans: Any, **overrides: Any) -> EvidenceBundle:
         """Wrap ``build_code_context``'s output (a ``CodeContextAnswer`` or its ``as_dict()``).
@@ -501,60 +761,10 @@ class EvidenceBundle(BaseModel):
         used_primitives = list(payload.get("used_primitives") or [])
         coverage = dict(payload.get("coverage") or {})
         anchors = list(payload.get("anchors") or [])
-        # BUG-004: ``build_code_context`` marks ``status: "degraded"`` (plus a
-        # structured ``error``) when the KG engine itself was unreachable —
-        # distinct from ``status: "ok"`` with genuinely empty sections. That
-        # distinction must survive the wrap: a degraded read is a real
-        # ``EvidenceBundle.error``, not a silent empty-but-successful bundle
-        # (which is exactly how the sparse-evidence-coverage defect this
-        # closes went unnoticed — an engine outage read identically to "no
-        # such symbol").
-        raw_status = payload.get("status")
-        raw_error = payload.get("error")
-        code_context_error: dict[str, Any] | None = (
-            dict(raw_error) if isinstance(raw_error, dict) else None
-        )
-        if code_context_error is None and raw_status == "degraded":
-            code_context_error = {"code": "engine_degraded"}
-
-        # semantic_role="assertion" opts these system-synthesized sentences into
-        # contradiction analysis (U-124/U-131) — they are genuine natural-language
-        # claims, unlike a raw KG query row with no distinguishing assertion text.
-        claims = [
-            {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
-            for i, s in enumerate(_sentences(answer))
-        ]
-
-        reasoning_trace: list[dict[str, Any]] = [
-            {"primitive": p} for p in used_primitives
-        ]
-        reasoning_trace.append(
-            {
-                "step": "meta",
-                "query": payload.get("query"),
-                "intent": payload.get("intent"),
-                "capability_id": payload.get("capability_id"),
-                "cross_repo": payload.get("cross_repo"),
-            }
-        )
-        if payload.get("sections"):
-            reasoning_trace.append(
-                {"step": "sections", "sections": payload.get("sections")}
-            )
-
-        next_actions: list[str] = []
-        if code_context_error is not None:
-            next_actions.append(
-                "The knowledge graph engine was degraded/unreachable for this "
-                "read — retry shortly. This is NOT evidence the queried area "
-                "is unindexed; do not re-ingest on the strength of this "
-                "result alone."
-            )
-        elif not anchors:
-            next_actions.append(
-                "source_sync source=all mode=delta (re-ingest so this area resolves), "
-                "or refine the query with a more specific symbol name."
-            )
+        code_context_error = cls._code_context_error(payload)
+        claims = cls._code_context_claims(answer)
+        reasoning_trace = cls._code_context_reasoning_trace(payload, used_primitives)
+        next_actions = cls._code_context_next_actions(code_context_error, anchors)
 
         fields: dict[str, Any] = {
             # Unlike from_operation_result, code_context's own `answer` text is
@@ -578,6 +788,24 @@ class EvidenceBundle(BaseModel):
     # ------------------------------------------------------------------
     # RagResult
     # ------------------------------------------------------------------
+    @staticmethod
+    def _rag_claims_and_spans(
+        evidence: list[dict[str, Any]] | None, evidence_ids: list[Any], answer: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if evidence is not None:
+            evidence_spans = list(evidence)
+            claims = [dict(e) for e in evidence if isinstance(e, dict)]
+            return claims, evidence_spans
+        evidence_spans = [{"id": eid} for eid in evidence_ids]
+        # semantic_role="assertion" opts these system-synthesized sentences
+        # into contradiction analysis (U-124/U-131) — see the matching note
+        # in from_code_context_answer.
+        claims = [
+            {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
+            for i, s in enumerate(_sentences(answer))
+        ]
+        return claims, evidence_spans
+
     @classmethod
     def from_rag_result(
         cls,
@@ -602,18 +830,9 @@ class EvidenceBundle(BaseModel):
         trace = list(getattr(res, "trace", []) or [])
         success = bool(getattr(res, "success", False))
 
-        if evidence is not None:
-            evidence_spans = list(evidence)
-            claims = [dict(e) for e in evidence if isinstance(e, dict)]
-        else:
-            evidence_spans = [{"id": eid} for eid in evidence_ids]
-            # semantic_role="assertion" opts these system-synthesized sentences
-            # into contradiction analysis (U-124/U-131) — see the matching note
-            # in from_code_context_answer.
-            claims = [
-                {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
-                for i, s in enumerate(_sentences(answer))
-            ]
+        claims, evidence_spans = cls._rag_claims_and_spans(
+            evidence, evidence_ids, answer
+        )
 
         reasoning_trace = [
             st.model_dump() if hasattr(st, "model_dump") else dict(st) for st in trace
@@ -645,6 +864,28 @@ class EvidenceBundle(BaseModel):
     # ------------------------------------------------------------------
     # nl_query / nl_to_query payload
     # ------------------------------------------------------------------
+    @staticmethod
+    def _nl_query_answer_candidate(
+        error: Any,
+        results: list[Any],
+        payload: dict[str, Any],
+        row_count: int,
+        question: str,
+    ) -> str:
+        if error:
+            return ""
+        if results or "results" in payload:
+            return f"{row_count} row(s) for: {question}".strip()
+        return ""
+
+    @staticmethod
+    def _nl_query_error(error: Any) -> dict[str, Any] | None:
+        if isinstance(error, dict):
+            return error
+        if error:
+            return {"code": "operation_failed", "message": str(error)}
+        return None
+
     @classmethod
     def from_nl_query(cls, payload: dict[str, Any], **overrides: Any) -> EvidenceBundle:
         """Wrap the ``nl_to_query``/``nl_planner.nl_query`` result dict.
@@ -665,12 +906,9 @@ class EvidenceBundle(BaseModel):
         citations = list(payload.get("citations") or [])
         question = str(payload.get("question") or payload.get("request") or "")
 
-        if error:
-            answer_candidate = ""
-        elif results or "results" in payload:
-            answer_candidate = f"{row_count} row(s) for: {question}".strip()
-        else:
-            answer_candidate = ""
+        answer_candidate = cls._nl_query_answer_candidate(
+            error, results, payload, row_count, question
+        )
 
         claims = [c for c in results if isinstance(c, dict)]
         evidence_spans = [{"ref": c} for c in citations]
@@ -711,15 +949,7 @@ class EvidenceBundle(BaseModel):
             "policy_exclusions": [],
             "reasoning_trace": reasoning_trace,
             "next_actions": next_actions,
-            "error": (
-                error
-                if isinstance(error, dict)
-                else (
-                    {"code": "operation_failed", "message": str(error)}
-                    if error
-                    else None
-                )
-            ),
+            "error": cls._nl_query_error(error),
         }
         fields.update(overrides)
         return cls(**fields)
@@ -771,21 +1001,31 @@ class EvidenceBundle(BaseModel):
         if isinstance(rows, list) and rows:
             return cls._from_knowledge_set_rows(ws, rows)
 
-        # -- forward-compat passthrough: a wire dict already shaped like this
-        # class's own fields (no "rows") — every lookup defaults safely, so an
-        # unrecognized/partial payload degrades cleanly rather than raising. --
+        return cls._from_engine_wire_passthrough(ws)
+
+    @classmethod
+    def _from_engine_wire_passthrough(cls, ws: dict[str, Any]) -> EvidenceBundle:
+        """Forward-compat passthrough: a wire dict already shaped like this
+        class's own fields (no "rows") — every lookup defaults safely, so an
+        unrecognized/partial payload degrades cleanly rather than raising.
+        """
+        error = ws.get("error")
         return cls(
-            answer_candidate=str(ws.get("answer_candidate") or ws.get("answer") or ""),
-            claims=list(ws.get("claims") or []),
-            evidence_spans=list(ws.get("evidence_spans") or ws.get("evidence") or []),
-            source_authority=dict(ws.get("source_authority") or {}),
-            contradictions=list(ws.get("contradictions") or []),
+            answer_candidate=str(
+                _wire_field(ws, "answer_candidate", "answer", default="")
+            ),
+            claims=list(_wire_field(ws, "claims", default=[])),
+            evidence_spans=list(
+                _wire_field(ws, "evidence_spans", "evidence", default=[])
+            ),
+            source_authority=dict(_wire_field(ws, "source_authority", default={})),
+            contradictions=list(_wire_field(ws, "contradictions", default=[])),
             confidence=ws.get("confidence"),
-            freshness=dict(ws.get("freshness") or {}),
-            policy_exclusions=list(ws.get("policy_exclusions") or []),
-            reasoning_trace=list(ws.get("reasoning_trace") or []),
-            next_actions=list(ws.get("next_actions") or []),
-            error=ws.get("error") if isinstance(ws.get("error"), dict) else None,
+            freshness=dict(_wire_field(ws, "freshness", default={})),
+            policy_exclusions=list(_wire_field(ws, "policy_exclusions", default=[])),
+            reasoning_trace=list(_wire_field(ws, "reasoning_trace", default=[])),
+            next_actions=list(_wire_field(ws, "next_actions", default=[])),
+            error=error if isinstance(error, dict) else None,
         )
 
     @classmethod
@@ -794,127 +1034,27 @@ class EvidenceBundle(BaseModel):
     ) -> EvidenceBundle:
         """The real E3 ``KnowledgeSet`` row → bundle mapping (see :meth:`from_engine_wire`)."""
         rows = [r for r in rows if isinstance(r, dict)]
-        claims: list[dict[str, Any]] = []
-        evidence_spans: list[dict[str, Any]] = []
-        policy_labels: list[str] = []
-        valid_times: list[Any] = []
-        tx_times: list[Any] = []
-        reasoning_trace: list[dict[str, Any]] = []
-        best_row: dict[str, Any] | None = None
-        best_score = float("-inf")
-
+        acc = _KnowledgeSetAccumulator()
         for i, row in enumerate(rows):
-            rid = row.get("id")
-            kind = row.get("kind")
-            score = row.get("score")
-            row_confidence = row.get("confidence")
-            valid_time = row.get("valid_time")
-            tx_time = row.get("tx_time")
-            source_refs = list(row.get("source_refs") or [])
-            evidence_refs = list(row.get("evidence_refs") or [])
-            labels = list(row.get("policy_labels") or [])
+            _process_knowledge_set_row(i, row, acc)
 
-            cid, text = _claim_text(row, fallback_id=str(rid or f"row:{i}"))
-            claims.append({"id": cid, "text": text, "kind": kind})
+        confidence = _knowledge_set_confidence(acc.best_row, ws)
+        answer_candidate = _knowledge_set_answer_candidate(ws, rows)
+        freshness = _knowledge_set_freshness(acc.valid_times, acc.tx_times)
 
-            for ref in evidence_refs:
-                evidence_spans.append(
-                    {"ref": ref, "row_id": rid, "type": "evidence_ref"}
-                )
-            for ref in source_refs:
-                evidence_spans.append({"ref": ref, "row_id": rid, "type": "source_ref"})
-
-            for lbl in labels:
-                if lbl not in policy_labels:
-                    policy_labels.append(lbl)
-
-            if valid_time is not None:
-                valid_times.append(valid_time)
-            if tx_time is not None:
-                tx_times.append(tx_time)
-
-            reasoning_trace.append(
-                {
-                    "step": "knowledge_set_row",
-                    "id": rid,
-                    "kind": kind,
-                    "score": score,
-                    "confidence": row_confidence,
-                    "valid_time": valid_time,
-                    "tx_time": tx_time,
-                    "source_refs": source_refs,
-                    "evidence_refs": evidence_refs,
-                    "policy_labels": labels,
-                }
-            )
-
-            try:
-                numeric_score = float(score) if score is not None else None
-            except (TypeError, ValueError):
-                numeric_score = None
-            if numeric_score is not None and numeric_score > best_score:
-                best_score = numeric_score
-                best_row = row
-
-        # confidence: the top-scoring row's own confidence — never an invented
-        # average across heterogeneous rows.
-        confidence: float | None = None
-        if best_row is not None and best_row.get("confidence") is not None:
-            try:
-                confidence = max(0.0, min(1.0, float(best_row["confidence"])))
-            except (TypeError, ValueError):
-                confidence = None
-        if confidence is None and ws.get("confidence") is not None:
-            try:
-                confidence = max(0.0, min(1.0, float(ws["confidence"])))
-            except (TypeError, ValueError):
-                confidence = None
-
-        answer_candidate = str(ws.get("answer_candidate") or ws.get("answer") or "")
-        if not answer_candidate:
-            query = str(ws.get("query") or ws.get("question") or "")
-            answer_candidate = (
-                f"{len(rows)} row(s) for: {query}".strip()
-                if query
-                else f"{len(rows)} row(s) from the engine KnowledgeSet"
-            )
-
-        freshness: dict[str, Any] = {}
-        try:
-            if valid_times:
-                freshness["valid_time"] = {
-                    "min": min(valid_times),
-                    "max": max(valid_times),
-                }
-            if tx_times:
-                freshness["tx_time"] = {"min": min(tx_times), "max": max(tx_times)}
-        except TypeError:
-            # Heterogeneous/uncomparable timestamp types — degrade to no
-            # freshness signal rather than raising.
-            freshness = {}
-
-        _mapped_keys = {
-            "rows",
-            "answer_candidate",
-            "answer",
-            "confidence",
-            "query",
-            "question",
-            "next_actions",
-        }
-        meta_extras = {k: v for k, v in ws.items() if k not in _mapped_keys}
+        meta_extras = _knowledge_set_meta_extras(ws)
         if meta_extras:
-            reasoning_trace.append({"step": "meta", **meta_extras})
+            acc.reasoning_trace.append({"step": "meta", **meta_extras})
 
         return cls(
             answer_candidate=answer_candidate,
-            claims=claims,
-            evidence_spans=evidence_spans,
-            source_authority=_source_authority_from_citations(evidence_spans),
-            contradictions=_scan_contradictions(claims),
+            claims=acc.claims,
+            evidence_spans=acc.evidence_spans,
+            source_authority=_source_authority_from_citations(acc.evidence_spans),
+            contradictions=_scan_contradictions(acc.claims),
             confidence=confidence,
             freshness=freshness,
-            policy_exclusions=policy_labels,
-            reasoning_trace=reasoning_trace,
-            next_actions=list(ws.get("next_actions") or []),
+            policy_exclusions=acc.policy_labels,
+            reasoning_trace=acc.reasoning_trace,
+            next_actions=list(_wire_field(ws, "next_actions", default=[])),
         )
