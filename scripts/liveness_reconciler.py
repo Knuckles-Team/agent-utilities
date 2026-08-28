@@ -58,6 +58,7 @@ forgot", so counting it in the same bucket miscategorizes its lifecycle.
 from __future__ import annotations
 
 import ast
+import functools
 import importlib.util
 import re
 import tomllib
@@ -121,7 +122,16 @@ class LivenessSourceDiscoveryError(RuntimeError):
     """
 
 
-def _iter_source_files(*roots: Path) -> list[Path]:
+@functools.cache
+def _iter_source_files(*roots: Path) -> tuple[Path, ...]:
+    """Perf (WD3-BUG-03): every one of the six rescue mechanisms below calls
+    this for (SRC_DIR,), (SRC_DIR, TESTS_DIR), or (SCRIPTS_DIR,) — the same
+    handful of argument tuples, repeated. Each call was a fresh `git
+    ls-files` subprocess plus an `is_file()` stat per tracked path; memoizing
+    on the (small, hashable) roots tuple collapses six file-discovery passes
+    into three, one per distinct root combination actually used. Returns a
+    tuple (not a list) so the cached value can never be mutated by a caller
+    into corrupting a later cache hit."""
     out: list[Path] = []
     for root in roots:
         if not root.exists():
@@ -135,14 +145,31 @@ def _iter_source_files(*roots: Path) -> list[Path]:
                 "under-rescue liveness findings."
             )
         out.extend(found)
-    return [p for p in out if "__pycache__" not in p.parts]
+    return tuple(p for p in out if "__pycache__" not in p.parts)
 
 
 def _rel(p: Path) -> str:
     return p.relative_to(REPO).as_posix()
 
 
+@functools.cache
 def _parse(p: Path) -> ast.Module | None:
+    """Perf (WD3-BUG-03): the dominant cost of `reconcile()` on this repo's
+    ~3.5k tracked `agent_utilities/` + `tests/` files was re-parsing the same
+    file from disk up to seven times over — once per rescue mechanism's own
+    full-tree walk (all six call `_iter_source_files` independently), plus
+    again per orphan/dead-definition finding in `_is_generated`'s lookup.
+    Measured with py-spy dump against this exact tree: the process was caught
+    mid-`ast.parse` inside `reconcile()` at three DIFFERENT call sites across
+    successive samples, confirming the same files were being re-walked and
+    re-parsed rather than the analyzer being slow to start. Every call site
+    below only ever READS the returned tree (`ast.walk`/`ast.get_docstring`;
+    grepped for `ast.NodeTransformer`/`fix_missing_locations`/
+    `increment_lineno` — none), so memoizing by path is safe: the tree
+    returned on a cache hit is never mutated by an earlier caller. This is
+    an in-process cache only — `check_liveness.py` runs this reconciler in a
+    fresh subprocess per invocation, so a cached tree can never outlive or
+    leak across two separate commits' worth of source."""
     try:
         return ast.parse(
             p.read_text(encoding="utf-8", errors="ignore"), filename=_rel(p)
@@ -449,9 +476,13 @@ def _repo_tooling_imported_definitions() -> set[str]:
             if not isinstance(node, ast.ImportFrom) or node.level:
                 continue
             module = node.module or ""
-            if module != "agent_utilities" and not module.startswith("agent_utilities."):
+            if module != "agent_utilities" and not module.startswith(
+                "agent_utilities."
+            ):
                 continue
-            relative = module[len("agent_utilities.") :] if module != "agent_utilities" else ""
+            relative = (
+                module[len("agent_utilities.") :] if module != "agent_utilities" else ""
+            )
             for alias in node.names:
                 if alias.name == "*":
                     continue
