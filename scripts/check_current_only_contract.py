@@ -25,6 +25,7 @@ violation silenced -- without a documented reason.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -685,6 +686,41 @@ def _accepted(relative: str, needle: str | None) -> AcceptedResidual | None:
     return None
 
 
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_IDENTIFIER_NEEDLE_PATTERN: dict[str, re.Pattern[str]] = {
+    needle: re.compile(r"\b" + re.escape(needle) + r"\b")
+    for needle in RETIRED_IDENTIFIERS
+    if _IDENTIFIER_RE.match(needle)
+}
+
+
+def _needle_matches(needle: str, line: str) -> bool:
+    """Plain substring, except a pure-identifier needle (only
+    ``[A-Za-z0-9_]``) requires a word boundary on both sides.
+
+    Without this, a retired bare identifier also matches as a substring of
+    an unrelated, CURRENT identifier that merely contains it as a suffix
+    (a longer, differently-prefixed env var name) or is a same-stem helper
+    with an extra prefix/infix word -- neither carries the retired meaning.
+    (Concretely, this closed two 2026-08-28 false positives: a retired bare
+    config key matching inside an unrelated, differently-prefixed env var
+    name that happens to end the same way, and a retired bare helper name
+    matching inside an unrelated function whose name happens to contain it
+    as a middle segment -- see the wD9-CIGATE report for the exact
+    identifiers and files.) ``\\b`` does not insert a boundary between ``_``
+    and a letter/digit (both are word characters), so a same-suffix
+    differently-prefixed name still correctly does NOT match, while a real
+    bare/quoted occurrence of the exact retired token still does. Needles
+    that already embed non-identifier punctuation (quotes, ``=``, ...) are
+    unaffected and keep the original plain-substring check.
+    """
+
+    pattern = _IDENTIFIER_NEEDLE_PATTERN.get(needle)
+    if pattern is not None:
+        return pattern.search(line) is not None
+    return needle in line
+
+
 def check_report(
     root: Path = ROOT, *, paths: Iterable[Path] | None = None
 ) -> ContractReport:
@@ -710,7 +746,7 @@ def check_report(
             continue
         for line_number, line in enumerate(lines, start=1):
             for needle in needles:
-                if needle in line:
+                if _needle_matches(needle, line):
                     if path == ROOT / "README.md" and line == _README_RETIRED_KEY_LINE:
                         continue
                     message = (

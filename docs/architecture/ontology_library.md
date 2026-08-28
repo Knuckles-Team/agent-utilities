@@ -140,6 +140,15 @@ the import is a tolerated superset no-op (registered in
 | `database.ttl` (`sql_mcp/ontology/`) | `…/kg/database` | `sql-mcp` | Database/schema domain (imports `…/kg/enterprise`). |
 | `container.ttl` (`container_manager_mcp/ontology/`) | `…/kg/container` | `container-manager-mcp` | Container runtime domain: images, volumes, networks, and the workloads that mount them. |
 | `tunnel.ttl` (`tunnel_manager/ontology/`) | `…/kg/tunnel` | `tunnel-manager` | SSH tunnel/host inventory: managed hosts, inventory groups, and fleet-wide operations. |
+| `arr.ttl` (`arr_mcp/ontology/`) | `…/kg/arr` | `arr-mcp` | The *arr media-automation stack: Radarr movies, Sonarr series/episodes, Lidarr artists/albums, Chaptarr books, Prowlarr indexers, Overseerr/Jellyseerr requests and quality profiles. |
+| `connector.shacl.ttl` (`arr_mcp/ontology/shapes/`) | Arr SHACL shapes | `arr-mcp` | Required source, tenant, access-policy, and evidence metadata for arr-stack entities. |
+| `atlassian.ttl` (`atlassian_agent/ontology/`) | `…/kg/atlassian` | `atlassian-agent` | Atlassian work-tracking and knowledge model: Jira issues, epics and sprints, plus Confluence pages as documents. |
+| `github.ttl` (`github_agent/ontology/`) | `…/kg/github` | `github-agent` | GitHub source-control, code-review and CI/CD model: organizations, repositories, pull requests, issues, releases, branches, commits, workflows and workflow runs. |
+| `gitlab.ttl` (`gitlab_api/ontology/`) | `…/kg/gitlab` | `gitlab-api` | GitLab source-control and CI/CD delivery model: groups, projects, merge requests, pipelines, jobs, issues, epics, milestones, commits, branches, releases and runners. |
+| `homeassistant.ttl` (`home_assistant_agent/ontology/`) | `…/kg/homeassistant` | `home-assistant-agent` | Home Assistant smart-home model: physical devices, the entities they expose, areas, services, and sensor/state/logbook timeseries. |
+| `plane.ttl` (`plane_agent/ontology/`) | `…/kg/plane` | `plane-agent` | Plane project-and-issue-tracking model: workspaces, software projects, work items, cycles, modules, states and labels. |
+| `portainer.ttl` (`portainer_agent/ontology/`) | `…/kg/portainer` | `portainer-agent` | Portainer container-management model: environments, endpoint groups, stacks, containers, services, images, networks, volumes, registries, templates, edge stacks and teams. |
+| `vector.ttl` (`vector_mcp/ontology/`) | `…/kg/vector` | `vector-mcp` | Vector-database / RAG retrieval model: collections, backends, chunks, embeddings and semantic/lexical/hybrid search. |
 
 ### SHACL shapes
 

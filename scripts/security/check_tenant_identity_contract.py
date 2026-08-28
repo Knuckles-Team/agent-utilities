@@ -55,6 +55,59 @@ def _call_lines(function: ast.AST, name: str) -> list[int]:
     return sorted(lines)
 
 
+_CALL_CLOSURE_MAX_DEPTH = 6
+
+
+def _local_call_closure_source(
+    module_tree: ast.AST, module_source: str, function: ast.AST
+) -> str:
+    """``function``'s own source, plus the source of every module-local
+    function it calls, transitively (bounded depth, cycle-safe).
+
+    A marker check that only scans ``function``'s literal text breaks the
+    moment an extract-method refactor moves the marked call down into a
+    helper -- or a helper of a helper -- the invariant still holds, but the
+    substring no longer appears where the check looks (CX complexity-
+    reduction extractions do exactly this; see plans/complex's "gates keyed
+    on byte offsets/source text break under extraction" finding). Following
+    local calls transitively keeps the check honest about behaviour, not
+    source layout, while staying purely static (no runtime import).
+    """
+
+    by_name: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for node in ast.walk(module_tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            by_name.setdefault(node.name, node)
+
+    visited: set[str] = set()
+    pieces: list[str] = []
+
+    def visit(node: ast.AST, depth: int) -> None:
+        pieces.append(ast.get_source_segment(module_source, node) or "")
+        if depth >= _CALL_CLOSURE_MAX_DEPTH:
+            return
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            if isinstance(call.func, ast.Name):
+                name = call.func.id
+            elif isinstance(call.func, ast.Attribute):
+                # Covers `self._helper(...)` / `obj.method(...)` -- resolved
+                # by method name against every function defined anywhere in
+                # the module, since this gate only ever inspects one file at
+                # a time and same-named free functions are not expected here.
+                name = call.func.attr
+            else:
+                continue
+            if name in visited or name not in by_name:
+                continue
+            visited.add(name)
+            visit(by_name[name], depth + 1)
+
+    visit(function, 0)
+    return "\n".join(pieces)
+
+
 def _calls(function: ast.AST, name: str) -> list[ast.Call]:
     """Return calls to ``name`` inside ``function`` in source order."""
 
@@ -127,7 +180,7 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
             "caller authority field rejection is incomplete"
         )
     scope = _function(trees["mcp"], "verified_tool_session_scope")
-    scope_source = ast.get_source_segment(mcp, scope) or ""
+    scope_source = _local_call_closure_source(trees["mcp"], mcp, scope)
     for marker in (
         "current_session()",
         "Verified GraphSession required",
@@ -163,7 +216,7 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
         )
 
     verified_mint = _function(trees["identity"], "_mint_graph_session")
-    mint_source = ast.get_source_segment(identity, verified_mint) or ""
+    mint_source = _local_call_closure_source(trees["identity"], identity, verified_mint)
     for marker in (
         "if not actor.authenticated:",
         'if not str(actor.actor_id or "").strip():',
@@ -192,7 +245,7 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
                 "session minting resolves engine topology at authentication time"
             )
     middleware = _function(trees["identity"], "__call__")
-    middleware_source = ast.get_source_segment(identity, middleware) or ""
+    middleware_source = _local_call_closure_source(trees["identity"], identity, middleware)
     if (
         "if path not in UNAUTHENTICATED_PATHS:" not in middleware_source
         or "actor_from_bearer_token" not in middleware_source

@@ -6,20 +6,20 @@
 
 ## Concepts by pillar × status
 
-**1216 LIVE** concepts (every entry in `docs/concepts.yaml` — the registry only carries concepts with shipped code) and **0 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**.
+**1230 LIVE** concepts (every entry in `docs/concepts.yaml` — the registry only carries concepts with shipped code) and **0 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**.
 
 | Pillar | LIVE ✅ | RESERVED | BUILDING 🔶 | ROADMAP 🗺 | RETIRED |
 |:------|---:|---:|---:|---:|---:|
 | **AU-AHE** — Agentic Harness Engineering | 120 | 0 | 0 | 0 | 0 |
 | **AU-ECO** — Ecosystem & Peripherals | 141 | 0 | 0 | 0 | 0 |
-| **AU-KG** — Epistemic Knowledge Graph | 512 | 0 | 0 | 0 | 0 |
-| **AU-ORCH** — Graph Orchestration | 219 | 0 | 0 | 0 | 0 |
-| **AU-OS** — Agent OS Infrastructure | 187 | 0 | 0 | 0 | 0 |
+| **AU-KG** — Epistemic Knowledge Graph | 524 | 0 | 0 | 0 | 0 |
+| **AU-ORCH** — Graph Orchestration | 220 | 0 | 0 | 0 | 0 |
+| **AU-OS** — Agent OS Infrastructure | 188 | 0 | 0 | 0 | 0 |
 | **EG-AHE** — epistemic-graph: harness-facing concepts | 1 | 0 | 0 | 0 | 0 |
 | **EG-KG** — epistemic-graph: knowledge-graph engine concepts | 34 | 0 | 0 | 0 | 0 |
 | **EG-ORCH** — epistemic-graph: routing/orchestration concepts | 1 | 0 | 0 | 0 | 0 |
 | **EG-OS** — epistemic-graph: deployment concepts | 1 | 0 | 0 | 0 | 0 |
-| **Total** | 1216 | 0 | 0 | 0 | 0 |
+| **Total** | 1230 | 0 | 0 | 0 | 0 |
 
 > `BUILDING`/`ROADMAP`/`RETIRED` are always 0 here: `docs/concepts.yaml`'s registry model does not carry a per-concept partial-build state (its own generator strips reserved/retired IDs out entirely rather than flagging them) — a concept is either `RESERVED` or fully `LIVE`. The three statuses are still defined below because they are part of the one vocabulary this page and epistemic-graph's status page share.
 
