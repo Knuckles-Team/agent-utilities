@@ -1063,16 +1063,50 @@ class WorkItemTasksExtension(ServerExtension):
         if not isinstance(route, Mapping) or "delegation" not in route:
             return None
         self._require_delegator(service_authority)
+        caller, proof = self._extract_delegation_caller_and_proof(route)
+        token = self._extract_delegation_token(proof)
+        self._validate_delegation_channel_proof(service_authority, proof, token)
+        decoded = self._decode_delegation_token(token, method)
+        self._validate_delegation_binding(decoded, method, params, caller)
+        owner, tenant, scopes = self._delegation_identity(caller, decoded)
+        self._validate_delegation_scope(scopes, scope)
+
+        from types import SimpleNamespace
+
+        # The delegated session is deliberately narrowed to this request's
+        # effective operation.  Carrying the end user's full scope set into
+        # the child would make response/audit metadata imply authority that
+        # this hop did not need or authorize.
+        return SimpleNamespace(
+            tenant=tenant,
+            scopes=frozenset({scope}),
+            actor=SimpleNamespace(actor_id=owner),
+        )
+
+    @staticmethod
+    def _extract_delegation_caller_and_proof(
+        route: Mapping[str, Any],
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         caller = route.get("caller")
         proof = route.get("delegation")
         if not isinstance(caller, Mapping) or not isinstance(proof, Mapping):
             raise mcp_protocol_exception(-32001, "Invalid delegated task identity")
+        return caller, proof
+
+    @staticmethod
+    def _extract_delegation_token(proof: Mapping[str, Any]) -> str:
         token = proof.get("token")
         if not isinstance(token, str) or not token:
             raise mcp_protocol_exception(
                 -32001,
                 "Authenticated task delegation is unavailable; use portable rm_jobs tools",
             )
+        return token
+
+    @staticmethod
+    def _validate_delegation_channel_proof(
+        service_authority: Any, proof: Mapping[str, Any], token: str
+    ) -> None:
         channel = proof.get("channel")
         channel_secret = str(
             getattr(service_authority, "channel_secret", "") or ""
@@ -1087,10 +1121,12 @@ class WorkItemTasksExtension(ServerExtension):
             # per-generation secret; never accept it as an unsigned hint on a
             # remote bearer-authenticated connection.
             raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
+
+    def _decode_delegation_token(self, token: str, method: str) -> Any:
         try:
             from agent_utilities.security.run_token import validate_token
 
-            decoded = validate_token(
+            return validate_token(
                 token,
                 endpoint=str(self.server_id or ""),
                 operation=method,
@@ -1099,6 +1135,10 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Invalid or expired delegated task proof"
             ) from None
+
+    def _validate_delegation_binding(
+        self, decoded: Any, method: str, params: Any, caller: Mapping[str, Any]
+    ) -> None:
         binding = _delegation_binding(
             method,
             params.model_dump(mode="json", by_alias=True, exclude_none=True),
@@ -1111,6 +1151,10 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Delegated task request binding is invalid"
             )
+
+    def _delegation_identity(
+        self, caller: Mapping[str, Any], decoded: Any
+    ) -> tuple[str, str, frozenset[str]]:
         owner = str(caller.get("owner") or "").strip()
         tenant = str(caller.get("tenant") or "").strip()
         scopes = frozenset(str(value) for value in caller.get("scopes", ()))
@@ -1124,23 +1168,16 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Delegated task identity is incomplete"
             )
+        return owner, tenant, scopes
+
+    @staticmethod
+    def _validate_delegation_scope(scopes: frozenset[str], scope: str) -> None:
         accepted = {
             "kg:read": {"kg:read", "kg:write", "kg:admin"},
             "kg:write": {"kg:write", "kg:admin"},
         }.get(scope, {scope})
         if scopes.isdisjoint(accepted):
             raise mcp_protocol_exception(-32001, "Delegated task scope is insufficient")
-        from types import SimpleNamespace
-
-        # The delegated session is deliberately narrowed to this request's
-        # effective operation.  Carrying the end user's full scope set into
-        # the child would make response/audit metadata imply authority that
-        # this hop did not need or authorize.
-        return SimpleNamespace(
-            tenant=tenant,
-            scopes=frozenset({scope}),
-            actor=SimpleNamespace(actor_id=owner),
-        )
 
     def _authorized_request_session(
         self,
@@ -1343,18 +1380,7 @@ class WorkItemTasksExtension(ServerExtension):
             if isinstance(metadata, dict)
             else None
         )
-        if raw_status in _WORKING_RAW_STATUSES and isinstance(pending, dict):
-            status = "input_required"
-        elif raw_status in _WORKING_RAW_STATUSES:
-            status = "working"
-        elif raw_status == "succeeded":
-            status = "completed"
-        elif raw_status in {"failed", "dead_letter"}:
-            status = "failed"
-        elif raw_status == "cancelled":
-            status = "cancelled"
-        else:
-            raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
+        status = self._map_work_item_status(raw_status, pending)
         result = _GetTaskResult(
             task_id=task_id,
             status=status,
@@ -1365,37 +1391,65 @@ class WorkItemTasksExtension(ServerExtension):
             ttl_ms=None,
             meta=self._response_meta(session, route),
         )
+        self._apply_task_status_payload(result, status, task_id, item, pending)
+        return result
+
+    @staticmethod
+    def _map_work_item_status(raw_status: str, pending: Any) -> str:
+        if raw_status in _WORKING_RAW_STATUSES and isinstance(pending, dict):
+            return "input_required"
+        if raw_status in _WORKING_RAW_STATUSES:
+            return "working"
+        if raw_status == "succeeded":
+            return "completed"
+        if raw_status in {"failed", "dead_letter"}:
+            return "failed"
+        if raw_status == "cancelled":
+            return "cancelled"
+        raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
+
+    def _completed_task_payload(
+        self, task_id: str, item: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        # D-25-4: `result_ref` is only ever an opaque completion marker
+        # (e.g. "orchestrator:<job>:completed") -- never the real agent
+        # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
+        # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
+        # is one more read away via the SAME `Orchestrator.get_run_trace`
+        # `graph_jobs(action="status", job_id="trace:...")` already uses --
+        # this module has direct engine access (unlike the isolated
+        # gateway sidecar), so it calls it in-process rather than proxying
+        # through another tool call.
+        trace = self._run_trace(task_id)
+        ref = item.get("result_ref")
+        if trace is not None and trace.get("result_preview"):
+            return {
+                "resultPreview": trace["result_preview"],
+                "runId": trace.get("run_id") or task_id,
+            }
+        if trace is not None and trace.get("error"):
+            return {
+                "error": trace["error"],
+                "runId": trace.get("run_id") or task_id,
+            }
+        if ref is not None:
+            return {"resultRef": ref}
+        return {"status": "completed"}
+
+    def _apply_task_status_payload(
+        self,
+        result: _GetTaskResult,
+        status: str,
+        task_id: str,
+        item: Mapping[str, Any],
+        pending: Any,
+    ) -> None:
         if status == "input_required":
             result.input_requests = {"request": pending}
         elif status == "completed":
-            # D-25-4: `result_ref` is only ever an opaque completion marker
-            # (e.g. "orchestrator:<job>:completed") -- never the real agent
-            # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
-            # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
-            # is one more read away via the SAME `Orchestrator.get_run_trace`
-            # `graph_jobs(action="status", job_id="trace:...")` already uses --
-            # this module has direct engine access (unlike the isolated
-            # gateway sidecar), so it calls it in-process rather than proxying
-            # through another tool call.
-            trace = self._run_trace(task_id)
-            ref = item.get("result_ref")
-            if trace is not None and trace.get("result_preview"):
-                result.result = {
-                    "resultPreview": trace["result_preview"],
-                    "runId": trace.get("run_id") or task_id,
-                }
-            elif trace is not None and trace.get("error"):
-                result.result = {
-                    "error": trace["error"],
-                    "runId": trace.get("run_id") or task_id,
-                }
-            elif ref is not None:
-                result.result = {"resultRef": ref}
-            else:
-                result.result = {"status": "completed"}
+            result.result = self._completed_task_payload(task_id, item)
         elif status == "failed":
             result.error = {"code": -32603, "message": "GraphOS WorkItem failed"}
-        return result
 
     def _repository_view(self, task_id: str, session: Any) -> Any:
         """Load one repository view under the verified tenant and owner."""
@@ -1495,6 +1549,23 @@ class WorkItemTasksExtension(ServerExtension):
     ) -> _GetTaskResult:
         view = self._repository_view(task_id, session)
         raw = self._repository_raw_item(self._engine(), view)
+        status, input_request = self._resolve_repository_status(raw, view)
+        created_at = raw.get("created_at") if isinstance(raw, Mapping) else None
+        updated_at = raw.get("updated_at") if isinstance(raw, Mapping) else None
+        result = _GetTaskResult(
+            task_id=task_id,
+            status=status,
+            created_at=_iso_timestamp(created_at),
+            last_updated_at=_iso_timestamp(updated_at),
+            ttl_ms=None,
+            meta=self._response_meta(session, route),
+        )
+        self._apply_repository_status_payload(result, status, view, input_request)
+        return result
+
+    def _resolve_repository_status(
+        self, raw: Mapping[str, Any], view: Any
+    ) -> tuple[str, Mapping[str, Any] | None]:
         status = self._repository_status(view.state)
         pending = raw.get("metadata") if isinstance(raw, Mapping) else None
         pending_request = (
@@ -1509,16 +1580,15 @@ class WorkItemTasksExtension(ServerExtension):
         if status == "working" and isinstance(pending_request, Mapping):
             status = "input_required"
             input_request = pending_request
-        created_at = raw.get("created_at") if isinstance(raw, Mapping) else None
-        updated_at = raw.get("updated_at") if isinstance(raw, Mapping) else None
-        result = _GetTaskResult(
-            task_id=task_id,
-            status=status,
-            created_at=_iso_timestamp(created_at),
-            last_updated_at=_iso_timestamp(updated_at),
-            ttl_ms=None,
-            meta=self._response_meta(session, route),
-        )
+        return status, input_request
+
+    def _apply_repository_status_payload(
+        self,
+        result: _GetTaskResult,
+        status: str,
+        view: Any,
+        input_request: Mapping[str, Any] | None,
+    ) -> None:
         if status == "input_required" and input_request is not None:
             result.status_message = "Repository WorkItem is waiting for input"
             result.input_requests = {"request": dict(input_request)}
@@ -1534,7 +1604,6 @@ class WorkItemTasksExtension(ServerExtension):
                 "errorRef": domain.get("error_ref"),
                 "result": domain,
             }
-        return result
 
     def _ack_from_view(
         self,
