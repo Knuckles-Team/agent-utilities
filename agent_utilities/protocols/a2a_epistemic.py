@@ -1009,39 +1009,41 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             and record["context_id"] == binding.context_id
         )
 
-    async def update_task(
-        self,
-        task_id: str,
-        state: TaskState,
-        new_artifacts: list[Artifact] | None = None,
-        new_messages: list[Message] | None = None,
-    ) -> Task:
-        await self.runtime.start()
-        task_id = self.runtime.require_task_id(task_id)
-        binding = self._require_binding(task_id)
-        requested_state = _STATE_ADAPTER.validate_python(state)
+    def _check_update_bounds(
+        self, new_artifacts: list[Artifact] | None, new_messages: list[Message] | None
+    ) -> None:
         if new_artifacts is not None and len(new_artifacts) > self.max_artifacts:
             raise ValueError("A2A artifact update exceeds the collection bound")
         if new_messages is not None and len(new_messages) > self.max_history:
             raise ValueError("A2A message update exceeds the collection bound")
-        properties = await self.runtime.call("nodes", "properties", task_id)
-        if properties is None:
-            raise KeyError("A2A task does not exist")
-        record, current = self._task_record(properties, task_id)
+
+    def _check_execution_fence(
+        self,
+        binding: _ExecutionBinding,
+        record: dict[str, Any],
+        requested_state: TaskState,
+    ) -> None:
         claiming_execution = requested_state == "working" and record["state"] in {
             "submitted",
             "working",
         }
-        if not (
+        matches = (
             self._binding_base_matches(binding, record)
             if claiming_execution
             else self._binding_matches(binding, record)
-        ):
+        )
+        if not matches:
             raise A2AStorageConflict("A2A task execution fence changed")
-        self._validate_transition(current["status"]["state"], requested_state)
-        updated = cast(Task, json.loads(_json_bytes(current)))
-        updated["status"] = TaskStatus(state=requested_state, timestamp=_now_iso())
-        context_id = self.runtime.context_id(updated["context_id"])
+
+    def _merge_task_content(
+        self,
+        updated: Task,
+        *,
+        new_artifacts: list[Artifact] | None,
+        new_messages: list[Message] | None,
+        task_id: str,
+        context_id: str,
+    ) -> None:
         if new_artifacts:
             artifacts = [self._artifact(item) for item in new_artifacts]
             updated["artifacts"] = [
@@ -1057,8 +1059,15 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                 *(updated.get("history") or []),
                 *messages,
             ][-self.max_history :]
-        updated = _validated_json(_TASK_ADAPTER, updated, label="updated A2A task")
-        _bounded(updated, maximum=self.max_payload_bytes, label="updated A2A task")
+
+    def _task_update_fields(
+        self,
+        record: dict[str, Any],
+        updated: Task,
+        binding: _ExecutionBinding,
+        *,
+        requested_state: TaskState,
+    ) -> tuple[dict[str, Any], int, str]:
         revision = int(record["revision"])
         payload_ref = _payload_ref(updated, tenant_key=self.runtime.tenant_key)
         terminal = requested_state in _TERMINAL_STATES
@@ -1070,6 +1079,41 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             "execution_tag": None if terminal else binding.delivery_tag,
             "execution_consumer": None if terminal else binding.consumer,
         }
+        return updates, revision, payload_ref
+
+    async def update_task(
+        self,
+        task_id: str,
+        state: TaskState,
+        new_artifacts: list[Artifact] | None = None,
+        new_messages: list[Message] | None = None,
+    ) -> Task:
+        await self.runtime.start()
+        task_id = self.runtime.require_task_id(task_id)
+        binding = self._require_binding(task_id)
+        requested_state = _STATE_ADAPTER.validate_python(state)
+        self._check_update_bounds(new_artifacts, new_messages)
+        properties = await self.runtime.call("nodes", "properties", task_id)
+        if properties is None:
+            raise KeyError("A2A task does not exist")
+        record, current = self._task_record(properties, task_id)
+        self._check_execution_fence(binding, record, requested_state)
+        self._validate_transition(current["status"]["state"], requested_state)
+        updated = cast(Task, json.loads(_json_bytes(current)))
+        updated["status"] = TaskStatus(state=requested_state, timestamp=_now_iso())
+        context_id = self.runtime.context_id(updated["context_id"])
+        self._merge_task_content(
+            updated,
+            new_artifacts=new_artifacts,
+            new_messages=new_messages,
+            task_id=task_id,
+            context_id=context_id,
+        )
+        updated = _validated_json(_TASK_ADAPTER, updated, label="updated A2A task")
+        _bounded(updated, maximum=self.max_payload_bytes, label="updated A2A task")
+        updates, revision, payload_ref = self._task_update_fields(
+            record, updated, binding, requested_state=requested_state
+        )
         applied = await self.runtime.call(
             "nodes",
             "compare_and_set",
