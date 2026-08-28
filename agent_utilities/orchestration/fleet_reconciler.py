@@ -972,6 +972,26 @@ class FleetReconciler:
             actor_id=request.actor_id,
         )
 
+    def _resolve_valid_intent(
+        self, want: DesiredService
+    ) -> tuple[dict[str, Any] | None, bool, bool]:
+        """Read the latest intent and validate it belongs to `want`.
+
+        Returns ``(intent, read_complete, usable)``. When ``usable`` is False
+        the caller must return ``(None, None, read_complete)`` unchanged.
+        """
+        complete, intent = self.intent_store.latest(want.name)
+        if not complete:
+            return None, False, False
+        if intent is None:
+            return None, True, False
+        if (
+            not _intent_metadata_valid(intent)
+            or str(intent.get("service")) != want.name
+        ):
+            return None, True, False
+        return intent, True, True
+
     def _intent_target(
         self, want: DesiredService, observed_replicas: int | None = None
     ) -> tuple[int | None, dict[str, Any] | None, bool]:
@@ -990,16 +1010,9 @@ class FleetReconciler:
             return want.replicas, None, True
         if spec.controller_mode != SCALE_CONTROLLER_NATIVE:
             return None, None, True
-        complete, intent = self.intent_store.latest(want.name)
-        if not complete:
-            return None, None, False
-        if intent is None:
-            return None, None, True
-        if (
-            not _intent_metadata_valid(intent)
-            or str(intent.get("service")) != want.name
-        ):
-            return None, None, True
+        intent, complete, usable = self._resolve_valid_intent(want)
+        if not usable:
+            return None, None, complete
         status = str(intent.get("status") or "")
         if status in {
             _SCALE_INTENT_PROPOSED,
@@ -1013,85 +1026,113 @@ class FleetReconciler:
         if status == _SCALE_INTENT_ACCEPTED:
             return int(intent["desired_replicas"]), intent, True
         if status in {_SCALE_INTENT_EXECUTED, _SCALE_INTENT_OBSERVED}:
-            desired = int(intent["desired_replicas"])
-            if observed_replicas != desired:
-                # A real execution is in flight from the control-plane point
-                # of view. Never issue a competing convergence action while
-                # the observer is stale or reports a failed mutation.
-                return None, intent, True
-            next_status = (
-                _SCALE_INTENT_OBSERVED
-                if status == _SCALE_INTENT_EXECUTED
-                else _SCALE_INTENT_VERIFIED
+            return self._advance_executed_observed(
+                want, intent, status, observed_replicas
             )
-            transition = self.intent_store.cas(
-                {
-                    "operation": "transition",
-                    "service": want.name,
-                    "intent_id": intent["intent_id"],
-                    "expected_revision": int(intent["revision"]),
-                    "status": next_status,
-                    "observed_replicas": observed_replicas,
-                    "updated_unix": time.time(),
-                }
-            )
-            if not _cas_succeeded(transition):
-                return None, intent, False
-            advanced = dict(intent)
-            advanced["status"] = next_status
-            advanced["observed_replicas"] = observed_replicas
-            return None, advanced, True
         if status == _SCALE_INTENT_RECOVERY_PENDING:
-            desired = int(intent["desired_replicas"])
-            if observed_replicas != desired:
-                return None, intent, True
-            outbox = self.action_outbox_store
-            if outbox is None:
-                from agent_utilities.orchestration.fleet_actuation import (
-                    EngineActionOutboxStore,
-                )
-
-                outbox = EngineActionOutboxStore(self.engine)
-            try:
-                completion = outbox.complete(
-                    {
-                        "operation": "reconcile",
-                        "idempotency_key": str(
-                            intent.get("idempotency_key") or intent["intent_id"]
-                        ),
-                        "execution_id": str(intent.get("execution_id") or ""),
-                        "request_digest": str(intent.get("request_digest") or ""),
-                        "state": _SCALE_INTENT_OBSERVED,
-                        "ok": True,
-                        "dry_run": False,
-                        "observed_replicas": observed_replicas,
-                        "recovery": True,
-                    }
-                )
-            except Exception as exc:  # noqa: BLE001 — recovery evidence is authoritative
-                logger.warning("fleet action outbox recovery failed: %s", exc)
-                return None, intent, False
-            if not _outbox_completion_matches(completion, _SCALE_INTENT_OBSERVED):
-                return None, intent, False
-            transition = self.intent_store.cas(
-                {
-                    "operation": "transition",
-                    "service": want.name,
-                    "intent_id": intent["intent_id"],
-                    "expected_revision": int(intent["revision"]),
-                    "status": _SCALE_INTENT_OBSERVED,
-                    "observed_replicas": observed_replicas,
-                    "updated_unix": time.time(),
-                }
-            )
-            if not _cas_succeeded(transition):
-                return None, intent, False
-            advanced = dict(intent)
-            advanced["status"] = _SCALE_INTENT_OBSERVED
-            advanced["observed_replicas"] = observed_replicas
-            return None, advanced, True
+            return self._advance_recovery_pending(want, intent, observed_replicas)
         # Unknown state is never an authorization to write replicas.
         return None, intent, True
+
+    def _advance_executed_observed(
+        self,
+        want: DesiredService,
+        intent: dict[str, Any],
+        status: str,
+        observed_replicas: int | None,
+    ) -> tuple[int | None, dict[str, Any] | None, bool]:
+        desired = int(intent["desired_replicas"])
+        if observed_replicas != desired:
+            # A real execution is in flight from the control-plane point
+            # of view. Never issue a competing convergence action while
+            # the observer is stale or reports a failed mutation.
+            return None, intent, True
+        next_status = (
+            _SCALE_INTENT_OBSERVED
+            if status == _SCALE_INTENT_EXECUTED
+            else _SCALE_INTENT_VERIFIED
+        )
+        transition = self.intent_store.cas(
+            {
+                "operation": "transition",
+                "service": want.name,
+                "intent_id": intent["intent_id"],
+                "expected_revision": int(intent["revision"]),
+                "status": next_status,
+                "observed_replicas": observed_replicas,
+                "updated_unix": time.time(),
+            }
+        )
+        if not _cas_succeeded(transition):
+            return None, intent, False
+        advanced = dict(intent)
+        advanced["status"] = next_status
+        advanced["observed_replicas"] = observed_replicas
+        return None, advanced, True
+
+    def _complete_recovery_outbox_from_intent(
+        self, intent: dict[str, Any], observed_replicas: int | None
+    ) -> dict[str, Any] | None:
+        outbox = self.action_outbox_store
+        if outbox is None:
+            from agent_utilities.orchestration.fleet_actuation import (
+                EngineActionOutboxStore,
+            )
+
+            outbox = EngineActionOutboxStore(self.engine)
+        try:
+            return outbox.complete(
+                {
+                    "operation": "reconcile",
+                    "idempotency_key": str(
+                        intent.get("idempotency_key") or intent["intent_id"]
+                    ),
+                    "execution_id": str(intent.get("execution_id") or ""),
+                    "request_digest": str(intent.get("request_digest") or ""),
+                    "state": _SCALE_INTENT_OBSERVED,
+                    "ok": True,
+                    "dry_run": False,
+                    "observed_replicas": observed_replicas,
+                    "recovery": True,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — recovery evidence is authoritative
+            logger.warning("fleet action outbox recovery failed: %s", exc)
+            return None
+
+    def _advance_recovery_pending(
+        self,
+        want: DesiredService,
+        intent: dict[str, Any],
+        observed_replicas: int | None,
+    ) -> tuple[int | None, dict[str, Any] | None, bool]:
+        desired = int(intent["desired_replicas"])
+        if observed_replicas != desired:
+            return None, intent, True
+        completion = self._complete_recovery_outbox_from_intent(
+            intent, observed_replicas
+        )
+        if completion is None:
+            return None, intent, False
+        if not _outbox_completion_matches(completion, _SCALE_INTENT_OBSERVED):
+            return None, intent, False
+        transition = self.intent_store.cas(
+            {
+                "operation": "transition",
+                "service": want.name,
+                "intent_id": intent["intent_id"],
+                "expected_revision": int(intent["revision"]),
+                "status": _SCALE_INTENT_OBSERVED,
+                "observed_replicas": observed_replicas,
+                "updated_unix": time.time(),
+            }
+        )
+        if not _cas_succeeded(transition):
+            return None, intent, False
+        advanced = dict(intent)
+        advanced["status"] = _SCALE_INTENT_OBSERVED
+        advanced["observed_replicas"] = observed_replicas
+        return None, advanced, True
 
     # ── divergence detection ────────────────────────────────────────
 
@@ -1105,103 +1146,117 @@ class FleetReconciler:
         if not self._last_health.convergence_ready:
             return []
         desired = load_desired_state()
-        observed: dict[str, Any] = {}
-        try:
-            observed = self.observer.observe() or {}
-        except Exception as e:  # noqa: BLE001
-            logger.warning("fleet_reconciler: observer failed: %s", e)
+        observed = self._observe_fleet()
 
         proposals: list[ActionRequest] = []
         for name, want in sorted(desired.items()):
             obs = observed.get(name)
             if obs is None:
                 continue  # no evidence — never act blind
-            if want.desired == "stopped":
-                if obs.status == STATUS_UP:
-                    proposals.append(
-                        self._bind_kubernetes_resource(
-                            ActionRequest(
-                                kind="stop_service",
-                                target=name,
-                                source="reconciler",
-                                reason="desired stopped but observed up",
-                            ),
-                            want,
-                        )
-                    )
-                continue
-            if obs.status == STATUS_DOWN:
-                proposals.append(
-                    self._bind_kubernetes_resource(
-                        ActionRequest(
-                            kind="restart_service",
-                            target=name,
-                            params={"version": want.version} if want.version else {},
-                            source="reconciler",
-                            reason=f"observed down ({obs.detail})",
-                        ),
-                        want,
-                    )
-                )
-                continue
-            if want.scaling is not None and want.scaling.controller_mode in {
-                SCALE_CONTROLLER_EXTERNAL_HPA,
-                SCALE_CONTROLLER_EXTERNAL_KEDA,
-            }:
-                # HPA/KEDA owns replicas. AU may still restart a down service,
-                # but it must never write a competing replica value.
-                continue
-            target, intent, complete = self._intent_target(want, obs.replicas)
-            if not complete or target is None:
-                continue
-            if (
-                obs.status == STATUS_UP
-                and obs.replicas is not None
-                and obs.replicas != target
-            ):
-                # Record the direction the reconciler is actuating. The
-                # autoscaler's own request carried it, but the reconciler
-                # rebuilds this request from the intent and previously dropped
-                # it -- which left `_should_watch` unable to tell a scale-up
-                # from a scale-down, and made the audit row poorer than the
-                # proposal it came from.
-                params = {
-                    "replicas": target,
-                    "from_replicas": obs.replicas,
-                    "direction": "up" if target > obs.replicas else "down",
-                }
-                if (
-                    intent is not None
-                    and str(intent.get("status")) == _SCALE_INTENT_ACCEPTED
-                ):
-                    params.update(
-                        {
-                            "scale_intent_id": intent.get("intent_id"),
-                            "scale_intent_revision": int(intent["revision"]),
-                        }
-                    )
-                proposals.append(
-                    self._bind_kubernetes_resource(
-                        ActionRequest(
-                            kind="scale_service",
-                            target=name,
-                            params=params,
-                            source=(
-                                "intent-reconciler"
-                                if intent is not None
-                                else "reconciler"
-                            ),
-                            reason=(
-                                f"intent_accepted scale intent revision {intent['revision']} "
-                                f"requires replicas {target}"
-                                if intent is not None
-                                else f"replicas {obs.replicas} != desired {target}"
-                            ),
-                        ),
-                        want,
-                    )
-                )
+            proposal = self._diff_one_service(name, want, obs)
+            if proposal is not None:
+                proposals.append(proposal)
         return proposals
+
+    def _observe_fleet(self) -> dict[str, Any]:
+        try:
+            return self.observer.observe() or {}
+        except Exception as e:  # noqa: BLE001
+            logger.warning("fleet_reconciler: observer failed: %s", e)
+            return {}
+
+    def _diff_one_service(
+        self, name: str, want: DesiredService, obs: Any
+    ) -> ActionRequest | None:
+        if want.desired == "stopped":
+            return self._diff_stopped_service(name, want, obs)
+        if obs.status == STATUS_DOWN:
+            return self._bind_kubernetes_resource(
+                ActionRequest(
+                    kind="restart_service",
+                    target=name,
+                    params={"version": want.version} if want.version else {},
+                    source="reconciler",
+                    reason=f"observed down ({obs.detail})",
+                ),
+                want,
+            )
+        if want.scaling is not None and want.scaling.controller_mode in {
+            SCALE_CONTROLLER_EXTERNAL_HPA,
+            SCALE_CONTROLLER_EXTERNAL_KEDA,
+        }:
+            # HPA/KEDA owns replicas. AU may still restart a down service,
+            # but it must never write a competing replica value.
+            return None
+        return self._diff_scale_service(name, want, obs)
+
+    def _diff_stopped_service(
+        self, name: str, want: DesiredService, obs: Any
+    ) -> ActionRequest | None:
+        if obs.status != STATUS_UP:
+            return None
+        return self._bind_kubernetes_resource(
+            ActionRequest(
+                kind="stop_service",
+                target=name,
+                source="reconciler",
+                reason="desired stopped but observed up",
+            ),
+            want,
+        )
+
+    @staticmethod
+    def _scale_action_params(
+        intent: dict[str, Any] | None, obs: Any, target: int
+    ) -> dict[str, Any]:
+        # Record the direction the reconciler is actuating. The
+        # autoscaler's own request carried it, but the reconciler
+        # rebuilds this request from the intent and previously dropped
+        # it -- which left `_should_watch` unable to tell a scale-up
+        # from a scale-down, and made the audit row poorer than the
+        # proposal it came from.
+        params = {
+            "replicas": target,
+            "from_replicas": obs.replicas,
+            "direction": "up" if target > obs.replicas else "down",
+        }
+        if intent is not None and str(intent.get("status")) == _SCALE_INTENT_ACCEPTED:
+            params.update(
+                {
+                    "scale_intent_id": intent.get("intent_id"),
+                    "scale_intent_revision": int(intent["revision"]),
+                }
+            )
+        return params
+
+    def _diff_scale_service(
+        self, name: str, want: DesiredService, obs: Any
+    ) -> ActionRequest | None:
+        target, intent, complete = self._intent_target(want, obs.replicas)
+        if not complete or target is None:
+            return None
+        if not (
+            obs.status == STATUS_UP
+            and obs.replicas is not None
+            and obs.replicas != target
+        ):
+            return None
+        params = self._scale_action_params(intent, obs, target)
+        return self._bind_kubernetes_resource(
+            ActionRequest(
+                kind="scale_service",
+                target=name,
+                params=params,
+                source="intent-reconciler" if intent is not None else "reconciler",
+                reason=(
+                    f"intent_accepted scale intent revision {intent['revision']} "
+                    f"requires replicas {target}"
+                    if intent is not None
+                    else f"replicas {obs.replicas} != desired {target}"
+                ),
+            ),
+            want,
+        )
 
     # ── convergence ─────────────────────────────────────────────────
 
@@ -1313,128 +1368,147 @@ class FleetReconciler:
         request = self._bind_kubernetes_resource(
             request, load_desired_state().get(request.target)
         )
-        if request.kind == "scale_service" and not request.params.get(
-            "scale_intent_id"
-        ):
-            direct_allowed, direct_reason = self._direct_scale_allowed(request.target)
-            if not direct_allowed:
-                return {
-                    "kind": request.kind,
-                    "target": request.target,
-                    "reason": direct_reason,
-                    "decision": "rejected",
-                    "state": _SCALE_INTENT_REJECTED,
-                    "approval_id": None,
-                }
+        rejection = self._direct_scale_rejection(request)
+        if rejection is not None:
+            return rejection
         is_intent, intent_error = self._authorized_intent(request)
         if request.params.get("scale_intent_id"):
-            entry: dict[str, Any] = {
-                "kind": request.kind,
-                "target": request.target,
-                "reason": request.reason,
-                "decision": "accepted_intent" if is_intent else "stale_intent",
-                "state": _SCALE_INTENT_ACCEPTED if is_intent else "stale",
-                "approval_id": None,
-            }
-            if not is_intent:
-                entry["reason"] = intent_error
-                return entry
-            execution = execute_action(
-                self.engine,
-                request,
-                self.actuator,
-                outbox_store=self.action_outbox_store,
-            )
-            entry["execution"] = execution
-            if (
-                execution.get("dry_run")
-                or execution.get("state") == _SCALE_INTENT_SIMULATED
-            ):
-                next_status = _SCALE_INTENT_SIMULATED
-            elif execution.get("state") == _SCALE_INTENT_RECOVERY_PENDING:
-                next_status = _SCALE_INTENT_RECOVERY_PENDING
-            elif execution.get("ok"):
-                next_status = _SCALE_INTENT_EXECUTED
-            else:
-                next_status = _SCALE_INTENT_FAILED
-            transition = self.intent_store.cas(
-                {
-                    "operation": "transition",
-                    "service": request.target,
-                    "intent_id": request.params["scale_intent_id"],
-                    "expected_revision": int(request.params["scale_intent_revision"]),
-                    "status": next_status,
-                    "execution_id": execution.get("execution_id", ""),
-                    "idempotency_key": execution.get(
-                        "idempotency_key", request.params["scale_intent_id"]
-                    ),
-                    "request_digest": execution.get("request_digest", ""),
-                    "executed_unix": execution.get("executed_unix", time.time()),
-                    "updated_unix": time.time(),
-                }
-            )
-            entry["state"] = (
-                next_status if _cas_succeeded(transition) else "transition_conflict"
-            )
-            entry["intent_transition"] = (
-                next_status if _cas_succeeded(transition) else "conflict"
-            )
-            # The accepted-intent branch is the PRIMARY actuation path for
-            # native autoscaling, and it carried no health watch at all -- the
-            # scale-up watch the autoscaler used to schedule was lost when
-            # actuation moved here. Same predicate and same simulated/ok guards
-            # as the policy-decision path below, so a dry run still never
-            # schedules one.
-            if (
-                _should_watch(request, self.policy)
-                and execution.get("ok")
-                and next_status != _SCALE_INTENT_SIMULATED
-            ):
-                from agent_utilities.orchestration.deploy_watch import watch_deploy
+            return self._converge_via_intent(request, is_intent, intent_error)
+        return self._converge_via_policy(request)
 
-                entry["watch_job"] = watch_deploy(
-                    self.engine,
-                    request.target,
-                    version=str(request.params.get("version") or ""),
-                    source="reconciler",
-                )
+    def _direct_scale_rejection(self, request: ActionRequest) -> dict[str, Any] | None:
+        if request.kind != "scale_service" or request.params.get("scale_intent_id"):
+            return None
+        direct_allowed, direct_reason = self._direct_scale_allowed(request.target)
+        if direct_allowed:
+            return None
+        return {
+            "kind": request.kind,
+            "target": request.target,
+            "reason": direct_reason,
+            "decision": "rejected",
+            "state": _SCALE_INTENT_REJECTED,
+            "approval_id": None,
+        }
+
+    @staticmethod
+    def _next_intent_status(execution: dict[str, Any]) -> str:
+        if (
+            execution.get("dry_run")
+            or execution.get("state") == _SCALE_INTENT_SIMULATED
+        ):
+            return _SCALE_INTENT_SIMULATED
+        if execution.get("state") == _SCALE_INTENT_RECOVERY_PENDING:
+            return _SCALE_INTENT_RECOVERY_PENDING
+        if execution.get("ok"):
+            return _SCALE_INTENT_EXECUTED
+        return _SCALE_INTENT_FAILED
+
+    def _maybe_schedule_watch(
+        self, request: ActionRequest, execution: dict[str, Any], state: str
+    ) -> tuple[bool, Any]:
+        if not (
+            _should_watch(request, self.policy)
+            and execution.get("ok")
+            and state != _SCALE_INTENT_SIMULATED
+        ):
+            return False, None
+        from agent_utilities.orchestration.deploy_watch import watch_deploy
+
+        return True, watch_deploy(
+            self.engine,
+            request.target,
+            version=str(request.params.get("version") or ""),
+            source="reconciler",
+        )
+
+    def _converge_via_intent(
+        self, request: ActionRequest, is_intent: bool, intent_error: str
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "kind": request.kind,
+            "target": request.target,
+            "reason": request.reason,
+            "decision": "accepted_intent" if is_intent else "stale_intent",
+            "state": _SCALE_INTENT_ACCEPTED if is_intent else "stale",
+            "approval_id": None,
+        }
+        if not is_intent:
+            entry["reason"] = intent_error
             return entry
+        execution = execute_action(
+            self.engine,
+            request,
+            self.actuator,
+            outbox_store=self.action_outbox_store,
+        )
+        entry["execution"] = execution
+        next_status = self._next_intent_status(execution)
+        transition = self.intent_store.cas(
+            {
+                "operation": "transition",
+                "service": request.target,
+                "intent_id": request.params["scale_intent_id"],
+                "expected_revision": int(request.params["scale_intent_revision"]),
+                "status": next_status,
+                "execution_id": execution.get("execution_id", ""),
+                "idempotency_key": execution.get(
+                    "idempotency_key", request.params["scale_intent_id"]
+                ),
+                "request_digest": execution.get("request_digest", ""),
+                "executed_unix": execution.get("executed_unix", time.time()),
+                "updated_unix": time.time(),
+            }
+        )
+        entry["state"] = (
+            next_status if _cas_succeeded(transition) else "transition_conflict"
+        )
+        entry["intent_transition"] = (
+            next_status if _cas_succeeded(transition) else "conflict"
+        )
+        # The accepted-intent branch is the PRIMARY actuation path for
+        # native autoscaling, and it carried no health watch at all -- the
+        # scale-up watch the autoscaler used to schedule was lost when
+        # actuation moved here. Same predicate and same simulated/ok guards
+        # as the policy-decision path below, so a dry run still never
+        # schedules one.
+        scheduled, watch_job = self._maybe_schedule_watch(
+            request, execution, next_status
+        )
+        if scheduled:
+            entry["watch_job"] = watch_job
+        return entry
+
+    def _converge_via_policy(self, request: ActionRequest) -> dict[str, Any]:
         decision = self.policy.decide(request)
-        entry = {
+        entry: dict[str, Any] = {
             "kind": request.kind,
             "target": request.target,
             "reason": request.reason,
             "decision": decision.decision,
             "approval_id": decision.approval_id,
         }
-        if decision.allowed:
-            entry["execution"] = execute_action(
-                self.engine,
-                request,
-                self.actuator,
-                outbox_store=self.action_outbox_store,
-            )
-            entry["state"] = entry["execution"].get(
-                "state",
-                _SCALE_INTENT_SIMULATED
-                if entry["execution"].get("dry_run")
-                else _SCALE_INTENT_EXECUTED
-                if entry["execution"].get("ok")
-                else _SCALE_INTENT_FAILED,
-            )
-            if (
-                _should_watch(request, self.policy)
-                and entry["execution"].get("ok")
-                and entry["state"] != _SCALE_INTENT_SIMULATED
-            ):
-                from agent_utilities.orchestration.deploy_watch import watch_deploy
-
-                entry["watch_job"] = watch_deploy(
-                    self.engine,
-                    request.target,
-                    version=str(request.params.get("version") or ""),
-                    source="reconciler",
-                )
+        if not decision.allowed:
+            return entry
+        entry["execution"] = execute_action(
+            self.engine,
+            request,
+            self.actuator,
+            outbox_store=self.action_outbox_store,
+        )
+        entry["state"] = entry["execution"].get(
+            "state",
+            _SCALE_INTENT_SIMULATED
+            if entry["execution"].get("dry_run")
+            else _SCALE_INTENT_EXECUTED
+            if entry["execution"].get("ok")
+            else _SCALE_INTENT_FAILED,
+        )
+        scheduled, watch_job = self._maybe_schedule_watch(
+            request, entry["execution"], entry["state"]
+        )
+        if scheduled:
+            entry["watch_job"] = watch_job
         return entry
 
     def _accept_approved_scale_intent(self, request: ActionRequest) -> dict[str, Any]:
