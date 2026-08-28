@@ -242,8 +242,8 @@ import hashlib
 import json
 import logging
 import uuid
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -1013,6 +1013,91 @@ def _detect_diverged_schema(current_columns: dict[str, set[str]]) -> str | None:
     return None
 
 
+def _backfill_tenant_id_set(
+    row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if "tenant_id" in added_columns and not row.get("tenant_id"):
+        return f"tenant_id = {_sql_literal(LEGACY_TENANT_SENTINEL)}"
+    return None
+
+
+def _backfill_revision_set(
+    row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if "revision" in added_columns and not row.get("revision"):
+        return f"revision = {_sql_literal(0)}"
+    return None
+
+
+def _backfill_idempotency_key_set(
+    row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> str | None:
+    if "idempotency_key" in added_columns and not row.get("idempotency_key"):
+        return f"idempotency_key = {_sql_literal(f'legacy-migration-{row_id}')}"
+    return None
+
+
+def _backfill_schema_digest_set(
+    table: str, row: Mapping[str, Any], added_columns: list[str]
+) -> str | None:
+    if not (
+        table == TABLE_MCP_TOOLS
+        and "schema_digest" in added_columns
+        and not row.get("schema_digest")
+    ):
+        return None
+    raw_schema = row.get("input_schema")
+    try:
+        parsed_schema = (
+            json.loads(raw_schema) if isinstance(raw_schema, str) and raw_schema else {}
+        )
+    except (TypeError, ValueError):
+        parsed_schema = {}
+    if not isinstance(parsed_schema, dict):
+        parsed_schema = {}
+    return f"schema_digest = {_sql_literal(_schema_digest(parsed_schema))}"
+
+
+def _backfill_kg_node_id_set(
+    table: str, row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> str | None:
+    if not (
+        table in (TABLE_MCP_TOOLS, TABLE_SKILLS)
+        and "kg_node_id" in added_columns
+        and not row.get("kg_node_id")
+    ):
+        return None
+    # Deterministic reconstruction, not a guess: every row's ``id`` is
+    # EITHER the bare KG node id verbatim (a genuinely pre-NE-007 row,
+    # written before ``_bound_row_id`` ever appended a discovery-grant
+    # suffix) OR that same bare id with ``__<digest-or-"tenant_local">``
+    # appended (see :func:`_bound_row_id`) -- and the exact digest this row
+    # was bound with is itself already stored in ``discovery_grant_digest``
+    # (backfilled/left-NULL identically to every other discovery-binding
+    # column). Stripping that exact, known suffix when present, and leaving
+    # ``id`` unchanged when it is not, recovers the true KG node id in both
+    # cases with no placeholder value.
+    digest = str(row.get("discovery_grant_digest") or "")
+    suffix = f"__{digest or DISCOVERY_AUTHORITY_TENANT_LOCAL}"
+    base_id = str(row_id)
+    if base_id.endswith(suffix):
+        base_id = base_id[: -len(suffix)]
+    return f"kg_node_id = {_sql_literal(base_id)}"
+
+
+def _backfill_row_set_parts(
+    table: str, row: Mapping[str, Any], added_columns: list[str], row_id: Any
+) -> list[str]:
+    parts = [
+        _backfill_tenant_id_set(row, added_columns),
+        _backfill_revision_set(row, added_columns),
+        _backfill_idempotency_key_set(row, added_columns, row_id),
+        _backfill_schema_digest_set(table, row, added_columns),
+        _backfill_kg_node_id_set(table, row, added_columns, row_id),
+    ]
+    return [part for part in parts if part is not None]
+
+
 def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None:
     """One-time backfill of newly-added columns for a table's pre-existing rows.
 
@@ -1031,63 +1116,55 @@ def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None
         row_id = row.get("id")
         if row_id is None:
             continue
-        set_parts: list[str] = []
-        if "tenant_id" in added_columns and not row.get("tenant_id"):
-            set_parts.append(f"tenant_id = {_sql_literal(LEGACY_TENANT_SENTINEL)}")
-        if "revision" in added_columns and not row.get("revision"):
-            set_parts.append(f"revision = {_sql_literal(0)}")
-        if "idempotency_key" in added_columns and not row.get("idempotency_key"):
-            set_parts.append(
-                f"idempotency_key = {_sql_literal(f'legacy-migration-{row_id}')}"
-            )
-        if (
-            table == TABLE_MCP_TOOLS
-            and "schema_digest" in added_columns
-            and not row.get("schema_digest")
-        ):
-            raw_schema = row.get("input_schema")
-            try:
-                parsed_schema = (
-                    json.loads(raw_schema)
-                    if isinstance(raw_schema, str) and raw_schema
-                    else {}
-                )
-            except (TypeError, ValueError):
-                parsed_schema = {}
-            if not isinstance(parsed_schema, dict):
-                parsed_schema = {}
-            set_parts.append(
-                f"schema_digest = {_sql_literal(_schema_digest(parsed_schema))}"
-            )
-        if (
-            table in (TABLE_MCP_TOOLS, TABLE_SKILLS)
-            and "kg_node_id" in added_columns
-            and not row.get("kg_node_id")
-        ):
-            # Deterministic reconstruction, not a guess: every row's ``id``
-            # is EITHER the bare KG node id verbatim (a genuinely pre-NE-007
-            # row, written before ``_bound_row_id`` ever appended a
-            # discovery-grant suffix) OR that same bare id with
-            # ``__<digest-or-"tenant_local">`` appended (see
-            # :func:`_bound_row_id`) -- and the exact digest this row was
-            # bound with is itself already stored in
-            # ``discovery_grant_digest`` (backfilled/left-NULL identically to
-            # every other discovery-binding column). Stripping that exact,
-            # known suffix when present, and leaving ``id`` unchanged when it
-            # is not, recovers the true KG node id in both cases with no
-            # placeholder value.
-            digest = str(row.get("discovery_grant_digest") or "")
-            suffix = f"__{digest or DISCOVERY_AUTHORITY_TENANT_LOCAL}"
-            base_id = str(row_id)
-            if base_id.endswith(suffix):
-                base_id = base_id[: -len(suffix)]
-            set_parts.append(f"kg_node_id = {_sql_literal(base_id)}")
+        set_parts = _backfill_row_set_parts(table, row, added_columns, row_id)
         if not set_parts:
             continue
         gc.sql_exec(
             f"UPDATE {_safe_ident(table)} SET {', '.join(set_parts)} "
             f"WHERE id = {_sql_literal(row_id)}"
         )
+
+
+def _add_missing_columns(
+    gc: Any, table: str, columns: Iterable[str], existing: set[str]
+) -> list[str]:
+    newly_added: list[str] = []
+    for column in columns:
+        if column in existing:
+            continue
+        col_type = "BIGINT" if column == "revision" else "TEXT"
+        gc.sql_exec(
+            f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
+            f"{_safe_ident(column)} {col_type}"
+        )
+        existing.add(column)
+        newly_added.append(column)
+    return newly_added
+
+
+def _apply_step_for_table(
+    gc: Any,
+    migration_id: str,
+    table: str,
+    columns: Iterable[str],
+    current_columns: dict[str, set[str]],
+) -> None:
+    existing = current_columns.setdefault(table, set())
+    newly_added = _add_missing_columns(gc, table, columns, existing)
+    if not newly_added:
+        return
+    # Discovery-binding columns are deliberately left NULL/unbound for
+    # legacy rows (see module docstring / _DISCOVERY_BINDING_MIGRATION)
+    # -- every OTHER step's newly-added columns get a real backfill.
+    # (Step 4's ``acl_classification``/``acl_owner_id``/``acl_shared_scope``
+    # are the SAME kind of deliberately-left-NULL case -- there is no
+    # verified actor context to recover for a pre-existing row, so
+    # :func:`_backfill_legacy_rows` only reconstructs that step's
+    # ``kg_node_id`` and leaves the ACL columns unset; a NULL
+    # ``acl_classification`` is exactly what tells a reader "SQL has no
+    # opinion for this row", never "unrestricted".)
+    if migration_id != "0003_discovery_binding_columns":
+        _backfill_legacy_rows(gc, table, newly_added)
 
 
 def _apply_step(
@@ -1097,32 +1174,7 @@ def _apply_step(
         cols for mid, cols in _MIGRATION_COLUMN_STEPS if mid == migration_id
     )
     for table, columns in table_columns.items():
-        existing = current_columns.setdefault(table, set())
-        newly_added: list[str] = []
-        for column in columns:
-            if column in existing:
-                continue
-            col_type = "BIGINT" if column == "revision" else "TEXT"
-            gc.sql_exec(
-                f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
-                f"{_safe_ident(column)} {col_type}"
-            )
-            existing.add(column)
-            newly_added.append(column)
-        if not newly_added:
-            continue
-        # Discovery-binding columns are deliberately left NULL/unbound for
-        # legacy rows (see module docstring / _DISCOVERY_BINDING_MIGRATION)
-        # -- every OTHER step's newly-added columns get a real backfill.
-        # (Step 4's ``acl_classification``/``acl_owner_id``/``acl_shared_scope``
-        # are the SAME kind of deliberately-left-NULL case -- there is no
-        # verified actor context to recover for a pre-existing row, so
-        # :func:`_backfill_legacy_rows` only reconstructs that step's
-        # ``kg_node_id`` and leaves the ACL columns unset; a NULL
-        # ``acl_classification`` is exactly what tells a reader "SQL has no
-        # opinion for this row", never "unrestricted".)
-        if migration_id != "0003_discovery_binding_columns":
-            _backfill_legacy_rows(gc, table, newly_added)
+        _apply_step_for_table(gc, migration_id, table, columns, current_columns)
     checksum = _step_checksum(migration_id, table_columns)
     _ledger_put(
         gc,
@@ -1273,6 +1325,42 @@ def _claim_and_migrate(engine: Any) -> bool:
     if gc is None or not hasattr(gc, "sql_exec"):
         return False
 
+    current_columns = _collect_current_columns(gc)
+    if current_columns is None:
+        return False
+
+    diverged_reason = _detect_diverged_schema(current_columns)
+    if diverged_reason:
+        raise FleetCatalogSchemaDivergedError(diverged_reason)
+
+    lock_row = _read_ledger_row(gc, _LOCK_ROW_ID)
+    _reject_unknown_recorded_migration(lock_row)
+
+    needed = _steps_needed(current_columns)
+    if not needed:
+        if _ledger_needs_finalization(lock_row):
+            _finalize_ledger(gc, current_columns, claimant="")
+        return True
+
+    if not _claim_is_available(lock_row):
+        return False
+
+    token, already_complete = _acquire_migration_claim(gc)
+    if token is None:
+        return already_complete
+
+    for migration_id in needed:
+        _apply_step(gc, migration_id, current_columns)
+
+    verified_columns = _verify_post_migration_columns(gc)
+    _finalize_ledger(gc, verified_columns, claimant=token)
+    return True
+
+
+def _collect_current_columns(gc: Any) -> dict[str, set[str]] | None:
+    """DDL-ensure every table + ledger, then read back each table's actual
+    columns. Returns ``None`` (caller returns ``False``) if any table's
+    columns could not be read."""
     for ddl in _DDL.values():
         gc.sql_exec(ddl)
     gc.sql_exec(_LEDGER_DDL)
@@ -1281,46 +1369,57 @@ def _claim_and_migrate(engine: Any) -> bool:
     for table in _DDL:
         cols = _existing_table_columns(gc, table)
         if cols is None:
-            return False
+            return None
         current_columns[table] = cols
+    return current_columns
 
-    diverged_reason = _detect_diverged_schema(current_columns)
-    if diverged_reason:
-        raise FleetCatalogSchemaDivergedError(diverged_reason)
 
-    lock_row = _read_ledger_row(gc, _LOCK_ROW_ID)
-    if lock_row is not None:
-        recorded = str(lock_row.get("migration_id") or "")
-        if (
-            recorded
-            and recorded != _CURRENT_MARKER
-            and recorded not in _KNOWN_MIGRATION_IDS
-        ):
-            raise FleetCatalogSchemaTooNewError(
-                f"fleet catalog migration ledger records unknown migration "
-                f"{recorded!r}; this code version cannot verify or extend "
-                "that schema"
-            )
-
-    needed = _steps_needed(current_columns)
-    if not needed:
-        if lock_row is None or lock_row.get("status") != "complete":
-            _finalize_ledger(gc, current_columns, claimant="")
-        return True
-
-    if lock_row is not None and str(lock_row.get("status")) == "migrating":
-        if _claim_is_live(lock_row):
-            # Another process holds a LIVE claim — never take that over.
-            logger.info(
-                "fleet catalog schema migration already claimed by another "
-                "process; skipping this attempt (will retry on the next call)"
-            )
-            return False
-        logger.warning(
-            "fleet catalog schema migration claim from %s has expired; taking it over",
-            lock_row.get("claimed_at"),
+def _reject_unknown_recorded_migration(lock_row: dict[str, Any] | None) -> None:
+    if lock_row is None:
+        return
+    recorded = str(lock_row.get("migration_id") or "")
+    if (
+        recorded
+        and recorded != _CURRENT_MARKER
+        and recorded not in _KNOWN_MIGRATION_IDS
+    ):
+        raise FleetCatalogSchemaTooNewError(
+            f"fleet catalog migration ledger records unknown migration "
+            f"{recorded!r}; this code version cannot verify or extend "
+            "that schema"
         )
 
+
+def _ledger_needs_finalization(lock_row: dict[str, Any] | None) -> bool:
+    return lock_row is None or lock_row.get("status") != "complete"
+
+
+def _claim_is_available(lock_row: dict[str, Any] | None) -> bool:
+    """``False`` when another process holds a LIVE ``migrating`` claim
+    (caller must not proceed); ``True`` either when there is no conflicting
+    claim, or when a prior claim has expired and may be taken over."""
+    if lock_row is None or str(lock_row.get("status")) != "migrating":
+        return True
+    if _claim_is_live(lock_row):
+        # Another process holds a LIVE claim — never take that over.
+        logger.info(
+            "fleet catalog schema migration already claimed by another "
+            "process; skipping this attempt (will retry on the next call)"
+        )
+        return False
+    logger.warning(
+        "fleet catalog schema migration claim from %s has expired; taking it over",
+        lock_row.get("claimed_at"),
+    )
+    return True
+
+
+def _acquire_migration_claim(gc: Any) -> tuple[str | None, bool]:
+    """Attempt the ``migrating`` claim. Returns ``(token, False)`` when this
+    call won the claim; ``(None, True)`` when it lost the race but another
+    process already finished (a no-op success); ``(None, False)`` when it
+    lost the race and no one has finished (a no-op non-success, retry on the
+    next call)."""
     token = uuid.uuid4().hex
     # ``overwrite=True``, deliberately: a ``schema_state`` row marked
     # ``complete`` records that the schema was current AT THE TIME — it is
@@ -1348,18 +1447,18 @@ def _claim_and_migrate(engine: Any) -> bool:
         overwrite=True,
     )
     claimed = _read_ledger_row(gc, _LOCK_ROW_ID)
-    if claimed is None or str(claimed.get("claimant")) != token:
-        if claimed is not None and claimed.get("status") == "complete":
-            return True  # someone else already finished -- no-op success
-        logger.info(
-            "fleet catalog schema migration already claimed by another "
-            "process; skipping this attempt (will retry on the next call)"
-        )
-        return False  # lost the race -- a genuine no-op, not an error
+    if claimed is not None and str(claimed.get("claimant")) == token:
+        return token, False
+    if claimed is not None and claimed.get("status") == "complete":
+        return None, True  # someone else already finished -- no-op success
+    logger.info(
+        "fleet catalog schema migration already claimed by another "
+        "process; skipping this attempt (will retry on the next call)"
+    )
+    return None, False  # lost the race -- a genuine no-op, not an error
 
-    for migration_id in needed:
-        _apply_step(gc, migration_id, current_columns)
 
+def _verify_post_migration_columns(gc: Any) -> dict[str, set[str]]:
     verified_columns: dict[str, set[str]] = {}
     for table in _DDL:
         cols = _existing_table_columns(gc, table)
@@ -1373,9 +1472,7 @@ def _claim_and_migrate(engine: Any) -> bool:
             "post-migration verification failed: schema still does not "
             "match the expected current shape"
         )
-
-    _finalize_ledger(gc, verified_columns, claimant=token)
-    return True
+    return verified_columns
 
 
 def ensure_fleet_catalog_tables(engine: Any) -> bool:
@@ -1447,24 +1544,38 @@ def _select_existing(
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec") or not ids:
         return {}
-    tbl = _safe_ident(table)
-    col = _safe_ident(id_col)
     existing: dict[str, dict[str, Any]] = {}
     for chunk in _chunks(ids):
-        id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
-        stmt = (
-            f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
-            f"AND {col} IN ({id_list})"
-        )
-        try:
-            rows = gc.sql_exec(stmt)
-        except Exception:  # noqa: BLE001 — CAS read is best-effort
-            logger.debug("fleet catalog CAS read failed for %s", table)
+        chunk_rows = _select_existing_chunk(gc, table, id_col, tenant_id, chunk)
+        if chunk_rows is None:
             return {}
-        for row in rows or []:
-            if isinstance(row, dict) and row.get(id_col) is not None:
-                existing[str(row[id_col])] = row
+        existing.update(chunk_rows)
     return existing
+
+
+def _select_existing_chunk(
+    gc: Any, table: str, id_col: str, tenant_id: str, chunk: list[str]
+) -> dict[str, dict[str, Any]] | None:
+    """Rows for one id-chunk, or ``None`` on a query failure -- the caller
+    degrades to "nothing exists yet" for the WHOLE batch on any chunk
+    failure, matching the original single-return-point behavior."""
+    tbl = _safe_ident(table)
+    col = _safe_ident(id_col)
+    id_list = ", ".join(_sql_literal(row_id) for row_id in chunk)
+    stmt = (
+        f"SELECT * FROM {tbl} WHERE tenant_id = {_sql_literal(tenant_id)} "
+        f"AND {col} IN ({id_list})"
+    )
+    try:
+        rows = gc.sql_exec(stmt)
+    except Exception:  # noqa: BLE001 — CAS read is best-effort
+        logger.debug("fleet catalog CAS read failed for %s", table)
+        return None
+    chunk_rows: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if isinstance(row, dict) and row.get(id_col) is not None:
+            chunk_rows[str(row[id_col])] = row
+    return chunk_rows
 
 
 def _as_int(value: Any) -> int:
@@ -1563,7 +1674,7 @@ def catalog_acl_rows(
     unaffected. Never raises.
     """
     gc = _graph_compute(engine)
-    if gc is None or not hasattr(gc, "sql_exec") or not node_ids or not tenant_id:
+    if _acl_lookup_unusable(gc, node_ids, tenant_id):
         return {}
     try:
         if not ensure_fleet_catalog_tables(engine):
@@ -1573,11 +1684,34 @@ def catalog_acl_rows(
         # from either -- identical fail-closed posture to the write side.
         return {}
 
-    ids = list(dict.fromkeys(str(node_id) for node_id in node_ids if node_id))
+    ids = _resolve_acl_query_ids(node_ids)
     if not ids:
         return {}
-    id_list = ", ".join(_sql_literal(node_id) for node_id in ids)
 
+    result = _collect_catalog_acl_query_results(gc, ids, tenant_id)
+    if result is None:
+        return {}
+
+    # Defence-in-depth: only ever answer for an id actually asked about, and
+    # never let a duplicate/short-circuited id sneak in even if a future
+    # change to the SELECTs above widened the WHERE clause.
+    return {node_id: row for node_id, row in result.items() if node_id in ids}
+
+
+def _acl_lookup_unusable(gc: Any, node_ids: list[str], tenant_id: str) -> bool:
+    return gc is None or not hasattr(gc, "sql_exec") or not node_ids or not tenant_id
+
+
+def _resolve_acl_query_ids(node_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(str(node_id) for node_id in node_ids if node_id))
+
+
+def _collect_catalog_acl_query_results(
+    gc: Any, ids: list[str], tenant_id: str
+) -> dict[str, dict[str, Any]] | None:
+    """Query mcp_servers/mcp_tools/skills and fold into one ACL-row dict, or
+    ``None`` on any query failure (caller degrades to ``{}``)."""
+    id_list = ", ".join(_sql_literal(node_id) for node_id in ids)
     result: dict[str, dict[str, Any]] = {}
     try:
         # ``SELECT *`` -- the exact query shape :func:`_select_existing`
@@ -1599,12 +1733,8 @@ def catalog_acl_rows(
             _collect_acl_rows(rows, "kg_node_id", tenant_id, result, {})
     except Exception:  # noqa: BLE001 — SQL ACL lookup is a best-effort fast path
         logger.debug("fleet catalog ACL SQL lookup failed; caller falls back to Cypher")
-        return {}
-
-    # Defence-in-depth: only ever answer for an id actually asked about, and
-    # never let a duplicate/short-circuited id sneak in even if a future
-    # change to the SELECTs above widened the WHERE clause.
-    return {node_id: row for node_id, row in result.items() if node_id in ids}
+        return None
+    return result
 
 
 def _cas_batch_upsert(
@@ -1647,37 +1777,82 @@ def _cas_batch_upsert(
     ids = [str(row[conflict_col]) for row in rows]
     existing = _select_existing(engine, table, tenant_id, ids, id_col=conflict_col)
 
+    to_insert, to_update, rejected_stale, noop_replay = _classify_cas_rows(
+        rows, existing, conflict_col
+    )
+
+    tbl = _safe_ident(table)
+    written = _cas_batch_insert(gc, tbl, to_insert)
+    written += _cas_batch_update(gc, tbl, to_update, conflict_col, tenant_id)
+    return {
+        "written": written,
+        "rejected_stale": rejected_stale,
+        "noop_replay": noop_replay,
+    }
+
+
+def _classify_cas_row(
+    row: dict[str, Any], existing: dict[str, dict[str, Any]], conflict_col: str
+) -> str:
+    """One of ``"insert"``/``"noop"``/``"stale"``/``"update"`` for ``row``
+    against its existing catalog state (see :func:`_cas_batch_upsert`'s
+    docstring for the exact rules)."""
+    row_id = str(row[conflict_col])
+    current = existing.get(row_id)
+    if current is None:
+        return "insert"
+    if str(current.get("idempotency_key", "")) == str(row.get("idempotency_key", "")):
+        return "noop"
+    if _as_int(current.get("revision")) >= _as_int(row.get("revision")):
+        return "stale"
+    return "update"
+
+
+def _classify_cas_rows(
+    rows: list[dict[str, Any]],
+    existing: dict[str, dict[str, Any]],
+    conflict_col: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
     to_insert: list[dict[str, Any]] = []
     to_update: list[dict[str, Any]] = []
     rejected_stale = 0
     noop_replay = 0
     for row in rows:
-        row_id = str(row[conflict_col])
-        current = existing.get(row_id)
-        if current is None:
+        kind = _classify_cas_row(row, existing, conflict_col)
+        if kind == "insert":
             to_insert.append(row)
-            continue
-        if str(current.get("idempotency_key", "")) == str(
-            row.get("idempotency_key", "")
-        ):
+        elif kind == "noop":
             noop_replay += 1
-            continue
-        if _as_int(current.get("revision")) >= _as_int(row.get("revision")):
+        elif kind == "stale":
             rejected_stale += 1
-            continue
-        to_update.append(row)
+        else:
+            to_update.append(row)
+    return to_insert, to_update, rejected_stale, noop_replay
 
-    tbl = _safe_ident(table)
+
+def _cas_batch_insert(gc: Any, tbl: str, to_insert: list[dict[str, Any]]) -> int:
+    if not to_insert:
+        return 0
     written = 0
-    if to_insert:
-        columns = _bounded_columns(list(to_insert[0].keys()))
-        for chunk in _chunks(to_insert):
-            values_sql = ", ".join(
-                "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
-                for row in chunk
-            )
-            gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
-            written += len(chunk)
+    columns = _bounded_columns(list(to_insert[0].keys()))
+    for chunk in _chunks(to_insert):
+        values_sql = ", ".join(
+            "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
+            for row in chunk
+        )
+        gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
+        written += len(chunk)
+    return written
+
+
+def _cas_batch_update(
+    gc: Any,
+    tbl: str,
+    to_update: list[dict[str, Any]],
+    conflict_col: str,
+    tenant_id: str,
+) -> int:
+    written = 0
     for row in to_update:
         columns = _bounded_columns([c for c in row if c != conflict_col])
         set_clause = ", ".join(f"{c} = {_sql_literal(row[c])}" for c in columns)
@@ -1687,11 +1862,7 @@ def _cas_batch_upsert(
             f"AND tenant_id = {_sql_literal(tenant_id)}"
         )
         written += 1
-    return {
-        "written": written,
-        "rejected_stale": rejected_stale,
-        "noop_replay": noop_replay,
-    }
+    return written
 
 
 _SKILL_CLASSIFICATION_OVERRIDES_DDL = """CREATE TABLE IF NOT EXISTS skill_classification_overrides (
@@ -2197,289 +2368,424 @@ def write_fleet_catalog(
     if not ensure_fleet_catalog_tables(engine):
         return {"status": "skipped", "reason": "no engine SQL surface"}
 
-    configs = configs or {}
-    discovery_bindings = discovery_bindings or {}
-    tenant_id = _resolve_tenant_id(engine)
-    discovery_authority_ready = False
-    now = _now_iso()
-    write_revision = _default_revision() if revision is None else int(revision)
-
-    # Resolved ONCE for the whole batch, not per row: every row this call
-    # writes shares the same write-time ambient actor (one probe/sync
-    # attempt), so this mirrors the KG node write's own per-label stamp
-    # (``tenant_sharing.stamp_ownership``/``stamp_classification``) without
-    # re-deriving it 1-per-row. See :func:`_stamped_acl_fields`.
-    acl_server = _stamped_acl_fields("MCPServer")
-    acl_tool = _stamped_acl_fields("Tool")
-    acl_skill = _stamped_acl_fields("Skill")
-
-    server_rows: list[dict[str, Any]] = []
-    discovery_rows: list[dict[str, Any]] = []
-    tool_rows: list[dict[str, Any]] = []
-    prompt_rows: list[dict[str, Any]] = []
-    resource_rows: list[dict[str, Any]] = []
-    skill_rows: list[dict[str, Any]] = []
-    servers_unreachable = 0
-
-    for server_name, info in (catalog or {}).items():
-        if not isinstance(info, dict):
-            continue
-        err = info.get("error")
-        reachable = err is None
-        if not reachable:
-            servers_unreachable += 1
-        tools = info.get("tools") or []
-        skills = info.get("skills") or []
-        prompts = info.get("prompts") or []
-
-        cfg = configs.get(server_name) or {}
-        transport = (
-            "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "")
-        )
-        server_id = f"mcp_server_{server_name}"
-
-        server_content = {
-            "name": server_name,
-            "transport": transport,
-            "url": str(cfg.get("url") or ""),
-            "enabled": not bool(cfg.get("disabled", False)),
-            **acl_server,
-        }
-        server_rows.append(
-            {
-                "id": server_id,
-                "tenant_id": tenant_id,
-                **server_content,
-                "revision": write_revision,
-                "idempotency_key": idempotency_key
-                or _content_signature(server_content),
-                "updated_at": now,
-            }
-        )
-
-        (
-            binding_tenant,
-            discovery_principal,
-            discovery_grant_digest,
-            discovery_authority_kind,
-        ) = _binding_scope(discovery_bindings.get(server_name))
-        server_discovery_authority_ready = bool(
-            binding_tenant == tenant_id
-            and discovery_authority_kind in _DISCOVERY_AUTHORITY_KINDS
-            and (
-                discovery_authority_kind == DISCOVERY_AUTHORITY_TENANT_LOCAL
-                or (discovery_principal and discovery_grant_digest)
-            )
-        )
-        discovery_authority_ready = (
-            discovery_authority_ready or server_discovery_authority_ready
-        )
-
-        # Desired registration is tenant-scoped and can be retained without
-        # discovery authority. Every observed/derived row, however, must be
-        # bound to either the exact OAuth grant or the process-owned tenant
-        # local visibility contract; legacy/unbound writes are skipped rather
-        # than creating globally visible rows.
-        #
-        # BUG-PE-056 — the ONE exception, and it is not an authority
-        # loosening: a server whose probe FAILED never gets a binding
-        # (``MCPMultiplexer._bind_local_discovery_bindings`` mints one only
-        # for ``info["error"] is None``), so it used to fall out here with no
-        # discovery row at all — making "unavailable" indistinguishable from
-        # "empty" to the dashboard, the exact confusion this function's own
-        # docstring promises never to create. A failure observation exposes
-        # NO discovered capability (an errored probe has no tools/skills/
-        # prompts), so recording it needs no grant — only the verified tenant
-        # scope :func:`_resolve_tenant_id` already established. Record it
-        # under the process-owned tenant-local visibility contract, with the
-        # same empty principal/grant fields a local child's successful probe
-        # carries, and fall through to the ``continue`` below so no derived
-        # row is ever written for it.
-        if not server_discovery_authority_ready and not reachable and tenant_id:
-            discovery_authority_kind = DISCOVERY_AUTHORITY_TENANT_LOCAL
-            discovery_principal = ""
-            discovery_grant_digest = ""
-            unreachable_content = {
-                "server_id": server_id,
-                "server_name": server_name,
-                "reachable": False,
-                "last_error": _privacy_safe(str(err or "")),
-                "tool_count": 0,
-                "skill_count": 0,
-                "prompt_count": 0,
-                "resource_count": 0,
-                "discovery_authority_kind": discovery_authority_kind,
-                "discovery_principal": discovery_principal,
-                "discovery_grant_digest": discovery_grant_digest,
-            }
-            unreachable_key = idempotency_key or _content_signature(unreachable_content)
-            discovery_rows.append(
-                {
-                    "id": f"disc_{server_id}_{unreachable_key[:24]}",
-                    "tenant_id": tenant_id,
-                    **unreachable_content,
-                    "observed_at": now,
-                    "revision": write_revision,
-                    "idempotency_key": unreachable_key,
-                }
-            )
-        if not server_discovery_authority_ready:
-            continue
-
-        discovery_content = {
-            "server_id": server_id,
-            "server_name": server_name,
-            "reachable": reachable,
-            "last_error": _privacy_safe(str(err or "")),
-            "tool_count": len(tools),
-            "skill_count": len(skills),
-            "prompt_count": len(prompts),
-            "resource_count": len(skills) + len(prompts),
-            "discovery_authority_kind": discovery_authority_kind,
-            "discovery_principal": discovery_principal,
-            "discovery_grant_digest": discovery_grant_digest,
-        }
-        discovery_key = idempotency_key or _content_signature(discovery_content)
-        discovery_rows.append(
-            {
-                "id": f"disc_{server_id}_{discovery_key[:24]}",
-                "tenant_id": tenant_id,
-                **discovery_content,
-                "observed_at": now,
-                "revision": write_revision,
-                "idempotency_key": discovery_key,
-            }
-        )
-
-        for entry in tools:
-            if not isinstance(entry, dict):
-                continue
-            tool_row = _build_tool_row(
-                entry,
-                tenant_id=tenant_id,
-                server_id=server_id,
-                server_name=server_name,
-                discovery_authority_kind=discovery_authority_kind,
-                discovery_principal=discovery_principal,
-                discovery_grant_digest=discovery_grant_digest,
-                revision=write_revision,
-                idempotency_key=idempotency_key,
-                now=now,
-                acl=acl_tool,
-            )
-            if tool_row is not None:
-                tool_rows.append(tool_row)
-
-        for entry in skills:
-            if not isinstance(entry, dict):
-                continue
-            skill_name = entry.get("name")
-            if not skill_name:
-                continue
-            skill_rows.append(
-                _build_skill_row(
-                    skill_id=f"skill_{server_name}_{skill_name}",
-                    name=skill_name,
-                    description=entry.get("description", ""),
-                    uri=str(entry.get("uri") or ""),
-                    provider=f"mcp:{server_name}",
-                    mcp_server=server_name,
-                    skill_type="mcp_skill",
-                    disabled=False,
-                    tenant_id=tenant_id,
-                    discovery_authority_kind=discovery_authority_kind,
-                    discovery_principal=discovery_principal,
-                    discovery_grant_digest=discovery_grant_digest,
-                    revision=write_revision,
-                    idempotency_key=idempotency_key,
-                    now=now,
-                    acl=acl_skill,
-                )
-            )
-            resource_rows.append(
-                _build_resource_row(
-                    resource_id=f"resource_{server_name}_skill_{skill_name}",
-                    tenant_id=tenant_id,
-                    server_id=server_id,
-                    server_name=server_name,
-                    discovery_authority_kind=discovery_authority_kind,
-                    discovery_principal=discovery_principal,
-                    discovery_grant_digest=discovery_grant_digest,
-                    uri=str(entry.get("uri") or ""),
-                    name=skill_name,
-                    description=entry.get("description", ""),
-                    mime_type="text/markdown",
-                    resource_kind="skill",
-                    revision=write_revision,
-                    idempotency_key=idempotency_key,
-                    now=now,
-                )
-            )
-
-        for entry in prompts:
-            if not isinstance(entry, dict):
-                continue
-            prompt_row = _build_prompt_row(
-                entry,
-                tenant_id=tenant_id,
-                server_id=server_id,
-                server_name=server_name,
-                discovery_authority_kind=discovery_authority_kind,
-                discovery_principal=discovery_principal,
-                discovery_grant_digest=discovery_grant_digest,
-                revision=write_revision,
-                idempotency_key=idempotency_key,
-                now=now,
-            )
-            if prompt_row is None:
-                continue
-            prompt_rows.append(prompt_row)
-            prompt_name = str(entry.get("name") or "")
-            resource_rows.append(
-                _build_resource_row(
-                    resource_id=f"resource_{server_name}_prompt_{prompt_name}",
-                    tenant_id=tenant_id,
-                    server_id=server_id,
-                    server_name=server_name,
-                    discovery_authority_kind=discovery_authority_kind,
-                    discovery_principal=discovery_principal,
-                    discovery_grant_digest=discovery_grant_digest,
-                    uri=str(entry.get("uri") or ""),
-                    name=prompt_name,
-                    description=entry.get("description", ""),
-                    mime_type="text/plain",
-                    resource_kind="prompt",
-                    revision=write_revision,
-                    idempotency_key=idempotency_key,
-                    now=now,
-                )
-            )
-
-    servers_stats = _cas_batch_upsert(engine, TABLE_MCP_SERVERS, server_rows)
-    discovery_stats = _cas_batch_upsert(
-        engine, TABLE_MCP_SERVER_DISCOVERY, discovery_rows
+    ctx = _FleetCatalogWriteContext(
+        tenant_id=_resolve_tenant_id(engine),
+        configs=configs or {},
+        discovery_bindings=discovery_bindings or {},
+        write_revision=_default_revision() if revision is None else int(revision),
+        idempotency_key=idempotency_key,
+        now=_now_iso(),
+        # Resolved ONCE for the whole batch, not per row: every row this
+        # call writes shares the same write-time ambient actor (one
+        # probe/sync attempt), so this mirrors the KG node write's own
+        # per-label stamp (``tenant_sharing.stamp_ownership``/
+        # ``stamp_classification``) without re-deriving it 1-per-row. See
+        # :func:`_stamped_acl_fields`.
+        acl_server=_stamped_acl_fields("MCPServer"),
+        acl_tool=_stamped_acl_fields("Tool"),
+        acl_skill=_stamped_acl_fields("Skill"),
     )
-    tools_stats = _cas_batch_upsert(engine, TABLE_MCP_TOOLS, tool_rows)
-    prompts_stats = _cas_batch_upsert(engine, TABLE_MCP_PROMPTS, prompt_rows)
-    resources_stats = _cas_batch_upsert(engine, TABLE_MCP_RESOURCES, resource_rows)
-    skills_stats = _cas_batch_upsert(engine, TABLE_SKILLS, skill_rows)
+
+    rows = _write_fleet_catalog_rows(catalog, ctx)
+    stats = _cas_upsert_fleet_catalog_rows(engine, rows)
 
     return {
         "status": "ok",
-        "servers_written": servers_stats["written"],
-        "servers_unreachable": servers_unreachable,
-        "discovery_status": ("bound" if discovery_authority_ready else "unavailable"),
-        "tools_written": tools_stats["written"],
-        "prompts_written": prompts_stats["written"],
-        "resources_written": resources_stats["written"],
-        "skills_written": skills_stats["written"],
-        "discovery_written": discovery_stats["written"],
-        "cas": {
-            TABLE_MCP_SERVERS: servers_stats,
-            TABLE_MCP_SERVER_DISCOVERY: discovery_stats,
-            TABLE_MCP_TOOLS: tools_stats,
-            TABLE_MCP_PROMPTS: prompts_stats,
-            TABLE_MCP_RESOURCES: resources_stats,
-            TABLE_SKILLS: skills_stats,
-        },
+        "servers_written": stats[TABLE_MCP_SERVERS]["written"],
+        "servers_unreachable": rows.servers_unreachable,
+        "discovery_status": (
+            "bound" if rows.discovery_authority_ready else "unavailable"
+        ),
+        "tools_written": stats[TABLE_MCP_TOOLS]["written"],
+        "prompts_written": stats[TABLE_MCP_PROMPTS]["written"],
+        "resources_written": stats[TABLE_MCP_RESOURCES]["written"],
+        "skills_written": stats[TABLE_SKILLS]["written"],
+        "discovery_written": stats[TABLE_MCP_SERVER_DISCOVERY]["written"],
+        "cas": stats,
+    }
+
+
+@dataclass(frozen=True)
+class _FleetCatalogWriteContext:
+    """Shared, batch-scoped inputs threaded through one
+    :func:`write_fleet_catalog` call's per-server processing."""
+
+    tenant_id: str
+    configs: dict[str, dict]
+    discovery_bindings: dict[str, Any]
+    write_revision: int
+    idempotency_key: str | None
+    now: str
+    acl_server: dict[str, Any]
+    acl_tool: dict[str, Any]
+    acl_skill: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _DiscoveryAuthority:
+    kind: str
+    principal: str
+    grant_digest: str
+
+
+@dataclass
+class _FleetCatalogRows:
+    """Per-table row accumulators for one :func:`write_fleet_catalog` call,
+    plus the two batch-scoped signals (``servers_unreachable`` count,
+    ``discovery_authority_ready`` OR-accumulated across every server)."""
+
+    server_rows: list[dict[str, Any]] = field(default_factory=list)
+    discovery_rows: list[dict[str, Any]] = field(default_factory=list)
+    tool_rows: list[dict[str, Any]] = field(default_factory=list)
+    prompt_rows: list[dict[str, Any]] = field(default_factory=list)
+    resource_rows: list[dict[str, Any]] = field(default_factory=list)
+    skill_rows: list[dict[str, Any]] = field(default_factory=list)
+    servers_unreachable: int = 0
+    discovery_authority_ready: bool = False
+
+
+def _build_server_row(
+    ctx: _FleetCatalogWriteContext, server_name: str, cfg: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """(server_row, server_id) for one catalog entry."""
+    transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "")
+    server_id = f"mcp_server_{server_name}"
+    server_content = {
+        "name": server_name,
+        "transport": transport,
+        "url": str(cfg.get("url") or ""),
+        "enabled": not bool(cfg.get("disabled", False)),
+        **ctx.acl_server,
+    }
+    server_row = {
+        "id": server_id,
+        "tenant_id": ctx.tenant_id,
+        **server_content,
+        "revision": ctx.write_revision,
+        "idempotency_key": ctx.idempotency_key or _content_signature(server_content),
+        "updated_at": ctx.now,
+    }
+    return server_row, server_id
+
+
+def _resolve_server_discovery_authority(
+    ctx: _FleetCatalogWriteContext, server_name: str
+) -> tuple[bool, str, str, str]:
+    """(server_discovery_authority_ready, discovery_authority_kind,
+    discovery_principal, discovery_grant_digest) for one server."""
+    (
+        binding_tenant,
+        discovery_principal,
+        discovery_grant_digest,
+        discovery_authority_kind,
+    ) = _binding_scope(ctx.discovery_bindings.get(server_name))
+    ready = bool(
+        binding_tenant == ctx.tenant_id
+        and discovery_authority_kind in _DISCOVERY_AUTHORITY_KINDS
+        and (
+            discovery_authority_kind == DISCOVERY_AUTHORITY_TENANT_LOCAL
+            or (discovery_principal and discovery_grant_digest)
+        )
+    )
+    return ready, discovery_authority_kind, discovery_principal, discovery_grant_digest
+
+
+def _build_unreachable_discovery_row(
+    ctx: _FleetCatalogWriteContext, server_id: str, server_name: str, err: Any
+) -> dict[str, Any]:
+    """BUG-PE-056 — the ONE exception to "derived rows need discovery
+    authority", and it is not an authority loosening: a server whose probe
+    FAILED never gets a binding (``MCPMultiplexer._bind_local_discovery_bindings``
+    mints one only for ``info["error"] is None``), so it used to fall out
+    with no discovery row at all — making "unavailable" indistinguishable
+    from "empty" to the dashboard. A failure observation exposes NO
+    discovered capability, so recording it needs no grant — only the
+    verified tenant scope :func:`_resolve_tenant_id` already established.
+    Recorded under the process-owned tenant-local visibility contract, with
+    the same empty principal/grant fields a local child's successful probe
+    carries."""
+    unreachable_content = {
+        "server_id": server_id,
+        "server_name": server_name,
+        "reachable": False,
+        "last_error": _privacy_safe(str(err or "")),
+        "tool_count": 0,
+        "skill_count": 0,
+        "prompt_count": 0,
+        "resource_count": 0,
+        "discovery_authority_kind": DISCOVERY_AUTHORITY_TENANT_LOCAL,
+        "discovery_principal": "",
+        "discovery_grant_digest": "",
+    }
+    unreachable_key = ctx.idempotency_key or _content_signature(unreachable_content)
+    return {
+        "id": f"disc_{server_id}_{unreachable_key[:24]}",
+        "tenant_id": ctx.tenant_id,
+        **unreachable_content,
+        "observed_at": ctx.now,
+        "revision": ctx.write_revision,
+        "idempotency_key": unreachable_key,
+    }
+
+
+def _build_discovery_row(
+    ctx: _FleetCatalogWriteContext,
+    server_id: str,
+    server_name: str,
+    info: dict[str, Any],
+    authority: _DiscoveryAuthority,
+) -> dict[str, Any]:
+    err = info.get("error")
+    tools = info.get("tools") or []
+    skills = info.get("skills") or []
+    prompts = info.get("prompts") or []
+    discovery_content = {
+        "server_id": server_id,
+        "server_name": server_name,
+        "reachable": err is None,
+        "last_error": _privacy_safe(str(err or "")),
+        "tool_count": len(tools),
+        "skill_count": len(skills),
+        "prompt_count": len(prompts),
+        "resource_count": len(skills) + len(prompts),
+        "discovery_authority_kind": authority.kind,
+        "discovery_principal": authority.principal,
+        "discovery_grant_digest": authority.grant_digest,
+    }
+    discovery_key = ctx.idempotency_key or _content_signature(discovery_content)
+    return {
+        "id": f"disc_{server_id}_{discovery_key[:24]}",
+        "tenant_id": ctx.tenant_id,
+        **discovery_content,
+        "observed_at": ctx.now,
+        "revision": ctx.write_revision,
+        "idempotency_key": discovery_key,
+    }
+
+
+def _append_tool_rows(
+    ctx: _FleetCatalogWriteContext,
+    rows: _FleetCatalogRows,
+    server_id: str,
+    server_name: str,
+    tools: list[Any],
+    authority: _DiscoveryAuthority,
+) -> None:
+    for entry in tools:
+        if not isinstance(entry, dict):
+            continue
+        tool_row = _build_tool_row(
+            entry,
+            tenant_id=ctx.tenant_id,
+            server_id=server_id,
+            server_name=server_name,
+            discovery_authority_kind=authority.kind,
+            discovery_principal=authority.principal,
+            discovery_grant_digest=authority.grant_digest,
+            revision=ctx.write_revision,
+            idempotency_key=ctx.idempotency_key,
+            now=ctx.now,
+            acl=ctx.acl_tool,
+        )
+        if tool_row is not None:
+            rows.tool_rows.append(tool_row)
+
+
+def _append_skill_and_resource_rows(
+    ctx: _FleetCatalogWriteContext,
+    rows: _FleetCatalogRows,
+    server_id: str,
+    server_name: str,
+    skills: list[Any],
+    authority: _DiscoveryAuthority,
+) -> None:
+    for entry in skills:
+        if not isinstance(entry, dict):
+            continue
+        skill_name = entry.get("name")
+        if not skill_name:
+            continue
+        rows.skill_rows.append(
+            _build_skill_row(
+                skill_id=f"skill_{server_name}_{skill_name}",
+                name=skill_name,
+                description=entry.get("description", ""),
+                uri=str(entry.get("uri") or ""),
+                provider=f"mcp:{server_name}",
+                mcp_server=server_name,
+                skill_type="mcp_skill",
+                disabled=False,
+                tenant_id=ctx.tenant_id,
+                discovery_authority_kind=authority.kind,
+                discovery_principal=authority.principal,
+                discovery_grant_digest=authority.grant_digest,
+                revision=ctx.write_revision,
+                idempotency_key=ctx.idempotency_key,
+                now=ctx.now,
+                acl=ctx.acl_skill,
+            )
+        )
+        rows.resource_rows.append(
+            _build_resource_row(
+                resource_id=f"resource_{server_name}_skill_{skill_name}",
+                tenant_id=ctx.tenant_id,
+                server_id=server_id,
+                server_name=server_name,
+                discovery_authority_kind=authority.kind,
+                discovery_principal=authority.principal,
+                discovery_grant_digest=authority.grant_digest,
+                uri=str(entry.get("uri") or ""),
+                name=skill_name,
+                description=entry.get("description", ""),
+                mime_type="text/markdown",
+                resource_kind="skill",
+                revision=ctx.write_revision,
+                idempotency_key=ctx.idempotency_key,
+                now=ctx.now,
+            )
+        )
+
+
+def _append_prompt_and_resource_rows(
+    ctx: _FleetCatalogWriteContext,
+    rows: _FleetCatalogRows,
+    server_id: str,
+    server_name: str,
+    prompts: list[Any],
+    authority: _DiscoveryAuthority,
+) -> None:
+    for entry in prompts:
+        if not isinstance(entry, dict):
+            continue
+        prompt_row = _build_prompt_row(
+            entry,
+            tenant_id=ctx.tenant_id,
+            server_id=server_id,
+            server_name=server_name,
+            discovery_authority_kind=authority.kind,
+            discovery_principal=authority.principal,
+            discovery_grant_digest=authority.grant_digest,
+            revision=ctx.write_revision,
+            idempotency_key=ctx.idempotency_key,
+            now=ctx.now,
+        )
+        if prompt_row is None:
+            continue
+        rows.prompt_rows.append(prompt_row)
+        prompt_name = str(entry.get("name") or "")
+        rows.resource_rows.append(
+            _build_resource_row(
+                resource_id=f"resource_{server_name}_prompt_{prompt_name}",
+                tenant_id=ctx.tenant_id,
+                server_id=server_id,
+                server_name=server_name,
+                discovery_authority_kind=authority.kind,
+                discovery_principal=authority.principal,
+                discovery_grant_digest=authority.grant_digest,
+                uri=str(entry.get("uri") or ""),
+                name=prompt_name,
+                description=entry.get("description", ""),
+                mime_type="text/plain",
+                resource_kind="prompt",
+                revision=ctx.write_revision,
+                idempotency_key=ctx.idempotency_key,
+                now=ctx.now,
+            )
+        )
+
+
+def _needs_unreachable_discovery_row(
+    server_discovery_authority_ready: bool, reachable: bool, tenant_id: str
+) -> bool:
+    return not server_discovery_authority_ready and not reachable and bool(tenant_id)
+
+
+def _process_one_server(
+    ctx: _FleetCatalogWriteContext,
+    rows: _FleetCatalogRows,
+    server_name: str,
+    info: dict[str, Any],
+) -> None:
+    err = info.get("error")
+    reachable = err is None
+    if not reachable:
+        rows.servers_unreachable += 1
+    tools = info.get("tools") or []
+    skills = info.get("skills") or []
+    prompts = info.get("prompts") or []
+
+    cfg = ctx.configs.get(server_name) or {}
+    server_row, server_id = _build_server_row(ctx, server_name, cfg)
+    rows.server_rows.append(server_row)
+
+    (
+        server_discovery_authority_ready,
+        discovery_authority_kind,
+        discovery_principal,
+        discovery_grant_digest,
+    ) = _resolve_server_discovery_authority(ctx, server_name)
+    rows.discovery_authority_ready = (
+        rows.discovery_authority_ready or server_discovery_authority_ready
+    )
+
+    # Desired registration is tenant-scoped and can be retained without
+    # discovery authority. Every observed/derived row, however, must be
+    # bound to either the exact OAuth grant or the process-owned tenant
+    # local visibility contract; legacy/unbound writes are skipped rather
+    # than creating globally visible rows. See
+    # :func:`_build_unreachable_discovery_row` for the one exception
+    # (BUG-PE-056).
+    if _needs_unreachable_discovery_row(
+        server_discovery_authority_ready, reachable, ctx.tenant_id
+    ):
+        rows.discovery_rows.append(
+            _build_unreachable_discovery_row(ctx, server_id, server_name, err)
+        )
+    if not server_discovery_authority_ready:
+        return
+
+    authority = _DiscoveryAuthority(
+        discovery_authority_kind, discovery_principal, discovery_grant_digest
+    )
+    rows.discovery_rows.append(
+        _build_discovery_row(ctx, server_id, server_name, info, authority)
+    )
+    _append_tool_rows(ctx, rows, server_id, server_name, tools, authority)
+    _append_skill_and_resource_rows(
+        ctx, rows, server_id, server_name, skills, authority
+    )
+    _append_prompt_and_resource_rows(
+        ctx, rows, server_id, server_name, prompts, authority
+    )
+
+
+def _write_fleet_catalog_rows(
+    catalog: dict[str, dict], ctx: _FleetCatalogWriteContext
+) -> _FleetCatalogRows:
+    rows = _FleetCatalogRows()
+    for server_name, info in (catalog or {}).items():
+        if not isinstance(info, dict):
+            continue
+        _process_one_server(ctx, rows, server_name, info)
+    return rows
+
+
+def _cas_upsert_fleet_catalog_rows(
+    engine: Any, rows: _FleetCatalogRows
+) -> dict[str, dict[str, int]]:
+    return {
+        TABLE_MCP_SERVERS: _cas_batch_upsert(
+            engine, TABLE_MCP_SERVERS, rows.server_rows
+        ),
+        TABLE_MCP_SERVER_DISCOVERY: _cas_batch_upsert(
+            engine, TABLE_MCP_SERVER_DISCOVERY, rows.discovery_rows
+        ),
+        TABLE_MCP_TOOLS: _cas_batch_upsert(engine, TABLE_MCP_TOOLS, rows.tool_rows),
+        TABLE_MCP_PROMPTS: _cas_batch_upsert(
+            engine, TABLE_MCP_PROMPTS, rows.prompt_rows
+        ),
+        TABLE_MCP_RESOURCES: _cas_batch_upsert(
+            engine, TABLE_MCP_RESOURCES, rows.resource_rows
+        ),
+        TABLE_SKILLS: _cas_batch_upsert(engine, TABLE_SKILLS, rows.skill_rows),
     }

@@ -312,52 +312,78 @@ _MAX_TASK_INPUT_DEPTH = 24
 _MAX_TASK_INPUT_STRING_BYTES = 16 * 1024
 
 
-def _validate_task_input_bounds(value: Any) -> None:
-    """Reject oversized, deep, cyclic, or non-JSON task input values."""
-
-    items = 0
-    seen: set[int] = set()
-    stack: list[tuple[Any, int]] = [(value, 0)]
-    while stack:
-        current, depth = stack.pop()
-        if depth > _MAX_TASK_INPUT_DEPTH:
-            raise ValueError("task input exceeds the maximum nesting depth")
-        items += 1
-        if items > _MAX_TASK_INPUT_ITEMS:
-            raise ValueError("task input exceeds the maximum item count")
-
-        if current is None or isinstance(current, bool):
-            pass
-        elif isinstance(current, int | float):
-            if isinstance(current, float) and not math.isfinite(current):
-                raise ValueError("task input contains a non-JSON value")
-        elif isinstance(current, str):
-            string_bytes = len(current.encode("utf-8"))
-            if string_bytes > _MAX_TASK_INPUT_STRING_BYTES:
-                raise ValueError("task input string exceeds the size limit")
-        elif isinstance(current, dict):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("task input contains a cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TASK_INPUT_ITEMS - items:
-                raise ValueError("task input exceeds the maximum item count")
-            for key, child in current.items():
-                if not isinstance(key, str):
-                    raise ValueError("task input object keys must be strings")
-                stack.append((child, depth + 1))
-                stack.append((key, depth + 1))
-        elif isinstance(current, list):
-            identity = id(current)
-            if identity in seen:
-                raise ValueError("task input contains a cycle")
-            seen.add(identity)
-            if len(current) > _MAX_TASK_INPUT_ITEMS - items:
-                raise ValueError("task input exceeds the maximum item count")
-            stack.extend((child, depth + 1) for child in current)
-        else:
+def _is_scalar_task_input(current: Any) -> bool:
+    """``True`` (having validated it) for None/bool/int/float/str; raises on
+    an invalid scalar value; ``False`` when ``current`` is a container
+    (dict/list) or something else the caller must reject."""
+    if current is None or isinstance(current, bool):
+        return True
+    if isinstance(current, int | float):
+        if isinstance(current, float) and not math.isfinite(current):
             raise ValueError("task input contains a non-JSON value")
+        return True
+    if isinstance(current, str):
+        if len(current.encode("utf-8")) > _MAX_TASK_INPUT_STRING_BYTES:
+            raise ValueError("task input string exceeds the size limit")
+        return True
+    return False
 
+
+def _push_task_input_dict_children(
+    current: dict[Any, Any],
+    depth: int,
+    items: int,
+    seen: set[int],
+    stack: list[tuple[Any, int]],
+) -> None:
+    identity = id(current)
+    if identity in seen:
+        raise ValueError("task input contains a cycle")
+    seen.add(identity)
+    if len(current) > _MAX_TASK_INPUT_ITEMS - items:
+        raise ValueError("task input exceeds the maximum item count")
+    for key, child in current.items():
+        if not isinstance(key, str):
+            raise ValueError("task input object keys must be strings")
+        stack.append((child, depth + 1))
+        stack.append((key, depth + 1))
+
+
+def _push_task_input_list_children(
+    current: list[Any],
+    depth: int,
+    items: int,
+    seen: set[int],
+    stack: list[tuple[Any, int]],
+) -> None:
+    identity = id(current)
+    if identity in seen:
+        raise ValueError("task input contains a cycle")
+    seen.add(identity)
+    if len(current) > _MAX_TASK_INPUT_ITEMS - items:
+        raise ValueError("task input exceeds the maximum item count")
+    stack.extend((child, depth + 1) for child in current)
+
+
+def _validate_task_input_node(
+    current: Any,
+    depth: int,
+    items: int,
+    seen: set[int],
+    stack: list[tuple[Any, int]],
+) -> None:
+    if _is_scalar_task_input(current):
+        return
+    if isinstance(current, dict):
+        _push_task_input_dict_children(current, depth, items, seen, stack)
+        return
+    if isinstance(current, list):
+        _push_task_input_list_children(current, depth, items, seen, stack)
+        return
+    raise ValueError("task input contains a non-JSON value")
+
+
+def _validate_task_input_encoded_size(value: Any) -> None:
     try:
         encoded_bytes = len(
             json.dumps(
@@ -371,6 +397,24 @@ def _validate_task_input_bounds(value: Any) -> None:
         raise ValueError("task input contains a non-JSON value") from None
     if encoded_bytes > _MAX_TASK_INPUT_BYTES:
         raise ValueError("task input exceeds the size limit")
+
+
+def _validate_task_input_bounds(value: Any) -> None:
+    """Reject oversized, deep, cyclic, or non-JSON task input values."""
+
+    items = 0
+    seen: set[int] = set()
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > _MAX_TASK_INPUT_DEPTH:
+            raise ValueError("task input exceeds the maximum nesting depth")
+        items += 1
+        if items > _MAX_TASK_INPUT_ITEMS:
+            raise ValueError("task input exceeds the maximum item count")
+        _validate_task_input_node(current, depth, items, seen, stack)
+
+    _validate_task_input_encoded_size(value)
 
 
 def _validate_task_id(value: str) -> str:
@@ -614,6 +658,61 @@ class WorkItemTasksExtension(ServerExtension):
         }
 
     @staticmethod
+    def _validate_route_server(server: Any) -> str:
+        if (
+            not isinstance(server, str)
+            or not server.strip()
+            or any(ord(char) < 0x20 for char in server)
+        ):
+            raise mcp_protocol_exception(-32602, "Invalid Tasks owning-server route")
+        return server.strip()
+
+    @staticmethod
+    def _validate_route_revision(revision: Any) -> None:
+        if revision != TASKS_EXTENSION_REVISION:
+            raise mcp_protocol_exception(
+                -32602,
+                "Unsupported Tasks extension revision",
+                {"expectedRevision": TASKS_EXTENSION_REVISION},
+            )
+
+    @staticmethod
+    def _validate_delegation_token(token: Any, issuer: Any) -> str:
+        if (
+            issuer != "mcp-multiplexer"
+            or not isinstance(token, str)
+            or not 32 <= len(token) <= 16_384
+            or any(ord(character) < 0x20 for character in token)
+        ):
+            raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
+        return token
+
+    @staticmethod
+    def _validate_delegation_channel(channel: Any) -> str:
+        if (
+            not isinstance(channel, str)
+            or len(channel) != 64
+            or any(character not in "0123456789abcdef" for character in channel)
+        ):
+            raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
+        return channel
+
+    @staticmethod
+    def _build_route_delegation(delegation: Any) -> dict[str, Any]:
+        if not isinstance(delegation, Mapping):
+            raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
+        token = WorkItemTasksExtension._validate_delegation_token(
+            delegation.get("token"), delegation.get("issuer")
+        )
+        result: dict[str, Any] = {"issuer": "mcp-multiplexer", "token": token}
+        channel = delegation.get("channel")
+        if channel is not None:
+            result["channel"] = WorkItemTasksExtension._validate_delegation_channel(
+                channel
+            )
+        return result
+
+    @staticmethod
     def _route_from_params(params: Any) -> dict[str, Any] | None:
         meta = getattr(params, "meta", None)
         if not isinstance(meta, Mapping):
@@ -623,21 +722,10 @@ class WorkItemTasksExtension(ServerExtension):
             return None
         if not isinstance(raw, Mapping):
             raise mcp_protocol_exception(-32602, "Invalid Tasks route metadata")
-        server = raw.get("server")
+        server = WorkItemTasksExtension._validate_route_server(raw.get("server"))
         revision = raw.get("revision")
-        if (
-            not isinstance(server, str)
-            or not server.strip()
-            or any(ord(char) < 0x20 for char in server)
-        ):
-            raise mcp_protocol_exception(-32602, "Invalid Tasks owning-server route")
-        if revision != TASKS_EXTENSION_REVISION:
-            raise mcp_protocol_exception(
-                -32602,
-                "Unsupported Tasks extension revision",
-                {"expectedRevision": TASKS_EXTENSION_REVISION},
-            )
-        route: dict[str, Any] = {"server": server.strip(), "revision": revision}
+        WorkItemTasksExtension._validate_route_revision(revision)
+        route: dict[str, Any] = {"server": server, "revision": revision}
         # Preserve only the route target/revision.  Caller identity is
         # accepted below only as a delegated envelope emitted by the
         # multiplexer; a direct client cannot forge echoed authority metadata.
@@ -646,26 +734,9 @@ class WorkItemTasksExtension(ServerExtension):
             route["caller"] = dict(caller)
         delegation = raw.get("delegation")
         if delegation is not None:
-            if not isinstance(delegation, Mapping):
-                raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
-            token = delegation.get("token")
-            if (
-                delegation.get("issuer") != "mcp-multiplexer"
-                or not isinstance(token, str)
-                or not 32 <= len(token) <= 16_384
-                or any(ord(character) < 0x20 for character in token)
-            ):
-                raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
-            route["delegation"] = {"issuer": "mcp-multiplexer", "token": token}
-            channel = delegation.get("channel")
-            if channel is not None:
-                if (
-                    not isinstance(channel, str)
-                    or len(channel) != 64
-                    or any(character not in "0123456789abcdef" for character in channel)
-                ):
-                    raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
-                route["delegation"]["channel"] = channel
+            route["delegation"] = WorkItemTasksExtension._build_route_delegation(
+                delegation
+            )
         return route
 
     @staticmethod
@@ -714,34 +785,28 @@ class WorkItemTasksExtension(ServerExtension):
             raise PermissionError("Verified graph authority is required") from None
 
     @staticmethod
-    def _authorized_delegator(ctx: ServerRequestContext[Any, Any]) -> Any:
-        """Resolve the verified service authority for a delegated task hop.
-
-        The HMAC task proof carries the *end user's* bounded identity, not
-        the identity of the MCP connection that delivered it.  A valid HMAC
-        alone is therefore insufficient: a direct client that learns the
-        shared secret must not be able to impersonate the multiplexer.  The
-        inbound MCP bearer is verified by FastMCP before this method sees it;
-        this method additionally binds issuer, audience, and an automated
-        service principal with the explicit fleet-delegation capability.
-        """
-
-        # Local stdio children have no HTTP bearer context. Their parent
-        # injects a random, per-connection-generation channel secret into the
-        # child process environment; the request proof below must present the
-        # corresponding MAC. This secret is never accepted from catalog JSON.
+    def _stdio_delegation_authority() -> Any | None:
+        """Local stdio children have no HTTP bearer context. Their parent
+        injects a random, per-connection-generation channel secret into the
+        child process environment; the request proof below must present the
+        corresponding MAC. This secret is never accepted from catalog JSON.
+        Returns ``None`` when no (valid-length) stdio channel secret is set."""
         channel_secret = os.environ.get(_TASK_DELEGATION_CHANNEL_ENV, "").strip()
-        if 32 <= len(channel_secret) <= 512:
-            from types import SimpleNamespace
+        if not 32 <= len(channel_secret) <= 512:
+            return None
+        from types import SimpleNamespace
 
-            return SimpleNamespace(
-                authenticated=True,
-                issuer="stdio:mcp-multiplexer",
-                audience="stdio-child-generation",
-                service_principal="mcp-multiplexer",
-                scopes=frozenset({"mcp:delegate"}),
-                channel_secret=channel_secret,
-            )
+        return SimpleNamespace(
+            authenticated=True,
+            issuer="stdio:mcp-multiplexer",
+            audience="stdio-child-generation",
+            service_principal="mcp-multiplexer",
+            scopes=frozenset({"mcp:delegate"}),
+            channel_secret=channel_secret,
+        )
+
+    @staticmethod
+    def _delegator_token_and_claims() -> tuple[Any, Mapping[str, Any]]:
         try:
             from fastmcp.server.dependencies import get_access_token
 
@@ -754,74 +819,111 @@ class WorkItemTasksExtension(ServerExtension):
                 -32001,
                 "Authenticated multiplexer service authority is required",
             )
-        try:
-            from agent_utilities.core.config import config, setting
-            from agent_utilities.security.identity import (
-                base_capabilities,
-                normalize_identity,
+        return token, claims
+
+    @staticmethod
+    def _configured_issuers() -> set[str]:
+        from agent_utilities.core.config import config, setting
+
+        expected_issuer = (
+            getattr(config, "auth_jwt_issuer", None)
+            or getattr(config, "mcp_jwt_issuer", None)
+            or setting("FASTMCP_SERVER_AUTH_JWT_ISSUER", None)
+            or setting("AUTH_JWT_ISSUER", None)
+            or setting("MCP_JWT_ISSUER", None)
+        )
+        return {
+            value.strip()
+            for value in str(expected_issuer or "").split(",")
+            if value.strip()
+        }
+
+    @staticmethod
+    def _configured_audiences() -> set[str]:
+        from agent_utilities.core.config import config, setting
+
+        expected_audience = (
+            getattr(config, "auth_jwt_audience", None)
+            or getattr(config, "mcp_jwt_audience", None)
+            or setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE", None)
+            or setting("AUTH_JWT_AUDIENCE", None)
+            or setting("MCP_JWT_AUDIENCE", None)
+        )
+        return {
+            value.strip()
+            for value in str(expected_audience or "").split(",")
+            if value.strip()
+        }
+
+    @staticmethod
+    def _token_audiences(raw_audience: Any) -> set[str]:
+        if isinstance(raw_audience, str):
+            return {raw_audience.strip()} if raw_audience.strip() else set()
+        if isinstance(raw_audience, (list, tuple, set, frozenset)):
+            return {str(value).strip() for value in raw_audience if str(value).strip()}
+        return set()
+
+    @staticmethod
+    def _delegator_capabilities(token: Any, identity: Any, config: Any) -> set[str]:
+        from agent_utilities.security.identity import base_capabilities
+
+        capabilities = {
+            str(scope).strip()
+            for scope in (getattr(token, "scopes", None) or ())
+            if str(scope).strip()
+        }
+        capabilities.update(
+            str(scope).strip()
+            for scope in base_capabilities(
+                identity,
+                getattr(config, "identity_group_capability_map", None),
             )
+            if str(scope).strip()
+        )
+        return capabilities
+
+    @staticmethod
+    def _delegator_identity_facts(
+        token: Any, claims: Mapping[str, Any]
+    ) -> tuple[str, set[str], set[str], set[str], str, set[str]]:
+        """(issuer, issuers, token_audiences, audiences, principal,
+        capabilities) resolved from ``claims``/``token`` — raises the SAME
+        stable protocol error as every other failure mode on this path if
+        resolution itself fails."""
+        try:
+            from agent_utilities.core.config import config
+            from agent_utilities.security.identity import normalize_identity
 
             identity = normalize_identity(claims)
-            expected_issuer = (
-                getattr(config, "auth_jwt_issuer", None)
-                or getattr(config, "mcp_jwt_issuer", None)
-                or setting("FASTMCP_SERVER_AUTH_JWT_ISSUER", None)
-                or setting("AUTH_JWT_ISSUER", None)
-                or setting("MCP_JWT_ISSUER", None)
-            )
-            expected_audience = (
-                getattr(config, "auth_jwt_audience", None)
-                or getattr(config, "mcp_jwt_audience", None)
-                or setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE", None)
-                or setting("AUTH_JWT_AUDIENCE", None)
-                or setting("MCP_JWT_AUDIENCE", None)
-            )
-            issuers = {
-                value.strip()
-                for value in str(expected_issuer or "").split(",")
-                if value.strip()
-            }
-            audiences = {
-                value.strip()
-                for value in str(expected_audience or "").split(",")
-                if value.strip()
-            }
+            issuers = WorkItemTasksExtension._configured_issuers()
+            audiences = WorkItemTasksExtension._configured_audiences()
             issuer = str(claims.get("iss") or "").strip()
-            raw_audience = claims.get("aud")
-            if isinstance(raw_audience, str):
-                token_audiences = (
-                    {raw_audience.strip()} if raw_audience.strip() else set()
-                )
-            elif isinstance(raw_audience, (list, tuple, set, frozenset)):
-                token_audiences = {
-                    str(value).strip() for value in raw_audience if str(value).strip()
-                }
-            else:
-                token_audiences = set()
+            token_audiences = WorkItemTasksExtension._token_audiences(claims.get("aud"))
             principal = str(
                 getattr(token, "client_id", None)
                 or claims.get("client_id")
                 or claims.get("azp")
                 or ""
             ).strip()
-            capabilities = {
-                str(scope).strip()
-                for scope in (getattr(token, "scopes", None) or ())
-                if str(scope).strip()
-            }
-            capabilities.update(
-                str(scope).strip()
-                for scope in base_capabilities(
-                    identity,
-                    getattr(config, "identity_group_capability_map", None),
-                )
-                if str(scope).strip()
+            capabilities = WorkItemTasksExtension._delegator_capabilities(
+                token, identity, config
             )
         except Exception:
             raise mcp_protocol_exception(
                 -32001,
                 "Authenticated multiplexer service authority is required",
             ) from None
+        return issuer, issuers, token_audiences, audiences, principal, capabilities
+
+    @staticmethod
+    def _validate_delegator_facts(
+        issuer: str,
+        issuers: set[str],
+        token_audiences: set[str],
+        audiences: set[str],
+        principal: str,
+        capabilities: set[str],
+    ) -> None:
         if (
             not issuers
             or issuer not in issuers
@@ -836,6 +938,36 @@ class WorkItemTasksExtension(ServerExtension):
                 -32001,
                 "Authenticated multiplexer service authority is required",
             )
+
+    @staticmethod
+    def _authorized_delegator(ctx: ServerRequestContext[Any, Any]) -> Any:
+        """Resolve the verified service authority for a delegated task hop.
+
+        The HMAC task proof carries the *end user's* bounded identity, not
+        the identity of the MCP connection that delivered it.  A valid HMAC
+        alone is therefore insufficient: a direct client that learns the
+        shared secret must not be able to impersonate the multiplexer.  The
+        inbound MCP bearer is verified by FastMCP before this method sees it;
+        this method additionally binds issuer, audience, and an automated
+        service principal with the explicit fleet-delegation capability.
+        """
+        stdio_authority = WorkItemTasksExtension._stdio_delegation_authority()
+        if stdio_authority is not None:
+            return stdio_authority
+
+        token, claims = WorkItemTasksExtension._delegator_token_and_claims()
+        (
+            issuer,
+            issuers,
+            token_audiences,
+            audiences,
+            principal,
+            capabilities,
+        ) = WorkItemTasksExtension._delegator_identity_facts(token, claims)
+        WorkItemTasksExtension._validate_delegator_facts(
+            issuer, issuers, token_audiences, audiences, principal, capabilities
+        )
+
         from types import SimpleNamespace
 
         return SimpleNamespace(
@@ -931,16 +1063,50 @@ class WorkItemTasksExtension(ServerExtension):
         if not isinstance(route, Mapping) or "delegation" not in route:
             return None
         self._require_delegator(service_authority)
+        caller, proof = self._extract_delegation_caller_and_proof(route)
+        token = self._extract_delegation_token(proof)
+        self._validate_delegation_channel_proof(service_authority, proof, token)
+        decoded = self._decode_delegation_token(token, method)
+        self._validate_delegation_binding(decoded, method, params, caller)
+        owner, tenant, scopes = self._delegation_identity(caller, decoded)
+        self._validate_delegation_scope(scopes, scope)
+
+        from types import SimpleNamespace
+
+        # The delegated session is deliberately narrowed to this request's
+        # effective operation.  Carrying the end user's full scope set into
+        # the child would make response/audit metadata imply authority that
+        # this hop did not need or authorize.
+        return SimpleNamespace(
+            tenant=tenant,
+            scopes=frozenset({scope}),
+            actor=SimpleNamespace(actor_id=owner),
+        )
+
+    @staticmethod
+    def _extract_delegation_caller_and_proof(
+        route: Mapping[str, Any],
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         caller = route.get("caller")
         proof = route.get("delegation")
         if not isinstance(caller, Mapping) or not isinstance(proof, Mapping):
             raise mcp_protocol_exception(-32001, "Invalid delegated task identity")
+        return caller, proof
+
+    @staticmethod
+    def _extract_delegation_token(proof: Mapping[str, Any]) -> str:
         token = proof.get("token")
         if not isinstance(token, str) or not token:
             raise mcp_protocol_exception(
                 -32001,
                 "Authenticated task delegation is unavailable; use portable rm_jobs tools",
             )
+        return token
+
+    @staticmethod
+    def _validate_delegation_channel_proof(
+        service_authority: Any, proof: Mapping[str, Any], token: str
+    ) -> None:
         channel = proof.get("channel")
         channel_secret = str(
             getattr(service_authority, "channel_secret", "") or ""
@@ -955,10 +1121,12 @@ class WorkItemTasksExtension(ServerExtension):
             # per-generation secret; never accept it as an unsigned hint on a
             # remote bearer-authenticated connection.
             raise mcp_protocol_exception(-32001, "Invalid delegated task proof")
+
+    def _decode_delegation_token(self, token: str, method: str) -> Any:
         try:
             from agent_utilities.security.run_token import validate_token
 
-            decoded = validate_token(
+            return validate_token(
                 token,
                 endpoint=str(self.server_id or ""),
                 operation=method,
@@ -967,6 +1135,10 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Invalid or expired delegated task proof"
             ) from None
+
+    def _validate_delegation_binding(
+        self, decoded: Any, method: str, params: Any, caller: Mapping[str, Any]
+    ) -> None:
         binding = _delegation_binding(
             method,
             params.model_dump(mode="json", by_alias=True, exclude_none=True),
@@ -979,6 +1151,10 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Delegated task request binding is invalid"
             )
+
+    def _delegation_identity(
+        self, caller: Mapping[str, Any], decoded: Any
+    ) -> tuple[str, str, frozenset[str]]:
         owner = str(caller.get("owner") or "").strip()
         tenant = str(caller.get("tenant") or "").strip()
         scopes = frozenset(str(value) for value in caller.get("scopes", ()))
@@ -992,23 +1168,16 @@ class WorkItemTasksExtension(ServerExtension):
             raise mcp_protocol_exception(
                 -32001, "Delegated task identity is incomplete"
             )
+        return owner, tenant, scopes
+
+    @staticmethod
+    def _validate_delegation_scope(scopes: frozenset[str], scope: str) -> None:
         accepted = {
             "kg:read": {"kg:read", "kg:write", "kg:admin"},
             "kg:write": {"kg:write", "kg:admin"},
         }.get(scope, {scope})
         if scopes.isdisjoint(accepted):
             raise mcp_protocol_exception(-32001, "Delegated task scope is insufficient")
-        from types import SimpleNamespace
-
-        # The delegated session is deliberately narrowed to this request's
-        # effective operation.  Carrying the end user's full scope set into
-        # the child would make response/audit metadata imply authority that
-        # this hop did not need or authorize.
-        return SimpleNamespace(
-            tenant=tenant,
-            scopes=frozenset({scope}),
-            actor=SimpleNamespace(actor_id=owner),
-        )
 
     def _authorized_request_session(
         self,
@@ -1211,18 +1380,7 @@ class WorkItemTasksExtension(ServerExtension):
             if isinstance(metadata, dict)
             else None
         )
-        if raw_status in _WORKING_RAW_STATUSES and isinstance(pending, dict):
-            status = "input_required"
-        elif raw_status in _WORKING_RAW_STATUSES:
-            status = "working"
-        elif raw_status == "succeeded":
-            status = "completed"
-        elif raw_status in {"failed", "dead_letter"}:
-            status = "failed"
-        elif raw_status == "cancelled":
-            status = "cancelled"
-        else:
-            raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
+        status = self._map_work_item_status(raw_status, pending)
         result = _GetTaskResult(
             task_id=task_id,
             status=status,
@@ -1233,37 +1391,65 @@ class WorkItemTasksExtension(ServerExtension):
             ttl_ms=None,
             meta=self._response_meta(session, route),
         )
+        self._apply_task_status_payload(result, status, task_id, item, pending)
+        return result
+
+    @staticmethod
+    def _map_work_item_status(raw_status: str, pending: Any) -> str:
+        if raw_status in _WORKING_RAW_STATUSES and isinstance(pending, dict):
+            return "input_required"
+        if raw_status in _WORKING_RAW_STATUSES:
+            return "working"
+        if raw_status == "succeeded":
+            return "completed"
+        if raw_status in {"failed", "dead_letter"}:
+            return "failed"
+        if raw_status == "cancelled":
+            return "cancelled"
+        raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
+
+    def _completed_task_payload(
+        self, task_id: str, item: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        # D-25-4: `result_ref` is only ever an opaque completion marker
+        # (e.g. "orchestrator:<job>:completed") -- never the real agent
+        # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
+        # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
+        # is one more read away via the SAME `Orchestrator.get_run_trace`
+        # `graph_jobs(action="status", job_id="trace:...")` already uses --
+        # this module has direct engine access (unlike the isolated
+        # gateway sidecar), so it calls it in-process rather than proxying
+        # through another tool call.
+        trace = self._run_trace(task_id)
+        ref = item.get("result_ref")
+        if trace is not None and trace.get("result_preview"):
+            return {
+                "resultPreview": trace["result_preview"],
+                "runId": trace.get("run_id") or task_id,
+            }
+        if trace is not None and trace.get("error"):
+            return {
+                "error": trace["error"],
+                "runId": trace.get("run_id") or task_id,
+            }
+        if ref is not None:
+            return {"resultRef": ref}
+        return {"status": "completed"}
+
+    def _apply_task_status_payload(
+        self,
+        result: _GetTaskResult,
+        status: str,
+        task_id: str,
+        item: Mapping[str, Any],
+        pending: Any,
+    ) -> None:
         if status == "input_required":
             result.input_requests = {"request": pending}
         elif status == "completed":
-            # D-25-4: `result_ref` is only ever an opaque completion marker
-            # (e.g. "orchestrator:<job>:completed") -- never the real agent
-            # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
-            # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
-            # is one more read away via the SAME `Orchestrator.get_run_trace`
-            # `graph_jobs(action="status", job_id="trace:...")` already uses --
-            # this module has direct engine access (unlike the isolated
-            # gateway sidecar), so it calls it in-process rather than proxying
-            # through another tool call.
-            trace = self._run_trace(task_id)
-            ref = item.get("result_ref")
-            if trace is not None and trace.get("result_preview"):
-                result.result = {
-                    "resultPreview": trace["result_preview"],
-                    "runId": trace.get("run_id") or task_id,
-                }
-            elif trace is not None and trace.get("error"):
-                result.result = {
-                    "error": trace["error"],
-                    "runId": trace.get("run_id") or task_id,
-                }
-            elif ref is not None:
-                result.result = {"resultRef": ref}
-            else:
-                result.result = {"status": "completed"}
+            result.result = self._completed_task_payload(task_id, item)
         elif status == "failed":
             result.error = {"code": -32603, "message": "GraphOS WorkItem failed"}
-        return result
 
     def _repository_view(self, task_id: str, session: Any) -> Any:
         """Load one repository view under the verified tenant and owner."""
@@ -1363,6 +1549,23 @@ class WorkItemTasksExtension(ServerExtension):
     ) -> _GetTaskResult:
         view = self._repository_view(task_id, session)
         raw = self._repository_raw_item(self._engine(), view)
+        status, input_request = self._resolve_repository_status(raw, view)
+        created_at = raw.get("created_at") if isinstance(raw, Mapping) else None
+        updated_at = raw.get("updated_at") if isinstance(raw, Mapping) else None
+        result = _GetTaskResult(
+            task_id=task_id,
+            status=status,
+            created_at=_iso_timestamp(created_at),
+            last_updated_at=_iso_timestamp(updated_at),
+            ttl_ms=None,
+            meta=self._response_meta(session, route),
+        )
+        self._apply_repository_status_payload(result, status, view, input_request)
+        return result
+
+    def _resolve_repository_status(
+        self, raw: Mapping[str, Any], view: Any
+    ) -> tuple[str, Mapping[str, Any] | None]:
         status = self._repository_status(view.state)
         pending = raw.get("metadata") if isinstance(raw, Mapping) else None
         pending_request = (
@@ -1377,16 +1580,15 @@ class WorkItemTasksExtension(ServerExtension):
         if status == "working" and isinstance(pending_request, Mapping):
             status = "input_required"
             input_request = pending_request
-        created_at = raw.get("created_at") if isinstance(raw, Mapping) else None
-        updated_at = raw.get("updated_at") if isinstance(raw, Mapping) else None
-        result = _GetTaskResult(
-            task_id=task_id,
-            status=status,
-            created_at=_iso_timestamp(created_at),
-            last_updated_at=_iso_timestamp(updated_at),
-            ttl_ms=None,
-            meta=self._response_meta(session, route),
-        )
+        return status, input_request
+
+    def _apply_repository_status_payload(
+        self,
+        result: _GetTaskResult,
+        status: str,
+        view: Any,
+        input_request: Mapping[str, Any] | None,
+    ) -> None:
         if status == "input_required" and input_request is not None:
             result.status_message = "Repository WorkItem is waiting for input"
             result.input_requests = {"request": dict(input_request)}
@@ -1402,7 +1604,6 @@ class WorkItemTasksExtension(ServerExtension):
                 "errorRef": domain.get("error_ref"),
                 "result": domain,
             }
-        return result
 
     def _ack_from_view(
         self,

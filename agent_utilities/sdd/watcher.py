@@ -240,12 +240,42 @@ def ingest_tasks_version(
     return tasks_id
 
 
-def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
-    """Processes a single implementation plan file, checking for changes and versioning."""
-    if not file_path.exists():
-        return
+# Non-brain history subdirectory name per watched-file kind ("plan" ->
+# "plans", "tasks" -> "tasks" -- the one asymmetry between the two, kept as
+# a lookup rather than a third string-formatting rule).
+_WATCHED_HISTORY_SUBDIR_BY_KIND = {"plan": "plans", "tasks": "tasks"}
 
-    file_key = str(file_path.resolve())
+
+def _resolve_watched_feature_context(
+    file_path: Path, workspace_path: Path, *, kind: str
+) -> tuple[str, str, str, Path]:
+    """(feature_id, session_id, history-file prefix, history_dir) for a
+    watched plan/tasks file -- the brain-session vs. spec-tree layout differ
+    only in these four derived values, shared by
+    :func:`process_plan_file`/:func:`process_tasks_file`."""
+    if "brain" in file_path.parts:
+        # Path is typically /.../brain/<session_id>/implementation_plan.md
+        # (or tasks.md) -- session_id is the parent folder name.
+        session_id = file_path.parent.name
+        feature_id = f"brain_{session_id}"
+        prefix = f"brain_{kind}_{session_id}"
+        history_dir = workspace_path / ".specify" / "history" / "brain"
+        return feature_id, session_id, prefix, history_dir
+    # Path is typically /.../.specify/specs/<feature_id>/plan.md (or tasks.md)
+    session_id = "default_session"
+    feature_id = file_path.parent.name
+    prefix = f"{kind}_{feature_id}"
+    history_dir = (
+        workspace_path / ".specify" / "history" / _WATCHED_HISTORY_SUBDIR_BY_KIND[kind]
+    )
+    return feature_id, session_id, prefix, history_dir
+
+
+def _read_watched_file_if_changed(
+    file_path: Path, file_key: str
+) -> tuple[str, float] | None:
+    """(content, mtime) for a changed watched file, or ``None`` when it is
+    unreadable or its mtime matches the cached one (nothing to do)."""
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
@@ -253,37 +283,24 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
-        return
+        return None
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         logger.error("Failed to read watched file: %s", e)
-        return
+        return None
+    return content, mtime
 
-    content_hash = _get_md5(content)
 
-    # Initialize seen hashes cache for this file if not present
+def _resolve_next_watched_version(
+    file_key: str, content_hash: str, history_dir: Path, prefix: str
+) -> int | None:
+    """Next version number to archive ``content_hash`` under, or ``None``
+    when this exact content was already archived (caller should update the
+    mtime cache and skip the write)."""
     if file_key not in _SEEN_HASHES:
         _SEEN_HASHES[file_key] = set()
-
-    # Determine type and IDs
-    is_brain = "brain" in file_path.parts
-    session_id = "default_session"
-    feature_id = "default_feature"
-
-    if is_brain:
-        # Path is typically /.../brain/<session_id>/implementation_plan.md
-        # session_id is parent folder name
-        session_id = file_path.parent.name
-        feature_id = f"brain_{session_id}"
-        prefix = f"brain_plan_{session_id}"
-        history_dir = workspace_path / ".specify" / "history" / "brain"
-    else:
-        # Path is typically /.../.specify/specs/<feature_id>/plan.md
-        feature_id = file_path.parent.name
-        prefix = f"plan_{feature_id}"
-        history_dir = workspace_path / ".specify" / "history" / "plans"
 
     # Scan history dir on first time to sync state
     if not _SEEN_HASHES[file_key]:
@@ -295,30 +312,64 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     else:
         # Quick check: if we already saw this in memory, skip
         if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
+            return None
         # Find latest version from history dir directly to be safe
         latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
         version = latest_v
 
     # Check if hash was already archived
     if content_hash in _SEEN_HASHES[file_key]:
-        _SEEN_MTIMES[file_key] = mtime
-        return
+        return None
+    return version + 1
 
-    # A new unique state is detected! Increment version and save
-    version += 1
+
+def _write_watched_history(
+    history_dir: Path,
+    prefix: str,
+    version: int,
+    content: str,
+    workspace_path: Path,
+    *,
+    label: str,
+) -> Path | None:
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
     try:
         history_file.write_text(content, encoding="utf-8")
         logger.info(
-            f"Archived plan version: {history_file.relative_to(workspace_path)}"
+            f"Archived {label} version: {history_file.relative_to(workspace_path)}"
         )
     except Exception as e:
         logger.error(f"Failed to write history archive: {e}")
+        return None
+    return history_file
+
+
+def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
+    """Processes a single implementation plan file, checking for changes and versioning."""
+    if not file_path.exists():
+        return
+
+    file_key = str(file_path.resolve())
+    read = _read_watched_file_if_changed(file_path, file_key)
+    if read is None:
+        return
+    content, mtime = read
+    content_hash = _get_md5(content)
+
+    feature_id, session_id, prefix, history_dir = _resolve_watched_feature_context(
+        file_path, workspace_path, kind="plan"
+    )
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
+        _SEEN_MTIMES[file_key] = mtime
+        return
+
+    history_file = _write_watched_history(
+        history_dir, prefix, version, content, workspace_path, label="plan"
+    )
+    if history_file is None:
         return
 
     # Ingest into KG
@@ -348,69 +399,24 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
         return
 
     file_key = str(file_path.resolve())
-    try:
-        mtime = file_path.stat().st_mtime
-    except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
-        logger.debug("Failed to stat watched file: %s", e)
-        mtime = 0.0
-
-    if _SEEN_MTIMES.get(file_key) == mtime:
+    read = _read_watched_file_if_changed(file_path, file_key)
+    if read is None:
         return
-
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as e:
-        logger.error("Failed to read watched file: %s", e)
-        return
-
+    content, mtime = read
     content_hash = _get_md5(content)
 
-    if file_key not in _SEEN_HASHES:
-        _SEEN_HASHES[file_key] = set()
-
-    is_brain = "brain" in file_path.parts
-    session_id = "default_session"
-    feature_id = "default_feature"
-
-    if is_brain:
-        session_id = file_path.parent.name
-        feature_id = f"brain_{session_id}"
-        prefix = f"brain_tasks_{session_id}"
-        history_dir = workspace_path / ".specify" / "history" / "brain"
-    else:
-        feature_id = file_path.parent.name
-        prefix = f"tasks_{feature_id}"
-        history_dir = workspace_path / ".specify" / "history" / "tasks"
-
-    if not _SEEN_HASHES[file_key]:
-        latest_v, historical_hashes = _get_latest_version_from_history(
-            history_dir, prefix
-        )
-        _SEEN_HASHES[file_key].update(historical_hashes)
-        version = latest_v
-    else:
-        if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
-        latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
-        version = latest_v
-
-    if content_hash in _SEEN_HASHES[file_key]:
+    feature_id, session_id, prefix, history_dir = _resolve_watched_feature_context(
+        file_path, workspace_path, kind="tasks"
+    )
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
         _SEEN_MTIMES[file_key] = mtime
         return
 
-    version += 1
-    timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    history_dir.mkdir(parents=True, exist_ok=True)
-    history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
-    try:
-        history_file.write_text(content, encoding="utf-8")
-        logger.info(
-            f"Archived tasks version: {history_file.relative_to(workspace_path)}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to write history archive: {e}")
+    history_file = _write_watched_history(
+        history_dir, prefix, version, content, workspace_path, label="tasks"
+    )
+    if history_file is None:
         return
 
     try:
@@ -430,46 +436,62 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     _SEEN_MTIMES[file_key] = mtime
 
 
+#: Subdirectories skipped by :func:`_safe_walk` (large/temp/generated trees).
+_SAFE_WALK_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+    "build",
+    "dist",
+    "history",
+    "cache",
+    "temp",
+    "tmp",
+    ".mypy_cache",
+}
+
+
+def _is_skippable_walk_dir(name: str, skip_dirs: set[str]) -> bool:
+    return name in skip_dirs or (name.startswith(".") and name != ".specify")
+
+
+def _walk_item(
+    item: Path, depth: int, max_depth: int, skip_dirs: set[str], target_names: set[str]
+):
+    if item.is_dir():
+        if _is_skippable_walk_dir(item.name, skip_dirs):
+            return
+        yield from _walk_dir(item, depth + 1, max_depth, skip_dirs, target_names)
+    elif item.is_file() and item.name.lower() in target_names:
+        yield item
+
+
+def _walk_dir(
+    current: Path,
+    depth: int,
+    max_depth: int,
+    skip_dirs: set[str],
+    target_names: set[str],
+):
+    if depth > max_depth:
+        return
+    try:
+        for item in current.iterdir():
+            raise_if_task_cancelled()
+            yield from _walk_item(item, depth, max_depth, skip_dirs, target_names)
+    except PermissionError:
+        pass
+    except Exception as exc:  # noqa: BLE001 — one unreadable subtree is non-fatal
+        logger.debug("Skipping unreadable watcher subtree %s: %s", current, exc)
+
+
 def _safe_walk(root: Path, target_names: set[str], max_depth: int = 5):
     """Safely walk directories to find target files, skipping large/temp folders."""
-    skip_dirs = {
-        ".git",
-        ".venv",
-        ".pytest_cache",
-        ".ruff_cache",
-        "node_modules",
-        "build",
-        "dist",
-        "history",
-        "cache",
-        "temp",
-        "tmp",
-        ".mypy_cache",
-    }
     if not root.exists():
         return
-
-    def _walk(current: Path, depth: int):
-        if depth > max_depth:
-            return
-        try:
-            for item in current.iterdir():
-                raise_if_task_cancelled()
-                if item.is_dir():
-                    if item.name in skip_dirs or (
-                        item.name.startswith(".") and item.name != ".specify"
-                    ):
-                        continue
-                    yield from _walk(item, depth + 1)
-                elif item.is_file():
-                    if item.name.lower() in target_names:
-                        yield item
-        except PermissionError:
-            pass
-        except Exception as exc:  # noqa: BLE001 — one unreadable subtree is non-fatal
-            logger.debug("Skipping unreadable watcher subtree %s: %s", current, exc)
-
-    yield from _walk(root, 1)
+    yield from _walk_dir(root, 1, max_depth, _SAFE_WALK_SKIP_DIRS, target_names)
 
 
 def get_all_skills_directories(workspace_path: Path) -> list[Path]:
@@ -596,16 +618,13 @@ def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
     return resolved
 
 
-def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
-    """Processes a single SKILL.md file, checking for changes and versioning."""
+def _read_skill_file_if_changed(
+    file_path: Path, file_key: str
+) -> tuple[str, float] | None:
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         skill_reference,
     )
 
-    if not file_path.exists():
-        return
-
-    file_key = str(file_path.resolve())
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:  # noqa: BLE001 — mtime=0.0 fallback just forces a content-hash re-check on the next scan, no data lost
@@ -617,7 +636,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
-        return
+        return None
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -627,59 +646,49 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             skill_reference(file_path.parent.name),
             e,
         )
-        return
+        return None
+    return content, mtime
 
-    content_hash = _get_md5(content)
 
-    if file_key not in _SEEN_HASHES:
-        _SEEN_HASHES[file_key] = set()
+def _parse_skill_frontmatter(content: str, default_name: str) -> tuple[str, str]:
+    skill_name = default_name
+    skill_desc = ""
+    if not content.startswith("---"):
+        return skill_name, skill_desc
+    end_idx = content.find("---", 3)
+    if end_idx == -1:
+        return skill_name, skill_desc
 
     import yaml
 
-    frontmatter: dict[str, Any] = {}
-    skill_name = file_path.parent.name
-    skill_desc = ""
-
-    if content.startswith("---"):
-        end_idx = content.find("---", 3)
-        if end_idx != -1:
-            try:
-                frontmatter_str = content[3:end_idx].strip()
-                frontmatter = yaml.safe_load(frontmatter_str) or {}
-                skill_name = str(frontmatter.get("name", skill_name))
-                skill_desc = frontmatter.get("description", "")
-            except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
-                logger.debug(
-                    "Failed to parse frontmatter for %s: %s",
-                    skill_reference(file_path.parent.name),
-                    e,
-                )
-
-    prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
-    history_dir = workspace_path / ".specify" / "history" / "skills"
-
-    if not _SEEN_HASHES[file_key]:
-        latest_v, historical_hashes = _get_latest_version_from_history(
-            history_dir, prefix
+    try:
+        frontmatter_str = content[3:end_idx].strip()
+        frontmatter = yaml.safe_load(frontmatter_str) or {}
+        skill_name = str(frontmatter.get("name", skill_name))
+        skill_desc = frontmatter.get("description", "")
+    except Exception as e:  # noqa: BLE001 — malformed frontmatter falls back to the directory-name default already assigned above
+        from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+            skill_reference,
         )
-        _SEEN_HASHES[file_key].update(historical_hashes)
-        version = latest_v
-    else:
-        if content_hash in _SEEN_HASHES[file_key]:
-            _SEEN_MTIMES[file_key] = mtime
-            return
-        latest_v, _ = _get_latest_version_from_history(history_dir, prefix)
-        version = latest_v
 
-    if content_hash in _SEEN_HASHES[file_key]:
-        _SEEN_MTIMES[file_key] = mtime
-        return
+        logger.debug(
+            "Failed to parse frontmatter for %s: %s",
+            skill_reference(default_name),
+            e,
+        )
+    return skill_name, skill_desc
 
-    version += 1
+
+def _write_skill_history(
+    history_dir: Path, prefix: str, version: int, content: str, skill_name: str
+) -> Path | None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
     timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     history_dir.mkdir(parents=True, exist_ok=True)
     history_file = history_dir / f"{prefix}_v{version}_{timestamp_str}.md"
-
     try:
         history_file.write_text(content, encoding="utf-8")
         logger.info("Archived skill version for %s", skill_reference(skill_name))
@@ -689,10 +698,38 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             skill_reference(skill_name),
             e,
         )
-        return
+        return None
+    return history_file
+
+
+def _link_skill_to_current_project(engine: Any, node_id: str, skill_name: str) -> None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
 
     try:
-        node_id = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+        proj_rows = engine.backend.execute(
+            "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
+        )
+        project_id = proj_rows[0].get("id") if proj_rows else None
+        if project_id:
+            engine.link_nodes(project_id, node_id, "HAS_ARTIFACT")
+    except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
+        logger.debug(
+            "Could not link %s to project: %s",
+            skill_reference(skill_name),
+            e,
+        )
+
+
+def _ingest_skill_node(
+    engine: Any, node_id: str, skill_name: str, skill_desc: str, version: int
+) -> None:
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
+    try:
         props = {
             "name": skill_name,
             "description": skill_desc,
@@ -700,29 +737,48 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             "version": version,
             "last_updated": int(time.time() * 1000),
         }
-
         engine.add_node(node_id, node_type="Skill", properties=props)
-
-        try:
-            proj_rows = engine.backend.execute(
-                "MATCH (proj:Project) WHERE proj.name = 'current' RETURN proj.id AS id"
-            )
-            project_id = proj_rows[0].get("id") if proj_rows else None
-            if project_id:
-                engine.link_nodes(project_id, node_id, "HAS_ARTIFACT")
-        except Exception as e:  # noqa: BLE001 — Project linkage is a discoverability edge; the Skill node itself is already added above unconditionally
-            logger.debug(
-                "Could not link %s to project: %s",
-                skill_reference(skill_name),
-                e,
-            )
-
+        _link_skill_to_current_project(engine, node_id, skill_name)
     except Exception as e:
         logger.error(
             "Failed to ingest %s: %s",
             skill_reference(skill_name),
             e,
         )
+
+
+def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
+    """Processes a single SKILL.md file, checking for changes and versioning."""
+    if not file_path.exists():
+        return
+
+    file_key = str(file_path.resolve())
+    read = _read_skill_file_if_changed(file_path, file_key)
+    if read is None:
+        return
+    content, mtime = read
+    content_hash = _get_md5(content)
+
+    if file_key not in _SEEN_HASHES:
+        _SEEN_HASHES[file_key] = set()
+
+    skill_name, skill_desc = _parse_skill_frontmatter(content, file_path.parent.name)
+    prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+    history_dir = workspace_path / ".specify" / "history" / "skills"
+
+    version = _resolve_next_watched_version(file_key, content_hash, history_dir, prefix)
+    if version is None:
+        _SEEN_MTIMES[file_key] = mtime
+        return
+
+    history_file = _write_skill_history(
+        history_dir, prefix, version, content, skill_name
+    )
+    if history_file is None:
+        return
+
+    node_id = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
+    _ingest_skill_node(engine, node_id, skill_name, skill_desc, version)
 
     _SEEN_HASHES[file_key].add(content_hash)
     _SEEN_MTIMES[file_key] = mtime
@@ -779,6 +835,50 @@ def process_watched_file(
         )
 
 
+def _read_kg_ingest_content(file_path: Path) -> str | None:
+    try:
+        return file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
+        logger.debug(
+            "Could not read KG ingest location %s: %s", redact_for_log(file_path), exc
+        )
+    try:
+        return str(file_path.stat().st_mtime)
+    except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
+        logger.debug(
+            "Could not stat KG ingest location %s: %s",
+            redact_for_log(file_path),
+            stat_exc,
+        )
+        return None
+
+
+def _reingest_mcp_config(engine: Any) -> None:
+    try:
+        from agent_utilities.mcp.kg_server import _ingest_capabilities
+
+        _ingest_capabilities(engine)
+    except Exception as e:
+        # D-SWG-2: loud, not debug — the content hash below is recorded
+        # unconditionally regardless of this try's outcome, so a failed
+        # re-ingest is never retried on a later scan; a buried DEBUG line
+        # would make a stale capability inventory permanently invisible.
+        logger.error(f"Failed to re-ingest capabilities: {e}")
+
+
+def _reingest_generic_kg_location(engine: Any, file_path: Path) -> None:
+    try:
+        if hasattr(engine, "submit_task"):
+            engine.submit_task(
+                target_path=str(file_path.resolve()),
+                is_codebase=False,
+                task_type="document",
+                provenance={"source": "watcher_kg_ingest"},
+            )
+    except Exception as e:
+        logger.error(f"Failed to submit KG re-ingestion task: {e}")
+
+
 def process_kg_ingest_location(engine: Any, file_path: Path):
     """Processes a Knowledge Graph ingestion location, re-triggering ingestion on changes."""
     if not file_path.exists() or not file_path.is_file():
@@ -788,21 +888,9 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     if file_key not in _SEEN_HASHES:
         _SEEN_HASHES[file_key] = set()
 
-    try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
-    except Exception as exc:  # noqa: BLE001 — binary files fall back to mtime
-        logger.debug(
-            "Could not read KG ingest location %s: %s", redact_for_log(file_path), exc
-        )
-        try:
-            content = str(file_path.stat().st_mtime)
-        except Exception as stat_exc:  # noqa: BLE001 — vanished files are skipped
-            logger.debug(
-                "Could not stat KG ingest location %s: %s",
-                redact_for_log(file_path),
-                stat_exc,
-            )
-            return
+    content = _read_kg_ingest_content(file_path)
+    if content is None:
+        return
 
     content_hash = _get_md5(content)
     if content_hash in _SEEN_HASHES[file_key]:
@@ -811,60 +899,48 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     logger.info("Knowledge Graph ingestion location modified; re-ingesting")
 
     if file_path.name == "mcp_config.json":
-        try:
-            from agent_utilities.mcp.kg_server import _ingest_capabilities
-
-            _ingest_capabilities(engine)
-        except Exception as e:
-            # D-SWG-2: loud, not debug — the content hash below is recorded
-            # unconditionally regardless of this try's outcome, so a failed
-            # re-ingest is never retried on a later scan; a buried DEBUG line
-            # would make a stale capability inventory permanently invisible.
-            logger.error(f"Failed to re-ingest capabilities: {e}")
+        _reingest_mcp_config(engine)
     else:
-        try:
-            if hasattr(engine, "submit_task"):
-                engine.submit_task(
-                    target_path=str(file_path.resolve()),
-                    is_codebase=False,
-                    task_type="document",
-                    provenance={"source": "watcher_kg_ingest"},
-                )
-        except Exception as e:
-            logger.error(f"Failed to submit KG re-ingestion task: {e}")
+        _reingest_generic_kg_location(engine, file_path)
 
     _SEEN_HASHES[file_key].add(content_hash)
 
 
-def run_watcher_scan(engine: Any, workspace_path: Path):
-    """Executes a single synchronous directory scan for plans, tasks, skills, and downloads."""
-    raise_if_task_cancelled()
+def _scan_active_workspace_specs(engine: Any, workspace_path: Path) -> None:
     # 1. Scan active workspace specs
     specs_dir = workspace_path / ".specify" / "specs"
-    if specs_dir.exists():
-        for feature_dir in specs_dir.iterdir():
-            raise_if_task_cancelled()
-            if feature_dir.is_dir():
-                plan_file = feature_dir / "plan.md"
-                tasks_file = feature_dir / "tasks.md"
-                if plan_file.exists():
-                    process_plan_file(engine, plan_file, workspace_path)
-                if tasks_file.exists():
-                    process_tasks_file(engine, tasks_file, workspace_path)
+    if not specs_dir.exists():
+        return
+    for feature_dir in specs_dir.iterdir():
+        raise_if_task_cancelled()
+        if not feature_dir.is_dir():
+            continue
+        plan_file = feature_dir / "plan.md"
+        tasks_file = feature_dir / "tasks.md"
+        if plan_file.exists():
+            process_plan_file(engine, plan_file, workspace_path)
+        if tasks_file.exists():
+            process_tasks_file(engine, tasks_file, workspace_path)
 
+
+def _scan_brain_sessions(engine: Any, workspace_path: Path) -> None:
     # 2. Scan Antigravity IDE brain directories
     brain_dir = Path(os.path.expanduser("~/.gemini/antigravity/brain"))
-    if brain_dir.exists():
-        for sess_dir in brain_dir.iterdir():
-            raise_if_task_cancelled()
-            if sess_dir.is_dir():
-                plan_file = sess_dir / "implementation_plan.md"
-                tasks_file = sess_dir / "task.md"
-                if plan_file.exists():
-                    process_plan_file(engine, plan_file, workspace_path)
-                if tasks_file.exists():
-                    process_tasks_file(engine, tasks_file, workspace_path)
+    if not brain_dir.exists():
+        return
+    for sess_dir in brain_dir.iterdir():
+        raise_if_task_cancelled()
+        if not sess_dir.is_dir():
+            continue
+        plan_file = sess_dir / "implementation_plan.md"
+        tasks_file = sess_dir / "task.md"
+        if plan_file.exists():
+            process_plan_file(engine, plan_file, workspace_path)
+        if tasks_file.exists():
+            process_tasks_file(engine, tasks_file, workspace_path)
 
+
+def _scan_nested_specs(engine: Any, workspace_path: Path) -> None:
     # 3. Recursive Specification Scan for nested sub-repositories
     try:
         target_plan_tasks = {
@@ -883,27 +959,53 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
     except Exception as e:  # noqa: BLE001 — this phase is one of 6 independent scan phases in run_watcher_scan; one phase's failure must not block the others, and the outer run_plan_watcher_loop already logs any escaping exception at ERROR
         logger.debug("Nested specification scan failed: %s", e)
 
+
+def _scan_one_skills_dir(engine: Any, s_dir: Path, workspace_path: Path) -> None:
+    raise_if_task_cancelled()
+    for f in _safe_walk(s_dir, {"skill.md"}, max_depth=3):
+        raise_if_task_cancelled()
+        process_skill_file(engine, f, workspace_path)
+    for f in _safe_walk(
+        s_dir,
+        {"plan.md", "tasks.md", "task.md", "implementation_plan.md"},
+        max_depth=3,
+    ):
+        raise_if_task_cancelled()
+        if f.name.lower() in {"plan.md", "implementation_plan.md"}:
+            process_plan_file(engine, f, workspace_path)
+        elif f.name.lower() in {"tasks.md", "task.md"}:
+            process_tasks_file(engine, f, workspace_path)
+
+
+def _scan_skills(engine: Any, workspace_path: Path) -> None:
     # 4. Multi-IDE / Platform Skills Scan
     try:
         skills_dirs = get_all_skills_directories(workspace_path)
         for s_dir in skills_dirs:
-            raise_if_task_cancelled()
-            for f in _safe_walk(s_dir, {"skill.md"}, max_depth=3):
-                raise_if_task_cancelled()
-                process_skill_file(engine, f, workspace_path)
-            for f in _safe_walk(
-                s_dir,
-                {"plan.md", "tasks.md", "task.md", "implementation_plan.md"},
-                max_depth=3,
-            ):
-                raise_if_task_cancelled()
-                if f.name.lower() in {"plan.md", "implementation_plan.md"}:
-                    process_plan_file(engine, f, workspace_path)
-                elif f.name.lower() in {"tasks.md", "task.md"}:
-                    process_tasks_file(engine, f, workspace_path)
+            _scan_one_skills_dir(engine, s_dir, workspace_path)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Skills scan failed: %s", e)
 
+
+def _scan_one_watched_dir(
+    engine: Any, w_dir: Path, recursive: bool, source: str, target_exts: set[str]
+) -> None:
+    try:
+        items = w_dir.rglob("*") if recursive else w_dir.iterdir()
+        for item in items:
+            raise_if_task_cancelled()
+            if not item.is_file() or item.suffix.lower() not in target_exts:
+                continue
+            if item.name.lower() == "skill.md":
+                continue
+            if any(part in _SKIP_WATCH_DIRS for part in item.parts):
+                continue
+            process_watched_file(engine, item, source=source)
+    except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
+        logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
+
+
+def _scan_watched_directories(engine: Any, workspace_path: Path) -> None:
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
     #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
     #    with per-file content-hash delta-skip (CONCEPT:EG-KG.storage.nonblocking-checkpoint): new files ingest,
@@ -912,22 +1014,22 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
         target_exts = {".pdf", ".docx", ".doc", ".txt", ".md"}
         for w_dir, recursive, source in get_watched_directories():
             raise_if_task_cancelled()
-            try:
-                items = w_dir.rglob("*") if recursive else w_dir.iterdir()
-                for item in items:
-                    raise_if_task_cancelled()
-                    if not item.is_file() or item.suffix.lower() not in target_exts:
-                        continue
-                    if item.name.lower() == "skill.md":
-                        continue
-                    if any(part in _SKIP_WATCH_DIRS for part in item.parts):
-                        continue
-                    process_watched_file(engine, item, source=source)
-            except Exception as exc:  # noqa: BLE001 — one watch root is non-fatal
-                logger.debug("Watched-directory scan failed for %s: %s", w_dir, exc)
+            _scan_one_watched_dir(engine, w_dir, recursive, source, target_exts)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Watched-directory scan failed: %s", e)
 
+
+def _scan_kg_ingest_dir_children(engine: Any, p: Path) -> None:
+    try:
+        for child in p.iterdir():
+            raise_if_task_cancelled()
+            if child.is_file():
+                process_kg_ingest_location(engine, child)
+    except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
+        logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
+
+
+def _scan_kg_ingest_locations(engine: Any, workspace_path: Path) -> None:
     # 6. Core Knowledge Graph Ingest Locations Scan
     try:
         kg_paths = get_kg_ingest_paths(workspace_path)
@@ -936,15 +1038,20 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
             if p.is_file():
                 process_kg_ingest_location(engine, p)
             elif p.is_dir():
-                try:
-                    for child in p.iterdir():
-                        raise_if_task_cancelled()
-                        if child.is_file():
-                            process_kg_ingest_location(engine, child)
-                except Exception as exc:  # noqa: BLE001 — one KG root is non-fatal
-                    logger.debug("Could not enumerate KG ingest path %s: %s", p, exc)
+                _scan_kg_ingest_dir_children(engine, p)
     except Exception as e:  # noqa: BLE001 — one of 6 independent scan phases; see the nested-specification-scan phase above for the fault-isolation rationale
         logger.debug("Core KG ingestion-location scan failed: %s", e)
+
+
+def run_watcher_scan(engine: Any, workspace_path: Path):
+    """Executes a single synchronous directory scan for plans, tasks, skills, and downloads."""
+    raise_if_task_cancelled()
+    _scan_active_workspace_specs(engine, workspace_path)
+    _scan_brain_sessions(engine, workspace_path)
+    _scan_nested_specs(engine, workspace_path)
+    _scan_skills(engine, workspace_path)
+    _scan_watched_directories(engine, workspace_path)
+    _scan_kg_ingest_locations(engine, workspace_path)
 
 
 def run_plan_watcher_loop(engine: Any, workspace_path: Path, interval: float = 5.0):

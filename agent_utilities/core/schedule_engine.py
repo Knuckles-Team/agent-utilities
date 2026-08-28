@@ -114,9 +114,7 @@ def _bounded_schedule_string(value: Any, *, allow_empty: bool = True) -> bool:
     return all(ord(char) >= 0x20 and char != "\x7f" for char in value)
 
 
-def _validate_schedule_payload(payload: Any) -> str | None:
-    """Validate a graph-carried dispatch envelope and return a stable reason code."""
-
+def _validate_payload_shape(payload: Any) -> str | None:
     if not isinstance(payload, dict):
         return "invalid_payload"
     try:
@@ -127,24 +125,40 @@ def _validate_schedule_payload(payload: Any) -> str | None:
         return "invalid_payload"
     if len(raw) > _MAX_SCHEDULE_PAYLOAD_BYTES:
         return "payload_too_large"
+    return None
 
+
+def _validate_payload_kind(payload: dict[str, Any]) -> str | None:
     kind = payload.get("kind", "skill")
     if (
         not _bounded_schedule_string(kind, allow_empty=False)
         or kind not in _SCHEDULE_KINDS
     ):
         return "unsupported_kind"
+    return None
+
+
+def _validate_payload_identifiers(payload: dict[str, Any]) -> str | None:
     for key in ("ref", "action", "name"):
         if key in payload and not _bounded_schedule_string(payload[key]):
             return "invalid_identifier"
+    return None
+
+
+def _validate_payload_text_fields(payload: dict[str, Any]) -> str | None:
     for key in ("task", "description"):
         value = payload.get(key)
-        if value is not None:
-            if (
-                not isinstance(value, str)
-                or len(value.encode("utf-8")) > _MAX_SCHEDULE_TEXT_BYTES
-            ):
-                return "invalid_text"
+        if value is None:
+            continue
+        if (
+            not isinstance(value, str)
+            or len(value.encode("utf-8")) > _MAX_SCHEDULE_TEXT_BYTES
+        ):
+            return "invalid_text"
+    return None
+
+
+def _validate_payload_kwargs(payload: dict[str, Any]) -> str | None:
     kwargs = payload.get("kwargs", {})
     if not isinstance(kwargs, dict) or len(kwargs) > 64:
         return "invalid_kwargs"
@@ -153,6 +167,28 @@ def _validate_schedule_payload(payload: Any) -> str | None:
         for key in kwargs
     ):
         return "invalid_kwargs"
+    return None
+
+
+_PAYLOAD_FIELD_VALIDATORS: tuple[Callable[[dict[str, Any]], str | None], ...] = (
+    _validate_payload_kind,
+    _validate_payload_identifiers,
+    _validate_payload_text_fields,
+    _validate_payload_kwargs,
+)
+
+
+def _validate_schedule_payload(payload: Any) -> str | None:
+    """Validate a graph-carried dispatch envelope and return a stable reason code."""
+
+    shape_reason = _validate_payload_shape(payload)
+    if shape_reason is not None:
+        return shape_reason
+    # ``payload`` is confirmed a dict by ``_validate_payload_shape`` above.
+    for validator in _PAYLOAD_FIELD_VALIDATORS:
+        reason = validator(payload)
+        if reason is not None:
+            return reason
     return None
 
 
@@ -232,28 +268,25 @@ def _dec(raw: str | None) -> dict[str, Any]:
 
 
 # ── Cron matching (5-field; no third-party dep) ──────────────────────────────
+def _field_part_matches(part: str, value: int) -> bool:
+    part = part.strip()
+    if part == "*":
+        return True
+    step = 1
+    if "/" in part:
+        base, step_s = part.split("/", 1)
+        step = int(step_s)
+        part = base or "*"
+    if part == "*":
+        return value % step == 0
+    if "-" in part:
+        lo, hi = (int(x) for x in part.split("-", 1))
+        return lo <= value <= hi and (value - lo) % step == 0
+    return int(part) == value
+
+
 def _field_match(field_expr: str, value: int) -> bool:
-    for part in field_expr.split(","):
-        part = part.strip()
-        if part == "*":
-            return True
-        step = 1
-        if "/" in part:
-            base, step_s = part.split("/", 1)
-            step = int(step_s)
-            part = base or "*"
-        if part == "*":
-            if value % step == 0:
-                return True
-            continue
-        if "-" in part:
-            lo, hi = (int(x) for x in part.split("-", 1))
-            if lo <= value <= hi and (value - lo) % step == 0:
-                return True
-            continue
-        if int(part) == value:
-            return True
-    return False
+    return any(_field_part_matches(part, value) for part in field_expr.split(","))
 
 
 def cron_matches(expr: str, when: datetime) -> bool:
@@ -270,6 +303,38 @@ def cron_matches(expr: str, when: datetime) -> bool:
         # cron dow: 0=Sunday..6=Saturday; datetime.weekday() is 0=Monday..6=Sunday
         and _field_match(dow, (when.weekday() + 1) % 7)
     )
+
+
+# ── Row coercion helpers for ScheduleSpec.from_row — each collapses one
+# unrolled ``or``/ternary fallback in a keyword-argument call into a single
+# call, so the caller's own branch count stops growing with every field.
+def _row_first_str(row: dict[str, Any], *keys: str) -> str:
+    for k in keys:
+        v = row.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _row_str_or(row: dict[str, Any], key: str, default: str) -> str:
+    return row.get(key) or default
+
+
+def _row_optional(row: dict[str, Any], key: str) -> Any | None:
+    return row.get(key) or None
+
+
+def _row_int_if_present(row: dict[str, Any], key: str, default: int) -> int:
+    value = row.get(key)
+    return int(value) if value is not None else default
+
+
+def _row_int_or(row: dict[str, Any], key: str, default: int) -> int:
+    return int(row.get(key, default) or default)
+
+
+def _row_float_or(row: dict[str, Any], key: str, default: float) -> float:
+    return float(row.get(key, default) or default)
 
 
 # ── Schedule spec ────────────────────────────────────────────────────────────
@@ -318,21 +383,19 @@ class ScheduleSpec:
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> ScheduleSpec:
         return cls(
-            name=row.get("id") or row.get("name") or "",
+            name=_row_first_str(row, "id", "name"),
             payload=_dec(row.get("payload")),
-            trigger=row.get("trigger") or "cron",
-            cron=row.get("cron") or None,
-            interval_s=row.get("interval_s") or None,
-            prio_bucket=(
-                int(row["prio_bucket"]) if row.get("prio_bucket") is not None else 2
-            ),
+            trigger=_row_str_or(row, "trigger", "cron"),
+            cron=_row_optional(row, "cron"),
+            interval_s=_row_optional(row, "interval_s"),
+            prio_bucket=_row_int_if_present(row, "prio_bucket", 2),
             enabled=bool(row.get("enabled", True)),
-            last_minute=int(row.get("last_minute", 0) or 0),
-            next_run_unix=float(row.get("next_run_unix", 0.0) or 0.0),
-            consecutive_failures=int(row.get("consecutive_failures", 0) or 0),
-            backoff_until=float(row.get("backoff_until", 0.0) or 0.0),
-            description=row.get("description") or "",
-            task_type=row.get("task_type") or "scheduled_job",
+            last_minute=_row_int_or(row, "last_minute", 0),
+            next_run_unix=_row_float_or(row, "next_run_unix", 0.0),
+            consecutive_failures=_row_int_or(row, "consecutive_failures", 0),
+            backoff_until=_row_float_or(row, "backoff_until", 0.0),
+            description=_row_str_or(row, "description", ""),
+            task_type=_row_str_or(row, "task_type", "scheduled_job"),
         )
 
 
@@ -548,6 +611,34 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
 _SCHEDULED_TICK_TYPES = ("scheduled_job", "enrichment_backfill")
 
 
+def _group_active_ticks_by_schedule(
+    work: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    by_schedule: dict[str, list[str]] = {}
+    for job_id, item in work.items():
+        meta = item.get("metadata") or {}
+        if meta.get("type") not in _SCHEDULED_TICK_TYPES:
+            continue
+        if item.get("status") not in {"submitted", "ready"}:
+            continue
+        name = meta.get("schedule")
+        if name:
+            by_schedule.setdefault(str(name), []).append(job_id)
+    return by_schedule
+
+
+def _cancel_stale_ticks(engine: Any, over: dict[str, list[str]]) -> int:
+    cancelled = 0
+    for ids in over.values():
+        for tid in ids:
+            try:
+                if engine.cancel_task(tid).get("status") == "success":
+                    cancelled += 1
+            except Exception:  # noqa: BLE001 — best-effort per tick
+                continue
+    return cancelled
+
+
 def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     """Bulk-cancel duplicate ``scheduled_job`` ticks to ≤1 active per schedule.
 
@@ -569,7 +660,6 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
 
     Operates only through ingestion WorkItems and native cancellation.
     """
-    by_schedule: dict[str, list[str]] = {}
     # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — collapse every scheduler-enqueued tick TYPE, not just
     # ``scheduled_job``: a schedule can now land its tick in a dedicated lane via a
     # custom task type (e.g. ``enrichment_backfill`` for OWL card backfill), and
@@ -582,15 +672,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
             type(exc).__name__,
         )
         return {"schedules_collapsed": 0, "cancelled": 0}
-    for job_id, item in work.items():
-        meta = item.get("metadata") or {}
-        if meta.get("type") not in _SCHEDULED_TICK_TYPES:
-            continue
-        if item.get("status") not in {"submitted", "ready"}:
-            continue
-        name = meta.get("schedule")
-        if name:
-            by_schedule.setdefault(str(name), []).append(job_id)
+    by_schedule = _group_active_ticks_by_schedule(work)
     over = {name: ids for name, ids in by_schedule.items() if len(ids) > 1}
     logger.info(
         "[OS-5.53] collapse scan: active=%d schedules=%d over=%d",
@@ -606,14 +688,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     # (schedule, status), contended with ingestion on the engine write lock). The
     # due-evaluation that follows re-enqueues exactly one fresh tick per due
     # schedule, so a schedule keeps neither a stale tick nor a duplicate.
-    cancelled = 0
-    for ids in over.values():
-        for tid in ids:
-            try:
-                if engine.cancel_task(tid).get("status") == "success":
-                    cancelled += 1
-            except Exception:  # noqa: BLE001 — best-effort per tick
-                continue
+    cancelled = _cancel_stale_ticks(engine, over)
     logger.info(
         "scheduler collapsed stale ticks: %d schedule(s), %d duplicate tick(s) cancelled",
         len(over),
@@ -643,6 +718,114 @@ def _is_due(spec: ScheduleSpec, now: datetime, now_unix: float) -> bool:
     return now_unix >= spec.next_run_unix
 
 
+def _seed_schedules_once(engine: Any) -> None:
+    """Seed ``deploy/schedules.yml`` once per process, fail-closed on
+    ``_schedules_seeded`` (AU-OS.governance.verified-write-state-advance):
+    only a CONFIRMED seed may mark it, so a transient failure (e.g. the
+    control-graph session not yet available at boot) retries on the NEXT
+    tick instead of permanently disabling seeding for the process's life."""
+    if getattr(engine, "_schedules_seeded", False):
+        return
+    try:
+        seed_schedules(engine)
+    except Exception as exc:  # noqa: BLE001 — schedule seeding is best-effort
+        logger.warning("schedule seed failed, will retry next tick: %s", exc)
+    else:
+        engine._schedules_seeded = True
+
+
+def _collapse_stale_ticks_best_effort(engine: Any) -> None:
+    # Curb/recover any duplicate interval-tick backlog before evaluating due
+    # schedules (CONCEPT:AU-OS.state.stale-tick-collapse). Cheap no-op once
+    # every schedule has ≤1 active tick; never raises into the tick.
+    try:
+        collapse_stale_ticks(engine)
+    except Exception as exc:  # noqa: BLE001 — stale-tick collapse is best-effort
+        logger.debug("collapse_stale_ticks failed: %s", exc)
+
+
+def _advance_run_state(
+    spec: ScheduleSpec, minute_key: int, now_unix: float
+) -> tuple[int, float]:
+    """The (last_minute, next_run_unix) a DUE ``spec`` advances to — computed
+    but, per the caller's contract, not persisted until the enqueue (or a
+    legitimate coalesce-skip) is confirmed (CONCEPT:AU-OS.state.durable-schedule-outbox,
+    GOC-22 gate 3)."""
+    if spec.trigger == "cron":
+        return minute_key, spec.next_run_unix
+    interval = spec.interval_s or 60.0
+    if spec.trigger == "adaptive" and spec.consecutive_failures:
+        mult = min(2**spec.consecutive_failures, _ADAPTIVE_MAX_BACKOFF_MULT)
+        interval *= mult
+    return spec.last_minute, now_unix + interval
+
+
+def _has_inflight_tick(engine: Any, spec: ScheduleSpec) -> bool:
+    # Coalesce: if the previous tick for this schedule hasn't been consumed
+    # yet, do NOT pile another (cheap top-level ``schedule``-property probe,
+    # not the O(N) metadata dedupe scan).
+    work = engine._ingest_work_item_index()
+    return any(
+        (item.get("metadata") or {}).get("schedule") == spec.name
+        and item.get("status")
+        not in {"succeeded", "failed", "cancelled", "dead_letter"}
+        for item in work.values()
+    )
+
+
+def _process_due_schedule(
+    engine: Any, spec: ScheduleSpec, minute_key: int, now_unix: float
+) -> str:
+    """Advance/enqueue one DUE schedule; returns ``"fired"``, ``"coalesced"``,
+    or ``"reconciling"`` (enqueue failed, left due for the next tick's
+    retry — state is never advanced/persisted on that path)."""
+    advanced_last_minute, advanced_next_run_unix = _advance_run_state(
+        spec, minute_key, now_unix
+    )
+
+    if _has_inflight_tick(engine, spec):
+        # A legitimate reason to advance the run state: the interval is
+        # genuinely covered by the still-in-flight prior tick, not lost.
+        spec.last_minute = advanced_last_minute
+        spec.next_run_unix = advanced_next_run_unix
+        _upsert(engine, spec)
+        return "coalesced"
+
+    # Enqueue FIRST, using the deterministic ``sched:<name>:<minute>`` job id.
+    # ``submit_task``/``ensure_ingest_task_work_item`` is an idempotent
+    # create-or-reuse keyed on that id with a durable admission readback, so
+    # re-attempting the SAME due tick on the next scheduler evaluation after a
+    # failed/crashed attempt is safe — it can never double-fire. Only a
+    # CONFIRMED enqueue may advance/persist the run state.
+    job_id = f"sched:{spec.name}:{minute_key}"
+    try:
+        engine.submit_task(
+            target_path=f"schedule:{spec.name}",
+            is_codebase=False,
+            provenance={"schedule": spec.name},
+            # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — the task type
+            # selects the functional lane; most schedules use ``scheduled_job``
+            # (the maint lane), but a throughput backfill overrides it.
+            task_type=spec.task_type or "scheduled_job",
+            skip_dedupe=True,
+            priority=spec.prio_bucket,
+            job_id=job_id,
+            extra_meta={"schedule": spec.name, "payload": spec.payload},
+        )
+    except Exception as exc:  # noqa: BLE001 — one schedule's enqueue failure never blocks the tick
+        logger.error(
+            "schedule enqueue failed, tick left due for retry (name=%s): %s",
+            spec.name,
+            exc,
+        )
+        return "reconciling"
+
+    spec.last_minute = advanced_last_minute
+    spec.next_run_unix = advanced_next_run_unix
+    _upsert(engine, spec)
+    return "fired"
+
+
 def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, Any]:
     """Evaluate every ``:Schedule`` and ENQUEUE a task for each that is due.
 
@@ -653,30 +836,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     ``sched:<name>:<minute>``. Leader-gating happens in the caller.
     """
     logger.info("[OS-5.44] scheduler tick: begin")
-    if not getattr(engine, "_schedules_seeded", False):
-        # Fail closed (AU-OS.governance.verified-write-state-advance): only a
-        # CONFIRMED seed may mark ``_schedules_seeded``. Seeding is attempted
-        # once per tick, but the flag previously advanced unconditionally
-        # even when ``seed_schedules`` raised — a single transient failure
-        # (e.g. the control-graph session not yet available at boot)
-        # permanently disabled seeding for the rest of the process's life,
-        # since this branch never runs again. Leaving the flag unset on
-        # failure lets the NEXT tick retry instead of silently losing every
-        # schedule in ``deploy/schedules.yml`` forever.
-        try:
-            seed_schedules(engine)
-        except Exception as exc:  # noqa: BLE001 — schedule seeding is best-effort
-            logger.warning("schedule seed failed, will retry next tick: %s", exc)
-        else:
-            engine._schedules_seeded = True
-
-    # Curb/recover any duplicate interval-tick backlog before evaluating due
-    # schedules (CONCEPT:AU-OS.state.stale-tick-collapse). Cheap no-op once every schedule has ≤1 active
-    # tick; never raises into the tick.
-    try:
-        collapse_stale_ticks(engine)
-    except Exception as exc:  # noqa: BLE001 — stale-tick collapse is best-effort
-        logger.debug("collapse_stale_ticks failed: %s", exc)
+    _seed_schedules_once(engine)
+    _collapse_stale_ticks_best_effort(engine)
 
     now = now or datetime.now()
     now_unix = time.time()
@@ -686,84 +847,11 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     for spec in _load_all(engine):
         if not _is_due(spec, now, now_unix):
             continue
-        # CONCEPT:AU-OS.state.durable-schedule-outbox (GOC-22 gate 3) — the run
-        # state advance is computed here but NOT persisted yet. Persisting it
-        # before the enqueue is confirmed (the prior order) is a
-        # write-then-mark-seen defect: any enqueue failure — not only a hard
-        # process crash — silently and PERMANENTLY lost that due tick, because
-        # ``_upsert`` had already recorded the tick as consumed before
-        # ``engine.submit_task`` was even attempted. State only advances below
-        # once the enqueue (or a legitimate coalesce-skip) is confirmed.
-        if spec.trigger == "cron":
-            advanced_last_minute = minute_key
-            advanced_next_run_unix = spec.next_run_unix
-        else:
-            interval = spec.interval_s or 60.0
-            if spec.trigger == "adaptive" and spec.consecutive_failures:
-                mult = min(2**spec.consecutive_failures, _ADAPTIVE_MAX_BACKOFF_MULT)
-                interval *= mult
-            advanced_last_minute = spec.last_minute
-            advanced_next_run_unix = now_unix + interval
-
-        # Coalesce: if the previous tick for this schedule hasn't been consumed
-        # yet, do NOT pile another. A scheduled job is an interval tick, not a
-        # backlog item — running a stale missed tick later adds no value. Without
-        # this, a slow/stalled consumer (e.g. an engine outage) accumulates an
-        # unbounded backlog of duplicate ticks (one per due-minute, per schedule).
-        # Cheap top-level ``schedule``-property probe (not the O(N) metadata
-        # dedupe scan). (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
-        # This IS a legitimate reason to advance the run state: the interval is
-        # genuinely covered by the still-in-flight prior tick, not lost.
-        work = engine._ingest_work_item_index()
-        if any(
-            (item.get("metadata") or {}).get("schedule") == spec.name
-            and item.get("status")
-            not in {"succeeded", "failed", "cancelled", "dead_letter"}
-            for item in work.values()
-        ):
-            spec.last_minute = advanced_last_minute
-            spec.next_run_unix = advanced_next_run_unix
-            _upsert(engine, spec)
-            continue
-
-        # Enqueue FIRST, using the deterministic ``sched:<name>:<minute>`` job
-        # id. ``submit_task``/``ensure_ingest_task_work_item`` is an idempotent
-        # create-or-reuse keyed on that id with a durable admission readback
-        # (agent_utilities/orchestration/work_item.py::ensure_ingest_task_work_item),
-        # so re-attempting the SAME due tick on the next scheduler evaluation
-        # after a failed/crashed attempt is safe — it can never double-fire.
-        # Only a CONFIRMED enqueue may advance/persist the run state.
-        job_id = f"sched:{spec.name}:{minute_key}"
-        try:
-            engine.submit_task(
-                target_path=f"schedule:{spec.name}",
-                is_codebase=False,
-                provenance={"schedule": spec.name},
-                # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — the task type selects the functional lane; most
-                # schedules use ``scheduled_job`` (the maint lane), but a throughput
-                # backfill (OWL card enrichment) overrides it to run in its own lane.
-                task_type=spec.task_type or "scheduled_job",
-                skip_dedupe=True,
-                priority=spec.prio_bucket,
-                job_id=job_id,
-                extra_meta={"schedule": spec.name, "payload": spec.payload},
-            )
-        except Exception as exc:  # noqa: BLE001 — one schedule's enqueue failure never blocks the tick
-            # Do NOT advance/persist run state: this due tick stays due and is
-            # retried on the NEXT scheduler evaluation instead of being
-            # silently and permanently lost.
-            logger.error(
-                "schedule enqueue failed, tick left due for retry (name=%s): %s",
-                spec.name,
-                exc,
-            )
+        outcome = _process_due_schedule(engine, spec, minute_key, now_unix)
+        if outcome == "fired":
+            fired.append(spec.name)
+        elif outcome == "reconciling":
             reconciling.append(spec.name)
-            continue
-
-        spec.last_minute = advanced_last_minute
-        spec.next_run_unix = advanced_next_run_unix
-        _upsert(engine, spec)
-        fired.append(spec.name)
     if fired:
         logger.info("scheduler fired schedule(s) (count=%d)", len(fired))
     if reconciling:
@@ -1002,6 +1090,101 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _dispatch_maint(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """A former fixed-interval maintenance tick: an engine ``_tick_<ref>`` method."""
+    ref = payload.get("ref", "")
+    if ref not in _MAINTENANCE_REF_ALLOWLIST:
+        return {"status": "skipped", "reason": "maintenance_not_allowed"}
+    tick = getattr(engine, f"_tick_{ref}", None)
+    if not callable(tick):
+        return {"status": "skipped", "reason": "maintenance_unavailable"}
+    tick()
+    return {"status": "ok"}
+
+
+def _dispatch_research_feed(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Unified feed sweep (CONCEPT:AU-KG.ingest.rss-feed-connector): native RSS
+    + ScholarX arXiv through the one world-model gate, plus the FreshRSS delta
+    and the native arXiv connector (CONCEPT:AU-KG.ingest.arxiv-feed-connector)
+    — all converge on the same research/news routing. ``arxiv`` itself no-ops
+    cleanly when ``KG_ARXIV_CATEGORIES`` is unset."""
+    from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+    results = {
+        "rss": sync_source(engine, "rss", mode="delta"),
+        "freshrss": sync_source(engine, "freshrss", mode="delta"),
+        "arxiv": sync_source(engine, "arxiv", mode="delta"),
+    }
+    return {"status": "ok", "feeds": results}
+
+
+def _dispatch_skill_writeback(engine: Any, ref: str, action: str) -> dict[str, Any]:
+    from agent_utilities.knowledge_graph.enrichment.writeback import (
+        push_inventory,
+        run_writeback,
+    )
+
+    backend = getattr(engine, "backend", None)
+    if action == "inventory":
+        return push_inventory(ref, backend=backend, engine=engine, dry_run=False)
+    return run_writeback(ref, backend=backend, engine=engine, dry_run=False)
+
+
+def _dispatch_skill(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    ref = payload.get("ref", "")
+    action = payload.get("action", "")
+    handler = _SKILL_HANDLERS.get((ref, action))
+    if handler is not None:
+        return handler(engine, payload)
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        SYNC_ACTIONS,
+        sync_source,
+    )
+
+    if action in SYNC_ACTIONS:
+        return sync_source(engine, ref, mode=action)
+    if action in ("writeback", "inventory"):
+        return _dispatch_skill_writeback(engine, ref, action)
+    return {"status": "skipped", "reason": "no_handler"}
+
+
+def _dispatch_workflow_or_agent(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """``engine`` here is the raw IntelligenceGraphEngine (it has no
+    ``execute_workflow`` of its own) -- the governed dispatch surface is
+    Orchestrator.execute_workflow, which is also the D-WS-8 chokepoint that
+    runs the SHACL+ACL gate (agent_utilities.knowledge_graph.core.workflow_gate)
+    before any step runs, so scheduled workflow/agent jobs inherit the same
+    governance as every other caller.
+
+    The one production caller of this dispatcher
+    (IntelligenceGraphEngine._run_background_task, engine_tasks.py) is itself
+    an async method calling ``run_scheduled_job`` synchronously from inside an
+    ALREADY-RUNNING event loop. ``_run_async`` (shared with
+    ticket_playbooks._dispatch_workflow, the sibling D-WS-8 caller) runs the
+    coroutine on a fresh loop in a worker thread whether or not a loop is
+    already running, and bounds the wait so a stuck workflow can never hang
+    the scheduler tick indefinitely.
+    """
+    try:
+        from agent_utilities.orchestration.manager import Orchestrator
+        from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+            _run_async,
+        )
+
+        orchestrator = Orchestrator(engine)
+        coro = orchestrator.execute_workflow(
+            workflow_id=payload.get("ref", payload.get("name", "")),
+            task=payload.get("task", payload.get("description", "")),
+            **(payload.get("kwargs") or {}),
+        )
+        _run_async(coro, timeout=_WORKFLOW_DISPATCH_TIMEOUT_S)
+        return {"status": "ok"}
+    except Exception as exc:  # noqa: BLE001
+        from agent_utilities.security.error_surface import public_error_payload
+
+        return public_error_payload(exc, logger=logger)
+
+
 def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     """The routing body of :func:`run_scheduled_job` at the untrusted graph boundary."""
     invalid_reason = _validate_schedule_payload(payload)
@@ -1009,101 +1192,18 @@ def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, A
         return {"status": "error", "reason": invalid_reason}
     kind = payload.get("kind", "skill")
     if kind == "maint":
-        # A former fixed-interval maintenance tick: an engine ``_tick_<ref>`` method.
-        ref = payload.get("ref", "")
-        if ref not in _MAINTENANCE_REF_ALLOWLIST:
-            return {"status": "skipped", "reason": "maintenance_not_allowed"}
-        tick = getattr(engine, f"_tick_{ref}", None)
-        if not callable(tick):
-            return {"status": "skipped", "reason": "maintenance_unavailable"}
-        tick()
-        return {"status": "ok"}
+        return _dispatch_maint(engine, payload)
     if kind in ("research_feed", "feed_sweep"):
-        # Unified feed sweep (CONCEPT:AU-KG.ingest.rss-feed-connector): native RSS + ScholarX arXiv through
-        # the one world-model gate, plus the FreshRSS delta and the native arXiv
-        # connector (CONCEPT:AU-KG.ingest.arxiv-feed-connector) — all converge on the same research/news
-        # routing. (Supersedes the scholarx-only run_rss_feed_screen.) ``arxiv``
-        # itself no-ops cleanly when ``KG_ARXIV_CATEGORIES`` is unset.
-        from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-        results = {
-            "rss": sync_source(engine, "rss", mode="delta"),
-            "freshrss": sync_source(engine, "freshrss", mode="delta"),
-            "arxiv": sync_source(engine, "arxiv", mode="delta"),
-        }
-        return {"status": "ok", "feeds": results}
+        return _dispatch_research_feed(engine, payload)
     if kind == "skill":
-        ref = payload.get("ref", "")
-        action = payload.get("action", "")
-        handler = _SKILL_HANDLERS.get((ref, action))
-        if handler is not None:
-            return handler(engine, payload)
-        from agent_utilities.knowledge_graph.core.source_sync import (
-            SYNC_ACTIONS,
-            sync_source,
-        )
-
-        if action in SYNC_ACTIONS:
-            return sync_source(engine, ref, mode=action)
-        if action in ("writeback", "inventory"):
-            from agent_utilities.knowledge_graph.enrichment.writeback import (
-                push_inventory,
-                run_writeback,
-            )
-
-            backend = getattr(engine, "backend", None)
-            if action == "inventory":
-                return push_inventory(
-                    ref, backend=backend, engine=engine, dry_run=False
-                )
-            return run_writeback(ref, backend=backend, engine=engine, dry_run=False)
-        return {"status": "skipped", "reason": "no_handler"}
+        return _dispatch_skill(engine, payload)
     if kind == "script":
         # Retired security boundary: graph data must never select a host path to
         # execute.  Use a governed skill/workflow handler backed by an isolated
         # runtime instead.
         return {"status": "skipped", "reason": "host_script_execution_retired"}
     if kind in ("workflow", "agent"):
-        try:
-            # ``engine`` here is the raw IntelligenceGraphEngine (it has no
-            # ``execute_workflow`` of its own) -- the governed dispatch surface
-            # is Orchestrator.execute_workflow, which is also the D-WS-8
-            # chokepoint that runs the SHACL+ACL gate
-            # (agent_utilities.knowledge_graph.core.workflow_gate) before any
-            # step runs. Routing through it here (instead of calling a
-            # nonexistent method on the bare engine) both fixes this dispatch
-            # path and means scheduled workflow/agent jobs inherit the same
-            # governance as every other caller.
-            #
-            # The one production caller of this dispatcher
-            # (IntelligenceGraphEngine._run_background_task, engine_tasks.py)
-            # is itself an async method calling ``run_scheduled_job``
-            # synchronously from inside an ALREADY-RUNNING event loop --
-            # ``asyncio.get_event_loop().run_until_complete(coro)`` would
-            # raise "This event loop is already running" every time it is
-            # actually reached, another silent-failure shape layered on top
-            # of the missing-method bug. ``_run_async`` (shared with
-            # ticket_playbooks._dispatch_workflow, the sibling D-WS-8 caller)
-            # runs the coroutine on a fresh loop in a worker thread whether or
-            # not a loop is already running, and bounds the wait so a stuck
-            # workflow can never hang the scheduler tick indefinitely.
-            from agent_utilities.orchestration.manager import Orchestrator
-            from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
-                _run_async,
-            )
-
-            orchestrator = Orchestrator(engine)
-            coro = orchestrator.execute_workflow(
-                workflow_id=payload.get("ref", payload.get("name", "")),
-                task=payload.get("task", payload.get("description", "")),
-                **(payload.get("kwargs") or {}),
-            )
-            _run_async(coro, timeout=_WORKFLOW_DISPATCH_TIMEOUT_S)
-            return {"status": "ok"}
-        except Exception as exc:  # noqa: BLE001
-            from agent_utilities.security.error_surface import public_error_payload
-
-            return public_error_payload(exc, logger=logger)
+        return _dispatch_workflow_or_agent(engine, payload)
     return {"status": "skipped", "reason": "unsupported_kind"}
 
 

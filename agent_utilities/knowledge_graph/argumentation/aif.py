@@ -208,20 +208,18 @@ class ArgumentMap:
         return [n for n in (self.node(i) for i in ids) if n is not None]
 
 
-def validate_argument_map(argument_map: ArgumentMap) -> list[str]:
-    """Structural arity checks — the SAME rules ``shapes/argumentation.shapes.ttl``
-    enforces at engine-admission time, run locally first so a bad map fails
-    fast with a readable reason instead of a SHACL rejection deep in the
-    ingest path. Returns an empty list when the map is well-formed.
-    """
+def _find_duplicate_node_ids(nodes: list[AIFNode]) -> list[str]:
     violations: list[str] = []
-
     seen: set[str] = set()
-    for n in argument_map.nodes:
+    for n in nodes:
         if n.node_id in seen:
             violations.append(f"duplicate node id {n.node_id!r}")
         seen.add(n.node_id)
+    return violations
 
+
+def _find_dangling_edges(argument_map: ArgumentMap) -> list[str]:
+    violations: list[str] = []
     node_ids = {n.node_id for n in argument_map.nodes}
     for e in argument_map.edges:
         if e.from_id not in node_ids:
@@ -230,31 +228,87 @@ def validate_argument_map(argument_map: ArgumentMap) -> list[str]:
             )
         if e.to_id not in node_ids:
             violations.append(f"edge {e.edge_id!r} references unknown toID {e.to_id!r}")
+    return violations
 
+
+def _validate_node_arity(argument_map: ArgumentMap, n: AIFNode) -> list[str]:
+    if n.node_type == "I":
+        if not n.text.strip():
+            return [f"I-node {n.node_id!r} has no text"]
+        return []
+    if not n.is_scheme_node:
+        return []
+    violations: list[str] = []
+    premises = argument_map.premises_of(n.node_id)
+    conclusions = argument_map.conclusions_of(n.node_id)
+    min_premises = 2 if n.node_type == "PA" else 1
+    if len(premises) < min_premises:
+        violations.append(
+            f"{n.node_type}-node {n.node_id!r} needs >= {min_premises} "
+            f"premise(s), has {len(premises)}"
+        )
+    if len(conclusions) != 1:
+        violations.append(
+            f"{n.node_type}-node {n.node_id!r} needs exactly 1 conclusion, "
+            f"has {len(conclusions)}"
+        )
+    return violations
+
+
+def validate_argument_map(argument_map: ArgumentMap) -> list[str]:
+    """Structural arity checks — the SAME rules ``shapes/argumentation.shapes.ttl``
+    enforces at engine-admission time, run locally first so a bad map fails
+    fast with a readable reason instead of a SHACL rejection deep in the
+    ingest path. Returns an empty list when the map is well-formed.
+    """
+    violations = _find_duplicate_node_ids(argument_map.nodes)
+    violations += _find_dangling_edges(argument_map)
     for n in argument_map.nodes:
-        if n.node_type == "I" and not n.text.strip():
-            violations.append(f"I-node {n.node_id!r} has no text")
-            continue
-        if not n.is_scheme_node:
-            continue
-        premises = argument_map.premises_of(n.node_id)
-        conclusions = argument_map.conclusions_of(n.node_id)
-        min_premises = 2 if n.node_type == "PA" else 1
-        if len(premises) < min_premises:
-            violations.append(
-                f"{n.node_type}-node {n.node_id!r} needs >= {min_premises} "
-                f"premise(s), has {len(premises)}"
-            )
-        if len(conclusions) != 1:
-            violations.append(
-                f"{n.node_type}-node {n.node_id!r} needs exactly 1 conclusion, "
-                f"has {len(conclusions)}"
-            )
-
+        violations += _validate_node_arity(argument_map, n)
     return violations
 
 
 # ── JSON bridge (AIFdb-shaped) ──────────────────────────────────────────────
+
+
+def _first_str(raw: dict[str, Any], *keys: str) -> str:
+    """First truthy value among ``keys`` in ``raw``, stringified — a dict
+    dispatch over key aliases in place of an unrolled ``or`` chain per call
+    site (each site's ``or`` chain was itself a cccc decision point).
+    """
+    for k in keys:
+        v = raw.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _parse_aif_node(raw: dict[str, Any]) -> AIFNode:
+    node_id = _first_str(raw, "nodeID", "id", "node_id").strip()
+    if not node_id:
+        raise ValueError(f"AIF node missing nodeID/id: {raw!r}")
+    node_type = _first_str(raw, "type", "node_type").strip().upper()
+    text = _first_str(raw, "text", "content")
+    scheme_name = _first_str(raw, "scheme", "schemeName") or (
+        text if node_type in SCHEME_NODE_TYPES else ""
+    )
+    metadata = {k: v for k, v in raw.items() if k not in _KNOWN_NODE_KEYS}
+    return AIFNode(
+        node_id=node_id,
+        node_type=node_type,
+        text=text,
+        scheme_name=scheme_name,
+        metadata=metadata,
+    )
+
+
+def _parse_aif_edge(raw: dict[str, Any], idx: int) -> AIFEdge:
+    edge_id = _first_str(raw, "edgeID", "id") or f"e{idx}"
+    from_id = _first_str(raw, "fromID", "source", "from").strip()
+    to_id = _first_str(raw, "toID", "target", "to").strip()
+    if not from_id or not to_id:
+        raise ValueError(f"AIF edge missing fromID/toID: {raw!r}")
+    return AIFEdge(edge_id=edge_id, from_id=from_id, to_id=to_id)
 
 
 def from_aifdb_json(data: dict[str, Any], *, map_id: str | None = None) -> ArgumentMap:
@@ -269,41 +323,8 @@ def from_aifdb_json(data: dict[str, Any], *, map_id: str | None = None) -> Argum
     raw_nodes = data.get("nodes") or []
     raw_edges = data.get("edges") or []
 
-    nodes: list[AIFNode] = []
-    for raw in raw_nodes:
-        node_id = str(
-            raw.get("nodeID") or raw.get("id") or raw.get("node_id") or ""
-        ).strip()
-        if not node_id:
-            raise ValueError(f"AIF node missing nodeID/id: {raw!r}")
-        node_type = str(raw.get("type") or raw.get("node_type") or "").strip().upper()
-        text = str(raw.get("text") or raw.get("content") or "")
-        scheme_name = str(
-            raw.get("scheme")
-            or raw.get("schemeName")
-            or (text if node_type in SCHEME_NODE_TYPES else "")
-        )
-        metadata = {k: v for k, v in raw.items() if k not in _KNOWN_NODE_KEYS}
-        nodes.append(
-            AIFNode(
-                node_id=node_id,
-                node_type=node_type,
-                text=text,
-                scheme_name=scheme_name,
-                metadata=metadata,
-            )
-        )
-
-    edges: list[AIFEdge] = []
-    for idx, raw in enumerate(raw_edges):
-        edge_id = str(raw.get("edgeID") or raw.get("id") or f"e{idx}")
-        from_id = str(
-            raw.get("fromID") or raw.get("source") or raw.get("from") or ""
-        ).strip()
-        to_id = str(raw.get("toID") or raw.get("target") or raw.get("to") or "").strip()
-        if not from_id or not to_id:
-            raise ValueError(f"AIF edge missing fromID/toID: {raw!r}")
-        edges.append(AIFEdge(edge_id=edge_id, from_id=from_id, to_id=to_id))
+    nodes = [_parse_aif_node(raw) for raw in raw_nodes]
+    edges = [_parse_aif_edge(raw, idx) for idx, raw in enumerate(raw_edges)]
 
     resolved_map_id = (
         map_id
@@ -372,13 +393,7 @@ class DungProjection:
     dropped_attacks: tuple[tuple[str, str], ...]
 
 
-def to_dung(argument_map: ArgumentMap) -> DungProjection:
-    """Project ``argument_map`` onto a :class:`DungProjection`. See the class
-    docstring for the exact CA -> attack / RA -> support / PA -> preference
-    rules.
-    """
-    arguments = tuple(n.node_id for n in argument_map.i_nodes())
-
+def _dung_attacks(argument_map: ArgumentMap) -> list[tuple[str, str]]:
     raw_attacks: list[tuple[str, str]] = []
     for ca in argument_map.scheme_nodes("CA"):
         conclusions = argument_map.conclusions_of(ca.node_id)
@@ -387,7 +402,10 @@ def to_dung(argument_map: ArgumentMap) -> DungProjection:
         attacked = conclusions[0].node_id
         for premise in argument_map.premises_of(ca.node_id):
             raw_attacks.append((premise.node_id, attacked))
+    return raw_attacks
 
+
+def _dung_supports(argument_map: ArgumentMap) -> list[tuple[str, str]]:
     supports: list[tuple[str, str]] = []
     for ra in argument_map.scheme_nodes("RA"):
         conclusions = argument_map.conclusions_of(ra.node_id)
@@ -396,7 +414,10 @@ def to_dung(argument_map: ArgumentMap) -> DungProjection:
         supported = conclusions[0].node_id
         for premise in argument_map.premises_of(ra.node_id):
             supports.append((premise.node_id, supported))
+    return supports
 
+
+def _dung_preferences(argument_map: ArgumentMap) -> list[tuple[str, str]]:
     preferences: list[tuple[str, str]] = []
     for pa in argument_map.scheme_nodes("PA"):
         conclusions = argument_map.conclusions_of(pa.node_id)
@@ -406,7 +427,12 @@ def to_dung(argument_map: ArgumentMap) -> DungProjection:
         for alt in argument_map.premises_of(pa.node_id):
             if alt.node_id != preferred:
                 preferences.append((preferred, alt.node_id))
+    return preferences
 
+
+def _apply_preference_filtering(
+    raw_attacks: list[tuple[str, str]], preferences: list[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     preferred_over = set(preferences)
     attack_pairs = set(raw_attacks)
     kept: list[tuple[str, str]] = []
@@ -420,6 +446,19 @@ def to_dung(argument_map: ArgumentMap) -> DungProjection:
             dropped.append((attacker, attacked))
         else:
             kept.append((attacker, attacked))
+    return kept, dropped
+
+
+def to_dung(argument_map: ArgumentMap) -> DungProjection:
+    """Project ``argument_map`` onto a :class:`DungProjection`. See the class
+    docstring for the exact CA -> attack / RA -> support / PA -> preference
+    rules.
+    """
+    arguments = tuple(n.node_id for n in argument_map.i_nodes())
+    raw_attacks = _dung_attacks(argument_map)
+    supports = _dung_supports(argument_map)
+    preferences = _dung_preferences(argument_map)
+    kept, dropped = _apply_preference_filtering(raw_attacks, preferences)
 
     return DungProjection(
         arguments=arguments,
@@ -435,6 +474,74 @@ def to_dung(argument_map: ArgumentMap) -> DungProjection:
 
 def _qualified(map_id: str, local_id: str) -> str:
     return f"aif:{map_id}:{local_id}"
+
+
+def _aif_entity_rows(argument_map: ArgumentMap) -> list[dict[str, Any]]:
+    entities: list[dict[str, Any]] = []
+    for n in argument_map.nodes:
+        row: dict[str, Any] = {
+            "id": _qualified(argument_map.map_id, n.node_id),
+            "node_type": n.owl_class,
+            "aif_node_type": n.node_type,
+            "aif_node_text": n.text,
+            "aif_map_id": argument_map.map_id,
+            "aif_raw_node_id": n.node_id,
+        }
+        if n.is_scheme_node and n.scheme_name:
+            row["aif_scheme_name"] = n.scheme_name
+        for key, value in n.metadata.items():
+            row.setdefault(f"aif_meta_{key}", value)
+        entities.append(row)
+    return entities
+
+
+def _aif_structural_relationships(argument_map: ArgumentMap) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = []
+    for e in argument_map.edges:
+        from_node = argument_map.node(e.from_id)
+        to_node = argument_map.node(e.to_id)
+        if from_node is None or to_node is None:
+            continue
+        # AIF Upper Ontology: an edge INTO an S-node is a premise; an edge
+        # OUT OF an S-node is its conclusion (ontology_argumentation.ttl).
+        relationship = "aifHasPremise" if to_node.is_scheme_node else "aifHasConclusion"
+        relationships.append(
+            {
+                "source": _qualified(argument_map.map_id, e.from_id),
+                "target": _qualified(argument_map.map_id, e.to_id),
+                "relationship": relationship,
+                "aif_edge_id": e.edge_id,
+                "aif_map_id": argument_map.map_id,
+            }
+        )
+    return relationships
+
+
+def _aif_derived_relationships(
+    argument_map: ArgumentMap, projection: DungProjection
+) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = []
+    for supporter, supported in projection.supports:
+        relationships.append(
+            {
+                "source": _qualified(argument_map.map_id, supporter),
+                "target": _qualified(argument_map.map_id, supported),
+                "relationship": "SUPPORTS",
+                "aif_map_id": argument_map.map_id,
+                "aif_derived": True,
+            }
+        )
+    for attacker, attacked in projection.attacks:
+        relationships.append(
+            {
+                "source": _qualified(argument_map.map_id, attacker),
+                "target": _qualified(argument_map.map_id, attacked),
+                "relationship": "ATTACKS",
+                "aif_map_id": argument_map.map_id,
+                "aif_derived": True,
+            }
+        )
+    return relationships
 
 
 def import_argument_map(
@@ -471,65 +578,13 @@ def import_argument_map(
     from ..ingestion.envelope_ingest import ingest_graph_slice
     from ..memory.native_ingest import native_authority
 
-    entities: list[dict[str, Any]] = []
-    for n in argument_map.nodes:
-        row: dict[str, Any] = {
-            "id": _qualified(argument_map.map_id, n.node_id),
-            "node_type": n.owl_class,
-            "aif_node_type": n.node_type,
-            "aif_node_text": n.text,
-            "aif_map_id": argument_map.map_id,
-            "aif_raw_node_id": n.node_id,
-        }
-        if n.is_scheme_node and n.scheme_name:
-            row["aif_scheme_name"] = n.scheme_name
-        for key, value in n.metadata.items():
-            row.setdefault(f"aif_meta_{key}", value)
-        entities.append(row)
-
-    relationships: list[dict[str, Any]] = []
-    for e in argument_map.edges:
-        from_node = argument_map.node(e.from_id)
-        to_node = argument_map.node(e.to_id)
-        if from_node is None or to_node is None:
-            continue
-        # AIF Upper Ontology: an edge INTO an S-node is a premise; an edge
-        # OUT OF an S-node is its conclusion (ontology_argumentation.ttl).
-        relationship = "aifHasPremise" if to_node.is_scheme_node else "aifHasConclusion"
-        relationships.append(
-            {
-                "source": _qualified(argument_map.map_id, e.from_id),
-                "target": _qualified(argument_map.map_id, e.to_id),
-                "relationship": relationship,
-                "aif_edge_id": e.edge_id,
-                "aif_map_id": argument_map.map_id,
-            }
-        )
-
+    entities = _aif_entity_rows(argument_map)
     # Project RA/CA structure onto the engine's OWN attack/support vocabulary
     # (eg_epistemic::model::classify_relationship) so belief propagation and
     # Dung argumentation compute over it natively — no duplicated solver.
     projection = to_dung(argument_map)
-    for supporter, supported in projection.supports:
-        relationships.append(
-            {
-                "source": _qualified(argument_map.map_id, supporter),
-                "target": _qualified(argument_map.map_id, supported),
-                "relationship": "SUPPORTS",
-                "aif_map_id": argument_map.map_id,
-                "aif_derived": True,
-            }
-        )
-    for attacker, attacked in projection.attacks:
-        relationships.append(
-            {
-                "source": _qualified(argument_map.map_id, attacker),
-                "target": _qualified(argument_map.map_id, attacked),
-                "relationship": "ATTACKS",
-                "aif_map_id": argument_map.map_id,
-                "aif_derived": True,
-            }
-        )
+    relationships = _aif_structural_relationships(argument_map)
+    relationships += _aif_derived_relationships(argument_map, projection)
 
     authority = engine if engine is not None else native_authority()
     result = ingest_graph_slice(
@@ -606,66 +661,118 @@ def export_argument_map(map_id: str, *, engine: Any = None) -> ArgumentMap:
     except NativeIngestError:
         return ArgumentMap(map_id=map_id)
 
+    namespaces = _export_client_namespaces(authority)
+    if namespaces is None:
+        return ArgumentMap(map_id=map_id)
+    nodes_ns, edges_ns = namespaces
+
+    nodes, qualified_to_raw = _scan_aif_nodes(nodes_ns, map_id)
+    edges = (
+        _scan_aif_edges(edges_ns, map_id, qualified_to_raw) if qualified_to_raw else []
+    )
+
+    return ArgumentMap(map_id=map_id, nodes=nodes, edges=edges)
+
+
+def _export_client_namespaces(authority: Any) -> tuple[Any, Any] | None:
     client = getattr(authority, "client", authority)
     nodes_ns = getattr(client, "nodes", None)
     edges_ns = getattr(client, "edges", None)
     if nodes_ns is None or edges_ns is None:
-        return ArgumentMap(map_id=map_id)
+        return None
+    return nodes_ns, edges_ns
 
+
+def _props_match_map(props: dict[str, Any], map_id: str) -> bool:
+    return str(props.get("aif_map_id") or "") == map_id
+
+
+def _metadata_from_props(props: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key[len("aif_meta_") :]: value
+        for key, value in props.items()
+        if key.startswith("aif_meta_")
+    }
+
+
+def _parse_exported_node(
+    raw_id: Any, raw_properties: Any, map_id: str
+) -> tuple[AIFNode, str] | None:
+    props = _decode_node_properties(raw_properties)
+    if not _props_match_map(props, map_id):
+        return None
+    raw_node_id = str(props.get("aif_raw_node_id") or "")
+    node_type = str(props.get("aif_node_type") or "")
+    if not raw_node_id or node_type not in AIF_NODE_TYPES:
+        return None
+    node = AIFNode(
+        node_id=raw_node_id,
+        node_type=node_type,
+        text=str(props.get("aif_node_text") or ""),
+        scheme_name=str(props.get("aif_scheme_name") or ""),
+        metadata=_metadata_from_props(props),
+    )
+    return node, raw_node_id
+
+
+def _scan_aif_nodes(nodes_ns: Any, map_id: str) -> tuple[list[AIFNode], dict[str, str]]:
     try:
         raw_nodes = nodes_ns.list()
     except Exception:  # noqa: BLE001 — degrade, don't raise
-        return ArgumentMap(map_id=map_id)
+        return [], {}
 
     nodes: list[AIFNode] = []
     qualified_to_raw: dict[str, str] = {}
     for raw_id, raw_properties in raw_nodes or []:
-        props = _decode_node_properties(raw_properties)
-        if str(props.get("aif_map_id") or "") != map_id:
+        parsed = _parse_exported_node(raw_id, raw_properties, map_id)
+        if parsed is None:
             continue
-        raw_node_id = str(props.get("aif_raw_node_id") or "")
-        node_type = str(props.get("aif_node_type") or "")
-        if not raw_node_id or node_type not in AIF_NODE_TYPES:
-            continue
-        metadata = {
-            key[len("aif_meta_") :]: value
-            for key, value in props.items()
-            if key.startswith("aif_meta_")
-        }
-        nodes.append(
-            AIFNode(
-                node_id=raw_node_id,
-                node_type=node_type,
-                text=str(props.get("aif_node_text") or ""),
-                scheme_name=str(props.get("aif_scheme_name") or ""),
-                metadata=metadata,
-            )
-        )
+        node, raw_node_id = parsed
+        nodes.append(node)
         qualified_to_raw[str(raw_id)] = raw_node_id
+    return nodes, qualified_to_raw
+
+
+def _parse_exported_edge(
+    source_id: Any,
+    target_id: Any,
+    raw_properties: Any,
+    map_id: str,
+    qualified_to_raw: dict[str, str],
+    edge_index: int,
+) -> AIFEdge | None:
+    props = _decode_edge_properties(raw_properties)
+    if not _props_match_map(props, map_id):
+        return None
+    relationship = str(props.get("relationship") or "")
+    # AIF-native structural edges only — the derived SUPPORTS/ATTACKS
+    # projection this same import wrote is recomputable via to_dung().
+    if relationship not in {"aifHasPremise", "aifHasConclusion"}:
+        return None
+    source = qualified_to_raw.get(str(source_id))
+    target = qualified_to_raw.get(str(target_id))
+    if source is None or target is None:
+        return None
+    edge_id = str(props.get("aif_edge_id") or f"e{edge_index}")
+    return AIFEdge(edge_id=edge_id, from_id=source, to_id=target)
+
+
+def _scan_aif_edges(
+    edges_ns: Any, map_id: str, qualified_to_raw: dict[str, str]
+) -> list[AIFEdge]:
+    try:
+        raw_edges = edges_ns.list()
+    except Exception:  # noqa: BLE001 — degrade, don't raise
+        raw_edges = []
 
     edges: list[AIFEdge] = []
-    if qualified_to_raw:
-        try:
-            raw_edges = edges_ns.list()
-        except Exception:  # noqa: BLE001 — degrade, don't raise
-            raw_edges = []
-        for source_id, target_id, raw_properties in raw_edges or []:
-            props = _decode_edge_properties(raw_properties)
-            if str(props.get("aif_map_id") or "") != map_id:
-                continue
-            relationship = str(props.get("relationship") or "")
-            # AIF-native structural edges only — the derived SUPPORTS/ATTACKS
-            # projection this same import wrote is recomputable via to_dung().
-            if relationship not in {"aifHasPremise", "aifHasConclusion"}:
-                continue
-            source = qualified_to_raw.get(str(source_id))
-            target = qualified_to_raw.get(str(target_id))
-            if source is None or target is None:
-                continue
-            edge_id = str(props.get("aif_edge_id") or f"e{len(edges)}")
-            edges.append(AIFEdge(edge_id=edge_id, from_id=source, to_id=target))
-
-    return ArgumentMap(map_id=map_id, nodes=nodes, edges=edges)
+    for source_id, target_id, raw_properties in raw_edges or []:
+        edge = _parse_exported_edge(
+            source_id, target_id, raw_properties, map_id, qualified_to_raw, len(edges)
+        )
+        if edge is not None:
+            edges.append(edge)
+    return edges
 
 
 def add_scheme(

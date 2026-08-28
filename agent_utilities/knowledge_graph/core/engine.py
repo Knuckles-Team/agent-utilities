@@ -123,41 +123,17 @@ class IntelligenceGraphEngine(
         # constructors so no queue/scheduler thread races materialization.
         self._defer_background_start = bool(defer_background_start)
 
-        # Use provided backend, or check for an active one, or create one from factory
-        if backend is not None:
-            self.backend = backend
-        else:
-            active_backend = get_active_backend()
-            if active_backend is not None:
-                self.backend = active_backend
-            elif db_path:
-                self.backend = create_backend(db_path=db_path)
-            else:
-                created_backend = create_backend()
-                if created_backend is not None:
-                    self.backend = created_backend
-                else:
-                    raise RuntimeError(
-                        "A persistent graph backend is required. Memory-only mode is no longer supported."
-                    )
+        self.backend = self._resolve_backend(backend, db_path)
 
         # Reuse the authority backend's own compute client when it has one.  An
         # EpistemicGraphBackend (including one wrapped by FanOutBackend) already
         # owns a GraphComputeEngine; constructing another here opened a second
         # socket and every write was then applied twice to the same authority.
         # Non-engine stores still receive one bounded compute scratch client.
-        backend_graph = getattr(self.backend, "graph", None)
-        self.graph_compute = (
+        self.graph_compute, self._compute_is_authority = self._resolve_graph_compute(
             graph
-            if graph is not None
-            else (
-                backend_graph
-                if backend_graph is not None
-                else GraphComputeEngine.get_or_create(backend_type="epistemic_graph")
-            )
         )
         self.graph = self.graph_compute
-        self._compute_is_authority = self.graph_compute is backend_graph
         self._process_owned = True
         # The process-owned root engine is its own root; a `for_graph()` view
         # (below) is stamped with a pointer back to the engine that created it.
@@ -173,23 +149,9 @@ class IntelligenceGraphEngine(
         super().__init__()
 
         # Start workers when native WorkItems report an ingestion backlog.
-        if self.backend and not self._defer_background_start:
-            try:
-                if self.ingest_queue_depth() > 0:
-                    self.start_task_workers()
-            except Exception:
-                logger.debug(
-                    "Failed to start task workers on initialization", exc_info=True
-                )
+        self._start_task_workers_if_backlogged()
 
-        with IntelligenceGraphEngine._ACTIVE_ENGINE_LOCK:
-            active = IntelligenceGraphEngine._ACTIVE_ENGINE
-            if active is None:
-                IntelligenceGraphEngine._ACTIVE_ENGINE = self
-            elif active is not self:
-                raise RuntimeError(
-                    "Concurrent duplicate graph engine construction was rejected"
-                )
+        self._register_active_engine()
         # Model transport is evidence-governed process-wide. Register the
         # operational authority at the same lifecycle boundary as _ACTIVE_ENGINE.
         from agent_utilities.core.contextual_model import set_context_compiler_engine
@@ -197,27 +159,10 @@ class IntelligenceGraphEngine(
         set_context_compiler_engine(self)
         self._bind_policy_stores()
 
-        from ..retrieval.hybrid_retriever import HybridRetriever  # type: ignore
-        from .inference_engine import InferenceEngine  # type: ignore
-
         # Resolve the active Schema Pack (explicit > env > config > core) and build
         # the retriever pack-aware so pack-driven retrieval signals (recency,
         # source-trust, autocut, relational-intent) are reachable (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
-        if schema_pack is None:
-            try:
-                from agent_utilities.models.schema_pack_loader import (
-                    get_active_pack,
-                    register_listener,
-                )
-
-                schema_pack = get_active_pack()
-                register_listener(self._on_schema_pack_change)
-            except Exception:  # pragma: no cover - never block engine construction
-                schema_pack = None
-        self.active_schema_pack = schema_pack
-
-        self.hybrid_retriever = HybridRetriever(self, schema_pack=schema_pack)
-        self.inference_engine = InferenceEngine(self)
+        self._setup_retrieval_and_inference(schema_pack)
 
         # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Auto-register service registry
         self._services_registered = False
@@ -227,6 +172,91 @@ class IntelligenceGraphEngine(
         # native AssetOccurrence/Blob and process configuration seams; it never
         # opens a second store.  Missing model/policy configuration remains a
         # fail-closed dependency diagnostic at the served tool boundary.
+        self._register_data_prep_provider()
+
+    def _resolve_backend(
+        self, backend: GraphBackend | None, db_path: str | None
+    ) -> GraphBackend:
+        """The backend to use: an explicit one, else the active one, else a
+        freshly created one (see the module's ``create_backend``/
+        ``get_active_backend`` factories)."""
+        if backend is not None:
+            return backend
+        active_backend = get_active_backend()
+        if active_backend is not None:
+            return active_backend
+        if db_path:
+            return create_backend(db_path=db_path)
+        created_backend = create_backend()
+        if created_backend is not None:
+            return created_backend
+        raise RuntimeError(
+            "A persistent graph backend is required. Memory-only mode is no longer supported."
+        )
+
+    def _resolve_graph_compute(self, graph: Any) -> tuple[Any, bool]:
+        """(graph_compute, compute_is_authority) for ``graph`` — an explicit
+        override, else the backend's own compute client when it has one, else
+        a fresh bounded scratch client."""
+        backend_graph = getattr(self.backend, "graph", None)
+        graph_compute = (
+            graph
+            if graph is not None
+            else (
+                backend_graph
+                if backend_graph is not None
+                else GraphComputeEngine.get_or_create(backend_type="epistemic_graph")
+            )
+        )
+        return graph_compute, graph_compute is backend_graph
+
+    def _start_task_workers_if_backlogged(self) -> None:
+        if not self.backend or self._defer_background_start:
+            return
+        try:
+            if self.ingest_queue_depth() > 0:
+                self.start_task_workers()
+        except Exception:
+            logger.debug(
+                "Failed to start task workers on initialization", exc_info=True
+            )
+
+    def _register_active_engine(self) -> None:
+        with IntelligenceGraphEngine._ACTIVE_ENGINE_LOCK:
+            active = IntelligenceGraphEngine._ACTIVE_ENGINE
+            if active is None:
+                IntelligenceGraphEngine._ACTIVE_ENGINE = self
+            elif active is not self:
+                raise RuntimeError(
+                    "Concurrent duplicate graph engine construction was rejected"
+                )
+
+    def _resolve_schema_pack(self, schema_pack: Any) -> Any:
+        if schema_pack is not None:
+            return schema_pack
+        try:
+            from agent_utilities.models.schema_pack_loader import (
+                get_active_pack,
+                register_listener,
+            )
+
+            resolved = get_active_pack()
+            register_listener(self._on_schema_pack_change)
+            return resolved
+        except Exception:  # pragma: no cover - never block engine construction
+            return None
+
+    def _setup_retrieval_and_inference(self, schema_pack: Any) -> None:
+        from ..retrieval.hybrid_retriever import HybridRetriever  # type: ignore
+        from .inference_engine import InferenceEngine  # type: ignore
+
+        self.active_schema_pack = self._resolve_schema_pack(schema_pack)
+        self.hybrid_retriever = HybridRetriever(
+            self, schema_pack=self.active_schema_pack
+        )
+        self.inference_engine = InferenceEngine(self)
+
+    def _register_data_prep_provider(self) -> None:
         try:
             from agent_utilities.mcp.tools.data_prep_tools import (
                 register_process_data_prep_runtime,
@@ -557,21 +587,59 @@ class IntelligenceGraphEngine(
             pass
         return []
 
-    def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
-        """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
+    def _node_to_dict(self, node: Any) -> dict[str, Any]:
         # Every RegistryNode subclass carries the node class as a Pydantic `type`
         # field, but the engine's sole canonical node-class PROPERTY is
         # `node_type` — both EpistemicGraphBackend.add_node and
         # GraphComputeEngine.add_node raise on a stray 'type' key. The rename is
         # owned by the one named projection on the model.
         if isinstance(node, RegistryNode):
-            data = node.to_graph_properties()
-        else:
-            data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
-        clean_data = {}
+            return node.to_graph_properties()
+        return node.model_dump() if hasattr(node, "model_dump") else dict(node)
 
-        # Define fields that Ladybug supports as native arrays
-        ARRAY_FIELDS = [
+    def _resolve_serialize_allowed_columns(self, label: str | None) -> list[str] | None:
+        # Filter by schema if label is provided. The schema's declared column
+        # is still the retired 'type' name across the whole SCHEMA table
+        # (agent_utilities/models/schema_definition.py never picked up the
+        # type -> node_type rename _node_to_dict performs). Without this fold,
+        # 'node_type' isn't a declared column, so the whitelist below silently
+        # drops it again, and every schema-labeled write loses its node_type
+        # -- exactly the retired-property-silently-matching-nothing pattern
+        # (D-OTR-1) on the WRITE side instead of the read side.
+        allowed_cols = self._get_allowed_columns(label) if label else None
+        if allowed_cols is not None and "type" in allowed_cols:
+            allowed_cols = [*allowed_cols, "node_type"]
+        return allowed_cols
+
+    def _serialize_node_field(
+        self, key: str, value: Any, *, label: str | None, array_fields: tuple[str, ...]
+    ) -> Any:
+        """The cleaned value for one node field — never called for a ``None``
+        value or a column already filtered by ``allowed_cols`` (see
+        :meth:`_serialize_node`)."""
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, dict | list) and key not in array_fields:
+            # Every caller of this helper follows the same convention: a
+            # `label`-less call feeds `self.graph.add_node(...)` (the native
+            # compute layer, which stores nested maps/lists natively), while a
+            # `label=...` call feeds the schema-aware backend/mirror leg
+            # (`_upsert_node`, whose own encoding policy this mirrors).
+            # JSON-encoding here unconditionally was correct for the backend
+            # leg but silently lossy for the compute leg -- a caller reading
+            # `engine.graph.nodes[id][k]` back got a JSON string instead of
+            # the dict/list it wrote (same masking-bug class as D-OTR-5's
+            # KGMapper._serialize).
+            return json.dumps(value) if label is not None else value
+        return value
+
+    def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
+        """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
+        data = self._node_to_dict(node)
+        clean_data: dict[str, Any] = {}
+
+        # Fields that Ladybug supports as native arrays (not JSON-encoded).
+        array_fields = (
             "capabilities",
             "tags",
             "tool_ids",
@@ -585,43 +653,17 @@ class IntelligenceGraphEngine(
             # (STRING param against a STRING[] column), silently losing the
             # RunTrace node on read-back.
             "privacy_types",
-        ]
-
-        # Filter by schema if label is provided
-        allowed_cols = self._get_allowed_columns(label) if label else None
-        # The schema's declared column is still the retired 'type' name across
-        # the whole SCHEMA table (agent_utilities/models/schema_definition.py
-        # never picked up the type -> node_type rename this method performs
-        # just above). Without this, the fold above is undone immediately:
-        # 'node_type' isn't a declared column, so the whitelist below silently
-        # drops it again, and every schema-labeled write loses its node_type
-        # -- exactly the retired-property-silently-matching-nothing pattern
-        # (D-OTR-1) on the WRITE side instead of the read side.
-        if allowed_cols is not None and "type" in allowed_cols:
-            allowed_cols = [*allowed_cols, "node_type"]
+        )
+        allowed_cols = self._resolve_serialize_allowed_columns(label)
 
         for k, v in data.items():
             if v is None:
                 continue
             if allowed_cols is not None and k not in allowed_cols:
                 continue
-
-            if isinstance(v, Enum):
-                clean_data[k] = v.value
-            elif isinstance(v, dict | list) and k not in ARRAY_FIELDS:
-                # Every caller of this helper follows the same convention: a
-                # `label`-less call feeds `self.graph.add_node(...)` (the
-                # native compute layer, which stores nested maps/lists
-                # natively), while a `label=...` call feeds the schema-aware
-                # backend/mirror leg (`_upsert_node`, whose own encoding
-                # policy this mirrors). JSON-encoding here unconditionally
-                # was correct for the backend leg but silently lossy for the
-                # compute leg -- a caller reading `engine.graph.nodes[id][k]`
-                # back got a JSON string instead of the dict/list it wrote
-                # (same masking-bug class as D-OTR-5's KGMapper._serialize).
-                clean_data[k] = json.dumps(v) if label is not None else v
-            else:
-                clean_data[k] = v
+            clean_data[k] = self._serialize_node_field(
+                k, v, label=label, array_fields=array_fields
+            )
         return clean_data
 
     # Backends with a fixed, column-typed schema: writing a property that is
@@ -702,44 +744,61 @@ class IntelligenceGraphEngine(
 
         The full native property set still reaches the graph authority.
         """
-        import json
-
         valid_keys = self._schema_valid_keys(label)
         backend_name = self.backend.__class__.__name__ if self.backend else ""
         nested_unsafe = backend_name in self._NESTED_UNSAFE
 
-        def _enc(key: str, value: Any) -> Any:
-            if isinstance(value, dict | list) and key not in self._ARRAY_FIELDS:
-                return json.dumps(value, default=str)
-            return value
-
         if valid_keys is None:
-            # Schemaless backend: keep every property. Encode nested values only
-            # for drivers that reject map properties.
-            if not nested_unsafe:
-                return dict(data)
-            return {k: _enc(k, v) for k, v in data.items()}
+            return self._prepare_schemaless_props(data, nested_unsafe=nested_unsafe)
+        return self._prepare_schema_backed_props(data, valid_keys)
 
-        # Schema-backed: declared columns pass through (nested ones JSON-encoded);
-        # everything else folds into the ``metadata`` catch-all column.
+    def _encode_nested_value(self, key: str, value: Any) -> Any:
+        if isinstance(value, dict | list) and key not in self._ARRAY_FIELDS:
+            return json.dumps(value, default=str)
+        return value
+
+    def _prepare_schemaless_props(
+        self, data: dict[str, Any], *, nested_unsafe: bool
+    ) -> dict[str, Any]:
+        # Schemaless backend: keep every property. Encode nested values only
+        # for drivers that reject map properties.
+        if not nested_unsafe:
+            return dict(data)
+        return {k: self._encode_nested_value(k, v) for k, v in data.items()}
+
+    def _split_declared_and_extra_props(
+        self, data: dict[str, Any], valid_keys: set[str]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         prepared: dict[str, Any] = {}
         extras: dict[str, Any] = {}
         for k, v in data.items():
             if k == "id" or k in valid_keys:
-                prepared[k] = _enc(k, v)
+                prepared[k] = self._encode_nested_value(k, v)
             elif k != "metadata":
                 extras[k] = v
+        return prepared, extras
 
+    def _fold_extras_into_metadata(
+        self, prepared: dict[str, Any], extras: dict[str, Any]
+    ) -> None:
+        meta: dict[str, Any] = {}
+        existing = prepared.get("metadata")
+        if isinstance(existing, str) and existing:
+            try:
+                meta = json.loads(existing)
+            except Exception:
+                meta = {"_": existing}
+        meta.update(extras)
+        prepared["metadata"] = json.dumps(meta, default=str)
+
+    def _prepare_schema_backed_props(
+        self, data: dict[str, Any], valid_keys: set[str]
+    ) -> dict[str, Any]:
+        # Schema-backed: declared columns pass through (nested ones JSON-encoded);
+        # everything else folds into the ``metadata`` catch-all column.
+        prepared, extras = self._split_declared_and_extra_props(data, valid_keys)
         if extras and "metadata" in valid_keys:
-            meta: dict[str, Any] = {}
-            existing = prepared.get("metadata")
-            if isinstance(existing, str) and existing:
-                try:
-                    meta = json.loads(existing)
-                except Exception:
-                    meta = {"_": existing}
-            meta.update(extras)
-            prepared["metadata"] = json.dumps(meta, default=str)
+            self._fold_extras_into_metadata(prepared, extras)
         return prepared
 
     def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
@@ -956,34 +1015,14 @@ class IntelligenceGraphEngine(
         # domain (including arrays/nested values) and avoids two label-lookup
         # queries plus a scalar-only Cypher ``SET``.  Native proxy backends retain
         # governance and mirror-outbox behavior through this same method.
-        typed_support = getattr(self.backend, "typed_mutation_support", "")
-        if typed_support == "native":
-            typed_add = getattr(self.backend, "add_edge", None)
-            if not callable(typed_add):
-                raise RuntimeError(
-                    "native graph authority does not expose typed edge mutations"
-                )
-            typed_add(
-                source_id,
-                target_id,
-                **{
-                    **props,
-                    "relationship": rel_type,
-                },
-            )
+        if self._try_native_typed_edge_write(source_id, target_id, rel_type, props):
             return
         if getattr(self.backend, "cypher_support", "full") == "native":
             raise RuntimeError(
                 "native graph authority did not declare lossless typed mutations"
             )
 
-        _backend_name = self.backend.__class__.__name__
-        if _backend_name == "LadybugBackend":
-            set_clause = " SET r.`properties` = $properties"
-            edge_params: dict[str, Any] = {"properties": json.dumps(props, default=str)}
-        else:
-            set_clause = self._get_set_clause(props, alias="r")
-            edge_params = dict(props)
+        set_clause, edge_params = self._edge_set_clause_and_params(props)
 
         # Portable label lookup. Dialect is chosen from the backend's *declared
         # capability* (``cypher_support``), NEVER its class name: full-openCypher
@@ -998,30 +1037,9 @@ class IntelligenceGraphEngine(
         # Skipped entirely when the caller supplies the labels (bulk migration) — the
         # labels are normalised the same way the nodes were written so the indexed
         # ``MATCH (s:Label {id})`` resolves.
-        if source_label is not None and target_label is not None:
-            s_label = f":{self._normalize_label(source_label)}"
-            t_label = f":{self._normalize_label(target_label)}"
-        else:
-            _full_cypher = getattr(self.backend, "cypher_support", "full") == "full"
-            _lbl_expr = "labels(n)[0]" if _full_cypher else "label(n)"
-            s_label_res = self.backend.execute(
-                f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl",
-                {"id": source_id},
-            )
-            t_label_res = self.backend.execute(
-                f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl",
-                {"id": target_id},
-            )
-            s_label = (
-                f":{s_label_res[0]['lbl']}"
-                if s_label_res and s_label_res[0].get("lbl")
-                else ""
-            )
-            t_label = (
-                f":{t_label_res[0]['lbl']}"
-                if t_label_res and t_label_res[0].get("lbl")
-                else ""
-            )
+        s_label, t_label = self._resolve_edge_endpoint_labels(
+            source_id, target_id, source_label, target_label
+        )
         query = (
             f"MATCH (s{s_label} {{id: $sid}}) MATCH (t{t_label} {{id: $tid}}) "
             f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
@@ -1029,6 +1047,64 @@ class IntelligenceGraphEngine(
         params = {"sid": source_id, "tid": target_id}
         params.update(edge_params)
         self.backend.execute(query, params)
+
+    def _try_native_typed_edge_write(
+        self, source_id: str, target_id: str, rel_type: str, props: dict[str, Any]
+    ) -> bool:
+        """Write via the native typed-mutation seam when the backend declares
+        it; returns ``True`` if it handled the write (caller returns
+        immediately without falling through to the Cypher path)."""
+        typed_support = getattr(self.backend, "typed_mutation_support", "")
+        if typed_support != "native":
+            return False
+        typed_add = getattr(self.backend, "add_edge", None)
+        if not callable(typed_add):
+            raise RuntimeError(
+                "native graph authority does not expose typed edge mutations"
+            )
+        typed_add(source_id, target_id, **{**props, "relationship": rel_type})
+        return True
+
+    def _edge_set_clause_and_params(
+        self, props: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        # Kuzu/Ladybug REL tables carry a single JSON `properties` column
+        # (other backends store edge props as native columns/JSONB), so fold
+        # all edge props into it there -- otherwise Kuzu drops them.
+        if self.backend.__class__.__name__ == "LadybugBackend":
+            return " SET r.`properties` = $properties", {
+                "properties": json.dumps(props, default=str)
+            }
+        return self._get_set_clause(props, alias="r"), dict(props)
+
+    def _resolve_edge_endpoint_label(self, node_id: str, label_expr: str) -> str:
+        res = self.backend.execute(
+            f"MATCH (n) WHERE n.id = $id RETURN {label_expr} as lbl",
+            {"id": node_id},
+        )
+        return f":{res[0]['lbl']}" if res and res[0].get("lbl") else ""
+
+    def _resolve_edge_endpoint_labels(
+        self,
+        source_id: str,
+        target_id: str,
+        source_label: str | None,
+        target_label: str | None,
+    ) -> tuple[str, str]:
+        """Skipped entirely when the caller already supplies both labels
+        (bulk migration) -- the labels are normalised the same way the nodes
+        were written so the indexed ``MATCH (s:Label {id})`` resolves."""
+        if source_label is not None and target_label is not None:
+            return (
+                f":{self._normalize_label(source_label)}",
+                f":{self._normalize_label(target_label)}",
+            )
+        full_cypher = getattr(self.backend, "cypher_support", "full") == "full"
+        label_expr = "labels(n)[0]" if full_cypher else "label(n)"
+        return (
+            self._resolve_edge_endpoint_label(source_id, label_expr),
+            self._resolve_edge_endpoint_label(target_id, label_expr),
+        )
 
     def resolve_and_link(
         self,
@@ -1249,97 +1325,109 @@ class IntelligenceGraphEngine(
 
         from agent_utilities.security.brain_context import use_actor
 
-        from .bitemporal import stamp_bitemporal
         from .session import resolve_session
-        from .tenant_sharing import stamp_classification, stamp_ownership
 
         session = resolve_session(session, required_scope="kg:write")
-        operations: list[dict[str, Any]] = []
         with use_actor(session.actor):
-            for mutation in mutations:
-                if not isinstance(mutation, dict):
-                    raise ValueError("typed batch mutations must be mappings")
-                kind = str(mutation.get("kind") or "")
-                raw_properties = mutation.get("properties") or {}
-                if not isinstance(raw_properties, dict):
-                    raise ValueError(
-                        "typed batch mutation properties must be a mapping"
-                    )
-                if kind == "node":
-                    node_id = str(mutation.get("id") or "").strip()
-                    node_type = str(mutation.get("node_type") or "").strip()
-                    if not node_id or not node_type:
-                        raise ValueError("typed node batch requires id and node_type")
-                    props = dict(raw_properties)
-                    if "type" in props:
-                        raise retired_node_type_property_error()
-                    node_type = self._normalize_label(node_type)
-                    props["node_type"] = node_type
-                    self._audit_candidate_type("node", node_type)
-                    prepared = self._prepare_node_props(
-                        node_type, {"id": node_id, **props}
-                    )
-                    prepared.setdefault("id", node_id)
-                    # BUG-033/BUG-039: fail closed, same as ``_upsert_node``
-                    # above — no bound actor must never silently produce an
-                    # unowned node (see that seam's comment for the full
-                    # rationale).
-                    stamp_ownership(prepared)
-                    stamp_classification(prepared, node_type)
-                    operations.append(
-                        {
-                            "op": "upsert_node" if upsert else "add_node",
-                            "id": node_id,
-                            "properties": {
-                                **prepared,
-                                "id": node_id,
-                                "node_type": prepared.get("node_type", node_type),
-                            },
-                        }
-                    )
-                    continue
-
-                if kind == "edge":
-                    source_id = str(mutation.get("source") or "").strip()
-                    target_id = str(mutation.get("target") or "").strip()
-                    rel_type = str(mutation.get("rel_type") or "").strip()
-                    if not source_id or not target_id or not rel_type:
-                        raise ValueError(
-                            "typed edge batch requires source, target, and rel_type"
-                        )
-                    props = dict(raw_properties)
-                    aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
-                    if aliases:
-                        raise retired_edge_relationship_property_error(aliases)
-                    self._audit_candidate_type("edge", rel_type)
-                    rel_type = validate_identifier(
-                        rel_type.upper(), kind="relationship type"
-                    )
-                    props.setdefault("confidence", 1.0)
-                    props.setdefault("source", "system")
-                    stamp_bitemporal(props, event_time=props.get("event_time"))
-                    # BUG-062: fail closed, same as the node branch above and
-                    # ``_upsert_edge`` — no bound actor must never silently
-                    # produce an unowned/unclassified edge (see that seam's
-                    # comment for the full rationale). This batch path bypasses
-                    # ``_upsert_edge`` entirely (it goes straight to
-                    # ``apply_typed_batch``), so it needs its own stamp.
-                    stamp_ownership(props)
-                    stamp_classification(props, rel_type)
-                    operations.append(
-                        {
-                            "op": "upsert_edge" if upsert else "add_edge",
-                            "source": source_id,
-                            "target": target_id,
-                            "properties": {**props, "relationship": rel_type},
-                        }
-                    )
-                    continue
-
-                raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
-
+            operations = [
+                self._prepare_typed_mutation_op(mutation, upsert=upsert)
+                for mutation in mutations
+            ]
             apply(operations)
         return True
+
+    def _prepare_typed_node_mutation(
+        self,
+        mutation: dict[str, Any],
+        raw_properties: dict[str, Any],
+        *,
+        upsert: bool,
+    ) -> dict[str, Any]:
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        node_id = str(mutation.get("id") or "").strip()
+        node_type = str(mutation.get("node_type") or "").strip()
+        if not node_id or not node_type:
+            raise ValueError("typed node batch requires id and node_type")
+        props = dict(raw_properties)
+        if "type" in props:
+            raise retired_node_type_property_error()
+        node_type = self._normalize_label(node_type)
+        props["node_type"] = node_type
+        self._audit_candidate_type("node", node_type)
+        prepared = self._prepare_node_props(node_type, {"id": node_id, **props})
+        prepared.setdefault("id", node_id)
+        # BUG-033/BUG-039: fail closed, same as ``_upsert_node`` above — no
+        # bound actor must never silently produce an unowned node (see that
+        # seam's comment for the full rationale).
+        stamp_ownership(prepared)
+        stamp_classification(prepared, node_type)
+        return {
+            "op": "upsert_node" if upsert else "add_node",
+            "id": node_id,
+            "properties": {
+                **prepared,
+                "id": node_id,
+                "node_type": prepared.get("node_type", node_type),
+            },
+        }
+
+    def _prepare_typed_edge_mutation(
+        self,
+        mutation: dict[str, Any],
+        raw_properties: dict[str, Any],
+        *,
+        upsert: bool,
+    ) -> dict[str, Any]:
+        from .bitemporal import stamp_bitemporal
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        source_id = str(mutation.get("source") or "").strip()
+        target_id = str(mutation.get("target") or "").strip()
+        rel_type = str(mutation.get("rel_type") or "").strip()
+        if not source_id or not target_id or not rel_type:
+            raise ValueError("typed edge batch requires source, target, and rel_type")
+        props = dict(raw_properties)
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
+        if aliases:
+            raise retired_edge_relationship_property_error(aliases)
+        self._audit_candidate_type("edge", rel_type)
+        rel_type = validate_identifier(rel_type.upper(), kind="relationship type")
+        props.setdefault("confidence", 1.0)
+        props.setdefault("source", "system")
+        stamp_bitemporal(props, event_time=props.get("event_time"))
+        # BUG-062: fail closed, same as the node branch above and
+        # ``_upsert_edge`` — no bound actor must never silently produce an
+        # unowned/unclassified edge (see that seam's comment for the full
+        # rationale). This batch path bypasses ``_upsert_edge`` entirely (it
+        # goes straight to ``apply_typed_batch``), so it needs its own stamp.
+        stamp_ownership(props)
+        stamp_classification(props, rel_type)
+        return {
+            "op": "upsert_edge" if upsert else "add_edge",
+            "source": source_id,
+            "target": target_id,
+            "properties": {**props, "relationship": rel_type},
+        }
+
+    def _prepare_typed_mutation_op(
+        self, mutation: Any, *, upsert: bool
+    ) -> dict[str, Any]:
+        if not isinstance(mutation, dict):
+            raise ValueError("typed batch mutations must be mappings")
+        kind = str(mutation.get("kind") or "")
+        raw_properties = mutation.get("properties") or {}
+        if not isinstance(raw_properties, dict):
+            raise ValueError("typed batch mutation properties must be a mapping")
+        if kind == "node":
+            return self._prepare_typed_node_mutation(
+                mutation, raw_properties, upsert=upsert
+            )
+        if kind == "edge":
+            return self._prepare_typed_edge_mutation(
+                mutation, raw_properties, upsert=upsert
+            )
+        raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
 
     def add_edge(
         self,
@@ -1488,13 +1576,6 @@ class IntelligenceGraphEngine(
               ``Memory`` node for future retrieval.
         """
 
-        from agent_utilities.core.config import (
-            DEFAULT_KG_MODEL_ID,
-            DEFAULT_LLM_PROVIDER,
-        )
-        from agent_utilities.core.contextual_model import create_context_agent
-        from agent_utilities.core.model_factory import create_model
-
         # Structured discovery (no LLM).
         l1_results = self.discover_innovations(query, top_k=10)
         enriched = l1_results.get("results", [])
@@ -1502,7 +1583,34 @@ class IntelligenceGraphEngine(
         if not enriched:
             return {"status": "skipped", "reason": "No initial concepts found"}
 
-        # Build compact context for the LLM from native signals.
+        prompt = self._build_deep_analysis_prompt(query, enriched, domain_recs)
+        llm_summary = self._run_deep_analysis_synthesis(
+            prompt, query, enriched, domain_recs
+        )
+
+        # ── KG Writeback: Domain edges + Memory node ─────────────────
+        source_id = (
+            query if "-" in query else (enriched[0].get("id") if enriched else query)
+        )
+        new_concepts = self._write_deep_analysis_domain_edges(source_id, domain_recs)
+        self._store_deep_analysis_memory(llm_summary, query)
+
+        return {
+            "status": "success",
+            "features_extracted": len(domain_recs),
+            "new_analogies": len(new_concepts),
+            "discovered_targets": new_concepts,
+            "llm_summary_length": len(llm_summary),
+            "llm_summary": llm_summary[:2000],
+        }
+
+    def _build_deep_analysis_prompt(
+        self,
+        query: str,
+        enriched: list[dict[str, Any]],
+        domain_recs: list[dict[str, Any]],
+    ) -> str:
+        """Compact LLM context built from native discover_innovations signals."""
         match_lines = []
         for r in enriched[:7]:
             match_lines.append(
@@ -1523,7 +1631,7 @@ class IntelligenceGraphEngine(
                 f"{d['source_count']} signals, priority={d['priority']}"
             )
 
-        prompt = (
+        return (
             f"## Deep Analysis: {query}\n\n"
             f"### Top Matches from Knowledge Graph\n"
             + "\n".join(match_lines)
@@ -1541,8 +1649,22 @@ class IntelligenceGraphEngine(
             "Write in clear, structured markdown. Be specific and actionable."
         )
 
-        # Free-text LLM synthesis.
-        llm_summary = ""
+    def _run_deep_analysis_synthesis(
+        self,
+        prompt: str,
+        query: str,
+        enriched: list[dict[str, Any]],
+        domain_recs: list[dict[str, Any]],
+    ) -> str:
+        """Free-text LLM synthesis; degrades to a native-signals-only summary
+        on any LLM failure (non-fatal — native signals are already computed)."""
+        from agent_utilities.core.config import (
+            DEFAULT_KG_MODEL_ID,
+            DEFAULT_LLM_PROVIDER,
+        )
+        from agent_utilities.core.contextual_model import create_context_agent
+        from agent_utilities.core.model_factory import create_model
+
         try:
             from ...core.event_loop import allow_nested_run_sync
 
@@ -1563,39 +1685,40 @@ class IntelligenceGraphEngine(
             result = agent.run_sync(prompt)
             llm_summary = str(result.output)
             logger.info("Synthesis complete: %d chars generated", len(llm_summary))
+            return llm_summary
         except Exception as e:
             logger.warning("LLM synthesis failed (non-fatal): %s", e)
-            llm_summary = (
+            return (
                 f"[LLM synthesis unavailable — native signals preserved]\n\n"
                 f"Query: {query}\n"
                 f"Matches: {len(enriched)}\n"
                 f"Top domains: {', '.join(d['domain'] for d in domain_recs[:5])}"
             )
 
-        # ── KG Writeback: Domain edges + Memory node ─────────────────
-        source_id = (
-            query if "-" in query else (enriched[0].get("id") if enriched else query)
-        )
-
+    def _write_deep_analysis_domain_edges(
+        self, source_id: str, domain_recs: list[dict[str, Any]]
+    ) -> list[str]:
+        """ANALOGOUS_TO edges from native domain recommendations."""
         new_concepts = []
-        # Write ANALOGOUS_TO edges from native domain recommendations.
         for d in domain_recs:
-            if d.get("priority") in ("high", "medium"):
-                success = self.resolve_and_link(
-                    source_name=source_id,
-                    target_name=d["domain"],
-                    rel_type="ANALOGOUS_TO",
-                    properties={
-                        "source": "deep_analysis",
-                        "feature": d["analogy"],
-                        "signal_count": d.get("source_count", 0),
-                        "priority": d["priority"],
-                    },
-                )
-                if success:
-                    new_concepts.append(d["domain"])
+            if d.get("priority") not in ("high", "medium"):
+                continue
+            success = self.resolve_and_link(
+                source_name=source_id,
+                target_name=d["domain"],
+                rel_type="ANALOGOUS_TO",
+                properties={
+                    "source": "deep_analysis",
+                    "feature": d["analogy"],
+                    "signal_count": d.get("source_count", 0),
+                    "priority": d["priority"],
+                },
+            )
+            if success:
+                new_concepts.append(d["domain"])
+        return new_concepts
 
-        # Store synthesis as a semantic memory for future recall
+    def _store_deep_analysis_memory(self, llm_summary: str, query: str) -> None:
         try:
             self.add_memory(
                 content=llm_summary,
@@ -1604,15 +1727,6 @@ class IntelligenceGraphEngine(
             )
         except Exception as mem_e:  # noqa: BLE001 — add_memory is a secondary recall aid over a synthesis (llm_summary) that's already fully computed and returned in the payload below regardless of whether this memory-store call succeeds
             logger.debug(f"Memory store skipped: {mem_e}")
-
-        return {
-            "status": "success",
-            "features_extracted": len(domain_recs),
-            "new_analogies": len(new_concepts),
-            "discovered_targets": new_concepts,
-            "llm_summary_length": len(llm_summary),
-            "llm_summary": llm_summary[:2000],
-        }
 
     async def run(self, manifest: Any) -> Any:
         """Unified ExecutionEngine contract entrypoint.
