@@ -1091,35 +1091,45 @@ class NativeConceptReservationAuthority:
             )
         return record
 
-    def _list_nodes(
-        self, *, limit: int, after: str | None
-    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
-        if not 1 <= limit <= _MAX_LIST_LIMIT:
-            raise ConceptReservationError("native label page limit is invalid")
-        after = _validate_cursor(after, "native cursor")
-        if after is None:
-            try:
-                value = self._call(
-                    "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=None
-                )
-            except AuthorityUnavailable:
-                # Older AU GraphComputeEngine wrappers expose a bounded label
-                # read without a cursor.  Keep the first page usable, but do
-                # not pretend it can paginate a large authority.
-                for fallback in ("get_nodes_by_label", "nodes_by_label"):
-                    try:
-                        value = self._call(fallback, RESERVATION_NODE_LABEL, limit)
-                        break
-                    except AuthorityUnavailable:
-                        continue
-                else:
-                    raise AuthorityUnavailable(
-                        "native graph has no bounded reservation label read"
-                    )
-        else:
-            value = self._call(
+    def _fetch_label_page(self, *, limit: int, after: str | None) -> Any:
+        if after is not None:
+            return self._call(
                 "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=after
             )
+        try:
+            return self._call(
+                "list_nodes_by_label", RESERVATION_NODE_LABEL, limit, after=None
+            )
+        except AuthorityUnavailable:
+            # Older AU GraphComputeEngine wrappers expose a bounded label
+            # read without a cursor.  Keep the first page usable, but do
+            # not pretend it can paginate a large authority.
+            for fallback in ("get_nodes_by_label", "nodes_by_label"):
+                try:
+                    return self._call(fallback, RESERVATION_NODE_LABEL, limit)
+                except AuthorityUnavailable:
+                    continue
+            raise AuthorityUnavailable(
+                "native graph has no bounded reservation label read"
+            ) from None
+
+    def _validated_row(self, row: Any) -> tuple[str, Mapping[str, Any]]:
+        if not isinstance(row, Sequence) or len(row) != 2:
+            raise AuthorityUnavailable("native reservation label row is malformed")
+        node_id, props = row
+        if not isinstance(node_id, str) or not isinstance(props, Mapping):
+            raise AuthorityUnavailable("native reservation label row is malformed")
+        try:
+            _validate_cursor(node_id, "native node id")
+        except ConceptReservationError as exc:
+            raise AuthorityUnavailable(
+                "native reservation node id is malformed"
+            ) from exc
+        return node_id, props
+
+    def _validated_rows(
+        self, value: Any, limit: int
+    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
         if not isinstance(value, Sequence) or isinstance(
             value, (str, bytes, bytearray)
         ):
@@ -1131,17 +1141,7 @@ class NativeConceptReservationAuthority:
         rows: list[tuple[str, Mapping[str, Any]]] = []
         previous_node_id: str | None = None
         for row in value:
-            if not isinstance(row, Sequence) or len(row) != 2:
-                raise AuthorityUnavailable("native reservation label row is malformed")
-            node_id, props = row
-            if not isinstance(node_id, str) or not isinstance(props, Mapping):
-                raise AuthorityUnavailable("native reservation label row is malformed")
-            try:
-                _validate_cursor(node_id, "native node id")
-            except ConceptReservationError as exc:
-                raise AuthorityUnavailable(
-                    "native reservation node id is malformed"
-                ) from exc
+            node_id, props = self._validated_row(row)
             if previous_node_id is not None and node_id <= previous_node_id:
                 raise AuthorityUnavailable(
                     "native reservation label page is not strictly ordered"
@@ -1149,6 +1149,54 @@ class NativeConceptReservationAuthority:
             previous_node_id = node_id
             rows.append((node_id, props))
         return rows
+
+    def _list_nodes(
+        self, *, limit: int, after: str | None
+    ) -> Sequence[tuple[str, Mapping[str, Any]]]:
+        if not 1 <= limit <= _MAX_LIST_LIMIT:
+            raise ConceptReservationError("native label page limit is invalid")
+        after = _validate_cursor(after, "native cursor")
+        value = self._fetch_label_page(limit=limit, after=after)
+        return self._validated_rows(value, limit)
+
+    def _match_reservation(
+        self,
+        rows: Sequence[tuple[str, Mapping[str, Any]]],
+        reservation_id: str,
+        tenant_ref: str,
+    ) -> tuple[str, ConceptReservationRecord] | None:
+        for node_id, props in rows:
+            record = self._parse_properties(props)
+            if node_id != _reservation_node_id(record.concept_id):
+                raise AuthorityUnavailable(
+                    "native reservation node identity is inconsistent"
+                )
+            if record.reservation_id != reservation_id:
+                continue
+            if record.tenant_ref != tenant_ref:
+                raise ConceptReservationUnauthorized(
+                    "concept reservation belongs to another tenant"
+                )
+            return node_id, record
+        return None
+
+    def _advance_lookup_cursor(
+        self,
+        rows: Sequence[tuple[str, Mapping[str, Any]]],
+        cursor: str | None,
+        seen_cursors: set[str],
+    ) -> str:
+        next_cursor = _validate_cursor(rows[-1][0], "native cursor")
+        if (
+            next_cursor is None
+            or (cursor is not None and next_cursor <= cursor)
+            or next_cursor in seen_cursors
+        ):
+            raise AuthorityUnavailable(
+                "native reservation lookup cursor did not advance"
+            )
+        seen_cursors.add(next_cursor)
+        return next_cursor
 
     def _find_reservation(
         self, reservation_id: str, tenant_ref: str
@@ -1163,32 +1211,12 @@ class NativeConceptReservationAuthority:
                 raise AuthorityUnavailable(
                     "native reservation lookup exceeded its record bound"
                 )
-            for node_id, props in rows:
-                record = self._parse_properties(props)
-                if node_id != _reservation_node_id(record.concept_id):
-                    raise AuthorityUnavailable(
-                        "native reservation node identity is inconsistent"
-                    )
-                if record.reservation_id != reservation_id:
-                    continue
-                if record.tenant_ref != tenant_ref:
-                    raise ConceptReservationUnauthorized(
-                        "concept reservation belongs to another tenant"
-                    )
-                return node_id, record
+            found = self._match_reservation(rows, reservation_id, tenant_ref)
+            if found is not None:
+                return found
             if len(rows) < _MAX_LIST_LIMIT:
                 break
-            next_cursor = _validate_cursor(rows[-1][0], "native cursor")
-            if (
-                next_cursor is None
-                or (cursor is not None and next_cursor <= cursor)
-                or next_cursor in seen_cursors
-            ):
-                raise AuthorityUnavailable(
-                    "native reservation lookup cursor did not advance"
-                )
-            seen_cursors.add(next_cursor)
-            cursor = next_cursor
+            cursor = self._advance_lookup_cursor(rows, cursor, seen_cursors)
         else:
             raise AuthorityUnavailable(
                 "native reservation lookup exceeded its page bound"
