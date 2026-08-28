@@ -6106,6 +6106,204 @@ _LAZY_CACHE: BoundedLRUCache = BoundedLRUCache(max_size=LAZY_CACHE_MAX_SIZE)
 _CONFIG_PROXY = AgentConfigProxy()
 
 
+# Cache key -> AgentConfig attribute for every plain pass-through default. A table
+# is a dict-dispatch shape: the loop below is O(1) branches regardless of length,
+# where the original inline block cost one decision point per derived entry.
+_LAZY_PASSTHROUGH_FIELDS: tuple[tuple[str, str], ...] = (
+    ("DEFAULT_AGENT_NAME", "default_agent_name"),
+    ("DEFAULT_AGENT_DESCRIPTION", "agent_description"),
+    ("DEFAULT_AGENT_SYSTEM_PROMPT", "agent_system_prompt"),
+    ("DEFAULT_DEBUG", "debug"),
+    ("DEFAULT_MCP_URL", "mcp_url"),
+    ("DEFAULT_MCP_CONFIG", "mcp_config"),
+    ("DEFAULT_CUSTOM_SKILLS_DIRECTORY", "custom_skills_directory"),
+    ("DEFAULT_SKILL_TYPES", "skill_types"),
+    ("DEFAULT_ENABLE_WEB_UI", "enable_web_ui"),
+    ("DEFAULT_ENABLE_TERMINAL_UI", "enable_terminal_ui"),
+    ("DEFAULT_ENABLE_WEB_LOGS", "enable_web_logs"),
+    ("DEFAULT_ENABLE_OTEL", "enable_otel"),
+    ("DEFAULT_ENABLE_ACP", "enable_acp"),
+    ("DEFAULT_ACP_SESSION_ROOT", "acp_session_root"),
+    ("DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT", "otel_exporter_otlp_endpoint"),
+    ("DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL", "otel_exporter_otlp_protocol"),
+    ("DEFAULT_LANGFUSE_HOST", "langfuse_host"),
+    (
+        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD",
+        "langfuse_dataset_capture_threshold",
+    ),
+    ("DEFAULT_A2A_BROKER", "a2a_broker"),
+    ("DEFAULT_A2A_STORAGE", "a2a_storage"),
+    ("DEFAULT_A2A_CONFIG", "a2a_config"),
+    ("DEFAULT_A2A_REFRESH_INTERVAL", "a2a_refresh_interval"),
+    ("DEFAULT_MAX_TOKENS", "max_tokens"),
+    ("DEFAULT_TEMPERATURE", "temperature"),
+    ("DEFAULT_TOP_P", "top_p"),
+    ("DEFAULT_TIMEOUT", "timeout"),
+    ("DEFAULT_TOOL_TIMEOUT", "tool_timeout"),
+    ("DEFAULT_PARALLEL_TOOL_CALLS", "parallel_tool_calls"),
+    ("DEFAULT_SEED", "seed"),
+    ("DEFAULT_PRESENCE_PENALTY", "presence_penalty"),
+    ("DEFAULT_FREQUENCY_PENALTY", "frequency_penalty"),
+    ("DEFAULT_MIN_CONFIDENCE", "min_confidence"),
+    ("DEFAULT_APPROVAL_TIMEOUT", "approval_timeout"),
+    ("TOOL_GUARD_MODE", "tool_guard_mode"),
+    ("SENSITIVE_TOOL_PATTERNS", "sensitive_tool_patterns"),
+    ("DEFAULT_GRAPH_PERSISTENCE_TYPE", "graph_persistence_type"),
+    ("DEFAULT_GRAPH_PERSISTENCE_PATH", "graph_persistence_path"),
+    ("DEFAULT_ENABLE_LLM_VALIDATION", "enable_llm_validation"),
+    ("DEFAULT_ROUTING_STRATEGY", "routing_strategy"),
+    ("DEFAULT_GRAPH_ROUTER_TIMEOUT", "graph_router_timeout"),
+    ("DEFAULT_GRAPH_VERIFIER_TIMEOUT", "graph_verifier_timeout"),
+    ("DEFAULT_ENABLE_KG_EMBEDDINGS", "enable_kg_embeddings"),
+    ("DEFAULT_KG_BACKUPS", "kg_backups"),
+    ("DEFAULT_KG_INGESTION_WORKERS", "kg_ingestion_workers"),
+    ("DEFAULT_KG_LLM_CONCURRENCY", "kg_llm_concurrency"),
+    ("DEFAULT_KG_ANALYSIS_MAX_DEPTH", "kg_analysis_max_depth"),
+    ("DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "knowledge_graph_sync_background"),
+    ("DEFAULT_MAX_PARALLEL_AGENTS", "max_parallel_agents"),
+    ("DEFAULT_PARALLEL_BATCH_SIZE", "parallel_batch_size"),
+    ("DEFAULT_SYNTHESIS_STRATEGY", "synthesis_strategy"),
+    ("DEFAULT_SYNTHESIS_RATIO", "synthesis_ratio"),
+    ("DEFAULT_AGENT_EXECUTION_TIMEOUT", "agent_execution_timeout"),
+    ("DEFAULT_CIRCUIT_BREAKER_THRESHOLD", "circuit_breaker_threshold"),
+    ("DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS", "enable_progressive_synthesis"),
+    ("MAX_UPLOAD_SIZE", "max_upload_size"),
+    ("SECRETS_BACKEND", "secrets_backend"),
+    ("SECRETS_VAULT_URL", "vault_url"),
+    ("SECRETS_VAULT_MOUNT", "vault_mount"),
+    ("AUTH_JWT_JWKS_URI", "auth_jwt_jwks_uri"),
+    ("AUTH_JWT_ISSUER", "auth_jwt_issuer"),
+    ("AUTH_JWT_AUDIENCE", "auth_jwt_audience"),
+    ("KG_POLICY_VERSION", "kg_policy_version"),
+    ("ALLOWED_ORIGINS", "allowed_origins"),
+    ("ALLOWED_HOSTS", "allowed_hosts"),
+    # Agent OS Architecture defaults
+    ("DEFAULT_COGNITIVE_SCHEDULER_ENABLED", "cognitive_scheduler_enabled"),
+    ("DEFAULT_MAX_CONCURRENT_AGENTS", "max_concurrent_agents"),
+    ("DEFAULT_AGENT_TOKEN_QUOTA", "agent_token_quota"),
+    ("DEFAULT_PREEMPTION_THRESHOLD_PCT", "preemption_threshold_pct"),
+    ("DEFAULT_AGENT_POLICIES_PATH", "agent_policies_path"),
+    ("DEFAULT_PERMISSIONS_SIGNING_KEY_REF", "permissions_signing_key_ref"),
+    ("DEFAULT_SPECIALIST_REGISTRY_PATH", "specialist_registry_path"),
+    # Innovation Framework defaults
+    ("DEFAULT_HOMEOSTATIC_DOWNGRADE", "homeostatic_downgrade_enabled"),
+    ("DEFAULT_ADVERSARIAL_VERIFICATION", "adversarial_verification"),
+    ("DEFAULT_MAINTENANCE_TOKEN_BUDGET", "maintenance_token_budget"),
+    ("DEFAULT_MAINTENANCE_PRIORITY", "maintenance_priority"),
+    ("DEFAULT_WATCHDOG_PATTERNS", "watchdog_patterns"),
+)
+
+# ``DEFAULT_{prefix}_LLM_{suffix}`` <- model attribute, falling back to the
+# corresponding plain ``DEFAULT_LLM_*`` entry.
+_LLM_VARIANT_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("PROVIDER", "provider", "DEFAULT_LLM_PROVIDER"),
+    ("MODEL_ID", "id", "DEFAULT_LLM_MODEL_ID"),
+    ("BASE_URL", "base_url", "DEFAULT_LLM_BASE_URL"),
+    ("API_KEY", "api_key_ref", "DEFAULT_LLM_API_KEY"),
+)
+
+# Cache key, AgentConfig attribute, environment variable, coercion — for the
+# defaults that fall back to a raw environment string when the typed field is
+# ``None``.
+_LAZY_ENV_FALLBACK_FIELDS: tuple[tuple[str, str, str, Any], ...] = (
+    ("DEFAULT_LOGIT_BIAS", "logit_bias", "LOGIT_BIAS", to_dict),
+    ("DEFAULT_STOP_SEQUENCES", "stop_sequences", "STOP_SEQUENCES", to_list),
+    ("DEFAULT_EXTRA_HEADERS", "extra_headers", "EXTRA_HEADERS", to_dict),
+    ("DEFAULT_EXTRA_BODY", "extra_body", "EXTRA_BODY", to_dict),
+)
+
+
+def _model_attr(model: Any, attr: str) -> Any:
+    """``model.attr`` when a model is configured, else ``None``."""
+    return getattr(model, attr) if model else None
+
+
+def _resolve_lazy_config_source(
+    existing: AgentConfig | None, force: bool
+) -> AgentConfig:
+    """The AgentConfig to project into the lazy cache for this generation."""
+    if force:
+        _LAZY_CACHE.clear()
+    if existing is not None:
+        return existing
+    _ensure_env_loaded()
+    cfg = AgentConfig()
+    # Wire the production guard into the real process configuration path.
+    # Direct AgentConfig construction remains available to doctor/generator
+    # tooling so it can diagnose an incomplete candidate instead of failing
+    # before it can produce a structured report.
+    cfg.assert_production_safe(profile=cfg.app_profile)
+    return cfg
+
+
+def _populate_default_llm_defaults(chat_model: Any) -> None:
+    """Project the primary chat model into the ``DEFAULT_LLM_*`` entries."""
+    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
+        _model_attr(chat_model, "provider") or os.getenv("PROVIDER") or "openai"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
+        _model_attr(chat_model, "id") or os.getenv("MODEL_ID") or "qwen/qwen3.6-27b"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = _model_attr(chat_model, "base_url")
+    _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = _model_attr(chat_model, "api_key_ref")
+
+
+def _populate_llm_variant_defaults(prefix: str, model: Any) -> None:
+    """Project a LITE/SUPER chat model, inheriting the ``DEFAULT_LLM_*`` values."""
+    for suffix, attr, fallback_key in _LLM_VARIANT_FIELDS:
+        _LAZY_CACHE[f"DEFAULT_{prefix}_LLM_{suffix}"] = (
+            _model_attr(model, attr) or _LAZY_CACHE[fallback_key]
+        )
+
+
+def _populate_embedding_defaults(model: Any) -> None:
+    """Project the default embedding model into the ``DEFAULT_EMBEDDING_*`` entries."""
+    _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
+        _model_attr(model, "provider") or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
+        _model_attr(model, "id") or "text-embedding-nomic-embed-text-v2-moe"
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
+        _model_attr(model, "base_url") or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
+    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_API_KEY"] = (
+        _model_attr(model, "api_key_ref") or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
+    )
+
+
+def _populate_model_defaults(cfg: AgentConfig) -> None:
+    """Derive every DEFAULT_LLM_*/LITE/SUPER/EMBEDDING entry from the registries."""
+    _populate_default_llm_defaults(cfg.default_chat_model)
+    _populate_llm_variant_defaults("LITE", cfg.lite_chat_model)
+    _populate_llm_variant_defaults("SUPER", cfg.super_chat_model)
+    _populate_embedding_defaults(cfg.default_embedding_model)
+
+
+def _populate_env_fallback_defaults(cfg: AgentConfig) -> None:
+    """Project the typed fields that fall back to a raw environment string."""
+    for key, attr, env_name, coerce in _LAZY_ENV_FALLBACK_FIELDS:
+        value = getattr(cfg, attr)
+        _LAZY_CACHE[key] = value if value is not None else coerce(os.getenv(env_name))
+    _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
+        cfg.validation_mode
+        or to_boolean(os.getenv("VALIDATION_MODE", "False"))
+        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
+    )
+
+
+def _populate_routed_model_defaults(cfg: AgentConfig) -> None:
+    """Router/KG models: models flagged can_route/can_kg, else fall back to lite."""
+    lite_chat = cfg.lite_chat_model
+    router_model = next((m for m in cfg.chat_models if m.can_route), lite_chat)
+    kg_model = next((m for m in cfg.chat_models if m.can_kg), lite_chat)
+    lite_model_id = _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
+    _LAZY_CACHE["DEFAULT_ROUTER_MODEL"] = (
+        _model_attr(router_model, "id") or lite_model_id
+    )
+    _LAZY_CACHE["DEFAULT_KG_MODEL_ID"] = _model_attr(kg_model, "id") or lite_model_id
+
+
 def _populate_lazy_config(
     *, existing: AgentConfig | None = None, force: bool = False
 ) -> None:
@@ -6117,221 +6315,20 @@ def _populate_lazy_config(
     if not force and "_config" in _LAZY_CACHE:
         return
 
-    if force:
-        _LAZY_CACHE.clear()
-
-    if existing is None:
-        _ensure_env_loaded()
-        cfg = AgentConfig()
-        # Wire the production guard into the real process configuration path.
-        # Direct AgentConfig construction remains available to doctor/generator
-        # tooling so it can diagnose an incomplete candidate instead of failing
-        # before it can produce a structured report.
-        cfg.assert_production_safe(profile=cfg.app_profile)
-    else:
-        cfg = existing
+    cfg = _resolve_lazy_config_source(existing, force)
     _LAZY_CACHE["_config"] = cfg
     _LAZY_CACHE["config"] = _CONFIG_PROXY
 
-    _LAZY_CACHE["DEFAULT_AGENT_NAME"] = cfg.default_agent_name
-    _LAZY_CACHE["DEFAULT_AGENT_DESCRIPTION"] = cfg.agent_description
-    _LAZY_CACHE["DEFAULT_AGENT_SYSTEM_PROMPT"] = cfg.agent_system_prompt
-    _LAZY_CACHE["DEFAULT_DEBUG"] = cfg.debug
+    for key, attr in _LAZY_PASSTHROUGH_FIELDS:
+        _LAZY_CACHE[key] = getattr(cfg, attr)
 
-    # --- Derive DEFAULT_LLM_* from chat_models / embedding_models registry ---
-    _default_chat = cfg.default_chat_model
-    _lite_chat = cfg.lite_chat_model
-    _super_chat = cfg.super_chat_model
-    _default_embed = cfg.default_embedding_model
-
-    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
-        (_default_chat.provider if _default_chat else None)
-        or os.getenv("PROVIDER")
-        or "openai"
-    )
-    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
-        (_default_chat.id if _default_chat else None)
-        or os.getenv("MODEL_ID")
-        or "qwen/qwen3.6-27b"
-    )
-    _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = (
-        _default_chat.base_url if _default_chat else None
-    )
-    _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = (
-        _default_chat.api_key_ref if _default_chat else None
-    )
-
-    _LAZY_CACHE["DEFAULT_LITE_LLM_PROVIDER"] = (
-        _lite_chat.provider if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"] = (
-        _lite_chat.id if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_BASE_URL"] = (
-        _lite_chat.base_url if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_LITE_LLM_API_KEY"] = (
-        _lite_chat.api_key_ref if _lite_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_PROVIDER"] = (
-        _super_chat.provider if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_MODEL_ID"] = (
-        _super_chat.id if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_BASE_URL"] = (
-        _super_chat.base_url if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_SUPER_LLM_API_KEY"] = (
-        _super_chat.api_key_ref if _super_chat else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-
-    _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
-        _default_embed.provider if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
-    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
-        _default_embed.id if _default_embed else None
-    ) or "text-embedding-nomic-embed-text-v2-moe"
-    _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
-        _default_embed.base_url if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
-    _LAZY_CACHE["DEFAULT_EMBEDDING_API_KEY"] = (
-        _default_embed.api_key_ref if _default_embed else None
-    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
-    _LAZY_CACHE["DEFAULT_MCP_URL"] = cfg.mcp_url
-
-    _LAZY_CACHE["DEFAULT_MCP_CONFIG"] = cfg.mcp_config
-    _LAZY_CACHE["DEFAULT_CUSTOM_SKILLS_DIRECTORY"] = cfg.custom_skills_directory
-    _LAZY_CACHE["DEFAULT_SKILL_TYPES"] = cfg.skill_types
-    _LAZY_CACHE["DEFAULT_ENABLE_WEB_UI"] = cfg.enable_web_ui
-    _LAZY_CACHE["DEFAULT_ENABLE_TERMINAL_UI"] = cfg.enable_terminal_ui
-    _LAZY_CACHE["DEFAULT_ENABLE_WEB_LOGS"] = cfg.enable_web_logs
-    _LAZY_CACHE["DEFAULT_ENABLE_OTEL"] = cfg.enable_otel
-    _LAZY_CACHE["DEFAULT_ENABLE_ACP"] = cfg.enable_acp
-    _LAZY_CACHE["DEFAULT_ACP_SESSION_ROOT"] = cfg.acp_session_root
+    _populate_model_defaults(cfg)
+    _populate_env_fallback_defaults(cfg)
+    _populate_routed_model_defaults(cfg)
 
     _apply_otel_sdk_policy(cfg.enable_otel)
 
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
-
-    _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
-        cfg.langfuse_dataset_capture_threshold
-    )
-
-    _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
-    _LAZY_CACHE["DEFAULT_A2A_STORAGE"] = cfg.a2a_storage
-    _LAZY_CACHE["DEFAULT_A2A_CONFIG"] = cfg.a2a_config
-    _LAZY_CACHE["DEFAULT_A2A_REFRESH_INTERVAL"] = cfg.a2a_refresh_interval
-
-    _LAZY_CACHE["DEFAULT_MAX_TOKENS"] = cfg.max_tokens
-    _LAZY_CACHE["DEFAULT_TEMPERATURE"] = cfg.temperature
-    _LAZY_CACHE["DEFAULT_TOP_P"] = cfg.top_p
-    _LAZY_CACHE["DEFAULT_TIMEOUT"] = cfg.timeout
-    _LAZY_CACHE["DEFAULT_TOOL_TIMEOUT"] = cfg.tool_timeout
-    _LAZY_CACHE["DEFAULT_PARALLEL_TOOL_CALLS"] = cfg.parallel_tool_calls
-    _LAZY_CACHE["DEFAULT_SEED"] = cfg.seed
-    _LAZY_CACHE["DEFAULT_PRESENCE_PENALTY"] = cfg.presence_penalty
-    _LAZY_CACHE["DEFAULT_FREQUENCY_PENALTY"] = cfg.frequency_penalty
-
-    _LAZY_CACHE["DEFAULT_LOGIT_BIAS"] = (
-        cfg.logit_bias
-        if cfg.logit_bias is not None
-        else to_dict(os.getenv("LOGIT_BIAS"))
-    )
-    _LAZY_CACHE["DEFAULT_STOP_SEQUENCES"] = (
-        cfg.stop_sequences
-        if cfg.stop_sequences is not None
-        else to_list(os.getenv("STOP_SEQUENCES"))
-    )
-    _LAZY_CACHE["DEFAULT_EXTRA_HEADERS"] = (
-        cfg.extra_headers
-        if cfg.extra_headers is not None
-        else to_dict(os.getenv("EXTRA_HEADERS"))
-    )
-    _LAZY_CACHE["DEFAULT_EXTRA_BODY"] = (
-        cfg.extra_body
-        if cfg.extra_body is not None
-        else to_dict(os.getenv("EXTRA_BODY"))
-    )
-
-    _LAZY_CACHE["DEFAULT_MIN_CONFIDENCE"] = cfg.min_confidence
-    _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
-        cfg.validation_mode
-        or to_boolean(os.getenv("VALIDATION_MODE", "False"))
-        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
-    )
-    _LAZY_CACHE["DEFAULT_APPROVAL_TIMEOUT"] = cfg.approval_timeout
     _LAZY_CACHE["DEFAULT_MAX_CRON_LOG_ENTRIES"] = 50
-
-    _LAZY_CACHE["TOOL_GUARD_MODE"] = cfg.tool_guard_mode
-    _LAZY_CACHE["SENSITIVE_TOOL_PATTERNS"] = cfg.sensitive_tool_patterns
-
-    # Router/KG models: find models with can_route/can_kg flags, else fallback to lite
-    _router_model = next((m for m in cfg.chat_models if m.can_route), _lite_chat)
-    _kg_model = next((m for m in cfg.chat_models if m.can_kg), _lite_chat)
-    _LAZY_CACHE["DEFAULT_ROUTER_MODEL"] = (
-        _router_model.id if _router_model else None
-    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
-
-    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_TYPE"] = cfg.graph_persistence_type
-    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_PATH"] = cfg.graph_persistence_path
-    _LAZY_CACHE["DEFAULT_ENABLE_LLM_VALIDATION"] = cfg.enable_llm_validation
-    _LAZY_CACHE["DEFAULT_ROUTING_STRATEGY"] = cfg.routing_strategy
-    _LAZY_CACHE["DEFAULT_GRAPH_ROUTER_TIMEOUT"] = cfg.graph_router_timeout
-    _LAZY_CACHE["DEFAULT_GRAPH_VERIFIER_TIMEOUT"] = cfg.graph_verifier_timeout
-    _LAZY_CACHE["DEFAULT_ENABLE_KG_EMBEDDINGS"] = cfg.enable_kg_embeddings
-    _LAZY_CACHE["DEFAULT_KG_BACKUPS"] = cfg.kg_backups
-    _LAZY_CACHE["DEFAULT_KG_INGESTION_WORKERS"] = cfg.kg_ingestion_workers
-    _LAZY_CACHE["DEFAULT_KG_LLM_CONCURRENCY"] = cfg.kg_llm_concurrency
-    _LAZY_CACHE["DEFAULT_KG_MODEL_ID"] = (
-        _kg_model.id if _kg_model else None
-    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
-    _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
-        cfg.knowledge_graph_sync_background
-    )
-    # --- Parallel Engine Defaults ---
-    _LAZY_CACHE["DEFAULT_MAX_PARALLEL_AGENTS"] = cfg.max_parallel_agents
-    _LAZY_CACHE["DEFAULT_PARALLEL_BATCH_SIZE"] = cfg.parallel_batch_size
-    _LAZY_CACHE["DEFAULT_SYNTHESIS_STRATEGY"] = cfg.synthesis_strategy
-    _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
-    _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
-    _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
-        cfg.enable_progressive_synthesis
-    )
-
-    _LAZY_CACHE["MAX_UPLOAD_SIZE"] = cfg.max_upload_size
-
-    _LAZY_CACHE["SECRETS_BACKEND"] = cfg.secrets_backend
-    _LAZY_CACHE["SECRETS_VAULT_URL"] = cfg.vault_url
-    _LAZY_CACHE["SECRETS_VAULT_MOUNT"] = cfg.vault_mount
-
-    _LAZY_CACHE["AUTH_JWT_JWKS_URI"] = cfg.auth_jwt_jwks_uri
-    _LAZY_CACHE["AUTH_JWT_ISSUER"] = cfg.auth_jwt_issuer
-    _LAZY_CACHE["AUTH_JWT_AUDIENCE"] = cfg.auth_jwt_audience
-    _LAZY_CACHE["KG_POLICY_VERSION"] = cfg.kg_policy_version
-    _LAZY_CACHE["ALLOWED_ORIGINS"] = cfg.allowed_origins
-    _LAZY_CACHE["ALLOWED_HOSTS"] = cfg.allowed_hosts
-
-    # Agent OS Architecture defaults
-    _LAZY_CACHE["DEFAULT_COGNITIVE_SCHEDULER_ENABLED"] = cfg.cognitive_scheduler_enabled
-    _LAZY_CACHE["DEFAULT_MAX_CONCURRENT_AGENTS"] = cfg.max_concurrent_agents
-    _LAZY_CACHE["DEFAULT_AGENT_TOKEN_QUOTA"] = cfg.agent_token_quota
-    _LAZY_CACHE["DEFAULT_PREEMPTION_THRESHOLD_PCT"] = cfg.preemption_threshold_pct
-    _LAZY_CACHE["DEFAULT_AGENT_POLICIES_PATH"] = cfg.agent_policies_path
-    _LAZY_CACHE["DEFAULT_PERMISSIONS_SIGNING_KEY_REF"] = cfg.permissions_signing_key_ref
-    _LAZY_CACHE["DEFAULT_SPECIALIST_REGISTRY_PATH"] = cfg.specialist_registry_path
-
-    # Innovation Framework defaults
-    _LAZY_CACHE["DEFAULT_HOMEOSTATIC_DOWNGRADE"] = cfg.homeostatic_downgrade_enabled
-    _LAZY_CACHE["DEFAULT_ADVERSARIAL_VERIFICATION"] = cfg.adversarial_verification
-    _LAZY_CACHE["DEFAULT_MAINTENANCE_TOKEN_BUDGET"] = cfg.maintenance_token_budget
-    _LAZY_CACHE["DEFAULT_MAINTENANCE_PRIORITY"] = cfg.maintenance_priority
-    _LAZY_CACHE["DEFAULT_WATCHDOG_PATTERNS"] = cfg.watchdog_patterns
 
 
 def _init_lazy_config(
@@ -7212,6 +7209,190 @@ import shutil
 import tempfile
 
 
+def _drop_self_referential_mcp_entries(mcp_servers: dict[str, Any]) -> bool:
+    """Drop fleet entries that point back at this process's own MCP surface.
+
+    Never mount YOURSELF as a fleet child. A self-entry — an mcp_config entry whose
+    URL targets this process's own advertised MCP surface — must resolve to
+    in-process tools, never an outbound HTTP hairpin back to our own gateway.
+    graph-os fronts the whole fleet in-process (attach_fleet_loader), so its own
+    ``graph-os`` self-entry here is erroneous to dial: it hits the external gateway,
+    which rejects the un-JWT'd self-call ``401`` (and in a no-auth or stdio/
+    self-contained deployment it is still a wrong self-hairpin). Dropped at this
+    single loader every fleet-config consumer flows through, identity-based
+    (config-driven via MCP_ALLOWED_HOSTS) and independent of the auth outcome.
+
+    Returns True when at least one entry was removed.
+    """
+    from agent_utilities.base_utilities import is_loopback_url as _is_self_mcp_url
+
+    self_entries = [
+        name
+        for name, cfg in list(mcp_servers.items())
+        if isinstance(cfg, dict) and _is_self_mcp_url(str(cfg.get("url") or ""))
+    ]
+    for name in self_entries:
+        mcp_servers.pop(name, None)
+    if self_entries:
+        logger.info(
+            "MCP Config: excluded self-referential fleet entr%s %s — graph-os "
+            "fronts its own tools in-process, never via an HTTP self-connection",
+            "y" if len(self_entries) == 1 else "ies",
+            self_entries,
+        )
+    return bool(self_entries)
+
+
+def _mcp_command_search_path() -> str:
+    """The PATH used to resolve MCP server commands, with ~/.local/bin folded in."""
+    search_path = os.environ.get("PATH", "")
+    local_bin = str(Path.home() / ".local" / "bin")
+    if local_bin not in search_path:
+        search_path = f"{local_bin}:{search_path}"
+    return search_path
+
+
+def _log_mcp_command_resolution(name: str, command: str, search_path: str) -> None:
+    """Warn loudly when an MCP server's command is not on the resolved PATH."""
+    resolved = shutil.which(command, path=search_path)
+    if not resolved:
+        logger.warning(
+            f"MCP Config: Command '{command}' for server '{name}' NOT FOUND in PATH ({search_path}). Startup will likely fail."
+        )
+    else:
+        logger.debug(f"MCP Config: Resolved command '{command}' to '{resolved}'")
+
+
+def _delegated_session_token() -> str | None:
+    """The user session token to forward to MCP subprocesses, if one is available.
+
+    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
+    """
+    token = os.environ.get("AGENT_USER_TOKEN")
+    if token:
+        return token
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        return create_secrets_client().get("session_token")
+    except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
+        logger.debug("Optional session-token enrichment unavailable: %s", exc)
+        return None
+
+
+_MCP_URLLIB3_WARNING_FILTER = "ignore:urllib3 (2.3.0) or chardet"
+
+
+def _apply_mcp_subprocess_warnings(env: dict[str, Any]) -> None:
+    """Suppress RequestsDependencyWarning in MCP subprocesses."""
+    if "PYTHONWARNINGS" not in env:
+        env["PYTHONWARNINGS"] = _MCP_URLLIB3_WARNING_FILTER
+    elif "ignore:urllib3" not in env["PYTHONWARNINGS"]:
+        env["PYTHONWARNINGS"] += f",{_MCP_URLLIB3_WARNING_FILTER}"
+
+
+def _enrich_mcp_server_env(cfg: dict[str, Any], search_path: str) -> None:
+    """Ensure PATH/PYTHONPATH/warning filters/token forwarding reach the subprocess."""
+    if "env" not in cfg:
+        cfg["env"] = {}
+    env = cfg["env"]
+    if "PATH" not in env:
+        env["PATH"] = search_path
+    if "PYTHONPATH" not in env and "PYTHONPATH" in os.environ:
+        env["PYTHONPATH"] = os.environ.get("PYTHONPATH", "")
+    _apply_mcp_subprocess_warnings(env)
+    if "AGENT_USER_TOKEN" not in env:
+        user_token = _delegated_session_token()
+        if user_token:
+            env["AGENT_USER_TOKEN"] = user_token
+
+
+def _prevalidate_mcp_servers(config_data: dict[str, Any]) -> bool:
+    """Check commands exist and enrich envs before pydantic-ai starts them.
+
+    Returns True when ``config_data`` was mutated and must be re-serialised.
+    """
+    mcp_servers = config_data.get("mcpServers", {})
+    modified = _drop_self_referential_mcp_entries(mcp_servers)
+    search_path = _mcp_command_search_path()
+    for name, cfg in mcp_servers.items():
+        command = cfg.get("command")
+        if not command:
+            continue
+        _log_mcp_command_resolution(name, command, search_path)
+        _enrich_mcp_server_env(cfg, search_path)
+        modified = True
+    return modified
+
+
+def _prevalidated_mcp_payload(expanded_content: str) -> str:
+    """The JSON payload to hand to pydantic-ai, pre-validated best-effort."""
+    try:
+        config_data = json.loads(expanded_content)
+        if _prevalidate_mcp_servers(config_data):
+            return json.dumps(config_data)
+    except Exception as e:
+        logger.warning(f"MCP Config: Pre-validation failed: {e}")
+    return expanded_content
+
+
+def _attach_mcp_toolset_ids(
+    servers: list[Any], mcp_servers_cfg: dict[str, Any]
+) -> None:
+    """Re-attach configured names to the loaded toolsets, positionally.
+
+    pydantic-ai returns a list in config order but does not preserve the names.
+    ``AbstractToolset.id`` is a read-only abstract property on most concrete
+    pydantic-ai toolsets (no setter) — best-effort only; a toolset that rejects the
+    assignment keeps its own id rather than failing the whole load (this used to
+    raise AttributeError here and silently return [] for every real toolset).
+    """
+    for i, name in enumerate(mcp_servers_cfg):
+        if i >= len(servers):
+            continue
+        try:
+            servers[i].id = name  # type: ignore[misc]
+        except AttributeError:
+            logger.debug(
+                f"MCP Config: toolset for '{name}' has a read-only id; keeping its own"
+            )
+            continue
+        logger.debug(f"MCP Config: Loaded server '{name}'")
+
+
+def _mcp_protocol_hooks() -> tuple[Any, Any]:
+    """Install the MCP v2 bridge and return ``(load_mcp_toolsets, legacy_mode)``.
+
+    Imported at call time so the loader stays patchable at ``pydantic_ai.mcp``.
+    """
+    from pydantic_ai.mcp import load_mcp_toolsets
+
+    from agent_utilities.mcp.protocol_compat import (
+        force_legacy_protocol_mode,
+        install_mcp_v2_bridge,
+    )
+
+    install_mcp_v2_bridge()
+    return load_mcp_toolsets, force_legacy_protocol_mode
+
+
+def _load_mcp_toolsets_from_payload(
+    expanded_content: str, load_mcp_toolsets: Any, force_legacy_protocol_mode: Any
+) -> list[Any]:
+    """Materialise the payload to a temp file and load it into toolsets."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+        tmp.write(expanded_content)
+        tmp_path = tmp.name
+    try:
+        servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
+        config_data = json.loads(expanded_content)
+        _attach_mcp_toolset_ids(servers, config_data.get("mcpServers", {}))
+        return servers
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
     """Load and expand environment variables in an MCP config file.
 
@@ -7227,166 +7408,18 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
         MCPToolSet in newer versions, but returned as list of servers here).
 
     """
-    from pydantic_ai.mcp import load_mcp_toolsets
-
     from agent_utilities.base_utilities import expand_env_vars
-    from agent_utilities.mcp.protocol_compat import (
-        force_legacy_protocol_mode,
-        install_mcp_v2_bridge,
-    )
 
-    install_mcp_v2_bridge()
+    load_mcp_toolsets, force_legacy_protocol_mode = _mcp_protocol_hooks()
 
     try:
         path = Path(config_path)
         if not path.exists():
             return []
-
-        content = path.read_text()
-        expanded_content = expand_env_vars(content)
-
-        # Robust Validation: Check if commands exist before pydantic-ai tries to start them
-        try:
-            config_data = json.loads(expanded_content)
-            mcp_servers = config_data.get("mcpServers", {})
-            modified = False
-
-            # Never mount YOURSELF as a fleet child. A self-entry — an mcp_config entry
-            # whose URL targets this process's own advertised MCP surface — must resolve
-            # to in-process tools, never an outbound HTTP hairpin back to our own gateway.
-            # graph-os fronts the whole fleet in-process (attach_fleet_loader), so its own
-            # ``graph-os`` self-entry here is erroneous to dial: it hits the external
-            # gateway, which rejects the un-JWT'd self-call ``401`` (and in a no-auth or
-            # stdio/self-contained deployment it is still a wrong self-hairpin). Drop it at
-            # this single loader every fleet-config consumer flows through, identity-based
-            # (config-driven via MCP_ALLOWED_HOSTS) and independent of the auth outcome.
-            from agent_utilities.base_utilities import (
-                is_loopback_url as _is_self_mcp_url,
-            )
-
-            _self_entries = [
-                _n
-                for _n, _c in list(mcp_servers.items())
-                if isinstance(_c, dict) and _is_self_mcp_url(str(_c.get("url") or ""))
-            ]
-            for _n in _self_entries:
-                mcp_servers.pop(_n, None)
-                modified = True
-            if _self_entries:
-                logger.info(
-                    "MCP Config: excluded self-referential fleet entr%s %s — graph-os "
-                    "fronts its own tools in-process, never via an HTTP self-connection",
-                    "y" if len(_self_entries) == 1 else "ies",
-                    _self_entries,
-                )
-
-            for name, cfg in mcp_servers.items():
-                command = cfg.get("command")
-                if command:
-                    # Resolve command path with explicit ~/.local/bin support
-                    search_path = os.environ.get("PATH", "")
-                    local_bin = str(Path.home() / ".local" / "bin")
-                    if local_bin not in search_path:
-                        search_path = f"{local_bin}:{search_path}"
-
-                    resolved = shutil.which(command, path=search_path)
-                    if not resolved:
-                        logger.warning(
-                            f"MCP Config: Command '{command}' for server '{name}' NOT FOUND in PATH ({search_path}). Startup will likely fail."
-                        )
-                    else:
-                        logger.debug(
-                            f"MCP Config: Resolved command '{command}' to '{resolved}'"
-                        )
-
-                    # Ensure PATH and PYTHONPATH are preserved if not explicitly set
-                    if "env" not in cfg:
-                        cfg["env"] = {}
-
-                    if "PATH" not in cfg["env"]:
-                        cfg["env"]["PATH"] = search_path
-                    if "PYTHONPATH" not in cfg["env"] and "PYTHONPATH" in os.environ:
-                        cfg["env"]["PYTHONPATH"] = os.environ.get("PYTHONPATH", "")
-
-                    # Suppress RequestsDependencyWarning in subprocesses
-                    if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"]["PYTHONWARNINGS"] = (
-                            "ignore:urllib3 (2.3.0) or chardet"
-                        )
-                    else:
-                        if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"]["PYTHONWARNINGS"] += (
-                                ",ignore:urllib3 (2.3.0) or chardet"
-                            )
-
-                    # Token forwarding: propagate user session token to
-                    # MCP subprocesses for delegated authentication.
-                    # CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-                    if "AGENT_USER_TOKEN" not in cfg["env"]:
-                        _user_token = os.environ.get("AGENT_USER_TOKEN")
-                        if not _user_token:
-                            try:
-                                from agent_utilities.security.secrets_client import (
-                                    create_secrets_client,
-                                )
-
-                                _sc = create_secrets_client()
-                                _user_token = _sc.get("session_token")
-                            except Exception as exc:  # noqa: BLE001 — best-effort: on failure AGENT_USER_TOKEN is simply omitted from the subprocess env; any MCP subprocess call that actually needs delegated auth fails its own auth check visibly downstream rather than silently using a stale/wrong token
-                                logger.debug(
-                                    "Optional session-token enrichment unavailable: %s",
-                                    exc,
-                                )
-                        if _user_token:
-                            cfg["env"]["AGENT_USER_TOKEN"] = _user_token
-
-                    modified = True
-
-            if modified:
-                expanded_content = json.dumps(config_data)
-        except Exception as e:
-            logger.warning(f"MCP Config: Pre-validation failed: {e}")
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-            tmp.write(expanded_content)
-            tmp_path = tmp.name
-
-        try:
-            servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
-            # Re-attach IDs from config
-            config_data = json.loads(expanded_content)
-            mcp_servers_cfg = config_data.get("mcpServers", {})
-
-            # Match by command and args as a heuristic if pydantic-ai doesn't preserve order or names
-            for ts in servers:
-                # pydantic-ai objects might not have a clean way to match back,
-                # but they usually follow the order in the JSON.
-                pass
-
-            # Better: If we have a list, and the config had a dict, they MIGHT match by order
-            # However, pydantic-ai load_mcp_servers is internal.
-            # I'll just set the .id if they are list components.
-            # `AbstractToolset.id` is a read-only abstract property on most concrete
-            # pydantic-ai toolsets (no setter) — best-effort only; a toolset that
-            # rejects the assignment keeps its own id rather than failing the whole
-            # load (this used to raise AttributeError here and silently return []
-            # for every real toolset).
-            for i, (name, cfg) in enumerate(mcp_servers_cfg.items()):
-                if i < len(servers):
-                    try:
-                        servers[i].id = name  # type: ignore[misc]
-                    except AttributeError:
-                        logger.debug(
-                            f"MCP Config: toolset for '{name}' has a read-only id; "
-                            "keeping its own"
-                        )
-                        continue
-                    logger.debug(f"MCP Config: Loaded server '{name}'")
-
-            return servers
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        payload = _prevalidated_mcp_payload(expand_env_vars(path.read_text()))
+        return _load_mcp_toolsets_from_payload(
+            payload, load_mcp_toolsets, force_legacy_protocol_mode
+        )
     except Exception as e:
         logger.error("Failed to load MCP configuration: %s", e)
         return []
