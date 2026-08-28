@@ -1777,37 +1777,82 @@ def _cas_batch_upsert(
     ids = [str(row[conflict_col]) for row in rows]
     existing = _select_existing(engine, table, tenant_id, ids, id_col=conflict_col)
 
+    to_insert, to_update, rejected_stale, noop_replay = _classify_cas_rows(
+        rows, existing, conflict_col
+    )
+
+    tbl = _safe_ident(table)
+    written = _cas_batch_insert(gc, tbl, to_insert)
+    written += _cas_batch_update(gc, tbl, to_update, conflict_col, tenant_id)
+    return {
+        "written": written,
+        "rejected_stale": rejected_stale,
+        "noop_replay": noop_replay,
+    }
+
+
+def _classify_cas_row(
+    row: dict[str, Any], existing: dict[str, dict[str, Any]], conflict_col: str
+) -> str:
+    """One of ``"insert"``/``"noop"``/``"stale"``/``"update"`` for ``row``
+    against its existing catalog state (see :func:`_cas_batch_upsert`'s
+    docstring for the exact rules)."""
+    row_id = str(row[conflict_col])
+    current = existing.get(row_id)
+    if current is None:
+        return "insert"
+    if str(current.get("idempotency_key", "")) == str(row.get("idempotency_key", "")):
+        return "noop"
+    if _as_int(current.get("revision")) >= _as_int(row.get("revision")):
+        return "stale"
+    return "update"
+
+
+def _classify_cas_rows(
+    rows: list[dict[str, Any]],
+    existing: dict[str, dict[str, Any]],
+    conflict_col: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
     to_insert: list[dict[str, Any]] = []
     to_update: list[dict[str, Any]] = []
     rejected_stale = 0
     noop_replay = 0
     for row in rows:
-        row_id = str(row[conflict_col])
-        current = existing.get(row_id)
-        if current is None:
+        kind = _classify_cas_row(row, existing, conflict_col)
+        if kind == "insert":
             to_insert.append(row)
-            continue
-        if str(current.get("idempotency_key", "")) == str(
-            row.get("idempotency_key", "")
-        ):
+        elif kind == "noop":
             noop_replay += 1
-            continue
-        if _as_int(current.get("revision")) >= _as_int(row.get("revision")):
+        elif kind == "stale":
             rejected_stale += 1
-            continue
-        to_update.append(row)
+        else:
+            to_update.append(row)
+    return to_insert, to_update, rejected_stale, noop_replay
 
-    tbl = _safe_ident(table)
+
+def _cas_batch_insert(gc: Any, tbl: str, to_insert: list[dict[str, Any]]) -> int:
+    if not to_insert:
+        return 0
     written = 0
-    if to_insert:
-        columns = _bounded_columns(list(to_insert[0].keys()))
-        for chunk in _chunks(to_insert):
-            values_sql = ", ".join(
-                "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
-                for row in chunk
-            )
-            gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
-            written += len(chunk)
+    columns = _bounded_columns(list(to_insert[0].keys()))
+    for chunk in _chunks(to_insert):
+        values_sql = ", ".join(
+            "(" + ", ".join(_sql_literal(row.get(c)) for c in columns) + ")"
+            for row in chunk
+        )
+        gc.sql_exec(f"INSERT INTO {tbl} ({', '.join(columns)}) VALUES {values_sql}")
+        written += len(chunk)
+    return written
+
+
+def _cas_batch_update(
+    gc: Any,
+    tbl: str,
+    to_update: list[dict[str, Any]],
+    conflict_col: str,
+    tenant_id: str,
+) -> int:
+    written = 0
     for row in to_update:
         columns = _bounded_columns([c for c in row if c != conflict_col])
         set_clause = ", ".join(f"{c} = {_sql_literal(row[c])}" for c in columns)
@@ -1817,11 +1862,7 @@ def _cas_batch_upsert(
             f"AND tenant_id = {_sql_literal(tenant_id)}"
         )
         written += 1
-    return {
-        "written": written,
-        "rejected_stale": rejected_stale,
-        "noop_replay": noop_replay,
-    }
+    return written
 
 
 _SKILL_CLASSIFICATION_OVERRIDES_DDL = """CREATE TABLE IF NOT EXISTS skill_classification_overrides (
