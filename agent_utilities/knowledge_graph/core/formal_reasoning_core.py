@@ -345,16 +345,22 @@ def count_paths_of_length(
         return 1 if source == target else 0
 
     node_idx = {node: i for i, node in enumerate(nodes)}
-    n = len(nodes)
-    A = [[0 for _ in range(n)] for _ in range(n)]
+    A = _paths_adjacency_matrix(graph, node_idx, len(nodes))
+    result = xp.linalg.matrix_power(A, length)
+    return int(result[node_idx[source]][node_idx[target]])
+
+
+def _paths_adjacency_matrix(
+    graph: rx.PyDiGraph, node_idx: dict[Any, int], n: int
+) -> list[list[int]]:
+    """Helper for `count_paths_of_length`: n x n adjacency (walk-count) matrix."""
+    matrix = [[0 for _ in range(n)] for _ in range(n)]
     for src_idx in graph.node_indices():
         src_label = graph[src_idx]
         for tgt_idx in graph.successor_indices(src_idx):
             tgt_label = graph[tgt_idx]
-            A[node_idx[src_label]][node_idx[tgt_label]] += 1
-
-    result = xp.linalg.matrix_power(A, length)
-    return int(result[node_idx[source]][node_idx[target]])
+            matrix[node_idx[src_label]][node_idx[tgt_label]] += 1
+    return matrix
 
 
 def reachability_within_hops(
@@ -1024,20 +1030,25 @@ class StructuralCausalModel:
         while queue:
             current = queue.popleft()
             if current == ti:
-                # Reconstruct path
-                path: list[str] = []
-                c: int | None = current
-                while c is not None:
-                    data = self._graph[c]
-                    path.append(data["id"] if isinstance(data, dict) else str(data))
-                    c = visited[c]
-                path.reverse()
-                return path
+                return self._shortest_path_reconstruct(current, visited)
             for succ in self._graph.successor_indices(current):
                 if succ not in visited:
                     visited[succ] = current
                     queue.append(succ)
         raise ValueError(f"No path from {source} to {target}")
+
+    def _shortest_path_reconstruct(
+        self, current: int, visited: dict[int, int | None]
+    ) -> list[str]:
+        """Helper for `shortest_path`: walk the BFS predecessor chain back to source."""
+        path: list[str] = []
+        c: int | None = current
+        while c is not None:
+            data = self._graph[c]
+            path.append(data["id"] if isinstance(data, dict) else str(data))
+            c = visited[c]
+        path.reverse()
+        return path
 
     def shortest_path_length(self, source: str, target: str) -> int:
         """BFS shortest path length from source to target."""
@@ -1324,34 +1335,49 @@ def trajectory_causal_alignment_score(
 
     topo_order = {node: i for i, node in enumerate(scm.topological_causal_order())}
 
-    for i, step in enumerate(reasoning_steps):
-        cause = step.get("cause", "")
-        effect = step.get("effect", "")
-
-        if not cause or not effect:
-            valid_transitions += 1
-            valid_orderings += 1
-            continue
-
-        # Check if there's a valid causal path
-        if scm.has_node(cause) and scm.has_node(effect):
-            try:
-                scm.shortest_path(cause, effect)
-                valid_transitions += 1
-            except ValueError:
-                pass
-
-            # Check topological ordering
-            cause_order = topo_order.get(cause, -1)
-            effect_order = topo_order.get(effect, -1)
-            if cause_order >= 0 and effect_order >= 0 and cause_order < effect_order:
-                valid_orderings += 1
-        else:
-            # Nodes not in SCM — can't penalize
-            valid_transitions += 1
-            valid_orderings += 1
+    for step in reasoning_steps:
+        vt, vo = _trajectory_step_alignment(scm, topo_order, step)
+        valid_transitions += vt
+        valid_orderings += vo
 
     return (valid_transitions + valid_orderings) / (2 * total) if total > 0 else 1.0
+
+
+def _trajectory_step_alignment(
+    scm: StructuralCausalModel,
+    topo_order: dict[str, int],
+    step: dict[str, Any],
+) -> tuple[int, int]:
+    """Helper for `trajectory_causal_alignment_score`: score one reasoning step.
+
+    Returns (valid_transition, valid_ordering), each 0 or 1.
+    """
+    cause = step.get("cause", "")
+    effect = step.get("effect", "")
+
+    if not cause or not effect:
+        return 1, 1
+
+    if not (scm.has_node(cause) and scm.has_node(effect)):
+        # Nodes not in SCM — can't penalize
+        return 1, 1
+
+    # Check if there's a valid causal path
+    valid_transition = 0
+    try:
+        scm.shortest_path(cause, effect)
+        valid_transition = 1
+    except ValueError:
+        pass
+
+    # Check topological ordering
+    cause_order = topo_order.get(cause, -1)
+    effect_order = topo_order.get(effect, -1)
+    valid_ordering = int(
+        cause_order >= 0 and effect_order >= 0 and cause_order < effect_order
+    )
+
+    return valid_transition, valid_ordering
 
 
 logger = logging.getLogger(__name__)
@@ -1508,30 +1534,51 @@ class BayesianBeliefPropagator:
             current, current_lr, depth = frontier.pop(0)
             if depth >= max_hops:
                 continue
-
-            current_idx = self._node_map.get(current)
-            if current_idx is None:
-                continue
-
-            for neighbor_data in self._graph.successors(current_idx):
-                neighbor = (
-                    neighbor_data["id"]
-                    if isinstance(neighbor_data, dict) and "id" in neighbor_data
-                    else str(neighbor_data)
+            frontier.extend(
+                self._propagate_step(
+                    current, current_lr, depth, decay, source_node, visited
                 )
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-
-                dampened_lr = 1.0 + (current_lr - 1.0) * decay
-                self.observe_evidence(
-                    neighbor,
-                    dampened_lr,
-                    evidence_label=f"propagated_from_{source_node}_depth_{depth + 1}",
-                )
-                frontier.append((neighbor, dampened_lr, depth + 1))
+            )
 
         return {nid: b for nid, b in self._beliefs.items() if nid in visited}
+
+    def _propagate_step(
+        self,
+        current: str,
+        current_lr: float,
+        depth: int,
+        decay: float,
+        source_node: str,
+        visited: set[str],
+    ) -> list[tuple[str, float, int]]:
+        """Helper for `propagate`: dampen-and-observe evidence for one node's neighbors.
+
+        Mutates `visited` in place; returns the new `(neighbor, dampened_lr,
+        depth+1)` frontier entries for the caller to append.
+        """
+        current_idx = self._node_map.get(current)
+        if current_idx is None:
+            return []
+
+        new_entries: list[tuple[str, float, int]] = []
+        for neighbor_data in self._graph.successors(current_idx):
+            neighbor = (
+                neighbor_data["id"]
+                if isinstance(neighbor_data, dict) and "id" in neighbor_data
+                else str(neighbor_data)
+            )
+            if neighbor in visited:
+                continue
+            visited.add(neighbor)
+
+            dampened_lr = 1.0 + (current_lr - 1.0) * decay
+            self.observe_evidence(
+                neighbor,
+                dampened_lr,
+                evidence_label=f"propagated_from_{source_node}_depth_{depth + 1}",
+            )
+            new_entries.append((neighbor, dampened_lr, depth + 1))
+        return new_entries
 
     def get_belief(self, node_id: str) -> BeliefState | None:
         """Get the current belief state for a node."""
