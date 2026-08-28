@@ -32,6 +32,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.messaging.models import EventType, InboundEvent
@@ -275,74 +276,98 @@ class InboundRouter:
         delay = base or 1.0
         while self._running:
             started = time.monotonic()
-            restart_reason: str | None = None
-            try:
-                await self._listen_loop(backend)
-            except asyncio.CancelledError:
-                # Clean shutdown (router.stop cancelled us) — never restart; propagate.
-                logger.debug(
-                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.",
-                    backend.id,
-                )
-                raise
-            except NotImplementedError:
-                # The backend cannot listen (outbound-only) — giving up is correct.
-                logger.warning(
-                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support "
-                    "inbound listening — not restarting.",
-                    backend.id,
-                )
+            restart_reason = await self._run_one_listen_attempt(backend, delay)
+            if restart_reason is None:
                 return
-            except Exception as e:  # noqa: BLE001 — supervise: log + backed-off restart, never die
-                logger.error(
-                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' failed: %s "
-                    "— restarting in %.1fs (self-healing supervisor).",
-                    backend.id,
-                    e,
-                    delay,
-                    exc_info=True,
-                )
-                restart_reason = "error"
-            else:
-                # ``listen()`` returned without error. If we are shutting down, exit;
-                # otherwise the stream closed unexpectedly (a long-poll/websocket backend
-                # should not) — treat it as recoverable and restart after the backoff.
-                if not self._running:
-                    return
-                logger.warning(
-                    "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' ended "
-                    "unexpectedly (stream closed without error) — restarting in %.1fs.",
-                    backend.id,
-                    delay,
-                )
-                restart_reason = "stream_closed"
             ran_for = time.monotonic() - started
             if not self._running:
                 return
-            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — record the self-heal so the
-            # runtime-reliability loop SEES it: a listener that keeps dying+restarting (e.g.
-            # the Telegram 409 race) is auto-healed here, but repeated restarts are a
-            # SOURCE_RUNTIME signal the flywheel should note (the reconciler records them as
-            # a resolved heal). Fire-and-forget; never perturbs the supervisor.
-            if restart_reason:
-                try:
-                    from agent_utilities.observability.runtime_signals import (
-                        KIND_LISTENER_RESTART,
-                        record_runtime_signal,
-                    )
-
-                    record_runtime_signal(
-                        KIND_LISTENER_RESTART,
-                        backend.id,
-                        {"delay_s": round(delay, 2), "ran_for_s": round(ran_for, 2)},
-                    )
-                except Exception:  # noqa: BLE001 — emission must never affect supervision
-                    pass
+            self._record_listener_restart(backend.id, delay, ran_for)
             # Enforce the backoff so a hard-failing backend never busy-loops; a cancel
             # during the wait is a clean shutdown and propagates out of the coroutine.
             await asyncio.sleep(delay)
             # Reset the backoff after a sustained healthy run; otherwise grow it (capped).
             delay = (base or 1.0) if ran_for >= healthy_reset else min(delay * 2.0, cap)
+
+    async def _run_one_listen_attempt(
+        self, backend: MessagingBackend, delay: float
+    ) -> str | None:
+        """One supervised ``_listen_loop`` attempt for ``_supervise_backend``.
+
+        Extracted verbatim from ``_supervise_backend`` (pure extract-method, no
+        behaviour change). Returns a ``restart_reason`` (``"error"`` /
+        ``"stream_closed"``) when the caller should restart after a backoff,
+        or ``None`` when the caller should return immediately
+        (``NotImplementedError``, or the router stopped mid-run). Re-raises
+        ``asyncio.CancelledError`` for a clean shutdown, exactly as before.
+        """
+        try:
+            await self._listen_loop(backend)
+        except asyncio.CancelledError:
+            # Clean shutdown (router.stop cancelled us) — never restart; propagate.
+            logger.debug(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener cancelled for '%s'.",
+                backend.id,
+            )
+            raise
+        except NotImplementedError:
+            # The backend cannot listen (outbound-only) — giving up is correct.
+            logger.warning(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Backend '%s' does not support "
+                "inbound listening — not restarting.",
+                backend.id,
+            )
+            return None
+        except Exception as e:  # noqa: BLE001 — supervise: log + backed-off restart, never die
+            logger.error(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' failed: %s "
+                "— restarting in %.1fs (self-healing supervisor).",
+                backend.id,
+                e,
+                delay,
+                exc_info=True,
+            )
+            return "error"
+        else:
+            # ``listen()`` returned without error. If we are shutting down, exit;
+            # otherwise the stream closed unexpectedly (a long-poll/websocket backend
+            # should not) — treat it as recoverable and restart after the backoff.
+            if not self._running:
+                return None
+            logger.warning(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Listener for '%s' ended "
+                "unexpectedly (stream closed without error) — restarting in %.1fs.",
+                backend.id,
+                delay,
+            )
+            return "stream_closed"
+
+    def _record_listener_restart(
+        self, backend_id: str, delay: float, ran_for: float
+    ) -> None:
+        """CONCEPT:AU-AHE.harness.runtime-reliability-loop — record the self-heal
+        so the runtime-reliability loop SEES it, from ``_supervise_backend``: a
+        listener that keeps dying+restarting (e.g. the Telegram 409 race) is
+        auto-healed there, but repeated restarts are a SOURCE_RUNTIME signal
+        the flywheel should note (the reconciler records them as a resolved
+        heal). Fire-and-forget; never perturbs the supervisor.
+
+        Extracted verbatim from ``_supervise_backend`` (pure extract-method, no
+        behaviour change).
+        """
+        try:
+            from agent_utilities.observability.runtime_signals import (
+                KIND_LISTENER_RESTART,
+                record_runtime_signal,
+            )
+
+            record_runtime_signal(
+                KIND_LISTENER_RESTART,
+                backend_id,
+                {"delay_s": round(delay, 2), "ran_for_s": round(ran_for, 2)},
+            )
+        except Exception:  # noqa: BLE001 — emission must never affect supervision
+            pass
 
     async def _listen_loop(self, backend: MessagingBackend) -> None:
         """One ``listen()`` attempt for a single backend — consumes its event stream.
@@ -412,6 +437,129 @@ class InboundRouter:
             )
 
 
+def _collect_burst_image_urls(items: list[Any]) -> list[str]:
+    """Collect image attachment URLs across a coalesced burst
+    (CONCEPT:AU-ECO.messaging.image-attachment-fallback), for
+    ``create_planner_handler``'s ``_reply_to_burst``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    image_urls: list[str] = []
+    for it in items:
+        msg = getattr(it["event"], "message", None)
+        for att in getattr(msg, "attachments", None) or []:
+            if str(getattr(att, "media_type", "")) == "image" and att.url:
+                image_urls.append(att.url)
+    return image_urls
+
+
+async def _handle_deferred_burst(
+    shape: Any,
+    combined: str,
+    send: Callable[..., Any],
+    run_and_deliver: Callable[..., Any],
+    progress_on: bool,
+) -> None:
+    """Non-interactive-turn ack-now/deliver-later branch of
+    ``create_planner_handler``'s ``_reply_to_burst`` dispatch
+    (CONCEPT:AU-ORCH.routing.altitude-description /
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+
+    Extracted verbatim (pure extract-method, no behaviour change). ``send``
+    and ``run_and_deliver`` are ``_reply_to_burst``'s own local closures,
+    threaded in explicitly rather than re-nesting this helper inside it.
+    """
+    # CONCEPT:AU-ORCH.routing.altitude-description — describe the actual altitude: a focused-tools turn runs the
+    # named servers' tools (in parallel), not the full planning graph.
+    _n = len(shape.tool_servers)
+    _kind = (
+        f"focused-tools turn ({_n} tool{'s' if _n != 1 else ''} in parallel)"
+        if shape.tool_servers
+        else "full multi-agent turn"
+    )
+    logger.info(
+        "[CONCEPT:AU-ORCH.execution.passthrough-identity] burst shaped as a %s (~%.0fs budget) "
+        "— acknowledging now, delivering the result as a follow-up.",
+        _kind,
+        shape.reply_budget_s,
+    )
+    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — when the live
+    # checklist is active its own "working on it…" status IS the acknowledgement (and it
+    # evolves into the answer), so skip the static ack to avoid a duplicate message.
+    # Without streaming, keep the existing ack-now / deliver-later behavior verbatim.
+    if not progress_on:
+        await send(await _varied_ack(combined, shape), threaded=True)
+    _spawn_bg(run_and_deliver(deferred=True))
+
+
+async def _resolve_inbound_content(event: InboundEvent) -> tuple[str, bool]:
+    """Resolve inbound message text, falling back to voice/audio transcription
+    (CONCEPT:AU-ECO.messaging.voice-attachment-fallback), for
+    ``create_planner_handler``'s ``planner_handler``.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(content, had_audio)``.
+    """
+    content = event.content or (event.message.content if event.message else "")
+    had_audio = False
+    if not content:
+        content, had_audio = await _transcribe_attachments(event)
+        if content and event.message is not None:
+            event.message.content = content
+            event.content = content
+    return content, had_audio
+
+
+async def _notify_transcription_failure(
+    backend: MessagingBackend, event: InboundEvent
+) -> None:
+    """Explicit failure notice when an audio/voice attachment produced no
+    usable transcript, for ``create_planner_handler``'s ``planner_handler``
+    (CONCEPT:AU-ECO.messaging.voice-attachment-fallback): a silently dropped
+    voice note must never look like "no message" — the degraded-read-as-
+    success defect this codebase's Fail-Closed discipline forbids.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    try:
+        await backend.send_message(
+            event.channel_id,
+            "I couldn't transcribe that voice/audio message — please try again or send it as text.",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "[CONCEPT:AU-ECO.messaging.voice-attachment-fallback] Failed to send the "
+            "explicit transcription-failure notice: %s",
+            e,
+        )
+
+
+async def _try_handle_command(
+    content: str, svc: Any, backend: MessagingBackend, event: InboundEvent
+) -> bool:
+    """Built-in universal command dispatch
+    (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher) for
+    ``create_planner_handler``'s ``planner_handler``. Answers immediately and
+    returns ``True`` if ``content`` was a recognized command; ``False`` falls
+    through to the coalesced agent reply.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    from agent_utilities.messaging.commands import handle_command
+
+    cmd_reply = await handle_command(content, service=svc)
+    if cmd_reply is None:
+        return False
+    try:
+        await backend.send_message(event.channel_id, cmd_reply)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] command reply send failed: %s",
+            e,
+        )
+    return True
+
+
 async def create_planner_handler(
     knowledge_engine: Any = None,
 ) -> EventHandler:
@@ -465,13 +613,7 @@ async def create_planner_handler(
             )
 
         # Collect image attachments across the burst → vision input (CONCEPT:AU-ECO.messaging.image-attachment-fallback).
-        image_urls: list[str] = []
-        for it in items:
-            msg = getattr(it["event"], "message", None)
-            for att in getattr(msg, "attachments", None) or []:
-                if str(getattr(att, "media_type", "")) == "image" and att.url:
-                    image_urls.append(att.url)
-        image_parts = await _fetch_image_parts(image_urls)
+        image_parts = await _fetch_image_parts(_collect_burst_image_urls(items))
 
         # CONCEPT:AU-ECO.messaging.universal-graph-agent — the reply IS the universal graph agent, session-scoped per
         # channel. NO bespoke recall on the reply path: continuity comes from the core memory
@@ -572,27 +714,9 @@ async def create_planner_handler(
         if shape.is_interactive:
             await _run_and_deliver(deferred=False)
         else:
-            # CONCEPT:AU-ORCH.routing.altitude-description — describe the actual altitude: a focused-tools turn runs the
-            # named servers' tools (in parallel), not the full planning graph.
-            _n = len(shape.tool_servers)
-            _kind = (
-                f"focused-tools turn ({_n} tool{'s' if _n != 1 else ''} in parallel)"
-                if shape.tool_servers
-                else "full multi-agent turn"
+            await _handle_deferred_burst(
+                shape, combined, _send, _run_and_deliver, _progress_on
             )
-            logger.info(
-                "[CONCEPT:AU-ORCH.execution.passthrough-identity] burst shaped as a %s (~%.0fs budget) "
-                "— acknowledging now, delivering the result as a follow-up.",
-                _kind,
-                shape.reply_budget_s,
-            )
-            # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — when the live
-            # checklist is active its own "working on it…" status IS the acknowledgement (and it
-            # evolves into the answer), so skip the static ack to avoid a duplicate message.
-            # Without streaming, keep the existing ack-now / deliver-later behavior verbatim.
-            if not _progress_on:
-                await _send(await _varied_ack(combined, shape), threaded=True)
-            _spawn_bg(_run_and_deliver(deferred=True))
 
     coalescer = BurstCoalescer(
         _reply_to_burst,
@@ -605,34 +729,10 @@ async def create_planner_handler(
         if event.event_type != EventType.MESSAGE:
             return  # Only handle messages
 
-        content = event.content or (event.message.content if event.message else "")
-        had_audio = False
-        if not content:
-            # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — no text? transcribe a voice/audio attachment and use that.
-            content, had_audio = await _transcribe_attachments(event)
-            if content and event.message is not None:
-                event.message.content = content
-                event.content = content
+        content, had_audio = await _resolve_inbound_content(event)
         if not content:
             if had_audio:
-                # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — an audio/voice attachment
-                # WAS present but produced no usable transcript (disabled, download failure, or
-                # the ASR backend returned nothing). This must never look like "no message" — a
-                # silently dropped voice note is exactly the degraded-read-as-success defect this
-                # codebase's Fail-Closed discipline forbids. Tell the sender explicitly instead of
-                # routing them through the normal (LLM-authored) reply path, which a broken ASR
-                # backend must not gate.
-                try:
-                    await backend.send_message(
-                        event.channel_id,
-                        "I couldn't transcribe that voice/audio message — please try again or send it as text.",
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.error(
-                        "[CONCEPT:AU-ECO.messaging.voice-attachment-fallback] Failed to send the "
-                        "explicit transcription-failure notice: %s",
-                        e,
-                    )
+                await _notify_transcription_failure(backend, event)
             return
 
         svc = MessagingService.instance(knowledge_engine)
@@ -652,17 +752,7 @@ async def create_planner_handler(
 
         # 3b. Built-in universal command? (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher) Answer immediately and stop;
         #     /claude, /skill, and unknowns fall through to the coalesced agent reply.
-        from agent_utilities.messaging.commands import handle_command
-
-        cmd_reply = await handle_command(content, service=svc)
-        if cmd_reply is not None:
-            try:
-                await backend.send_message(event.channel_id, cmd_reply)
-            except Exception as e:  # noqa: BLE001
-                logger.error(
-                    "[CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher] command reply send failed: %s",
-                    e,
-                )
+        if await _try_handle_command(content, svc, backend, event):
             return
 
         # 4. Coalesce normal messages into one agent turn per burst (CONCEPT:AU-ECO.messaging.burst-mode-coalescing):
@@ -855,6 +945,100 @@ def _resolve_media_store(engine: Any) -> Any:
     return MediaStore(compute)
 
 
+@dataclass
+class _MediaBatchContext:
+    """Per-event fields shared by every attachment in one ``_persist_media``
+    batch — bundled so ``_persist_one_attachment`` stays under the 7-param
+    cap instead of threading each field through individually."""
+
+    platform: str
+    channel_id: str
+    owner: str
+    event_time: str | None
+    message_memory_id: str | None
+    thread_id: str
+    message_id: str
+
+
+async def _persist_one_attachment(
+    client: Any, store: Any, att: Any, ctx: _MediaBatchContext
+) -> None:
+    """Download + store ONE media attachment for ``_persist_media``
+    (CONCEPT:AU-KG.ingest.list-durable-media). Best-effort: any failure is
+    logged and skipped, never raised — D-DSTO-7
+    (reports/deferred/lane-dst-orch.md): an unguarded failure here used to
+    propagate out of the caller's ``for att in media[:8]`` loop entirely,
+    silently skipping every REMAINING attachment in the batch instead of
+    just the one that failed.
+
+    Extracted verbatim from ``_persist_media``'s per-attachment loop body
+    (pure extract-method, no behaviour change).
+    """
+    try:
+        resp = await client.get(att.url)
+        resp.raise_for_status()
+        data = resp.content
+    except Exception as e:  # noqa: BLE001 — per-attachment download is best-effort; continues to the next attachment in the batch
+        logger.debug(
+            "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
+            e,
+        )
+        return
+    media_type = str(getattr(att, "media_type", ""))
+    mime_type = (
+        getattr(att, "mime_type", "")
+        or resp.headers.get("content-type", "").split(";")[0].strip()
+    )
+    try:
+        stored = await asyncio.to_thread(
+            store.store_media,
+            data,
+            media_type=media_type,
+            mime_type=mime_type,
+            source=ctx.platform,
+            message_id=ctx.message_memory_id,
+            name=getattr(att, "filename", ""),
+            owner=ctx.owner,
+            event_time=ctx.event_time,
+            provenance={
+                "platform": ctx.platform,
+                "channel_id": ctx.channel_id,
+                "thread_id": ctx.thread_id,
+                "message_id": ctx.message_id,
+                "filename": getattr(att, "filename", ""),
+            },
+        )
+        if media_type in ("voice_note", "audio"):
+            await _persist_audio_segment_evidence(
+                store,
+                data,
+                stored=stored,
+                mime_type=mime_type,
+                source=ctx.platform,
+            )
+    except Exception as e:  # noqa: BLE001 — per-attachment store is best-effort, mirroring the download step's isolation; continues to the next attachment in the batch instead of aborting the whole message
+        logger.debug(
+            "[CONCEPT:AU-KG.ingest.list-durable-media] media store failed: %s",
+            e,
+        )
+        return
+
+
+def _is_persistable_media(a: Any) -> bool:
+    """Attachment filter predicate for ``_persist_media``: has a URL and is a
+    persistable media type.
+
+    Extracted verbatim from ``_persist_media``'s list-comprehension filter
+    (pure extract-method, no behaviour change).
+    """
+    return bool(getattr(a, "url", "")) and str(getattr(a, "media_type", "")) in (
+        "image",
+        "voice_note",
+        "audio",
+        "video",
+    )
+
+
 async def _persist_media(
     engine: Any, event: Any, *, message_memory_id: str | None
 ) -> None:
@@ -871,13 +1055,7 @@ async def _persist_media(
     """
     msg = getattr(event, "message", None)
     attachments = getattr(msg, "attachments", None) or []
-    media = [
-        a
-        for a in attachments
-        if getattr(a, "url", "")
-        and str(getattr(a, "media_type", ""))
-        in ("image", "voice_note", "audio", "video")
-    ]
+    media = [a for a in attachments if _is_persistable_media(a)]
     if not media:
         return
     store = _resolve_media_store(engine)
@@ -888,11 +1066,16 @@ async def _persist_media(
         resolve_configured_tls_profile,
     )
 
-    platform = str(getattr(event, "platform", ""))
-    channel_id = str(getattr(event, "channel_id", ""))
-    owner = str(getattr(event, "user_id", "") or getattr(msg, "author_id", ""))
     timestamp = getattr(msg, "timestamp", None) or getattr(event, "timestamp", None)
-    event_time = timestamp.isoformat() if timestamp is not None else None
+    ctx = _MediaBatchContext(
+        platform=str(getattr(event, "platform", "")),
+        channel_id=str(getattr(event, "channel_id", "")),
+        owner=str(getattr(event, "user_id", "") or getattr(msg, "author_id", "")),
+        event_time=timestamp.isoformat() if timestamp is not None else None,
+        message_memory_id=message_memory_id,
+        thread_id=str(getattr(event, "thread_id", "")),
+        message_id=str(getattr(msg, "id", "")),
+    )
 
     trust = resolve_configured_tls_profile("messaging-media")
     try:
@@ -901,60 +1084,7 @@ async def _persist_media(
             **trust.httpx_kwargs(),
         ) as client:
             for att in media[:8]:  # cap per turn
-                try:
-                    resp = await client.get(att.url)
-                    resp.raise_for_status()
-                    data = resp.content
-                except Exception as e:  # noqa: BLE001 — per-attachment download is best-effort; continues to the next attachment in the batch
-                    logger.debug(
-                        "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
-                        e,
-                    )
-                    continue
-                media_type = str(getattr(att, "media_type", ""))
-                mime_type = (
-                    getattr(att, "mime_type", "")
-                    or resp.headers.get("content-type", "").split(";")[0].strip()
-                )
-                # D-DSTO-7 (reports/deferred/lane-dst-orch.md): store_media (and the
-                # audio-segment-evidence follow-up) is per-attachment best-effort, same
-                # as the download step above — an unguarded failure here used to
-                # propagate out of the `for att in media[:8]` loop entirely, silently
-                # skipping every REMAINING attachment in this message's batch instead
-                # of just the one that failed.
-                try:
-                    stored = await asyncio.to_thread(
-                        store.store_media,
-                        data,
-                        media_type=media_type,
-                        mime_type=mime_type,
-                        source=platform,
-                        message_id=message_memory_id,
-                        name=getattr(att, "filename", ""),
-                        owner=owner,
-                        event_time=event_time,
-                        provenance={
-                            "platform": platform,
-                            "channel_id": channel_id,
-                            "thread_id": str(getattr(event, "thread_id", "")),
-                            "message_id": str(getattr(msg, "id", "")),
-                            "filename": getattr(att, "filename", ""),
-                        },
-                    )
-                    if media_type in ("voice_note", "audio"):
-                        await _persist_audio_segment_evidence(
-                            store,
-                            data,
-                            stored=stored,
-                            mime_type=mime_type,
-                            source=platform,
-                        )
-                except Exception as e:  # noqa: BLE001 — per-attachment store is best-effort, mirroring the download step's isolation; continues to the next attachment in the batch instead of aborting the whole message
-                    logger.debug(
-                        "[CONCEPT:AU-KG.ingest.list-durable-media] media store failed: %s",
-                        e,
-                    )
-                    continue
+                await _persist_one_attachment(client, store, att, ctx)
     finally:
         trust.cleanup()
 
@@ -1129,6 +1259,43 @@ def _footer_enabled() -> bool:
     return bool(setting("MESSAGING_TRANSPARENCY_FOOTER", True))
 
 
+def _resolve_footer_text(
+    run_summary: dict[str, Any], outcome: str, stage: str
+) -> tuple[str, str]:
+    """Resolve ``(translated, hint)`` for ``_transparency_footer``.
+
+    Extracted verbatim from ``_transparency_footer`` (pure extract-method, no
+    behaviour change).
+    """
+    failure = run_summary.get("failure")
+    translated = ""
+    hint = ""
+    if isinstance(failure, dict):
+        translated = str(failure.get("translated") or "").strip()
+        hint = str(failure.get("hint") or "").strip()
+    if not translated:
+        # No failure detail was attached (e.g. a bare degraded/empty output with no
+        # captured cause) — still name the outcome + stage rather than saying nothing.
+        translated = f"the run ended {outcome}" + (f" at {stage}" if stage else "")
+    return translated, hint
+
+
+def _compose_footer_line(translated: str, hint: str, stage: str, trace_ref: str) -> str:
+    """Compose the final footer line for ``_transparency_footer``.
+
+    Extracted verbatim from ``_transparency_footer`` (pure extract-method, no
+    behaviour change).
+    """
+    line = f"⚠️ {translated}"
+    if hint:
+        line += f" — {hint}"
+    if stage and stage not in line:
+        line += f" [stage: {stage}]"
+    if trace_ref:
+        line += f" (trace: {trace_ref})"
+    return line
+
+
 def _transparency_footer(run_summary: dict[str, Any] | None) -> str:
     """A concise, translated transparency footer for a non-``ok`` ``run_summary``, else ``""``.
 
@@ -1151,25 +1318,9 @@ def _transparency_footer(run_summary: dict[str, Any] | None) -> str:
         if not _footer_enabled():
             return ""
         stage = str(run_summary.get("stage_reached") or "").strip()
-        failure = run_summary.get("failure")
-        translated = ""
-        hint = ""
-        if isinstance(failure, dict):
-            translated = str(failure.get("translated") or "").strip()
-            hint = str(failure.get("hint") or "").strip()
-        if not translated:
-            # No failure detail was attached (e.g. a bare degraded/empty output with no
-            # captured cause) — still name the outcome + stage rather than saying nothing.
-            translated = f"the run ended {outcome}" + (f" at {stage}" if stage else "")
-        line = f"⚠️ {translated}"
-        if hint:
-            line += f" — {hint}"
-        if stage and stage not in line:
-            line += f" [stage: {stage}]"
+        translated, hint = _resolve_footer_text(run_summary, outcome, stage)
         trace_ref = str(run_summary.get("trace_ref") or "").strip()
-        if trace_ref:
-            line += f" (trace: {trace_ref})"
-        return line
+        return _compose_footer_line(translated, hint, stage, trace_ref)
     except Exception:  # noqa: BLE001 — the footer is best-effort; never breaks the reply
         return ""
 
@@ -1401,6 +1552,86 @@ class _ProgressChecklist:
                 return False
 
 
+def _resolve_reply_timeout(budget: float | None) -> float:
+    """Reply-budget resolution for ``_graph_agent_reply``
+    (CONCEPT:AU-ORCH.execution.passthrough-identity): the caller's per-job
+    shape budget (``reply_budget_s``) when supplied and positive, else
+    ``MESSAGING_REPLY_TIMEOUT``.
+
+    Extracted verbatim (pure extract-method, no behaviour change).
+    """
+    from agent_utilities.core.config import setting
+
+    if budget and budget > 0:
+        return float(budget)
+    return float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
+
+
+def _unwrap_agent_envelope(text: str) -> tuple[str, dict[str, Any] | None]:
+    """Unwrap ``run_agent``'s JSON envelope
+    (CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37), if
+    ``text`` is one, for ``_graph_agent_reply``.
+
+    When the run opened a native message channel (or carries a mermaid
+    diagram / run_summary), ``run_agent`` returns a JSON envelope string
+    ``{"output", "channel_id"?, "mermaid"?, "run_summary"?}`` rather than the
+    bare reply. The chat reply is the ``output`` field; unwrap it so the user
+    sees the rendered text, not raw JSON. The membership check is exact
+    (keys subset of the envelope's allow-set) so a genuine JSON reply from
+    the agent is never mis-unwrapped.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(text, run_summary)`` — unchanged if ``text`` is not this envelope shape.
+    """
+    if not (text.startswith("{") and '"output"' in text):
+        return text, None
+    import json
+
+    try:
+        _env = json.loads(text)
+    except (ValueError, TypeError):
+        return text, None
+    if not (
+        isinstance(_env, dict)
+        and "output" in _env
+        and set(_env) <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
+    ):
+        return text, None
+    unwrapped = str(_env["output"]).strip()
+    _rs = _env.get("run_summary")
+    run_summary = _rs if isinstance(_rs, dict) else None
+    return unwrapped, run_summary
+
+
+def _classify_unusable_agent_reply(
+    text: str, run_summary: dict[str, Any] | None
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Classify a completed-but-unusable ``run_agent`` reply for
+    ``_graph_agent_reply``: a backend-timeout string returns its own graceful
+    reply immediately (no second LLM call, CONCEPT:AU-ORCH.routing.chat-budget-routing);
+    anything else falls through to the plain-chat fallback, carrying
+    ``run_summary`` along so a real, already-known cause is not dropped.
+
+    Extracted verbatim (pure extract-method, no behaviour change). Returns
+    ``(reply, summary)`` — when ``reply`` is not ``None`` the caller should
+    return it (transparency-wrapped by the caller); when ``None``, ``summary``
+    is the fallback_summary to carry into the plain-chat path.
+    """
+    if _is_backend_timeout(text):
+        logger.warning(
+            "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent timed out on a degraded backend "
+            "(%.80s); skipping the double-LLM plain-chat call.",
+            text,
+        )
+        return _SLOW_BACKEND_MESSAGE, run_summary
+    logger.warning(
+        "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent returned no usable reply (%.60s); "
+        "falling back to a single plain-chat reply.",
+        text,
+    )
+    return None, run_summary
+
+
 async def _graph_agent_reply(
     engine: Any,
     content: str,
@@ -1456,11 +1687,7 @@ async def _graph_agent_reply(
     # ``reply_budget_s`` (how long a turn of this shape should reasonably take). A fixed 45 s
     # wall both over-waits a trivial turn and prematurely cuts a legitimate multi-agent tool
     # turn. ``MESSAGING_REPLY_TIMEOUT`` remains the fallback when no shape budget is supplied.
-    reply_timeout = (
-        float(budget)
-        if budget and budget > 0
-        else float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
-    )
+    reply_timeout = _resolve_reply_timeout(budget)
 
     # CONCEPT:AU-ECO.messaging.image-attachment-fallback — the universal graph path (execute_agent → run_agent) does NOT carry
     # image attachments to the model: it answers text-only, "succeeds", and so never reaches
@@ -1499,56 +1726,24 @@ async def _graph_agent_reply(
             timeout=reply_timeout,
         )
         text = str(out).strip() if out else ""
-        run_summary: dict[str, Any] | None = None
-        # CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37 — when the run opened a native message channel (or carries a
-        # mermaid diagram / run_summary), run_agent returns a JSON ENVELOPE string
-        # ``{"output", "channel_id"?, "mermaid"?, "run_summary"?}`` rather than the bare
-        # reply. The chat reply is the ``output`` field; unwrap it so the user sees the
-        # rendered text, not raw JSON. The membership check is exact (keys ⊆ the envelope's)
-        # so a genuine JSON reply from the agent is never mis-unwrapped. ``run_id`` is ALWAYS
-        # present once ANY envelope trigger fires (_render_agent_result's base payload) — it
-        # was missing from this allow-set before, which meant the unwrap could silently fail
-        # (and leak raw JSON into the chat) the moment a caller actually got an envelope back
+        # ``run_id`` is ALWAYS present once ANY envelope trigger fires
+        # (_render_agent_result's base payload) — it was missing from
+        # _unwrap_agent_envelope's allow-set before, which meant the unwrap
+        # could silently fail (and leak raw JSON into the chat) the moment a
+        # caller actually got an envelope back
         # (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
-        if text.startswith("{") and '"output"' in text:
-            import json
-
-            try:
-                _env = json.loads(text)
-            except (ValueError, TypeError):
-                _env = None
-            if (
-                isinstance(_env, dict)
-                and "output" in _env
-                and set(_env)
-                <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
-            ):
-                text = str(_env["output"]).strip()
-                _rs = _env.get("run_summary")
-                run_summary = _rs if isinstance(_rs, dict) else None
+        text, run_summary = _unwrap_agent_envelope(text)
         if text and not text.startswith("Agent execution failed"):
             return _with_transparency(text, run_summary)
         # The run completed but returned a failure string. If that failure was a backend
         # timeout (an inner node hit the chat-profile bound), do NOT re-call the same slow
         # endpoint (CONCEPT:AU-ORCH.routing.chat-budget-routing) — surface the graceful message. Only a non-timeout
         # failure (delegation/structural) is worth a single cheap plain-chat attempt.
-        if _is_backend_timeout(text):
-            logger.warning(
-                "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent timed out on a degraded backend "
-                "(%.80s); skipping the double-LLM plain-chat call.",
-                text,
-            )
-            return _with_transparency(_SLOW_BACKEND_MESSAGE, run_summary)
-        logger.warning(
-            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] universal agent returned no usable reply (%.60s); "
-            "falling back to a single plain-chat reply.",
-            text,
+        early_reply, fallback_summary = _classify_unusable_agent_reply(
+            text, run_summary
         )
-        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the run itself may
-        # already carry a real run_summary here (e.g. an "Agent execution failed: ..." text
-        # with outcome="failed") — thread it into the plain-chat fallback below instead of
-        # dropping it, which is what silently discarded a real, already-known cause before.
-        fallback_summary = run_summary
+        if early_reply is not None:
+            return _with_transparency(early_reply, fallback_summary)
     except TimeoutError:
         # The whole turn hit the reply-timeout wall — the backend is slow/degraded. Making a
         # SECOND full LLM call to the same endpoint is the double-LLM tax that pushed a single
