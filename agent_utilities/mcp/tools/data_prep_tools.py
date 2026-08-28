@@ -1004,6 +1004,23 @@ def _resolve_graph_view(engine: Any, compute: Any, target: str) -> Any:
     return view
 
 
+def _fetch_blob_via_client(compute: Any, engine: Any, digest: str) -> bytes | None:
+    """Fetch bytes through the raw blob client fallback (no MediaStore)."""
+
+    client = (
+        getattr(compute, "client", None)
+        or getattr(compute, "_client", None)
+        or getattr(engine, "client", None)
+    )
+    blob = getattr(client, "blob", None)
+    fetch = getattr(blob, "fetch", None)
+    if not callable(fetch):
+        raise ArtifactAuthorityUnavailable(
+            "native artifact blob authority is unavailable"
+        )
+    return fetch(digest)
+
+
 class _GraphNativeDataPrepProvider:
     """Concrete provider over the authoritative graph node/blob substrate.
 
@@ -1242,39 +1259,33 @@ class _GraphNativeDataPrepProvider:
             return _node_properties_via_cypher(execute_read, artifact_ref)
         return _node_properties_via_client(engine, artifact_ref)
 
+    def _resolve_media_store(self, engine: Any, compute: Any) -> Any:
+        """Return the process-owned MediaStore for this engine view, if any."""
+
+        if engine is self._engine and self._media_store is not None:
+            return self._media_store
+        if getattr(compute, "_client", None) is not None:
+            try:
+                from agent_utilities.knowledge_graph.memory.media_store import (
+                    MediaStore,
+                )
+
+                return MediaStore(compute)
+            except Exception:  # pragma: no cover - diagnosed as unavailable below
+                return None
+        return None
+
     def _fetch_blob(self, digest: str, *, engine: Any) -> bytes | None:
         """Fetch bytes through the scoped native content-addressed authority."""
 
         compute = getattr(engine, "graph_compute", None) or getattr(
             engine, "graph", None
         )
-        media_store = None
-        if engine is self._engine and self._media_store is not None:
-            media_store = self._media_store
-        elif getattr(compute, "_client", None) is not None:
-            try:
-                from agent_utilities.knowledge_graph.memory.media_store import (
-                    MediaStore,
-                )
-
-                media_store = MediaStore(compute)
-            except Exception:  # pragma: no cover - diagnosed as unavailable below
-                media_store = None
+        media_store = self._resolve_media_store(engine, compute)
         try:
             if media_store is not None:
                 return media_store.fetch_bytes(digest)
-            client = (
-                getattr(compute, "client", None)
-                or getattr(compute, "_client", None)
-                or getattr(engine, "client", None)
-            )
-            blob = getattr(client, "blob", None)
-            fetch = getattr(blob, "fetch", None)
-            if not callable(fetch):
-                raise ArtifactAuthorityUnavailable(
-                    "native artifact blob authority is unavailable"
-                )
-            return fetch(digest)
+            return _fetch_blob_via_client(compute, engine, digest)
         except ArtifactAuthorityUnavailable:
             raise
         except Exception as exc:  # noqa: BLE001 - native dependency details stay private
