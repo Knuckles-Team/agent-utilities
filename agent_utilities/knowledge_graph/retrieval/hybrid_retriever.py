@@ -439,26 +439,39 @@ class HybridRetriever:
         """
         qvec = [float(x) for x in query_emb]
         if label:
-            try:
-                plan: list[dict[str, Any]] = [
-                    {"Scan": {"label": label}},
-                    {"Rank": {"query": qvec}},
-                    {"Limit": {"k": fetch_k}},
-                ]
-                rows = graph.query_unified(plan)
-                out = [
-                    (str(r["id"]), float(r.get("score") or 0.0))
-                    for r in (rows or [])
-                    if r.get("id") is not None
-                ]
-                if out:
-                    return out
-            except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
-                logger.debug(
-                    "unified Scan+Rank plan unavailable (engine without `query`?): "
-                    "%s — using native ANN",
-                    e,
-                )
+            unified = self._engine_rank_unified(graph, qvec, fetch_k, label)
+            if unified is not None:
+                return unified
+        return self._engine_rank_native_ann(graph, qvec, fetch_k)
+
+    def _engine_rank_unified(
+        self, graph: Any, qvec: list[float], fetch_k: int, label: str
+    ) -> list[tuple[str, float]] | None:
+        try:
+            plan: list[dict[str, Any]] = [
+                {"Scan": {"label": label}},
+                {"Rank": {"query": qvec}},
+                {"Limit": {"k": fetch_k}},
+            ]
+            rows = graph.query_unified(plan)
+            out = [
+                (str(r["id"]), float(r.get("score") or 0.0))
+                for r in (rows or [])
+                if r.get("id") is not None
+            ]
+            return out or None
+        except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
+            logger.debug(
+                "unified Scan+Rank plan unavailable (engine without `query`?): "
+                "%s — using native ANN",
+                e,
+            )
+            return None
+
+    @staticmethod
+    def _engine_rank_native_ann(
+        graph: Any, qvec: list[float], fetch_k: int
+    ) -> list[tuple[str, float]]:
         try:
             return [
                 (str(nid), float(score))
