@@ -202,3 +202,88 @@ async def test_dispatcher_step_empty_plan_termination_synthesizes_a_reason_if_ab
     assert result is None
     assert state.error
     assert len(state.error) > 0
+
+
+# ---------------------------------------------------------------------------
+# BUG-CX-061: an unassigned-variable landmine on the RLM + exception path.
+#
+# ``_router_plan_and_dispatch`` only computes ``adaptive_model`` on the
+# non-RLM branch (``_router_select_adaptive_model``). When the RLM branch is
+# taken instead and RLM planning fails, ``adaptive_model`` was never
+# assigned, so the "multi-level fallback chain" (R13) that is supposed to
+# rescue the turn could never actually run: it hit the
+# ``_ADAPTIVE_MODEL_UNSET`` sentinel and failed before ever attempting a
+# fallback LLM call. The fallback must actually be attempted with a real
+# model whenever the RLM path fails, not die on an unbound-variable landmine.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_router_rlm_planning_failure_still_attempts_real_fallback():
+    """When RLM planning fails, the unstructured fallback must actually run
+    (i.e. construct a real fallback agent) instead of immediately failing on
+    the never-assigned ``adaptive_model``."""
+    from unittest.mock import AsyncMock
+
+    state = GraphState(
+        query="Analyze the entire history of the project and summarize every failure."
+    )
+    # Non-empty tag_prompts + knowledge_engine=None avoid the discovery-registry
+    # / KG-engine round trips (``_router_resolve_static_routing_tags`` /
+    # ``_router_resolve_specialist_tags``) that require a real epistemic-graph
+    # engine -- same pattern as the existing ``test_router_rlm_trigger`` in
+    # ``tests/integration/core/test_rlm_planner.py``.
+    deps = MagicMock(spec=GraphDeps)
+    deps.router_model = "test-model"
+    deps.router_timeout = 1.0
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {"test-specialist": "A specialist for testing"}
+    deps.tag_env_vars = {}
+    deps.sub_agents = {}
+    deps.event_queue = MagicMock()
+    deps.message_history_cache = {}
+    deps.knowledge_engine = None
+    deps.plan_sync = None
+
+    def _agent_factory(*_args: object, **_kwargs: object) -> MagicMock:
+        agent = MagicMock()
+
+        async def _run(*_a: object, **_kw: object) -> SimpleNamespace:
+            return SimpleNamespace(output="no known specialist here")
+
+        agent.run = _run
+        return agent
+
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = deps
+
+    with (
+        patch(
+            "agent_utilities.rlm.repl.RLMEnvironment.run_full_rlm",
+            new_callable=AsyncMock,
+        ) as mock_rlm,
+        patch("agent_utilities.rlm.config.RLMConfig") as mock_rlm_config_cls,
+        patch(
+            "agent_utilities.graph._router_impl.create_context_agent",
+            side_effect=_agent_factory,
+        ) as mock_agent_factory,
+    ):
+        mock_rlm.side_effect = RuntimeError("RLM backend unreachable")
+        mock_config = MagicMock()
+        mock_config.enabled = True
+        mock_config.max_context_threshold = 999_999_999
+        mock_rlm_config_cls.return_value = mock_config
+
+        result = await router_step(ctx)
+
+    # The RLM branch never calls create_context_agent for planning itself
+    # (it uses RLMEnvironment), so any call recorded here can only be the
+    # unstructured fallback agent -- proving the fallback was genuinely
+    # attempted rather than failing on the unassigned-variable landmine.
+    assert mock_agent_factory.called, (
+        "unstructured fallback was never attempted after an RLM planning "
+        "failure -- adaptive_model was left unbound"
+    )
+    assert result == "dispatcher"
+    assert state.error is None or "referenced before assignment" not in state.error
