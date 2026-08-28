@@ -355,29 +355,38 @@ class GraphView:
         """Predecessor ids of ``node_id`` whose edge type matches ``link_type``."""
         return self._typed_neighbors(node_id, link_type, outgoing=False)
 
-    def _typed_neighbors(
-        self, node_id: str, link_type: str | None, *, outgoing: bool
-    ) -> list[str]:
-        g = self._g
+    def _typed_neighbors_via_edge_view(
+        self, g: Any, node_id: str, link_type: str | None, *, outgoing: bool
+    ) -> list[str] | None:
+        """Preferred: edge views with data so we can read the type.
+
+        Returns the neighbor list on success, or ``None`` if this strategy is
+        unavailable or failed and the caller should fall back.
+        """
+        edge_fn = "out_edges" if outgoing else "in_edges"
+        if not hasattr(g, edge_fn):
+            return None
         out: list[str] = []
         seen: set[str] = set()
-        edge_fn = "out_edges" if outgoing else "in_edges"
-        # Preferred: edge views with data so we can read the type.
         try:
-            if hasattr(g, edge_fn):
-                for triple in getattr(g, edge_fn)(node_id, data=True):
-                    src, tgt, props = _unpack_edge(triple)
-                    other = tgt if outgoing else src
-                    if other is None or other in seen:
-                        continue
-                    if link_type is None or _edge_type(props) == link_type:
-                        seen.add(other)
-                        out.append(other)
-                return out
+            for triple in getattr(g, edge_fn)(node_id, data=True):
+                src, tgt, props = _unpack_edge(triple)
+                other = tgt if outgoing else src
+                if other is None or other in seen:
+                    continue
+                if link_type is None or _edge_type(props) == link_type:
+                    seen.add(other)
+                    out.append(other)
+            return out
         except Exception:
-            out = []
-            seen = set()
-        # Fallback: plain successor/predecessor ids + per-edge property lookup.
+            return None
+
+    def _typed_neighbors_via_successors(
+        self, g: Any, node_id: str, link_type: str | None, *, outgoing: bool
+    ) -> list[str]:
+        """Fallback: plain successor/predecessor ids + per-edge property lookup."""
+        out: list[str] = []
+        seen: set[str] = set()
         try:
             succ_fn = "get_successors" if outgoing else "get_predecessors"
             neigh = getattr(g, succ_fn)(node_id) if hasattr(g, succ_fn) else []
@@ -395,6 +404,19 @@ class GraphView:
         except Exception:
             return out
         return out
+
+    def _typed_neighbors(
+        self, node_id: str, link_type: str | None, *, outgoing: bool
+    ) -> list[str]:
+        g = self._g
+        primary = self._typed_neighbors_via_edge_view(
+            g, node_id, link_type, outgoing=outgoing
+        )
+        if primary is not None:
+            return primary
+        return self._typed_neighbors_via_successors(
+            g, node_id, link_type, outgoing=outgoing
+        )
 
     def _edge_props(
         self, node_id: str, other: str, *, outgoing: bool
@@ -500,18 +522,24 @@ class ObjectSet:
         behavior for every existing caller that doesn't opt in.
         """
         if self.kind is ObjectSetKind.DYNAMIC:
-            pred = self._predicate
-            assert pred is not None  # enforced in __init__
-            out: list[str] = []
-            for nid in self._view.node_ids():
-                try:
-                    if pred(self._view.props(nid)):
-                        out.append(nid)
-                        if limit is not None and len(out) >= limit:
-                            break
-                except Exception:  # nosec B112 — a bad predicate skips that node, not the query
-                    continue
-            return out
+            return self._dynamic_ids(limit)
+        return self._static_or_temporary_ids(limit)
+
+    def _dynamic_ids(self, limit: int | None) -> list[str]:
+        pred = self._predicate
+        assert pred is not None  # enforced in __init__
+        out: list[str] = []
+        for nid in self._view.node_ids():
+            try:
+                if pred(self._view.props(nid)):
+                    out.append(nid)
+                    if limit is not None and len(out) >= limit:
+                        break
+            except Exception:  # nosec B112 — a bad predicate skips that node, not the query
+                continue
+        return out
+
+    def _static_or_temporary_ids(self, limit: int | None) -> list[str]:
         if self.kind is ObjectSetKind.TEMPORARY and self._is_expired():
             if self._source is not None:
                 self._ids = list(self._source())
@@ -624,6 +652,21 @@ class ObjectSet:
             base = self
             return base.filter(filters=filters) if filters else base._copy_static()
 
+        hit_ids = self._resolve_search_hit_ids(query, member_ids, filters, limit)
+        return ObjectSet(
+            self._kg,
+            kind=ObjectSetKind.STATIC,
+            ids=hit_ids[:limit],
+            name=f"{self.name or 'set'}::search",
+        )
+
+    def _resolve_search_hit_ids(
+        self,
+        query: str,
+        member_ids: list[str],
+        filters: Iterable[PropertyFilter] | None,
+        limit: int,
+    ) -> list[str]:
         ranked = self._search_ids(query, limit=max(limit, 1))
         member_set = set(member_ids)
         # Keep search order; restrict to this set's membership.
@@ -637,12 +680,7 @@ class ObjectSet:
         prop_pred = _coalesce_filters(filters)
         if prop_pred is not None:
             hit_ids = [i for i in hit_ids if prop_pred(self._view.props(i))]
-        return ObjectSet(
-            self._kg,
-            kind=ObjectSetKind.STATIC,
-            ids=hit_ids[:limit],
-            name=f"{self.name or 'set'}::search",
-        )
+        return hit_ids
 
     def _search_ids(self, query: str, *, limit: int) -> list[str]:
         """Resolve query → ranked ids via the hybrid retriever, else substring."""
@@ -693,19 +731,9 @@ class ObjectSet:
         frontier: list[str] = list(seeds)
         visited: set[str] = set(seeds)
         for _ in range(hops):
-            nxt: list[str] = []
-            for nid in frontier:
-                for other in self._neighbors(nid, link_type, direction):
-                    if other in visited:
-                        continue
-                    visited.add(other)
-                    discovered[other] = None
-                    nxt.append(other)
-                    if len(discovered) >= cap:
-                        break
-                if len(discovered) >= cap:
-                    break
-            frontier = nxt
+            frontier = self._expand_search_around_frontier(
+                frontier, link_type, direction, visited, discovered, cap
+            )
             if not frontier or len(discovered) >= cap:
                 break
         result_ids = list(discovered.keys())
@@ -717,6 +745,30 @@ class ObjectSet:
             ids=result_ids[:cap],
             name=f"{self.name or 'set'}::around[{link_type or '*'}x{hops}]",
         )
+
+    def _expand_search_around_frontier(
+        self,
+        frontier: list[str],
+        link_type: str | None,
+        direction: str,
+        visited: set[str],
+        discovered: dict[str, None],
+        cap: int,
+    ) -> list[str]:
+        """One BFS level of :meth:`search_around`. Mutates ``visited``/``discovered``."""
+        nxt: list[str] = []
+        for nid in frontier:
+            for other in self._neighbors(nid, link_type, direction):
+                if other in visited:
+                    continue
+                visited.add(other)
+                discovered[other] = None
+                nxt.append(other)
+                if len(discovered) >= cap:
+                    return nxt
+            if len(discovered) >= cap:
+                return nxt
+        return nxt
 
     def _neighbors(
         self, node_id: str, link_type: str | None, direction: str
@@ -783,36 +835,12 @@ class ObjectSet:
         :attr:`AggregationResult.groups`, also exposed as
         :attr:`AggregationResult.value`).
         """
-        metric = metric.lower()
-        if metric not in ("count", "sum", "avg", "min", "max"):
-            raise ValueError(
-                f"unsupported metric {metric!r}; expected count|sum|avg|min|max"
-            )
-        if metric != "count" and not field:
-            raise ValueError(f"metric {metric!r} requires a numeric field")
-
-        buckets: dict[Any, list[float]] = {}
-        counts: dict[Any, int] = {}
+        metric = self._validate_aggregate_args(metric, field)
         objects = self.objects()
-        for props in objects:
-            key = _prop(props, group_by) if group_by is not None else None
-            counts[key] = counts.get(key, 0) + 1
-            if metric != "count":
-                val = _as_number(props.get(field)) if field is not None else None
-                if val is not None:
-                    buckets.setdefault(key, []).append(val)
-
-        groups: dict[Any, float] = {}
-        if metric == "count":
-            groups = {k: float(v) for k, v in counts.items()}
-        else:
-            for key, vals in buckets.items():
-                groups[key] = _reduce_metric(metric, vals)
-            # Groups that had members but no numeric values: emit a neutral 0.0
-            # for sum so the group is still represented; skip for min/max/avg.
-            if metric == "sum":
-                for key in counts:
-                    groups.setdefault(key, 0.0)
+        buckets, counts = self._bucket_aggregate_objects(
+            objects, metric, field, group_by
+        )
+        groups = self._aggregate_groups(metric, buckets, counts)
 
         return AggregationResult(
             metric=metric,
@@ -821,6 +849,51 @@ class ObjectSet:
             groups=groups,
             total_objects=len(objects),
         )
+
+    @staticmethod
+    def _validate_aggregate_args(metric: str, field: str | None) -> str:
+        metric = metric.lower()
+        if metric not in ("count", "sum", "avg", "min", "max"):
+            raise ValueError(
+                f"unsupported metric {metric!r}; expected count|sum|avg|min|max"
+            )
+        if metric != "count" and not field:
+            raise ValueError(f"metric {metric!r} requires a numeric field")
+        return metric
+
+    @staticmethod
+    def _bucket_aggregate_objects(
+        objects: list[dict[str, Any]],
+        metric: str,
+        field: str | None,
+        group_by: str | None,
+    ) -> tuple[dict[Any, list[float]], dict[Any, int]]:
+        buckets: dict[Any, list[float]] = {}
+        counts: dict[Any, int] = {}
+        for props in objects:
+            key = _prop(props, group_by) if group_by is not None else None
+            counts[key] = counts.get(key, 0) + 1
+            if metric != "count":
+                val = _as_number(props.get(field)) if field is not None else None
+                if val is not None:
+                    buckets.setdefault(key, []).append(val)
+        return buckets, counts
+
+    @staticmethod
+    def _aggregate_groups(
+        metric: str, buckets: dict[Any, list[float]], counts: dict[Any, int]
+    ) -> dict[Any, float]:
+        if metric == "count":
+            return {k: float(v) for k, v in counts.items()}
+        groups: dict[Any, float] = {}
+        for key, vals in buckets.items():
+            groups[key] = _reduce_metric(metric, vals)
+        # Groups that had members but no numeric values: emit a neutral 0.0
+        # for sum so the group is still represented; skip for min/max/avg.
+        if metric == "sum":
+            for key in counts:
+                groups.setdefault(key, 0.0)
+        return groups
 
     # ── set algebra ──────────────────────────────────────────────────────────
     def union(self, other: ObjectSet, *, limit: int | None = None) -> ObjectSet:
