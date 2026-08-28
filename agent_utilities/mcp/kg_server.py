@@ -1449,10 +1449,11 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
             status_code=400,
         )
 
-    kwargs, error = _graph_query_request_kwargs(body)
-    if error is not None:
-        payload, status_code = error
+    result = _graph_query_request_kwargs(body)
+    if not isinstance(result, dict):
+        payload, status_code = result
         return JSONResponse(payload, status_code=status_code)
+    kwargs = result
 
     try:
         res = await _execute_tool("graph_query", **kwargs)
@@ -1469,18 +1470,18 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
 
 def _graph_query_request_kwargs(
     body: dict[str, Any],
-) -> tuple[dict[str, Any] | None, tuple[dict[str, Any], int] | None]:
+) -> dict[str, Any] | tuple[dict[str, Any], int]:
     """Validate + normalize a ``graph_query`` REST body into tool kwargs.
 
     Handles the ``query``/``cypher`` aliasing documented on
-    :func:`graph_query_endpoint`. Returns ``(kwargs, None)`` on success, or
-    ``(None, (payload, status_code))`` for a 4xx the caller should return
-    verbatim.
+    :func:`graph_query_endpoint`. Returns ``kwargs`` (a dict) on success, or
+    ``(payload, status_code)`` for a 4xx the caller should return verbatim.
+    The two are distinguished by the caller with ``isinstance(result, dict)``.
     """
     query_val = body.get("query")
     cypher_val = body.get("cypher")
     if query_val is not None and cypher_val is not None and query_val != cypher_val:
-        return None, (
+        return (
             {
                 "status": "error",
                 "message": (
@@ -1493,7 +1494,7 @@ def _graph_query_request_kwargs(
 
     unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
     if unknown:
-        return None, (
+        return (
             {
                 "status": "error",
                 "message": f"Unsupported field(s): {', '.join(unknown)}.",
@@ -1504,7 +1505,7 @@ def _graph_query_request_kwargs(
     kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
     if "cypher" not in kwargs and query_val is not None:
         kwargs["cypher"] = query_val
-    return kwargs, None
+    return kwargs
 
 
 async def graph_search_endpoint(request: Request) -> JSONResponse:
