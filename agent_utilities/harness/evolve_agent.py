@@ -27,11 +27,15 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from .component_registry import HarnessComponentRegistry
 from .evidence_corpus import EvidenceCorpus, FailureCluster
 from .manifest import ChangeManifest, ComponentEdit, ComponentType
+
+if TYPE_CHECKING:
+    from ..rlm.config import RLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +360,168 @@ def _with_integrity_ref(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+async def _run_deep_analysis_rlm(evidence_json: str, rlm_config: RLMConfig) -> Any:
+    """Run the RLM sub-agent over the serialized evidence corpus; returns the
+    raw string result (validated/parsed by the caller)."""
+    from ..rlm.repl import RLMEnvironment
+
+    env = RLMEnvironment(
+        context=evidence_json,
+        config=rlm_config,
+        graph_deps=None,  # KG access via helpers if available
+    )
+    return await env.run_full_rlm(
+        "Analyze the EvidenceCorpus in `context` (JSON). "
+        "Identify the top failure patterns and their component attributions. "
+        "For each, propose a ComponentEdit with: "
+        "'component_type' (one of: system_prompt, tool_description, "
+        "tool_implementation, middleware, skill, orchestrator_skill, "
+        "worker_skill, sub_agent, long_term_memory), "
+        "'predicted_fixes' (list of task_ids expected to fix), "
+        "'predicted_regressions' (list of task_ids that might regress). "
+        "Do not emit paths, source content, prompts, examples, identities, or "
+        "credentials. "
+        "Output a JSON array of edit objects via FINAL_VAR('edits', json_string)."
+    )
+
+
+def _parse_deep_analysis_result(rlm_result: Any) -> list[Any]:
+    import json
+
+    if not isinstance(rlm_result, str) or len(rlm_result) > 256 * 1024:
+        raise ValueError("RLM edit response is invalid")
+    edit_data = json.loads(rlm_result)
+    if not isinstance(edit_data, list):
+        raise ValueError("RLM edit response is invalid")
+    return edit_data
+
+
+def _allowed_task_ids(evidence: EvidenceCorpus) -> set[str]:
+    return {
+        str(getattr(trace, "task_id", "") or "")
+        for trace in (getattr(evidence, "traces", []) or [])
+        if getattr(trace, "task_id", "")
+    }
+
+
+def _validate_prompt_scores(meta: dict[str, Any]) -> tuple[float, float] | None:
+    """``(before, after)``, or ``None`` after stamping ``meta["apply_status"]
+    = "error"`` and logging — fail-closed on non-numeric or out-of-range
+    scores, matching :func:`EvolveAgent._apply_prompt_edit`'s original two
+    guard clauses exactly (both share the same error message/status)."""
+    import math
+
+    try:
+        before = float(meta.get("baseline_score", 0.0))
+        after = float(meta.get("candidate_score", 0.0))
+    except (TypeError, ValueError):
+        meta["apply_status"] = "error"
+        logger.error("EvolveAgent: prompt scores are invalid")
+        return None
+    if (
+        not math.isfinite(before)
+        or not math.isfinite(after)
+        or not 0.0 <= before <= 1.0
+        or not 0.0 <= after <= 1.0
+    ):
+        meta["apply_status"] = "error"
+        logger.error("EvolveAgent: prompt scores are invalid")
+        return None
+    return before, after
+
+
+def _resolve_prompt_component_ref(meta: dict[str, Any], edit: ComponentEdit) -> str:
+    from .optimization_backend import (
+        is_opaque_program_reference,
+        opaque_program_reference,
+    )
+
+    component_ref = str(meta.get("component_ref") or "")
+    if not is_opaque_program_reference(component_ref, namespace="component"):
+        component_ref = opaque_program_reference("component", edit.file_path)
+    return component_ref
+
+
+@dataclass
+class _PromptApplyDecision:
+    """The four booleans :func:`EvolveAgent._apply_prompt_edit` gates on,
+    bundled so the policy-consult and apply/propose/reject helpers stay
+    under the parameter cap."""
+
+    promote: bool
+    auto_apply_eligible: bool
+    auto_apply: bool
+    dry_run: bool
+
+
+def _should_consult_promotion_policy(decision: _PromptApplyDecision) -> bool:
+    return (
+        decision.promote
+        and decision.auto_apply_eligible
+        and decision.auto_apply
+        and not decision.dry_run
+    )
+
+
+def _should_apply_prompt_write(
+    decision: _PromptApplyDecision, policy_approved: bool
+) -> bool:
+    return (
+        decision.promote
+        and decision.auto_apply_eligible
+        and decision.auto_apply
+        and policy_approved
+        and not decision.dry_run
+    )
+
+
+def _load_optimization_artifact(
+    reg: Any, target_file: str, full_path: str
+) -> tuple[dict[str, Any], bool]:
+    """Load the optimization artifact: a JSON blueprint for system prompts,
+    otherwise the registration's text (description) — the target handler
+    knows which key to read. Returns ``(artifact, is_json)``."""
+    import json
+    import os
+
+    artifact: dict[str, Any] = {}
+    is_json = target_file.endswith(".json") and os.path.exists(full_path)
+    if is_json:
+        with open(full_path, encoding="utf-8") as f:
+            artifact = json.load(f)
+    else:
+        text = reg.description or ""
+        if not text and os.path.exists(full_path):
+            try:
+                text = open(full_path, encoding="utf-8").read()[:4000]
+            except OSError:
+                text = ""
+        stem = os.path.splitext(os.path.basename(target_file))[0]
+        artifact = {
+            "name": stem,
+            "description": text,
+            "sop": text,
+            "docstring": text,
+        }
+    artifact["__file_path__"] = target_file
+    return artifact, is_json
+
+
+def _governed_task_refs(
+    row: dict[str, Any], field: str, allowed_tasks: set[str]
+) -> list[str]:
+    from .optimization_backend import opaque_program_reference
+
+    values = row.get(field)
+    if not isinstance(values, list):
+        return []
+    return [
+        opaque_program_reference("task", task_id)
+        for task_id in dict.fromkeys(str(value) for value in values)
+        if task_id in allowed_tasks
+    ][:10]
+
+
 class EvolveAgent:
     """AHE Evolve Agent — proposes and applies harness improvements.
 
@@ -477,6 +643,54 @@ class EvolveAgent:
 
         return manifest
 
+    def _component_edit_from_deep_analysis(
+        self,
+        ed: dict[str, Any],
+        evidence: EvidenceCorpus,
+        allowed_tasks: set[str],
+    ) -> ComponentEdit | None:
+        from .optimization_backend import opaque_program_reference
+
+        try:
+            comp_type = ComponentType(ed.get("component_type", "tool_implementation"))
+        except (TypeError, ValueError):
+            return None
+        registered = self.registry.get_components_by_type(comp_type)
+        if not registered:
+            return None
+
+        target_path = registered[0].file_path
+        return ComponentEdit(
+            component_type=comp_type,
+            file_path=target_path,
+            edit_summary=f"Governed deep analysis proposed a {comp_type.value} change.",
+            predicted_fixes=_governed_task_refs(ed, "predicted_fixes", allowed_tasks),
+            predicted_regressions=_governed_task_refs(
+                ed, "predicted_regressions", allowed_tasks
+            ),
+            evidence_references=[
+                opaque_program_reference("evidence", evidence.round_id)
+            ],
+            metadata={
+                "component_ref": opaque_program_reference("component", target_path)
+            },
+        )
+
+    def _component_edits_from_deep_analysis(
+        self,
+        edit_data: list[Any],
+        evidence: EvidenceCorpus,
+        allowed_tasks: set[str],
+    ) -> list[ComponentEdit]:
+        edits: list[ComponentEdit] = []
+        for ed in edit_data[:16]:
+            if not isinstance(ed, dict):
+                continue
+            edit = self._component_edit_from_deep_analysis(ed, evidence, allowed_tasks)
+            if edit is not None:
+                edits.append(edit)
+        return edits
+
     async def _deep_analyze_evidence(
         self, evidence: EvidenceCorpus
     ) -> list[ComponentEdit]:
@@ -508,90 +722,13 @@ class EvolveAgent:
             f"exceeds RLM threshold. Using RLM for deep analysis."
         )
 
-        from ..rlm.repl import RLMEnvironment
-
-        env = RLMEnvironment(
-            context=evidence_json,
-            config=rlm_config,
-            graph_deps=None,  # KG access via helpers if available
-        )
-
         try:
-            rlm_result = await env.run_full_rlm(
-                "Analyze the EvidenceCorpus in `context` (JSON). "
-                "Identify the top failure patterns and their component attributions. "
-                "For each, propose a ComponentEdit with: "
-                "'component_type' (one of: system_prompt, tool_description, "
-                "tool_implementation, middleware, skill, orchestrator_skill, "
-                "worker_skill, sub_agent, long_term_memory), "
-                "'predicted_fixes' (list of task_ids expected to fix), "
-                "'predicted_regressions' (list of task_ids that might regress). "
-                "Do not emit paths, source content, prompts, examples, identities, or "
-                "credentials. "
-                "Output a JSON array of edit objects via FINAL_VAR('edits', json_string)."
+            rlm_result = await _run_deep_analysis_rlm(evidence_json, rlm_config)
+            edit_data = _parse_deep_analysis_result(rlm_result)
+            allowed_tasks = _allowed_task_ids(evidence)
+            edits = self._component_edits_from_deep_analysis(
+                edit_data, evidence, allowed_tasks
             )
-
-            import json
-
-            from .optimization_backend import opaque_program_reference
-
-            if not isinstance(rlm_result, str) or len(rlm_result) > 256 * 1024:
-                raise ValueError("RLM edit response is invalid")
-            edit_data = json.loads(rlm_result)
-            if not isinstance(edit_data, list):
-                raise ValueError("RLM edit response is invalid")
-            allowed_tasks = {
-                str(getattr(trace, "task_id", "") or "")
-                for trace in (getattr(evidence, "traces", []) or [])
-                if getattr(trace, "task_id", "")
-            }
-
-            def governed_task_refs(row: dict[str, Any], field: str) -> list[str]:
-                values = row.get(field)
-                if not isinstance(values, list):
-                    return []
-                return [
-                    opaque_program_reference("task", task_id)
-                    for task_id in dict.fromkeys(str(value) for value in values)
-                    if task_id in allowed_tasks
-                ][:10]
-
-            edits: list[ComponentEdit] = []
-            for ed in edit_data[:16]:
-                if not isinstance(ed, dict):
-                    continue
-                try:
-                    comp_type = ComponentType(
-                        ed.get("component_type", "tool_implementation")
-                    )
-                except (TypeError, ValueError):
-                    continue
-                registered = self.registry.get_components_by_type(comp_type)
-                if not registered:
-                    continue
-
-                target_path = registered[0].file_path
-                edits.append(
-                    ComponentEdit(
-                        component_type=comp_type,
-                        file_path=target_path,
-                        edit_summary=(
-                            f"Governed deep analysis proposed a {comp_type.value} change."
-                        ),
-                        predicted_fixes=governed_task_refs(ed, "predicted_fixes"),
-                        predicted_regressions=governed_task_refs(
-                            ed, "predicted_regressions"
-                        ),
-                        evidence_references=[
-                            opaque_program_reference("evidence", evidence.round_id)
-                        ],
-                        metadata={
-                            "component_ref": opaque_program_reference(
-                                "component", target_path
-                            )
-                        },
-                    )
-                )
             logger.info("EvolveAgent: deep analysis produced %d proposals", len(edits))
             return edits
         except Exception as exc:
@@ -685,6 +822,37 @@ class EvolveAgent:
                 )
         return trainset
 
+    def _resolve_optimization_target(
+        self, cluster: FailureCluster
+    ) -> tuple[ComponentType, Any, Any, str, str] | None:
+        """Returns ``(attribution, target, reg, target_file, full_path)``, or
+        ``None`` if any guard fails: no component attribution, no registered
+        :class:`OptimizableTarget` for it, no registered component of that
+        type, or an invalid registered path. ``attribution`` is returned
+        already narrowed to non-None, since ``cluster.component_attribution``
+        re-read at the call site would not carry that narrowing."""
+        from .program_optimization import get_target
+
+        attribution = cluster.component_attribution
+        if attribution is None:
+            return None
+        target = get_target(attribution)
+        if target is None:
+            return None
+
+        registered = self.registry.get_components_by_type(attribution)
+        if not registered:
+            return None
+
+        reg = registered[0]
+        target_file = reg.file_path
+        try:
+            full_path = self._resolve_component_path(target_file)
+        except ValueError:
+            logger.warning("EvolveAgent: registered component path is invalid")
+            return None
+        return attribution, target, reg, target_file, full_path
+
     async def _optimize_cluster(
         self,
         cluster: FailureCluster,
@@ -699,54 +867,16 @@ class EvolveAgent:
         the reviewed apply path owns that mutation. The native jobs plane persists the
         governed optimization trajectory.
         """
-        import json
-        import os
-
         from .optimization_backend import opaque_program_reference
-        from .program_optimization import get_target, run_program_optimization
+        from .program_optimization import run_program_optimization
 
         edits: list[ComponentEdit] = []
-        attribution = cluster.component_attribution
-        if attribution is None:
+        resolved = self._resolve_optimization_target(cluster)
+        if resolved is None:
             return edits
-        target = get_target(attribution)
-        if target is None:
-            return edits
+        attribution, target, reg, target_file, full_path = resolved
 
-        registered = self.registry.get_components_by_type(attribution)
-        if not registered:
-            return edits
-
-        reg = registered[0]
-        target_file = reg.file_path
-        try:
-            full_path = self._resolve_component_path(target_file)
-        except ValueError:
-            logger.warning("EvolveAgent: registered component path is invalid")
-            return edits
-
-        # Load the artifact: a JSON blueprint for system prompts, otherwise the
-        # registration's text (description) — the target handler knows which key to read.
-        artifact: dict[str, Any] = {}
-        is_json = target_file.endswith(".json") and os.path.exists(full_path)
-        if is_json:
-            with open(full_path, encoding="utf-8") as f:
-                artifact = json.load(f)
-        else:
-            text = reg.description or ""
-            if not text and os.path.exists(full_path):
-                try:
-                    text = open(full_path, encoding="utf-8").read()[:4000]
-                except OSError:
-                    text = ""
-            stem = os.path.splitext(os.path.basename(target_file))[0]
-            artifact = {
-                "name": stem,
-                "description": text,
-                "sop": text,
-                "docstring": text,
-            }
-        artifact["__file_path__"] = target_file
+        artifact, is_json = _load_optimization_artifact(reg, target_file, full_path)
 
         trainset = self._build_trainset(evidence, cluster)
         if not trainset:
@@ -883,108 +1013,85 @@ class EvolveAgent:
         candidate.prompt_version = _bump_patch(candidate.prompt_version)
         return candidate
 
-    def _apply_prompt_edit(
+    def _consult_promotion_policy(
+        self,
+        meta: dict[str, Any],
+        component_ref: str,
+        scores: tuple[float, float],
+        decision: _PromptApplyDecision,
+    ) -> bool:
+        """Unified evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate):
+        a candidate that beat baseline (``decision.promote``, decided upstream by
+        ``should_promote`` — the comparison gate is NOT re-run here) must ALSO
+        clear the same operational veto every other promotion vector clears
+        (``promote_skill_version``, ``merge_promotion``, ...) before it is
+        allowed to write source. Previously this apply path never consulted
+        ``action_policy`` at all — gated only by the bare ``KG_AGENT_AUTO_APPLY``
+        boolean, weaker governance than a skill-markdown promotion. This is a
+        strict TIGHTENING: ``auto_apply`` keeps its exact prior meaning as the
+        per-vector "should this run at all" switch — it still gates whether the
+        gate is even consulted — but ``action_policy`` is now an ADDITIONAL
+        veto on top, never a replacement; the apply requires BOTH to allow it."""
+        if not _should_consult_promotion_policy(decision):
+            return False
+        from ..orchestration.artifact_promotion import PromotionCandidate
+        from ..orchestration.artifact_promotion import promote as promote_gate
+        from .reward_signal import RewardSignal
+
+        before, after = scores
+        verdict = promote_gate(
+            self.knowledge_engine,
+            PromotionCandidate(
+                artifact_kind="prompt",
+                artifact_id=component_ref,
+                candidate_ref=str(meta.get("candidate_version_hash") or component_ref),
+                candidate_reward=RewardSignal(value=after, source="eval_corpus"),
+                # The comparison gate already ran (should_promote, upstream) —
+                # incumbent_reward=None skips re-comparing and goes straight to
+                # the action_policy consult, mirroring auto_merge's spec/claim
+                # shape (quality already gated elsewhere).
+                incumbent_reward=None,
+                source="loop_engine",
+                reason=(
+                    f"prompt {component_ref} candidate beats baseline "
+                    f"({before:.3f} → {after:.3f})"
+                ),
+                evidence={"baseline_score": before, "candidate_score": after},
+            ),
+        )
+        meta["action_decision"] = verdict.decision
+        return bool(verdict.approved)
+
+    def _write_prompt_candidate(
+        self, edit: ComponentEdit, meta: dict[str, Any]
+    ) -> str | None:
+        full_path = self._resolve_component_path(edit.file_path)
+        candidate = self._compiled_prompt_candidate(
+            full_path, meta["program_compiled_state"]
+        )
+        candidate.save(full_path)
+        sha = self._git_commit_edit(edit)
+        edit.git_commit_sha = sha
+        self.registry.record_edit(edit.file_path, edit.id)
+        return sha
+
+    def _apply_or_propose_prompt(
         self,
         edit: ComponentEdit,
-        manifest: ChangeManifest,
-        *,
-        auto_apply: bool,
-        dry_run: bool,
-    ) -> None:
-        """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AU-AHE.harness.hardening-transparency-surface)."""
-        import math
-
-        from .optimization_backend import (
-            is_opaque_program_reference,
-            opaque_program_reference,
-        )
-
-        meta = edit.metadata
-        promote = meta.get("promote") is True
-        auto_apply_eligible = meta.get("auto_apply_eligible", True) is True
-        try:
-            before = float(meta.get("baseline_score", 0.0))
-            after = float(meta.get("candidate_score", 0.0))
-        except (TypeError, ValueError):
-            meta["apply_status"] = "error"
-            logger.error("EvolveAgent: prompt scores are invalid")
-            return
-        if (
-            not math.isfinite(before)
-            or not math.isfinite(after)
-            or not 0.0 <= before <= 1.0
-            or not 0.0 <= after <= 1.0
-        ):
-            meta["apply_status"] = "error"
-            logger.error("EvolveAgent: prompt scores are invalid")
-            return
-        component_ref = str(meta.get("component_ref") or "")
-        if not is_opaque_program_reference(component_ref, namespace="component"):
-            component_ref = opaque_program_reference("component", edit.file_path)
-
-        # Unified evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate):
-        # a candidate that beat baseline (``promote``, decided upstream by
-        # ``should_promote`` — the comparison gate is NOT re-run here) must ALSO
-        # clear the same operational veto every other promotion vector clears
-        # (``promote_skill_version``, ``merge_promotion``, ...) before it is
-        # allowed to write source. Previously this apply path never consulted
-        # ``action_policy`` at all — gated only by the bare ``KG_AGENT_AUTO_APPLY``
-        # boolean, weaker governance than a skill-markdown promotion. This is a
-        # strict TIGHTENING: ``auto_apply`` keeps its exact prior meaning as the
-        # per-vector "should this run at all" switch — it still gates whether the
-        # gate is even consulted — but ``action_policy`` is now an ADDITIONAL
-        # veto on top, never a replacement; the apply requires BOTH to allow it.
-        policy_approved = False
-        if promote and auto_apply_eligible and auto_apply and not dry_run:
-            from ..orchestration.artifact_promotion import (
-                PromotionCandidate,
-            )
-            from ..orchestration.artifact_promotion import (
-                promote as promote_gate,
-            )
-            from .reward_signal import RewardSignal
-
-            verdict = promote_gate(
-                self.knowledge_engine,
-                PromotionCandidate(
-                    artifact_kind="prompt",
-                    artifact_id=component_ref,
-                    candidate_ref=str(
-                        meta.get("candidate_version_hash") or component_ref
-                    ),
-                    candidate_reward=RewardSignal(value=after, source="eval_corpus"),
-                    # The comparison gate already ran (should_promote, upstream) —
-                    # incumbent_reward=None skips re-comparing and goes straight to
-                    # the action_policy consult, mirroring auto_merge's spec/claim
-                    # shape (quality already gated elsewhere).
-                    incumbent_reward=None,
-                    source="loop_engine",
-                    reason=(
-                        f"prompt {component_ref} candidate beats baseline "
-                        f"({before:.3f} → {after:.3f})"
-                    ),
-                    evidence={"baseline_score": before, "candidate_score": after},
-                ),
-            )
-            meta["action_decision"] = verdict.decision
-            policy_approved = verdict.approved
-
-        if (
-            promote
-            and auto_apply_eligible
-            and auto_apply
-            and policy_approved
-            and not dry_run
-        ):
+        meta: dict[str, Any],
+        component_ref: str,
+        scores: tuple[float, float],
+        decision: _PromptApplyDecision,
+        policy_approved: bool,
+    ) -> tuple[str, bool]:
+        """``(status, applied)`` — write the candidate when every gate (promote,
+        auto-apply eligibility, the caller's auto_apply switch, the
+        action_policy veto, and not-dry-run) allows it; otherwise propose
+        (held for review) or reject, matching the original if/elif/else."""
+        before, after = scores
+        if _should_apply_prompt_write(decision, policy_approved):
             try:
-                full_path = self._resolve_component_path(edit.file_path)
-                candidate = self._compiled_prompt_candidate(
-                    full_path, meta["program_compiled_state"]
-                )
-                candidate.save(full_path)
-                sha = self._git_commit_edit(edit)
-                edit.git_commit_sha = sha
-                self.registry.record_edit(edit.file_path, edit.id)
+                sha = self._write_prompt_candidate(edit, meta)
                 status, applied = "applied", True
                 logger.info(
                     "EvolveAgent: APPLIED hardened prompt %s (%.3f → %.3f) commit=%s",
@@ -998,8 +1105,8 @@ class EvolveAgent:
                     "EvolveAgent: prompt apply failed (%s)", type(exc).__name__
                 )
                 status, applied = "error", False
-        elif promote:
-            status, applied = "proposed", False
+            return status, applied
+        if decision.promote:
             logger.info(
                 "EvolveAgent: PROPOSED hardened prompt %s (%.3f → %.3f) — held for review "
                 "(automatic apply not eligible, gated off, or action_policy=%s).",
@@ -1008,15 +1115,46 @@ class EvolveAgent:
                 after,
                 meta.get("action_decision", "n/a"),
             )
-        else:
-            status, applied = "rejected", False
-            logger.info(
-                "EvolveAgent: REJECTED candidate for %s (%.3f → %.3f did not beat baseline).",
-                component_ref,
-                before,
-                after,
-            )
+            return "proposed", False
+        logger.info(
+            "EvolveAgent: REJECTED candidate for %s (%.3f → %.3f did not beat baseline).",
+            component_ref,
+            before,
+            after,
+        )
+        return "rejected", False
 
+    def _apply_prompt_edit(
+        self,
+        edit: ComponentEdit,
+        manifest: ChangeManifest,
+        *,
+        auto_apply: bool,
+        dry_run: bool,
+    ) -> None:
+        """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AU-AHE.harness.hardening-transparency-surface)."""
+        meta = edit.metadata
+        promote = meta.get("promote") is True
+        auto_apply_eligible = meta.get("auto_apply_eligible", True) is True
+        scores = _validate_prompt_scores(meta)
+        if scores is None:
+            return
+        component_ref = _resolve_prompt_component_ref(meta, edit)
+
+        decision = _PromptApplyDecision(
+            promote=promote,
+            auto_apply_eligible=auto_apply_eligible,
+            auto_apply=auto_apply,
+            dry_run=dry_run,
+        )
+        policy_approved = self._consult_promotion_policy(
+            meta, component_ref, scores, decision
+        )
+        status, applied = self._apply_or_propose_prompt(
+            edit, meta, component_ref, scores, decision, policy_approved
+        )
+
+        before, after = scores
         edit.metadata["apply_status"] = status
         self._record_proposed_change(edit, manifest, status, before, after, applied)
 
@@ -1111,13 +1249,18 @@ class EvolveAgent:
         meta["proposal_ref"] = proposal_id
         return proposal_id
 
-    def approve_proposed_change(self, proposal_id: str) -> dict[str, Any]:
-        """Reviewed approval path for a shadow proposal (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
+    def _load_proposal_for_approval(
+        self, proposal_id: str
+    ) -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
+        """``(record, proposal_path, error)``. ``error`` is the ready-to-return
+        fail-closed dict when any check fails — the caller must return it
+        as-is and must not use ``record``/``proposal_path`` in that case.
 
-        Applies a previously **proposed** (or rejected, if force-approved) candidate to
-        source — the steerable counterpart to the auto-apply gate, so a winning prompt can
-        go live by review instead of by flipping the global flag. Returns a status dict.
-        """
+        Verifies (in order): the proposal ref shape, the file exists, the
+        loaded JSON is a dict, its HMAC integrity ref matches the record
+        content (constant-time compare), the record's own ``id`` matches
+        the requested ``proposal_id``, and its status is still approvable
+        (``proposed``/``rejected``, not yet ``applied``)."""
         import hmac
         import json
         import os
@@ -1128,17 +1271,25 @@ class EvolveAgent:
         )
 
         if not is_opaque_program_reference(proposal_id, namespace="proposal"):
-            return {"approved": False, "error": "proposal_ref_invalid"}
+            return None, "", {"approved": False, "error": "proposal_ref_invalid"}
         proposal_token = proposal_id.rsplit(":", 1)[-1]
         proposal_path = self._resolve_component_path(
             f".specify/proposals/prompt-proposal-{proposal_token}.json"
         )
         if not os.path.exists(proposal_path):
-            return {"approved": False, "error": "proposal_not_found"}
+            return (
+                None,
+                proposal_path,
+                {"approved": False, "error": "proposal_not_found"},
+            )
         with open(proposal_path, encoding="utf-8") as f:
             record = json.load(f)
         if not isinstance(record, dict):
-            return {"approved": False, "error": "proposal_record_invalid"}
+            return (
+                None,
+                proposal_path,
+                {"approved": False, "error": "proposal_record_invalid"},
+            )
         integrity_ref = str(record.pop("integrity_ref", "") or "")
         expected_integrity_ref = opaque_program_reference(
             "proposal_integrity",
@@ -1147,18 +1298,37 @@ class EvolveAgent:
         if not is_opaque_program_reference(
             integrity_ref, namespace="proposal_integrity"
         ) or not hmac.compare_digest(integrity_ref, expected_integrity_ref):
-            return {"approved": False, "error": "proposal_integrity_mismatch"}
+            return (
+                None,
+                proposal_path,
+                {"approved": False, "error": "proposal_integrity_mismatch"},
+            )
         record["integrity_ref"] = integrity_ref
         if record.get("id") != proposal_id:
-            return {"approved": False, "error": "proposal_ref_mismatch"}
+            return (
+                None,
+                proposal_path,
+                {"approved": False, "error": "proposal_ref_mismatch"},
+            )
         if (
             record.get("status") not in {"proposed", "rejected"}
             or record.get("applied") is not False
         ):
-            return {"approved": False, "error": "proposal_not_approvable"}
-        compiled_state = record.get("program_compiled_state") or {}
-        if not compiled_state:
-            return {"approved": False, "error": "compiled_state_missing"}
+            return (
+                None,
+                proposal_path,
+                {"approved": False, "error": "proposal_not_approvable"},
+            )
+        return record, proposal_path, None
+
+    def _resolve_proposal_target(
+        self, proposal_id: str, record: dict[str, Any]
+    ) -> tuple[str, dict[str, Any] | None]:
+        """``(target_file, error)`` — resolves the cached target, falling back
+        to a registry scan by ``component_ref``, then verifies it still
+        matches the record's own ``component_ref``."""
+        from .optimization_backend import opaque_program_reference
+
         target_file = self._proposal_targets.get(proposal_id)
         if target_file is None:
             component_ref = str(record.get("component_ref") or "")
@@ -1171,17 +1341,54 @@ class EvolveAgent:
                 None,
             )
         if target_file is None:
-            return {"approved": False, "error": "proposal_target_unavailable"}
+            return "", {"approved": False, "error": "proposal_target_unavailable"}
         if opaque_program_reference("component", target_file) != record.get(
             "component_ref"
         ):
-            return {"approved": False, "error": "proposal_target_mismatch"}
+            return "", {"approved": False, "error": "proposal_target_mismatch"}
+        return target_file, None
+
+    def _apply_approved_proposal(
+        self, compiled_state: dict[str, Any], target_file: str
+    ) -> dict[str, Any] | None:
+        """Resolve the real filesystem path and write the compiled candidate.
+        Returns a fail-closed error dict on an invalid path, else ``None``."""
         try:
             full_path = self._resolve_component_path(target_file)
         except ValueError:
             return {"approved": False, "error": "proposal_target_invalid"}
         candidate = self._compiled_prompt_candidate(full_path, compiled_state)
         candidate.save(full_path)
+        return None
+
+    def approve_proposed_change(self, proposal_id: str) -> dict[str, Any]:
+        """Reviewed approval path for a shadow proposal (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
+
+        Applies a previously **proposed** (or rejected, if force-approved) candidate to
+        source — the steerable counterpart to the auto-apply gate, so a winning prompt can
+        go live by review instead of by flipping the global flag. Returns a status dict.
+        """
+        import json
+
+        from .optimization_backend import opaque_program_reference
+
+        record, proposal_path, error = self._load_proposal_for_approval(proposal_id)
+        if error is not None:
+            return error
+        assert record is not None
+
+        compiled_state = record.get("program_compiled_state") or {}
+        if not compiled_state:
+            return {"approved": False, "error": "compiled_state_missing"}
+
+        target_file, error = self._resolve_proposal_target(proposal_id, record)
+        if error is not None:
+            return error
+
+        error = self._apply_approved_proposal(compiled_state, target_file)
+        if error is not None:
+            return error
+
         record["status"] = "applied"
         record["applied"] = True
         record["approved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
