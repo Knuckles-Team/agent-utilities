@@ -34,6 +34,17 @@ from .manifest import ChangeManifest, VerificationResult
 logger = logging.getLogger(__name__)
 
 
+def _entry_haystack(entry: Any) -> str:
+    """Flatten one evidence entry's content/tags/metadata into one searchable string."""
+    return " ".join(
+        [
+            entry.content or "",
+            " ".join(entry.tags or []),
+            " ".join(f"{k}={v}" for k, v in (entry.metadata or {}).items()),
+        ]
+    )
+
+
 class ManifestVerifier:
     """Verifies Evolve Agent predictions against actual outcomes.
 
@@ -77,18 +88,87 @@ class ManifestVerifier:
         ]
         if not needles:
             return True
-        count = 0
-        for entry in new_evidence.entries:
-            hay = " ".join(
-                [
-                    entry.content or "",
-                    " ".join(entry.tags or []),
-                    " ".join(f"{k}={v}" for k, v in (entry.metadata or {}).items()),
-                ]
-            )
-            if all(n in hay for n in needles):
-                count += 1
+        count = sum(
+            1
+            for entry in new_evidence.entries
+            if all(n in _entry_haystack(entry) for n in needles)
+        )
         return count >= min_count
+
+    @staticmethod
+    def _actual_outcome_deltas(
+        baseline_outcomes: dict[str, bool], new_outcomes: dict[str, bool]
+    ) -> tuple[set[str], set[str]]:
+        """Return ``(actual_fixes, actual_regressions)`` from before/after pass maps."""
+        actual_fixes = {
+            task_id
+            for task_id, passed in new_outcomes.items()
+            if passed and not baseline_outcomes.get(task_id, True)
+        }
+        actual_regressions = {
+            task_id
+            for task_id, passed in new_outcomes.items()
+            if not passed and baseline_outcomes.get(task_id, False)
+        }
+        return actual_fixes, actual_regressions
+
+    @staticmethod
+    def _precision_recall(
+        confirmed_fixes: set[str],
+        predicted_fixes: set[str],
+        actual_fixes: set[str],
+        confirmed_regressions: set[str],
+        predicted_regressions: set[str],
+    ) -> tuple[float, float, float]:
+        fix_precision = (
+            len(confirmed_fixes) / len(predicted_fixes) if predicted_fixes else 0.0
+        )
+        fix_recall = len(confirmed_fixes) / len(actual_fixes) if actual_fixes else 0.0
+        regression_precision = (
+            len(confirmed_regressions) / len(predicted_regressions)
+            if predicted_regressions
+            else 0.0
+        )
+        return fix_precision, fix_recall, regression_precision
+
+    def _attribution_reliability(
+        self,
+        fix_precision: float,
+        actual_fixes: set[str],
+        universe: int,
+        predicted_fixes: set[str],
+    ) -> tuple[float, float, bool]:
+        """Would random predictions of the same scope do as well (plan b7-04 F7)?
+
+        Random precision = base rate of actual fixes among all evaluated tasks;
+        the harness is only "reliable" when its fix_precision beats that base
+        rate by ``self.reliability_multiple``.
+        """
+        random_baseline_precision = len(actual_fixes) / universe if universe else 0.0
+        attribution_lift = (
+            fix_precision / random_baseline_precision
+            if random_baseline_precision > 0.0
+            else 0.0
+        )
+        attribution_reliable = bool(predicted_fixes) and (
+            attribution_lift >= self.reliability_multiple
+        )
+        return random_baseline_precision, attribution_lift, attribution_reliable
+
+    @staticmethod
+    def _verification_recommendation(
+        unexpected_regressions: set[str],
+        overall_delta: float,
+        unattributed_edits: list[str],
+    ) -> str:
+        if unexpected_regressions:
+            return "partial_revert"
+        if overall_delta < 0:
+            return "full_revert"
+        if unattributed_edits:
+            # Apparent gain with no evidence the edit fired → do not confirm.
+            return "partial_revert"
+        return "confirm"
 
     async def verify(
         self,
@@ -114,18 +194,9 @@ class ManifestVerifier:
         # Build task-level outcome maps
         baseline_outcomes = {e.task_id: e.pass_fail for e in baseline_evidence.entries}
         new_outcomes = {e.task_id: e.pass_fail for e in new_evidence.entries}
-
-        # Determine actual fixes (was failing, now passing)
-        actual_fixes: set[str] = set()
-        for task_id, passed in new_outcomes.items():
-            if passed and not baseline_outcomes.get(task_id, True):
-                actual_fixes.add(task_id)
-
-        # Determine actual regressions (was passing, now failing)
-        actual_regressions: set[str] = set()
-        for task_id, passed in new_outcomes.items():
-            if not passed and baseline_outcomes.get(task_id, False):
-                actual_regressions.add(task_id)
+        actual_fixes, actual_regressions = self._actual_outcome_deltas(
+            baseline_outcomes, new_outcomes
+        )
 
         # Compare with predictions
         predicted_fixes = set(manifest.get_all_predicted_fixes())
@@ -137,28 +208,19 @@ class ManifestVerifier:
         confirmed_regressions = predicted_regressions & actual_regressions
 
         # Calculate precision/recall
-        fix_precision = (
-            len(confirmed_fixes) / len(predicted_fixes) if predicted_fixes else 0.0
-        )
-        fix_recall = len(confirmed_fixes) / len(actual_fixes) if actual_fixes else 0.0
-        regression_precision = (
-            len(confirmed_regressions) / len(predicted_regressions)
-            if predicted_regressions
-            else 0.0
+        fix_precision, fix_recall, regression_precision = self._precision_recall(
+            confirmed_fixes,
+            predicted_fixes,
+            actual_fixes,
+            confirmed_regressions,
+            predicted_regressions,
         )
 
-        # Self-attribution reliability (CONCEPT:AU-AHE.harness.harness-evolution, plan b7-04 F7): would random
-        # predictions of the same scope do as well? Random precision = base rate of
-        # actual fixes among all evaluated tasks; the harness is only "reliable" when
-        # its fix_precision beats that base rate by ``reliability_multiple``.
-        universe = len(new_outcomes)
-        random_baseline_precision = len(actual_fixes) / universe if universe else 0.0
-        if random_baseline_precision > 0.0:
-            attribution_lift = fix_precision / random_baseline_precision
-        else:
-            attribution_lift = 0.0
-        attribution_reliable = bool(predicted_fixes) and (
-            attribution_lift >= self.reliability_multiple
+        # Self-attribution reliability (CONCEPT:AU-AHE.harness.harness-evolution, plan b7-04 F7).
+        random_baseline_precision, attribution_lift, attribution_reliable = (
+            self._attribution_reliability(
+                fix_precision, actual_fixes, len(new_outcomes), predicted_fixes
+            )
         )
 
         # Calculate overall score delta
@@ -176,16 +238,9 @@ class ManifestVerifier:
             and not self._signature_fired(edit.attribution_signature, new_evidence)
         ]
 
-        # Determine recommendation
-        if unexpected_regressions:
-            recommendation = "partial_revert"
-        elif overall_delta < 0:
-            recommendation = "full_revert"
-        elif unattributed_edits:
-            # Apparent gain with no evidence the edit fired → do not confirm.
-            recommendation = "partial_revert"
-        else:
-            recommendation = "confirm"
+        recommendation = self._verification_recommendation(
+            unexpected_regressions, overall_delta, unattributed_edits
+        )
 
         result = VerificationResult(
             unattributed_edits=sorted(unattributed_edits),
@@ -223,6 +278,41 @@ class ManifestVerifier:
 
         return result
 
+    def _revert_all_edits(self, manifest: ChangeManifest) -> list[str]:
+        reverted_files: list[str] = []
+        for edit in manifest.edits:
+            if edit.git_commit_sha:
+                success = self.registry.rollback_component(
+                    edit.file_path, f"{edit.git_commit_sha}~1"
+                )
+                if success:
+                    reverted_files.append(edit.file_path)
+        return reverted_files
+
+    def _revert_regressed_edits(
+        self, manifest: ChangeManifest, unexpected_regressions: list[str]
+    ) -> list[str]:
+        """Partial revert: only revert edits whose predicted fixes regressed."""
+        reverted_files: list[str] = []
+        regression_set = set(unexpected_regressions)
+        for edit in manifest.edits:
+            predicted_set = set(edit.predicted_fixes)
+            overlap = predicted_set & regression_set
+            # If any predicted fix is actually a regression, revert this edit
+            if not (overlap and edit.git_commit_sha):
+                continue
+            logger.warning(
+                "ManifestVerifier: reverting component due to "
+                "unexpected regressions count=%d",
+                len(overlap),
+            )
+            success = self.registry.rollback_component(
+                edit.file_path, f"{edit.git_commit_sha}~1"
+            )
+            if success:
+                reverted_files.append(edit.file_path)
+        return reverted_files
+
     async def auto_revert(
         self,
         manifest: ChangeManifest,
@@ -254,30 +344,11 @@ class ManifestVerifier:
                 "ManifestVerifier: Full revert recommended. "
                 "Reverting all edits in this manifest."
             )
-            for edit in manifest.edits:
-                if edit.git_commit_sha:
-                    success = self.registry.rollback_component(
-                        edit.file_path, f"{edit.git_commit_sha}~1"
-                    )
-                    if success:
-                        reverted_files.append(edit.file_path)
+            reverted_files = self._revert_all_edits(manifest)
         else:
-            # Partial revert: only revert edits linked to regressions
-            regression_set = set(verification.unexpected_regressions)
-            for edit in manifest.edits:
-                predicted_set = set(edit.predicted_fixes)
-                # If any predicted fix is actually a regression, revert this edit
-                if predicted_set & regression_set and edit.git_commit_sha:
-                    logger.warning(
-                        "ManifestVerifier: reverting component due to "
-                        "unexpected regressions count=%d",
-                        len(predicted_set & regression_set),
-                    )
-                    success = self.registry.rollback_component(
-                        edit.file_path, f"{edit.git_commit_sha}~1"
-                    )
-                    if success:
-                        reverted_files.append(edit.file_path)
+            reverted_files = self._revert_regressed_edits(
+                manifest, verification.unexpected_regressions
+            )
 
         if reverted_files:
             manifest.verification_status = "reverted"
