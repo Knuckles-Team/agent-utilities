@@ -1357,6 +1357,55 @@ def _match_bound_toolsets(
     return matched_toolsets, bound_tool_count, actually_bound_tools
 
 
+def _find_matching_lazy_server(
+    all_servers: list[Any], target_server_name: str
+) -> Any | None:
+    """Find the first server in ``all_servers`` whose id matches ``target_server_name``."""
+    for srv in all_servers:
+        srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
+        current = srv_id.lower().replace("-", "_")
+        if (
+            current == target_server_name
+            or current.startswith(f"{target_server_name}_")
+            or target_server_name.startswith(f"{current}_")
+        ):
+            return srv
+    return None
+
+
+async def _lazy_bind_server(
+    stack: Any, srv: Any, agent_info: MCPAgent, actually_bound_tools: list[str]
+) -> int:
+    """Enter + bind one lazily-discovered MCP server; returns its tool-count contribution."""
+    srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
+    logger.info(
+        f"[LAYER:GRAPH:EXPERT] Lazy loading MCP server '{srv_id}' for expert '{agent_info.name}'"
+    )
+    await stack.enter_async_context(srv)
+    _tools = getattr(srv, "tools", {})
+    for t_name in _tools.keys() if hasattr(_tools, "keys") else []:
+        if t_name not in actually_bound_tools:
+            actually_bound_tools.append(t_name)
+    return len(_tools)
+
+
+async def _discover_configured_mcp_servers() -> list[Any]:
+    """Resolve + load every MCP server toolset declared in the active mcp config."""
+    from pydantic_ai.mcp import load_mcp_toolsets
+
+    from agent_utilities.core.workspace import resolve_mcp_config_path
+    from agent_utilities.mcp.protocol_compat import (
+        force_legacy_protocol_mode,
+        install_mcp_v2_bridge,
+    )
+
+    install_mcp_v2_bridge()
+    mcp_path = resolve_mcp_config_path(None)
+    if not (mcp_path and mcp_path.exists()):
+        return []
+    return force_legacy_protocol_mode(load_mcp_toolsets(mcp_path))
+
+
 async def _lazy_load_specialist_toolset(
     ctx: StepContext,
     stack: Any,
@@ -1370,39 +1419,13 @@ async def _lazy_load_specialist_toolset(
     if not target_server_name or matched_toolsets:
         return matched_toolsets, bound_tool_count, actually_bound_tools
     try:
-        from pydantic_ai.mcp import load_mcp_toolsets
-
-        from agent_utilities.core.workspace import resolve_mcp_config_path
-        from agent_utilities.mcp.protocol_compat import (
-            force_legacy_protocol_mode,
-            install_mcp_v2_bridge,
-        )
-
-        install_mcp_v2_bridge()
-
-        mcp_path = resolve_mcp_config_path(None)
-        if mcp_path and mcp_path.exists():
-            all_servers = force_legacy_protocol_mode(load_mcp_toolsets(mcp_path))
-            for srv in all_servers:
-                srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
-                current = srv_id.lower().replace("-", "_")
-                if not (
-                    current == target_server_name
-                    or current.startswith(f"{target_server_name}_")
-                    or target_server_name.startswith(f"{current}_")
-                ):
-                    continue
-                logger.info(
-                    f"[LAYER:GRAPH:EXPERT] Lazy loading MCP server '{srv_id}' for expert '{agent_info.name}'"
-                )
-                await stack.enter_async_context(srv)
-                matched_toolsets.append(srv)
-                _tools = getattr(srv, "tools", {})
-                for t_name in _tools.keys() if hasattr(_tools, "keys") else []:
-                    if t_name not in actually_bound_tools:
-                        actually_bound_tools.append(t_name)
-                bound_tool_count += len(_tools)
-                break
+        all_servers = await _discover_configured_mcp_servers()
+        srv = _find_matching_lazy_server(all_servers, target_server_name)
+        if srv is not None:
+            matched_toolsets.append(srv)
+            bound_tool_count += await _lazy_bind_server(
+                stack, srv, agent_info, actually_bound_tools
+            )
     except Exception as e:
         logger.warning(f"Failed to lazy load MCP server '{target_server_name}': {e}")
     return matched_toolsets, bound_tool_count, actually_bound_tools
@@ -1692,6 +1715,23 @@ async def _summarize_oversized_result(
         )
 
 
+def _collect_dismissed_tool_returns(res: Any) -> list[str]:
+    """Collect raw tool-return content from ``res``'s message history, formatted for injection."""
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+    tool_returns: list[str] = []
+    for msg in res.all_messages():
+        if not isinstance(msg, ModelRequest):
+            continue
+        for ret_part in msg.parts:
+            if not (isinstance(ret_part, ToolReturnPart) and ret_part.content):
+                continue
+            content_str = str(ret_part.content)
+            if content_str and content_str not in ("[]", "None", "null", ""):
+                tool_returns.append(f"**{ret_part.tool_name}**: {content_str}")
+    return tool_returns
+
+
 def _synthesize_from_tool_returns(
     agent_info: MCPAgent, res: Any, result_str: str
 ) -> str:
@@ -1699,16 +1739,7 @@ def _synthesize_from_tool_returns(
     if "no data" not in result_str.lower() and "returned no" not in result_str.lower():
         return result_str
 
-    from pydantic_ai.messages import ModelRequest, ToolReturnPart
-
-    tool_returns: list[str] = []
-    for msg in res.all_messages():
-        if isinstance(msg, ModelRequest):
-            for ret_part in msg.parts:
-                if isinstance(ret_part, ToolReturnPart) and ret_part.content:
-                    content_str = str(ret_part.content)
-                    if content_str and content_str not in ("[]", "None", "null", ""):
-                        tool_returns.append(f"**{ret_part.tool_name}**: {content_str}")
+    tool_returns = _collect_dismissed_tool_returns(res)
     if not tool_returns:
         return result_str
 
