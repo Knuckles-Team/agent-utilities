@@ -5390,6 +5390,105 @@ def _auto_fix(name: str) -> dict[str, Any]:
     return {"fixed": name, "result": "no auto-fix available"}
 
 
+def _selection_is_invalid(only: Any) -> bool:
+    """Reject anything but a non-empty, duplicate-free list of registered names."""
+    return (
+        not isinstance(only, list)
+        or not only
+        or len(only) > len(CHECKS)
+        or any(not isinstance(name, str) or name not in CHECKS for name in only)
+        or len(set(only)) != len(only)
+    )
+
+
+def _unhealthy_report(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """A report that ran no check: every result is an error, so it fails closed."""
+    return {
+        "status": "unhealthy",
+        "counts": {"error": len(results)},
+        "checks": results,
+        "fixes": [],
+        "summary": _summarize("unhealthy", results),
+    }
+
+
+def _load_runtime_config(names: list[str]) -> list[dict[str, Any]] | None:
+    """Load the deployment AgentConfig; on failure, one error result per check.
+
+    Every runtime entry point consumes the same XDG AgentConfig document. A
+    doctor launched directly from its console script must do that too; without
+    this load, checks that instantiate ``AgentConfig`` would silently inspect
+    package defaults instead of the deployment GraphOS actually uses. Returning
+    results (rather than proceeding) keeps the sweep fail-closed: no check may
+    report ok against defaults the deployment does not use.
+    """
+    try:
+        from agent_utilities.core.config import load_config
+
+        load_config()
+    except Exception as exc:  # noqa: BLE001 - source details may be sensitive
+        return [
+            _result(
+                name,
+                "error",
+                f"configuration load failed ({type(exc).__name__})",
+                remediation=(
+                    "Repair the private AgentConfig source, then rerun the doctor; "
+                    "configuration values are intentionally not reported."
+                ),
+                data={"redacted": True},
+            )
+            for name in names
+        ]
+    return None
+
+
+def _run_checks(names: list[str], *, live: bool) -> list[dict[str, Any]]:
+    """Run each selected check; a check that raises becomes an error result."""
+    results: list[dict[str, Any]] = []
+    for name in names:
+        fn = CHECKS.get(name)
+        if fn is None:
+            continue
+        try:
+            res = fn(live=live) if name in _LIVE_CHECK_NAMES else fn()
+        except Exception as exc:  # noqa: BLE001 — a check must never crash the doctor
+            res = _result(name, "error", f"check raised ({type(exc).__name__})")
+        results.append(res)
+    return results
+
+
+def _apply_auto_fixes(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Auto-remediate the ``auto_fixable`` not-ok checks and re-run each in place."""
+    fixes: list[dict[str, Any]] = []
+    for res in results:
+        if res["status"] in ("warn", "fail") and res.get("auto_fixable"):
+            fixes.append(_auto_fix(res["name"]))
+            try:
+                res.update(CHECKS[res["name"]]())  # re-run after fix
+            except Exception:  # noqa: BLE001
+                pass
+    return fixes
+
+
+def _doctor_report(
+    results: list[dict[str, Any]], fixes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Aggregate the per-check results into the overall verdict (worst wins)."""
+    worst = max((_RANK[r["status"]] for r in results), default=0)
+    overall = {0: "healthy", 1: "warnings", 2: "unhealthy"}[worst]
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {
+        "status": overall,
+        "counts": counts,
+        "checks": results,
+        "fixes": fixes,
+        "summary": _summarize(overall, results),
+    }
+
+
 def run_doctor(
     only: list[str] | None = None, *, fix: bool = False, live: bool = False
 ) -> dict[str, Any]:
@@ -5403,91 +5502,26 @@ def run_doctor(
     """
     if only is None:
         names = list(CHECKS)
-    elif (
-        not isinstance(only, list)
-        or not only
-        or len(only) > len(CHECKS)
-        or any(not isinstance(name, str) or name not in CHECKS for name in only)
-        or len(set(only)) != len(only)
-    ):
-        result = _result(
-            "selection",
-            "error",
-            "doctor check selection is invalid",
-            remediation="select one or more registered doctor checks",
-            data={"redacted": True},
+    elif _selection_is_invalid(only):
+        return _unhealthy_report(
+            [
+                _result(
+                    "selection",
+                    "error",
+                    "doctor check selection is invalid",
+                    remediation="select one or more registered doctor checks",
+                    data={"redacted": True},
+                )
+            ]
         )
-        return {
-            "status": "unhealthy",
-            "counts": {"error": 1},
-            "checks": [result],
-            "fixes": [],
-            "summary": _summarize("unhealthy", [result]),
-        }
     else:
         names = only
-    # Every runtime entry point consumes the same XDG AgentConfig document.  A
-    # doctor launched directly from its console script must do that too; without
-    # this load, checks that instantiate ``AgentConfig`` would silently inspect
-    # package defaults instead of the deployment GraphOS actually uses.
-    try:
-        from agent_utilities.core.config import load_config
-
-        load_config()
-    except Exception as exc:  # noqa: BLE001 - source details may be sensitive
-        load_results = [
-            _result(
-                name,
-                "error",
-                f"configuration load failed ({type(exc).__name__})",
-                remediation=(
-                    "Repair the private AgentConfig source, then rerun the doctor; "
-                    "configuration values are intentionally not reported."
-                ),
-                data={"redacted": True},
-            )
-            for name in names
-        ]
-        return {
-            "status": "unhealthy",
-            "counts": {"error": len(load_results)},
-            "checks": load_results,
-            "fixes": [],
-            "summary": _summarize("unhealthy", load_results),
-        }
-    results: list[dict[str, Any]] = []
-    for name in names:
-        fn = CHECKS.get(name)
-        if fn is None:
-            continue
-        try:
-            res = fn(live=live) if name in _LIVE_CHECK_NAMES else fn()
-        except Exception as exc:  # noqa: BLE001 — a check must never crash the doctor
-            res = _result(name, "error", f"check raised ({type(exc).__name__})")
-        results.append(res)
-
-    fixes: list[dict[str, Any]] = []
-    if fix:
-        for res in results:
-            if res["status"] in ("warn", "fail") and res.get("auto_fixable"):
-                fixes.append(_auto_fix(res["name"]))
-                try:
-                    res.update(CHECKS[res["name"]]())  # re-run after fix
-                except Exception:  # noqa: BLE001
-                    pass
-
-    worst = max((_RANK[r["status"]] for r in results), default=0)
-    overall = {0: "healthy", 1: "warnings", 2: "unhealthy"}[worst]
-    counts: dict[str, int] = {}
-    for r in results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
-    return {
-        "status": overall,
-        "counts": counts,
-        "checks": results,
-        "fixes": fixes,
-        "summary": _summarize(overall, results),
-    }
+    load_failures = _load_runtime_config(names)
+    if load_failures is not None:
+        return _unhealthy_report(load_failures)
+    results = _run_checks(names, live=live)
+    fixes = _apply_auto_fixes(results) if fix else []
+    return _doctor_report(results, fixes)
 
 
 def _summarize(overall: str, results: list[dict[str, Any]]) -> str:
@@ -5522,6 +5556,62 @@ def _format_prescription(check: dict[str, Any]) -> str:
         else:
             lines.append(f"  scaling: not supported -- {scaling.get('reason', '')}")
     return "\n".join(lines)
+
+
+def _rerun_check_proof(name: str) -> dict[str, Any] | None:
+    """Re-run one check to prove an applied remediation, live where supported.
+
+    ``None`` only when the name is not a registered check; a re-run that raises
+    becomes an ``error`` result, never silent success.
+    """
+    rerun = CHECKS.get(name)
+    if rerun is None:
+        return None
+    try:
+        return rerun(live=True) if name in _LIVE_CHECK_NAMES else rerun()
+    except Exception as exc:  # noqa: BLE001
+        return _result(name, "error", f"re-run failed ({type(exc).__name__})")
+
+
+def _interactive_outcome(
+    check: dict[str, Any],
+    confirm: Callable[[str], bool],
+    executor: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    output: Callable[[str], None],
+) -> dict[str, Any]:
+    """Show one check's prescription, ask, and only then possibly apply it.
+
+    Nothing is applied unless ``confirm`` returned ``True`` AND an ``executor``
+    was supplied; every other path records a reason and applies nothing.
+    """
+    output(_format_prescription(check))
+    approved = bool(confirm(f"Apply the remediation for {check['name']!r}? [y/N]: "))
+    outcome: dict[str, Any] = {
+        "name": check["name"],
+        "confirmed": approved,
+        "applied": False,
+    }
+    if not approved:
+        outcome["reason"] = "not confirmed"
+        return outcome
+    if executor is None:
+        outcome["reason"] = (
+            "PLAN-ONLY: no executor configured -- hand this prescription to an "
+            "operator or a reviewed `graph_orchestrate action=execute_agent` run"
+        )
+        return outcome
+    try:
+        exec_result = executor(check)
+    except Exception as exc:  # noqa: BLE001 - interactive_apply is a defensive boundary
+        outcome["reason"] = f"executor failed ({type(exc).__name__})"
+        return outcome
+    outcome["applied"] = bool(exec_result.get("applied"))
+    outcome["executor_result"] = exec_result
+    if outcome["applied"]:
+        proof = _rerun_check_proof(check["name"])
+        if proof is not None:
+            outcome["proof"] = proof
+    return outcome
 
 
 def interactive_apply(
@@ -5560,59 +5650,15 @@ def interactive_apply(
     for check in report.get("checks", []):
         if check["status"] not in ("warn", "fail"):
             continue
-        prescription = check.get("prescription")
-        if not prescription:
+        if not check.get("prescription"):
             continue
-        output(_format_prescription(check))
-        approved = bool(
-            confirm(f"Apply the remediation for {check['name']!r}? [y/N]: ")
-        )
-        outcome: dict[str, Any] = {
-            "name": check["name"],
-            "confirmed": approved,
-            "applied": False,
-        }
-        if not approved:
-            outcome["reason"] = "not confirmed"
-            outcomes.append(outcome)
-            continue
-        if executor is None:
-            outcome["reason"] = (
-                "PLAN-ONLY: no executor configured -- hand this prescription to an "
-                "operator or a reviewed `graph_orchestrate action=execute_agent` run"
-            )
-            outcomes.append(outcome)
-            continue
-        try:
-            exec_result = executor(check)
-        except Exception as exc:  # noqa: BLE001 - interactive_apply is a defensive boundary
-            outcome["reason"] = f"executor failed ({type(exc).__name__})"
-            outcomes.append(outcome)
-            continue
-        outcome["applied"] = bool(exec_result.get("applied"))
-        outcome["executor_result"] = exec_result
-        if outcome["applied"]:
-            rerun = CHECKS.get(check["name"])
-            if rerun is not None:
-                try:
-                    proof = (
-                        rerun(live=True)
-                        if check["name"] in _LIVE_CHECK_NAMES
-                        else rerun()
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    proof = _result(
-                        check["name"], "error", f"re-run failed ({type(exc).__name__})"
-                    )
-                outcome["proof"] = proof
-        outcomes.append(outcome)
+        outcomes.append(_interactive_outcome(check, confirm, executor, output))
     return outcomes
 
 
-def main(argv: list[str] | None = None) -> int:
-    """``agent-utilities-doctor`` console entry."""
+def _doctor_arg_parser() -> Any:
+    """The ``agent-utilities-doctor`` console argument parser."""
     import argparse
-    import json
 
     parser = argparse.ArgumentParser(
         prog="agent-utilities-doctor",
@@ -5660,17 +5706,54 @@ def main(argv: list[str] | None = None) -> int:
             "terminal always declines."
         ),
     )
-    args = parser.parse_args(argv)
+    return parser
 
+
+def _run_preflight_cli(args: Any) -> int:
+    """``--preflight``: the host DEPENDENCY sweep instead of the deployment one."""
+    import json
+
+    from .preflight import run_preflight
+
+    report = run_preflight(args.profile, args.components)
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        _print_human(report, title="agent-utilities preflight")
+    return 0 if report["status"] != "blocked" else 1
+
+
+def _run_interactive_cli(report: dict[str, Any]) -> None:
+    """``--interactive``: walk the prescriptions; a non-tty always declines."""
+    import sys
+
+    def _confirm(prompt: str) -> bool:
+        if not sys.stdin.isatty():
+            print(f"{prompt} (non-interactive terminal — declining)")
+            return False
+        return input(prompt).strip().lower() in ("y", "yes")
+
+    outcomes = interactive_apply(report, confirm=_confirm)
+    if not outcomes:
+        return
+    print("\ninteractive apply summary:")
+    for outcome in outcomes:
+        line = (
+            f"  {outcome['name']}: confirmed={outcome['confirmed']} "
+            f"applied={outcome['applied']}"
+        )
+        if outcome.get("reason"):
+            line += f" — {outcome['reason']}"
+        print(line)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``agent-utilities-doctor`` console entry."""
+    import json
+
+    args = _doctor_arg_parser().parse_args(argv)
     if args.preflight:
-        from .preflight import run_preflight
-
-        report = run_preflight(args.profile, args.components)
-        if args.json:
-            print(json.dumps(report, indent=2, default=str))
-        else:
-            _print_human(report, title="agent-utilities preflight")
-        return 0 if report["status"] != "blocked" else 1
+        return _run_preflight_cli(args)
 
     report = run_doctor(args.only, fix=args.fix, live=args.live)
     if args.json:
@@ -5678,25 +5761,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_human(report)
     if args.interactive:
-        import sys
-
-        def _confirm(prompt: str) -> bool:
-            if not sys.stdin.isatty():
-                print(f"{prompt} (non-interactive terminal — declining)")
-                return False
-            return input(prompt).strip().lower() in ("y", "yes")
-
-        outcomes = interactive_apply(report, confirm=_confirm)
-        if outcomes:
-            print("\ninteractive apply summary:")
-            for outcome in outcomes:
-                line = (
-                    f"  {outcome['name']}: confirmed={outcome['confirmed']} "
-                    f"applied={outcome['applied']}"
-                )
-                if outcome.get("reason"):
-                    line += f" — {outcome['reason']}"
-                print(line)
+        _run_interactive_cli(report)
     return 0 if report["status"] != "unhealthy" else 1
 
 
