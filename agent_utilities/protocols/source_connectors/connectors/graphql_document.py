@@ -121,17 +121,19 @@ def _dig(value: Any, path: str, default: Any = None) -> Any:
     return current
 
 
-def _dig_many(value: Any, path: str) -> list[Any]:
-    """Resolve a dotted path while treating lists as bounded fan-out points."""
-    current = [value]
-    for part in (segment for segment in str(path or "").split(".") if segment):
-        resolved: list[Any] = []
-        for item in current:
-            values = item if isinstance(item, list) else [item]
-            for candidate in values:
-                if isinstance(candidate, Mapping) and part in candidate:
-                    resolved.append(candidate[part])
-        current = resolved
+def _dig_resolve_segment(current: list[Any], part: str) -> list[Any]:
+    """Resolve one dotted-path segment across all in-flight items."""
+    resolved: list[Any] = []
+    for item in current:
+        values = item if isinstance(item, list) else [item]
+        for candidate in values:
+            if isinstance(candidate, Mapping) and part in candidate:
+                resolved.append(candidate[part])
+    return resolved
+
+
+def _dig_flatten(current: list[Any]) -> list[Any]:
+    """Flatten one level of list nesting produced by fan-out resolution."""
     flattened: list[Any] = []
     for item in current:
         if isinstance(item, list):
@@ -139,6 +141,14 @@ def _dig_many(value: Any, path: str) -> list[Any]:
         else:
             flattened.append(item)
     return flattened
+
+
+def _dig_many(value: Any, path: str) -> list[Any]:
+    """Resolve a dotted path while treating lists as bounded fan-out points."""
+    current = [value]
+    for part in (segment for segment in str(path or "").split(".") if segment):
+        current = _dig_resolve_segment(current, part)
+    return _dig_flatten(current)
 
 
 def _digest(*parts: Any) -> str:
@@ -232,39 +242,36 @@ def _error_signature(error: Any) -> tuple[str, str] | None:
     return code, path
 
 
+def _error_is_allowlisted(
+    error: Any, *, codes: tuple[str, ...], paths: tuple[str, ...]
+) -> bool:
+    signature = _error_signature(error)
+    if signature is None:
+        return False
+    code, path = signature
+    if code not in codes:
+        return False
+    return any(path == allowed or path.startswith(f"{allowed}.") for allowed in paths)
+
+
 def _errors_are_allowlisted(
     errors: Any, *, codes: tuple[str, ...], paths: tuple[str, ...]
 ) -> bool:
     if not isinstance(errors, list) or not errors or not codes or not paths:
         return False
-    for error in errors:
-        signature = _error_signature(error)
-        if signature is None:
-            return False
-        code, path = signature
-        if code not in codes:
-            return False
-        if not any(
-            path == allowed or path.startswith(f"{allowed}.") for allowed in paths
-        ):
-            return False
-    return True
+    return all(
+        _error_is_allowlisted(error, codes=codes, paths=paths) for error in errors
+    )
 
 
-def _validate_query_document(value: Any, *, allow_introspection: bool = False) -> str:
-    """Accept exactly one bounded query operation without echoing its text.
-
-    The AST is the authority.  Keyword regexes are not sufficient here: operation
-    names, comments, string literals, fragments, and multi-operation documents can
-    all make a lexical classifier disagree with what a GraphQL server executes.
-    """
-    query = str(value or "").strip()
+def _parse_bounded_query(query: str) -> Any:
+    """Enforce the size/emptiness bounds, then parse via the GraphQL AST."""
     if len(query.encode("utf-8")) > 200_000:
         raise GraphQLDocumentError("GraphQL query exceeds the configured bound")
     if not query:
         raise GraphQLDocumentError("GraphQL operation must be a read query")
     try:
-        document = parse(
+        return parse(
             query,
             no_location=True,
             max_tokens=_MAX_GRAPHQL_TOKENS,
@@ -275,6 +282,8 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             "GraphQL operation is not a valid document"
         ) from None
 
+
+def _ensure_single_read_query(document: Any) -> None:
     operations = [
         definition
         for definition in document.definitions
@@ -288,10 +297,17 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     ):
         raise GraphQLDocumentError("GraphQL operation contains unsupported definitions")
 
+
+def _document_selections(document: Any) -> list[SelectionNode]:
     selections: list[SelectionNode] = []
     for definition in document.definitions:
         if isinstance(definition, OperationDefinitionNode | FragmentDefinitionNode):
             selections.extend(definition.selection_set.selections)
+    return selections
+
+
+def _reject_introspection(document: Any, *, allow_introspection: bool) -> None:
+    selections = _document_selections(document)
     while selections:
         selection = selections.pop()
         if (
@@ -306,6 +322,19 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             selection_set = selection.selection_set
             if selection_set is not None:
                 selections.extend(selection_set.selections)
+
+
+def _validate_query_document(value: Any, *, allow_introspection: bool = False) -> str:
+    """Accept exactly one bounded query operation without echoing its text.
+
+    The AST is the authority.  Keyword regexes are not sufficient here: operation
+    names, comments, string literals, fragments, and multi-operation documents can
+    all make a lexical classifier disagree with what a GraphQL server executes.
+    """
+    query = str(value or "").strip()
+    document = _parse_bounded_query(query)
+    _ensure_single_read_query(document)
+    _reject_introspection(document, allow_introspection=allow_introspection)
     return query
 
 
