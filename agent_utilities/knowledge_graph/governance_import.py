@@ -147,6 +147,15 @@ class GovernanceImporter:
     # ------------------------------------------------------------------
     # normalization → (tasks, flows) in the ProcessPlanCompiler shape
     # ------------------------------------------------------------------
+    def _flow_node_props(self, nid: str, is_executable: Any) -> dict[str, Any]:
+        """A visited node's props, marked ``is_gateway`` when it is not
+        executable (so ``ProcessPlanCompiler._collapse_gateways`` collapses it
+        away); executable nodes keep their real props."""
+        props = self._node_props(nid)
+        if not is_executable(props):
+            return {**props, "is_gateway": True}
+        return props
+
     def _walk_sequence(
         self,
         roots: list[str],
@@ -169,15 +178,13 @@ class GovernanceImporter:
             if nid in seen:
                 continue
             seen.add(nid)
-            props = self._node_props(nid)
-            if not is_executable(props):
-                props = {**props, "is_gateway": True}
-            tasks[nid] = props
+            tasks[nid] = self._flow_node_props(nid, is_executable)
             for rel, tgt in self._out(nid):
-                if rel in flow_rels:
-                    flows.append((nid, tgt, None))
-                    if tgt not in seen:
-                        frontier.append(tgt)
+                if rel not in flow_rels:
+                    continue
+                flows.append((nid, tgt, None))
+                if tgt not in seen:
+                    frontier.append(tgt)
         flows = [(s, t, c) for s, t, c in flows if s in tasks and t in tasks]
         return tasks, flows
 
@@ -296,6 +303,24 @@ class GovernanceImporter:
     # ------------------------------------------------------------------
     # shared build → store
     # ------------------------------------------------------------------
+    @staticmethod
+    def _step_from_task(
+        tid: str,
+        tasks: dict[str, dict[str, Any]],
+        deps: dict[str, Any],
+    ) -> dict[str, Any]:
+        props = tasks[tid]
+        label = str(props.get("name") or props.get("label") or tid)
+        return {
+            "id": _slug(label) or _slug(tid),
+            "label": label,
+            "kind": "gate" if looks_like_gate(props) else "task",
+            "depends_on": sorted(
+                _slug(str(tasks[d].get("name") or d)) for d in deps[tid]
+            ),
+            "capability": None,
+        }
+
     def _compile_and_store(
         self,
         tasks: dict[str, dict[str, Any]],
@@ -322,21 +347,7 @@ class GovernanceImporter:
                 "source": source_id,
             }
 
-        steps: list[dict[str, Any]] = []
-        for tid in order:
-            props = tasks[tid]
-            label = str(props.get("name") or props.get("label") or tid)
-            steps.append(
-                {
-                    "id": _slug(label) or _slug(tid),
-                    "label": label,
-                    "kind": "gate" if looks_like_gate(props) else "task",
-                    "depends_on": sorted(
-                        _slug(str(tasks[d].get("name") or d)) for d in deps[tid]
-                    ),
-                    "capability": None,
-                }
-            )
+        steps = [self._step_from_task(tid, tasks, deps) for tid in order]
         return self._store_steps(
             steps, source_id, str(source_name or source_id), domain, translator
         )
@@ -419,62 +430,83 @@ class GovernanceImporter:
 # --------------------------------------------------------------------------- #
 # exporter: :WorkflowDefinition → BPMN / JSON / SKILL.md (the missing round-trip)
 # --------------------------------------------------------------------------- #
-def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | None:
-    """Load a stored workflow's ``(wf_id, ordered steps)`` by name (tolerant)."""
-    graph = getattr(engine, "graph", None)
-    wf_id = None
-    if graph is not None:
-        try:
-            for nid, data in graph.nodes(data=True):
-                if (
-                    str(data.get("node_type") or "") == "WorkflowDefinition"
-                    and data.get("name") == name
-                ):
-                    wf_id = nid
-                    break
-        except Exception:  # noqa: BLE001
-            wf_id = None
-    if wf_id is None:
-        backend = getattr(engine, "backend", None)
-        if backend is not None:
-            try:
-                rows = backend.execute(
-                    "MATCH (w:WorkflowDefinition) WHERE w.name = $n RETURN w.id AS id LIMIT 1",
-                    {"n": name},
-                )
-                if rows:
-                    wf_id = rows[0].get("id")
-            except Exception:  # noqa: BLE001
-                wf_id = None
-    if wf_id is None:
+def _find_wf_id_in_graph(graph: Any, name: str) -> Any:
+    try:
+        for nid, data in graph.nodes(data=True):
+            if (
+                str(data.get("node_type") or "") == "WorkflowDefinition"
+                and data.get("name") == name
+            ):
+                return nid
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _find_wf_id_in_backend(backend: Any, name: str) -> Any:
+    try:
+        rows = backend.execute(
+            "MATCH (w:WorkflowDefinition) WHERE w.name = $n RETURN w.id AS id LIMIT 1",
+            {"n": name},
+        )
+        return rows[0].get("id") if rows else None
+    except Exception:  # noqa: BLE001
         return None
 
+
+def _resolve_wf_id(engine: Any, name: str) -> Any:
+    graph = getattr(engine, "graph", None)
+    wf_id = _find_wf_id_in_graph(graph, name) if graph is not None else None
+    if wf_id is not None:
+        return wf_id
+    backend = getattr(engine, "backend", None)
+    return _find_wf_id_in_backend(backend, name) if backend is not None else None
+
+
+def _wf_steps_from_graph(graph: Any, wf_id: Any) -> list[tuple[int, dict[str, Any]]]:
     steps: list[tuple[int, dict[str, Any]]] = []
-    if graph is not None:
-        try:
-            for _s, tgt, edata in graph.out_edges(wf_id, data=True):
-                if str((edata or {}).get("relationship") or "") == "HAS_STEP":
-                    d = dict(graph.nodes[tgt])
-                    steps.append((int(d.get("step_order", 0)), d))
-        except Exception:  # noqa: BLE001
-            steps = []
+    try:
+        for _s, tgt, edata in graph.out_edges(wf_id, data=True):
+            if str((edata or {}).get("relationship") or "") == "HAS_STEP":
+                d = dict(graph.nodes[tgt])
+                steps.append((int(d.get("step_order", 0)), d))
+    except Exception:  # noqa: BLE001
+        return []
+    return steps
+
+
+def _wf_steps_from_backend(
+    backend: Any, wf_id: Any
+) -> list[tuple[int, dict[str, Any]]]:
+    try:
+        rows = backend.execute(
+            "MATCH (w:WorkflowDefinition {id: $wid})-[:HAS_STEP]->(s:WorkflowStep) "
+            "RETURN s.node_id AS node_id, s.refined_subtask AS label, "
+            "s.step_order AS step_order, s.kind AS kind, "
+            "s.depends_on_json AS depends_on ORDER BY s.step_order",
+            {"wid": wf_id},
+        )
+        return [(int(r.get("step_order", 0)), dict(r)) for r in rows or []]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _resolve_wf_steps(engine: Any, wf_id: Any) -> list[dict[str, Any]]:
+    graph = getattr(engine, "graph", None)
+    steps = _wf_steps_from_graph(graph, wf_id) if graph is not None else []
     if not steps:
         backend = getattr(engine, "backend", None)
-        if backend is not None:
-            try:
-                rows = backend.execute(
-                    "MATCH (w:WorkflowDefinition {id: $wid})-[:HAS_STEP]->(s:WorkflowStep) "
-                    "RETURN s.node_id AS node_id, s.refined_subtask AS label, "
-                    "s.step_order AS step_order, s.kind AS kind, "
-                    "s.depends_on_json AS depends_on ORDER BY s.step_order",
-                    {"wid": wf_id},
-                )
-                for r in rows or []:
-                    steps.append((int(r.get("step_order", 0)), dict(r)))
-            except Exception:  # noqa: BLE001
-                steps = []
+        steps = _wf_steps_from_backend(backend, wf_id) if backend is not None else []
     steps.sort(key=lambda x: x[0])
-    return str(wf_id), [d for _o, d in steps]
+    return [d for _o, d in steps]
+
+
+def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | None:
+    """Load a stored workflow's ``(wf_id, ordered steps)`` by name (tolerant)."""
+    wf_id = _resolve_wf_id(engine, name)
+    if wf_id is None:
+        return None
+    return str(wf_id), _resolve_wf_steps(engine, wf_id)
 
 
 def _xml_escape(text: str) -> str:
@@ -536,6 +568,49 @@ def _step_id(step: dict[str, Any], idx: int) -> str:
     return _slug(str(step.get("node_id") or step.get("label") or f"step{idx}"))
 
 
+def _bpmn_task_line_and_deps(
+    s: dict[str, Any], i: int, ids: dict[str, int]
+) -> tuple[str, list[tuple[str, str, str | None]]]:
+    """One step's ``bpmn2:*Task`` line, plus the sequence-flow edges its
+    (in-scope) ``depends_on`` implies — from ``start`` when it has none."""
+    sid = _step_id(s, i)
+    kind = str(s.get("kind") or "task").lower()
+    tag = "userTask" if kind in ("gate", "approval") else "serviceTask"
+    label = _xml_escape(str(s.get("label") or s.get("refined_subtask") or sid))
+    line = f'    <bpmn2:{tag} id="{sid}" name="{label}"/>'
+    deps = [d for d in (_slug(x) for x in _decode_deps(s)) if d in ids]
+    flows: list[tuple[str, str, str | None]] = (
+        [(d, sid, None) for d in deps] if deps else [("start", sid, None)]
+    )
+    return line, flows
+
+
+def _bpmn_task_lines_and_flows(
+    steps: list[dict[str, Any]], ids: dict[str, int]
+) -> tuple[list[str], list[tuple[str, str, str | None]]]:
+    """One ``bpmn2:*Task`` line per step, plus every sequence-flow edge those
+    steps' ``depends_on`` imply."""
+    lines: list[str] = []
+    flows: list[tuple[str, str, str | None]] = []
+    for i, s in enumerate(steps):
+        line, step_flows = _bpmn_task_line_and_deps(s, i, ids)
+        lines.append(line)
+        flows.extend(step_flows)
+    return lines, flows
+
+
+def _bpmn_end_flows(
+    steps: list[dict[str, Any]], flows: list[tuple[str, str, str | None]]
+) -> list[tuple[str, str, str | None]]:
+    """Flow every step that nothing depends on (no successor) to ``end``."""
+    has_succ = {src for src, _t, _c in flows}
+    return [
+        (_step_id(s, i), "end", None)
+        for i, s in enumerate(steps)
+        if _step_id(s, i) not in has_succ
+    ]
+
+
 def _to_bpmn(name: str, steps: list[dict[str, Any]]) -> str:
     """Render an ordered step list as minimal BPMN 2.0 XML (userTask for gates)."""
     proc_id = _slug(name)
@@ -548,26 +623,10 @@ def _to_bpmn(name: str, steps: list[dict[str, Any]]) -> str:
         f'  <bpmn2:process id="{proc_id}" name="{_xml_escape(name)}" isExecutable="true">',
         '    <bpmn2:startEvent id="start"/>',
     ]
-    flows: list[tuple[str, str, str | None]] = []
-    for i, s in enumerate(steps):
-        sid = _step_id(s, i)
-        kind = str(s.get("kind") or "task").lower()
-        tag = "userTask" if kind in ("gate", "approval") else "serviceTask"
-        label = _xml_escape(str(s.get("label") or s.get("refined_subtask") or sid))
-        lines.append(f'    <bpmn2:{tag} id="{sid}" name="{label}"/>')
-        deps = [d for d in (_slug(x) for x in _decode_deps(s)) if d in ids]
-        if not deps:
-            flows.append(("start", sid, None))
-        else:
-            for d in deps:
-                flows.append((d, sid, None))
-    # steps that nothing depends on → flow to end
-    has_succ = {src for src, _t, _c in flows}
+    task_lines, flows = _bpmn_task_lines_and_flows(steps, ids)
+    lines.extend(task_lines)
     lines.append('    <bpmn2:endEvent id="end"/>')
-    for i, s in enumerate(steps):
-        sid = _step_id(s, i)
-        if sid not in has_succ:
-            flows.append((sid, "end", None))
+    flows.extend(_bpmn_end_flows(steps, flows))
     for j, (src, tgt, _c) in enumerate(flows):
         lines.append(
             f'    <bpmn2:sequenceFlow id="f{j}" sourceRef="{src}" targetRef="{tgt}"/>'
