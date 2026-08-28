@@ -259,23 +259,26 @@ def _check_evolution_staging() -> dict[str, Any]:
     )
 
 
-def _check_execution_security() -> dict[str, Any]:
-    """Surface dangerous host-execution escape hatches without executing them."""
+def _is_loopback_listener(listener: str, aliases: set[str]) -> bool:
+    """Whether a bind address is loopback, treating ``aliases`` as loopback names."""
     try:
-        from agent_utilities.core.config import AgentConfig
+        return ipaddress.ip_address(listener).is_loopback
+    except ValueError:
+        return listener in aliases
 
-        cfg = AgentConfig()
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "execution_security",
-            "error",
-            f"execution security configuration unavailable ({type(exc).__name__})",
-        )
+
+def _execution_security_hazards(cfg: Any) -> list[str]:
+    """The enabled host-execution escape hatches, in report order."""
     hazards: list[str] = []
     if cfg.kg_loop_allow_host_validation:
         hazards.append("develop_loop_host_validation")
     if cfg.messaging_alert_intake_allow_remote:
         hazards.append("remote_alert_intake")
+    return hazards
+
+
+def _execution_security_cors(cfg: Any, hazards: list[str]) -> dict[str, Any] | None:
+    """Credentialed CORS must have an explicit, wildcard-free origin allowlist."""
     if cfg.cors_allow_credentials and (
         not cfg.allowed_origins
         or "*" in {value.strip() for value in cfg.allowed_origins.split(",")}
@@ -290,6 +293,13 @@ def _check_execution_security() -> dict[str, Any]:
             ),
             data={"unsafe_execution_hazards": hazards},
         )
+    return None
+
+
+def _execution_security_host_allowlist(
+    cfg: Any, hazards: list[str]
+) -> dict[str, Any] | None:
+    """A configured Host-header allowlist may never contain a wildcard."""
     if cfg.allowed_hosts and "*" in {
         value.strip() for value in cfg.allowed_hosts.split(",")
     }:
@@ -300,57 +310,90 @@ def _check_execution_security() -> dict[str, Any]:
             remediation=("Replace ALLOWED_HOSTS=* with exact authority names."),
             data={"unsafe_execution_hazards": hazards},
         )
+    return None
+
+
+def _execution_security_listener(cfg: Any, hazards: list[str]) -> dict[str, Any] | None:
+    """A non-loopback REST listener needs authentication AND a Host allowlist."""
     listener = cfg.host.strip().strip("[]").lower()
+    if _is_loopback_listener(listener, {"localhost"}):
+        return None
+    if not bool(cfg.auth_jwt_jwks_uri):
+        return _result(
+            "execution_security",
+            "fail",
+            "a non-loopback REST listener has no authentication boundary",
+            remediation=("Configure JWT authentication or bind HOST to loopback."),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    if not cfg.allowed_hosts:
+        return _result(
+            "execution_security",
+            "fail",
+            "a non-loopback REST listener has no Host-header allowlist",
+            remediation="Set ALLOWED_HOSTS to the exact served authority names.",
+            data={"unsafe_execution_hazards": hazards},
+        )
+    return None
+
+
+def _execution_security_alert_intake(
+    cfg: Any, hazards: list[str]
+) -> dict[str, Any] | None:
+    """An enabled alert intake needs a token ref, and loopback unless approved."""
+    if cfg.messaging_alert_intake_port is None:
+        return None
+    if not cfg.messaging_alert_intake_token_ref:
+        return _result(
+            "execution_security",
+            "fail",
+            "messaging alert intake is enabled without a token reference",
+            remediation=(
+                "Set MESSAGING_ALERT_INTAKE_TOKEN_REF to a runtime secret-provider "
+                "reference or disable MESSAGING_ALERT_INTAKE_PORT."
+            ),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    alert_listener = cfg.messaging_alert_intake_host.strip().strip("[]").lower()
+    alert_loopback = _is_loopback_listener(alert_listener, {"localhost", "localhost."})
+    if not alert_loopback and not cfg.messaging_alert_intake_allow_remote:
+        return _result(
+            "execution_security",
+            "fail",
+            "messaging alert intake requests a non-loopback bind without approval",
+            remediation=(
+                "Bind MESSAGING_ALERT_INTAKE_HOST to loopback or explicitly set "
+                "MESSAGING_ALERT_INTAKE_ALLOW_REMOTE=true behind a protected ingress."
+            ),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    return None
+
+
+def _check_execution_security() -> dict[str, Any]:
+    """Surface dangerous host-execution escape hatches without executing them."""
     try:
-        loopback_listener = ipaddress.ip_address(listener).is_loopback
-    except ValueError:
-        loopback_listener = listener == "localhost"
-    if not loopback_listener:
-        authenticated = bool(cfg.auth_jwt_jwks_uri)
-        if not authenticated:
-            return _result(
-                "execution_security",
-                "fail",
-                "a non-loopback REST listener has no authentication boundary",
-                remediation=("Configure JWT authentication or bind HOST to loopback."),
-                data={"unsafe_execution_hazards": hazards},
-            )
-        if not cfg.allowed_hosts:
-            return _result(
-                "execution_security",
-                "fail",
-                "a non-loopback REST listener has no Host-header allowlist",
-                remediation="Set ALLOWED_HOSTS to the exact served authority names.",
-                data={"unsafe_execution_hazards": hazards},
-            )
-    if cfg.messaging_alert_intake_port is not None:
-        if not cfg.messaging_alert_intake_token_ref:
-            return _result(
-                "execution_security",
-                "fail",
-                "messaging alert intake is enabled without a token reference",
-                remediation=(
-                    "Set MESSAGING_ALERT_INTAKE_TOKEN_REF to a runtime secret-provider "
-                    "reference or disable MESSAGING_ALERT_INTAKE_PORT."
-                ),
-                data={"unsafe_execution_hazards": hazards},
-            )
-        alert_listener = cfg.messaging_alert_intake_host.strip().strip("[]").lower()
-        try:
-            alert_loopback = ipaddress.ip_address(alert_listener).is_loopback
-        except ValueError:
-            alert_loopback = alert_listener in {"localhost", "localhost."}
-        if not alert_loopback and not cfg.messaging_alert_intake_allow_remote:
-            return _result(
-                "execution_security",
-                "fail",
-                "messaging alert intake requests a non-loopback bind without approval",
-                remediation=(
-                    "Bind MESSAGING_ALERT_INTAKE_HOST to loopback or explicitly set "
-                    "MESSAGING_ALERT_INTAKE_ALLOW_REMOTE=true behind a protected ingress."
-                ),
-                data={"unsafe_execution_hazards": hazards},
-            )
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "execution_security",
+            "error",
+            f"execution security configuration unavailable ({type(exc).__name__})",
+        )
+    hazards = _execution_security_hazards(cfg)
+    # Evaluated in this exact order: a doubly-misconfigured deployment must
+    # keep reporting the same first failure it always did.
+    for guard in (
+        _execution_security_cors,
+        _execution_security_host_allowlist,
+        _execution_security_listener,
+        _execution_security_alert_intake,
+    ):
+        failure = guard(cfg, hazards)
+        if failure is not None:
+            return failure
     if hazards:
         return _result(
             "execution_security",
@@ -2817,6 +2860,31 @@ def _check_mcp_fleet(live: bool = False) -> dict[str, Any]:
     )
 
 
+def _fleet_alias_kind(alias: str, reference: Any) -> str:
+    """Classify one fleet alias as ``direct``, ``mapped``, or ``unresolved``.
+
+    Any failure -- a missing projection, an unavailable reference, or control
+    characters in either -- is ``unresolved``: the alias never counts as ready.
+    """
+    from agent_utilities.core.config import setting
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    try:
+        direct = setting(alias)
+        if direct not in (None, ""):
+            if any(character in str(direct) for character in "\x00\r\n"):
+                raise ValueError("invalid direct runtime material")
+            return "direct"
+        resolved = resolve_runtime_secret_reference(reference)
+        if resolved in (None, "") or any(
+            character in str(resolved) for character in "\x00\r\n"
+        ):
+            raise ValueError("unavailable runtime reference")
+        return "mapped"
+    except Exception:  # noqa: BLE001 - aliases and references stay redacted
+        return "unresolved"
+
+
 def _check_mcp_fleet_secrets() -> dict[str, Any]:
     """Validate neutral fleet alias resolution without disclosing alias metadata."""
 
@@ -2828,31 +2896,14 @@ def _check_mcp_fleet_secrets() -> dict[str, Any]:
         "redacted": True,
     }
     try:
-        from agent_utilities.core.config import AgentConfig, setting
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
+        from agent_utilities.core.config import AgentConfig
 
         mappings = AgentConfig().mcp_fleet_secret_refs
         if not isinstance(mappings, dict) or len(mappings) > 512:
             raise ValueError("invalid fleet secret alias mapping")
         data["configured_alias_count"] = len(mappings)
         for alias, reference in mappings.items():
-            try:
-                direct = setting(alias)
-                if direct not in (None, ""):
-                    if any(character in str(direct) for character in "\x00\r\n"):
-                        raise ValueError("invalid direct runtime material")
-                    data["direct_alias_count"] += 1
-                    continue
-                resolved = resolve_runtime_secret_reference(reference)
-                if resolved in (None, "") or any(
-                    character in str(resolved) for character in "\x00\r\n"
-                ):
-                    raise ValueError("unavailable runtime reference")
-                data["mapped_alias_count"] += 1
-            except Exception:  # noqa: BLE001 - aliases and references stay redacted
-                data["unresolved_alias_count"] += 1
+            data[f"{_fleet_alias_kind(alias, reference)}_alias_count"] += 1
     except Exception as exc:  # noqa: BLE001 - doctor remains a redacted boundary
         return _result(
             "mcp_fleet_secrets",
@@ -3330,27 +3381,22 @@ def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
     return bool(_run_async_doctor_probe(probe))
 
 
-def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
-    """Prove API, optional MCP, and optional metadata-only trace round trip."""
-    import time
-    import uuid
-    from datetime import UTC, datetime
+def _langfuse_api_handshake(cfg: Any) -> tuple[Any, tuple[str, str], str]:
+    """``(api, credentials, error_code)``; ``error_code`` is "" only on a proven read.
 
-    result: dict[str, Any] = {
-        "live_probed": True,
-        "api_reachable": False,
-        "mcp_visible": None,
-        "trace_round_trip": None,
-        "redacted": True,
-    }
+    The two failure codes stay distinct -- an unreachable API is
+    ``api_handshake_failed`` and a reachable API answering with a non-mapping is
+    ``api_response_invalid`` -- so the reported code does not depend on which
+    fault the caller happens to observe first.
+    """
+    from langfuse_agent.api_client import LangfuseApi
+
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_credentials,
+        resolve_langfuse_requests_transport,
+    )
+
     try:
-        from langfuse_agent.api_client import LangfuseApi
-
-        from agent_utilities.observability.langfuse_trust import (
-            resolve_langfuse_credentials,
-            resolve_langfuse_requests_transport,
-        )
-
         public_key, secret_key = resolve_langfuse_credentials(agent_config=cfg)
         transport_kwargs = resolve_langfuse_requests_transport(agent_config=cfg)
         api = LangfuseApi(
@@ -3361,13 +3407,96 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
             transport_kwargs=transport_kwargs,
         )
         handshake = api.trace_list(page=1, limit=1, fields="core")
-        if not isinstance(handshake, dict):
-            result["error_code"] = "api_response_invalid"
-            return result
-        result["api_reachable"] = True
     except Exception:  # noqa: BLE001 - expose only a stable diagnostic code
-        result["error_code"] = "api_handshake_failed"
+        return None, ("", ""), "api_handshake_failed"
+    if not isinstance(handshake, dict):
+        return None, ("", ""), "api_response_invalid"
+    return api, (public_key, secret_key), ""
+
+
+def _langfuse_expected_trace_name(source_run_id: str) -> str:
+    """The tenant-qualified opaque trace name the exporter will persist."""
+    from agent_utilities.usage.privacy import normalize_run_id
+
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        tenant_id = current_actor().tenant_id
+    except Exception:  # noqa: BLE001 - empty tenant namespace is opaque too
+        tenant_id = ""
+    return f"graph_run:{normalize_run_id(source_run_id, tenant_id=tenant_id)}"
+
+
+def _langfuse_await_trace(api: Any, expected_name: str, started_at: str) -> bool:
+    """Poll for the exported trace by name; ``False`` if it never lands."""
+    import time
+
+    for _ in range(10):
+        traces = api.trace_list(
+            page=1,
+            limit=10,
+            name=expected_name,
+            from_timestamp=started_at,
+            order_by="timestamp.desc",
+            fields="core,basic",
+        )
+        if any(row.get("name") == expected_name for row in _langfuse_rows(traces)):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def _probe_langfuse_trace_round_trip(
+    cfg: Any, api: Any, credentials: tuple[str, str]
+) -> tuple[bool, str]:
+    """``(round_trip_ok, error_code)``; ``error_code`` is "" only on success.
+
+    The source token is random and never leaves this function. The exporter
+    turns it into a tenant-qualified opaque identifier before persistence;
+    input and caller metadata are intentionally empty.
+    """
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_utilities.observability.langfuse_exporter import LangfuseExporter
+
+    public_key, secret_key = credentials
+    source_run_id = uuid.uuid4().hex
+    expected_name = _langfuse_expected_trace_name(source_run_id)
+    started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    exporter = LangfuseExporter(
+        public_key=public_key,
+        secret_key=secret_key,
+        host=cfg.langfuse_host,
+    )
+    emitted = exporter.export_graph_run(
+        run_id=source_run_id,
+        query="",
+        status="success",
+        metadata={},
+    )
+    exporter.flush()
+    if not emitted:
+        return False, "trace_export_failed"
+    if _langfuse_await_trace(api, expected_name, started_at):
+        return True, ""
+    return False, "trace_round_trip_failed"
+
+
+def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
+    """Prove API, optional MCP, and optional metadata-only trace round trip."""
+    result: dict[str, Any] = {
+        "live_probed": True,
+        "api_reachable": False,
+        "mcp_visible": None,
+        "trace_round_trip": None,
+        "redacted": True,
+    }
+    api, credentials, handshake_error = _langfuse_api_handshake(cfg)
+    if handshake_error:
+        result["error_code"] = handshake_error
         return result
+    result["api_reachable"] = True
 
     if cfg.langfuse_mcp_enabled:
         try:
@@ -3381,57 +3510,15 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
     if not cfg.trace_export_enabled:
         return result
 
-    # The source token is random and never leaves this function. The exporter
-    # turns it into a tenant-qualified opaque identifier before persistence;
-    # input and caller metadata are intentionally empty.
-    source_run_id = uuid.uuid4().hex
     try:
-        from agent_utilities.observability.langfuse_exporter import LangfuseExporter
-        from agent_utilities.usage.privacy import normalize_run_id
-
-        try:
-            from agent_utilities.security.brain_context import current_actor
-
-            tenant_id = current_actor().tenant_id
-        except Exception:  # noqa: BLE001 - empty tenant namespace is opaque too
-            tenant_id = ""
-        expected_name = (
-            f"graph_run:{normalize_run_id(source_run_id, tenant_id=tenant_id)}"
+        round_trip, trace_error = _probe_langfuse_trace_round_trip(
+            cfg, api, credentials
         )
-        started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-        exporter = LangfuseExporter(
-            public_key=public_key,
-            secret_key=secret_key,
-            host=cfg.langfuse_host,
-        )
-        emitted = exporter.export_graph_run(
-            run_id=source_run_id,
-            query="",
-            status="success",
-            metadata={},
-        )
-        exporter.flush()
-        if not emitted:
-            result["error_code"] = "trace_export_failed"
-            result["trace_round_trip"] = False
-            return result
-        for _ in range(10):
-            traces = api.trace_list(
-                page=1,
-                limit=10,
-                name=expected_name,
-                from_timestamp=started_at,
-                order_by="timestamp.desc",
-                fields="core,basic",
-            )
-            if any(row.get("name") == expected_name for row in _langfuse_rows(traces)):
-                result["trace_round_trip"] = True
-                return result
-            time.sleep(1.0)
     except Exception:  # noqa: BLE001 - never expose response, endpoint, or identity
-        pass
-    result["trace_round_trip"] = False
-    result["error_code"] = "trace_round_trip_failed"
+        round_trip, trace_error = False, "trace_round_trip_failed"
+    result["trace_round_trip"] = round_trip
+    if trace_error:
+        result["error_code"] = trace_error
     return result
 
 
@@ -4560,6 +4647,66 @@ def _check_warm_fork() -> dict[str, Any]:
     )
 
 
+def _a2a_missing_contract_methods(
+    broker_client: Any, node_client: Any, txn_client: Any
+) -> list[str]:
+    """Which required broker/nodes/txn client methods the installed engine lacks."""
+    required = (
+        (
+            "broker",
+            broker_client,
+            {
+                "declare_exchange",
+                "declare_queue",
+                "bind_queue",
+                "publish_idempotent",
+                "consume",
+                "renew_tag",
+                "ack_tag",
+                "nack_tag",
+            },
+        ),
+        (
+            "nodes",
+            node_client,
+            {"create_if_absent", "properties", "compare_and_set", "list_by_label"},
+        ),
+        ("txn", txn_client, {"begin", "cas", "commit", "rollback"}),
+    )
+    missing: list[str] = []
+    for label, client, names in required:
+        missing.extend(
+            sorted(
+                f"{label}.{name}"
+                for name in names
+                if not callable(getattr(client, name, None))
+            )
+        )
+    return missing
+
+
+def _a2a_bounded_configuration(cfg: Any) -> bool:
+    """Every A2A broker/storage limit must be a positive bound."""
+    return all(
+        value > 0
+        for value in (
+            cfg.a2a_broker_poll_interval_ms,
+            cfg.a2a_broker_lease_ms,
+            cfg.a2a_broker_prefetch,
+            cfg.a2a_broker_message_ttl_ms,
+            cfg.a2a_broker_max_delivery_count,
+            cfg.a2a_max_payload_bytes,
+            cfg.a2a_max_history,
+            cfg.a2a_max_artifacts,
+            cfg.a2a_max_context_messages,
+            cfg.a2a_storage_update_retries,
+            cfg.a2a_dispatch_reconcile_interval_ms,
+            cfg.a2a_dispatch_reconcile_limit,
+            cfg.a2a_cancellation_poll_interval_ms,
+        )
+    )
+
+
 def _check_a2a_persistence() -> dict[str, Any]:
     """Validate the sole current FastA2A durability contract without network I/O."""
 
@@ -4585,63 +4732,11 @@ def _check_a2a_persistence() -> dict[str, Any]:
             data={"ready": False, "redacted": True},
         )
 
-    required_broker_methods = {
-        "declare_exchange",
-        "declare_queue",
-        "bind_queue",
-        "publish_idempotent",
-        "consume",
-        "renew_tag",
-        "ack_tag",
-        "nack_tag",
-    }
-    required_node_methods = {
-        "create_if_absent",
-        "properties",
-        "compare_and_set",
-        "list_by_label",
-    }
-    required_txn_methods = {"begin", "cas", "commit", "rollback"}
-    missing = sorted(
-        f"broker.{name}"
-        for name in required_broker_methods
-        if not callable(getattr(BrokerClient, name, None))
-    )
-    missing.extend(
-        sorted(
-            f"nodes.{name}"
-            for name in required_node_methods
-            if not callable(getattr(NodeClient, name, None))
-        )
-    )
-    missing.extend(
-        sorted(
-            f"txn.{name}"
-            for name in required_txn_methods
-            if not callable(getattr(TxnClient, name, None))
-        )
-    )
+    missing = _a2a_missing_contract_methods(BrokerClient, NodeClient, TxnClient)
     selected = (
         cfg.a2a_broker == "epistemic_graph" and cfg.a2a_storage == "epistemic_graph"
     )
-    bounded = all(
-        value > 0
-        for value in (
-            cfg.a2a_broker_poll_interval_ms,
-            cfg.a2a_broker_lease_ms,
-            cfg.a2a_broker_prefetch,
-            cfg.a2a_broker_message_ttl_ms,
-            cfg.a2a_broker_max_delivery_count,
-            cfg.a2a_max_payload_bytes,
-            cfg.a2a_max_history,
-            cfg.a2a_max_artifacts,
-            cfg.a2a_max_context_messages,
-            cfg.a2a_storage_update_retries,
-            cfg.a2a_dispatch_reconcile_interval_ms,
-            cfg.a2a_dispatch_reconcile_limit,
-            cfg.a2a_cancellation_poll_interval_ms,
-        )
-    )
+    bounded = _a2a_bounded_configuration(cfg)
     adapters = all(
         value is not None
         for value in (EpistemicGraphA2ABroker, EpistemicGraphA2AStorage)
