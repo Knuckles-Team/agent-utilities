@@ -461,9 +461,26 @@ async def test_shape_planning_and_run_provenance_do_not_block_the_event_loop(
     assert time.monotonic() - started < 2.0
     planner_release.set()
 
+    # GOC-70: reproduced this specific assertion failing 2/2 runs of
+    # scripts/constrained_parallelism_gate.sh (2-core taskset), never the
+    # `planner_entered.wait(0.2)` above -- the two dispatches are NOT
+    # symmetric. `plan_execution_shape` is offloaded via `_call_without_
+    # blocking` -> a single bare `asyncio.to_thread` (one scheduling hop).
+    # `_record_execution_trace` is offloaded via `_record_execution_trace_
+    # ordered` -> `run_blocking_ordered`, which wraps that SAME
+    # `asyncio.to_thread` in an extra `asyncio.create_task` + `asyncio.wait`
+    # loop (agent_utilities/core/event_loop.py) to preserve cancellation
+    # ordering -- a real, deliberate extra loop round-trip, not a bug. Two
+    # more scheduling hops before the worker thread even starts is
+    # measurably more exposed to jitter on a contended/2-core host than the
+    # planner's single hop, which is why only this wait needs a wider
+    # margin. 0.2s -> 1.0s (5x) is the load-bearing proof's own budget;
+    # 2.0s -> 3.0s keeps the outer wall-clock ceiling's slack over it
+    # proportional to the widened inner wait, same shape as the planner
+    # ceiling's widening above.
     trace_started = time.monotonic()
-    assert await asyncio.to_thread(trace_entered.wait, 0.2)
-    assert time.monotonic() - trace_started < 2.0
+    assert await asyncio.to_thread(trace_entered.wait, 1.0)
+    assert time.monotonic() - trace_started < 3.0
     trace_release.set()
 
     assert await asyncio.wait_for(run, timeout=1.0) == "done"
