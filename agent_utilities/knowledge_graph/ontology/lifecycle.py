@@ -101,38 +101,45 @@ class OntologyError(ValueError):
     """A candidate ontology failed to parse or validate."""
 
 
+def _sniff_source_type(source: str) -> str:
+    s = source.strip()
+    if s.startswith(("http://", "https://")) and "\n" not in s:
+        return "url"
+    if "\n" not in s and len(s) < 4096 and Path(s).expanduser().exists():
+        return "file"
+    return "text"
+
+
+def _parse_graph_by_type(source: str, st: str) -> Any:
+    import rdflib
+
+    if st == "file":
+        # File path: use the import-resolving loader so owl:imports are merged.
+        from ..core.ontology_loader import OntologyLoader
+
+        return OntologyLoader().load_with_imports(Path(source).expanduser())
+    if st == "url":
+        g = rdflib.Graph()
+        g.parse(source.strip())  # rdflib content-negotiates the URL
+        return g
+    # text
+    g = rdflib.Graph()
+    g.parse(data=source, format="turtle")
+    return g
+
+
 def _parse_graph(source: str, source_type: str = "auto") -> Any:
     """Parse ``source`` into an ``rdflib.Graph``.
 
     ``source_type``: ``file`` (path on disk, resolves ``owl:imports``), ``url``
     (HTTP/HTTPS fetch), ``text`` (raw turtle/RDF), or ``auto`` (sniff).
     """
-    import rdflib
-
     st = (source_type or "auto").lower()
     if st == "auto":
-        s = source.strip()
-        if s.startswith(("http://", "https://")) and "\n" not in s:
-            st = "url"
-        elif "\n" not in s and len(s) < 4096 and Path(s).expanduser().exists():
-            st = "file"
-        else:
-            st = "text"
+        st = _sniff_source_type(source)
 
     try:
-        if st == "file":
-            # File path: use the import-resolving loader so owl:imports are merged.
-            from ..core.ontology_loader import OntologyLoader
-
-            return OntologyLoader().load_with_imports(Path(source).expanduser())
-        if st == "url":
-            g = rdflib.Graph()
-            g.parse(source.strip())  # rdflib content-negotiates the URL
-            return g
-        # text
-        g = rdflib.Graph()
-        g.parse(data=source, format="turtle")
-        return g
+        return _parse_graph_by_type(source, st)
     except OntologyError:
         raise
     except Exception as exc:  # noqa: BLE001 — surface a clean parse failure
@@ -165,6 +172,73 @@ def summarize(graph: Any) -> dict[str, Any]:
     }
 
 
+def _check_owlrl_closure(graph: Any, errors: list[str], warnings: list[str]) -> None:
+    """OWL-RL closure must not break (reasoning safety)."""
+    try:
+        import owlrl  # type: ignore
+        import rdflib
+
+        merged = rdflib.Graph()
+        for triple in graph:
+            merged.add(triple)
+        owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(merged)
+    except ImportError:
+        warnings.append("owlrl not installed — OWL-RL closure check skipped")
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"ontology breaks OWL-RL closure: {exc}")
+
+
+def _load_bundled_shacl_shapes(warnings: list[str]) -> Any:
+    import rdflib
+
+    shapes_dir = (
+        Path(__file__).resolve().parent.parent / "shapes"
+    )  # knowledge_graph/shapes
+    shapes = rdflib.Graph()
+    if not shapes_dir.exists():
+        return shapes
+    for shape_file in sorted(shapes_dir.glob("*.ttl")):
+        try:
+            shapes.parse(str(shape_file), format="turtle")
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"skipped unparseable shape {shape_file.name}: {exc}")
+    return shapes
+
+
+def _run_shacl_validation(
+    graph: Any, errors: list[str], warnings: list[str]
+) -> dict[str, Any] | None:
+    """Bundled SHACL shapes well-formedness + run against the candidate."""
+    try:
+        import pyshacl  # type: ignore
+
+        shapes = _load_bundled_shacl_shapes(warnings)
+        if len(shapes) == 0:
+            return None
+        conforms, results_graph, results_text = pyshacl.validate(
+            data_graph=graph,
+            shacl_graph=shapes,
+            inference="none",
+            abort_on_first=False,
+        )
+        shacl_report = {"conforms": bool(conforms), "text": results_text}
+        try:
+            shacl_report["turtle"] = results_graph.serialize(format="turtle")
+        except Exception:  # noqa: BLE001 — report text above is enough
+            pass
+        if not conforms:
+            # Shapes target instance data, not a TBox — a non-conformance
+            # is advisory for an ontology load, not a hard reject.
+            warnings.append("candidate does not conform to bundled SHACL shapes")
+        return shacl_report
+    except ImportError:
+        warnings.append("pyshacl not installed — SHACL check skipped")
+        return None
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"SHACL validation error: {exc}")
+        return None
+
+
 def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
     """Run the valid/connected/SHACL-style checks over a parsed ontology.
 
@@ -189,60 +263,10 @@ def validate_graph(graph: Any, *, run_shacl: bool = True) -> dict[str, Any]:
             "nothing addressable to host"
         )
 
-    # OWL-RL closure must not break (reasoning safety).
-    try:
-        import owlrl  # type: ignore
-        import rdflib
+    _check_owlrl_closure(graph, errors, warnings)
 
-        merged = rdflib.Graph()
-        for triple in graph:
-            merged.add(triple)
-        owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(merged)
-    except ImportError:
-        warnings.append("owlrl not installed — OWL-RL closure check skipped")
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"ontology breaks OWL-RL closure: {exc}")
-
-    # Bundled SHACL shapes well-formedness + run against the candidate.
     if run_shacl:
-        try:
-            import pyshacl  # type: ignore
-            import rdflib
-
-            shapes_dir = (
-                Path(__file__).resolve().parent.parent / "shapes"
-            )  # knowledge_graph/shapes
-            shapes = rdflib.Graph()
-            if shapes_dir.exists():
-                for shape_file in sorted(shapes_dir.glob("*.ttl")):
-                    try:
-                        shapes.parse(str(shape_file), format="turtle")
-                    except Exception as exc:  # noqa: BLE001
-                        warnings.append(
-                            f"skipped unparseable shape {shape_file.name}: {exc}"
-                        )
-            if len(shapes) > 0:
-                conforms, results_graph, results_text = pyshacl.validate(
-                    data_graph=graph,
-                    shacl_graph=shapes,
-                    inference="none",
-                    abort_on_first=False,
-                )
-                shacl_report = {"conforms": bool(conforms), "text": results_text}
-                try:
-                    shacl_report["turtle"] = results_graph.serialize(format="turtle")
-                except Exception:  # noqa: BLE001 — report text above is enough
-                    pass
-                if not conforms:
-                    # Shapes target instance data, not a TBox — a non-conformance
-                    # is advisory for an ontology load, not a hard reject.
-                    warnings.append(
-                        "candidate does not conform to bundled SHACL shapes"
-                    )
-        except ImportError:
-            warnings.append("pyshacl not installed — SHACL check skipped")
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"SHACL validation error: {exc}")
+        shacl_report = _run_shacl_validation(graph, errors, warnings)
 
     return {
         "valid": not errors,
@@ -701,6 +725,31 @@ class OntologyLifecycle:
 
     # ── load / register ──────────────────────────────────────────────────────
     @_with_ontology_graph_scope
+    @staticmethod
+    def _resolve_ontology_iri(
+        iri: str | None, summary: dict[str, Any], source: str
+    ) -> str:
+        return (
+            iri
+            or summary["ontology_iri"]
+            or f"urn:hosted-ontology:{abs(hash(source)) & 0xFFFFFFFF:08x}"
+        )
+
+    def _resolve_activation_status(
+        self, activate: bool, engine_report: dict[str, Any]
+    ) -> bool:
+        """Fail closed: with a live engine attached, "active" means the engine
+        actually absorbed the axioms, not merely that activation was requested
+        (CONCEPT:AU-KG.ontology.activation-fails-closed) — an add_triples error
+        (e.g. the engine's SHACL/ICV write guard rejecting the candidate) must
+        not be reported as a successful activation. With NO engine attached
+        (offline/dev), "active" stays the requested intent flag — there is
+        nothing to fail.
+        """
+        if self._gc is None:
+            return bool(activate)
+        return bool(activate) and bool(engine_report.get("loaded_to_engine"))
+
     def load(
         self,
         source: str,
@@ -729,11 +778,7 @@ class OntologyLifecycle:
             return {"status": "rejected", **report}
 
         summary = summarize(graph)
-        resolved_iri = (
-            iri
-            or summary["ontology_iri"]
-            or f"urn:hosted-ontology:{abs(hash(source)) & 0xFFFFFFFF:08x}"
-        )
+        resolved_iri = self._resolve_ontology_iri(iri, summary, source)
         resolved_version = version or "1.0.0"
         key = _key(resolved_iri, resolved_version)
 
@@ -752,18 +797,7 @@ class OntologyLifecycle:
         engine_report = (
             self._load_axioms(turtle) if activate else {"loaded_to_engine": False}
         )
-        # Fail closed: with a live engine attached, "active" means the engine
-        # actually absorbed the axioms, not merely that activation was
-        # requested (CONCEPT:AU-KG.ontology.activation-fails-closed) — an
-        # add_triples error (e.g. the engine's SHACL/ICV write guard rejecting
-        # the candidate) must not be reported as a successful activation. With
-        # NO engine attached (offline/dev), "active" stays the requested
-        # intent flag — there is nothing to fail.
-        activated = (
-            bool(activate)
-            if self._gc is None
-            else bool(activate) and bool(engine_report.get("loaded_to_engine"))
-        )
+        activated = self._resolve_activation_status(activate, engine_report)
 
         record: dict[str, Any] = {
             "iri": resolved_iri,
@@ -796,6 +830,58 @@ class OntologyLifecycle:
         return {"status": "ok", "idempotent": False, "ontology": self._public(record)}
 
     # ── list / catalogue ─────────────────────────────────────────────────────
+    @staticmethod
+    def _matches_active_deprecated(
+        record: dict[str, Any], active_only: bool, deprecated_only: bool
+    ) -> bool:
+        return bool(
+            (not active_only or record.get("active"))
+            and (not deprecated_only or record.get("deprecated"))
+        )
+
+    @staticmethod
+    def _filter_by_search(
+        records: list[dict[str, Any]], search: str
+    ) -> list[dict[str, Any]]:
+        if not search:
+            return records
+        needle = search.lower()
+        return [
+            r
+            for r in records
+            if needle
+            in f"{r.get('iri', '')} {r.get('version', '')} {r.get('source', '')}".lower()
+        ]
+
+    @staticmethod
+    def _filter_by_category(
+        records: list[dict[str, Any]], category: str
+    ) -> list[dict[str, Any]]:
+        if not category:
+            return records
+        return [r for r in records if r.get("category", "").lower() == category.lower()]
+
+    @staticmethod
+    def _filter_by_source_type(
+        records: list[dict[str, Any]], source_type: str
+    ) -> list[dict[str, Any]]:
+        if not source_type:
+            return records
+        return [
+            r
+            for r in records
+            if r.get("source_type", "").lower() == source_type.lower()
+        ]
+
+    @staticmethod
+    def _filter_by_tag(records: list[dict[str, Any]], tag: str) -> list[dict[str, Any]]:
+        if not tag:
+            return records
+        needle_tag = tag.lower()
+        return [
+            r for r in records if needle_tag in [t.lower() for t in r.get("tags", [])]
+        ]
+
     @_with_ontology_graph_scope
     def list_ontologies(
         self,
@@ -825,34 +911,12 @@ class OntologyLifecycle:
         records = [
             self._public(r)
             for r in self._store.values()
-            if (not active_only or r.get("active"))
-            and (not deprecated_only or r.get("deprecated"))
+            if self._matches_active_deprecated(r, active_only, deprecated_only)
         ]
-        if search:
-            needle = search.lower()
-            records = [
-                r
-                for r in records
-                if needle
-                in f"{r.get('iri', '')} {r.get('version', '')} {r.get('source', '')}".lower()
-            ]
-        if category:
-            records = [
-                r for r in records if r.get("category", "").lower() == category.lower()
-            ]
-        if source_type:
-            records = [
-                r
-                for r in records
-                if r.get("source_type", "").lower() == source_type.lower()
-            ]
-        if tag:
-            needle_tag = tag.lower()
-            records = [
-                r
-                for r in records
-                if needle_tag in [t.lower() for t in r.get("tags", [])]
-            ]
+        records = self._filter_by_search(records, search)
+        records = self._filter_by_category(records, category)
+        records = self._filter_by_source_type(records, source_type)
+        records = self._filter_by_tag(records, tag)
         records.sort(key=lambda r: r.get("loaded_at", ""), reverse=True)
         return {"count": len(records), "ontologies": records}
 
@@ -966,6 +1030,46 @@ class OntologyLifecycle:
             return {"retracted_from_engine": False, "reason": str(exc)}
 
     @_with_ontology_graph_scope
+    def _delete_keys(self, iri: str, version: str | None) -> list[str]:
+        if version is not None:
+            key = _key(iri, version)
+            return [key] if self._store.get(key) else []
+        return [
+            _key(r["iri"], r["version"])
+            for r in self._store.values()
+            if r.get("iri") == iri
+        ]
+
+    def _retract_deleted_records(
+        self, keys: list[str]
+    ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+        removed: list[dict[str, str]] = []
+        retractions: list[dict[str, Any]] = []
+        for k in keys:
+            rec = self._store.delete(k)
+            if rec is None:
+                continue
+            removed.append({"iri": rec["iri"], "version": rec["version"]})
+            if self._gc is not None:
+                retractions.append(self._retract_axioms(rec.get("turtle", "")))
+        return removed, retractions
+
+    def _delete_engine_note(
+        self, retracted: bool, retractions: list[dict[str, Any]]
+    ) -> str:
+        if self._gc is None:
+            return "no engine attached"
+        if retracted:
+            return "axioms retracted from the engine RDF dataset (remove_triples)"
+        return (
+            "; ".join(
+                r.get("reason", "retract failed")
+                for r in retractions
+                if not r.get("retracted_from_engine")
+            )
+            or "retract unavailable"
+        )
+
     def delete(
         self, iri: str, *, version: str | None = None, drop_inferences: bool = False
     ) -> dict[str, Any]:
@@ -979,45 +1083,15 @@ class OntologyLifecycle:
         attached (or the op is unavailable) it degrades to the registry-only behaviour
         and reports the gap honestly.
         """
-        if version is not None:
-            keys = [_key(iri, version)] if self._store.get(_key(iri, version)) else []
-        else:
-            keys = [
-                _key(r["iri"], r["version"])
-                for r in self._store.values()
-                if r.get("iri") == iri
-            ]
+        keys = self._delete_keys(iri, version)
         if not keys:
             return {"error": f"ontology not hosted: {iri} (version={version})"}
 
-        removed = []
-        retractions: list[dict[str, Any]] = []
-        for k in keys:
-            rec = self._store.delete(k)
-            if rec is None:
-                continue
-            removed.append({"iri": rec["iri"], "version": rec["version"]})
-            if self._gc is not None:
-                retractions.append(self._retract_axioms(rec.get("turtle", "")))
-
+        removed, retractions = self._retract_deleted_records(keys)
         retracted = bool(retractions) and all(
             r.get("retracted_from_engine") for r in retractions
         )
-        if self._gc is None:
-            engine_note = "no engine attached"
-        elif retracted:
-            engine_note = (
-                "axioms retracted from the engine RDF dataset (remove_triples)"
-            )
-        else:
-            engine_note = (
-                "; ".join(
-                    r.get("reason", "retract failed")
-                    for r in retractions
-                    if not r.get("retracted_from_engine")
-                )
-                or "retract unavailable"
-            )
+        engine_note = self._delete_engine_note(retracted, retractions)
         result: dict[str, Any] = {
             "status": "ok",
             "removed": removed,
