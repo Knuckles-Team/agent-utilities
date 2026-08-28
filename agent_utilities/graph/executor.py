@@ -67,6 +67,45 @@ _SPECIALIST_TIER_HINTS: dict[str, str] = {
 }
 
 
+async def _maybe_rlm_summarize(
+    ctx: StepContext, role_label: str, name: str, result_str: str
+) -> str:
+    """RLM Large Result Summarization.
+
+    If ``result_str`` exceeds the RLM config's ``max_context_threshold``,
+    summarize it via :func:`recursive_reasoner_tool`, falling back to a
+    truncated string if that also fails. Shared by
+    :func:`_execute_specialized_step` and :func:`_execute_dynamic_mcp_agent`'s
+    dispatch loop -- ``role_label`` carries their differing log prefixes
+    ("Specialist" / "Expert").
+    """
+    from ..rlm.config import RLMConfig
+
+    rlm_config = RLMConfig()
+    if len(result_str) <= rlm_config.max_context_threshold:
+        return result_str
+
+    logger.warning(
+        f"{role_label} '{name}' result ({len(result_str)} chars) exceeds threshold. "
+        "Routing to RLM for summarization."
+    )
+    from ..rlm.specialist import recursive_reasoner_tool
+
+    try:
+        summary = await recursive_reasoner_tool(
+            ctx,
+            prompt=f"The specialist '{name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
+            context_data=result_str,
+        )
+        return f"[RLM Synthesized Summary of Massive Data]\n{summary}"
+    except Exception as rlm_err:
+        logger.error(f"RLM summarization failed: {rlm_err}")
+        return (
+            result_str[: rlm_config.max_context_threshold]
+            + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
+        )
+
+
 def _specialist_resilience_policy(node_timeout: float) -> ResiliencePolicy:
     """CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating — Declarative Resilience Policy for specialist runs.
 
@@ -1987,6 +2026,49 @@ def _collect_mcp_toolsets_for_step(
     return collected, mcp_tool_count
 
 
+def _emit_tool_count_telemetry(
+    ctx: StepContext, prompt_name: str, custom_tool_count: int, mcp_tool_count: int
+) -> int:
+    """Log + emit ``tools_bound`` telemetry for a specialized step; returns the total count."""
+    total_tool_count = custom_tool_count + mcp_tool_count
+    logger.info(
+        f"[TELEMETRY] Specialist '{prompt_name}': "
+        f"{custom_tool_count} dev/skill tools + {mcp_tool_count} MCP tools "
+        f"= {total_tool_count} total"
+    )
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "tools_bound",
+        expert=prompt_name,
+        count=total_tool_count,
+        dev_tools=custom_tool_count,
+        mcp_tools=mcp_tool_count,
+    )
+    if total_tool_count == 0:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{prompt_name}' has ZERO tools. Agent will run blind."
+        )
+    elif total_tool_count > 50:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{prompt_name}' has {total_tool_count} tools "
+            f"— consider partitioning to reduce context overhead."
+        )
+    return total_tool_count
+
+
+async def _cache_specialist_history(
+    ctx: StepContext, prompt_name: str, stream: Any
+) -> None:
+    """Cache message history for potential re-dispatch (best-effort)."""
+    try:
+        history = stream.all_messages()
+        if asyncio.iscoroutine(history):
+            history = await history
+        ctx.deps.message_history_cache[prompt_name] = history
+    except Exception as e:  # noqa: BLE001 — same best-effort re-dispatch cache as the expert-dispatch path above; result_str is already stored in ctx.state.results_registry unconditionally above this block, so the step's actual output is unaffected
+        logger.debug(f"Unable to cache: {e}")
+
+
 async def _execute_specialized_step(
     ctx: StepContext, prompt_name: str
 ) -> str | End[Any]:
@@ -2101,30 +2183,7 @@ async def _execute_specialized_step(
     apply_tool_guard_approvals(agent)
 
     # Tool-count telemetry for specialized steps
-    total_tool_count = len(custom_tools) + mcp_tool_count
-    logger.info(
-        f"[TELEMETRY] Specialist '{prompt_name}': "
-        f"{len(custom_tools)} dev/skill tools + {mcp_tool_count} MCP tools "
-        f"= {total_tool_count} total"
-    )
-
-    emit_graph_event(
-        ctx.deps.event_queue,
-        "tools_bound",
-        expert=prompt_name,
-        count=total_tool_count,
-        dev_tools=len(custom_tools),
-        mcp_tools=mcp_tool_count,
-    )
-    if total_tool_count == 0:
-        logger.warning(
-            f"[TELEMETRY] Specialist '{prompt_name}' has ZERO tools. Agent will run blind."
-        )
-    elif total_tool_count > 50:
-        logger.warning(
-            f"[TELEMETRY] Specialist '{prompt_name}' has {total_tool_count} tools "
-            f"— consider partitioning to reduce context overhead."
-        )
+    _emit_tool_count_telemetry(ctx, prompt_name, len(custom_tools), mcp_tool_count)
 
     # Retrieve cached message history for re-dispatch context
     prev_messages = ctx.deps.message_history_cache.get(prompt_name)
@@ -2160,29 +2219,9 @@ async def _execute_specialized_step(
         result_str = str(res)
 
         # RLM Large Result Summarization
-        from ..rlm.config import RLMConfig
-
-        rlm_config = RLMConfig()
-        if len(result_str) > rlm_config.max_context_threshold:
-            logger.warning(
-                f"Specialist '{prompt_name}' result ({len(result_str)} chars) exceeds threshold. "
-                "Routing to RLM for summarization."
-            )
-            from ..rlm.specialist import recursive_reasoner_tool
-
-            try:
-                summary = await recursive_reasoner_tool(
-                    ctx,
-                    prompt=f"The specialist '{prompt_name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
-                    context_data=result_str,
-                )
-                result_str = f"[RLM Synthesized Summary of Massive Data]\n{summary}"
-            except Exception as rlm_err:
-                logger.error(f"RLM summarization failed: {rlm_err}")
-                result_str = (
-                    result_str[: rlm_config.max_context_threshold]
-                    + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
-                )
+        result_str = await _maybe_rlm_summarize(
+            ctx, "Specialist", prompt_name, result_str
+        )
 
         node_uid = f"{prompt_name}_{ctx.state.step_cursor}"
         ctx.state.results_registry[node_uid] = result_str
@@ -2193,13 +2232,7 @@ async def _execute_specialized_step(
         )
 
         # Cache message history for potential re-dispatch
-        try:
-            history = stream.all_messages()
-            if asyncio.iscoroutine(history):
-                history = await history
-            ctx.deps.message_history_cache[prompt_name] = history
-        except Exception as e:  # noqa: BLE001 — same best-effort re-dispatch cache as the expert-dispatch path above; result_str is already stored in ctx.state.results_registry unconditionally above this block, so the step's actual output is unaffected
-            logger.debug(f"Unable to cache: {e}")
+        await _cache_specialist_history(ctx, prompt_name, stream)
 
         # HSM: Exit action (success)
         await on_exit_specialist(
@@ -2258,10 +2291,7 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
 
     logger.info(f"domain_step executing logic for domain='{domain}'")
 
-    original_env = {}
-    for tag, env_var in deps.tag_env_vars.items():
-        original_env[env_var] = setting(env_var)
-        os.environ[env_var] = "True" if tag == domain else "False"
+    original_env = _activate_domain_env(deps, domain)
 
     try:
         domain_mcp_toolsets = []
@@ -2274,134 +2304,13 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
         sub_agent_target = deps.sub_agents.get(domain)
 
         if sub_agent_target:
-            try:
-                target = sub_agent_target
-                if isinstance(target, dict) and "tags" in target:
-                    from agent_utilities.agent.factory import create_agent
-
-                    target, _ = create_agent(
-                        name=domain,
-                        system_prompt=target.get(
-                            "description", f"Specialized assistant for {domain}"
-                        ),
-                        enable_skills=True,
-                        skill_types=["universal", "graphs"],
-                        tool_tags=target["tags"],
-                        permissions_kernel=ctx.deps.permissions_kernel,
-                        agent_identity=ctx.deps.agent_identity,
-                    )
-                if isinstance(target, tuple) and len(target) == 2:
-                    sub_graph, sub_config = target
-                    res = await execute_graph(
-                        graph=sub_graph,
-                        config=sub_config,
-                        query=ctx.state.query,
-                        eq=deps.event_queue,
-                    )
-                    output = res.get("results") or res.get("error")
-                else:
-                    emit_graph_event(
-                        deps.event_queue, "subagent_started", domain=domain, type="flat"
-                    )
-                    run_input = (
-                        ctx.state.query_parts
-                        if ctx.state.query_parts
-                        else ctx.state.query
-                    )
-                    async with target.run_stream(run_input) as stream:
-                        async for message, last in stream.stream_messages():
-                            emit_graph_event(
-                                deps.event_queue,
-                                "subagent_thought",
-                                domain=domain,
-                                message=str(message),
-                            )
-                        res = await stream.get_output()
-                    output = res
-
-                result_str = str(output)
-                # Unified result storage
-                node_uid = f"{domain}_{ctx.state.step_cursor}"
-                ctx.state.results_registry[node_uid] = result_str
-            except Exception as e:
-                logger.error(f"domain_step delegation error for '{domain}': {e}")
-                node_uid = f"{domain}_{ctx.state.step_cursor}"
-                ctx.state.results_registry[node_uid] = f"Delegation Error: {e}"
+            await _execute_domain_sub_agent(ctx, domain, deps, sub_agent_target)
         else:
-            query = ctx.state.query
-            if ctx.state.validation_feedback:
-                query = f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
-
-            from agent_utilities.agent.factory import create_agent
-
-            sub_agent, _ = create_agent(
-                provider=deps.provider,
-                model_id=deps.agent_model,
-                base_url=deps.base_url,
-                api_key=deps.api_key,
-                mcp_toolsets=deps.mcp_toolsets,
-                tool_tags=[domain],
-                name=f"Graph-{domain}",
-                system_prompt=domain_prompt,
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
+            early_end = await _execute_domain_fallback_agent(
+                ctx, domain, deps, domain_prompt
             )
-
-            emit_graph_event(deps.event_queue, "subagent_started", domain=domain)
-
-            run_input = (
-                ctx.state.query_parts
-                if ctx.state.query_parts and query == ctx.state.query
-                else query
-            )
-
-            # If an approval manager is available, use the transparent
-            # approval loop that pauses the graph and waits for user
-            # decisions. Without a manager, deferred requests terminate the graph.
-            if deps.approval_manager is not None:
-                from agent_utilities.observability.approval_manager import (
-                    run_with_approvals,
-                )
-
-                result = await run_with_approvals(
-                    sub_agent,
-                    run_input,
-                    approval_manager=deps.approval_manager,
-                    event_queue=deps.event_queue,
-                    request_id_prefix=f"{domain}_",
-                    approval_timeout=deps.approval_timeout,
-                )
-                output = getattr(result, "output", None) or getattr(
-                    result, "data", result
-                )
-            else:
-                result = await asyncio.wait_for(
-                    sub_agent.run(run_input),
-                    timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
-                )
-                output = getattr(result, "output", None) or getattr(
-                    result, "data", result
-                )
-
-                if isinstance(output, DeferredToolRequests):
-                    ctx.state.human_approval_required = True
-                    node_uid = f"{domain}_{ctx.state.step_cursor}"
-                    ctx.state.results_registry[node_uid] = output
-                    emit_graph_event(
-                        deps.event_queue,
-                        event_type="approval_required",
-                        domain=domain,
-                        tool_calls=[
-                            (tc.model_dump() if hasattr(tc, "model_dump") else str(tc))
-                            for tc in (getattr(output, "calls", []) or [])
-                        ],
-                    )
-                    return End(output)
-
-            result_str = str(output)
-            node_uid = f"{domain}_{ctx.state.step_cursor}"
-            ctx.state.results_registry[node_uid] = result_str
-            emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
+            if early_end is not None:
+                return early_end
 
     except Exception as e:
         logger.error(f"domain_step error for '{domain}': {e}")
@@ -2410,12 +2319,198 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
         ctx.state.results_registry[node_uid] = f"Error: {e}"
         return "error_recovery"
     finally:
-        for env_var, value in original_env.items():
-            if value is None:
-                os.environ.pop(env_var, None)
-            else:
-                os.environ[env_var] = value
+        _restore_domain_env(original_env)
     return None
+
+
+def _activate_domain_env(deps: Any, domain: str) -> dict[str, str | None]:
+    """Set each domain-tag env var True for the active domain, False otherwise.
+
+    Returns the prior values so :func:`_restore_domain_env` can undo it.
+    """
+    original_env: dict[str, str | None] = {}
+    for tag, env_var in deps.tag_env_vars.items():
+        original_env[env_var] = setting(env_var)
+        os.environ[env_var] = "True" if tag == domain else "False"
+    return original_env
+
+
+def _restore_domain_env(original_env: dict[str, str | None]) -> None:
+    """Restore the env vars :func:`_activate_domain_env` overrode."""
+    for env_var, value in original_env.items():
+        if value is None:
+            os.environ.pop(env_var, None)
+        else:
+            os.environ[env_var] = value
+
+
+async def _execute_domain_sub_agent(
+    ctx: StepContext, domain: str, deps: Any, sub_agent_target: Any
+) -> None:
+    """Delegate to an already-registered sub_agent (tag-spec dict, sub-graph tuple, or flat agent)."""
+    try:
+        target = sub_agent_target
+        if isinstance(target, dict) and "tags" in target:
+            from agent_utilities.agent.factory import create_agent
+
+            target, _ = create_agent(
+                name=domain,
+                system_prompt=target.get(
+                    "description", f"Specialized assistant for {domain}"
+                ),
+                enable_skills=True,
+                skill_types=["universal", "graphs"],
+                tool_tags=target["tags"],
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+            )
+        if isinstance(target, tuple) and len(target) == 2:
+            sub_graph, sub_config = target
+            res = await execute_graph(
+                graph=sub_graph,
+                config=sub_config,
+                query=ctx.state.query,
+                eq=deps.event_queue,
+            )
+            output = res.get("results") or res.get("error")
+        else:
+            emit_graph_event(
+                deps.event_queue, "subagent_started", domain=domain, type="flat"
+            )
+            run_input = (
+                ctx.state.query_parts if ctx.state.query_parts else ctx.state.query
+            )
+            async with target.run_stream(run_input) as stream:
+                async for message, last in stream.stream_messages():
+                    emit_graph_event(
+                        deps.event_queue,
+                        "subagent_thought",
+                        domain=domain,
+                        message=str(message),
+                    )
+                res = await stream.get_output()
+            output = res
+
+        result_str = str(output)
+        # Unified result storage
+        node_uid = f"{domain}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = result_str
+    except Exception as e:
+        logger.error(f"domain_step delegation error for '{domain}': {e}")
+        node_uid = f"{domain}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = f"Delegation Error: {e}"
+
+
+async def _execute_domain_fallback_agent(
+    ctx: StepContext, domain: str, deps: Any, domain_prompt: str
+) -> Any:
+    """No registered sub_agent: build a generic per-domain agent and run it.
+
+    Returns an ``End`` when a deferred-tool approval is required and there is no
+    approval manager (the graph must terminate here); otherwise ``None`` and the
+    caller continues normally.
+    """
+    sub_agent, run_input = _build_domain_fallback_agent(
+        ctx, domain, deps, domain_prompt
+    )
+    output, early_end = await _run_domain_fallback_agent(
+        ctx, domain, deps, sub_agent, run_input
+    )
+    if early_end is not None:
+        return early_end
+
+    result_str = str(output)
+    node_uid = f"{domain}_{ctx.state.step_cursor}"
+    ctx.state.results_registry[node_uid] = result_str
+    emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
+    return None
+
+
+def _build_domain_fallback_agent(
+    ctx: StepContext, domain: str, deps: Any, domain_prompt: str
+) -> tuple[Any, Any]:
+    """Build the generic per-domain agent and resolve its run_input."""
+    query = ctx.state.query
+    if ctx.state.validation_feedback:
+        query = (
+            f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
+        )
+
+    from agent_utilities.agent.factory import create_agent
+
+    sub_agent, _ = create_agent(
+        provider=deps.provider,
+        model_id=deps.agent_model,
+        base_url=deps.base_url,
+        api_key=deps.api_key,
+        mcp_toolsets=deps.mcp_toolsets,
+        tool_tags=[domain],
+        name=f"Graph-{domain}",
+        system_prompt=domain_prompt,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+    )
+
+    emit_graph_event(deps.event_queue, "subagent_started", domain=domain)
+
+    run_input = (
+        ctx.state.query_parts
+        if ctx.state.query_parts and query == ctx.state.query
+        else query
+    )
+    return sub_agent, run_input
+
+
+async def _run_domain_fallback_agent(
+    ctx: StepContext, domain: str, deps: Any, sub_agent: Any, run_input: Any
+) -> tuple[Any, Any]:
+    """Run the fallback agent (approval-manager loop, or a bare timeout).
+
+    Returns ``(output, early_end)``: ``early_end`` is an ``End`` when a
+    deferred-tool approval fires with no approval manager configured (the graph
+    must terminate); otherwise ``None`` and ``output`` is the agent's result.
+    """
+    # If an approval manager is available, use the transparent
+    # approval loop that pauses the graph and waits for user
+    # decisions. Without a manager, deferred requests terminate the graph.
+    if deps.approval_manager is not None:
+        from agent_utilities.observability.approval_manager import (
+            run_with_approvals,
+        )
+
+        result = await run_with_approvals(
+            sub_agent,
+            run_input,
+            approval_manager=deps.approval_manager,
+            event_queue=deps.event_queue,
+            request_id_prefix=f"{domain}_",
+            approval_timeout=deps.approval_timeout,
+        )
+        output = getattr(result, "output", None) or getattr(result, "data", result)
+        return output, None
+
+    result = await asyncio.wait_for(
+        sub_agent.run(run_input),
+        timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
+    )
+    output = getattr(result, "output", None) or getattr(result, "data", result)
+
+    if isinstance(output, DeferredToolRequests):
+        ctx.state.human_approval_required = True
+        node_uid = f"{domain}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = output
+        emit_graph_event(
+            deps.event_queue,
+            event_type="approval_required",
+            domain=domain,
+            tool_calls=[
+                (tc.model_dump() if hasattr(tc, "model_dump") else str(tc))
+                for tc in (getattr(output, "calls", []) or [])
+            ],
+        )
+        return output, End(output)
+
+    return output, None
 
 
 # implements core.execution.ExecutionEngine
