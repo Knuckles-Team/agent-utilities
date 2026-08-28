@@ -1142,6 +1142,71 @@ _contributed_presets_cache: dict[str, dict[str, Any]] | None = None
 _contributed_preset_providers: dict[str, str] = {}
 
 
+def _load_provider_preset_file(data_file: Path) -> dict[str, Any] | None:
+    """Load one provider's raw ``mcp_source_presets.json`` (None on error)."""
+    try:
+        return json.loads(data_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.debug("[KG-2.59] invalid contributed presets")
+        return None
+
+
+def _load_provider_fingerprints(fingerprint_file: Path) -> dict[str, str]:
+    """Load + normalize one provider's tool-schema fingerprint sidecar.
+
+    Failure yields an empty map: the preset stays discoverable, but its empty
+    pin will fail configuration before any tool call or source record is read.
+    """
+    try:
+        fingerprint_data = json.loads(fingerprint_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    raw_fingerprints = (
+        fingerprint_data.get("tools", fingerprint_data)
+        if isinstance(fingerprint_data, dict)
+        else {}
+    )
+    if not isinstance(raw_fingerprints, dict):
+        return {}
+    return {
+        str(tool): str(digest).strip().lower()
+        for tool, digest in raw_fingerprints.items()
+    }
+
+
+def _govern_contributed_preset(
+    value: dict[str, Any], fingerprints: dict[str, str]
+) -> dict[str, Any]:
+    """Stamp one contributed preset with the invariants it cannot weaken."""
+    governed = dict(value)
+    tool = str(governed.get("tool") or "")
+    governed["strict_schema"] = True
+    governed["verify_live_schema"] = True
+    governed["tool_schema_sha256"] = fingerprints.get(tool, "")
+    return governed
+
+
+def _merge_contributed_provider(
+    provider_name: str,
+    data_dir: Path,
+    presets: dict[str, dict[str, Any]],
+    providers: dict[str, str],
+) -> None:
+    """Load one contributed provider's presets (+ fingerprints) into the catalog."""
+    data_file = data_dir / _PRESET_DATA_FILE
+    if not data_file.is_file():
+        return
+    loaded = _load_provider_preset_file(data_file)
+    if not isinstance(loaded, dict):
+        return
+    fingerprints = _load_provider_fingerprints(data_dir / _TOOL_SCHEMA_DATA_FILE)
+    for key, value in loaded.items():
+        if str(key).startswith("_") or not isinstance(value, dict):
+            continue
+        presets[str(key)] = _govern_contributed_preset(value, fingerprints)
+        providers[str(key)] = provider_name
+
+
 def _load_contributed_presets() -> dict[str, dict[str, Any]]:
     """Resolve + merge every fleet-contributed ``mcp_tool`` preset (cached)."""
     global _contributed_presets_cache
@@ -1153,45 +1218,7 @@ def _load_contributed_presets() -> dict[str, dict[str, Any]]:
         from agent_utilities.core.providers import iter_provider_dirs
 
         for provider_name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP):
-            data_file = data_dir / _PRESET_DATA_FILE
-            if not data_file.is_file():
-                continue
-            try:
-                loaded = json.loads(data_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                logger.debug("[KG-2.59] invalid contributed presets")
-                continue
-            fingerprint_file = data_dir / _TOOL_SCHEMA_DATA_FILE
-            fingerprints: dict[str, str] = {}
-            try:
-                fingerprint_data = json.loads(
-                    fingerprint_file.read_text(encoding="utf-8")
-                )
-                raw_fingerprints = (
-                    fingerprint_data.get("tools", fingerprint_data)
-                    if isinstance(fingerprint_data, dict)
-                    else {}
-                )
-                if isinstance(raw_fingerprints, dict):
-                    fingerprints = {
-                        str(tool): str(digest).strip().lower()
-                        for tool, digest in raw_fingerprints.items()
-                    }
-            except (OSError, ValueError):
-                # Keep the preset discoverable, but its empty pin will fail
-                # configuration before any tool call or source record is read.
-                fingerprints = {}
-            if isinstance(loaded, dict):
-                for key, value in loaded.items():
-                    if str(key).startswith("_") or not isinstance(value, dict):
-                        continue
-                    governed = dict(value)
-                    tool = str(governed.get("tool") or "")
-                    governed["strict_schema"] = True
-                    governed["verify_live_schema"] = True
-                    governed["tool_schema_sha256"] = fingerprints.get(tool, "")
-                    presets[str(key)] = governed
-                    providers[str(key)] = provider_name
+            _merge_contributed_provider(provider_name, data_dir, presets, providers)
     except Exception as exc:  # noqa: BLE001 — one bad provider never breaks the catalog
         logger.debug(
             "[KG-2.59] contributed-preset discovery failed (exception_type=%s)",
@@ -1291,21 +1318,10 @@ def provider_tool_presets(provider: str) -> dict[str, dict[str, Any]] | None:
     return presets
 
 
-def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
-    """Load one connector-owned exact ``list_tools`` schema fingerprint map.
-
-    The sidecar is data-only and is resolved through the same provider entry
-    point as ``mcp_source_presets.json``.  Its normalized shape is either
-    ``{"tools": {name: sha256}}`` or the bare ``{name: sha256}`` map.  Missing
-    sidecars return ``None`` so the mandatory manifest gate can distinguish an
-    uncertified connector from an empty-but-valid catalog.
-    """
-
-    match = _installed_provider_dir(provider)
-    if match is None:
-        contract = _bundled_provider_contract(provider)
-        return None if contract is None else contract[1]
-    data_file = match / _TOOL_SCHEMA_DATA_FILE
+def _read_tool_schema_fingerprint_file(
+    provider: str, data_file: Path
+) -> dict[str, Any] | None:
+    """Load + shape-check one provider's raw tool-schema fingerprint sidecar."""
     if not data_file.is_file():
         return None
     try:
@@ -1323,6 +1339,13 @@ def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
         raise McpToolSourceError(
             f"source preset provider {provider!r} tool-schema tools must be an object"
         )
+    return raw_tools
+
+
+def _normalize_tool_schema_fingerprints(
+    provider: str, raw_tools: dict[str, Any]
+) -> dict[str, str]:
+    """Validate + lower-case one provider's raw ``{tool: sha256}`` map."""
     fingerprints: dict[str, str] = {}
     for tool_name, digest in raw_tools.items():
         if str(tool_name).startswith("_"):
@@ -1335,6 +1358,28 @@ def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
             )
         fingerprints[str(tool_name)] = normalized
     return fingerprints
+
+
+def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
+    """Load one connector-owned exact ``list_tools`` schema fingerprint map.
+
+    The sidecar is data-only and is resolved through the same provider entry
+    point as ``mcp_source_presets.json``.  Its normalized shape is either
+    ``{"tools": {name: sha256}}`` or the bare ``{name: sha256}`` map.  Missing
+    sidecars return ``None`` so the mandatory manifest gate can distinguish an
+    uncertified connector from an empty-but-valid catalog.
+    """
+
+    match = _installed_provider_dir(provider)
+    if match is None:
+        contract = _bundled_provider_contract(provider)
+        return None if contract is None else contract[1]
+    raw_tools = _read_tool_schema_fingerprint_file(
+        provider, match / _TOOL_SCHEMA_DATA_FILE
+    )
+    if raw_tools is None:
+        return None
+    return _normalize_tool_schema_fingerprints(provider, raw_tools)
 
 
 def reset_contributed_presets_cache() -> None:
@@ -1468,6 +1513,67 @@ def _decode(result: Any) -> Any:
     return _decode_tool_result(result)
 
 
+def _validate_configure_target(
+    tool: str, resource: str, sql_table: dict[str, Any] | None
+) -> None:
+    if not tool and not sql_table and not resource:
+        raise ValueError(
+            "McpToolSourceConnector requires a 'tool' (or a 'sql_table' "
+            "block, or a 'resource' uri)"
+        )
+
+
+def _validate_configure_enum_choices(
+    params_style: str, pagination: str, page_kind: str
+) -> None:
+    if params_style not in ("json", "args"):
+        raise ValueError("params_style must be 'json' or 'args'")
+    if pagination not in ("none", "cursor", "page"):
+        raise ValueError("pagination must be 'none', 'cursor', or 'page'")
+    if page_kind not in ("number", "offset"):
+        raise ValueError("page_kind must be 'number' or 'offset'")
+
+
+def _validate_configure_transport(
+    client: Any, url: str, command: str, server: str
+) -> None:
+    if client is None and not (url or command or server):
+        raise ValueError(
+            "McpToolSourceConnector needs a transport: one of "
+            "'client', 'url', 'command', or 'server'"
+        )
+
+
+def _dict_or_empty(value: dict[str, Any] | None) -> dict[str, Any]:
+    return dict(value or {})
+
+
+def _list_or_empty(value: list[Any] | None) -> list[Any]:
+    return list(value or [])
+
+
+def _resolve_tool_and_action(
+    tool: str, resource: str, action: str, sql_table: dict[str, Any] | None
+) -> tuple[str, str]:
+    """Default ``tool`` to ``sql_query`` (unless resource-only) and ``action``
+    to ``execute`` for a sql_table sweep."""
+    resolved_tool = tool or ("" if resource else "sql_query")
+    resolved_action = action or ("execute" if sql_table else "")
+    return resolved_tool, resolved_action
+
+
+def _certify_tool_schema(
+    strict_schema: bool, verify_live_schema: bool, tool_schema_sha256: str
+) -> str:
+    """Normalize + gate the live tool-schema pin for a governed connector."""
+    sha = str(tool_schema_sha256 or "").strip().lower()
+    if strict_schema and verify_live_schema and not re.fullmatch(r"[0-9a-f]{64}", sha):
+        raise McpToolSourceError(
+            "governed connector has no valid live tool-schema certification"
+        )
+    return sha
+
+
 @register_source("mcp_tool")
 class McpToolSourceConnector(LoadConnector, PollConnector):
     """Drive any MCP server's record-listing tool as a document source.
@@ -1547,6 +1653,40 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     provider = "MCP Tool Source"
     _config: dict[str, Any]
 
+    def _gate_check_preset_provider(self, preset: str) -> None:
+        """Enforce the signed capability gate for a contributed preset."""
+        provider = _contributed_preset_providers.get(preset)
+        if not provider:
+            return
+        from ....knowledge_graph.ontology.connector_manifest_gate import precheck_source
+
+        gate = precheck_source(provider)
+        if not gate.get("checked") or not gate.get("ok"):
+            raise McpToolSourceError(
+                "connector capability bundle did not pass its signed gate"
+            )
+
+    def _resolve_preset_config(self, preset: str) -> dict[str, Any]:
+        """Merge ``preset`` under the explicit config (explicit keys win)."""
+        base = get_tool_preset(preset)
+        if not base:
+            raise ValueError(
+                f"Unknown mcp_tool preset {preset!r}. "
+                f"Available: {', '.join(list_tool_presets())}"
+            )
+        merged = {
+            **base,
+            **{k: v for k, v in self._config.items() if k != "preset"},
+        }
+        # Nested dicts merge shallowly so a caller can extend preset params.
+        for key in ("params", "arguments"):
+            if isinstance(base.get(key), dict):
+                merged[key] = {**base[key], **(self._config.get(key) or {})}
+        merged = _apply_mandatory_preset_fields(preset, merged)
+        self._config = merged
+        self._gate_check_preset_provider(preset)
+        return merged
+
     def configure(  # noqa: PLR0915 — flat declarative-config binding
         self,
         *,
@@ -1603,97 +1743,53 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     ) -> None:
         # Merge the preset under the explicit config (explicit keys win).
         if preset:
-            base = get_tool_preset(preset)
-            if not base:
-                raise ValueError(
-                    f"Unknown mcp_tool preset {preset!r}. "
-                    f"Available: {', '.join(list_tool_presets())}"
-                )
-            merged = {
-                **base,
-                **{k: v for k, v in self._config.items() if k != "preset"},
-            }
-            # Nested dicts merge shallowly so a caller can extend preset params.
-            for key in ("params", "arguments"):
-                if isinstance(base.get(key), dict):
-                    merged[key] = {**base[key], **(self._config.get(key) or {})}
-            merged = _apply_mandatory_preset_fields(preset, merged)
-            self._config = merged
-            provider = _contributed_preset_providers.get(preset)
-            if provider:
-                from ....knowledge_graph.ontology.connector_manifest_gate import (
-                    precheck_source,
-                )
-
-                gate = precheck_source(provider)
-                if not gate.get("checked") or not gate.get("ok"):
-                    raise McpToolSourceError(
-                        "connector capability bundle did not pass its signed gate"
-                    )
+            merged = self._resolve_preset_config(preset)
             self.configure(**merged)
             return
 
-        if not tool and not sql_table and not resource:
-            raise ValueError(
-                "McpToolSourceConnector requires a 'tool' (or a 'sql_table' "
-                "block, or a 'resource' uri)"
-            )
-        if params_style not in ("json", "args"):
-            raise ValueError("params_style must be 'json' or 'args'")
-        if pagination not in ("none", "cursor", "page"):
-            raise ValueError("pagination must be 'none', 'cursor', or 'page'")
-        if page_kind not in ("number", "offset"):
-            raise ValueError("page_kind must be 'number' or 'offset'")
-        if client is None and not (url or command or server):
-            raise ValueError(
-                "McpToolSourceConnector needs a transport: one of "
-                "'client', 'url', 'command', or 'server'"
-            )
+        _validate_configure_target(tool, resource, sql_table)
+        _validate_configure_enum_choices(params_style, pagination, page_kind)
+        _validate_configure_transport(client, url, command, server)
 
         self._injected_client = client
         self.url = url
         self.command = command
-        self.command_args = list(args or [])
-        self.command_env = dict(env or {})
+        self.command_args = _list_or_empty(args)
+        self.command_env = _dict_or_empty(env)
         self.server = server
         self.timeout = float(timeout)
-        self.tool = tool or ("" if resource else "sql_query")
         # A resource-only configuration uses this connector purely for its
         # transport resolution (mcp_config lookup + authenticated client); see
         # :func:`read_resource_once`.
+        self.tool, self.action = _resolve_tool_and_action(
+            tool, resource, action, sql_table
+        )
         self.resource = resource
-        self.action = action or ("execute" if sql_table else "")
         self.action_param = action_param
-        self.params = dict(params or {})
+        self.params = _dict_or_empty(params)
         self.params_style = params_style
         self.params_arg = params_arg
-        self.extra_arguments = dict(arguments or {})
+        self.extra_arguments = _dict_or_empty(arguments)
         self.records_path = records_path
         self.records_is_mapping = bool(records_is_mapping)
-        self.mapping_key_field = str(mapping_key_field or "source_key")
+        self.mapping_key_field = mapping_key_field or "source_key"
         self.id_field = id_field
         self.title_field = title_field
         self.text_field = text_field
         self.updated_field = updated_field
         self.strict_schema = bool(strict_schema)
         self.verify_live_schema = bool(verify_live_schema)
-        self.tool_schema_sha256 = str(tool_schema_sha256 or "").strip().lower()
-        if (
-            self.strict_schema
-            and self.verify_live_schema
-            and not re.fullmatch(r"[0-9a-f]{64}", self.tool_schema_sha256)
-        ):
-            raise McpToolSourceError(
-                "governed connector has no valid live tool-schema certification"
-            )
+        self.tool_schema_sha256 = _certify_tool_schema(
+            self.strict_schema, self.verify_live_schema, tool_schema_sha256
+        )
         self.live_tool_schema_sha256 = ""
         self.doc_type = doc_type
-        self.metadata_fields = list(metadata_fields or [])
+        self.metadata_fields = _list_or_empty(metadata_fields)
         self.acl_public_field = acl_public_field
         self.acl_users_field = acl_users_field
         self.acl_groups_field = acl_groups_field
         self.acl_markings_field = acl_markings_field
-        self.detail = dict(detail or {})
+        self.detail = _dict_or_empty(detail)
         self.pagination = pagination
         self.cursor_param = cursor_param
         self.cursor_path = cursor_path
@@ -1709,7 +1805,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         self.max_records = max(0, int(max_records))
         self.batch_size = max(1, int(batch_size))
         self.updated_since_param = updated_since_param
-        self.sql_table = dict(sql_table or {})
+        self.sql_table = _dict_or_empty(sql_table)
         self._sql_ready = not self.sql_table
         self._sql = ""
         self._sql_since = ""
@@ -1769,6 +1865,45 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             enforce_mcp_stdio_permitted(server_name=configured_name)
         return {"mcpServers": {configured_name: cfg}}
 
+    def _resolve_child_auth(self) -> Any:
+        """Best-effort service-account bearer mint (opt-in; None on failure)."""
+        try:
+            from agent_utilities.mcp.client_credentials import child_auth
+
+            return child_auth(None)
+        except Exception:  # noqa: BLE001 — auth is best-effort/opt-in
+            return None
+
+    def _single_server_url(self, target: Any) -> str | None:
+        """Resolve a single url-based server config to its URL (bearer needs it)."""
+        if isinstance(target, str):
+            return target
+        if not isinstance(target, dict):
+            return None
+        servers = target.get("mcpServers") or {}
+        if len(servers) != 1:
+            return None
+        cfg = next(iter(servers.values()))
+        if isinstance(cfg, dict) and cfg.get("url"):
+            return str(cfg["url"])
+        return None
+
+    def _open_authenticated_client(
+        self, client_cls: Any, target: Any, auth: Any
+    ) -> Any:
+        """Open the client with the bearer applied when a bare URL is resolvable."""
+        url = self._single_server_url(target)
+        if url and url.startswith(("http://", "https://")):
+            try:
+                return client_cls(url, auth=auth, timeout=self.timeout)
+            except TypeError as exc:  # pragma: no cover - older fastmcp without auth=
+                logger.warning(
+                    "FastMCP Client rejected refresh-capable auth; using the "
+                    "compatibility transport without client auth: %s",
+                    exc,
+                )
+        return client_cls(target, timeout=self.timeout)
+
     def _open_client(self) -> Any:
         """Build the fastmcp client for one run (lazy import, clear error).
 
@@ -1789,34 +1924,10 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         if self._injected_client is not None:
             return Client(target, timeout=self.timeout)
 
-        auth = None
-        try:
-            from agent_utilities.mcp.client_credentials import child_auth
-
-            auth = child_auth(None)
-        except Exception:  # noqa: BLE001 — auth is best-effort/opt-in
-            auth = None
+        auth = self._resolve_child_auth()
         if auth is None:
             return Client(target, timeout=self.timeout)
-
-        # Resolve a single url-based server config to its URL so the bearer applies.
-        url = target if isinstance(target, str) else None
-        if url is None and isinstance(target, dict):
-            servers = target.get("mcpServers") or {}
-            if len(servers) == 1:
-                cfg = next(iter(servers.values()))
-                if isinstance(cfg, dict) and cfg.get("url"):
-                    url = str(cfg["url"])
-        if url and url.startswith(("http://", "https://")):
-            try:
-                return Client(url, auth=auth, timeout=self.timeout)
-            except TypeError as exc:  # pragma: no cover - older fastmcp without auth=
-                logger.warning(
-                    "FastMCP Client rejected refresh-capable auth; using the "
-                    "compatibility transport without client auth: %s",
-                    exc,
-                )
-        return Client(target, timeout=self.timeout)
+        return self._open_authenticated_client(Client, target, auth)
 
     # ── tool-call plumbing ───────────────────────────────────────────────────
 
@@ -1878,40 +1989,54 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             raise McpToolSourceError(str(exc)) from exc
         self.live_tool_schema_sha256 = contract.compatibility_sha256
 
+    def _records_from_tabular(
+        self, data: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Zip a ``{columns, rows}`` tabular envelope (sql-mcp) into row dicts."""
+        if not (
+            isinstance(data.get("columns"), list) and isinstance(data.get("rows"), list)
+        ):
+            return None
+        cols = [str(c) for c in data["columns"]]
+        return [
+            dict(zip(cols, row, strict=False))
+            for row in data["rows"]
+            if isinstance(row, list)
+        ]
+
+    def _records_from_mapping(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for source_key, value in data.items():
+            if not isinstance(value, dict):
+                if self.strict_schema:
+                    raise McpToolSourceError(
+                        "mandatory connector mapping contains a non-object record"
+                    )
+                continue
+            record = dict(value)
+            record.setdefault(self.mapping_key_field, str(source_key))
+            records.append(record)
+        return records
+
+    def _records_from_list(self, data: list[Any]) -> list[dict[str, Any]]:
+        records = [r for r in data if isinstance(r, dict)]
+        if self.strict_schema and len(records) != len(data):
+            raise McpToolSourceError(
+                "mandatory connector response contains a non-object record"
+            )
+        return records
+
     def _records(self, result: Any) -> list[dict[str, Any]]:
         """Extract the record list; a {columns, rows} envelope is zipped."""
         data = _dig(result, self.records_path) if self.records_path else result
-        if (
-            isinstance(data, dict)
-            and isinstance(data.get("columns"), list)
-            and isinstance(data.get("rows"), list)
-        ):
-            cols = [str(c) for c in data["columns"]]
-            return [
-                dict(zip(cols, row, strict=False))
-                for row in data["rows"]
-                if isinstance(row, list)
-            ]
-        if isinstance(data, dict) and self.records_is_mapping:
-            records: list[dict[str, Any]] = []
-            for source_key, value in data.items():
-                if not isinstance(value, dict):
-                    if self.strict_schema:
-                        raise McpToolSourceError(
-                            "mandatory connector mapping contains a non-object record"
-                        )
-                    continue
-                record = dict(value)
-                record.setdefault(self.mapping_key_field, str(source_key))
-                records.append(record)
-            return records
+        if isinstance(data, dict):
+            tabular = self._records_from_tabular(data)
+            if tabular is not None:
+                return tabular
+            if self.records_is_mapping:
+                return self._records_from_mapping(data)
         if isinstance(data, list):
-            records = [r for r in data if isinstance(r, dict)]
-            if self.strict_schema and len(records) != len(data):
-                raise McpToolSourceError(
-                    "mandatory connector response contains a non-object record"
-                )
-            return records
+            return self._records_from_list(data)
         if self.strict_schema:
             raise McpToolSourceError(
                 "mandatory connector response does not match its signed records_path"
@@ -1919,6 +2044,40 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         return []
 
     # ── record → document ────────────────────────────────────────────────────
+
+    def _acl_public_flag(self, record: dict[str, Any]) -> bool:
+        # World-public is a source-owned assertion, never an inferred default.
+        if not self.acl_public_field:
+            return False
+        raw_public = _dig(record, self.acl_public_field)
+        return raw_public is True or (
+            isinstance(raw_public, str)
+            and raw_public.strip().casefold() in {"1", "true", "yes", "on"}
+        )
+
+    def _acl_principals(self, record: dict[str, Any], field: str) -> list[str]:
+        raw = _dig(record, field) if field else None
+        if isinstance(raw, str):
+            return [p.strip() for p in raw.split(",") if p.strip()]
+        if isinstance(raw, list):
+            return [str(p) for p in raw if p]
+        return []
+
+    def _resolve_external_access(
+        self, public: bool, users: list[str], groups: list[str], markings: list[str]
+    ) -> ExternalAccess:
+        if users or groups:
+            public = False
+        # Missing/malformed public values remain private and a descriptor with
+        # no effective grant is quarantined below.
+        if not public and not (users or groups or markings):
+            return ExternalAccess.quarantined()
+        return ExternalAccess(
+            is_public=public,
+            user_emails=users,
+            group_ids=groups,
+            markings=markings,
+        )
 
     def _external_access(self, record: dict[str, Any]) -> ExternalAccess:
         if not (
@@ -1930,38 +2089,11 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             # No ACL fields configured for this certified preset/instance
             # (CONCEPT:AU-P0-4): unknown access is always quarantined.
             return default_external_access()
-
-        def _principals(field: str) -> list[str]:
-            raw = _dig(record, field) if field else None
-            if isinstance(raw, str):
-                return [p.strip() for p in raw.split(",") if p.strip()]
-            if isinstance(raw, list):
-                return [str(p) for p in raw if p]
-            return []
-
-        # World-public is a source-owned assertion, never an inferred default.
-        # Missing/malformed public values remain private and a descriptor with
-        # no effective grant is quarantined below.
-        public = False
-        if self.acl_public_field:
-            raw_public = _dig(record, self.acl_public_field)
-            public = raw_public is True or (
-                isinstance(raw_public, str)
-                and raw_public.strip().casefold() in {"1", "true", "yes", "on"}
-            )
-        users = _principals(self.acl_users_field)
-        groups = _principals(self.acl_groups_field)
-        markings = _principals(self.acl_markings_field)
-        if users or groups:
-            public = False
-        if not public and not (users or groups or markings):
-            return ExternalAccess.quarantined()
-        return ExternalAccess(
-            is_public=public,
-            user_emails=users,
-            group_ids=groups,
-            markings=markings,
-        )
+        public = self._acl_public_flag(record)
+        users = self._acl_principals(record, self.acl_users_field)
+        groups = self._acl_principals(record, self.acl_groups_field)
+        markings = self._acl_principals(record, self.acl_markings_field)
+        return self._resolve_external_access(public, users, groups, markings)
 
     async def _fetch_detail(
         self, client: Any, record: dict[str, Any]
@@ -1985,9 +2117,10 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             str(title) if title else None,
         )
 
-    def _to_document(
-        self, record: dict[str, Any], text: str | None = None, title: str | None = None
-    ) -> SourceDocument | None:
+    def _document_body(
+        self, record: dict[str, Any], text: str | None
+    ) -> tuple[Any, str | None]:
+        """Resolve (id, text) for a record; raises when strict and either is bad."""
         rid = _dig(record, self.id_field)
         body = text if text is not None else _dig(record, self.text_field)
         if rid is None or not isinstance(body, str) or not body.strip():
@@ -1995,13 +2128,22 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 raise McpToolSourceError(
                     "mandatory connector record does not match its signed id/text fields"
                 )
+            return rid, None
+        return rid, body
+
+    def _document_metadata(self, record: dict[str, Any]) -> dict[str, Any]:
+        if self.metadata_fields:
+            return {f: _dig(record, f) for f in self.metadata_fields}
+        return {k: v for k, v in record.items() if k != self.text_field}
+
+    def _to_document(
+        self, record: dict[str, Any], text: str | None = None, title: str | None = None
+    ) -> SourceDocument | None:
+        rid, body = self._document_body(record, text)
+        if body is None:
             return None
         doc_title = title or _dig(record, self.title_field)
         updated = _dig(record, self.updated_field) if self.updated_field else None
-        if self.metadata_fields:
-            meta_record = {f: _dig(record, f) for f in self.metadata_fields}
-        else:
-            meta_record = {k: v for k, v in record.items() if k != self.text_field}
         return SourceDocument(
             id=str(rid),
             source_uri=f"mcp-tool://{self.server or self.url or 'inline'}/{self.tool}/{rid}",
@@ -2011,13 +2153,75 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             metadata={
                 "server": self.server or self.url,
                 "tool": self.tool,
-                "record": meta_record,
+                "record": self._document_metadata(record),
             },
             external_access=self._external_access(record),
             updated_at=str(updated) if updated is not None else None,
         )
 
     # ── sql_table bootstrap ──────────────────────────────────────────────────
+
+    def _sql_table_target(self, spec: dict[str, Any]) -> tuple[str, str, str]:
+        """Validate + return (table, schema, key_column) from a sql_table spec."""
+        table = _ident(str(spec.get("table", "")), "table")
+        schema = str(spec.get("schema", "") or "")
+        if schema:
+            _ident(schema, "schema")
+        key = _ident(str(spec.get("key_column", "id")), "key_column")
+        return table, schema, key
+
+    async def _discover_sql_columns(
+        self, client: Any, spec: dict[str, Any], table: str, schema: str
+    ) -> list[str]:
+        """Discover columns via ``sql_schema`` (action=columns) when not given."""
+        schema_params: dict[str, Any] = {"table": table}
+        if schema:
+            schema_params["schema"] = schema
+        arguments = self._build_arguments(schema_params, tool_action="columns")
+        if spec.get("connection"):
+            arguments["connection"] = str(spec["connection"])
+        described = await self._call(client, "sql_schema", arguments)
+        if isinstance(described, dict):
+            described = described.get("result", described.get("columns", []))
+        return [
+            str(c.get("name"))
+            for c in (described if isinstance(described, list) else [])
+            if isinstance(c, dict) and c.get("name")
+        ]
+
+    def _sql_table_field_columns(
+        self, spec: dict[str, Any], columns: list[str], key: str
+    ) -> tuple[str, str, str, list[str]]:
+        """Resolve text/title/updated columns, appending any missing to ``columns``."""
+        text_col = str(spec.get("text_column", "") or "")
+        if not text_col:
+            raise ValueError("sql_table requires a 'text_column'")
+        _ident(text_col, "text_column")
+        title_col = str(spec.get("title_column", "") or "")
+        updated_col = str(spec.get("updated_column", "") or "")
+        columns = list(columns)
+        for needed in (key, text_col, title_col, updated_col):
+            if needed and needed not in columns:
+                columns.append(_ident(needed, "column"))
+        return text_col, title_col, updated_col, columns
+
+    def _sql_table_queries(
+        self, schema: str, table: str, key: str, columns: list[str], updated_col: str
+    ) -> tuple[str, str]:
+        """Build the keyset-paginated base and since-watermark SELECT statements."""
+        qualified = f"{schema}.{table}" if schema else table
+        select = ", ".join(columns)
+        sql = (
+            f"SELECT {select} FROM {qualified} "  # noqa: S608 — identifiers validated above
+            f"WHERE {key} > :after ORDER BY {key}"
+        )
+        sql_since = (
+            f"SELECT {select} FROM {qualified} "  # noqa: S608 — identifiers validated above
+            f"WHERE {key} > :after AND {updated_col} > :since ORDER BY {key}"
+            if updated_col
+            else ""
+        )
+        return sql, sql_since
 
     async def _prepare_sql_table(self, client: Any) -> None:
         """Turn a ``sql_table`` block into a keyset-paginated sql_query sweep.
@@ -2028,29 +2232,12 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         ``sql_schema`` (action=columns) inside the same session when not given.
         """
         spec = self.sql_table
-        table = _ident(str(spec.get("table", "")), "table")
-        schema = str(spec.get("schema", "") or "")
-        if schema:
-            _ident(schema, "schema")
-        key = _ident(str(spec.get("key_column", "id")), "key_column")
+        table, schema, key = self._sql_table_target(spec)
         page_size = max(1, int(spec.get("page_size", 500)))
 
         columns = [str(c) for c in (spec.get("columns") or [])]
         if not columns:
-            schema_params: dict[str, Any] = {"table": table}
-            if schema:
-                schema_params["schema"] = schema
-            arguments = self._build_arguments(schema_params, tool_action="columns")
-            if spec.get("connection"):
-                arguments["connection"] = str(spec["connection"])
-            described = await self._call(client, "sql_schema", arguments)
-            if isinstance(described, dict):
-                described = described.get("result", described.get("columns", []))
-            columns = [
-                str(c.get("name"))
-                for c in (described if isinstance(described, list) else [])
-                if isinstance(c, dict) and c.get("name")
-            ]
+            columns = await self._discover_sql_columns(client, spec, table, schema)
         if not columns:
             raise McpToolSourceError(
                 f"sql_table column discovery returned nothing for {table!r}"
@@ -2058,27 +2245,11 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         for col in columns:
             _ident(col, "column")
 
-        text_col = str(spec.get("text_column", "") or "")
-        if not text_col:
-            raise ValueError("sql_table requires a 'text_column'")
-        _ident(text_col, "text_column")
-        title_col = str(spec.get("title_column", "") or "")
-        updated_col = str(spec.get("updated_column", "") or "")
-        for needed in (key, text_col, title_col, updated_col):
-            if needed and needed not in columns:
-                columns.append(_ident(needed, "column"))
-
-        qualified = f"{schema}.{table}" if schema else table
-        select = ", ".join(columns)
-        self._sql = (
-            f"SELECT {select} FROM {qualified} "  # noqa: S608 — identifiers validated above
-            f"WHERE {key} > :after ORDER BY {key}"
+        text_col, title_col, updated_col, columns = self._sql_table_field_columns(
+            spec, columns, key
         )
-        self._sql_since = (
-            f"SELECT {select} FROM {qualified} "  # noqa: S608 — identifiers validated above
-            f"WHERE {key} > :after AND {updated_col} > :since ORDER BY {key}"
-            if updated_col
-            else ""
+        self._sql, self._sql_since = self._sql_table_queries(
+            schema, table, key, columns, updated_col
         )
 
         self.params = {
@@ -2103,44 +2274,50 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
 
     # ── pagination drain ─────────────────────────────────────────────────────
 
-    def _page_params(self, state: dict[str, Any], since: str | None) -> dict[str, Any]:
-        """Per-page params: base + cursor/page position + since watermark."""
-        params = json.loads(json.dumps(self.params, default=str))  # deep copy
+    def _apply_since_watermark(self, params: dict[str, Any], since: str | None) -> None:
         if since and self._sql_since:
             params["sql"] = self._sql_since
             _set_path(params, "params.since", since)
         elif since and self.updated_since_param:
             _set_path(params, self.updated_since_param, since)
+
+    def _apply_page_position(
+        self, params: dict[str, Any], state: dict[str, Any]
+    ) -> None:
+        if not self.page_param:
+            raise ValueError("page pagination requires 'page_param'")
+        page = int(state.get("page", self.start_page))
+        value = page * self.page_size if self.page_kind == "offset" else page
+        _set_path(params, self.page_param, value)
+        if self.page_size_param:
+            _set_path(params, self.page_size_param, self.page_size)
+
+    def _apply_pagination_position(
+        self, params: dict[str, Any], state: dict[str, Any]
+    ) -> None:
         if self.pagination == "cursor" and state.get("cursor") is not None:
             if not self.cursor_param:
                 raise ValueError("cursor pagination requires 'cursor_param'")
             _set_path(params, self.cursor_param, state["cursor"])
         elif self.pagination == "page":
-            if not self.page_param:
-                raise ValueError("page pagination requires 'page_param'")
-            page = int(state.get("page", self.start_page))
-            value = page * self.page_size if self.page_kind == "offset" else page
-            _set_path(params, self.page_param, value)
-            if self.page_size_param:
-                _set_path(params, self.page_size_param, self.page_size)
+            self._apply_page_position(params, state)
+
+    def _page_params(self, state: dict[str, Any], since: str | None) -> dict[str, Any]:
+        """Per-page params: base + cursor/page position + since watermark."""
+        params = json.loads(json.dumps(self.params, default=str))  # deep copy
+        self._apply_since_watermark(params, since)
+        self._apply_pagination_position(params, state)
         return params
 
-    def _advance(
-        self, state: dict[str, Any], result: Any, records: list[dict[str, Any]]
+    def _advance_page(
+        self, state: dict[str, Any], records: list[dict[str, Any]]
     ) -> bool:
-        """Advance pagination ``state`` in place; return True when exhausted."""
-        if self.pagination == "none" or not records:
+        if len(records) < self.page_size:
             return True
-        if self.pagination == "page":
-            if len(records) < self.page_size:
-                return True
-            state["page"] = int(state.get("page", self.start_page)) + 1
-            return False
-        # cursor mode
-        if self.more_path:
-            more = _dig(result, self.more_path) if isinstance(result, dict) else None
-            if not more:
-                return True
+        state["page"] = int(state.get("page", self.start_page)) + 1
+        return False
+
+    def _next_cursor(self, result: Any, records: list[dict[str, Any]]) -> Any:
         nxt: Any = None
         if self.cursor_path and isinstance(result, dict):
             nxt = _dig(result, self.cursor_path)
@@ -2150,10 +2327,124 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 nxt = _extract_query_param(str(nxt), self.cursor_from_query)
         if nxt is None and self.cursor_record_field:
             nxt = _dig(records[-1], self.cursor_record_field)
+        return nxt
+
+    def _advance_cursor(
+        self, state: dict[str, Any], result: Any, records: list[dict[str, Any]]
+    ) -> bool:
+        if self.more_path:
+            more = _dig(result, self.more_path) if isinstance(result, dict) else None
+            if not more:
+                return True
+        nxt = self._next_cursor(result, records)
         if nxt is None or nxt == state.get("cursor"):
             return True
         state["cursor"] = nxt
         return False
+
+    def _advance(
+        self, state: dict[str, Any], result: Any, records: list[dict[str, Any]]
+    ) -> bool:
+        """Advance pagination ``state`` in place; return True when exhausted."""
+        if self.pagination == "none" or not records:
+            return True
+        if self.pagination == "page":
+            return self._advance_page(state, records)
+        return self._advance_cursor(state, result, records)  # cursor mode
+
+    def _is_stale_record(self, record: dict[str, Any], since: str | None) -> bool:
+        """True when a re-poll should skip this record without a detail fetch."""
+        if not (since and self.updated_field):
+            return False
+        updated = _dig(record, self.updated_field)
+        return updated is not None and str(updated) <= str(since)
+
+    async def _drain_record_detail(
+        self, client: Any, record: dict[str, Any]
+    ) -> tuple[str | None, str | None]:
+        if not self.detail:
+            return None, None
+        try:
+            return await self._fetch_detail(client, record)
+        except McpToolSourceError as exc:
+            logger.warning(
+                "[KG-2.59] detail fetch failed for %s: %s",
+                _dig(record, self.id_field),
+                exc,
+            )
+            return None, None
+
+    async def _drain_record(
+        self, client: Any, record: dict[str, Any], since: str | None
+    ) -> SourceDocument | None:
+        """Process one listed record → a document, or None to skip it."""
+        if self._is_stale_record(record, since):
+            return None
+        text, title = await self._drain_record_detail(client, record)
+        if self.detail and text is None:
+            return None
+        return self._to_document(record, text, title)
+
+    def _record_max_updated(
+        self, max_updated: str | None, doc: SourceDocument
+    ) -> str | None:
+        if doc.updated_at is None:
+            return max_updated
+        if max_updated is None or str(doc.updated_at) > str(max_updated):
+            return doc.updated_at
+        return max_updated
+
+    async def _drain_fetch_page(
+        self, client: Any, state: dict[str, Any], since: str | None
+    ) -> tuple[Any, list[dict[str, Any]]]:
+        params = self._page_params(state, since)
+        result = await self._call(client, self.tool, self._build_arguments(params))
+        return result, self._records(result)
+
+    async def _drain_page(
+        self,
+        client: Any,
+        new_state: dict[str, Any],
+        since: str | None,
+        docs: list[SourceDocument],
+        max_updated: str | None,
+    ) -> tuple[Any, list[dict[str, Any]], str | None]:
+        """Fetch + process one page's records; returns (result, records, max_updated)."""
+        result, records = await self._drain_fetch_page(client, new_state, since)
+        for record in records:
+            doc = await self._drain_record(client, record, since)
+            if doc is None:
+                continue
+            docs.append(doc)
+            max_updated = self._record_max_updated(max_updated, doc)
+        return result, records, max_updated
+
+    async def _drain_session(
+        self, state: dict[str, Any], since: str | None, limit: int
+    ) -> tuple[list[SourceDocument], dict[str, Any], bool, str | None]:
+        docs: list[SourceDocument] = []
+        new_state = dict(state)
+        exhausted = False
+        max_updated: str | None = None
+        async with self._open_client() as client:
+            # The live server is authoritative for its MCP contract.  A
+            # governed connector must discover it before making the first
+            # pull call; missing tools/schema drift are hard failures.
+            await self._verify_live_tool_schema(client)
+            if not self._sql_ready:
+                await self._prepare_sql_table(client)
+            pages = 0
+            while pages < self.max_pages:
+                result, records, max_updated = await self._drain_page(
+                    client, new_state, since, docs, max_updated
+                )
+                pages += 1
+                exhausted = self._advance(new_state, result, records)
+                if exhausted or (limit and len(docs) >= limit):
+                    break
+            # max_pages backstop: exhausted stays False so a later poll
+            # resumes from the advanced cursor/page state.
+        return docs, new_state, exhausted, max_updated
 
     def _drain(
         self,
@@ -2168,68 +2459,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         session is opened once, reused for every page and detail call, and
         closed before returning (CONCEPT:AU-KG.ingest.mcp-tool-connector session lifecycle).
         """
-
-        async def run() -> tuple[
-            list[SourceDocument], dict[str, Any], bool, str | None
-        ]:
-            docs: list[SourceDocument] = []
-            new_state = dict(state)
-            exhausted = False
-            max_updated: str | None = None
-            async with self._open_client() as client:
-                # The live server is authoritative for its MCP contract.  A
-                # governed connector must discover it before making the first
-                # pull call; missing tools/schema drift are hard failures.
-                await self._verify_live_tool_schema(client)
-                if not self._sql_ready:
-                    await self._prepare_sql_table(client)
-                pages = 0
-                while pages < self.max_pages:
-                    params = self._page_params(new_state, since)
-                    result = await self._call(
-                        client, self.tool, self._build_arguments(params)
-                    )
-                    records = self._records(result)
-                    for record in records:
-                        if since and self.updated_field:
-                            # Filter before the detail fetch so an unchanged
-                            # record costs zero extra tool calls on a re-poll.
-                            updated = _dig(record, self.updated_field)
-                            if updated is not None and str(updated) <= str(since):
-                                continue
-                        text = title = None
-                        if self.detail:
-                            try:
-                                text, title = await self._fetch_detail(client, record)
-                            except McpToolSourceError as exc:
-                                logger.warning(
-                                    "[KG-2.59] detail fetch failed for %s: %s",
-                                    _dig(record, self.id_field),
-                                    exc,
-                                )
-                                continue
-                            if text is None:
-                                continue
-                        doc = self._to_document(record, text, title)
-                        if doc is None:
-                            continue
-                        docs.append(doc)
-                        if doc.updated_at is not None and (
-                            max_updated is None
-                            or str(doc.updated_at) > str(max_updated)
-                        ):
-                            max_updated = doc.updated_at
-                    pages += 1
-                    exhausted = self._advance(new_state, result, records)
-                    if exhausted:
-                        break
-                    if limit and len(docs) >= limit:
-                        break
-                # max_pages backstop: exhausted stays False so a later poll
-                # resumes from the advanced cursor/page state.
-            return docs, new_state, exhausted, max_updated
-
-        return _run_async(run())
+        return _run_async(self._drain_session(state, since, limit))
 
     # ── LoadConnector / PollConnector ────────────────────────────────────────
 
