@@ -85,8 +85,34 @@ def _prescription(
 
 
 # ── individual checks (each returns one _result; never raises) ──────────────
-def _check_python_env() -> dict[str, Any]:
+def _optional_extras_present() -> dict[str, bool]:
+    """Which optional runtime extras are importable, keyed by human label."""
+    return {
+        label: importlib.util.find_spec(mod) is not None
+        for mod, label in (
+            ("rdflib", "owl/sparql"),
+            ("psycopg", "postgres"),
+            ("stardog", "stardog"),
+        )
+    }
+
+
+def _python_env_detail(ver: str, optional: dict[str, bool]) -> str:
+    """Render the python_env detail line from the resolved extras map."""
     import platform
+
+    present = [k for k, v in optional.items() if v]
+    missing = [k for k, v in optional.items() if not v]
+    detail = (
+        f"Python {platform.python_version()}, agent-utilities {ver}; "
+        f"optional extras present: {present or 'none'}"
+    )
+    if missing:
+        detail += f"; absent (install if needed): {missing}"
+    return detail
+
+
+def _check_python_env() -> dict[str, Any]:
     import sys
 
     try:
@@ -100,26 +126,12 @@ def _check_python_env() -> dict[str, Any]:
             f"agent_utilities not importable ({type(exc).__name__})",
             remediation="pip install agent-utilities[all]",
         )
-    optional = {}
-    for mod, label in (
-        ("rdflib", "owl/sparql"),
-        ("psycopg", "postgres"),
-        ("stardog", "stardog"),
-    ):
-        optional[label] = importlib.util.find_spec(mod) is not None
+    optional = _optional_extras_present()
     py_ok = sys.version_info >= (3, 10)
-    missing = [k for k, v in optional.items() if not v]
-    status = "ok" if py_ok else "warn"
-    detail = (
-        f"Python {platform.python_version()}, agent-utilities {ver}; "
-        f"optional extras present: {[k for k, v in optional.items() if v] or 'none'}"
-    )
-    if missing:
-        detail += f"; absent (install if needed): {missing}"
     return _result(
         "python_env",
-        status,
-        detail,
+        "ok" if py_ok else "warn",
+        _python_env_detail(str(ver), optional),
         remediation=None if py_ok else "agent-utilities needs Python 3.10+",
         data=optional,
     )
@@ -247,23 +259,26 @@ def _check_evolution_staging() -> dict[str, Any]:
     )
 
 
-def _check_execution_security() -> dict[str, Any]:
-    """Surface dangerous host-execution escape hatches without executing them."""
+def _is_loopback_listener(listener: str, aliases: set[str]) -> bool:
+    """Whether a bind address is loopback, treating ``aliases`` as loopback names."""
     try:
-        from agent_utilities.core.config import AgentConfig
+        return ipaddress.ip_address(listener).is_loopback
+    except ValueError:
+        return listener in aliases
 
-        cfg = AgentConfig()
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "execution_security",
-            "error",
-            f"execution security configuration unavailable ({type(exc).__name__})",
-        )
+
+def _execution_security_hazards(cfg: Any) -> list[str]:
+    """The enabled host-execution escape hatches, in report order."""
     hazards: list[str] = []
     if cfg.kg_loop_allow_host_validation:
         hazards.append("develop_loop_host_validation")
     if cfg.messaging_alert_intake_allow_remote:
         hazards.append("remote_alert_intake")
+    return hazards
+
+
+def _execution_security_cors(cfg: Any, hazards: list[str]) -> dict[str, Any] | None:
+    """Credentialed CORS must have an explicit, wildcard-free origin allowlist."""
     if cfg.cors_allow_credentials and (
         not cfg.allowed_origins
         or "*" in {value.strip() for value in cfg.allowed_origins.split(",")}
@@ -278,6 +293,13 @@ def _check_execution_security() -> dict[str, Any]:
             ),
             data={"unsafe_execution_hazards": hazards},
         )
+    return None
+
+
+def _execution_security_host_allowlist(
+    cfg: Any, hazards: list[str]
+) -> dict[str, Any] | None:
+    """A configured Host-header allowlist may never contain a wildcard."""
     if cfg.allowed_hosts and "*" in {
         value.strip() for value in cfg.allowed_hosts.split(",")
     }:
@@ -288,57 +310,90 @@ def _check_execution_security() -> dict[str, Any]:
             remediation=("Replace ALLOWED_HOSTS=* with exact authority names."),
             data={"unsafe_execution_hazards": hazards},
         )
+    return None
+
+
+def _execution_security_listener(cfg: Any, hazards: list[str]) -> dict[str, Any] | None:
+    """A non-loopback REST listener needs authentication AND a Host allowlist."""
     listener = cfg.host.strip().strip("[]").lower()
+    if _is_loopback_listener(listener, {"localhost"}):
+        return None
+    if not bool(cfg.auth_jwt_jwks_uri):
+        return _result(
+            "execution_security",
+            "fail",
+            "a non-loopback REST listener has no authentication boundary",
+            remediation=("Configure JWT authentication or bind HOST to loopback."),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    if not cfg.allowed_hosts:
+        return _result(
+            "execution_security",
+            "fail",
+            "a non-loopback REST listener has no Host-header allowlist",
+            remediation="Set ALLOWED_HOSTS to the exact served authority names.",
+            data={"unsafe_execution_hazards": hazards},
+        )
+    return None
+
+
+def _execution_security_alert_intake(
+    cfg: Any, hazards: list[str]
+) -> dict[str, Any] | None:
+    """An enabled alert intake needs a token ref, and loopback unless approved."""
+    if cfg.messaging_alert_intake_port is None:
+        return None
+    if not cfg.messaging_alert_intake_token_ref:
+        return _result(
+            "execution_security",
+            "fail",
+            "messaging alert intake is enabled without a token reference",
+            remediation=(
+                "Set MESSAGING_ALERT_INTAKE_TOKEN_REF to a runtime secret-provider "
+                "reference or disable MESSAGING_ALERT_INTAKE_PORT."
+            ),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    alert_listener = cfg.messaging_alert_intake_host.strip().strip("[]").lower()
+    alert_loopback = _is_loopback_listener(alert_listener, {"localhost", "localhost."})
+    if not alert_loopback and not cfg.messaging_alert_intake_allow_remote:
+        return _result(
+            "execution_security",
+            "fail",
+            "messaging alert intake requests a non-loopback bind without approval",
+            remediation=(
+                "Bind MESSAGING_ALERT_INTAKE_HOST to loopback or explicitly set "
+                "MESSAGING_ALERT_INTAKE_ALLOW_REMOTE=true behind a protected ingress."
+            ),
+            data={"unsafe_execution_hazards": hazards},
+        )
+    return None
+
+
+def _check_execution_security() -> dict[str, Any]:
+    """Surface dangerous host-execution escape hatches without executing them."""
     try:
-        loopback_listener = ipaddress.ip_address(listener).is_loopback
-    except ValueError:
-        loopback_listener = listener == "localhost"
-    if not loopback_listener:
-        authenticated = bool(cfg.auth_jwt_jwks_uri)
-        if not authenticated:
-            return _result(
-                "execution_security",
-                "fail",
-                "a non-loopback REST listener has no authentication boundary",
-                remediation=("Configure JWT authentication or bind HOST to loopback."),
-                data={"unsafe_execution_hazards": hazards},
-            )
-        if not cfg.allowed_hosts:
-            return _result(
-                "execution_security",
-                "fail",
-                "a non-loopback REST listener has no Host-header allowlist",
-                remediation="Set ALLOWED_HOSTS to the exact served authority names.",
-                data={"unsafe_execution_hazards": hazards},
-            )
-    if cfg.messaging_alert_intake_port is not None:
-        if not cfg.messaging_alert_intake_token_ref:
-            return _result(
-                "execution_security",
-                "fail",
-                "messaging alert intake is enabled without a token reference",
-                remediation=(
-                    "Set MESSAGING_ALERT_INTAKE_TOKEN_REF to a runtime secret-provider "
-                    "reference or disable MESSAGING_ALERT_INTAKE_PORT."
-                ),
-                data={"unsafe_execution_hazards": hazards},
-            )
-        alert_listener = cfg.messaging_alert_intake_host.strip().strip("[]").lower()
-        try:
-            alert_loopback = ipaddress.ip_address(alert_listener).is_loopback
-        except ValueError:
-            alert_loopback = alert_listener in {"localhost", "localhost."}
-        if not alert_loopback and not cfg.messaging_alert_intake_allow_remote:
-            return _result(
-                "execution_security",
-                "fail",
-                "messaging alert intake requests a non-loopback bind without approval",
-                remediation=(
-                    "Bind MESSAGING_ALERT_INTAKE_HOST to loopback or explicitly set "
-                    "MESSAGING_ALERT_INTAKE_ALLOW_REMOTE=true behind a protected ingress."
-                ),
-                data={"unsafe_execution_hazards": hazards},
-            )
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "execution_security",
+            "error",
+            f"execution security configuration unavailable ({type(exc).__name__})",
+        )
+    hazards = _execution_security_hazards(cfg)
+    # Evaluated in this exact order: a doubly-misconfigured deployment must
+    # keep reporting the same first failure it always did.
+    for guard in (
+        _execution_security_cors,
+        _execution_security_host_allowlist,
+        _execution_security_listener,
+        _execution_security_alert_intake,
+    ):
+        failure = guard(cfg, hazards)
+        if failure is not None:
+            return failure
     if hazards:
         return _result(
             "execution_security",
@@ -625,9 +680,7 @@ def _resolve_engine_transport_data(cfg: Any, resolver: Any) -> dict[str, Any]:
         )
         engine_data.update(
             verify_enabled=engine_trust.verify_enabled,
-            custom_ca=bool(
-                engine_trust.ca_bundle_path or engine_trust.ca_directory
-            ),
+            custom_ca=bool(engine_trust.ca_bundle_path or engine_trust.ca_directory),
             mtls=bool(engine_trust.client_cert_path),
         )
         engine_trust.cleanup()
@@ -638,13 +691,9 @@ def _connector_name_uniqueness(cfg: Any) -> tuple[bool, bool]:
     source_aliases = [
         connector.source_alias for connector in cfg.external_graph_connectors
     ]
-    connection_names = [
-        connector.name for connector in cfg.external_graph_connectors
-    ]
+    connection_names = [connector.name for connector in cfg.external_graph_connectors]
     source_aliases_unique = (
-        bool(
-            all(source_aliases) and len(set(source_aliases)) == len(source_aliases)
-        )
+        bool(all(source_aliases) and len(set(source_aliases)) == len(source_aliases))
         if source_aliases
         else True
     )
@@ -675,26 +724,18 @@ def _build_connector_sync_policy(connector: Any, property_graph: bool) -> dict |
     if not property_graph:
         return None
     return {
-        "allow_empty_snapshot": bool(
-            getattr(connector, "allow_empty_snapshot", False)
-        ),
+        "allow_empty_snapshot": bool(getattr(connector, "allow_empty_snapshot", False)),
         "max_pages": int(getattr(connector, "ingest_max_pages", 100)),
-        "max_row_bytes": int(
-            getattr(connector, "ingest_max_row_bytes", 1_048_576)
-        ),
+        "max_row_bytes": int(getattr(connector, "ingest_max_row_bytes", 1_048_576)),
         "max_total_bytes": int(
             getattr(connector, "ingest_max_total_bytes", 16_777_216)
         ),
-        "max_nesting_depth": int(
-            getattr(connector, "ingest_max_nesting_depth", 16)
-        ),
+        "max_nesting_depth": int(getattr(connector, "ingest_max_nesting_depth", 16)),
         "max_collection_items": int(
             getattr(connector, "ingest_max_collection_items", 10_000)
         ),
         "page_size": int(getattr(connector, "ingest_page_size", 500)),
-        "reconcile_deletions": bool(
-            getattr(connector, "reconcile_deletions", True)
-        ),
+        "reconcile_deletions": bool(getattr(connector, "reconcile_deletions", True)),
         "sync_mode": str(getattr(connector, "sync_mode", "auto")),
     }
 
@@ -731,9 +772,7 @@ def _graphql_connection_ref_ready(parsed: dict[str, Any]) -> bool:
 
     return parsed.get(
         "profile_format"
-    ) == GRAPHQL_CONNECTION_PROFILE_FORMAT and isinstance(
-        parsed.get("endpoint"), str
-    )
+    ) == GRAPHQL_CONNECTION_PROFILE_FORMAT and isinstance(parsed.get("endpoint"), str)
 
 
 def _graphql_mapping_ref_ready(parsed: dict[str, Any]) -> bool:
@@ -757,9 +796,7 @@ def _graphql_auth_ref_ready(parsed: dict[str, Any]) -> bool:
         GRAPHQL_AUTH_PROFILE_FORMAT,
     )
 
-    return parsed.get(
-        "profile_format"
-    ) == GRAPHQL_AUTH_PROFILE_FORMAT and isinstance(
+    return parsed.get("profile_format") == GRAPHQL_AUTH_PROFILE_FORMAT and isinstance(
         parsed.get("headers", {}), dict
     )
 
@@ -798,10 +835,7 @@ def _resolve_one_connector_ref(
         else:
             resolved = resolver(ref) if resolver is not None else None
             ready = bool(resolved)
-        if (
-            label in {"auth", "connection", "mapping", "variables"}
-            and ready
-        ):
+        if label in {"auth", "connection", "mapping", "variables"} and ready:
             parsed = _parse_bounded_secret_json(resolved)
             ready = isinstance(parsed, dict)
             if label == "mapping" and ready:
@@ -869,9 +903,7 @@ def _resolve_graphql_mapping_status(
         tls_profile_ref=connector.tls_profile_ref,
         variables_ref=getattr(connector, "variables_ref", None),
         allow_introspection=connector.allow_introspection,
-        allow_empty_snapshot=bool(
-            getattr(connector, "allow_empty_snapshot", False)
-        ),
+        allow_empty_snapshot=bool(getattr(connector, "allow_empty_snapshot", False)),
         resolver=resolver,
     )
     try:
@@ -908,9 +940,7 @@ def _resolve_property_graph_mapping_status(
     else:
         current_policy = None
     current_policy_digest = (
-        external_mapping_policy_digest(
-            {**current_policy, "sync": sync_policy}
-        )
+        external_mapping_policy_digest({**current_policy, "sync": sync_policy})
         if current_policy is not None and sync_policy is not None
         else None
     )
@@ -972,9 +1002,7 @@ def _build_connector_result_dict(
         "refs_ready": readiness,
         "mapping_lifecycle": lifecycle,
         "mapping_policy_drift": mapping_policy_drift,
-        "capability_bundle_ready": (
-            property_bundle_ready if property_graph else None
-        ),
+        "capability_bundle_ready": (property_bundle_ready if property_graph else None),
         "sync_policy": sync_policy,
         "semantic_mapping": connector.semantic_mapping,
         "generated_mapping": bool(
@@ -1148,9 +1176,7 @@ def _check_transport_security() -> dict[str, Any]:
     try:
         cfg, resolver, secrets_client, tls_data = _resolve_tls_profile_data()
         engine_data = _resolve_engine_transport_data(cfg, resolver)
-        source_aliases_unique, connection_names_unique = _connector_name_uniqueness(
-            cfg
-        )
+        source_aliases_unique, connection_names_unique = _connector_name_uniqueness(cfg)
 
         connectors: list[dict[str, Any]] = []
         unresolved = [0]
@@ -1185,6 +1211,7 @@ def _check_transport_security() -> dict[str, Any]:
         engine_data,
         tls_data,
     )
+
 
 def _check_google_workspace_oauth() -> dict[str, Any]:
     """Validate optional OAuth bootstrap without disclosing tenant configuration."""
@@ -1228,14 +1255,65 @@ def _check_google_workspace_oauth() -> dict[str, Any]:
     )
 
 
+def _egress_tls_profiles(cfg: Any) -> dict[str, Any]:
+    """Resolve the model/embedding/OAuth2-token TLS profiles, in that order."""
+    from agent_utilities.core.transport_security import (
+        resolve_tls_profile,
+        tls_environment_from_config,
+    )
+
+    tls_environment = tls_environment_from_config(cfg)
+    return {
+        "model": resolve_tls_profile(
+            "model",
+            profile_name=cfg.model_tls_profile,
+            profile_ref=cfg.model_tls_profile_ref,
+            environ=tls_environment,
+        ),
+        "embedding": resolve_tls_profile(
+            "embedding",
+            profile_name=cfg.embedding_tls_profile,
+            profile_ref=cfg.embedding_tls_profile_ref,
+            environ=tls_environment,
+        ),
+        "oauth2_token": resolve_tls_profile(
+            "oauth2-token",
+            profile_name=cfg.oauth2_token_tls_profile,
+            profile_ref=cfg.oauth2_token_tls_profile_ref,
+            environ=tls_environment,
+        ),
+    }
+
+
+def _egress_tls_data(cfg: Any) -> tuple[dict[str, Any], bool]:
+    """(redacted model-transport data, whether any model proxy is configured)."""
+    profiles = _egress_tls_profiles(cfg)
+    proxy_configured = bool(
+        profiles["model"].proxy_url
+        or profiles["embedding"].proxy_url
+        or profiles["oauth2_token"].proxy_url
+    )
+    data: dict[str, Any] = {}
+    for label, profile in profiles.items():
+        data[f"{label}_verify_enabled"] = profile.verify_enabled
+        data[f"{label}_custom_ca"] = bool(
+            profile.ca_bundle_path or profile.ca_directory
+        )
+        data[f"{label}_mtls"] = bool(profile.client_cert_path)
+    data["oauth2_model_count"] = sum(
+        bool(getattr(model, "oauth2", None))
+        for model in (*cfg.chat_models, *cfg.embedding_models)
+    )
+    data["model_proxy_configured"] = proxy_configured
+    for profile in profiles.values():
+        profile.cleanup()
+    return data, proxy_configured
+
+
 def _check_source_egress() -> dict[str, Any]:
     """Report the shared SSRF/redirect/body boundary without exposing hosts."""
     try:
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.core.transport_security import (
-            resolve_tls_profile,
-            tls_environment_from_config,
-        )
         from agent_utilities.protocols.source_connectors.http_safety import (
             normalize_allowed_hosts,
         )
@@ -1246,52 +1324,7 @@ def _check_source_egress() -> dict[str, Any]:
         model_private_hosts = normalize_allowed_hosts(
             cfg.model_http_allowed_private_hosts
         )
-        tls_environment = tls_environment_from_config(cfg)
-        model_tls = resolve_tls_profile(
-            "model",
-            profile_name=cfg.model_tls_profile,
-            profile_ref=cfg.model_tls_profile_ref,
-            environ=tls_environment,
-        )
-        embedding_tls = resolve_tls_profile(
-            "embedding",
-            profile_name=cfg.embedding_tls_profile,
-            profile_ref=cfg.embedding_tls_profile_ref,
-            environ=tls_environment,
-        )
-        oauth2_token_tls = resolve_tls_profile(
-            "oauth2-token",
-            profile_name=cfg.oauth2_token_tls_profile,
-            profile_ref=cfg.oauth2_token_tls_profile_ref,
-            environ=tls_environment,
-        )
-        model_proxy_configured = bool(
-            model_tls.proxy_url or embedding_tls.proxy_url or oauth2_token_tls.proxy_url
-        )
-        oauth2_model_count = sum(
-            bool(getattr(model, "oauth2", None))
-            for model in (*cfg.chat_models, *cfg.embedding_models)
-        )
-        model_tls_data = {
-            "model_verify_enabled": model_tls.verify_enabled,
-            "model_custom_ca": bool(model_tls.ca_bundle_path or model_tls.ca_directory),
-            "model_mtls": bool(model_tls.client_cert_path),
-            "embedding_verify_enabled": embedding_tls.verify_enabled,
-            "embedding_custom_ca": bool(
-                embedding_tls.ca_bundle_path or embedding_tls.ca_directory
-            ),
-            "embedding_mtls": bool(embedding_tls.client_cert_path),
-            "oauth2_token_verify_enabled": oauth2_token_tls.verify_enabled,
-            "oauth2_token_custom_ca": bool(
-                oauth2_token_tls.ca_bundle_path or oauth2_token_tls.ca_directory
-            ),
-            "oauth2_token_mtls": bool(oauth2_token_tls.client_cert_path),
-            "oauth2_model_count": oauth2_model_count,
-            "model_proxy_configured": model_proxy_configured,
-        }
-        model_tls.cleanup()
-        embedding_tls.cleanup()
-        oauth2_token_tls.cleanup()
+        model_tls_data, model_proxy_configured = _egress_tls_data(cfg)
     except Exception as exc:  # noqa: BLE001 - doctor must remain defensive
         return _result(
             "source_egress",
@@ -1343,20 +1376,108 @@ def _check_source_egress() -> dict[str, Any]:
     )
 
 
+def _eunomia_embedded_result(cfg: Any) -> dict[str, Any]:
+    """Verdict for ``EUNOMIA_TYPE=embedded``: the policy file must be readable."""
+    from pathlib import Path
+
+    policy = str(cfg.eunomia_policy_file or "mcp_policies.json")
+    ready = Path(policy).expanduser().is_file()
+    return _result(
+        "eunomia",
+        "ok" if ready else "fail",
+        (
+            "embedded native MCP policy is configured"
+            if ready
+            else "embedded MCP policy file is unavailable"
+        ),
+        remediation=(
+            None
+            if ready
+            else "Set EUNOMIA_POLICY_FILE to a runtime-mounted policy document."
+        ),
+        data={"mode": "embedded", "ready": ready},
+    )
+
+
+def _eunomia_require_bounded_endpoint(cfg: Any, private_hosts: Any) -> None:
+    """Raise unless the remote PDP endpoint is present, allowlisted, and HTTPS."""
+    from urllib.parse import urlsplit
+
+    from agent_utilities.protocols.source_connectors.http_safety import (
+        require_safe_source_url,
+    )
+
+    endpoint = str(cfg.eunomia_remote_url or "")
+    if not endpoint:
+        raise ValueError("remote endpoint is missing")
+    host = require_safe_source_url(
+        endpoint,
+        allowed_private_hosts=private_hosts,
+        resolve_dns=False,
+    )
+    parsed = urlsplit(endpoint)
+    insecure_transport = parsed.scheme == "http" and host not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+    if insecure_transport:
+        raise ValueError("remote endpoint requires HTTPS")
+
+
+def _eunomia_tls_data(cfg: Any) -> dict[str, Any]:
+    """Redacted TLS posture for the remote PDP transport."""
+    from agent_utilities.core.transport_security import (
+        resolve_tls_profile,
+        tls_environment_from_config,
+    )
+
+    trust = resolve_tls_profile(
+        "eunomia",
+        profile_name=cfg.eunomia_tls_profile,
+        profile_ref=cfg.eunomia_tls_profile_ref,
+        environ=tls_environment_from_config(cfg),
+    )
+    tls_data = {
+        "verify_enabled": trust.verify_enabled,
+        "custom_ca": bool(trust.ca_bundle_path or trust.ca_directory),
+        "mtls": bool(trust.client_cert_path),
+        "proxy_configured": bool(trust.proxy_url),
+    }
+    trust.cleanup()
+    return tls_data
+
+
+def _eunomia_remote_result(cfg: Any, private_hosts: Any) -> dict[str, Any]:
+    """Verdict for ``EUNOMIA_TYPE=remote``; raises when the endpoint is unsound."""
+    _eunomia_require_bounded_endpoint(cfg, private_hosts)
+    tls_data = _eunomia_tls_data(cfg)
+    if tls_data["proxy_configured"]:
+        raise ValueError("remote policy proxy is incompatible with DNS pinning")
+    return _result(
+        "eunomia",
+        "ok",
+        ("remote native MCP policy authorization is bounded and TLS-verified"),
+        remediation=None,
+        data={
+            "mode": "remote",
+            "ready": True,
+            "private_host_allowlist_count": len(private_hosts),
+            "api_key_ref_configured": bool(cfg.eunomia_api_key_ref),
+            "timeout_seconds": cfg.eunomia_timeout_seconds,
+            "max_response_bytes": cfg.eunomia_max_response_bytes,
+            "bulk_check_max": cfg.eunomia_bulk_check_max,
+            **tls_data,
+        },
+    )
+
+
 def _check_eunomia() -> dict[str, Any]:
     """Validate the native policy-decision-point configuration without I/O."""
     try:
-        from pathlib import Path
-        from urllib.parse import urlsplit
-
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.core.transport_security import (
-            resolve_tls_profile,
-            tls_environment_from_config,
-        )
         from agent_utilities.protocols.source_connectors.http_safety import (
             normalize_allowed_hosts,
-            require_safe_source_url,
         )
 
         cfg = AgentConfig()
@@ -1370,72 +1491,8 @@ def _check_eunomia() -> dict[str, Any]:
                 data={"mode": "none", "ready": True},
             )
         if mode == "embedded":
-            policy = str(cfg.eunomia_policy_file or "mcp_policies.json")
-            ready = Path(policy).expanduser().is_file()
-            return _result(
-                "eunomia",
-                "ok" if ready else "fail",
-                (
-                    "embedded native MCP policy is configured"
-                    if ready
-                    else "embedded MCP policy file is unavailable"
-                ),
-                remediation=(
-                    None
-                    if ready
-                    else "Set EUNOMIA_POLICY_FILE to a runtime-mounted policy document."
-                ),
-                data={"mode": "embedded", "ready": ready},
-            )
-
-        endpoint = str(cfg.eunomia_remote_url or "")
-        if not endpoint:
-            raise ValueError("remote endpoint is missing")
-        host = require_safe_source_url(
-            endpoint,
-            allowed_private_hosts=private_hosts,
-            resolve_dns=False,
-        )
-        parsed = urlsplit(endpoint)
-        insecure_transport = parsed.scheme == "http" and host not in {
-            "localhost",
-            "127.0.0.1",
-            "::1",
-        }
-        if insecure_transport:
-            raise ValueError("remote endpoint requires HTTPS")
-        trust = resolve_tls_profile(
-            "eunomia",
-            profile_name=cfg.eunomia_tls_profile,
-            profile_ref=cfg.eunomia_tls_profile_ref,
-            environ=tls_environment_from_config(cfg),
-        )
-        tls_data = {
-            "verify_enabled": trust.verify_enabled,
-            "custom_ca": bool(trust.ca_bundle_path or trust.ca_directory),
-            "mtls": bool(trust.client_cert_path),
-            "proxy_configured": bool(trust.proxy_url),
-        }
-        trust.cleanup()
-        if tls_data["proxy_configured"]:
-            raise ValueError("remote policy proxy is incompatible with DNS pinning")
-        status = "ok"
-        return _result(
-            "eunomia",
-            status,
-            ("remote native MCP policy authorization is bounded and TLS-verified"),
-            remediation=None,
-            data={
-                "mode": "remote",
-                "ready": True,
-                "private_host_allowlist_count": len(private_hosts),
-                "api_key_ref_configured": bool(cfg.eunomia_api_key_ref),
-                "timeout_seconds": cfg.eunomia_timeout_seconds,
-                "max_response_bytes": cfg.eunomia_max_response_bytes,
-                "bulk_check_max": cfg.eunomia_bulk_check_max,
-                **tls_data,
-            },
-        )
+            return _eunomia_embedded_result(cfg)
+        return _eunomia_remote_result(cfg, private_hosts)
     except Exception as exc:  # noqa: BLE001 - doctor is a defensive boundary
         return _result(
             "eunomia",
@@ -1450,6 +1507,52 @@ def _check_eunomia() -> dict[str, Any]:
         )
 
 
+def _inventory_format_ready(inventory_path: Any) -> bool:
+    """Whether the inventory file parses as a bounded YAML mapping."""
+    try:
+        import yaml
+
+        with inventory_path.open("rb") as stream:
+            raw_inventory = stream.read(8 * 1024 * 1024 + 1)
+        if len(raw_inventory) > 8 * 1024 * 1024:
+            return False
+        return isinstance(yaml.safe_load(raw_inventory.decode("utf-8")), dict)
+    except Exception:  # noqa: BLE001 - readiness is redacted
+        return False
+
+
+def _inventory_readiness(raw_path: Any) -> tuple[bool, bool]:
+    """``(file_ready, format_ready)`` for the optional infrastructure inventory."""
+    from pathlib import Path
+
+    try:
+        inventory_path = Path(str(raw_path)).expanduser()
+        file_ready = inventory_path.is_file()
+    except (OSError, ValueError):
+        return False, False
+    if not file_ready:
+        return False, False
+    return True, _inventory_format_ready(inventory_path)
+
+
+def _media_endpoint_count(cfg: Any) -> int:
+    """How many of the nine optional media endpoints are configured."""
+    return sum(
+        bool(value)
+        for value in (
+            cfg.comfyui_url,
+            cfg.xtts_url,
+            cfg.openai_tts_url,
+            cfg.whisper_url,
+            cfg.faster_whisper_url,
+            cfg.flux_url,
+            cfg.sd35_url,
+            cfg.hunyuan_url,
+            cfg.svd_url,
+        )
+    )
+
+
 def _check_runtime_integrations() -> dict[str, Any]:
     """Validate optional fleet, inventory, and media configuration offline.
 
@@ -1458,8 +1561,6 @@ def _check_runtime_integrations() -> dict[str, Any]:
     without returning any configured value or making a network request.
     """
     try:
-        from pathlib import Path
-
         from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
@@ -1467,38 +1568,11 @@ def _check_runtime_integrations() -> dict[str, Any]:
         inventory_file_ready = False
         inventory_format_ready = False
         if inventory_configured:
-            try:
-                inventory_path = Path(str(cfg.infra_inventory_path)).expanduser()
-                inventory_file_ready = inventory_path.is_file()
-            except (OSError, ValueError):
-                inventory_file_ready = False
-            if inventory_file_ready:
-                try:
-                    import yaml
-
-                    with inventory_path.open("rb") as stream:
-                        raw_inventory = stream.read(8 * 1024 * 1024 + 1)
-                    if len(raw_inventory) <= 8 * 1024 * 1024:
-                        inventory = yaml.safe_load(raw_inventory.decode("utf-8"))
-                        inventory_format_ready = isinstance(inventory, dict)
-                except Exception:  # noqa: BLE001 - readiness is redacted
-                    inventory_format_ready = False
-
-        fleet_template_configured = bool(cfg.fleet_mcp_url_template)
-        media_endpoint_count = sum(
-            bool(value)
-            for value in (
-                cfg.comfyui_url,
-                cfg.xtts_url,
-                cfg.openai_tts_url,
-                cfg.whisper_url,
-                cfg.faster_whisper_url,
-                cfg.flux_url,
-                cfg.sd35_url,
-                cfg.hunyuan_url,
-                cfg.svd_url,
+            inventory_file_ready, inventory_format_ready = _inventory_readiness(
+                cfg.infra_inventory_path
             )
-        )
+        fleet_template_configured = bool(cfg.fleet_mcp_url_template)
+        media_endpoint_count = _media_endpoint_count(cfg)
     except Exception as exc:  # noqa: BLE001 - doctor must remain defensive
         return _result(
             "runtime_integrations",
@@ -1511,6 +1585,25 @@ def _check_runtime_integrations() -> dict[str, Any]:
             data={"ready": False, "redacted": True},
         )
 
+    return _runtime_integrations_result(
+        inventory_configured=inventory_configured,
+        inventory_file_ready=inventory_file_ready,
+        inventory_format_ready=inventory_format_ready,
+        fleet_template_configured=fleet_template_configured,
+        media_endpoint_count=media_endpoint_count,
+    )
+
+
+def _runtime_integrations_result(
+    *,
+    inventory_configured: bool,
+    inventory_file_ready: bool,
+    inventory_format_ready: bool,
+    fleet_template_configured: bool,
+    media_endpoint_count: int,
+) -> dict[str, Any]:
+    """Turn the resolved runtime-integration readiness flags into one verdict."""
+    inventory_ready = inventory_file_ready and inventory_format_ready
     configured_category_count = sum(
         (
             inventory_configured,
@@ -1520,7 +1613,7 @@ def _check_runtime_integrations() -> dict[str, Any]:
     )
     ready_category_count = sum(
         (
-            inventory_configured and inventory_file_ready and inventory_format_ready,
+            inventory_configured and inventory_ready,
             fleet_template_configured,
             media_endpoint_count > 0,
         )
@@ -1544,7 +1637,7 @@ def _check_runtime_integrations() -> dict[str, Any]:
             "optional inventory, fleet-template, and media endpoints are not configured",
             data=data,
         )
-    if inventory_configured and not (inventory_file_ready and inventory_format_ready):
+    if inventory_configured and not inventory_ready:
         return _result(
             "runtime_integrations",
             "warn",
@@ -1565,49 +1658,68 @@ def _check_runtime_integrations() -> dict[str, Any]:
     )
 
 
-def _check_engine() -> dict[str, Any]:
-    try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
-        from agent_utilities.knowledge_graph.core.graph_compute import (
-            engine_encryption_readiness,
-        )
-        from agent_utilities.knowledge_graph.core.placement_catalog import (
-            discovery_reachable,
-        )
-        from agent_utilities.knowledge_graph.core.shard_topology import (
-            default_graph_name,
-            shard_topology_status,
-        )
+def _engine_endpoint_reachability(
+    st: dict[str, Any], cfg: Any
+) -> tuple[list, list, Any]:
+    """``(endpoints, reachable, discovery_ready)`` for the resolved topology.
 
-        cfg = AgentConfig()
-        st = shard_topology_status(cfg, probe=True, timeout=0.5)
-        resolved = resolve_engine(cfg, default_graph_name(cfg))
-        encryption = engine_encryption_readiness(cfg, remote=resolved.mode == "remote")
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "engine",
-            "error",
-            f"shard topology probe failed ({type(exc).__name__})",
-        )
-    st["resolved_mode"] = resolved.mode
+    A static group map is retained for migration/configuration audit only; it
+    cannot satisfy the live placement authority. Probe whether authenticated
+    ClusterMembers answers from a reachable seed for every multi-contact
+    topology, even when legacy map data is present. The probe is an
+    authenticated RPC (unlike the cheap raw-connect check), and the hermetic
+    testing guard makes it fail closed without dialing.
+    """
+    from agent_utilities.knowledge_graph.core.placement_catalog import (
+        discovery_reachable,
+    )
+
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
-    # A static group map is retained for migration/configuration audit only; it
-    # cannot satisfy the live placement authority. Probe whether authenticated
-    # ClusterMembers answers from a reachable seed for every multi-contact
-    # topology, even when legacy map data is present. The probe is an
-    # authenticated RPC (unlike the cheap raw-connect check above), and the
-    # hermetic testing guard makes it fail closed without dialing.
     discovery_ready = (
         discovery_reachable([e["endpoint"] for e in reachable], cfg)
         if len(endpoints) > 1
         else None
     )
-    # Endpoint strings can contain hostnames, usernames, local socket paths, or
-    # customer-specific topology names. Doctor is frequently copied into issue
-    # reports and traces, so expose readiness counts only.
-    redacted_status = {
+    return endpoints, reachable, discovery_ready
+
+
+def _engine_resource_limits(cfg: Any) -> dict[str, Any]:
+    """The engine's configured request/response and extraction size bounds."""
+    return {
+        "request_bytes": getattr(cfg, "epistemic_graph_max_request_bytes", 0),
+        "response_bytes": getattr(cfg, "epistemic_graph_max_response_bytes", 0),
+        "msgpack_items": getattr(cfg, "epistemic_graph_max_msgpack_items", 0),
+        "ast_files": getattr(cfg, "epistemic_graph_ast_max_files", 0),
+        "ast_source_bytes": getattr(cfg, "epistemic_graph_ast_max_source_bytes", 0),
+        "ast_total_bytes": getattr(cfg, "epistemic_graph_ast_max_total_bytes", 0),
+        "modality_bundle_bytes": getattr(
+            cfg, "epistemic_graph_modality_max_bundle_bytes", 0
+        ),
+        "modality_source_bytes": getattr(
+            cfg, "epistemic_graph_modality_max_source_bytes", 0
+        ),
+        "sqlite_bytes": getattr(cfg, "epistemic_graph_sqlite_max_bytes", 0),
+        "sqlite_rows": getattr(cfg, "epistemic_graph_sqlite_max_rows", 0),
+    }
+
+
+def _engine_redacted_status(
+    cfg: Any,
+    st: dict[str, Any],
+    resolved: Any,
+    encryption: dict[str, Any],
+    reachable: list,
+    discovery_ready: Any,
+) -> dict[str, Any]:
+    """Readiness counts only.
+
+    Endpoint strings can contain hostnames, usernames, local socket paths, or
+    customer-specific topology names. Doctor is frequently copied into issue
+    reports and traces, so expose readiness counts only.
+    """
+    endpoints = st.get("endpoints", [])
+    return {
         "resolved_mode": resolved.mode,
         "topology_mode": st.get("mode", "unknown"),
         "configured_endpoint_count": len(endpoints),
@@ -1626,24 +1738,193 @@ def _check_engine() -> dict[str, Any]:
                 getattr(cfg, "epistemic_graph_backup_root_ref", None),
             )
         ),
-        "resource_limits": {
-            "request_bytes": getattr(cfg, "epistemic_graph_max_request_bytes", 0),
-            "response_bytes": getattr(cfg, "epistemic_graph_max_response_bytes", 0),
-            "msgpack_items": getattr(cfg, "epistemic_graph_max_msgpack_items", 0),
-            "ast_files": getattr(cfg, "epistemic_graph_ast_max_files", 0),
-            "ast_source_bytes": getattr(cfg, "epistemic_graph_ast_max_source_bytes", 0),
-            "ast_total_bytes": getattr(cfg, "epistemic_graph_ast_max_total_bytes", 0),
-            "modality_bundle_bytes": getattr(
-                cfg, "epistemic_graph_modality_max_bundle_bytes", 0
-            ),
-            "modality_source_bytes": getattr(
-                cfg, "epistemic_graph_modality_max_source_bytes", 0
-            ),
-            "sqlite_bytes": getattr(cfg, "epistemic_graph_sqlite_max_bytes", 0),
-            "sqlite_rows": getattr(cfg, "epistemic_graph_sqlite_max_rows", 0),
-        },
+        "resource_limits": _engine_resource_limits(cfg),
         "redacted": True,
     }
+
+
+def _engine_runtime_directory_refs(cfg: Any) -> tuple[Any, ...]:
+    """The configured local runtime-directory references, in check order."""
+    return tuple(
+        reference
+        for reference in (
+            getattr(cfg, "epistemic_graph_sqlite_transfer_root_ref", None),
+            getattr(cfg, "epistemic_graph_backup_root_ref", None),
+        )
+        if reference
+    )
+
+
+def _rendered_directory_reference(resolver: Any, reference: Any) -> str:
+    """Resolve one reference to a bounded, control-character-free directory string."""
+    raw = resolver.resolve_ref(reference)
+    rendered = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > 4_096
+        or any(ord(character) < 32 for character in rendered)
+    ):
+        raise ValueError("invalid runtime directory")
+    return rendered
+
+
+def _assert_private_runtime_directory(resolver: Any, reference: Any) -> None:
+    """Raise unless the reference names an existing, non-symlink, private directory."""
+    import os
+    from pathlib import Path
+
+    candidate = Path(_rendered_directory_reference(resolver, reference))
+    metadata = candidate.lstat()
+    if candidate.is_symlink() or not candidate.is_dir():
+        raise ValueError("unsafe runtime directory")
+    candidate.resolve(strict=True)
+    if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError("runtime directory is not private")
+
+
+def _engine_runtime_directory_gate(
+    resolved: Any, runtime_directory_refs: tuple[Any, ...], redacted_status: dict
+) -> dict[str, Any] | None:
+    """Every local runtime-directory reference must resolve to a private directory.
+
+    Any failure -- unresolvable reference, symlink, non-directory, or group/other
+    permissions -- marks the refs not ready and fails; it never reports ok.
+    """
+    if resolved.mode == "remote" or not runtime_directory_refs:
+        return None
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        resolver = create_secrets_client()
+        for reference in runtime_directory_refs:
+            _assert_private_runtime_directory(resolver, reference)
+        redacted_status["runtime_directory_refs_ready"] = True
+    except Exception:  # noqa: BLE001 - diagnostics must not reveal paths/providers
+        redacted_status["runtime_directory_refs_ready"] = False
+        return _result(
+            "engine",
+            "fail",
+            "an enabled engine file capability has an unavailable or unsafe runtime directory",
+            remediation=(
+                "Resolve each configured engine directory reference to an existing, "
+                "non-symlink private directory; do not place host paths in AgentConfig."
+            ),
+            data=redacted_status,
+        )
+    return None
+
+
+def _engine_remote_result(
+    reachable: list,
+    endpoints: list,
+    runtime_directory_refs: tuple[Any, ...],
+    redacted_status: dict[str, Any],
+) -> dict[str, Any]:
+    """Verdict for ``resolved mode=remote``; remote never autostarts a stand-in."""
+    if not reachable:
+        return _result(
+            "engine",
+            "fail",
+            "configured remote engine is unreachable — "
+            "remote mode never autostarts a local stand-in (fail-loud)",
+            remediation="start the external engine (Docker/host) or fix GRAPH_SERVICE_ENDPOINTS",
+            skill="agent-utilities-deployment",
+            data=redacted_status,
+        )
+    if runtime_directory_refs:
+        return _result(
+            "engine",
+            "warn",
+            "remote engine reachable, but local runtime directory references are not applied remotely",
+            remediation=(
+                "Configure backup/SQLite roots in the remote engine deployment, "
+                "or remove the local-only references."
+            ),
+            data=redacted_status,
+        )
+    return _result(
+        "engine",
+        "ok",
+        f"remote engine reachable ({len(reachable)}/{len(endpoints)} "
+        "endpoint(s)) — resolved mode=remote (deployed elsewhere)",
+        data=redacted_status,
+    )
+
+
+def _engine_local_result(
+    resolved: Any, reachable: list, endpoints: list, redacted_status: dict[str, Any]
+) -> dict[str, Any]:
+    """Verdict for a local engine: shared, autostart-on-demand, or unreachable."""
+    if reachable:
+        return _result(
+            "engine",
+            "ok",
+            "engine reachable — resolved mode=shared "
+            "(reusing the already-running local engine)",
+            data=redacted_status,
+        )
+    # Nothing up locally — describe the autostart behaviour the resolver WILL
+    # take on first use, including the idle-shutdown lifecycle.
+    if resolved.autostart_allowed:
+        life = (
+            f"reference-counted (auto-stops {resolved.idle_shutdown_secs}s "
+            "after the last client disconnects)"
+            if resolved.idle_shutdown_secs > 0
+            else "persistent (never auto-stops — runs like a local service)"
+        )
+        return _result(
+            "engine",
+            "warn",
+            "no engine running yet — resolved mode=autostart: "
+            f"a detached, supervised engine will be spawned on first use, {life}",
+            remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
+            skill="agent-utilities-deployment",
+            data=redacted_status,
+        )
+    return _result(
+        "engine",
+        "fail",
+        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
+        remediation="remove GRAPH_SERVICE_ENDPOINTS for the packaged local lifecycle, or start the configured external engine",
+        skill="agent-utilities-deployment",
+        data=redacted_status,
+    )
+
+
+def _check_engine() -> dict[str, Any]:
+    try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            engine_encryption_readiness,
+        )
+
+        # Import gate only: _engine_endpoint_reachability re-imports it. Kept
+        # here so an engine install missing the placement catalog still reports
+        # `error` up front, exactly as it did before this check was split.
+        from agent_utilities.knowledge_graph.core.placement_catalog import (  # noqa: F401
+            discovery_reachable,
+        )
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            default_graph_name,
+            shard_topology_status,
+        )
+
+        cfg = AgentConfig()
+        st = shard_topology_status(cfg, probe=True, timeout=0.5)
+        resolved = resolve_engine(cfg, default_graph_name(cfg))
+        encryption = engine_encryption_readiness(cfg, remote=resolved.mode == "remote")
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "engine",
+            "error",
+            f"shard topology probe failed ({type(exc).__name__})",
+        )
+    st["resolved_mode"] = resolved.mode
+    endpoints, reachable, discovery_ready = _engine_endpoint_reachability(st, cfg)
+    redacted_status = _engine_redacted_status(
+        cfg, st, resolved, encryption, reachable, discovery_ready
+    )
 
     if not encryption["ready"]:
         return _result(
@@ -1674,123 +1955,20 @@ def _check_engine() -> dict[str, Any]:
             data=redacted_status,
         )
 
-    runtime_directory_refs = tuple(
-        reference
-        for reference in (
-            getattr(cfg, "epistemic_graph_sqlite_transfer_root_ref", None),
-            getattr(cfg, "epistemic_graph_backup_root_ref", None),
-        )
-        if reference
+    runtime_directory_refs = _engine_runtime_directory_refs(cfg)
+    directory_failure = _engine_runtime_directory_gate(
+        resolved, runtime_directory_refs, redacted_status
     )
-    if resolved.mode != "remote" and runtime_directory_refs:
-        try:
-            import os
-            import stat
-            from pathlib import Path
-
-            from agent_utilities.security.secrets_client import create_secrets_client
-
-            resolver = create_secrets_client()
-            for reference in runtime_directory_refs:
-                raw = resolver.resolve_ref(reference)
-                rendered = (
-                    raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
-                )
-                if (
-                    not rendered
-                    or len(rendered.encode("utf-8")) > 4_096
-                    or any(ord(character) < 32 for character in rendered)
-                ):
-                    raise ValueError("invalid runtime directory")
-                candidate = Path(rendered)
-                metadata = candidate.lstat()
-                if candidate.is_symlink() or not candidate.is_dir():
-                    raise ValueError("unsafe runtime directory")
-                candidate.resolve(strict=True)
-                if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
-                    raise ValueError("runtime directory is not private")
-            redacted_status["runtime_directory_refs_ready"] = True
-        except Exception:  # noqa: BLE001 - diagnostics must not reveal paths/providers
-            redacted_status["runtime_directory_refs_ready"] = False
-            return _result(
-                "engine",
-                "fail",
-                "an enabled engine file capability has an unavailable or unsafe runtime directory",
-                remediation=(
-                    "Resolve each configured engine directory reference to an existing, "
-                    "non-symlink private directory; do not place host paths in AgentConfig."
-                ),
-                data=redacted_status,
-            )
+    if directory_failure is not None:
+        return directory_failure
 
     # CONCEPT:AU-OS.deployment.report-resolved-mode — report the RESOLVED mode (how this process reaches the
     # engine), not just transport reachability.
     if resolved.mode == "remote":
-        if reachable:
-            if runtime_directory_refs:
-                return _result(
-                    "engine",
-                    "warn",
-                    "remote engine reachable, but local runtime directory references are not applied remotely",
-                    remediation=(
-                        "Configure backup/SQLite roots in the remote engine deployment, "
-                        "or remove the local-only references."
-                    ),
-                    data=redacted_status,
-                )
-            return _result(
-                "engine",
-                "ok",
-                f"remote engine reachable ({len(reachable)}/{len(endpoints)} "
-                "endpoint(s)) — resolved mode=remote (deployed elsewhere)",
-                data=redacted_status,
-            )
-        return _result(
-            "engine",
-            "fail",
-            "configured remote engine is unreachable — "
-            "remote mode never autostarts a local stand-in (fail-loud)",
-            remediation="start the external engine (Docker/host) or fix GRAPH_SERVICE_ENDPOINTS",
-            skill="agent-utilities-deployment",
-            data=redacted_status,
+        return _engine_remote_result(
+            reachable, endpoints, runtime_directory_refs, redacted_status
         )
-
-    if reachable:
-        return _result(
-            "engine",
-            "ok",
-            "engine reachable — resolved mode=shared "
-            "(reusing the already-running local engine)",
-            data=redacted_status,
-        )
-
-    # Nothing up locally — describe the autostart behaviour the resolver WILL
-    # take on first use, including the idle-shutdown lifecycle.
-    if resolved.autostart_allowed:
-        if resolved.idle_shutdown_secs > 0:
-            life = (
-                f"reference-counted (auto-stops {resolved.idle_shutdown_secs}s "
-                "after the last client disconnects)"
-            )
-        else:
-            life = "persistent (never auto-stops — runs like a local service)"
-        return _result(
-            "engine",
-            "warn",
-            "no engine running yet — resolved mode=autostart: "
-            f"a detached, supervised engine will be spawned on first use, {life}",
-            remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
-            skill="agent-utilities-deployment",
-            data=redacted_status,
-        )
-    return _result(
-        "engine",
-        "fail",
-        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
-        remediation="remove GRAPH_SERVICE_ENDPOINTS for the packaged local lifecycle, or start the configured external engine",
-        skill="agent-utilities-deployment",
-        data=redacted_status,
-    )
+    return _engine_local_result(resolved, reachable, endpoints, redacted_status)
 
 
 def _check_engine_domains() -> dict[str, Any]:
@@ -2195,13 +2373,113 @@ def _check_outbound_auth() -> dict[str, Any]:
     )
 
 
+def _validate_skill_certification_regular_inputs(
+    path_values: tuple[Any, ...],
+) -> tuple[Any, bytes, bytes]:
+    """Read the four bounded certification inputs; raise if any is unusable.
+
+    Returns ``(configuration_path, configuration, profile)`` -- the reads for the
+    release specification and the promotion evidence are performed for their
+    validation side effect only.
+    """
+    from pathlib import Path
+
+    from agent_utilities.deployment.skill_validation_assets import _read_regular
+
+    if any(value is None for value in path_values):
+        raise RuntimeError("skill_certification_path_missing")
+    configuration_path = Path(str(path_values[0]))
+    configuration = _read_regular(
+        configuration_path,
+        limit=4 * 1024 * 1024,
+        code="runtime_configuration_invalid",
+    )
+    profile = _read_regular(
+        Path(str(path_values[1])),
+        limit=4 * 1024 * 1024,
+        code="runtime_profile_invalid",
+    )
+    _read_regular(
+        Path(str(path_values[2])),
+        limit=4 * 1024 * 1024,
+        code="release_specification_invalid",
+    )
+    _read_regular(
+        Path(str(path_values[3])),
+        limit=8 * 1024 * 1024,
+        code="promotion_evidence_invalid",
+    )
+    return configuration_path, configuration, profile
+
+
+def _validate_skill_certification_profile(
+    configuration_path: Any, configuration: bytes, profile: bytes
+) -> None:
+    """Bind the runtime profile to the *active* configuration; raise otherwise."""
+    from agent_utilities.core.paths import config_dir
+    from agent_utilities.deployment.skill_validation_assets import (
+        _configuration_proof,
+        _identity_authority_configuration,
+        _json_without_duplicates,
+        _validate_profile,
+    )
+
+    if not configuration_path.samefile(config_dir() / "config.json"):
+        raise RuntimeError("runtime_configuration_not_active")
+    proof = _configuration_proof(configuration)
+    identity_authority = _identity_authority_configuration(
+        _json_without_duplicates(configuration, code="runtime_configuration_invalid")
+    )
+    _validate_profile(
+        profile,
+        configuration_digest=("sha256:" + hashlib.sha256(configuration).hexdigest()),
+        model_registry_digest=str(proof["digest"]),
+        identity_authority=identity_authority,
+    )
+
+
+def _validate_skill_certification_commands(
+    cfg: Any, command_values: tuple[Any, ...]
+) -> None:
+    """The GraphOS endpoint must be the active one and the argv arrays sound."""
+    from pathlib import Path
+
+    from agent_utilities.skills.runtime_validation import (
+        _validate_external_command_argv,
+    )
+
+    if (
+        str(cfg.mcp_url or "").strip()
+        != str(cfg.skill_cert_graphos_endpoint or "").strip()
+    ):
+        raise RuntimeError("graph_os_endpoint_not_active")
+    graph_os = _validate_external_command_argv(command_values[0])
+    _validate_external_command_argv(command_values[1])
+    _validate_external_command_argv(command_values[2])
+    if Path(graph_os[0]).name != "graph-os":
+        raise RuntimeError("graph_os_executable_invalid")
+
+
+def _validate_skill_certification_material(
+    cfg: Any, path_values: tuple[Any, ...], command_values: tuple[Any, ...]
+) -> None:
+    """Raise unless every exact skill-certification input is present and bound.
+
+    The order matters and is the pre-split order: bounded regular reads first,
+    then the active-configuration/profile binding, then the command boundaries.
+    """
+    configuration_path, configuration, profile = (
+        _validate_skill_certification_regular_inputs(path_values)
+    )
+    _validate_skill_certification_profile(configuration_path, configuration, profile)
+    _validate_skill_certification_commands(cfg, command_values)
+
+
 def _check_skill_certification() -> dict[str, Any]:
     """Validate exact skill-certification inputs without exposing their values."""
 
     required_count = 8
     try:
-        from pathlib import Path
-
         from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
@@ -2261,70 +2539,7 @@ def _check_skill_certification() -> dict[str, Any]:
         )
 
     try:
-        from agent_utilities.core.paths import config_dir
-        from agent_utilities.deployment.skill_validation_assets import (
-            _configuration_proof,
-            _identity_authority_configuration,
-            _json_without_duplicates,
-            _read_regular,
-            _validate_profile,
-        )
-        from agent_utilities.skills.runtime_validation import (
-            _validate_external_command_argv,
-        )
-
-        if any(value is None for value in path_values):
-            raise RuntimeError("skill_certification_path_missing")
-        configuration_path = Path(str(path_values[0]))
-        profile_path = Path(str(path_values[1]))
-        specification_path = Path(str(path_values[2]))
-        promotion_path = Path(str(path_values[3]))
-        configuration = _read_regular(
-            configuration_path,
-            limit=4 * 1024 * 1024,
-            code="runtime_configuration_invalid",
-        )
-        profile = _read_regular(
-            profile_path,
-            limit=4 * 1024 * 1024,
-            code="runtime_profile_invalid",
-        )
-        _read_regular(
-            specification_path,
-            limit=4 * 1024 * 1024,
-            code="release_specification_invalid",
-        )
-        _read_regular(
-            promotion_path,
-            limit=8 * 1024 * 1024,
-            code="promotion_evidence_invalid",
-        )
-        if not configuration_path.samefile(config_dir() / "config.json"):
-            raise RuntimeError("runtime_configuration_not_active")
-        proof = _configuration_proof(configuration)
-        identity_authority = _identity_authority_configuration(
-            _json_without_duplicates(
-                configuration, code="runtime_configuration_invalid"
-            )
-        )
-        _validate_profile(
-            profile,
-            configuration_digest=(
-                "sha256:" + hashlib.sha256(configuration).hexdigest()
-            ),
-            model_registry_digest=str(proof["digest"]),
-            identity_authority=identity_authority,
-        )
-        if (
-            str(cfg.mcp_url or "").strip()
-            != str(cfg.skill_cert_graphos_endpoint or "").strip()
-        ):
-            raise RuntimeError("graph_os_endpoint_not_active")
-        graph_os = _validate_external_command_argv(command_values[0])
-        _validate_external_command_argv(command_values[1])
-        _validate_external_command_argv(command_values[2])
-        if Path(graph_os[0]).name != "graph-os":
-            raise RuntimeError("graph_os_executable_invalid")
+        _validate_skill_certification_material(cfg, path_values, command_values)
     except Exception as exc:  # noqa: BLE001 - never report paths or values
         return _result(
             "skill_certification",
@@ -2357,6 +2572,194 @@ def _check_skill_certification() -> dict[str, Any]:
     )
 
 
+def _cert_required_values(cfg: Any, command_maps: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The 13 required production-certification configuration facts, in order."""
+    return (
+        cfg.certification_mode == "production",
+        bool(cfg.cert_release_manifest),
+        bool(cfg.cert_artifacts_dir),
+        bool(cfg.cert_hardware_class),
+        bool(cfg.cert_load_command),
+        bool(cfg.cert_metrics_command),
+        *(bool(value) for value in command_maps),
+        bool(cfg.cert_evidence_signer_command),
+        bool(cfg.cert_evidence_verifier_command),
+        bool(cfg.cert_prometheus_url),
+        bool(cfg.cert_prometheus_tls_profile or cfg.cert_prometheus_tls_profile_ref),
+    )
+
+
+def _cert_configuration_gate(
+    cfg: Any,
+    command_maps: tuple[Any, ...],
+    base_data: dict[str, Any],
+    required_count: int,
+) -> dict[str, Any] | None:
+    """Skip when nothing is configured; fail when the 13 fields are incomplete.
+
+    Partial certification authority is never accepted: anything short of all
+    13 configured fields fails rather than proceeding to the material checks.
+    """
+    required_values = _cert_required_values(cfg, command_maps)
+    base_data.update(
+        {
+            "configured_count": sum(required_values),
+            "scenario_count": len(cfg.cert_hook_commands),
+            "bearer_auth_configured": bool(cfg.cert_prometheus_bearer_token_ref),
+        }
+    )
+    configured_material = any(required_values[1:]) or bool(
+        cfg.cert_prometheus_bearer_token_ref
+    )
+    if cfg.certification_mode == "disabled" and not configured_material:
+        return _result(
+            "production_certification",
+            "skip",
+            "production certification is not configured",
+            data=base_data,
+        )
+    if base_data["configured_count"] != required_count:
+        return _result(
+            "production_certification",
+            "fail",
+            "production certification configuration is incomplete",
+            remediation=(
+                "Set CERTIFICATION_MODE=production and configure the release, "
+                "private artifacts directory, non-identifying hardware class, "
+                "load/metrics commands, all three exact scenario command maps, "
+                "evidence signer/verifier commands, HTTPS Prometheus endpoint, "
+                "and its dedicated TLS profile selector through AgentConfig."
+            ),
+            data=base_data,
+        )
+    return None
+
+
+def _cert_validated_commands(cfg: Any, command_maps: tuple[Any, ...]) -> list[Any]:
+    """Every certification command, proven exact-scenario and non-shell argv."""
+    from agent_utilities.core.config import PRODUCTION_CERTIFICATION_SCENARIOS
+    from agent_utilities.skills.runtime_validation import (
+        _validate_external_command_argv,
+    )
+
+    expected = set(PRODUCTION_CERTIFICATION_SCENARIOS)
+    if any(set(command_map) != expected for command_map in command_maps):
+        raise RuntimeError("production_certification_scenarios_not_exact")
+    commands = [
+        cfg.cert_load_command,
+        cfg.cert_metrics_command,
+        cfg.cert_evidence_signer_command,
+        cfg.cert_evidence_verifier_command,
+    ]
+    for command_map in command_maps:
+        commands.extend(
+            command_map[scenario] for scenario in PRODUCTION_CERTIFICATION_SCENARIOS
+        )
+    if not any("{report_file}" in part for part in cfg.cert_load_command):
+        raise RuntimeError("production_certification_load_report_missing")
+    for command in commands:
+        _validate_external_command_argv(command)
+    return commands
+
+
+def _cert_verify_release_manifest(cfg: Any) -> None:
+    """The release manifest must verify -- signatures included -- against the matrix."""
+    from importlib.resources import as_file, files
+    from pathlib import Path
+
+    import yaml
+
+    from agent_utilities.deployment.skill_validation_assets import (
+        _json_without_duplicates,
+        _read_regular,
+    )
+    from scripts.release import check_compatibility as compatibility
+
+    release_path = Path(str(cfg.cert_release_manifest))
+    release = _json_without_duplicates(
+        _read_regular(
+            release_path,
+            limit=64 * 1024 * 1024,
+            code="production_release_manifest_invalid",
+        ),
+        code="production_release_manifest_invalid",
+    )
+    if not isinstance(release, dict):
+        raise RuntimeError("production_release_manifest_invalid")
+    matrix_resource = files("deploy.release").joinpath("compatibility-matrix.yml")
+    with as_file(matrix_resource) as matrix_path:
+        matrix = yaml.safe_load(
+            _read_regular(
+                matrix_path,
+                limit=4 * 1024 * 1024,
+                code="production_compatibility_matrix_invalid",
+            )
+        )
+        if not isinstance(matrix, dict):
+            raise RuntimeError("production_compatibility_matrix_invalid")
+        release_report = compatibility.verify_release_manifest(
+            release,
+            matrix,
+            matrix_path=matrix_path,
+            manifest_path=release_path,
+            verify_signatures=True,
+        )
+    if (
+        release_report.get("ok") is not True
+        or release_report.get("signaturesVerified") is not True
+    ):
+        raise RuntimeError("production_release_signature_unverified")
+
+
+def _cert_verify_artifacts_dir(cfg: Any) -> None:
+    """The artifacts directory must be an empty, private, writable real directory."""
+    import os
+    from pathlib import Path
+
+    artifacts_path = Path(str(cfg.cert_artifacts_dir))
+    artifacts_metadata = artifacts_path.lstat()
+    if (
+        artifacts_path.is_symlink()
+        or not stat.S_ISDIR(artifacts_metadata.st_mode)
+        or stat.S_IMODE(artifacts_metadata.st_mode) & 0o077
+        or not os.access(artifacts_path, os.R_OK | os.W_OK | os.X_OK)
+        or any(artifacts_path.iterdir())
+    ):
+        raise RuntimeError("production_artifacts_directory_invalid")
+
+
+def _cert_verify_bearer_token(cfg: Any) -> None:
+    """A configured Prometheus bearer ref must resolve to bounded, clean material."""
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if not cfg.cert_prometheus_bearer_token_ref:
+        return
+    token = resolve_runtime_secret_reference(cfg.cert_prometheus_bearer_token_ref)
+    if (
+        not token
+        or len(token.encode("utf-8")) > 16_384
+        or any(character in token for character in "\x00\r\n")
+    ):
+        raise RuntimeError("production_prometheus_bearer_token_invalid")
+
+
+def _cert_resolve_prometheus_trust(cfg: Any) -> Any:
+    """Resolve the certification Prometheus TLS profile.
+
+    The ``verify_enabled`` assertion deliberately stays with the caller: the
+    resolved profile owns temporary trust material and must reach the caller's
+    ``finally`` for cleanup even when verification turns out to be disabled.
+    """
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+    return resolve_configured_tls_profile(
+        "certification-prometheus",
+        profile_name=cfg.cert_prometheus_tls_profile,
+        profile_ref=cfg.cert_prometheus_tls_profile_ref,
+        config=cfg,
+    )
+
+
 def _check_production_certification() -> dict[str, Any]:
     """Validate the complete production-campaign authority without disclosing it."""
 
@@ -2371,9 +2774,6 @@ def _check_production_certification() -> dict[str, Any]:
         "redacted": True,
     }
     try:
-        import os
-        from pathlib import Path
-
         from agent_utilities.core.config import (
             PRODUCTION_CERTIFICATION_SCENARIOS,
             AgentConfig,
@@ -2398,158 +2798,23 @@ def _check_production_certification() -> dict[str, Any]:
         cfg.cert_fault_action_commands,
         cfg.cert_fault_probe_commands,
     )
-    tls_selector_configured = bool(
-        cfg.cert_prometheus_tls_profile or cfg.cert_prometheus_tls_profile_ref
+    configuration = _cert_configuration_gate(
+        cfg, command_maps, base_data, required_count
     )
-    required_values = (
-        cfg.certification_mode == "production",
-        bool(cfg.cert_release_manifest),
-        bool(cfg.cert_artifacts_dir),
-        bool(cfg.cert_hardware_class),
-        bool(cfg.cert_load_command),
-        bool(cfg.cert_metrics_command),
-        *(bool(value) for value in command_maps),
-        bool(cfg.cert_evidence_signer_command),
-        bool(cfg.cert_evidence_verifier_command),
-        bool(cfg.cert_prometheus_url),
-        tls_selector_configured,
-    )
-    configured_count = sum(required_values)
-    base_data.update(
-        {
-            "configured_count": configured_count,
-            "scenario_count": len(cfg.cert_hook_commands),
-            "bearer_auth_configured": bool(cfg.cert_prometheus_bearer_token_ref),
-        }
-    )
-    configured_material = any(required_values[1:]) or bool(
-        cfg.cert_prometheus_bearer_token_ref
-    )
-    if cfg.certification_mode == "disabled" and not configured_material:
-        return _result(
-            "production_certification",
-            "skip",
-            "production certification is not configured",
-            data=base_data,
-        )
-    if configured_count != required_count:
-        return _result(
-            "production_certification",
-            "fail",
-            "production certification configuration is incomplete",
-            remediation=(
-                "Set CERTIFICATION_MODE=production and configure the release, "
-                "private artifacts directory, non-identifying hardware class, "
-                "load/metrics commands, all three exact scenario command maps, "
-                "evidence signer/verifier commands, HTTPS Prometheus endpoint, "
-                "and its dedicated TLS profile selector through AgentConfig."
-            ),
-            data=base_data,
-        )
+    if configuration is not None:
+        return configuration
 
     trust = None
     try:
-        from importlib.resources import as_file, files
-
-        import yaml
-
-        from agent_utilities.core.transport_security import (
-            resolve_configured_tls_profile,
-        )
-        from agent_utilities.deployment.skill_validation_assets import (
-            _json_without_duplicates,
-            _read_regular,
-        )
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
-        from agent_utilities.skills.runtime_validation import (
-            _validate_external_command_argv,
-        )
-        from scripts.release import check_compatibility as compatibility
-
-        expected = set(PRODUCTION_CERTIFICATION_SCENARIOS)
-        if any(set(command_map) != expected for command_map in command_maps):
-            raise RuntimeError("production_certification_scenarios_not_exact")
-
-        commands = [
-            cfg.cert_load_command,
-            cfg.cert_metrics_command,
-            cfg.cert_evidence_signer_command,
-            cfg.cert_evidence_verifier_command,
-        ]
-        for command_map in command_maps:
-            commands.extend(
-                command_map[scenario] for scenario in PRODUCTION_CERTIFICATION_SCENARIOS
-            )
-        if not any("{report_file}" in part for part in cfg.cert_load_command):
-            raise RuntimeError("production_certification_load_report_missing")
-        for command in commands:
-            _validate_external_command_argv(command)
-
-        release_path = Path(str(cfg.cert_release_manifest))
-        release_payload = _read_regular(
-            release_path,
-            limit=64 * 1024 * 1024,
-            code="production_release_manifest_invalid",
-        )
-        release = _json_without_duplicates(
-            release_payload,
-            code="production_release_manifest_invalid",
-        )
-        if not isinstance(release, dict):
-            raise RuntimeError("production_release_manifest_invalid")
-        matrix_resource = files("deploy.release").joinpath("compatibility-matrix.yml")
-        with as_file(matrix_resource) as matrix_path:
-            matrix_payload = _read_regular(
-                matrix_path,
-                limit=4 * 1024 * 1024,
-                code="production_compatibility_matrix_invalid",
-            )
-            matrix = yaml.safe_load(matrix_payload)
-            if not isinstance(matrix, dict):
-                raise RuntimeError("production_compatibility_matrix_invalid")
-            release_report = compatibility.verify_release_manifest(
-                release,
-                matrix,
-                matrix_path=matrix_path,
-                manifest_path=release_path,
-                verify_signatures=True,
-            )
-        if (
-            release_report.get("ok") is not True
-            or release_report.get("signaturesVerified") is not True
-        ):
-            raise RuntimeError("production_release_signature_unverified")
-
-        artifacts_path = Path(str(cfg.cert_artifacts_dir))
-        artifacts_metadata = artifacts_path.lstat()
-        if (
-            artifacts_path.is_symlink()
-            or not stat.S_ISDIR(artifacts_metadata.st_mode)
-            or stat.S_IMODE(artifacts_metadata.st_mode) & 0o077
-            or not os.access(artifacts_path, os.R_OK | os.W_OK | os.X_OK)
-            or any(artifacts_path.iterdir())
-        ):
-            raise RuntimeError("production_artifacts_directory_invalid")
-
-        if cfg.cert_prometheus_bearer_token_ref:
-            token = resolve_runtime_secret_reference(
-                cfg.cert_prometheus_bearer_token_ref
-            )
-            if (
-                not token
-                or len(token.encode("utf-8")) > 16_384
-                or any(character in token for character in "\x00\r\n")
-            ):
-                raise RuntimeError("production_prometheus_bearer_token_invalid")
-
-        trust = resolve_configured_tls_profile(
-            "certification-prometheus",
-            profile_name=cfg.cert_prometheus_tls_profile,
-            profile_ref=cfg.cert_prometheus_tls_profile_ref,
-            config=cfg,
-        )
+        # Ordered exactly as before the split: commands, then the signed
+        # release, then the artifacts directory, then the bearer token, then
+        # TLS -- so an authority invalid in several ways still reports the same
+        # first failure it always did.
+        commands = _cert_validated_commands(cfg, command_maps)
+        _cert_verify_release_manifest(cfg)
+        _cert_verify_artifacts_dir(cfg)
+        _cert_verify_bearer_token(cfg)
+        trust = _cert_resolve_prometheus_trust(cfg)
         if not trust.verify_enabled:
             raise RuntimeError("production_prometheus_tls_verification_disabled")
     except Exception as exc:  # noqa: BLE001 - never report paths or values
@@ -2590,13 +2855,29 @@ def _check_production_certification() -> dict[str, Any]:
     )
 
 
+def _graph_identity_readiness(token_ref: str, oauth2: Any) -> tuple[str, bool]:
+    """``(mode, ready)`` for the single configured graph process identity source.
+
+    Only the *reference* is resolved -- no token is minted and no resolved value
+    ever leaves this function.
+    """
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if token_ref:
+        return "token_ref", bool(resolve_runtime_secret_reference(token_ref))
+    assert oauth2 is not None
+    secret_ref = str(oauth2.get("client_secret") or "")
+    client_id = str(oauth2.get("client_id") or "")
+    ready = bool(resolve_runtime_secret_reference(secret_ref))
+    if client_id.startswith(("vault://", "env://", "secret://")):
+        ready = ready and bool(resolve_runtime_secret_reference(client_id))
+    return "oauth2_client_credentials", ready
+
+
 def _check_graph_identity() -> dict[str, Any]:
     """Validate graph process identity without minting or exposing a token."""
     try:
         from agent_utilities.core.config import AgentConfig
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
         from agent_utilities.security.request_identity import (
             local_process_authority_enabled,
         )
@@ -2626,17 +2907,7 @@ def _check_graph_identity() -> dict[str, Any]:
                 ),
                 data={"ready": False, "redacted": True},
             )
-        if token_ref:
-            ready = bool(resolve_runtime_secret_reference(token_ref))
-            mode = "token_ref"
-        else:
-            assert oauth2 is not None
-            secret_ref = str(oauth2.get("client_secret") or "")
-            client_id = str(oauth2.get("client_id") or "")
-            ready = bool(resolve_runtime_secret_reference(secret_ref))
-            if client_id.startswith(("vault://", "env://", "secret://")):
-                ready = ready and bool(resolve_runtime_secret_reference(client_id))
-            mode = "oauth2_client_credentials"
+        mode, ready = _graph_identity_readiness(token_ref, oauth2)
         if not ready:
             return _result(
                 "graph_identity",
@@ -2724,6 +2995,31 @@ def _check_mcp_fleet(live: bool = False) -> dict[str, Any]:
     )
 
 
+def _fleet_alias_kind(alias: str, reference: Any) -> str:
+    """Classify one fleet alias as ``direct``, ``mapped``, or ``unresolved``.
+
+    Any failure -- a missing projection, an unavailable reference, or control
+    characters in either -- is ``unresolved``: the alias never counts as ready.
+    """
+    from agent_utilities.core.config import setting
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    try:
+        direct = setting(alias)
+        if direct not in (None, ""):
+            if any(character in str(direct) for character in "\x00\r\n"):
+                raise ValueError("invalid direct runtime material")
+            return "direct"
+        resolved = resolve_runtime_secret_reference(reference)
+        if resolved in (None, "") or any(
+            character in str(resolved) for character in "\x00\r\n"
+        ):
+            raise ValueError("unavailable runtime reference")
+        return "mapped"
+    except Exception:  # noqa: BLE001 - aliases and references stay redacted
+        return "unresolved"
+
+
 def _check_mcp_fleet_secrets() -> dict[str, Any]:
     """Validate neutral fleet alias resolution without disclosing alias metadata."""
 
@@ -2735,31 +3031,14 @@ def _check_mcp_fleet_secrets() -> dict[str, Any]:
         "redacted": True,
     }
     try:
-        from agent_utilities.core.config import AgentConfig, setting
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
+        from agent_utilities.core.config import AgentConfig
 
         mappings = AgentConfig().mcp_fleet_secret_refs
         if not isinstance(mappings, dict) or len(mappings) > 512:
             raise ValueError("invalid fleet secret alias mapping")
         data["configured_alias_count"] = len(mappings)
         for alias, reference in mappings.items():
-            try:
-                direct = setting(alias)
-                if direct not in (None, ""):
-                    if any(character in str(direct) for character in "\x00\r\n"):
-                        raise ValueError("invalid direct runtime material")
-                    data["direct_alias_count"] += 1
-                    continue
-                resolved = resolve_runtime_secret_reference(reference)
-                if resolved in (None, "") or any(
-                    character in str(resolved) for character in "\x00\r\n"
-                ):
-                    raise ValueError("unavailable runtime reference")
-                data["mapped_alias_count"] += 1
-            except Exception:  # noqa: BLE001 - aliases and references stay redacted
-                data["unresolved_alias_count"] += 1
+            data[f"{_fleet_alias_kind(alias, reference)}_alias_count"] += 1
     except Exception as exc:  # noqa: BLE001 - doctor remains a redacted boundary
         return _result(
             "mcp_fleet_secrets",
@@ -2849,6 +3128,18 @@ def _check_openai_catalog(live: bool = False) -> dict[str, Any]:
             data=data,
         )
 
+    return _openai_catalog_live_result(openai_models, creds, data)
+
+
+def _openai_catalog_live_result(
+    openai_models: list[Any], creds: Any, data: dict[str, Any]
+) -> dict[str, Any]:
+    """Verify every configured OpenAI model id against the live catalogue.
+
+    ``data`` is mutated with the probe outcome so the returned result always
+    carries what was actually verified -- a probe that cannot complete raises
+    into the caller rather than reporting ok.
+    """
     from agent_utilities.core.openai_catalog import verify_openai_model
 
     async def _verify_all() -> list[Any]:
@@ -2981,61 +3272,135 @@ def _check_hooks() -> dict[str, Any]:
     return _result("hooks", "ok", f"{len(installed)} agent hook(s) healthy", data=rep)
 
 
+def _require_observability_imports() -> None:
+    """Fail closed when the observability stack is not importable at all.
+
+    Kept as an explicit up-front gate because the pre-split check imported every
+    dependency before deciding anything: a broken install must still report
+    ``error``, never a ``skip``/``fail`` derived from half a stack.
+    """
+    from agent_utilities.core.transport_security import (  # noqa: F401
+        resolve_configured_tls_profile,
+    )
+    from agent_utilities.observability.custom_observability import (  # noqa: F401
+        _same_origin,
+    )
+    from agent_utilities.observability.langfuse_trust import (  # noqa: F401
+        resolve_langfuse_credentials,
+        resolve_langfuse_host,
+    )
+    from agent_utilities.security.cli_secrets import (  # noqa: F401
+        resolve_runtime_secret_reference,
+    )
+
+
+def _otel_endpoint(cfg: Any, langfuse_pair: bool) -> tuple[str, bool]:
+    """``(endpoint, derived_from_langfuse)`` for the OTLP exporter."""
+    from agent_utilities.observability.langfuse_trust import resolve_langfuse_host
+
+    endpoint = str(cfg.otel_exporter_otlp_endpoint or "").strip()
+    endpoint_derived = not endpoint and langfuse_pair
+    if endpoint_derived:
+        endpoint = f"{resolve_langfuse_host('').rstrip('/')}/api/public/otel"
+    return endpoint, endpoint_derived
+
+
+def _otel_transport_posture(cfg: Any) -> SimpleNamespace:
+    """Which OTLP endpoint applies and which authentication tier backs it."""
+    from agent_utilities.observability.custom_observability import _same_origin
+    from agent_utilities.observability.langfuse_trust import resolve_langfuse_host
+
+    langfuse_pair = bool(cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref)
+    endpoint, endpoint_derived = _otel_endpoint(cfg, langfuse_pair)
+    langfuse_auth = bool(
+        langfuse_pair and endpoint and _same_origin(endpoint, resolve_langfuse_host(""))
+    )
+    header_auth = bool(cfg.otel_exporter_otlp_headers_ref)
+    key_auth = bool(
+        cfg.otel_exporter_otlp_public_key_ref and cfg.otel_exporter_otlp_secret_key_ref
+    )
+    return SimpleNamespace(
+        endpoint=endpoint,
+        endpoint_derived=endpoint_derived,
+        langfuse_auth=langfuse_auth,
+        header_auth=header_auth,
+        key_auth=key_auth,
+        auth_ready=header_auth or key_auth or langfuse_auth,
+    )
+
+
+def _otel_tls_profile_configured(cfg: Any, langfuse_auth: bool) -> bool:
+    """Whether an OTEL TLS profile is configured, directly or via Langfuse."""
+    return bool(
+        cfg.otel_tls_profile
+        or cfg.otel_tls_profile_ref
+        or (
+            langfuse_auth and (cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref)
+        )
+    )
+
+
+def _otel_data(cfg: Any, posture: SimpleNamespace, metrics: Any) -> dict[str, Any]:
+    """The redacted, metadata-only observability readiness data."""
+    return {
+        "enabled": bool(cfg.enable_otel),
+        "endpoint_configured": bool(posture.endpoint),
+        "endpoint_derived_from_langfuse": posture.endpoint_derived,
+        "auth_reference_configured": posture.auth_ready,
+        "tls_profile_configured": _otel_tls_profile_configured(
+            cfg, posture.langfuse_auth
+        ),
+        "metrics_enabled": bool(metrics),
+        "metadata_only": True,
+        "redacted": True,
+    }
+
+
+def _otel_prove_credentials(cfg: Any, posture: SimpleNamespace) -> None:
+    """Resolve the reference tier actually in use; raises when it is unavailable."""
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_credentials,
+    )
+    from agent_utilities.security.cli_secrets import resolve_runtime_secret_reference
+
+    if posture.header_auth:
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_headers_ref)
+    elif posture.key_auth:
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_public_key_ref)
+        resolve_runtime_secret_reference(cfg.otel_exporter_otlp_secret_key_ref)
+    else:
+        resolve_langfuse_credentials(agent_config=cfg)
+
+
+def _otel_tls_verify_enabled(cfg: Any, langfuse_auth: bool) -> bool:
+    """Resolve the OTEL TLS profile (falling back to Langfuse's) and report verify."""
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+    profile_name = cfg.otel_tls_profile
+    profile_ref = cfg.otel_tls_profile_ref
+    if langfuse_auth and not (profile_name or profile_ref):
+        profile_name = cfg.langfuse_tls_profile
+        profile_ref = cfg.langfuse_tls_profile_ref
+    trust = resolve_configured_tls_profile(
+        "OTEL",
+        profile_name=profile_name,
+        profile_ref=profile_ref,
+        config=cfg,
+    )
+    return trust.verify_enabled
+
+
 def _check_observability() -> dict[str, Any]:
     from agent_utilities.core.config import AgentConfig, setting
     from agent_utilities.core.profile_guard import is_production_profile
 
     try:
-        from agent_utilities.core.transport_security import (
-            resolve_configured_tls_profile,
-        )
-        from agent_utilities.observability.custom_observability import _same_origin
-        from agent_utilities.observability.langfuse_trust import (
-            resolve_langfuse_credentials,
-            resolve_langfuse_host,
-        )
-        from agent_utilities.security.cli_secrets import (
-            resolve_runtime_secret_reference,
-        )
-
+        _require_observability_imports()
         cfg = AgentConfig()
         production = is_production_profile()
         metrics = setting("GATEWAY_METRICS", False, cast=bool)
-        langfuse_pair = bool(
-            cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
-        )
-        endpoint = str(cfg.otel_exporter_otlp_endpoint or "").strip()
-        endpoint_derived = not endpoint and langfuse_pair
-        if endpoint_derived:
-            endpoint = f"{resolve_langfuse_host('').rstrip('/')}/api/public/otel"
-        langfuse_auth = bool(
-            langfuse_pair
-            and endpoint
-            and _same_origin(endpoint, resolve_langfuse_host(""))
-        )
-        header_auth = bool(cfg.otel_exporter_otlp_headers_ref)
-        key_auth = bool(
-            cfg.otel_exporter_otlp_public_key_ref
-            and cfg.otel_exporter_otlp_secret_key_ref
-        )
-        auth_ready = header_auth or key_auth or langfuse_auth
-        data = {
-            "enabled": bool(cfg.enable_otel),
-            "endpoint_configured": bool(endpoint),
-            "endpoint_derived_from_langfuse": endpoint_derived,
-            "auth_reference_configured": auth_ready,
-            "tls_profile_configured": bool(
-                cfg.otel_tls_profile
-                or cfg.otel_tls_profile_ref
-                or (
-                    langfuse_auth
-                    and (cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref)
-                )
-            ),
-            "metrics_enabled": bool(metrics),
-            "metadata_only": True,
-            "redacted": True,
-        }
+        posture = _otel_transport_posture(cfg)
+        data = _otel_data(cfg, posture, metrics)
         if not cfg.enable_otel and not production:
             return _result(
                 "observability",
@@ -3043,7 +3408,7 @@ def _check_observability() -> dict[str, Any]:
                 "metadata-only OTLP export is disabled",
                 data=data,
             )
-        if not endpoint or not auth_ready:
+        if not posture.endpoint or not posture.auth_ready:
             return _result(
                 "observability",
                 "fail" if cfg.enable_otel else "warn",
@@ -3055,25 +3420,8 @@ def _check_observability() -> dict[str, Any]:
                 skill="service-observability-provisioner",
                 data=data,
             )
-        if header_auth:
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_headers_ref)
-        elif key_auth:
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_public_key_ref)
-            resolve_runtime_secret_reference(cfg.otel_exporter_otlp_secret_key_ref)
-        else:
-            resolve_langfuse_credentials(agent_config=cfg)
-        profile_name = cfg.otel_tls_profile
-        profile_ref = cfg.otel_tls_profile_ref
-        if langfuse_auth and not (profile_name or profile_ref):
-            profile_name = cfg.langfuse_tls_profile
-            profile_ref = cfg.langfuse_tls_profile_ref
-        trust = resolve_configured_tls_profile(
-            "OTEL",
-            profile_name=profile_name,
-            profile_ref=profile_ref,
-            config=cfg,
-        )
-        data["tls_valid"] = trust.verify_enabled
+        _otel_prove_credentials(cfg, posture)
+        data["tls_valid"] = _otel_tls_verify_enabled(cfg, posture.langfuse_auth)
         if production and not metrics:
             return _result(
                 "observability",
@@ -3127,13 +3475,72 @@ def _langfuse_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in rows[:100] if isinstance(row, dict)]
 
 
+def _child_call_failed(result: Any) -> bool:
+    """A mounted-child tool result reporting an error, under either spelling."""
+    return bool(getattr(result, "isError", False)) or bool(
+        getattr(result, "is_error", False)
+    )
+
+
+def _langfuse_child_runtime(mux: Any) -> Any:
+    """The mounted langfuse child, or ``None`` unless exactly one tool matched."""
+    matches = [
+        prefixed
+        for prefixed, (server, original) in mux.tool_to_server.items()
+        if server == "langfuse-mcp" and original == "langfuse_observability"
+    ]
+    if len(matches) != 1:
+        return None
+    return mux.children.get("langfuse-mcp")
+
+
+async def _langfuse_posture_metadata_only(runtime: Any) -> bool:
+    """The mounted child must report the metadata-only, no-content posture."""
+    from agent_utilities.mcp.multiplexer import _child_result_payload
+
+    posture_result = await runtime.call_tool(
+        "langfuse_observability",
+        {"action": "runtime_posture"},
+    )
+    if _child_call_failed(posture_result):
+        return False
+    return _child_result_payload(posture_result) == {
+        "content_capture_enabled": False,
+        "metadata_only": True,
+    }
+
+
+async def _langfuse_trace_read_bounded(runtime: Any) -> bool:
+    """Execute the read through the mounted child itself.
+
+    Direct API reachability cannot prove that the child received the same host,
+    credential, and TLS contract. The response stays bounded and transient; no
+    returned row enters doctor output.
+    """
+    from agent_utilities.mcp.multiplexer import _child_result_payload
+
+    trace_result = await runtime.call_tool(
+        "langfuse_observability",
+        {
+            "action": "trace_list",
+            "page": 1,
+            "limit": 1,
+            "fields": "core",
+        },
+    )
+    if _child_call_failed(trace_result):
+        return False
+    trace_payload = _child_result_payload(trace_result)
+    rows = trace_payload.get("data") if isinstance(trace_payload, dict) else None
+    return isinstance(rows, list) and len(rows) <= 1
+
+
 def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
     """Prove the mounted child can execute the current privacy-safe contract."""
     from pathlib import Path
 
     from agent_utilities.mcp.multiplexer import (
         MCPMultiplexer,
-        _child_result_payload,
         attest_runtime_child_config,
     )
     from agent_utilities.observability.langfuse_trust import (
@@ -3154,79 +3561,34 @@ def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
         mux._catalog = {"langfuse-mcp": child}
         try:
             await mux.mount_child("langfuse-mcp")
-            matches = [
-                prefixed
-                for prefixed, (server, original) in mux.tool_to_server.items()
-                if server == "langfuse-mcp" and original == "langfuse_observability"
-            ]
-            runtime = mux.children.get("langfuse-mcp")
-            if len(matches) != 1 or runtime is None:
+            runtime = _langfuse_child_runtime(mux)
+            if runtime is None:
                 return False
-
-            posture_result = await runtime.call_tool(
-                "langfuse_observability",
-                {"action": "runtime_posture"},
-            )
-            if bool(getattr(posture_result, "isError", False)) or bool(
-                getattr(posture_result, "is_error", False)
-            ):
+            if not await _langfuse_posture_metadata_only(runtime):
                 return False
-            posture = _child_result_payload(posture_result)
-            if posture != {
-                "content_capture_enabled": False,
-                "metadata_only": True,
-            }:
-                return False
-
-            # Execute the read through the mounted child itself. Direct API
-            # reachability cannot prove that the child received the same host,
-            # credential, and TLS contract. Keep the response bounded and
-            # transient; no returned row enters doctor output.
-            trace_result = await runtime.call_tool(
-                "langfuse_observability",
-                {
-                    "action": "trace_list",
-                    "page": 1,
-                    "limit": 1,
-                    "fields": "core",
-                },
-            )
-            if bool(getattr(trace_result, "isError", False)) or bool(
-                getattr(trace_result, "is_error", False)
-            ):
-                return False
-            trace_payload = _child_result_payload(trace_result)
-            rows = (
-                trace_payload.get("data") if isinstance(trace_payload, dict) else None
-            )
-            return isinstance(rows, list) and len(rows) <= 1
+            return await _langfuse_trace_read_bounded(runtime)
         finally:
             await mux.aclose()
 
     return bool(_run_async_doctor_probe(probe))
 
 
-def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
-    """Prove API, optional MCP, and optional metadata-only trace round trip."""
-    import time
-    import uuid
-    from datetime import UTC, datetime
+def _langfuse_api_handshake(cfg: Any) -> tuple[Any, tuple[str, str], str]:
+    """``(api, credentials, error_code)``; ``error_code`` is "" only on a proven read.
 
-    result: dict[str, Any] = {
-        "live_probed": True,
-        "api_reachable": False,
-        "mcp_visible": None,
-        "trace_round_trip": None,
-        "redacted": True,
-    }
+    The two failure codes stay distinct -- an unreachable API is
+    ``api_handshake_failed`` and a reachable API answering with a non-mapping is
+    ``api_response_invalid`` -- so the reported code does not depend on which
+    fault the caller happens to observe first.
+    """
+    from langfuse_agent.api_client import LangfuseApi
+
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_credentials,
+        resolve_langfuse_requests_transport,
+    )
+
     try:
-        from langfuse_agent.api_client import LangfuseApi
-
-        from agent_utilities.observability.langfuse_trust import (
-            resolve_langfuse_credentials,
-            resolve_langfuse_requests_transport,
-        )
-
         public_key, secret_key = resolve_langfuse_credentials(agent_config=cfg)
         transport_kwargs = resolve_langfuse_requests_transport(agent_config=cfg)
         api = LangfuseApi(
@@ -3237,13 +3599,96 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
             transport_kwargs=transport_kwargs,
         )
         handshake = api.trace_list(page=1, limit=1, fields="core")
-        if not isinstance(handshake, dict):
-            result["error_code"] = "api_response_invalid"
-            return result
-        result["api_reachable"] = True
     except Exception:  # noqa: BLE001 - expose only a stable diagnostic code
-        result["error_code"] = "api_handshake_failed"
+        return None, ("", ""), "api_handshake_failed"
+    if not isinstance(handshake, dict):
+        return None, ("", ""), "api_response_invalid"
+    return api, (public_key, secret_key), ""
+
+
+def _langfuse_expected_trace_name(source_run_id: str) -> str:
+    """The tenant-qualified opaque trace name the exporter will persist."""
+    from agent_utilities.usage.privacy import normalize_run_id
+
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        tenant_id = current_actor().tenant_id
+    except Exception:  # noqa: BLE001 - empty tenant namespace is opaque too
+        tenant_id = ""
+    return f"graph_run:{normalize_run_id(source_run_id, tenant_id=tenant_id)}"
+
+
+def _langfuse_await_trace(api: Any, expected_name: str, started_at: str) -> bool:
+    """Poll for the exported trace by name; ``False`` if it never lands."""
+    import time
+
+    for _ in range(10):
+        traces = api.trace_list(
+            page=1,
+            limit=10,
+            name=expected_name,
+            from_timestamp=started_at,
+            order_by="timestamp.desc",
+            fields="core,basic",
+        )
+        if any(row.get("name") == expected_name for row in _langfuse_rows(traces)):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def _probe_langfuse_trace_round_trip(
+    cfg: Any, api: Any, credentials: tuple[str, str]
+) -> tuple[bool, str]:
+    """``(round_trip_ok, error_code)``; ``error_code`` is "" only on success.
+
+    The source token is random and never leaves this function. The exporter
+    turns it into a tenant-qualified opaque identifier before persistence;
+    input and caller metadata are intentionally empty.
+    """
+    import uuid
+    from datetime import UTC, datetime
+
+    from agent_utilities.observability.langfuse_exporter import LangfuseExporter
+
+    public_key, secret_key = credentials
+    source_run_id = uuid.uuid4().hex
+    expected_name = _langfuse_expected_trace_name(source_run_id)
+    started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    exporter = LangfuseExporter(
+        public_key=public_key,
+        secret_key=secret_key,
+        host=cfg.langfuse_host,
+    )
+    emitted = exporter.export_graph_run(
+        run_id=source_run_id,
+        query="",
+        status="success",
+        metadata={},
+    )
+    exporter.flush()
+    if not emitted:
+        return False, "trace_export_failed"
+    if _langfuse_await_trace(api, expected_name, started_at):
+        return True, ""
+    return False, "trace_round_trip_failed"
+
+
+def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
+    """Prove API, optional MCP, and optional metadata-only trace round trip."""
+    result: dict[str, Any] = {
+        "live_probed": True,
+        "api_reachable": False,
+        "mcp_visible": None,
+        "trace_round_trip": None,
+        "redacted": True,
+    }
+    api, credentials, handshake_error = _langfuse_api_handshake(cfg)
+    if handshake_error:
+        result["error_code"] = handshake_error
         return result
+    result["api_reachable"] = True
 
     if cfg.langfuse_mcp_enabled:
         try:
@@ -3257,254 +3702,276 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
     if not cfg.trace_export_enabled:
         return result
 
-    # The source token is random and never leaves this function. The exporter
-    # turns it into a tenant-qualified opaque identifier before persistence;
-    # input and caller metadata are intentionally empty.
-    source_run_id = uuid.uuid4().hex
     try:
-        from agent_utilities.observability.langfuse_exporter import LangfuseExporter
-        from agent_utilities.usage.privacy import normalize_run_id
-
-        try:
-            from agent_utilities.security.brain_context import current_actor
-
-            tenant_id = current_actor().tenant_id
-        except Exception:  # noqa: BLE001 - empty tenant namespace is opaque too
-            tenant_id = ""
-        expected_name = (
-            f"graph_run:{normalize_run_id(source_run_id, tenant_id=tenant_id)}"
+        round_trip, trace_error = _probe_langfuse_trace_round_trip(
+            cfg, api, credentials
         )
-        started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-        exporter = LangfuseExporter(
-            public_key=public_key,
-            secret_key=secret_key,
-            host=cfg.langfuse_host,
-        )
-        emitted = exporter.export_graph_run(
-            run_id=source_run_id,
-            query="",
-            status="success",
-            metadata={},
-        )
-        exporter.flush()
-        if not emitted:
-            result["error_code"] = "trace_export_failed"
-            result["trace_round_trip"] = False
-            return result
-        for _ in range(10):
-            traces = api.trace_list(
-                page=1,
-                limit=10,
-                name=expected_name,
-                from_timestamp=started_at,
-                order_by="timestamp.desc",
-                fields="core,basic",
-            )
-            if any(row.get("name") == expected_name for row in _langfuse_rows(traces)):
-                result["trace_round_trip"] = True
-                return result
-            time.sleep(1.0)
     except Exception:  # noqa: BLE001 - never expose response, endpoint, or identity
-        pass
-    result["trace_round_trip"] = False
-    result["error_code"] = "trace_round_trip_failed"
+        round_trip, trace_error = False, "trace_round_trip_failed"
+    result["trace_round_trip"] = round_trip
+    if trace_error:
+        result["error_code"] = trace_error
     return result
+
+
+_LANGFUSE_CREDENTIAL_REMEDIATION = (
+    "Verify both secret references resolve to real runtime key material; "
+    "redaction masks and unresolved templates are rejected locally."
+)
+
+
+def _langfuse_inputs(cfg: Any) -> SimpleNamespace:
+    """Which Langfuse credential inputs and integrations are configured.
+
+    A strict secret reference is preferred, but the direct
+    ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` pair -- the names
+    ``langfuse_agent.auth`` reads for the standalone agent/MCP server -- is
+    accepted too; see ``langfuse_credentials_configured()``.
+    """
+    from agent_utilities.core.config import setting
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_provider_contract_ready,
+    )
+
+    return SimpleNamespace(
+        public_input=bool(cfg.langfuse_public_key_ref)
+        or bool(setting("LANGFUSE_PUBLIC_KEY", "")),
+        secret_input=bool(cfg.langfuse_secret_key_ref)
+        or bool(setting("LANGFUSE_SECRET_KEY", "")),
+        enabled=bool(
+            cfg.langfuse_mcp_enabled
+            or cfg.kg_failure_evolution
+            or cfg.trace_export_enabled
+            or cfg.langfuse_kg_auto_ingest
+        ),
+        executable_ready=langfuse_provider_contract_ready(),
+    )
+
+
+def _langfuse_data(cfg: Any, inputs: SimpleNamespace) -> dict[str, Any]:
+    """The redacted Langfuse readiness data, before any gate or live probe."""
+    return {
+        "enabled": inputs.enabled,
+        "credential_pair_configured": inputs.public_input and inputs.secret_input,
+        "credential_refs_configured": bool(
+            cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
+        ),
+        "credential_material_ready": False,
+        "tls_profile_configured": bool(
+            cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref
+        ),
+        "persistence_enabled": bool(cfg.langfuse_kg_auto_ingest),
+        "persistence_key_ref_configured": bool(cfg.langfuse_persistence_hmac_key_ref),
+        "persistence_key_ready": False,
+        "mcp_launcher_available": inputs.executable_ready,
+        "mcp_launcher_required": bool(cfg.langfuse_mcp_enabled),
+        "live_probed": False,
+        "redacted": True,
+    }
+
+
+def _langfuse_configuration_gate(
+    cfg: Any, inputs: SimpleNamespace, data: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Skip an unconfigured integration; fail a half-configured credential pair."""
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_credentials_configured,
+    )
+
+    if not inputs.enabled and not inputs.public_input and not inputs.secret_input:
+        return _result(
+            "langfuse",
+            "skip",
+            "Langfuse integration is not configured",
+            data=data,
+        )
+    if (
+        inputs.public_input != inputs.secret_input
+        or not langfuse_credentials_configured(agent_config=cfg)
+    ):
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse credential configuration is incomplete",
+            remediation=(
+                "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF "
+                "(resolved only at the runtime boundary), or the direct "
+                "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY pair used by "
+                "langfuse-agent."
+            ),
+            data=data,
+        )
+    return None
+
+
+def _langfuse_credential_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve the credential material; anything unresolvable is a fail, never ok."""
+    from agent_utilities.observability.langfuse_trust import (
+        LangfuseTrustError,
+        resolve_langfuse_credentials,
+    )
+
+    try:
+        resolve_langfuse_credentials(agent_config=cfg)
+    except LangfuseTrustError as exc:
+        data["error_code"] = exc.reason
+    except Exception:  # noqa: BLE001 - never expose provider details
+        data["error_code"] = "langfuse_credentials_invalid"
+    else:
+        data["credential_material_ready"] = True
+        return None
+    return _result(
+        "langfuse",
+        "fail",
+        "Langfuse credential material is unavailable or invalid",
+        remediation=_LANGFUSE_CREDENTIAL_REMEDIATION,
+        data=data,
+    )
+
+
+def _langfuse_persistence_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """Graph persistence needs its own identity key, and that key must resolve."""
+    from agent_utilities.observability.langfuse_trust import (
+        resolve_langfuse_persistence_hmac_key,
+    )
+
+    if cfg.langfuse_kg_auto_ingest and not cfg.langfuse_persistence_hmac_key_ref:
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse graph persistence requires a dedicated identity key",
+            remediation=(
+                "Configure LANGFUSE_PERSISTENCE_HMAC_KEY_REF; the project API "
+                "secret is never reused for identity derivation."
+            ),
+            data=data,
+        )
+    if not cfg.langfuse_persistence_hmac_key_ref:
+        return None
+    try:
+        resolve_langfuse_persistence_hmac_key(agent_config=cfg)
+    except Exception:  # noqa: BLE001 - keep secret-provider details private
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse persistence identity key is unavailable",
+            remediation=(
+                "Verify LANGFUSE_PERSISTENCE_HMAC_KEY_REF resolves to at "
+                "least 32 bytes at the runtime boundary."
+            ),
+            data=data,
+        )
+    data["persistence_key_ready"] = True
+    return None
+
+
+def _langfuse_trust_gate(cfg: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    """TLS verification can never be disabled for the Langfuse transport."""
+    from agent_utilities.observability.langfuse_trust import configure_langfuse_trust
+
+    trust = configure_langfuse_trust(agent_config=cfg)
+    data["tls_valid"] = trust.valid
+    data["custom_trust_configured"] = trust.configured
+    if trust.valid:
+        return None
+    return _result(
+        "langfuse",
+        "fail",
+        f"Langfuse TLS configuration is invalid ({trust.reason or 'invalid'})",
+        remediation=(
+            "Configure a valid LANGFUSE_TLS_PROFILE_REF or runtime trust "
+            "environment; TLS verification cannot be disabled."
+        ),
+        data=data,
+    )
+
+
+def _langfuse_live_result(cfg: Any, data: dict[str, Any]) -> dict[str, Any]:
+    """Prove every enabled live path; an unproven path is a fail, never ok."""
+    data.update(_probe_langfuse_live(cfg))
+    live_ok = bool(data.get("api_reachable"))
+    if cfg.langfuse_mcp_enabled:
+        live_ok = live_ok and data.get("mcp_visible") is True
+    if cfg.trace_export_enabled:
+        live_ok = live_ok and data.get("trace_round_trip") is True
+    if not live_ok:
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse live proof failed",
+            remediation=(
+                "Verify the runtime secret references, TLS profile, API reachability, "
+                "and the Langfuse MCP child installation; diagnostic output is redacted."
+            ),
+            data=data,
+        )
+    return _result(
+        "langfuse",
+        "ok",
+        "Langfuse API and enabled live paths are proven",
+        data=data,
+    )
+
+
+def _langfuse_ready_result(
+    cfg: Any, inputs: SimpleNamespace, data: dict[str, Any], *, live: bool
+) -> dict[str, Any]:
+    """The verdict once every static gate has passed."""
+    if cfg.langfuse_mcp_enabled and not inputs.executable_ready:
+        data["error_code"] = "langfuse_mcp_provider_contract_unavailable"
+        return _result(
+            "langfuse",
+            "fail",
+            "Langfuse MCP is enabled but its current child contract is unavailable",
+            remediation=(
+                "Install the current agent-utilities[serving] artifact in the "
+                "GraphOS runtime environment."
+            ),
+            data=data,
+        )
+    if not inputs.enabled:
+        return _result(
+            "langfuse",
+            "warn",
+            "Langfuse credentials are ready but all integrations are disabled",
+            remediation=(
+                "Enable metadata-only trace export, MCP access, or governed "
+                "failure evolution as required."
+            ),
+            data=data,
+        )
+    if not live:
+        return _result(
+            "langfuse",
+            "ok",
+            "Langfuse credentials and TLS are statically valid; live proof was not requested",
+            data=data,
+        )
+    return _langfuse_live_result(cfg, data)
 
 
 def _check_langfuse(live: bool = False) -> dict[str, Any]:
     """Validate Langfuse statically, or prove its live privacy-safe paths."""
     try:
-        from agent_utilities.core.config import AgentConfig, setting
-        from agent_utilities.observability.langfuse_trust import (
-            LangfuseTrustError,
-            configure_langfuse_trust,
-            langfuse_credentials_configured,
-            langfuse_provider_contract_ready,
-            resolve_langfuse_credentials,
-            resolve_langfuse_persistence_hmac_key,
-        )
+        from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
-        # A strict secret reference is preferred, but the direct
-        # LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY pair — the names
-        # langfuse_agent.auth reads for the standalone agent/MCP server — is
-        # accepted too; see langfuse_credentials_configured().
-        public_input = bool(cfg.langfuse_public_key_ref) or bool(
-            setting("LANGFUSE_PUBLIC_KEY", "")
-        )
-        secret_input = bool(cfg.langfuse_secret_key_ref) or bool(
-            setting("LANGFUSE_SECRET_KEY", "")
-        )
-        enabled = bool(
-            cfg.langfuse_mcp_enabled
-            or cfg.kg_failure_evolution
-            or cfg.trace_export_enabled
-            or cfg.langfuse_kg_auto_ingest
-        )
-        executable_ready = langfuse_provider_contract_ready()
-        data: dict[str, Any] = {
-            "enabled": enabled,
-            "credential_pair_configured": public_input and secret_input,
-            "credential_refs_configured": bool(
-                cfg.langfuse_public_key_ref and cfg.langfuse_secret_key_ref
-            ),
-            "credential_material_ready": False,
-            "tls_profile_configured": bool(
-                cfg.langfuse_tls_profile or cfg.langfuse_tls_profile_ref
-            ),
-            "persistence_enabled": bool(cfg.langfuse_kg_auto_ingest),
-            "persistence_key_ref_configured": bool(
-                cfg.langfuse_persistence_hmac_key_ref
-            ),
-            "persistence_key_ready": False,
-            "mcp_launcher_available": executable_ready,
-            "mcp_launcher_required": bool(cfg.langfuse_mcp_enabled),
-            "live_probed": False,
-            "redacted": True,
-        }
-        if not enabled and not public_input and not secret_input:
-            return _result(
-                "langfuse",
-                "skip",
-                "Langfuse integration is not configured",
-                data=data,
-            )
-        if public_input != secret_input or not langfuse_credentials_configured(
-            agent_config=cfg
+        inputs = _langfuse_inputs(cfg)
+        data = _langfuse_data(cfg, inputs)
+        # Gates run in this exact order; each one that cannot complete returns a
+        # fail rather than letting a later gate report ok on its behalf.
+        configuration = _langfuse_configuration_gate(cfg, inputs, data)
+        if configuration is not None:
+            return configuration
+        for gate in (
+            _langfuse_credential_gate,
+            _langfuse_persistence_gate,
+            _langfuse_trust_gate,
         ):
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential configuration is incomplete",
-                remediation=(
-                    "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF "
-                    "(resolved only at the runtime boundary), or the direct "
-                    "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY pair used by "
-                    "langfuse-agent."
-                ),
-                data=data,
-            )
-        try:
-            resolve_langfuse_credentials(agent_config=cfg)
-        except LangfuseTrustError as exc:
-            data["error_code"] = exc.reason
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential material is unavailable or invalid",
-                remediation=(
-                    "Verify both secret references resolve to real runtime key material; "
-                    "redaction masks and unresolved templates are rejected locally."
-                ),
-                data=data,
-            )
-        except Exception:  # noqa: BLE001 - never expose provider details
-            data["error_code"] = "langfuse_credentials_invalid"
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse credential material is unavailable or invalid",
-                remediation=(
-                    "Verify both secret references resolve to real runtime key material; "
-                    "redaction masks and unresolved templates are rejected locally."
-                ),
-                data=data,
-            )
-        data["credential_material_ready"] = True
-        if cfg.langfuse_kg_auto_ingest and not cfg.langfuse_persistence_hmac_key_ref:
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse graph persistence requires a dedicated identity key",
-                remediation=(
-                    "Configure LANGFUSE_PERSISTENCE_HMAC_KEY_REF; the project API "
-                    "secret is never reused for identity derivation."
-                ),
-                data=data,
-            )
-        if cfg.langfuse_persistence_hmac_key_ref:
-            try:
-                resolve_langfuse_persistence_hmac_key(agent_config=cfg)
-            except Exception:  # noqa: BLE001 - keep secret-provider details private
-                return _result(
-                    "langfuse",
-                    "fail",
-                    "Langfuse persistence identity key is unavailable",
-                    remediation=(
-                        "Verify LANGFUSE_PERSISTENCE_HMAC_KEY_REF resolves to at "
-                        "least 32 bytes at the runtime boundary."
-                    ),
-                    data=data,
-                )
-            data["persistence_key_ready"] = True
-        trust = configure_langfuse_trust(agent_config=cfg)
-        data["tls_valid"] = trust.valid
-        data["custom_trust_configured"] = trust.configured
-        if not trust.valid:
-            return _result(
-                "langfuse",
-                "fail",
-                f"Langfuse TLS configuration is invalid ({trust.reason or 'invalid'})",
-                remediation=(
-                    "Configure a valid LANGFUSE_TLS_PROFILE_REF or runtime trust "
-                    "environment; TLS verification cannot be disabled."
-                ),
-                data=data,
-            )
-        if cfg.langfuse_mcp_enabled and not executable_ready:
-            data["error_code"] = "langfuse_mcp_provider_contract_unavailable"
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse MCP is enabled but its current child contract is unavailable",
-                remediation=(
-                    "Install the current agent-utilities[serving] artifact in the "
-                    "GraphOS runtime environment."
-                ),
-                data=data,
-            )
-        if not enabled:
-            return _result(
-                "langfuse",
-                "warn",
-                "Langfuse credentials are ready but all integrations are disabled",
-                remediation=(
-                    "Enable metadata-only trace export, MCP access, or governed "
-                    "failure evolution as required."
-                ),
-                data=data,
-            )
-        if not live:
-            return _result(
-                "langfuse",
-                "ok",
-                "Langfuse credentials and TLS are statically valid; live proof was not requested",
-                data=data,
-            )
-        live_data = _probe_langfuse_live(cfg)
-        data.update(live_data)
-        live_ok = bool(data.get("api_reachable"))
-        if cfg.langfuse_mcp_enabled:
-            live_ok = live_ok and data.get("mcp_visible") is True
-        if cfg.trace_export_enabled:
-            live_ok = live_ok and data.get("trace_round_trip") is True
-        if not live_ok:
-            return _result(
-                "langfuse",
-                "fail",
-                "Langfuse live proof failed",
-                remediation=(
-                    "Verify the runtime secret references, TLS profile, API reachability, "
-                    "and the Langfuse MCP child installation; diagnostic output is redacted."
-                ),
-                data=data,
-            )
-        return _result(
-            "langfuse",
-            "ok",
-            "Langfuse API and enabled live paths are proven",
-            data=data,
-        )
+            failure = gate(cfg, data)
+            if failure is not None:
+                return failure
+        return _langfuse_ready_result(cfg, inputs, data, live=live)
     except Exception as exc:  # noqa: BLE001 - doctor output remains redacted
         return _result(
             "langfuse",
@@ -3624,101 +4091,109 @@ def _check_native_optimizer(live: bool = False) -> dict[str, Any]:
         )
 
 
-def _check_graph_connections(live: bool = False) -> dict[str, Any]:
-    """Validate graph declarations and optionally prove their native read paths.
-
-    Every declaration, including sources declared only in ``KG_CONNECTIONS``, is
-    checked on every run. Network probes run only for an explicit live doctor.
-    Public output is aggregate metadata: aliases, endpoints, refs, identities,
-    source rows, and exception details never cross the doctor boundary.
-    """
-    try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.knowledge_graph.core.connection_registry import (
-            validate_persistable_connection_spec,
+def _graph_connection_declarations(
+    cfg: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """``(external, kg)`` connection declarations, normalised to plain dicts."""
+    external_declarations: list[dict[str, Any]] = []
+    for declared in cfg.external_graph_connectors or []:
+        value = (
+            declared.model_dump(exclude_none=True, exclude_defaults=True)
+            if hasattr(declared, "model_dump")
+            else dict(declared)
         )
-        from agent_utilities.mcp.kg_server import get_connection_registry
+        value["role"] = "read"
+        external_declarations.append(value)
+    kg_declarations = [dict(value) for value in (cfg.kg_connections or [])]
+    return external_declarations, kg_declarations
 
-        cfg = AgentConfig()
-        external_declarations: list[dict[str, Any]] = []
-        for declared in cfg.external_graph_connectors or []:
-            value = (
-                declared.model_dump(exclude_none=True, exclude_defaults=True)
-                if hasattr(declared, "model_dump")
-                else dict(declared)
-            )
-            value["role"] = "read"
-            external_declarations.append(value)
-        kg_declarations = [dict(value) for value in (cfg.kg_connections or [])]
-        declarations = [*external_declarations, *kg_declarations]
 
-        invalid_declaration_count = 0
-        for declaration in declarations:
-            try:
-                validate_persistable_connection_spec(declaration)
-                if not str(declaration.get("name") or "").strip():
-                    raise ValueError("connection declaration has no name")
-            except Exception:  # noqa: BLE001 - expose only aggregate counts
-                invalid_declaration_count += 1
+def _invalid_declaration_count(declarations: list[dict[str, Any]]) -> int:
+    """How many declarations fail the persistable spec or carry no usable name."""
+    from agent_utilities.knowledge_graph.core.connection_registry import (
+        validate_persistable_connection_spec,
+    )
 
-        # KG_CONNECTIONS intentionally overrides an EXTERNAL_GRAPH_CONNECTORS
-        # declaration with the same alias. Duplicates within either source are
-        # invalid and cannot be hidden by that precedence rule.
-        external_names = [
-            str(value.get("name") or "").strip()
-            for value in external_declarations
-            if str(value.get("name") or "").strip()
-        ]
-        kg_names = [
-            str(value.get("name") or "").strip()
-            for value in kg_declarations
-            if str(value.get("name") or "").strip()
-        ]
-        duplicate_declaration_count = (
+    invalid = 0
+    for declaration in declarations:
+        try:
+            validate_persistable_connection_spec(declaration)
+            if not str(declaration.get("name") or "").strip():
+                raise ValueError("connection declaration has no name")
+        except Exception:  # noqa: BLE001 - expose only aggregate counts
+            invalid += 1
+    return invalid
+
+
+def _declared_names(values: list[dict[str, Any]]) -> list[str]:
+    """Each declaration's non-empty stripped ``name``; duplicates are kept."""
+    return [
+        str(value.get("name") or "").strip()
+        for value in values
+        if str(value.get("name") or "").strip()
+    ]
+
+
+def _graph_connection_inventory(cfg: Any) -> SimpleNamespace:
+    """Reconcile the declared connections against the live registry.
+
+    ``KG_CONNECTIONS`` intentionally overrides an ``EXTERNAL_GRAPH_CONNECTORS``
+    declaration with the same alias. Duplicates within either source are invalid
+    and cannot be hidden by that precedence rule.
+    """
+    from agent_utilities.mcp.kg_server import get_connection_registry
+
+    external_declarations, kg_declarations = _graph_connection_declarations(cfg)
+    invalid_declaration_count = _invalid_declaration_count(
+        [*external_declarations, *kg_declarations]
+    )
+    external_names = _declared_names(external_declarations)
+    kg_names = _declared_names(kg_declarations)
+    effective_names = set(external_names) | set(kg_names)
+    registry = get_connection_registry()
+    conns = [
+        connection
+        for connection in registry.status().get("connections", [])
+        if connection.get("name") != "default"
+    ]
+    registered_names = set(_declared_names(conns))
+    return SimpleNamespace(
+        registry=registry,
+        conns=conns,
+        registered_names=registered_names,
+        effective_names=effective_names,
+        invalid_declaration_count=invalid_declaration_count,
+        duplicate_declaration_count=(
             len(external_names)
             - len(set(external_names))
             + len(kg_names)
             - len(set(kg_names))
-        )
-        effective_names = set(external_names) | set(kg_names)
-        registry = get_connection_registry()
-        status = registry.status()
-        conns = [
-            connection
-            for connection in status.get("connections", [])
-            if connection.get("name") != "default"
-        ]
-        registered_names = {
-            str(connection.get("name") or "").strip()
-            for connection in conns
-            if str(connection.get("name") or "").strip()
-        }
-        missing_declaration_count = len(effective_names - registered_names)
-    except Exception:  # noqa: BLE001 - never expose deployment details
-        return _result(
-            "graph_connections",
-            "fail",
-            "graph connection registry is invalid",
-            remediation=(
-                "Repair KG_CONNECTIONS and external graph declarations; keep all "
-                "transport, auth, and TLS material behind runtime references."
-            ),
-            data={"ready": False, "redacted": True, "live_probed": live},
-        )
+        ),
+        missing_declaration_count=len(effective_names - registered_names),
+    )
 
-    probe_failed_count = 0
+
+def _graph_connection_probe_counts(
+    registry: Any, registered_names: set[str], *, live: bool
+) -> tuple[int, int]:
+    """``(ready, probe_failed)``; a probe that raises counts as failed, never ready."""
+    if not live:
+        return 0, 0
     ready_count = 0
-    if live:
-        for name in sorted(registered_names):
-            try:
-                if registry.probe(name):
-                    ready_count += 1
-                else:
-                    probe_failed_count += 1
-            except Exception:  # noqa: BLE001 - never expose connector details
+    probe_failed_count = 0
+    for name in sorted(registered_names):
+        try:
+            if registry.probe(name):
+                ready_count += 1
+            else:
                 probe_failed_count += 1
+        except Exception:  # noqa: BLE001 - never expose connector details
+            probe_failed_count += 1
+    return ready_count, probe_failed_count
 
-    stalled_count = 0
+
+def _stalled_mirror_count() -> int:
+    """Stalled fan-out mirrors; best-effort, an unavailable backend reports 0."""
     try:
         from agent_utilities.knowledge_graph.backends import get_active_backend
         from agent_utilities.knowledge_graph.backends.fanout_backend import (
@@ -3727,43 +4202,63 @@ def _check_graph_connections(live: bool = False) -> dict[str, Any]:
 
         backend = get_active_backend()
         cand = getattr(backend, "inner", backend)
-        fan = cand if isinstance(cand, FanOutBackend) else None
-        if isinstance(fan, FanOutBackend):
-            mirrors = fan.durability_stats().get("mirrors") or {}
-            stalled_count = sum(
-                bool(state.get("stalled")) for state in mirrors.values()
-            )
+        if not isinstance(cand, FanOutBackend):
+            return 0
+        mirrors = cand.durability_stats().get("mirrors") or {}
+        return sum(bool(state.get("stalled")) for state in mirrors.values())
     except Exception:  # noqa: BLE001 — mirror stats are best-effort
-        pass
+        return 0
 
+
+def _graph_connections_data(
+    inventory: SimpleNamespace,
+    ready_count: int,
+    probe_failed_count: int,
+    stalled_count: int,
+    *,
+    live: bool,
+) -> dict[str, Any]:
+    """Aggregate, redacted connection metadata -- never an alias or endpoint."""
     by_role: dict[str, int] = {}
-    for connection in conns:
+    for connection in inventory.conns:
         role = str(connection.get("role") or "read")
         by_role[role] = by_role.get(role, 0) + 1
-    data = {
-        "configured_count": len(effective_names),
-        "registered_count": len(registered_names),
+    return {
+        "configured_count": len(inventory.effective_names),
+        "registered_count": len(inventory.registered_names),
         "ready_count": ready_count,
         "probe_failed_count": probe_failed_count,
-        "invalid_declaration_count": invalid_declaration_count,
-        "duplicate_declaration_count": duplicate_declaration_count,
-        "missing_declaration_count": missing_declaration_count,
+        "invalid_declaration_count": inventory.invalid_declaration_count,
+        "duplicate_declaration_count": inventory.duplicate_declaration_count,
+        "missing_declaration_count": inventory.missing_declaration_count,
         "stalled_mirror_count": stalled_count,
         "roles": by_role,
         "redacted": True,
         "live_probed": live,
     }
+
+
+def _graph_connections_verdict(
+    inventory: SimpleNamespace,
+    data: dict[str, Any],
+    probe_failed_count: int,
+    stalled_count: int,
+    *,
+    live: bool,
+) -> dict[str, Any]:
+    """Any declaration or probe failure is a fail; stalled mirrors are a warn."""
+    registered = len(inventory.registered_names)
     configuration_failures = (
-        invalid_declaration_count
-        + duplicate_declaration_count
-        + missing_declaration_count
+        inventory.invalid_declaration_count
+        + inventory.duplicate_declaration_count
+        + inventory.missing_declaration_count
     )
     if configuration_failures or probe_failed_count:
         return _result(
             "graph_connections",
             "fail",
             (
-                f"{len(registered_names)} external connection(s); "
+                f"{registered} external connection(s); "
                 f"{configuration_failures} declaration failure(s), "
                 f"{probe_failed_count} runtime probe failure(s)"
             ),
@@ -3778,21 +4273,114 @@ def _check_graph_connections(live: bool = False) -> dict[str, Any]:
         return _result(
             "graph_connections",
             "warn",
-            f"{len(registered_names)} connection(s); {stalled_count} stalled mirror(s)",
+            f"{registered} connection(s); {stalled_count} stalled mirror(s)",
             remediation="`graph_configure action=reconcile` and check the mirror backend",
             skill="database-environment-setup",
             data=data,
         )
-    if not registered_names:
+    if not inventory.registered_names:
         detail = "no external connections registered"
     elif live:
-        detail = f"{ready_count}/{len(registered_names)} external connection(s) ready"
+        detail = f"{data['ready_count']}/{registered} external connection(s) ready"
     else:
         detail = (
-            f"{len(registered_names)} external connection declaration(s) valid; "
+            f"{registered} external connection declaration(s) valid; "
             "live proof not requested"
         )
     return _result("graph_connections", "ok", detail, data=data)
+
+
+def _check_graph_connections(live: bool = False) -> dict[str, Any]:
+    """Validate graph declarations and optionally prove their native read paths.
+
+    Every declaration, including sources declared only in ``KG_CONNECTIONS``, is
+    checked on every run. Network probes run only for an explicit live doctor.
+    Public output is aggregate metadata: aliases, endpoints, refs, identities,
+    source rows, and exception details never cross the doctor boundary.
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        inventory = _graph_connection_inventory(AgentConfig())
+    except Exception:  # noqa: BLE001 - never expose deployment details
+        return _result(
+            "graph_connections",
+            "fail",
+            "graph connection registry is invalid",
+            remediation=(
+                "Repair KG_CONNECTIONS and external graph declarations; keep all "
+                "transport, auth, and TLS material behind runtime references."
+            ),
+            data={"ready": False, "redacted": True, "live_probed": live},
+        )
+
+    ready_count, probe_failed_count = _graph_connection_probe_counts(
+        inventory.registry, inventory.registered_names, live=live
+    )
+    stalled_count = _stalled_mirror_count()
+    data = _graph_connections_data(
+        inventory, ready_count, probe_failed_count, stalled_count, live=live
+    )
+    return _graph_connections_verdict(
+        inventory, data, probe_failed_count, stalled_count, live=live
+    )
+
+
+def _ingestion_freshness(backend: Any) -> dict[str, str]:
+    """Last-delta freshness per repo, best-effort: an unavailable manifest is {}."""
+    freshness: dict[str, str] = {}
+    try:
+        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
+
+        dm = DeltaManifest(backend=backend)
+        for cat in ("codebase", "codebase_file"):
+            freshness.update(dm.freshness("agent_graph", cat))
+    except Exception:  # noqa: BLE001 — freshness is best-effort
+        return {}
+    return freshness
+
+
+def _ingestion_coverage_result(rep: dict[str, Any]) -> dict[str, Any]:
+    """Turn one coverage assessment into the doctor verdict + aggregate data."""
+    missing_count = len(rep["missing"])
+    stale_count = len(rep["stale"])
+    error_count = len(rep["errors"])
+    data = {
+        "total": rep["total"],
+        "covered": rep["covered"],
+        "missing_count": missing_count,
+        "stale_count": stale_count,
+        "error_count": error_count,
+        "coverage_pct": rep["coverage_pct"],
+        "total_symbols": rep["total_symbols"],
+        "sla_days": rep["sla_days"],
+        "redacted": True,
+    }
+    detail = (
+        f"{rep['covered']}/{rep['total']} agent-packages repos ingested "
+        f"({rep['coverage_pct']}%), {rep['total_symbols']} symbols"
+    )
+    if missing_count:
+        detail += f", {missing_count} missing"
+    if stale_count:
+        detail += f", {stale_count} stale (>{rep['sla_days']}d)"
+    if error_count:
+        detail += f", {error_count} query error(s)"
+    if missing_count or stale_count or error_count:
+        # A repo-level query failure (D-28) is at least as actionable as a
+        # missing repo — never let it silently pass as "ok". It also already
+        # lowers coverage_pct (errored repos are excluded from "covered"),
+        # so no separate severity rule is needed here.
+        status = "fail" if rep["coverage_pct"] < 75 else "warn"
+        return _result(
+            "ingestion_coverage",
+            status,
+            detail,
+            remediation="`source_sync source=all mode=delta` to ingest or refresh configured repositories",
+            skill="graph-ingestion-and-integration",
+            data=data,
+        )
+    return _result("ingestion_coverage", "ok", detail, data=data)
 
 
 def _check_ingestion_coverage() -> dict[str, Any]:
@@ -3835,56 +4423,10 @@ def _check_ingestion_coverage() -> dict[str, Any]:
             f"coverage probe unavailable ({type(exc).__name__})",
         )
 
-    freshness: dict[str, str] = {}
-    try:
-        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
-
-        dm = DeltaManifest(backend=backend)
-        for cat in ("codebase", "codebase_file"):
-            freshness.update(dm.freshness("agent_graph", cat))
-    except Exception:  # noqa: BLE001 — freshness is best-effort
-        freshness = {}
-
-    rep = assess_coverage(repos, counts, freshness, errors=count_errors)
-    missing_count = len(rep["missing"])
-    stale_count = len(rep["stale"])
-    error_count = len(rep["errors"])
-    data = {
-        "total": rep["total"],
-        "covered": rep["covered"],
-        "missing_count": missing_count,
-        "stale_count": stale_count,
-        "error_count": error_count,
-        "coverage_pct": rep["coverage_pct"],
-        "total_symbols": rep["total_symbols"],
-        "sla_days": rep["sla_days"],
-        "redacted": True,
-    }
-    detail = (
-        f"{rep['covered']}/{rep['total']} agent-packages repos ingested "
-        f"({rep['coverage_pct']}%), {rep['total_symbols']} symbols"
+    freshness = _ingestion_freshness(backend)
+    return _ingestion_coverage_result(
+        assess_coverage(repos, counts, freshness, errors=count_errors)
     )
-    if missing_count:
-        detail += f", {missing_count} missing"
-    if stale_count:
-        detail += f", {stale_count} stale (>{rep['sla_days']}d)"
-    if error_count:
-        detail += f", {error_count} query error(s)"
-    if missing_count or stale_count or error_count:
-        # A repo-level query failure (D-28) is at least as actionable as a
-        # missing repo — never let it silently pass as "ok". It also already
-        # lowers coverage_pct (errored repos are excluded from "covered"),
-        # so no separate severity rule is needed here.
-        status = "fail" if rep["coverage_pct"] < 75 else "warn"
-        return _result(
-            "ingestion_coverage",
-            status,
-            detail,
-            remediation="`source_sync source=all mode=delta` to ingest or refresh configured repositories",
-            skill="graph-ingestion-and-integration",
-            data=data,
-        )
-    return _result("ingestion_coverage", "ok", detail, data=data)
 
 
 def _check_connector_coverage() -> dict[str, Any]:
@@ -4126,6 +4668,233 @@ def _check_skills() -> dict[str, Any]:
     )
 
 
+def _unified_install_tally() -> SimpleNamespace:
+    """Zeroed counters for one unified-install sweep."""
+    return SimpleNamespace(
+        missing=0,
+        unresolved=0,
+        materialized=0,
+        stale_managed=0,
+        unmanaged_nested=0,
+        invalid_managed=0,
+    )
+
+
+def _count_generation(
+    path: Any,
+    provider: str,
+    leg: str,
+    registration: Any,
+    source_manifest: Any,
+    tally: SimpleNamespace,
+) -> None:
+    """Materialized when a managed generation resolves for this provider, else missing."""
+    from agent_utilities.core.provider_materialization import (
+        resolve_managed_generation,
+    )
+
+    resolved = resolve_managed_generation(
+        path,
+        provider=provider,
+        leg=leg,
+        registration=registration,
+        source_manifest=source_manifest,
+    )
+    if resolved is not None:
+        tally.materialized += 1
+    else:
+        tally.missing += 1
+
+
+def _count_provider_materialization(
+    registration: Any, root: Any, leg: str, tally: SimpleNamespace
+) -> None:
+    """Count one registered provider as materialized, missing, or unresolved.
+
+    A source that cannot be read is ``unresolved`` -- never silently skipped and
+    never counted as materialized.
+    """
+    from agent_utilities.core.provider_materialization import (
+        ProviderAssetError,
+        build_asset_manifest,
+    )
+
+    if registration.source_root is None:
+        tally.unresolved += 1
+        return
+    try:
+        manifest = build_asset_manifest(
+            registration.source_root,
+            leg=leg,
+            allowed_relative_paths=registration.owned_paths,
+        )
+    except (OSError, ProviderAssetError, ValueError):
+        tally.unresolved += 1
+        return
+    _count_generation(
+        root / registration.name,
+        registration.name,
+        leg,
+        registration.digest,
+        manifest,
+        tally,
+    )
+
+
+def _count_own_provider(root: Any, leg: str, tally: SimpleNamespace) -> None:
+    """Count the hub's OWN contribution for one leg."""
+    from agent_utilities.core.provider_materialization import ProviderAssetError
+    from agent_utilities.core.unified_install import OWN_PROVIDER, own_provider_asset
+
+    try:
+        _source, own_digest, own_manifest = own_provider_asset(leg)
+    except (OSError, ProviderAssetError, ValueError):
+        tally.unresolved += 1
+        return
+    _count_generation(
+        root / OWN_PROVIDER, OWN_PROVIDER, leg, own_digest, own_manifest, tally
+    )
+
+
+def _nested_child_is_plain_dir(child: Any, tally: SimpleNamespace) -> bool:
+    """A leg-root child must be a real directory; anything else is invalid_managed."""
+    try:
+        child_info = child.lstat()
+    except OSError:
+        tally.invalid_managed += 1
+        return False
+    is_junction = getattr(child, "is_junction", lambda: False)()
+    if child.is_symlink() or is_junction or not stat.S_ISDIR(child_info.st_mode):
+        tally.invalid_managed += 1
+        return False
+    return True
+
+
+def _classify_managed_marker(
+    child: Any, leg: str, names: set[str], has_marker: bool, tally: SimpleNamespace
+) -> None:
+    """Classify a nested directory from its provider-ownership marker."""
+    from agent_utilities.core.provider_materialization import (
+        read_managed_provider_marker,
+    )
+
+    marker = read_managed_provider_marker(child, provider=child.name, leg=leg)
+    if marker is None:
+        if has_marker:
+            tally.invalid_managed += 1
+        else:
+            tally.unmanaged_nested += 1
+    elif child.name not in names:
+        tally.stale_managed += 1
+
+
+def _classify_nested_child(
+    child: Any, leg: str, names: set[str], tally: SimpleNamespace
+) -> None:
+    """Classify one directory under a leg root; an unmarked skill folder is fine."""
+    from agent_utilities.core.provider_materialization import marker_path_exists
+
+    if not _nested_child_is_plain_dir(child, tally):
+        return
+    has_marker = marker_path_exists(child)
+    if leg == "skills" and not has_marker and (child / "SKILL.md").is_file():
+        return
+    _classify_managed_marker(child, leg, names, has_marker, tally)
+
+
+def _scan_nested_children(
+    root: Any, leg: str, names: set[str], tally: SimpleNamespace
+) -> None:
+    """Classify every non-dotfile child under one materialized leg root."""
+    if not root.is_dir():
+        return
+    for child in root.iterdir():
+        if child.name.startswith("."):
+            continue
+        _classify_nested_child(child, leg, names, tally)
+
+
+def _sweep_install_leg(
+    leg: str, root: Any, registrations: Any, tally: SimpleNamespace
+) -> int:
+    """Count one leg's providers and nested children; returns its expected count."""
+    from agent_utilities.core.unified_install import OWN_PROVIDER
+
+    names = {item.name for item in registrations}
+    names.add(OWN_PROVIDER)
+    for registration in registrations:
+        if registration.name == OWN_PROVIDER:
+            continue
+        _count_provider_materialization(registration, root, leg, tally)
+    _count_own_provider(root, leg, tally)
+    _scan_nested_children(root, leg, names, tally)
+    return len(names)
+
+
+def _unified_install_result(
+    legs: dict[str, tuple[Any, Any]],
+    expected_counts: dict[str, int],
+    tally: SimpleNamespace,
+) -> dict[str, Any]:
+    """The unified-install verdict; anything unreconciled is never reported ok."""
+    data = {
+        # Readiness is reportable; machine-specific XDG locations are not.  A
+        # doctor result can itself be exported as telemetry, so never place a
+        # host filesystem reference in its structured payload.
+        "roots_ready": {leg: root.is_dir() for leg, (_g, root) in legs.items()},
+        "expected_counts": expected_counts,
+        "missing": tally.missing,
+        "unresolved": tally.unresolved,
+        "materialized": tally.materialized,
+        "managed_ready": not any(
+            (
+                tally.missing,
+                tally.unresolved,
+                tally.stale_managed,
+                tally.unmanaged_nested,
+                tally.invalid_managed,
+            )
+        ),
+        "stale_managed": tally.stale_managed,
+        "unmanaged_nested": tally.unmanaged_nested,
+        "invalid_managed": tally.invalid_managed,
+        "redacted": True,
+    }
+    if tally.unresolved:
+        return _result(
+            "unified_install",
+            "fail",
+            f"current provider sources cannot be validated ({tally.unresolved} issue(s))",
+            remediation="repair provider distributions before materialization",
+            skill="agent-utilities-deployment",
+            data=data,
+        )
+    issues = (
+        tally.missing
+        + tally.stale_managed
+        + tally.unmanaged_nested
+        + tally.invalid_managed
+    )
+    if issues:
+        return _result(
+            "unified_install",
+            "warn",
+            f"unified provider materialization needs reconciliation ({issues} issue(s))",
+            remediation=(
+                "`agent-utilities install` (materializes current providers, marks "
+                "ownership, and prunes removed managed providers)"
+            ),
+            skill="agent-utilities-deployment",
+            data=data,
+        )
+    return _result(
+        "unified_install",
+        "ok",
+        f"unified XDG tree complete — {tally.materialized} provider contribution(s) materialized",
+        data=data,
+    )
+
+
 def _check_unified_install() -> dict[str, Any]:
     """Assert the unified XDG tree exists and matches installed providers (CONCEPT:AU-OS.host.doctor-unified-install).
 
@@ -4137,7 +4906,11 @@ def _check_unified_install() -> dict[str, Any]:
     """
     try:
         from agent_utilities.core.paths import ontology_dir, skills_dir
-        from agent_utilities.core.provider_materialization import (
+
+        # Import gate: the helpers below re-import these. Kept here so a partial
+        # install still reports `skip` up front, exactly as it did before the
+        # split, rather than raising out of the check later.
+        from agent_utilities.core.provider_materialization import (  # noqa: F401
             ProviderAssetError,
             build_asset_manifest,
             marker_path_exists,
@@ -4150,7 +4923,7 @@ def _check_unified_install() -> dict[str, Any]:
             SKILL_PROVIDER_GROUP,
             provider_registrations,
         )
-        from agent_utilities.core.unified_install import (
+        from agent_utilities.core.unified_install import (  # noqa: F401
             OWN_PROVIDER,
             own_provider_asset,
             unified_prompts_dir,
@@ -4167,13 +4940,8 @@ def _check_unified_install() -> dict[str, Any]:
         "prompts": (PROMPT_PROVIDER_GROUP, unified_prompts_dir()),
         "ontologies": (ONTOLOGY_PROVIDER_GROUP, ontology_dir()),
     }
+    tally = _unified_install_tally()
     expected_counts: dict[str, int] = {}
-    missing = 0
-    unresolved = 0
-    materialized = 0
-    stale_managed = 0
-    unmanaged_nested = 0
-    invalid_managed = 0
     for leg, (group, root) in legs.items():
         try:
             registrations = provider_registrations(group)
@@ -4186,130 +4954,8 @@ def _check_unified_install() -> dict[str, Any]:
                 skill="agent-utilities-deployment",
                 data={"ready": False, "redacted": True},
             )
-        names = {item.name for item in registrations}
-        names.add(OWN_PROVIDER)
-        expected_counts[leg] = len(names)
-        for registration in registrations:
-            if registration.name == OWN_PROVIDER:
-                continue
-            if registration.source_root is None:
-                unresolved += 1
-                continue
-            try:
-                manifest = build_asset_manifest(
-                    registration.source_root,
-                    leg=leg,
-                    allowed_relative_paths=registration.owned_paths,
-                )
-            except (OSError, ProviderAssetError, ValueError):
-                unresolved += 1
-                continue
-            if (
-                resolve_managed_generation(
-                    root / registration.name,
-                    provider=registration.name,
-                    leg=leg,
-                    registration=registration.digest,
-                    source_manifest=manifest,
-                )
-                is not None
-            ):
-                materialized += 1
-            else:
-                missing += 1
-        try:
-            _source, own_digest, own_manifest = own_provider_asset(leg)
-        except (OSError, ProviderAssetError, ValueError):
-            unresolved += 1
-        else:
-            if (
-                resolve_managed_generation(
-                    root / OWN_PROVIDER,
-                    provider=OWN_PROVIDER,
-                    leg=leg,
-                    registration=own_digest,
-                    source_manifest=own_manifest,
-                )
-                is not None
-            ):
-                materialized += 1
-            else:
-                missing += 1
-        if not root.is_dir():
-            continue
-        for child in root.iterdir():
-            if child.name.startswith("."):
-                continue
-            try:
-                child_info = child.lstat()
-            except OSError:
-                invalid_managed += 1
-                continue
-            is_junction = getattr(child, "is_junction", lambda: False)()
-            if (
-                child.is_symlink()
-                or is_junction
-                or not stat.S_ISDIR(child_info.st_mode)
-            ):
-                invalid_managed += 1
-                continue
-            has_marker = marker_path_exists(child)
-            if leg == "skills" and not has_marker and (child / "SKILL.md").is_file():
-                continue
-            marker = read_managed_provider_marker(child, provider=child.name, leg=leg)
-            if marker is None:
-                if has_marker:
-                    invalid_managed += 1
-                else:
-                    unmanaged_nested += 1
-            elif child.name not in names:
-                stale_managed += 1
-
-    data = {
-        # Readiness is reportable; machine-specific XDG locations are not.  A
-        # doctor result can itself be exported as telemetry, so never place a
-        # host filesystem reference in its structured payload.
-        "roots_ready": {leg: root.is_dir() for leg, (_g, root) in legs.items()},
-        "expected_counts": expected_counts,
-        "missing": missing,
-        "unresolved": unresolved,
-        "materialized": materialized,
-        "managed_ready": not any(
-            (missing, unresolved, stale_managed, unmanaged_nested, invalid_managed)
-        ),
-        "stale_managed": stale_managed,
-        "unmanaged_nested": unmanaged_nested,
-        "invalid_managed": invalid_managed,
-        "redacted": True,
-    }
-    if unresolved:
-        return _result(
-            "unified_install",
-            "fail",
-            f"current provider sources cannot be validated ({unresolved} issue(s))",
-            remediation="repair provider distributions before materialization",
-            skill="agent-utilities-deployment",
-            data=data,
-        )
-    if missing or stale_managed or unmanaged_nested or invalid_managed:
-        issues = missing + stale_managed + unmanaged_nested + invalid_managed
-        return _result(
-            "unified_install",
-            "warn",
-            f"unified provider materialization needs reconciliation ({issues} issue(s))",
-            remediation=(
-                "`agent-utilities install` (materializes current providers, marks "
-                "ownership, and prunes removed managed providers)"
-            ),
-            skill="agent-utilities-deployment",
-            data=data,
-        )
-    return _result(
-        "unified_install",
-        "ok",
-        f"unified XDG tree complete — {materialized} provider contribution(s) materialized",
-        data=data,
-    )
+        expected_counts[leg] = _sweep_install_leg(leg, root, registrations, tally)
+    return _unified_install_result(legs, expected_counts, tally)
 
 
 def _check_venv_drift() -> dict[str, Any]:
@@ -4425,6 +5071,66 @@ def _check_warm_fork() -> dict[str, Any]:
     )
 
 
+def _a2a_missing_contract_methods(
+    broker_client: Any, node_client: Any, txn_client: Any
+) -> list[str]:
+    """Which required broker/nodes/txn client methods the installed engine lacks."""
+    required = (
+        (
+            "broker",
+            broker_client,
+            {
+                "declare_exchange",
+                "declare_queue",
+                "bind_queue",
+                "publish_idempotent",
+                "consume",
+                "renew_tag",
+                "ack_tag",
+                "nack_tag",
+            },
+        ),
+        (
+            "nodes",
+            node_client,
+            {"create_if_absent", "properties", "compare_and_set", "list_by_label"},
+        ),
+        ("txn", txn_client, {"begin", "cas", "commit", "rollback"}),
+    )
+    missing: list[str] = []
+    for label, client, names in required:
+        missing.extend(
+            sorted(
+                f"{label}.{name}"
+                for name in names
+                if not callable(getattr(client, name, None))
+            )
+        )
+    return missing
+
+
+def _a2a_bounded_configuration(cfg: Any) -> bool:
+    """Every A2A broker/storage limit must be a positive bound."""
+    return all(
+        value > 0
+        for value in (
+            cfg.a2a_broker_poll_interval_ms,
+            cfg.a2a_broker_lease_ms,
+            cfg.a2a_broker_prefetch,
+            cfg.a2a_broker_message_ttl_ms,
+            cfg.a2a_broker_max_delivery_count,
+            cfg.a2a_max_payload_bytes,
+            cfg.a2a_max_history,
+            cfg.a2a_max_artifacts,
+            cfg.a2a_max_context_messages,
+            cfg.a2a_storage_update_retries,
+            cfg.a2a_dispatch_reconcile_interval_ms,
+            cfg.a2a_dispatch_reconcile_limit,
+            cfg.a2a_cancellation_poll_interval_ms,
+        )
+    )
+
+
 def _check_a2a_persistence() -> dict[str, Any]:
     """Validate the sole current FastA2A durability contract without network I/O."""
 
@@ -4450,63 +5156,11 @@ def _check_a2a_persistence() -> dict[str, Any]:
             data={"ready": False, "redacted": True},
         )
 
-    required_broker_methods = {
-        "declare_exchange",
-        "declare_queue",
-        "bind_queue",
-        "publish_idempotent",
-        "consume",
-        "renew_tag",
-        "ack_tag",
-        "nack_tag",
-    }
-    required_node_methods = {
-        "create_if_absent",
-        "properties",
-        "compare_and_set",
-        "list_by_label",
-    }
-    required_txn_methods = {"begin", "cas", "commit", "rollback"}
-    missing = sorted(
-        f"broker.{name}"
-        for name in required_broker_methods
-        if not callable(getattr(BrokerClient, name, None))
-    )
-    missing.extend(
-        sorted(
-            f"nodes.{name}"
-            for name in required_node_methods
-            if not callable(getattr(NodeClient, name, None))
-        )
-    )
-    missing.extend(
-        sorted(
-            f"txn.{name}"
-            for name in required_txn_methods
-            if not callable(getattr(TxnClient, name, None))
-        )
-    )
+    missing = _a2a_missing_contract_methods(BrokerClient, NodeClient, TxnClient)
     selected = (
         cfg.a2a_broker == "epistemic_graph" and cfg.a2a_storage == "epistemic_graph"
     )
-    bounded = all(
-        value > 0
-        for value in (
-            cfg.a2a_broker_poll_interval_ms,
-            cfg.a2a_broker_lease_ms,
-            cfg.a2a_broker_prefetch,
-            cfg.a2a_broker_message_ttl_ms,
-            cfg.a2a_broker_max_delivery_count,
-            cfg.a2a_max_payload_bytes,
-            cfg.a2a_max_history,
-            cfg.a2a_max_artifacts,
-            cfg.a2a_max_context_messages,
-            cfg.a2a_storage_update_retries,
-            cfg.a2a_dispatch_reconcile_interval_ms,
-            cfg.a2a_dispatch_reconcile_limit,
-            cfg.a2a_cancellation_poll_interval_ms,
-        )
-    )
+    bounded = _a2a_bounded_configuration(cfg)
     adapters = all(
         value is not None
         for value in (EpistemicGraphA2ABroker, EpistemicGraphA2AStorage)
@@ -4843,22 +5497,9 @@ def _check_seaweedfs_s3(live: bool = False) -> dict[str, Any]:
     )
 
 
-def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
-    """Lakekeeper Iceberg REST catalog (``services/lakekeeper``)."""
-    try:
-        from agent_utilities.core.config import AgentConfig
-
-        cfg = AgentConfig()
-        uri = str(cfg.lakekeeper_catalog_uri or "").strip()
-        scope = str(cfg.lakekeeper_oauth2_scope or "").strip()
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "lakekeeper",
-            "error",
-            f"lakekeeper config unavailable ({type(exc).__name__})",
-        )
-
-    prescription = _prescription(
+def _lakekeeper_prescription() -> dict[str, Any]:
+    """The machine-readable Lakekeeper remediation, including the known gotcha."""
+    return _prescription(
         manifest_path="services/lakekeeper/k8s/manifests.yaml",
         config_keys={
             "LAKEKEEPER_CATALOG_URI": "http://<catalog-host>:8181/catalog",
@@ -4879,6 +5520,39 @@ def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
             "not horizontally scalable",
         },
     )
+
+
+def _lakekeeper_gotcha_findings(uri: str, scope: str) -> list[str]:
+    """Configuration mistakes that make the catalog unusable, in report order."""
+    findings = []
+    if not uri.rstrip("/").endswith("/catalog"):
+        findings.append(
+            "LAKEKEEPER_CATALOG_URI does not end in /catalog -- catalog calls will 404"
+        )
+    if scope and scope != "lakekeeper":
+        findings.append(
+            f"LAKEKEEPER_OAUTH2_SCOPE={scope!r} is not 'lakekeeper' -- OAuth2 token "
+            "exchange will 400 with invalid_scope"
+        )
+    return findings
+
+
+def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
+    """Lakekeeper Iceberg REST catalog (``services/lakekeeper``)."""
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
+        uri = str(cfg.lakekeeper_catalog_uri or "").strip()
+        scope = str(cfg.lakekeeper_oauth2_scope or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "lakekeeper",
+            "error",
+            f"lakekeeper config unavailable ({type(exc).__name__})",
+        )
+
+    prescription = _lakekeeper_prescription()
     if not uri:
         return _result(
             "lakekeeper",
@@ -4892,16 +5566,7 @@ def _check_lakekeeper(live: bool = False) -> dict[str, Any]:
             prescription=prescription,
             data={"configured": False, "live_probed": live},
         )
-    findings = []
-    if not uri.rstrip("/").endswith("/catalog"):
-        findings.append(
-            "LAKEKEEPER_CATALOG_URI does not end in /catalog -- catalog calls will 404"
-        )
-    if scope and scope != "lakekeeper":
-        findings.append(
-            f"LAKEKEEPER_OAUTH2_SCOPE={scope!r} is not 'lakekeeper' -- OAuth2 token "
-            "exchange will 400 with invalid_scope"
-        )
+    findings = _lakekeeper_gotcha_findings(uri, scope)
     data: dict[str, Any] = {
         "configured": True,
         "live_probed": live,
@@ -5244,6 +5909,105 @@ def _auto_fix(name: str) -> dict[str, Any]:
     return {"fixed": name, "result": "no auto-fix available"}
 
 
+def _selection_is_invalid(only: Any) -> bool:
+    """Reject anything but a non-empty, duplicate-free list of registered names."""
+    return (
+        not isinstance(only, list)
+        or not only
+        or len(only) > len(CHECKS)
+        or any(not isinstance(name, str) or name not in CHECKS for name in only)
+        or len(set(only)) != len(only)
+    )
+
+
+def _unhealthy_report(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """A report that ran no check: every result is an error, so it fails closed."""
+    return {
+        "status": "unhealthy",
+        "counts": {"error": len(results)},
+        "checks": results,
+        "fixes": [],
+        "summary": _summarize("unhealthy", results),
+    }
+
+
+def _load_runtime_config(names: list[str]) -> list[dict[str, Any]] | None:
+    """Load the deployment AgentConfig; on failure, one error result per check.
+
+    Every runtime entry point consumes the same XDG AgentConfig document. A
+    doctor launched directly from its console script must do that too; without
+    this load, checks that instantiate ``AgentConfig`` would silently inspect
+    package defaults instead of the deployment GraphOS actually uses. Returning
+    results (rather than proceeding) keeps the sweep fail-closed: no check may
+    report ok against defaults the deployment does not use.
+    """
+    try:
+        from agent_utilities.core.config import load_config
+
+        load_config()
+    except Exception as exc:  # noqa: BLE001 - source details may be sensitive
+        return [
+            _result(
+                name,
+                "error",
+                f"configuration load failed ({type(exc).__name__})",
+                remediation=(
+                    "Repair the private AgentConfig source, then rerun the doctor; "
+                    "configuration values are intentionally not reported."
+                ),
+                data={"redacted": True},
+            )
+            for name in names
+        ]
+    return None
+
+
+def _run_checks(names: list[str], *, live: bool) -> list[dict[str, Any]]:
+    """Run each selected check; a check that raises becomes an error result."""
+    results: list[dict[str, Any]] = []
+    for name in names:
+        fn = CHECKS.get(name)
+        if fn is None:
+            continue
+        try:
+            res = fn(live=live) if name in _LIVE_CHECK_NAMES else fn()
+        except Exception as exc:  # noqa: BLE001 — a check must never crash the doctor
+            res = _result(name, "error", f"check raised ({type(exc).__name__})")
+        results.append(res)
+    return results
+
+
+def _apply_auto_fixes(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Auto-remediate the ``auto_fixable`` not-ok checks and re-run each in place."""
+    fixes: list[dict[str, Any]] = []
+    for res in results:
+        if res["status"] in ("warn", "fail") and res.get("auto_fixable"):
+            fixes.append(_auto_fix(res["name"]))
+            try:
+                res.update(CHECKS[res["name"]]())  # re-run after fix
+            except Exception:  # noqa: BLE001
+                pass
+    return fixes
+
+
+def _doctor_report(
+    results: list[dict[str, Any]], fixes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Aggregate the per-check results into the overall verdict (worst wins)."""
+    worst = max((_RANK[r["status"]] for r in results), default=0)
+    overall = {0: "healthy", 1: "warnings", 2: "unhealthy"}[worst]
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {
+        "status": overall,
+        "counts": counts,
+        "checks": results,
+        "fixes": fixes,
+        "summary": _summarize(overall, results),
+    }
+
+
 def run_doctor(
     only: list[str] | None = None, *, fix: bool = False, live: bool = False
 ) -> dict[str, Any]:
@@ -5257,91 +6021,26 @@ def run_doctor(
     """
     if only is None:
         names = list(CHECKS)
-    elif (
-        not isinstance(only, list)
-        or not only
-        or len(only) > len(CHECKS)
-        or any(not isinstance(name, str) or name not in CHECKS for name in only)
-        or len(set(only)) != len(only)
-    ):
-        result = _result(
-            "selection",
-            "error",
-            "doctor check selection is invalid",
-            remediation="select one or more registered doctor checks",
-            data={"redacted": True},
+    elif _selection_is_invalid(only):
+        return _unhealthy_report(
+            [
+                _result(
+                    "selection",
+                    "error",
+                    "doctor check selection is invalid",
+                    remediation="select one or more registered doctor checks",
+                    data={"redacted": True},
+                )
+            ]
         )
-        return {
-            "status": "unhealthy",
-            "counts": {"error": 1},
-            "checks": [result],
-            "fixes": [],
-            "summary": _summarize("unhealthy", [result]),
-        }
     else:
         names = only
-    # Every runtime entry point consumes the same XDG AgentConfig document.  A
-    # doctor launched directly from its console script must do that too; without
-    # this load, checks that instantiate ``AgentConfig`` would silently inspect
-    # package defaults instead of the deployment GraphOS actually uses.
-    try:
-        from agent_utilities.core.config import load_config
-
-        load_config()
-    except Exception as exc:  # noqa: BLE001 - source details may be sensitive
-        load_results = [
-            _result(
-                name,
-                "error",
-                f"configuration load failed ({type(exc).__name__})",
-                remediation=(
-                    "Repair the private AgentConfig source, then rerun the doctor; "
-                    "configuration values are intentionally not reported."
-                ),
-                data={"redacted": True},
-            )
-            for name in names
-        ]
-        return {
-            "status": "unhealthy",
-            "counts": {"error": len(load_results)},
-            "checks": load_results,
-            "fixes": [],
-            "summary": _summarize("unhealthy", load_results),
-        }
-    results: list[dict[str, Any]] = []
-    for name in names:
-        fn = CHECKS.get(name)
-        if fn is None:
-            continue
-        try:
-            res = fn(live=live) if name in _LIVE_CHECK_NAMES else fn()
-        except Exception as exc:  # noqa: BLE001 — a check must never crash the doctor
-            res = _result(name, "error", f"check raised ({type(exc).__name__})")
-        results.append(res)
-
-    fixes: list[dict[str, Any]] = []
-    if fix:
-        for res in results:
-            if res["status"] in ("warn", "fail") and res.get("auto_fixable"):
-                fixes.append(_auto_fix(res["name"]))
-                try:
-                    res.update(CHECKS[res["name"]]())  # re-run after fix
-                except Exception:  # noqa: BLE001
-                    pass
-
-    worst = max((_RANK[r["status"]] for r in results), default=0)
-    overall = {0: "healthy", 1: "warnings", 2: "unhealthy"}[worst]
-    counts: dict[str, int] = {}
-    for r in results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
-    return {
-        "status": overall,
-        "counts": counts,
-        "checks": results,
-        "fixes": fixes,
-        "summary": _summarize(overall, results),
-    }
+    load_failures = _load_runtime_config(names)
+    if load_failures is not None:
+        return _unhealthy_report(load_failures)
+    results = _run_checks(names, live=live)
+    fixes = _apply_auto_fixes(results) if fix else []
+    return _doctor_report(results, fixes)
 
 
 def _summarize(overall: str, results: list[dict[str, Any]]) -> str:
@@ -5376,6 +6075,62 @@ def _format_prescription(check: dict[str, Any]) -> str:
         else:
             lines.append(f"  scaling: not supported -- {scaling.get('reason', '')}")
     return "\n".join(lines)
+
+
+def _rerun_check_proof(name: str) -> dict[str, Any] | None:
+    """Re-run one check to prove an applied remediation, live where supported.
+
+    ``None`` only when the name is not a registered check; a re-run that raises
+    becomes an ``error`` result, never silent success.
+    """
+    rerun = CHECKS.get(name)
+    if rerun is None:
+        return None
+    try:
+        return rerun(live=True) if name in _LIVE_CHECK_NAMES else rerun()
+    except Exception as exc:  # noqa: BLE001
+        return _result(name, "error", f"re-run failed ({type(exc).__name__})")
+
+
+def _interactive_outcome(
+    check: dict[str, Any],
+    confirm: Callable[[str], bool],
+    executor: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    output: Callable[[str], None],
+) -> dict[str, Any]:
+    """Show one check's prescription, ask, and only then possibly apply it.
+
+    Nothing is applied unless ``confirm`` returned ``True`` AND an ``executor``
+    was supplied; every other path records a reason and applies nothing.
+    """
+    output(_format_prescription(check))
+    approved = bool(confirm(f"Apply the remediation for {check['name']!r}? [y/N]: "))
+    outcome: dict[str, Any] = {
+        "name": check["name"],
+        "confirmed": approved,
+        "applied": False,
+    }
+    if not approved:
+        outcome["reason"] = "not confirmed"
+        return outcome
+    if executor is None:
+        outcome["reason"] = (
+            "PLAN-ONLY: no executor configured -- hand this prescription to an "
+            "operator or a reviewed `graph_orchestrate action=execute_agent` run"
+        )
+        return outcome
+    try:
+        exec_result = executor(check)
+    except Exception as exc:  # noqa: BLE001 - interactive_apply is a defensive boundary
+        outcome["reason"] = f"executor failed ({type(exc).__name__})"
+        return outcome
+    outcome["applied"] = bool(exec_result.get("applied"))
+    outcome["executor_result"] = exec_result
+    if outcome["applied"]:
+        proof = _rerun_check_proof(check["name"])
+        if proof is not None:
+            outcome["proof"] = proof
+    return outcome
 
 
 def interactive_apply(
@@ -5414,59 +6169,15 @@ def interactive_apply(
     for check in report.get("checks", []):
         if check["status"] not in ("warn", "fail"):
             continue
-        prescription = check.get("prescription")
-        if not prescription:
+        if not check.get("prescription"):
             continue
-        output(_format_prescription(check))
-        approved = bool(
-            confirm(f"Apply the remediation for {check['name']!r}? [y/N]: ")
-        )
-        outcome: dict[str, Any] = {
-            "name": check["name"],
-            "confirmed": approved,
-            "applied": False,
-        }
-        if not approved:
-            outcome["reason"] = "not confirmed"
-            outcomes.append(outcome)
-            continue
-        if executor is None:
-            outcome["reason"] = (
-                "PLAN-ONLY: no executor configured -- hand this prescription to an "
-                "operator or a reviewed `graph_orchestrate action=execute_agent` run"
-            )
-            outcomes.append(outcome)
-            continue
-        try:
-            exec_result = executor(check)
-        except Exception as exc:  # noqa: BLE001 - interactive_apply is a defensive boundary
-            outcome["reason"] = f"executor failed ({type(exc).__name__})"
-            outcomes.append(outcome)
-            continue
-        outcome["applied"] = bool(exec_result.get("applied"))
-        outcome["executor_result"] = exec_result
-        if outcome["applied"]:
-            rerun = CHECKS.get(check["name"])
-            if rerun is not None:
-                try:
-                    proof = (
-                        rerun(live=True)
-                        if check["name"] in _LIVE_CHECK_NAMES
-                        else rerun()
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    proof = _result(
-                        check["name"], "error", f"re-run failed ({type(exc).__name__})"
-                    )
-                outcome["proof"] = proof
-        outcomes.append(outcome)
+        outcomes.append(_interactive_outcome(check, confirm, executor, output))
     return outcomes
 
 
-def main(argv: list[str] | None = None) -> int:
-    """``agent-utilities-doctor`` console entry."""
+def _doctor_arg_parser() -> Any:
+    """The ``agent-utilities-doctor`` console argument parser."""
     import argparse
-    import json
 
     parser = argparse.ArgumentParser(
         prog="agent-utilities-doctor",
@@ -5514,17 +6225,54 @@ def main(argv: list[str] | None = None) -> int:
             "terminal always declines."
         ),
     )
-    args = parser.parse_args(argv)
+    return parser
 
+
+def _run_preflight_cli(args: Any) -> int:
+    """``--preflight``: the host DEPENDENCY sweep instead of the deployment one."""
+    import json
+
+    from .preflight import run_preflight
+
+    report = run_preflight(args.profile, args.components)
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        _print_human(report, title="agent-utilities preflight")
+    return 0 if report["status"] != "blocked" else 1
+
+
+def _run_interactive_cli(report: dict[str, Any]) -> None:
+    """``--interactive``: walk the prescriptions; a non-tty always declines."""
+    import sys
+
+    def _confirm(prompt: str) -> bool:
+        if not sys.stdin.isatty():
+            print(f"{prompt} (non-interactive terminal — declining)")
+            return False
+        return input(prompt).strip().lower() in ("y", "yes")
+
+    outcomes = interactive_apply(report, confirm=_confirm)
+    if not outcomes:
+        return
+    print("\ninteractive apply summary:")
+    for outcome in outcomes:
+        line = (
+            f"  {outcome['name']}: confirmed={outcome['confirmed']} "
+            f"applied={outcome['applied']}"
+        )
+        if outcome.get("reason"):
+            line += f" — {outcome['reason']}"
+        print(line)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``agent-utilities-doctor`` console entry."""
+    import json
+
+    args = _doctor_arg_parser().parse_args(argv)
     if args.preflight:
-        from .preflight import run_preflight
-
-        report = run_preflight(args.profile, args.components)
-        if args.json:
-            print(json.dumps(report, indent=2, default=str))
-        else:
-            _print_human(report, title="agent-utilities preflight")
-        return 0 if report["status"] != "blocked" else 1
+        return _run_preflight_cli(args)
 
     report = run_doctor(args.only, fix=args.fix, live=args.live)
     if args.json:
@@ -5532,25 +6280,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_human(report)
     if args.interactive:
-        import sys
-
-        def _confirm(prompt: str) -> bool:
-            if not sys.stdin.isatty():
-                print(f"{prompt} (non-interactive terminal — declining)")
-                return False
-            return input(prompt).strip().lower() in ("y", "yes")
-
-        outcomes = interactive_apply(report, confirm=_confirm)
-        if outcomes:
-            print("\ninteractive apply summary:")
-            for outcome in outcomes:
-                line = (
-                    f"  {outcome['name']}: confirmed={outcome['confirmed']} "
-                    f"applied={outcome['applied']}"
-                )
-                if outcome.get("reason"):
-                    line += f" — {outcome['reason']}"
-                print(line)
+        _run_interactive_cli(report)
     return 0 if report["status"] != "unhealthy" else 1
 
 
