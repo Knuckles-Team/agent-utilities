@@ -465,6 +465,81 @@ class MediaStore:
         return True
 
     # -- store: occurrence ----------------------------------------------------
+    @staticmethod
+    def _resolve_store_media_identity(
+        session: GraphSession, source: str, tenant: str | None, owner: str
+    ) -> tuple[str, str, str]:
+        if not source and session.actor is not None:
+            source = session.actor.actor_id
+        if tenant is None:
+            tenant = session.tenant or (
+                session.actor.tenant_id if session.actor is not None else ""
+            )
+        if not owner and session.actor is not None:
+            owner = session.actor.actor_id
+        return source, tenant, owner
+
+    @staticmethod
+    def _default_media_name(
+        name: str, media_type: str, mime_type: str, digest: str
+    ) -> str:
+        return name or f"media {media_type or mime_type or digest[:8]}"
+
+    @staticmethod
+    def _resolve_tenant_isolated_blob(tenant_isolated_blob: bool | None) -> bool:
+        if tenant_isolated_blob is not None:
+            return tenant_isolated_blob
+        return _tenant_isolated_blobs_setting()
+
+    @staticmethod
+    def _store_media_blob(client: Any, data: bytes) -> str | None:
+        try:
+            return client.blob.store(data)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] blob store failed: %s", e
+            )
+            return None
+
+    @staticmethod
+    def _add_optional_occurrence_fields(
+        props: dict[str, Any],
+        *,
+        acl: Any,
+        message_id: str | None,
+        provenance: dict[str, Any] | None,
+        trace_context: Any,
+        extra: dict[str, Any] | None,
+    ) -> None:
+        if acl is not None:
+            props["acl"] = acl
+        if message_id:
+            props["message_id"] = message_id
+        if provenance:
+            props["provenance"] = provenance
+        if trace_context:
+            props["trace_context"] = trace_context
+        if extra:
+            props.update(extra)
+
+    @staticmethod
+    def _link_occurrence_edges(
+        client: Any, occurrence_id: str, blob_id: str, message_id: str | None
+    ) -> None:
+        # Link occurrence→blob (:hasBlob) and occurrence→message (:attachedToMessage)
+        # edges so the graph is navigable. Best-effort, outside the txn (pure graph edges).
+        try:
+            client.edges.add(occurrence_id, blob_id, {"relationship": "hasBlob"})
+            if message_id:
+                client.edges.add(
+                    occurrence_id, message_id, {"relationship": "attachedToMessage"}
+                )
+        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges outside the txn (per the comment), so get_media/read paths that key off the node's own properties are unaffected
+            logger.debug(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] occurrence edge link skipped: %s",
+                e,
+            )
+
     def store_media(
         self,
         data: bytes,
@@ -561,29 +636,16 @@ class MediaStore:
 
         if session is None:
             session = GraphSession.from_ambient()
-        if not source and session.actor is not None:
-            source = session.actor.actor_id
-        if tenant is None:
-            tenant = session.tenant or (
-                session.actor.tenant_id if session.actor is not None else ""
-            )
-        if not owner and session.actor is not None:
-            owner = session.actor.actor_id
+        source, tenant, owner = self._resolve_store_media_identity(
+            session, source, tenant, owner
+        )
 
         client = self._client
-        try:
-            digest = client.blob.store(data)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "[CONCEPT:AU-KG.ingest.list-durable-media] blob store failed: %s", e
-            )
+        digest = self._store_media_blob(client, data)
+        if digest is None:
             return None
 
-        isolate = (
-            tenant_isolated_blob
-            if tenant_isolated_blob is not None
-            else _tenant_isolated_blobs_setting()
-        )
+        isolate = self._resolve_tenant_isolated_blob(tenant_isolated_blob)
         blob_id = self._blob_node_id(digest, tenant if isolate else "")
         blob_is_new = not self._blob_exists(blob_id)
         now = self._now()
@@ -591,7 +653,7 @@ class MediaStore:
         occurrence_id = f"{_OCCURRENCE_PREFIX}{uuid.uuid4().hex}"
         occurrence_props: dict[str, Any] = {
             "node_type": "AssetOccurrence",
-            "name": name or f"media {media_type or mime_type or digest[:8]}",
+            "name": self._default_media_name(name, media_type, mime_type, digest),
             "content_digest": digest,
             "blob_id": blob_id,
             "media_type": media_type,
@@ -605,16 +667,14 @@ class MediaStore:
             "legal_hold": bool(legal_hold),
             "created_at": now,
         }
-        if acl is not None:
-            occurrence_props["acl"] = acl
-        if message_id:
-            occurrence_props["message_id"] = message_id
-        if provenance:
-            occurrence_props["provenance"] = provenance
-        if session.trace_context:
-            occurrence_props["trace_context"] = session.trace_context
-        if extra:
-            occurrence_props.update(extra)
+        self._add_optional_occurrence_fields(
+            occurrence_props,
+            acl=acl,
+            message_id=message_id,
+            provenance=provenance,
+            trace_context=session.trace_context,
+            extra=extra,
+        )
 
         # BUG-059: enter the SAME governance chokepoint every other node write
         # in the KG does (``IntelligenceGraphEngine._upsert_node``/
@@ -660,19 +720,7 @@ class MediaStore:
         if not committed:
             return None
 
-        # Link occurrence→blob (:hasBlob) and occurrence→message (:attachedToMessage)
-        # edges so the graph is navigable. Best-effort, outside the txn (pure graph edges).
-        try:
-            client.edges.add(occurrence_id, blob_id, {"relationship": "hasBlob"})
-            if message_id:
-                client.edges.add(
-                    occurrence_id, message_id, {"relationship": "attachedToMessage"}
-                )
-        except Exception as e:  # noqa: BLE001 — load-bearing state already committed via _commit_atomic above; these are pure navigability edges outside the txn (per the comment), so get_media/read paths that key off the node's own properties are unaffected
-            logger.debug(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] occurrence edge link skipped: %s",
-                e,
-            )
+        self._link_occurrence_edges(client, occurrence_id, blob_id, message_id)
 
         logger.info(
             "[CONCEPT:AU-KG.identity.asset-occurrence] stored occurrence %s (digest=%s, %d bytes, blob_new=%s, tenant=%s)",
@@ -1514,20 +1562,8 @@ class MediaStore:
             session = GraphSession.from_ambient()
 
         client = self._client
-        try:
-            props = dict(client.nodes.properties(node_id) or {})
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] extraction target lookup failed (%s): %s",
-                node_id,
-                e,
-            )
-            return False
-        if not props:
-            logger.warning(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] extraction target not found: %s",
-                node_id,
-            )
+        props = self._load_extraction_target_props(client, node_id)
+        if props is None:
             return False
 
         props["extraction_model"] = model
@@ -1556,6 +1592,39 @@ class MediaStore:
         stamp_classification(props, str(props.get("node_type") or ""))
 
         effective_graph = session.graph or self._graph
+        return self._commit_extraction_txn(
+            client, effective_graph, node_id, props, embedding
+        )
+
+    @staticmethod
+    def _load_extraction_target_props(
+        client: Any, node_id: str
+    ) -> dict[str, Any] | None:
+        try:
+            props = dict(client.nodes.properties(node_id) or {})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] extraction target lookup failed (%s): %s",
+                node_id,
+                e,
+            )
+            return None
+        if not props:
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] extraction target not found: %s",
+                node_id,
+            )
+            return None
+        return props
+
+    @staticmethod
+    def _commit_extraction_txn(
+        client: Any,
+        effective_graph: Any,
+        node_id: str,
+        props: dict[str, Any],
+        embedding: list[float] | None,
+    ) -> bool:
         try:
             txn = client.txn.begin(graph=effective_graph)
             client.txn.add_node(txn, node_id, props)
@@ -1608,58 +1677,19 @@ class MediaStore:
             session = GraphSession.from_ambient()
 
         client = self._client
-        try:
-            legacy = client.nodes.properties(legacy_asset_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset lookup failed (%s): %s",
-                legacy_asset_id,
-                e,
-            )
+        loaded = self._load_legacy_asset(client, legacy_asset_id)
+        if loaded is None:
             return None
-        if not legacy:
-            logger.warning(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset not found: %s",
-                legacy_asset_id,
-            )
-            return None
-        digest = legacy.get("content_digest")
-        if not digest:
-            logger.warning(
-                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset %s has no content_digest, cannot migrate",
-                legacy_asset_id,
-            )
-            return None
+        legacy, digest = loaded
 
         blob_id = f"{_BLOB_PREFIX}{digest}"
         blob_is_new = not self._blob_exists(blob_id)
         now = self._now()
         occurrence_id = f"{_OCCURRENCE_PREFIX}{uuid.uuid4().hex}"
 
-        occurrence_props: dict[str, Any] = {
-            "node_type": "AssetOccurrence",
-            "name": legacy.get("name", "") or f"media {digest[:8]}",
-            "content_digest": digest,
-            "blob_id": blob_id,
-            "media_type": legacy.get("media_type", ""),
-            "mime_type": legacy.get("mime_type", ""),
-            "file_size_bytes": legacy.get("file_size_bytes", 0),
-            "source": legacy.get("source", ""),
-            "tenant": session.tenant,
-            "owner": session.actor.actor_id if session.actor is not None else "",
-            "event_time": legacy.get("created_at", now),
-            "retention": "",
-            "legal_hold": False,
-            "created_at": now,
-            "legacy_asset_id": legacy_asset_id,
-            "provenance": {
-                "migrated_from": legacy_asset_id,
-                "legacy_source": legacy.get("source", ""),
-                "legacy_created_at": legacy.get("created_at", ""),
-            },
-        }
-        if legacy.get("message_id"):
-            occurrence_props["message_id"] = legacy["message_id"]
+        occurrence_props = self._build_legacy_occurrence_props(
+            legacy, digest, blob_id, session, now, legacy_asset_id
+        )
 
         # BUG-059: same chokepoint as ``store_media`` — see that method's
         # docstring for the full governance-note rationale. This mints a
@@ -1692,6 +1722,89 @@ class MediaStore:
         if not committed:
             return None
 
+        self._link_legacy_occurrence_edges(
+            client, occurrence_id, blob_id, legacy_asset_id, legacy
+        )
+
+        return StoredMedia(
+            occurrence_id=occurrence_id,
+            digest=digest,
+            deduped=not blob_is_new,
+            size_bytes=int(legacy.get("file_size_bytes", 0) or 0),
+            blob_id=blob_id,
+        )
+
+    @staticmethod
+    def _load_legacy_asset(
+        client: Any, legacy_asset_id: str
+    ) -> tuple[dict[str, Any], str] | None:
+        try:
+            legacy = client.nodes.properties(legacy_asset_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset lookup failed (%s): %s",
+                legacy_asset_id,
+                e,
+            )
+            return None
+        if not legacy:
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset not found: %s",
+                legacy_asset_id,
+            )
+            return None
+        digest = legacy.get("content_digest")
+        if not digest:
+            logger.warning(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] legacy asset %s has no content_digest, cannot migrate",
+                legacy_asset_id,
+            )
+            return None
+        return legacy, digest
+
+    @staticmethod
+    def _build_legacy_occurrence_props(
+        legacy: dict[str, Any],
+        digest: str,
+        blob_id: str,
+        session: GraphSession,
+        now: str,
+        legacy_asset_id: str,
+    ) -> dict[str, Any]:
+        occurrence_props: dict[str, Any] = {
+            "node_type": "AssetOccurrence",
+            "name": legacy.get("name", "") or f"media {digest[:8]}",
+            "content_digest": digest,
+            "blob_id": blob_id,
+            "media_type": legacy.get("media_type", ""),
+            "mime_type": legacy.get("mime_type", ""),
+            "file_size_bytes": legacy.get("file_size_bytes", 0),
+            "source": legacy.get("source", ""),
+            "tenant": session.tenant,
+            "owner": session.actor.actor_id if session.actor is not None else "",
+            "event_time": legacy.get("created_at", now),
+            "retention": "",
+            "legal_hold": False,
+            "created_at": now,
+            "legacy_asset_id": legacy_asset_id,
+            "provenance": {
+                "migrated_from": legacy_asset_id,
+                "legacy_source": legacy.get("source", ""),
+                "legacy_created_at": legacy.get("created_at", ""),
+            },
+        }
+        if legacy.get("message_id"):
+            occurrence_props["message_id"] = legacy["message_id"]
+        return occurrence_props
+
+    @staticmethod
+    def _link_legacy_occurrence_edges(
+        client: Any,
+        occurrence_id: str,
+        blob_id: str,
+        legacy_asset_id: str,
+        legacy: dict[str, Any],
+    ) -> None:
         try:
             client.edges.add(occurrence_id, blob_id, {"relationship": "hasBlob"})
             client.edges.add(
@@ -1708,14 +1821,6 @@ class MediaStore:
                 "[CONCEPT:AU-KG.identity.asset-occurrence] migrated occurrence edge link skipped: %s",
                 e,
             )
-
-        return StoredMedia(
-            occurrence_id=occurrence_id,
-            digest=digest,
-            deduped=not blob_is_new,
-            size_bytes=int(legacy.get("file_size_bytes", 0) or 0),
-            blob_id=blob_id,
-        )
 
     # -- bulk migration --------------------------------------------------------
     def _migrated_legacy_ids(self) -> set[str]:
@@ -1777,6 +1882,42 @@ class MediaStore:
                     seen.add(nid)
                     yield nid, data
 
+    def _migrate_one_legacy_asset(
+        self,
+        legacy_id: str,
+        session: GraphSession | None,
+        already_migrated: set[str],
+        migrated_occurrence_ids: list[str],
+        failed_ids: list[str],
+    ) -> bool:
+        """Migrate one legacy id in a bulk sweep. Returns True if it was skipped."""
+        if legacy_id in already_migrated:
+            return True
+        migration = self.migrate_legacy_asset(legacy_id, session=session)
+        if migration is None:
+            failed_ids.append(legacy_id)
+        else:
+            migrated_occurrence_ids.append(migration.occurrence_id)
+            # Guard against a duplicate within this same run (defensive;
+            # legacy_ids has no repeats in practice).
+            already_migrated.add(legacy_id)
+        return False
+
+    @staticmethod
+    def _report_bulk_migration_progress(
+        progress: Callable[[dict[str, Any]], None] | None,
+        summary: dict[str, Any],
+    ) -> None:
+        if progress is None:
+            return
+        try:
+            progress(summary)
+        except Exception as e:  # noqa: BLE001 — a bad progress callback never aborts the sweep
+            logger.debug(
+                "[CONCEPT:AU-KG.identity.asset-occurrence] migrate_legacy_assets_bulk progress callback failed: %s",
+                e,
+            )
+
     def migrate_legacy_assets_bulk(
         self,
         *,
@@ -1826,34 +1967,25 @@ class MediaStore:
         for start in range(0, scanned, batch_size):
             batch = legacy_ids[start : start + batch_size]
             for legacy_id in batch:
-                if legacy_id in already_migrated:
+                if self._migrate_one_legacy_asset(
+                    legacy_id,
+                    session,
+                    already_migrated,
+                    migrated_occurrence_ids,
+                    failed_ids,
+                ):
                     skipped += 1
-                    continue
-                migration = self.migrate_legacy_asset(legacy_id, session=session)
-                if migration is None:
-                    failed_ids.append(legacy_id)
-                else:
-                    migrated_occurrence_ids.append(migration.occurrence_id)
-                    # Guard against a duplicate within this same run (defensive;
-                    # legacy_ids has no repeats in practice).
-                    already_migrated.add(legacy_id)
 
-            if progress is not None:
-                try:
-                    progress(
-                        {
-                            "scanned": scanned,
-                            "processed": min(start + batch_size, scanned),
-                            "migrated": len(migrated_occurrence_ids),
-                            "skipped_already_migrated": skipped,
-                            "failed": len(failed_ids),
-                        }
-                    )
-                except Exception as e:  # noqa: BLE001 — a bad progress callback never aborts the sweep
-                    logger.debug(
-                        "[CONCEPT:AU-KG.identity.asset-occurrence] migrate_legacy_assets_bulk progress callback failed: %s",
-                        e,
-                    )
+            self._report_bulk_migration_progress(
+                progress,
+                {
+                    "scanned": scanned,
+                    "processed": min(start + batch_size, scanned),
+                    "migrated": len(migrated_occurrence_ids),
+                    "skipped_already_migrated": skipped,
+                    "failed": len(failed_ids),
+                },
+            )
 
         result = BulkMigrationResult(
             scanned=scanned,
