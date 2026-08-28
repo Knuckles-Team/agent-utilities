@@ -986,6 +986,20 @@ class _WorkItemTurnContext:
     claim_ttl_s: float
 
 
+@dataclass
+class _WorkItemTurnRequest:
+    """The caller-supplied inputs :func:`_prepare_work_item_turn` needs to claim
+    a WorkItem and build its :class:`_WorkItemTurnContext` (bundled to stay
+    under the 7-parameter cap)."""
+
+    agent_id: str
+    capability: str
+    evidence: Any
+    token: str | None
+    now: float
+    claim_ttl_s: float
+
+
 def _finalize_blocked_or_denied(
     ctx: _WorkItemTurnContext,
     *,
@@ -1128,29 +1142,30 @@ def _execute_and_finalize_work_item(
 def _prepare_work_item_turn(
     engine: Any,
     work_item_id: str,
-    *,
-    agent_id: str,
-    capability: str,
-    evidence: Any,
-    token: str | None,
-    now: float,
-    claim_ttl_s: float,
+    request: _WorkItemTurnRequest,
 ) -> _WorkItemTurnContext | None:
     """Claim the WorkItem and build its turn context; ``None`` means "skipped"."""
     from agent_utilities.orchestration.work_item import claim_execution_work_item
 
     claim = claim_execution_work_item(
-        engine, work_item_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+        engine,
+        work_item_id,
+        token=request.token,
+        now=request.now,
+        claim_ttl_s=request.claim_ttl_s,
     )
     if claim is None:
         return None
     from agent_utilities.messaging.bus_privacy import bus_reference
 
-    agent_id = bus_reference("agent", agent_id, tenant=str(claim.get("tenant") or ""))
+    agent_id = bus_reference(
+        "agent", request.agent_id, tenant=str(claim.get("tenant") or "")
+    )
 
     # EvidenceBundle (C1) — minimal, honest envelope: what is known about this
     # claim before executing. Callers with a real retrieval surface should
     # pass `evidence=` instead of relying on this placeholder.
+    evidence = request.evidence
     if evidence is None:
         from agent_utilities.models.evidence_bundle import EvidenceBundle
 
@@ -1164,9 +1179,9 @@ def _prepare_work_item_turn(
         claim=claim,
         agent_id=agent_id,
         evidence=evidence,
-        capability=capability,
-        now=now,
-        claim_ttl_s=claim_ttl_s,
+        capability=request.capability,
+        now=request.now,
+        claim_ttl_s=request.claim_ttl_s,
     )
 
 
@@ -1272,12 +1287,14 @@ def execute_work_item_turn(
     ctx = _prepare_work_item_turn(
         engine,
         work_item_id,
-        agent_id=agent_id,
-        capability=capability,
-        evidence=evidence,
-        token=token,
-        now=now,
-        claim_ttl_s=claim_ttl_s,
+        _WorkItemTurnRequest(
+            agent_id=agent_id,
+            capability=capability,
+            evidence=evidence,
+            token=token,
+            now=now,
+            claim_ttl_s=claim_ttl_s,
+        ),
     )
     if ctx is None:
         return "skipped"
