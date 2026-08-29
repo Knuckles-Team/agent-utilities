@@ -75,6 +75,11 @@ _TYPE_TO_TABLE = {
     "relationship": "Relationship",
 }
 
+# Keep stale-node deletion bounded so one source sync never builds an unbounded
+# parameter list.  The read still selects the exact stale set in one backend
+# query; only the native write is chunked.
+_STALE_CODEBASE_DELETE_BATCH_SIZE = 1_000
+
 
 def _resolve_sync_backend(ctx: PipelineContext) -> Any:
     """Use the shared backend from context, or create one via factory.
@@ -409,20 +414,98 @@ def _write_synced_edge_batches(
     return edges_synced
 
 
+def _read_stale_codebase_node_ids(
+    db: Any, workspace_path: str, ts: Any
+) -> list[str] | None:
+    """Read stale ids, returning ``None`` when the read degraded."""
+    execute_read = getattr(db, "execute_read", None)
+    if not callable(execute_read):
+        logger.warning(
+            "Skipping stale codebase sweep: backend has no read-only query "
+            "capability; refusing an unsafe fallback."
+        )
+        return None
+
+    rows = execute_read(
+        "MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND "
+        "(n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) "
+        "RETURN n.id AS id",
+        {"workspace_path": workspace_path, "ts": ts},
+    )
+    if not isinstance(rows, list):
+        logger.warning(
+            "Skipping stale codebase sweep: backend returned a malformed "
+            "read result; refusing to guess at node ids."
+        )
+        return None
+
+    stale_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            logger.warning(
+                "Skipping stale codebase sweep: backend returned a malformed "
+                "node row; refusing a partial deletion."
+            )
+            return None
+        node_id = row.get("id")
+        if not isinstance(node_id, str) or not node_id:
+            logger.warning(
+                "Skipping stale codebase sweep: backend returned a node without "
+                "a valid id; refusing a partial deletion."
+            )
+            return None
+        if node_id in seen_ids:
+            continue
+        seen_ids.add(node_id)
+        stale_ids.append(node_id)
+    return stale_ids
+
+
+def _delete_stale_codebase_node_batches(db: Any, stale_ids: list[str]) -> None:
+    """Delete selected ids with bounded writes in the native subset."""
+    delete_query = "MATCH (n:Code) WHERE n.id IN $ids DETACH DELETE n"
+    for start in range(0, len(stale_ids), _STALE_CODEBASE_DELETE_BATCH_SIZE):
+        db.execute(
+            delete_query,
+            {"ids": stale_ids[start : start + _STALE_CODEBASE_DELETE_BATCH_SIZE]},
+        )
+
+
 def _sweep_stale_codebase_nodes(ctx: PipelineContext, db: Any) -> None:
-    """Extracted verbatim: the stale-codebase-node sweep of ``execute_sync``."""
+    """Delete stale ``Code`` nodes through the supported native write subset.
+
+    The original single statement combined a ``STARTS WITH`` predicate with a
+    ``DETACH DELETE``.  ``STARTS WITH`` contains the ``WITH`` token that the
+    native write-subset gate (and parser contract) reserves for read pipelines,
+    so the write was rejected before it could remove anything.  Keep the exact
+    predicate on a read, then delete only the returned ids with one supported
+    ``MATCH`` + ``WHERE`` + ``DETACH DELETE`` write per bounded batch.
+
+    A missing read capability or malformed read result fails closed: this
+    maintenance sweep must never guess at ids or fall back to an unrestricted
+    destructive statement.
+    """
     if "ingestion_timestamp" not in ctx.metadata:
         return
-    ts = ctx.metadata["ingestion_timestamp"]
-    workspace_path = ctx.config.workspace_path
     try:
-        db.execute(
-            "MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n",
-            {"workspace_path": workspace_path, "ts": ts},
+        stale_ids = _read_stale_codebase_node_ids(
+            db, ctx.config.workspace_path, ctx.metadata["ingestion_timestamp"]
         )
-        logger.info("Sweep complete: deleted stale codebase nodes.")
+        if stale_ids is None:
+            return
+        if not stale_ids:
+            logger.info("Sweep complete: no stale codebase nodes found.")
+            return
+        _delete_stale_codebase_node_batches(db, stale_ids)
+        logger.info(
+            "Sweep complete: deleted %d stale codebase node(s).", len(stale_ids)
+        )
     except Exception as exc:
-        logger.debug("Failed to sweep stale nodes: error_type=%s", type(exc).__name__)
+        logger.error(
+            "Failed to sweep stale nodes: error_type=%s; no fallback deletion used.",
+            type(exc).__name__,
+        )
 
 
 async def execute_sync(

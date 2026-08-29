@@ -389,30 +389,43 @@ def _ordered_descendants_of_body(body: list[ast.stmt]) -> list[ast.AST]:
 
 
 def _candidate_files(root: Path) -> list[Path]:
-    """Files under ``root`` worth AST-parsing: only those that reference one
-    of the two write-carrying methods at all, found with ``grep`` (a couple
-    of hundredths of a second over this tree) rather than reading and
-    substring-testing every ``*.py`` file in Python (measured ~15x slower at
-    this repo's size) -- falls back to a pure-Python scan if ``grep`` is
-    unavailable, so the gate degrades in speed, never in coverage.
+    """Return tracked Python files that reference a write-carrying method.
+
+    ``git grep`` searches the working-tree contents of tracked files while
+    excluding untracked/generated trees such as ``.venv`` and ``build/lib``.
+    The source contents are still read below by :func:`scan`, so an unstaged
+    edit to a tracked file is checked rather than the index snapshot. A
+    subprocess failure remains a gate error: an incomplete candidate set must
+    never look like a clean scan.
     """
     pattern = r"\.execute\(|\.execute_write\("
     try:
         proc = subprocess.run(
-            ["grep", "-rlE", pattern, str(root), "--include=*.py"],
+            [
+                "git",
+                "-C",
+                str(root),
+                "grep",
+                "-z",
+                "-l",
+                "-E",
+                pattern,
+                "--",
+                "*.py",
+            ],
             capture_output=True,
             text=True,
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except (OSError, UnicodeDecodeError, subprocess.TimeoutExpired) as exc:
         raise CypherWriteSubsetGateError(
             f"could not enumerate candidate files under {root}: {exc}"
         ) from exc
-    if proc.returncode not in (0, 1):  # 1 == grep found nothing, not an error
+    if proc.returncode not in (0, 1):  # 1 == git grep found nothing, not an error
         raise CypherWriteSubsetGateError(
-            f"grep over {root} exited {proc.returncode}: {proc.stderr.strip()}"
+            f"git grep over {root} exited {proc.returncode}: {proc.stderr.strip()}"
         )
-    return sorted(Path(line) for line in proc.stdout.splitlines() if line)
+    return sorted(root / Path(line) for line in proc.stdout.split("\0") if line)
 
 
 def scan(root: Path) -> list[Violation]:
