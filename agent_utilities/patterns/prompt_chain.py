@@ -37,6 +37,128 @@ _MAX_BRANCH_EXPRESSION_BYTES = 4096
 _MAX_BRANCH_AST_NODES = 64
 
 
+def _evaluate_branch_constant(node: ast.Constant) -> Any:
+    """Return a literal supported by the branch expression language."""
+    if isinstance(node.value, str | bool | int | float | type(None)):
+        return node.value
+    raise ValueError("Unsupported branch condition syntax")
+
+
+def _evaluate_branch_sequence(node: ast.List | ast.Tuple | ast.Set, output: str) -> Any:
+    """Evaluate a literal sequence without exposing Python evaluation."""
+    values = [_evaluate_branch_node(item, output) for item in node.elts]
+    if isinstance(node, ast.List):
+        return values
+    if isinstance(node, ast.Tuple):
+        return tuple(values)
+    return set(values)
+
+
+def _evaluate_branch_unary(node: ast.UnaryOp, output: str) -> bool:
+    """Evaluate the sole supported unary operator."""
+    if isinstance(node.op, ast.Not):
+        return not bool(_evaluate_branch_node(node.operand, output))
+    raise ValueError("Unsupported branch condition syntax")
+
+
+def _evaluate_branch_boolean(node: ast.BoolOp, output: str) -> bool:
+    """Evaluate a boolean expression after resolving all operands."""
+    values = [_evaluate_branch_node(value, output) for value in node.values]
+    if isinstance(node.op, ast.And):
+        return all(bool(value) for value in values)
+    if isinstance(node.op, ast.Or):
+        return any(bool(value) for value in values)
+    raise ValueError("Unsupported branch condition syntax")
+
+
+def _compare_branch_values(operator: ast.cmpop, left: Any, right: Any) -> bool:
+    """Apply one supported comparison operator."""
+    if isinstance(operator, ast.Eq):
+        return left == right
+    if isinstance(operator, ast.NotEq):
+        return left != right
+    if isinstance(operator, ast.In):
+        return left in right
+    if isinstance(operator, ast.NotIn):
+        return left not in right
+    if isinstance(operator, ast.Lt):
+        return left < right
+    if isinstance(operator, ast.LtE):
+        return left <= right
+    if isinstance(operator, ast.Gt):
+        return left > right
+    if isinstance(operator, ast.GtE):
+        return left >= right
+    raise ValueError("Unsupported branch comparison")
+
+
+def _evaluate_branch_comparison(node: ast.Compare, output: str) -> bool:
+    """Evaluate a chained comparison left-to-right."""
+    left = _evaluate_branch_node(node.left, output)
+    for operator, comparator_node in zip(node.ops, node.comparators, strict=True):
+        right = _evaluate_branch_node(comparator_node, output)
+        if not _compare_branch_values(operator, left, right):
+            return False
+        left = right
+    return True
+
+
+def _evaluate_branch_len_call(
+    function: ast.Name,
+    args: list[ast.expr],
+    keywords: list[ast.keyword],
+    output: str,
+) -> int:
+    """Evaluate the whitelisted ``len`` call."""
+    if function.id != "len" or len(args) != 1 or keywords:
+        raise ValueError("Unsupported branch condition syntax")
+    return len(_evaluate_branch_node(args[0], output))
+
+
+def _evaluate_branch_string_call(
+    function: ast.Attribute,
+    args: list[ast.expr],
+    keywords: list[ast.keyword],
+    output: str,
+) -> bool:
+    """Evaluate a whitelisted string prefix/suffix call."""
+    if function.attr not in {"startswith", "endswith"} or keywords:
+        raise ValueError("Unsupported branch condition syntax")
+    target = _evaluate_branch_node(function.value, output)
+    evaluated_args = tuple(_evaluate_branch_node(arg, output) for arg in args)
+    if isinstance(target, str) and len(evaluated_args) in {1, 2, 3}:
+        return getattr(target, function.attr)(*evaluated_args)
+    raise ValueError("Unsupported branch condition syntax")
+
+
+def _evaluate_branch_call(node: ast.Call, output: str) -> Any:
+    """Evaluate the whitelisted branch-expression calls."""
+    if isinstance(node.func, ast.Name):
+        return _evaluate_branch_len_call(node.func, node.args, node.keywords, output)
+    if isinstance(node.func, ast.Attribute):
+        return _evaluate_branch_string_call(node.func, node.args, node.keywords, output)
+    raise ValueError("Unsupported branch condition syntax")
+
+
+def _evaluate_branch_node(node: ast.AST, output: str) -> Any:
+    """Evaluate one AST node in the restricted branch language."""
+    if isinstance(node, ast.Constant):
+        return _evaluate_branch_constant(node)
+    if isinstance(node, ast.Name) and node.id == "output":
+        return output
+    if isinstance(node, ast.List | ast.Tuple | ast.Set):
+        return _evaluate_branch_sequence(node, output)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return _evaluate_branch_unary(node, output)
+    if isinstance(node, ast.BoolOp):
+        return _evaluate_branch_boolean(node, output)
+    if isinstance(node, ast.Compare):
+        return _evaluate_branch_comparison(node, output)
+    if isinstance(node, ast.Call):
+        return _evaluate_branch_call(node, output)
+    raise ValueError("Unsupported branch condition syntax")
+
+
 def _evaluate_branch_condition(
     expression: str, output: str
 ) -> bool | str | int | float:
@@ -54,80 +176,7 @@ def _evaluate_branch_condition(
     if sum(1 for _ in ast.walk(tree)) > _MAX_BRANCH_AST_NODES:
         raise ValueError("Branch condition is too complex")
 
-    def _node(node: ast.AST) -> Any:
-        if isinstance(node, ast.Expression):
-            return _node(node.body)
-        if isinstance(node, ast.Constant) and isinstance(
-            node.value, str | bool | int | float | type(None)
-        ):
-            return node.value
-        if isinstance(node, ast.Name) and node.id == "output":
-            return output
-        if isinstance(node, ast.List | ast.Tuple | ast.Set):
-            values = [_node(item) for item in node.elts]
-            return (
-                values
-                if isinstance(node, ast.List)
-                else tuple(values)
-                if isinstance(node, ast.Tuple)
-                else set(values)
-            )
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            return not bool(_node(node.operand))
-        if isinstance(node, ast.BoolOp):
-            values = [_node(value) for value in node.values]
-            if isinstance(node.op, ast.And):
-                return all(bool(value) for value in values)
-            if isinstance(node.op, ast.Or):
-                return any(bool(value) for value in values)
-        if isinstance(node, ast.Compare):
-            left = _node(node.left)
-            for operator, comparator_node in zip(
-                node.ops, node.comparators, strict=True
-            ):
-                right = _node(comparator_node)
-                if isinstance(operator, ast.Eq):
-                    matched = left == right
-                elif isinstance(operator, ast.NotEq):
-                    matched = left != right
-                elif isinstance(operator, ast.In):
-                    matched = left in right
-                elif isinstance(operator, ast.NotIn):
-                    matched = left not in right
-                elif isinstance(operator, ast.Lt):
-                    matched = left < right
-                elif isinstance(operator, ast.LtE):
-                    matched = left <= right
-                elif isinstance(operator, ast.Gt):
-                    matched = left > right
-                elif isinstance(operator, ast.GtE):
-                    matched = left >= right
-                else:
-                    raise ValueError("Unsupported branch comparison")
-                if not matched:
-                    return False
-                left = right
-            return True
-        if isinstance(node, ast.Call):
-            if (
-                isinstance(node.func, ast.Name)
-                and node.func.id == "len"
-                and len(node.args) == 1
-                and not node.keywords
-            ):
-                return len(_node(node.args[0]))
-            if (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr in {"startswith", "endswith"}
-                and not node.keywords
-            ):
-                target = _node(node.func.value)
-                args = tuple(_node(arg) for arg in node.args)
-                if isinstance(target, str) and len(args) in {1, 2, 3}:
-                    return getattr(target, node.func.attr)(*args)
-        raise ValueError("Unsupported branch condition syntax")
-
-    result = _node(tree)
+    result = _evaluate_branch_node(tree.body, output)
     if not isinstance(result, bool | str | int | float):
         raise ValueError("Unsupported branch condition result")
     return result
