@@ -1409,20 +1409,59 @@ class OWLBridge:
             "inference_type": inference.get("inference_type", "unknown"),
         }
         try:
-            if engine is not None and getattr(engine, "backend", None) is self.backend:
-                engine.link_nodes(src, tgt, predicate, props)
-            elif self.backend is not None:
-                rel = _safe_rel_type(predicate)
-                self.backend.execute(
-                    f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
-                    f"MERGE (s)-[r:{rel}]->(t) "
-                    f"SET r.inferred = true, r.inferred_from = 'owl_reasoner'",
-                    {"sid": src, "tid": tgt},
-                )
+            self._write_backfed_edge(engine, src, tgt, predicate, props)
             return True
         except Exception as e:  # noqa: BLE001 — best-effort per inferred edge
             logger.debug("Inferred-edge backfeed failed (%s->%s): %s", src, tgt, e)
             return False
+
+    def _write_backfed_edge(
+        self,
+        engine: Any,
+        source_id: str,
+        target_id: str,
+        predicate: str,
+        props: dict[str, Any],
+    ) -> None:
+        """Route one backfeed through the active engine or backend contract."""
+        if engine is not None and getattr(engine, "backend", None) is self.backend:
+            engine.link_nodes(source_id, target_id, predicate, props)
+        elif self.backend is not None:
+            self._write_backfed_backend_edge(source_id, target_id, predicate, props)
+
+    def _write_backfed_backend_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        predicate: str,
+        props: dict[str, Any],
+    ) -> None:
+        """Use typed native writes and retain rich-backend compatibility."""
+        # The native graph authority deliberately exposes no edge-MERGE grammar.
+        # Use its typed edge contract directly when this bridge is holding a
+        # backend view that is not the active engine object; this preserves the
+        # native authority/outbox path without sending an unsupported
+        # comma-pattern write to ``execute``.
+        typed_support = getattr(self.backend, "typed_mutation_support", "")
+        rel = _safe_rel_type(predicate)
+        if typed_support == "native":
+            typed_add = getattr(self.backend, "add_edge", None)
+            if not callable(typed_add):
+                raise RuntimeError(
+                    "native graph authority does not expose typed edge mutations"
+                )
+            typed_add(source_id, target_id, **{**props, "relationship": rel})
+        elif getattr(self.backend, "cypher_support", "full") == "native":
+            raise RuntimeError(
+                "native graph authority did not declare lossless typed mutations"
+            )
+        else:
+            self.backend.execute(
+                f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
+                f"MERGE (s)-[r:{rel}]->(t) "
+                f"SET r.inferred = true, r.inferred_from = 'owl_reasoner'",
+                {"sid": source_id, "tid": target_id},
+            )
 
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
