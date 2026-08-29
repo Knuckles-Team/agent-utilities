@@ -57,7 +57,7 @@ def main() -> int:
         )
         return 1
     engine = manifest.get("engine", {})
-    if engine.get("version") != "epistemic-graph[full]>=2.23.2,<3.0.0":
+    if engine.get("version") != "epistemic-graph[full]>=2.27.0,<3.0.0":
         print(
             "FAIL: genesis does not require the approved full engine.", file=sys.stderr
         )

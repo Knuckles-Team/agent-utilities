@@ -19,7 +19,7 @@ license = "MIT"
 # dependencies used on every path — including paths that never touch the engine —
 # live here. GOC-73: `epistemic-graph[full]` moved OUT of base into the `[graphos]`
 # extra (see `[project.optional-dependencies].graphos` below) because a hard base
-# dependency on an unpublished eg floor (`>=2.23.2`, PyPI's newest is 2.23.0) blocked
+# dependency on an unpublished eg floor (`>=2.27.0`, PyPI's newest is 2.23.0) blocked
 # every consumer that imports `agent_utilities` but never touches the engine (e.g.
 # agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph` usage).
 # `[full]`/`[all]`/`[serving]` all still pull `[graphos]` so an existing
@@ -119,7 +119,7 @@ email = "maintainers@example.invalid"
 # TOOLCHAIN to run — the opposite of "self-contained, no external dependency" — and
 # is a wheel BUILD variant, not a pip extra (absent from the published CPU wheel).
 #
-# Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem
+# Floor `>=2.27.0` — the compatibility-matrix release used by this ecosystem
 # workspace; it includes the published `[full]` extra and the native numeric
 # operation set. Never an exact pin. See docs/guides/numeric-kernel.md.
 #
