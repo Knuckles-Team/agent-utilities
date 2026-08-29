@@ -46,23 +46,48 @@ def _record_hash(payload: bytes) -> str:
     return "sha256=" + base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
+def _capability_identity(capabilities: dict[str, Any]) -> str:
+    """Mirror EG's identity derivation without pinning one digest literal."""
+
+    payload = {
+        "schema_version": 1,
+        "package": preflight.PACKAGE_NAME,
+        "package_version": preflight.EXPECTED_VERSION,
+        "capabilities": capabilities,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(canonical).hexdigest()
+    return (
+        f"{preflight.PACKAGE_NAME}-client/{preflight.EXPECTED_VERSION};"
+        f"capabilities-sha256={digest}"
+    )
+
+
 def _recorded_wheel(root: Path, *, include_script: bool = False) -> Path:
     path = root / "epistemic_graph-2.27.0-py3-none-any.whl"
     dist_info = "epistemic_graph-2.27.0.dist-info"
+    capabilities = {
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY: True,
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY: True,
+    }
+    capability_source = (
+        f'WORK_ITEM_METADATA_CAS_CAPABILITY = "{preflight.WORK_ITEM_METADATA_CAS_CAPABILITY}"\n'
+        f'CONSENSUS_GET_IDENTITY_CAPABILITY = "{preflight.CONSENSUS_GET_IDENTITY_CAPABILITY}"\n'
+        "\n"
+        "def require_client_capabilities(required):\n"
+        f"    if tuple(required) != {preflight.REQUIRED_CAPABILITIES!r}:\n"
+        '        raise RuntimeError("unexpected capability request")\n'
+        "    return {\n"
+        f'        "schema_version": 1,\n'
+        f'        "package": "{preflight.PACKAGE_NAME}",\n'
+        f'        "package_version": "{preflight.EXPECTED_VERSION}",\n'
+        f'        "client_build_identity": "{_capability_identity(capabilities)}",\n'
+        f'        "capabilities": {capabilities!r},\n'
+        "    }\n"
+    ).encode()
     members = {
         "epistemic_graph/__init__.py": b"\n",
-        "epistemic_graph/client_capabilities.py": (
-            b'WORK_ITEM_METADATA_CAS_CAPABILITY = "work_items.cas_metadata"\n'
-            b"\n"
-            b"def require_client_capabilities(required):\n"
-            b"    if tuple(required) != (WORK_ITEM_METADATA_CAS_CAPABILITY,):\n"
-            b'        raise RuntimeError("unexpected capability request")\n'
-            b"    return {\n"
-            b'        "package": "epistemic-graph",\n'
-            b'        "package_version": "2.27.0",\n'
-            b'        "capabilities": {WORK_ITEM_METADATA_CAS_CAPABILITY: True},\n'
-            b"    }\n"
-        ),
+        "epistemic_graph/client_capabilities.py": capability_source,
         f"{dist_info}/METADATA": (
             b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.27.0\n\n"
         ),
@@ -313,6 +338,12 @@ def _installed_surface(root: Path) -> tuple[_Distribution, ModuleType]:
     distribution = _Distribution(root)
     module = ModuleType(preflight.CAPABILITIES_MODULE)
     module.__file__ = str(root / preflight.CLIENT_MODULE_PATH)
+    module.WORK_ITEM_METADATA_CAS_CAPABILITY = (
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY
+    )
+    module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
+    )
     module.require_client_capabilities = lambda _required: _manifest()
     return distribution, module
 
@@ -439,15 +470,30 @@ def _client_surface(tmp_path: Path) -> tuple[_Distribution, ModuleType]:
     distribution = _Distribution(package_root)
     module = ModuleType(preflight.CAPABILITIES_MODULE)
     module.__file__ = str(module_file)
+    module.WORK_ITEM_METADATA_CAS_CAPABILITY = (
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY
+    )
+    module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
+    )
     return distribution, module
 
 
-def _manifest(capability_value: Any = True) -> dict[str, Any]:
+def _manifest(
+    capability_value: Any = True,
+    *,
+    consensus_capability_value: Any = True,
+) -> dict[str, Any]:
+    capabilities = {
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY: capability_value,
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY: consensus_capability_value,
+    }
     return {
+        "schema_version": 1,
         "package": preflight.PACKAGE_NAME,
         "package_version": preflight.EXPECTED_VERSION,
-        "client_build_identity": "synthetic-client/2.27.0",
-        "capabilities": {preflight.REQUIRED_CAPABILITY: capability_value},
+        "client_build_identity": _capability_identity(capabilities),
+        "capabilities": capabilities,
     }
 
 
@@ -457,6 +503,9 @@ def test_installed_client_invokes_producer_capability_gate(tmp_path: Path) -> No
     bytecode_policy: list[bool] = []
     previous_bytecode_policy = sys.dont_write_bytecode
     module.WORK_ITEM_METADATA_CAS_CAPABILITY = preflight.REQUIRED_CAPABILITY
+    module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
+    )
 
     def require(required: tuple[str, ...]) -> dict[str, Any]:
         calls.append(required)
@@ -471,8 +520,11 @@ def test_installed_client_invokes_producer_capability_gate(tmp_path: Path) -> No
         ),
     )
 
-    assert manifest["capabilities"] == {preflight.REQUIRED_CAPABILITY: True}
-    assert calls == [(preflight.REQUIRED_CAPABILITY,)]
+    assert manifest["capabilities"] == {
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY: True,
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY: True,
+    }
+    assert calls == [preflight.REQUIRED_CAPABILITIES]
     assert bytecode_policy == [True]
     assert sys.dont_write_bytecode is previous_bytecode_policy
 
@@ -917,6 +969,10 @@ def test_false_or_unknown_capability_fails_closed(tmp_path: Path, surface: str) 
     distribution, module = _client_surface(tmp_path)
     if surface == "unknown":
         module.WORK_ITEM_METADATA_CAS_CAPABILITY = "unknown.capability"
+        module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
+            preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
+        )
+        module.require_client_capabilities = lambda _required: _manifest()
     else:
 
         def require(_required: tuple[str, ...]) -> dict[str, Any]:
@@ -930,6 +986,69 @@ def test_false_or_unknown_capability_fails_closed(tmp_path: Path, surface: str) 
         else "client-capability-unavailable"
     )
     with pytest.raises(preflight.PreflightError, match=expected_error):
+        preflight.validate_installed_client(
+            distribution_reader=lambda _name: distribution,
+            module_importer=lambda _name: module,
+        )
+
+
+@pytest.mark.parametrize(
+    ("cas_value", "get_identity_value"),
+    ((False, True), (True, False)),
+)
+def test_same_version_stale_client_identity_fails_closed(
+    tmp_path: Path,
+    cas_value: bool,
+    get_identity_value: bool,
+) -> None:
+    """A same-version EG wheel missing either capability is rejected.
+
+    The capability identity is derived from the advertised map, so this test
+    never pins one build hash while still proving that a stale same-version
+    artifact has a different identity from the supported client.
+    """
+
+    distribution, module = _client_surface(tmp_path)
+    module.WORK_ITEM_METADATA_CAS_CAPABILITY = (
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY
+    )
+    module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
+        preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
+    )
+    supported = _manifest()
+    stale = _manifest(
+        cas_value,
+        consensus_capability_value=get_identity_value,
+    )
+    assert stale["package_version"] == supported["package_version"]
+    assert stale["client_build_identity"] != supported["client_build_identity"]
+    module.require_client_capabilities = lambda _required: stale
+
+    with pytest.raises(
+        preflight.PreflightError,
+        match="client-capability-unavailable",
+    ):
+        preflight.validate_installed_client(
+            distribution_reader=lambda _name: distribution,
+            module_importer=lambda _name: module,
+        )
+
+
+def test_capability_identity_digest_is_verified_without_a_literal_pin(
+    tmp_path: Path,
+) -> None:
+    distribution, module = _client_surface(tmp_path)
+    manifest = _manifest()
+    manifest["client_build_identity"] = (
+        f"{preflight.PACKAGE_NAME}-client/{preflight.EXPECTED_VERSION};"
+        f"capabilities-sha256={'0' * 64}"
+    )
+    module.require_client_capabilities = lambda _required: manifest
+
+    with pytest.raises(
+        preflight.PreflightError,
+        match="client-capability-identity-mismatch",
+    ):
         preflight.validate_installed_client(
             distribution_reader=lambda _name: distribution,
             module_importer=lambda _name: module,
