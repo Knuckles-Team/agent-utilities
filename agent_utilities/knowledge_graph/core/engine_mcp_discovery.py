@@ -79,138 +79,12 @@ class MCPDiscoveryMixin(_Base):
             never become graph metadata.
 
         """
-        try:
-            encoded = json.dumps(
-                config_data,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        except (TypeError, ValueError, RecursionError):
-            raise ValueError("MCP configuration is invalid") from None
-        if len(encoded) > _MAX_MCP_CONFIG_BYTES or not isinstance(config_data, dict):
-            raise ValueError("MCP configuration exceeds its boundary")
-        mcp_servers = config_data.get("mcpServers", {})
-        if not isinstance(mcp_servers, dict) or len(mcp_servers) > 512:
-            raise ValueError("MCP server catalog is invalid")
-
+        mcp_servers = self._validate_mcp_config(config_data)
         servers: list[dict[str, Any]] = []
-
         for raw_name, raw_entry in mcp_servers.items():
-            if (
-                not isinstance(raw_name, str)
-                or not _SERVER_NAME.fullmatch(raw_name)
-                or not isinstance(raw_entry, dict)
-                or len(raw_entry) > 128
-            ):
-                raise ValueError("MCP child declaration is invalid")
-            name = raw_name
-            entry = dict(raw_entry)
-            command = entry.get("command", "")
-            args = entry.get("args", [])
-            env = entry.get("env", {})
-            url = entry.get("url", "")
-            transport = str(entry.get("transport", "")).lower()
-            headers = entry.get("headers", {})
-            disabled = entry.get("disabled", False)
-            provider_profile = entry.get("provider_profile", "")
-
-            if not isinstance(disabled, bool):
-                raise ValueError("MCP child declaration is invalid")
-            if disabled:
-                continue
-
-            if (
-                not isinstance(command, str)
-                or len(command) > 4_096
-                or "\x00" in command
-                or not isinstance(args, list)
-                or len(args) > 128
-                or not all(
-                    isinstance(value, str)
-                    and len(value.encode("utf-8")) <= 8_192
-                    and "\x00" not in value
-                    for value in args
-                )
-                or not isinstance(env, dict)
-                or len(env) > 256
-                or not all(
-                    isinstance(key, str)
-                    and _ENV_NAME.fullmatch(key)
-                    and len(str(value).encode("utf-8")) <= 65_536
-                    for key, value in env.items()
-                )
-                or not isinstance(url, str)
-                or len(url) > 8_192
-                or transport not in {"", "streamable-http", "sse"}
-                or not isinstance(headers, dict)
-                or len(headers) > 64
-                or not all(
-                    isinstance(key, str)
-                    and 1 <= len(key) <= 128
-                    and len(str(value).encode("utf-8")) <= 16_384
-                    for key, value in headers.items()
-                )
-                or bool(command) == bool(url)
-                or (transport and not url)
-                or not isinstance(provider_profile, str)
-                or (
-                    provider_profile != ""
-                    and re.fullmatch(r"[a-z][a-z0-9-]{1,62}", provider_profile) is None
-                )
-            ):
-                raise ValueError("MCP child declaration is invalid")
-
-            disabled_tools = entry.get("disabledTools", [])
-            private_hosts = entry.get("allowed_private_hosts", [])
-            if (
-                not isinstance(disabled_tools, list)
-                or len(disabled_tools) > 2_048
-                or not all(
-                    isinstance(value, str) and len(value.encode("utf-8")) <= 256
-                    for value in disabled_tools
-                )
-                or not isinstance(private_hosts, list)
-                or len(private_hosts) > 256
-                or not all(
-                    isinstance(value, str) and len(value.encode("utf-8")) <= 253
-                    for value in private_hosts
-                )
-            ):
-                raise ValueError("MCP child declaration is invalid")
-
-            # Extract tool-enable flags (env vars ending in TOOL = "True")
-            tool_flags = self._parse_tool_flags(env)
-
-            config_hash = self._compute_config_hash(name, entry)
-
-            servers.append(
-                {
-                    "name": name,
-                    "command": command,
-                    "args": args,
-                    "env": env,
-                    "url": url,
-                    "transport": transport,
-                    "headers": headers,
-                    "provider_profile": provider_profile,
-                    "tool_flags": tool_flags,
-                    "config_hash": config_hash,
-                    "disabled_tools": disabled_tools,
-                    "tls_profile": entry.get("tls_profile", ""),
-                    "tls_profile_ref": entry.get("tls_profile_ref", ""),
-                    "allowed_private_hosts": private_hosts,
-                    "initialization_timeout": entry.get(
-                        "initialization_timeout", entry.get("timeout", 300.0)
-                    ),
-                    "_runtime_materialized_secret_keys": entry.get(
-                        "_runtime_materialized_secret_keys", []
-                    ),
-                    "_runtime_materialization_attestation": entry.get(
-                        "_runtime_materialization_attestation", ""
-                    ),
-                }
-            )
+            server = self._normalize_mcp_server(raw_name, raw_entry)
+            if server is not None:
+                servers.append(server)
 
         return servers
 
@@ -403,6 +277,232 @@ class MCPDiscoveryMixin(_Base):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_mcp_config(config_data: dict[str, Any]) -> dict[str, Any]:
+        """Validate the bounded MCP config envelope and return its catalog."""
+        try:
+            encoded = json.dumps(
+                config_data,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, RecursionError):
+            raise ValueError("MCP configuration is invalid") from None
+        if len(encoded) > _MAX_MCP_CONFIG_BYTES or not isinstance(config_data, dict):
+            raise ValueError("MCP configuration exceeds its boundary")
+        mcp_servers = config_data.get("mcpServers", {})
+        if not isinstance(mcp_servers, dict) or len(mcp_servers) > 512:
+            raise ValueError("MCP server catalog is invalid")
+        return mcp_servers
+
+    @staticmethod
+    def _validate_mcp_child(
+        raw_name: Any, raw_entry: Any
+    ) -> tuple[str, dict[str, Any]]:
+        """Validate and shallow-copy one child declaration."""
+        if not isinstance(raw_name, str):
+            raise ValueError("MCP child declaration is invalid")
+        if _SERVER_NAME.fullmatch(raw_name) is None:
+            raise ValueError("MCP child declaration is invalid")
+        if not isinstance(raw_entry, dict):
+            raise ValueError("MCP child declaration is invalid")
+        if len(raw_entry) > 128:
+            raise ValueError("MCP child declaration is invalid")
+        return raw_name, dict(raw_entry)
+
+    @staticmethod
+    def _validate_mcp_command(command: Any) -> None:
+        """Validate a local child command."""
+        if not isinstance(command, str):
+            raise ValueError("MCP child declaration is invalid")
+        if len(command) > 4_096:
+            raise ValueError("MCP child declaration is invalid")
+        if "\x00" in command:
+            raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_args(args: Any) -> None:
+        """Validate local child arguments without retaining new references."""
+        if not isinstance(args, list):
+            raise ValueError("MCP child declaration is invalid")
+        if len(args) > 128:
+            raise ValueError("MCP child declaration is invalid")
+        for value in args:
+            if not isinstance(value, str):
+                raise ValueError("MCP child declaration is invalid")
+            if len(value.encode("utf-8")) > 8_192:
+                raise ValueError("MCP child declaration is invalid")
+            if "\x00" in value:
+                raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_env(env: Any) -> None:
+        """Validate environment names and bounded values."""
+        if not isinstance(env, dict):
+            raise ValueError("MCP child declaration is invalid")
+        if len(env) > 256:
+            raise ValueError("MCP child declaration is invalid")
+        for key, value in env.items():
+            if not isinstance(key, str):
+                raise ValueError("MCP child declaration is invalid")
+            if _ENV_NAME.fullmatch(key) is None:
+                raise ValueError("MCP child declaration is invalid")
+            if len(str(value).encode("utf-8")) > 65_536:
+                raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_headers(headers: Any) -> None:
+        """Validate remote transport headers and bounded values."""
+        if not isinstance(headers, dict):
+            raise ValueError("MCP child declaration is invalid")
+        if len(headers) > 64:
+            raise ValueError("MCP child declaration is invalid")
+        for key, value in headers.items():
+            if not isinstance(key, str):
+                raise ValueError("MCP child declaration is invalid")
+            if not 1 <= len(key) <= 128:
+                raise ValueError("MCP child declaration is invalid")
+            if len(str(value).encode("utf-8")) > 16_384:
+                raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_transport(
+        command: Any,
+        args: Any,
+        env: Any,
+        url: Any,
+        transport: str,
+        headers: Any,
+        provider_profile: Any,
+    ) -> None:
+        """Validate the local/remote transport shape and its shared fields."""
+        MCPDiscoveryMixin._validate_mcp_command(command)
+        MCPDiscoveryMixin._validate_mcp_args(args)
+        MCPDiscoveryMixin._validate_mcp_env(env)
+        if not isinstance(url, str):
+            raise ValueError("MCP child declaration is invalid")
+        if len(url) > 8_192:
+            raise ValueError("MCP child declaration is invalid")
+        if transport not in {"", "streamable-http", "sse"}:
+            raise ValueError("MCP child declaration is invalid")
+        MCPDiscoveryMixin._validate_mcp_headers(headers)
+        if bool(command) == bool(url):
+            raise ValueError("MCP child declaration is invalid")
+        if transport and not url:
+            raise ValueError("MCP child declaration is invalid")
+        if not isinstance(provider_profile, str):
+            raise ValueError("MCP child declaration is invalid")
+        if (
+            provider_profile
+            and re.fullmatch(r"[a-z][a-z0-9-]{1,62}", provider_profile) is None
+        ):
+            raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_list(values: Any, *, max_items: int, max_bytes: int) -> None:
+        """Validate a bounded list of UTF-8 strings."""
+        if not isinstance(values, list):
+            raise ValueError("MCP child declaration is invalid")
+        if len(values) > max_items:
+            raise ValueError("MCP child declaration is invalid")
+        for value in values:
+            if not isinstance(value, str):
+                raise ValueError("MCP child declaration is invalid")
+            if len(value.encode("utf-8")) > max_bytes:
+                raise ValueError("MCP child declaration is invalid")
+
+    @staticmethod
+    def _validate_mcp_metadata(disabled_tools: Any, private_hosts: Any) -> None:
+        """Validate tool exclusions and private-host egress declarations."""
+        MCPDiscoveryMixin._validate_mcp_list(
+            disabled_tools, max_items=2_048, max_bytes=256
+        )
+        MCPDiscoveryMixin._validate_mcp_list(
+            private_hosts, max_items=256, max_bytes=253
+        )
+
+    def _normalize_mcp_server(
+        self, raw_name: Any, raw_entry: Any
+    ) -> dict[str, Any] | None:
+        """Validate and normalize one enabled child declaration."""
+        name, entry = self._validate_mcp_child(raw_name, raw_entry)
+        disabled = entry.get("disabled", False)
+        if not isinstance(disabled, bool):
+            raise ValueError("MCP child declaration is invalid")
+        if disabled:
+            return None
+
+        command = entry.get("command", "")
+        args = entry.get("args", [])
+        env = entry.get("env", {})
+        url = entry.get("url", "")
+        transport = str(entry.get("transport", "")).lower()
+        headers = entry.get("headers", {})
+        provider_profile = entry.get("provider_profile", "")
+        self._validate_mcp_transport(
+            command, args, env, url, transport, headers, provider_profile
+        )
+
+        disabled_tools = entry.get("disabledTools", [])
+        private_hosts = entry.get("allowed_private_hosts", [])
+        self._validate_mcp_metadata(disabled_tools, private_hosts)
+        return self._normalized_mcp_server(
+            name,
+            entry,
+            command=command,
+            args=args,
+            env=env,
+            url=url,
+            transport=transport,
+            headers=headers,
+            provider_profile=provider_profile,
+            disabled_tools=disabled_tools,
+            private_hosts=private_hosts,
+        )
+
+    def _normalized_mcp_server(
+        self,
+        name: str,
+        entry: dict[str, Any],
+        *,
+        command: Any,
+        args: Any,
+        env: Any,
+        url: Any,
+        transport: str,
+        headers: Any,
+        provider_profile: Any,
+        disabled_tools: Any,
+        private_hosts: Any,
+    ) -> dict[str, Any]:
+        """Build the public normalized child shape after validation."""
+        return {
+            "name": name,
+            "command": command,
+            "args": args,
+            "env": env,
+            "url": url,
+            "transport": transport,
+            "headers": headers,
+            "provider_profile": provider_profile,
+            "tool_flags": self._parse_tool_flags(env),
+            "config_hash": self._compute_config_hash(name, entry),
+            "disabled_tools": disabled_tools,
+            "tls_profile": entry.get("tls_profile", ""),
+            "tls_profile_ref": entry.get("tls_profile_ref", ""),
+            "allowed_private_hosts": private_hosts,
+            "initialization_timeout": entry.get(
+                "initialization_timeout", entry.get("timeout", 300.0)
+            ),
+            "_runtime_materialized_secret_keys": entry.get(
+                "_runtime_materialized_secret_keys", []
+            ),
+            "_runtime_materialization_attestation": entry.get(
+                "_runtime_materialization_attestation", ""
+            ),
+        }
 
     @staticmethod
     def _parse_tool_flags(env_vars: dict[str, str]) -> list[str]:
