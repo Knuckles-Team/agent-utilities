@@ -736,6 +736,179 @@ class DocumentationProjectionBatch:
         )
 
 
+def _materialize_documentation_sources(
+    sources: Iterable[DocumentationSource | Mapping[str, Any]],
+) -> list[DocumentationSource]:
+    return [
+        source
+        if isinstance(source, DocumentationSource)
+        else DocumentationSource.model_validate(source)
+        for source in sources
+    ]
+
+
+def _ordered_rebuild_sources(
+    sources: Iterable[DocumentationSource | Mapping[str, Any]],
+) -> tuple[list[DocumentationSource], list[tuple[str, str]]]:
+    records = _materialize_documentation_sources(sources)
+    records.sort(key=lambda item: (item.repository_id, item.source_path))
+    current_keys = [(item.repository_id, item.source_path) for item in records]
+    if len(current_keys) != len(set(current_keys)):
+        raise DocumentationProjectionError("rebuild contains duplicate source paths")
+    return records, current_keys
+
+
+def _rebuild_prior_keys(
+    records: list[DocumentationSource],
+    prior: list[DocumentationSource],
+    previous_source_paths: Iterable[str],
+) -> tuple[dict[tuple[str, str], DocumentationSource], set[tuple[str, str]]]:
+    prior_by_key = {(item.repository_id, item.source_path): item for item in prior}
+    explicit_paths = {_validate_source_path(path) for path in previous_source_paths}
+    prior_keys = set(prior_by_key)
+    if not explicit_paths:
+        return prior_by_key, prior_keys
+
+    repository_ids = {item.repository_id for item in records} | {
+        item.repository_id for item in prior
+    }
+    if len(repository_ids) != 1:
+        raise DocumentationProjectionError(
+            "previous_source_paths require one repository in a rebuild"
+        )
+    repository_id = next(iter(repository_ids))
+    prior_keys.update((repository_id, path) for path in explicit_paths)
+    return prior_by_key, prior_keys
+
+
+def _rebuild_snapshot_revision(
+    records: list[DocumentationSource],
+    snapshot_revision: str | None,
+    snapshot_verified: bool,
+) -> str | None:
+    if not snapshot_verified:
+        return snapshot_revision
+    revisions = {item.source_revision for item in records}
+    if snapshot_revision is None and len(revisions) == 1:
+        snapshot_revision = next(iter(revisions))
+    if snapshot_revision is None:
+        raise DocumentationProjectionError(
+            "snapshot_revision is required for a verified documentation rebuild"
+        )
+    return _validate_revision(snapshot_revision)
+
+
+def _rebuild_projections(
+    projector: GovernedDocumentationProjector,
+    records: list[DocumentationSource],
+    prior_by_key: Mapping[tuple[str, str], DocumentationSource],
+    snapshot_time: str,
+) -> list[GovernedDocumentationProjection]:
+    projections: list[GovernedDocumentationProjection] = []
+    for record in records:
+        old = prior_by_key.get((record.repository_id, record.source_path))
+        prior_revision = (
+            old.source_revision
+            if old and old.source_revision != record.source_revision
+            else None
+        )
+        prior_digest = _digest_content(old.content) if prior_revision and old else None
+        if record.recorded_at is None or record.valid_time is None:
+            record = record.model_copy(
+                update={
+                    "recorded_at": record.recorded_at or snapshot_time,
+                    "valid_time": record.valid_time or snapshot_time,
+                }
+            )
+        projections.append(
+            projector.project_with_history(
+                record,
+                previous_revision=prior_revision,
+                previous_digest=prior_digest,
+            )
+        )
+    return projections
+
+
+def _rebuild_removed_keys(
+    projections: list[GovernedDocumentationProjection],
+    current_keys: list[tuple[str, str]],
+    prior_keys: set[tuple[str, str]],
+    snapshot_verified: bool,
+) -> list[tuple[str, str]]:
+    current_key_set = set(current_keys)
+    superseded_keys = {
+        (projection.repository_id, path)
+        for projection in projections
+        for path in projection.supersedes_paths
+    }
+    if superseded_keys & current_key_set:
+        raise DocumentationProjectionError(
+            "a superseded documentation path is still present as current"
+        )
+    removed_keys = sorted((prior_keys | superseded_keys) - current_key_set)
+    if removed_keys and not snapshot_verified:
+        raise DocumentationProjectionError(
+            "verified snapshot is required before emitting documentation tombstones"
+        )
+    return removed_keys
+
+
+def _rebuild_snapshot_digest(
+    snapshot_revision: str | None,
+    projections: list[GovernedDocumentationProjection],
+    removed_keys: list[tuple[str, str]],
+) -> str:
+    snapshot_material = [
+        {
+            "repository_id": projection.repository_id,
+            "source_path": projection.source_path,
+            "source_revision": projection.source_revision,
+            "content_digest": projection.content_digest,
+            "lifecycle": projection.lifecycle.value,
+        }
+        for projection in projections
+    ]
+    snapshot_payload = json.dumps(
+        {
+            "revision": snapshot_revision or "",
+            "records": snapshot_material,
+            "removed": removed_keys,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(snapshot_payload).hexdigest()}"
+
+
+def _rebuild_tombstones(
+    projector: GovernedDocumentationProjector,
+    removed_keys: list[tuple[str, str]],
+    prior_by_key: Mapping[tuple[str, str], DocumentationSource],
+    snapshot_revision: str | None,
+    snapshot_time: str,
+    snapshot_digest: str,
+) -> list[GovernedDocumentationProjection]:
+    tombstones: list[GovernedDocumentationProjection] = []
+    for repository_id, path in removed_keys:
+        prior_record = prior_by_key.get((repository_id, path))
+        previous_revision = prior_record.source_revision if prior_record else ""
+        previous_digest = _digest_content(prior_record.content) if prior_record else ""
+        tombstones.append(
+            projector.tombstone(
+                repository_id,
+                path,
+                snapshot_revision or "",
+                recorded_at=snapshot_time,
+                previous_revision=previous_revision or None,
+                previous_digest=previous_digest or None,
+                snapshot_digest=snapshot_digest,
+                reason="removed_from_verified_snapshot",
+            )
+        )
+    return tombstones
+
+
 class GovernedDocumentationProjector:
     """Small deterministic projector for full, verified Markdown snapshots."""
 
@@ -775,128 +948,31 @@ class GovernedDocumentationProjector:
         snapshot_verified: bool = False,
         recorded_at: str | None = None,
     ) -> DocumentationProjectionBatch:
-        records = [
-            source
-            if isinstance(source, DocumentationSource)
-            else DocumentationSource.model_validate(source)
-            for source in sources
-        ]
-        records.sort(key=lambda item: (item.repository_id, item.source_path))
-        current_keys = [(item.repository_id, item.source_path) for item in records]
-        if len(current_keys) != len(set(current_keys)):
-            raise DocumentationProjectionError(
-                "rebuild contains duplicate source paths"
-            )
-        prior = [
-            source
-            if isinstance(source, DocumentationSource)
-            else DocumentationSource.model_validate(source)
-            for source in previous_sources
-        ]
-        prior_by_key = {(item.repository_id, item.source_path): item for item in prior}
-        explicit_paths = {_validate_source_path(path) for path in previous_source_paths}
-        prior_keys = set(prior_by_key)
-        if explicit_paths:
-            repository_ids = {item.repository_id for item in records} | {
-                item.repository_id for item in prior
-            }
-            if len(repository_ids) != 1:
-                raise DocumentationProjectionError(
-                    "previous_source_paths require one repository in a rebuild"
-                )
-            repository_id = next(iter(repository_ids))
-            prior_keys.update((repository_id, path) for path in explicit_paths)
-        if snapshot_verified:
-            revisions = {item.source_revision for item in records}
-            if snapshot_revision is None and len(revisions) == 1:
-                snapshot_revision = next(iter(revisions))
-            if snapshot_revision is None:
-                raise DocumentationProjectionError(
-                    "snapshot_revision is required for a verified documentation rebuild"
-                )
-            snapshot_revision = _validate_revision(snapshot_revision)
+        records, current_keys = _ordered_rebuild_sources(sources)
+        prior = _materialize_documentation_sources(previous_sources)
+        prior_by_key, prior_keys = _rebuild_prior_keys(
+            records, prior, previous_source_paths
+        )
+        snapshot_revision = _rebuild_snapshot_revision(
+            records, snapshot_revision, snapshot_verified
+        )
         snapshot_time = recorded_at or _now_iso()
         snapshot_time = _canonical_timestamp(snapshot_time, field_name="recorded_at")
-        projections: list[GovernedDocumentationProjection] = []
-        for record in records:
-            old = prior_by_key.get((record.repository_id, record.source_path))
-            prior_revision = (
-                old.source_revision
-                if old and old.source_revision != record.source_revision
-                else None
-            )
-            prior_digest = (
-                _digest_content(old.content) if prior_revision and old else None
-            )
-            if record.recorded_at is None or record.valid_time is None:
-                record = record.model_copy(
-                    update={
-                        "recorded_at": record.recorded_at or snapshot_time,
-                        "valid_time": record.valid_time or snapshot_time,
-                    }
-                )
-            projections.append(
-                self.project_with_history(
-                    record,
-                    previous_revision=prior_revision,
-                    previous_digest=prior_digest,
-                )
-            )
-        current_key_set = set(current_keys)
-        superseded_keys = {
-            (projection.repository_id, path)
-            for projection in projections
-            for path in projection.supersedes_paths
-        }
-        if superseded_keys & current_key_set:
-            raise DocumentationProjectionError(
-                "a superseded documentation path is still present as current"
-            )
-        removed_keys = sorted((prior_keys | superseded_keys) - current_key_set)
-        if removed_keys and not snapshot_verified:
-            raise DocumentationProjectionError(
-                "verified snapshot is required before emitting documentation tombstones"
-            )
-        snapshot_material = [
-            {
-                "repository_id": projection.repository_id,
-                "source_path": projection.source_path,
-                "source_revision": projection.source_revision,
-                "content_digest": projection.content_digest,
-                "lifecycle": projection.lifecycle.value,
-            }
-            for projection in projections
-        ]
-        snapshot_payload = json.dumps(
-            {
-                "revision": snapshot_revision or "",
-                "records": snapshot_material,
-                "removed": removed_keys,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        snapshot_digest = f"sha256:{hashlib.sha256(snapshot_payload).hexdigest()}"
-        tombstones: list[GovernedDocumentationProjection] = []
-        for repository_id, path in removed_keys:
-            prior_record = prior_by_key.get((repository_id, path))
-            previous_revision = prior_record.source_revision if prior_record else ""
-            previous_digest = (
-                _digest_content(prior_record.content) if prior_record else ""
-            )
-            tombstone_revision = snapshot_revision or ""
-            tombstones.append(
-                self.tombstone(
-                    repository_id,
-                    path,
-                    tombstone_revision,
-                    recorded_at=snapshot_time,
-                    previous_revision=previous_revision or None,
-                    previous_digest=previous_digest or None,
-                    snapshot_digest=snapshot_digest,
-                    reason="removed_from_verified_snapshot",
-                )
-            )
+        projections = _rebuild_projections(self, records, prior_by_key, snapshot_time)
+        removed_keys = _rebuild_removed_keys(
+            projections, current_keys, prior_keys, snapshot_verified
+        )
+        snapshot_digest = _rebuild_snapshot_digest(
+            snapshot_revision, projections, removed_keys
+        )
+        tombstones = _rebuild_tombstones(
+            self,
+            removed_keys,
+            prior_by_key,
+            snapshot_revision,
+            snapshot_time,
+            snapshot_digest,
+        )
         return DocumentationProjectionBatch(
             projections=tuple(projections),
             tombstones=tuple(tombstones),
