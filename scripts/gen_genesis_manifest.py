@@ -335,7 +335,7 @@ def build() -> dict:
             "always": [
                 "python>=3.11,<3.15",
                 "uv-or-pip",
-                "epistemic-graph[full]>=2.23.2,<3.0.0 — pulled in via the"
+                "epistemic-graph[full]>=2.27.0,<3.0.0 — pulled in via the"
                 " `agent-utilities[graphos]` extra (GOC-73: opt-in, not a base"
                 " dependency), required for every genesis profile since this deploy"
                 " flow stands up graph-os itself; install the approved platform wheel"
@@ -350,7 +350,7 @@ def build() -> dict:
         # time-series + blob + text + multi-Raft + cross-shard 2PC + streaming/CDC +
         # RLS/encryption-at-rest/audit + federation + GraphQL.
         "engine": {
-            "version": "epistemic-graph[full]>=2.23.2,<3.0.0",
+            "version": "epistemic-graph[full]>=2.27.0,<3.0.0",
             "install": "pip install agent-utilities[graphos] (GOC-73: opt-in extra, not a base dependency)",
             "authority": "redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)",
             "resolver": "CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local -> autostart the"

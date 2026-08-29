@@ -27,14 +27,14 @@ def test_every_epistemic_graph_dependency_requests_full_numeric_runtime() -> Non
     requirements = _epistemic_requirements(_metadata())
 
     assert requirements
-    assert set(requirements) == {"epistemic-graph[full]>=2.23.2,<3.0.0"}
+    assert set(requirements) == {"epistemic-graph[full]>=2.27.0,<3.0.0"}
 
 
 def test_flat_requirements_requests_full_numeric_runtime() -> None:
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
     epistemic = [line for line in requirements if line.startswith("epistemic-graph")]
 
-    assert epistemic == ["epistemic-graph[full]>=2.23.2,<3.0.0"]
+    assert epistemic == ["epistemic-graph[full]>=2.27.0,<3.0.0"]
 
 
 def test_agent_runtimes_use_only_the_native_optimization_runtime() -> None:
