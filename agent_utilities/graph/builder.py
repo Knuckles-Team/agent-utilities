@@ -171,6 +171,134 @@ def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
     return result
 
 
+def _get_running_loop() -> Any:
+    """Return the active event loop, if initialization runs asynchronously."""
+    import asyncio
+
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+def _run_or_schedule(
+    operation: Any,
+    *,
+    loop: Any,
+    label: str,
+    **kwargs: Any,
+) -> bool:
+    """Run a sync operation now or schedule it without blocking a live loop.
+
+    Returns ``True`` only when the operation completed synchronously.  A caller
+    can therefore distinguish a completed startup sync from a scheduled or
+    deliberately backgrounded one when deciding which status to log.
+    """
+    if loop is not None and loop.is_running():
+        loop.create_task(operation(**kwargs))
+        return False
+    if DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
+        logger.info("Backgrounding %s...", label)
+        return False
+    import asyncio
+
+    asyncio.run(operation(**kwargs))
+    return True
+
+
+def _ingest_prompts_if_enabled(loop: Any) -> None:
+    """Start prompt ingestion when a configured MCP workspace is available."""
+    if DEFAULT_VALIDATION_MODE:
+        return
+    try:
+        _run_or_schedule(
+            ingest_prompts_to_graph,
+            loop=loop,
+            label="prompt ingestion",
+        )
+    except Exception as exc:  # noqa: BLE001 — ingestion owns its durable retry checkpoint
+        logger.debug("Registry rebuild failed: %s", exc)
+
+
+def _sync_mcp_agents_if_needed(config_path: Any, loop: Any) -> None:
+    """Synchronize MCP agents when the registry is stale."""
+    needs_sync = should_sync(config_path)
+    if not needs_sync or DEFAULT_VALIDATION_MODE:
+        logger.debug(
+            "Initializing Graph: Valid registry found. Skipping live extraction."
+        )
+        return
+    try:
+        synced = _run_or_schedule(
+            sync_mcp_agents,
+            loop=loop,
+            label="MCP agent sync",
+            config_path=config_path,
+        )
+        if synced:
+            logger.info("Initializing Graph: MCP agents synced successfully.")
+    except Exception as exc:  # noqa: BLE001 — a failed sync is retried from its durable timestamp
+        logger.debug("Sync skip/fail: %s", exc)
+
+
+def _build_discovery_metadata(config_path: Any, loop: Any) -> dict[str, Any]:
+    """Synchronize configured MCP agents and build their registry metadata."""
+    _ingest_prompts_if_enabled(loop)
+    try:
+        _sync_mcp_agents_if_needed(config_path, loop)
+
+        from collections import defaultdict
+
+        registry = get_discovery_registry()
+        tools_by_server: dict[str, list[Any]] = defaultdict(list)
+        for agent in registry.agents:
+            for tool in agent.tools:
+                tools_by_server[agent.mcp_server].append(tool)
+
+        discovery_metadata = dict(tools_by_server)
+        logger.info(
+            "Initializing Graph: Verified %s servers from registry.",
+            len(discovery_metadata),
+        )
+        return discovery_metadata
+    except Exception as exc:  # noqa: BLE001 — registry discovery falls back to an empty metadata map
+        logger.warning("Failed to load MCP discovery metadata: %s", exc)
+        return {}
+
+
+def _sync_a2a_agents_if_enabled(config_path: Any, loop: Any) -> None:
+    """Synchronize A2A agents without blocking an active event loop."""
+    if not config_path or DEFAULT_VALIDATION_MODE:
+        return
+    try:
+        from agent_utilities.protocols.a2a_config import sync_a2a_agents
+
+        synced = _run_or_schedule(
+            sync_a2a_agents,
+            loop=loop,
+            label="A2A agent sync",
+            config_path=config_path,
+        )
+        if synced:
+            logger.info("Initializing Graph: A2A agents synced successfully.")
+    except Exception as exc:  # noqa: BLE001 — discovery retries A2A sync on the next initialization
+        logger.debug("A2A agent sync skip/fail: %s", exc)
+
+
+def _discover_tag_prompts() -> dict[str, str]:
+    """Return specialist prompts, using a deterministic validation roster."""
+    if DEFAULT_VALIDATION_MODE:
+        return {"validation": "dummy"}
+
+    all_specialists = discover_all_specialists()
+    tag_prompts = {
+        specialist.tag: specialist.description for specialist in all_specialists
+    }
+    if not tag_prompts:
+        raise RuntimeError("no specialist metadata is available")
+    return tag_prompts
+
+
 def initialize_graph_from_workspace(
     mcp_config: str | None = "mcp_config.json",
     a2a_config: str | None = None,
@@ -213,110 +341,22 @@ def initialize_graph_from_workspace(
         _ws_mod.WORKSPACE_DIR = workspace
         logger.info("Initializing graph with pinned workspace")
 
-    # get_discovery_registry is imported from the canonical config registry.
-    # build_tag_env_map is in this module
-
     _mcp_cfg_path = resolve_mcp_config_path(mcp_config) if mcp_config else None
     discovery_metadata = {}
-    loop = None
+    loop = _get_running_loop() if _mcp_cfg_path else None
     if _mcp_cfg_path:
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not DEFAULT_VALIDATION_MODE:
-                # Already in a loop, create a task
-                loop.create_task(ingest_prompts_to_graph())
-        except RuntimeError:
-            # No running loop, safe to run if not in a server startup context that needs fast health checks.
-            # However, during server startup, this is often called before the loop starts.
-            # We'll use a thread or just let it be for now, but we'll optimize the functions themselves.
-            try:
-                # We'll skip the blocking run if we are likely in a server startup
-                if not DEFAULT_VALIDATION_MODE:
-                    if DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
-                        logger.info("Backgrounding prompt ingestion...")
-                        # We can't easily background without a loop here, but we can optimize the call.
-                        # For now, let's just ensure it's not called twice.
-                        pass
-                    else:
-                        asyncio.run(ingest_prompts_to_graph())
-            except Exception as e:  # noqa: BLE001 — ingest_prompts_to_graph() has its own durable content-hash DeltaManifest checkpoint; an unwritten checkpoint on failure means automatic retry on the next init call
-                logger.debug(f"Registry rebuild failed: {e}")
-
-        try:
-            # Check if sync is required first (querying graph last_sync vs mcp_config mtime)
-            needs_sync = should_sync(_mcp_cfg_path)
-            if needs_sync and not DEFAULT_VALIDATION_MODE:
-                try:
-                    if loop and loop.is_running():
-                        loop.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
-                    else:
-                        if DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
-                            logger.info("Backgrounding MCP agent sync...")
-                        else:
-                            asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
-                            logger.info(
-                                "Initializing Graph: MCP agents synced successfully."
-                            )
-                except Exception as e:  # noqa: BLE001 — sync_mcp_agents() stamps t.last_sync only on success; should_sync() re-derives from that stamp, so a failure here self-heals on the next init call
-                    logger.debug(f"Sync skip/fail: {e}")
-            else:
-                logger.debug(
-                    "Initializing Graph: Valid registry found. Skipping live extraction."
-                )
-
-            # Build discovery_metadata directly from the registry
-            from collections import defaultdict
-
-            registry = get_discovery_registry()
-
-            tools_by_server = defaultdict(list)
-            for agent in registry.agents:
-                for tool in agent.tools:
-                    tools_by_server[agent.mcp_server].append(tool)
-
-            discovery_metadata = dict(tools_by_server)
-
-            logger.info(
-                f"Initializing Graph: Verified {len(discovery_metadata)} servers from registry."
-            )
-        except Exception as e:
-            logger.warning(f"Failed to load MCP discovery metadata: {e}")
+        discovery_metadata = _build_discovery_metadata(_mcp_cfg_path, loop)
 
     # --- CONCEPT:AU-ECO.interop.a2a-agent-sync: A2A Agent Sync ---
     from agent_utilities.core.config import config as app_config
 
     _a2a_config = a2a_config or app_config.a2a_config
-    if _a2a_config and not DEFAULT_VALIDATION_MODE:
-        try:
-            from agent_utilities.protocols.a2a_config import sync_a2a_agents
-
-            if loop and loop.is_running():
-                loop.create_task(sync_a2a_agents(config_path=_a2a_config))
-            else:
-                sync_bg = DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND
-                if sync_bg:
-                    logger.info("Backgrounding A2A agent sync...")
-                else:
-                    import asyncio as _aio
-
-                    _aio.run(sync_a2a_agents(config_path=_a2a_config))
-                    logger.info("Initializing Graph: A2A agents synced successfully.")
-        except Exception as e:  # noqa: BLE001 — mirrors the MCP-sync branch above; discovery falls back to discover_all_specialists(), and the next init call retries the sync
-            logger.debug(f"A2A agent sync skip/fail: {e}")
+    _sync_a2a_agents_if_enabled(_a2a_config, loop)
 
     # Unified Discovery: merge MCP, A2A, and prompt sources into a single roster
     logger.info("Initializing Graph: Discovering domain tags and agents...")
 
-    if not DEFAULT_VALIDATION_MODE:
-        all_specialists = discover_all_specialists()
-        tag_prompts = {s.tag: s.description for s in all_specialists}
-
-        if not tag_prompts:
-            raise RuntimeError("no specialist metadata is available")
-    else:
-        tag_prompts = {"validation": "dummy"}
+    tag_prompts = _discover_tag_prompts()
 
     logger.info(f"Initializing Graph: Discovered {len(tag_prompts)} domain tags.")
 
