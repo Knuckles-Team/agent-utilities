@@ -430,6 +430,154 @@ def _execute(engine: Any, dialect: str, query: str) -> list[dict[str, Any]]:
     return engine.query_cypher(query)
 
 
+def _validate_nl_request(text: str, dialect: str) -> str | None:
+    """Return a caller-facing validation error, if the request is unusable."""
+    if not text or not text.strip():
+        return "empty request"
+    forced = dialect.strip().lower() if dialect and dialect != "auto" else ""
+    if forced and forced not in _DIALECTS:
+        return f"unsupported dialect {forced!r} (want one of {_DIALECTS})"
+    return None
+
+
+def _resolve_planner(
+    planner: AuNlPlanner | None,
+) -> tuple[AuNlPlanner | None, str | None]:
+    """Resolve the injected or configured planner without attempting a doomed call."""
+    if planner is not None:
+        return planner, None
+    if not is_llm_configured():
+        return None, (
+            "nl->query planning unavailable: no LLM configured. Set "
+            "OPENAI_BASE_URL (the fleet vLLM), a provider API key, or a model "
+            "registry to enable the agent-utilities NL planner."
+        )
+    return AuNlPlanner(), None
+
+
+def _plan_once(
+    planner: AuNlPlanner,
+    plan_text: str,
+    schema_hint_text: str,
+    dialect: str,
+    attempt: int,
+    attempts: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str]:
+    """Run one bounded planner attempt and record malformed output."""
+    try:
+        parsed = planner.plan(
+            plan_text,
+            schema_hint=schema_hint_text,
+            dialect=dialect,
+        )
+        # Keep the guard at the execution boundary as well as in
+        # ``AuNlPlanner``: injected planners are testable seams, not a way
+        # to bypass the grammar contract before a query reaches GraphOS.
+        return _normalize_plan(parsed), ""
+    except Exception as exc:  # noqa: BLE001 — bounded planning failure
+        error = f"nl->query planning failed: {exc}"
+        attempts.append(
+            {
+                "attempt": attempt + 1,
+                "phase": "planning",
+                "query": getattr(exc, "query", None),
+                "error_code": getattr(exc, "code", "planner_error"),
+                "error": error,
+                "grammar_version": UQL_GRAMMAR_VERSION,
+            }
+        )
+        return None, error
+
+
+def _planning_retry_text(text: str, failure: dict[str, Any]) -> str:
+    """Build the bounded correction prompt after a planner-side failure."""
+    return (
+        f"{text}\n\nThe previous generated query failed the "
+        f"{UQL_GRAMMAR_VERSION} contract and must be corrected. "
+        f"Error: {failure['error']}\n"
+        "Return one parseable, read-only query; never return an "
+        "empty answer as a substitute."
+    )
+
+
+def _execution_retry_text(
+    text: str,
+    dialect: str,
+    query: str,
+    error: str,
+) -> str:
+    """Build the bounded correction prompt after an execution failure."""
+    return (
+        f"{text}\n\nYour previous {dialect} query failed "
+        "and must be corrected.\n"
+        f"Previous query: {query}\nError: {error}\n"
+        "Generate one corrected read-only query grounded in the schema. "
+        "Do not turn a query error into an empty answer."
+    )
+
+
+def _run_plan(
+    engine: Any,
+    text: str,
+    schema: dict[str, Any],
+    parsed: dict[str, Any],
+    attempts: list[dict[str, Any]],
+    attempt: int,
+    execute: bool,
+    limit: int,
+) -> tuple[dict[str, Any], bool, str]:
+    """Build evidence for one plan and optionally execute it.
+
+    The boolean is true when the caller has a terminal response (mutation,
+    preview, or successful execution); false means a bounded replan may run.
+    """
+    parsed_query = str(parsed["query"])
+    plan_evidence = {
+        "grammar_version": parsed.get("grammar_version")
+        or (UQL_GRAMMAR_VERSION if parsed["dialect"] == "uql" else None),
+        "dialect": parsed["dialect"],
+        "query": parsed_query,
+        "corrections": list(parsed.get("corrections") or []),
+        "bounded": True,
+    }
+    out: dict[str, Any] = {
+        "request": text,
+        "dialect": parsed["dialect"],
+        "generated_query": parsed_query,
+        "planner": "agent-utilities-fleet-llm",
+        "schema": schema,
+        "plan": plan_evidence,
+        "attempts": attempts,
+    }
+
+    if _is_mutation(parsed_query):
+        # Mutations are a hard refusal, never a self-correction candidate.
+        out["error"] = "generated query is a mutation; refused (read-only surface)"
+        return out, True, ""
+    if not execute:
+        return out, True, ""
+
+    try:
+        rows = list(_execute(engine, parsed["dialect"], parsed_query) or [])[:limit]
+        out["results"] = rows
+        out["row_count"] = len(rows)
+        out["citations"] = _citations(rows)
+        return out, True, ""
+    except Exception as exc:  # noqa: BLE001 — bounded execution correction
+        error = f"query execution failed: {exc}"
+        attempts.append(
+            {
+                "attempt": attempt + 1,
+                "phase": "execution",
+                "dialect": parsed["dialect"],
+                "query": parsed_query,
+                "error": error,
+                "grammar_version": plan_evidence["grammar_version"],
+            }
+        )
+        return out, False, error
+
+
 def nl_query(
     engine: Any,
     text: str,
@@ -460,23 +608,13 @@ def nl_query(
     ``max_corrections`` bounded replans (default one), retaining an attempt trace
     and the grammar version in the evidence shape before returning a clean error.
     """
-    if not text or not text.strip():
-        return {"error": "empty request"}
+    request_error = _validate_nl_request(text, dialect)
+    if request_error:
+        return {"error": request_error}
 
-    forced = dialect.strip().lower() if dialect and dialect != "auto" else ""
-    if forced and forced not in _DIALECTS:
-        return {"error": f"unsupported dialect {forced!r} (want one of {_DIALECTS})"}
-
-    if planner is None:
-        if not is_llm_configured():
-            return {
-                "error": (
-                    "nl->query planning unavailable: no LLM configured. Set "
-                    "OPENAI_BASE_URL (the fleet vLLM), a provider API key, or a model "
-                    "registry to enable the agent-utilities NL planner."
-                )
-            }
-        planner = AuNlPlanner()
+    planner, planner_error = _resolve_planner(planner)
+    if planner_error:
+        return {"error": planner_error}
 
     schema = build_schema_context(engine)
     correction_budget = max(0, int(max_corrections))
@@ -487,104 +625,51 @@ def nl_query(
     last_error = ""
 
     for attempt in range(1 + correction_budget):
-        try:
-            parsed = planner.plan(
-                plan_text,
-                schema_hint=schema_hint_text,
-                dialect=dialect,
-            )
-            # Keep the guard at the execution boundary as well as in
-            # ``AuNlPlanner``: injected planners are testable seams, not a way
-            # to bypass the grammar contract before a query reaches GraphOS.
-            parsed = _normalize_plan(parsed)
-        except Exception as exc:  # noqa: BLE001 — bounded planning failure
-            last_error = f"nl->query planning failed: {exc}"
-            attempts.append(
-                {
-                    "attempt": attempt + 1,
-                    "phase": "planning",
-                    "query": getattr(exc, "query", None),
-                    "error_code": getattr(exc, "code", "planner_error"),
-                    "error": last_error,
-                    "grammar_version": UQL_GRAMMAR_VERSION,
-                }
-            )
+        parsed, plan_error = _plan_once(
+            planner,
+            plan_text,
+            schema_hint_text,
+            dialect,
+            attempt,
+            attempts,
+        )
+        if parsed is None:
+            last_error = plan_error
             if attempt < correction_budget:
-                previous = attempts[-1]
-                plan_text = (
-                    f"{text}\n\nThe previous generated query failed the "
-                    f"{UQL_GRAMMAR_VERSION} contract and must be corrected. "
-                    f"Error: {previous['error']}\n"
-                    "Return one parseable, read-only query; never return an "
-                    "empty answer as a substitute."
-                )
+                plan_text = _planning_retry_text(text, attempts[-1])
             continue
 
-        parsed_query = str(parsed["query"])
-        plan_evidence = {
-            "grammar_version": parsed.get("grammar_version")
-            or (UQL_GRAMMAR_VERSION if parsed["dialect"] == "uql" else None),
-            "dialect": parsed["dialect"],
-            "query": parsed_query,
-            "corrections": list(parsed.get("corrections") or []),
-            "bounded": True,
-        }
-        out: dict[str, Any] = {
-            "request": text,
-            "dialect": parsed["dialect"],
-            "generated_query": parsed_query,
-            "planner": "agent-utilities-fleet-llm",
-            "schema": schema,
-            "plan": plan_evidence,
-            "attempts": attempts,
-        }
+        out, terminal, execution_error = _run_plan(
+            engine,
+            text,
+            schema,
+            parsed,
+            attempts,
+            attempt,
+            execute,
+            limit,
+        )
         last_out = out
-
-        if _is_mutation(parsed_query):
-            # Mutations are a hard refusal, never a self-correction candidate.
-            out["error"] = "generated query is a mutation; refused (read-only surface)"
+        if terminal:
             return out
-
-        if not execute:
-            return out
-
-        try:
-            rows = _execute(engine, parsed["dialect"], parsed_query)
-            rows = list(rows or [])[:limit]
-            out["results"] = rows
-            out["row_count"] = len(rows)
-            out["citations"] = _citations(rows)
-            return out
-        except Exception as exc:  # noqa: BLE001 — bounded execution correction
-            last_error = f"query execution failed: {exc}"
-            step = {
-                "attempt": attempt + 1,
-                "phase": "execution",
-                "dialect": parsed["dialect"],
-                "query": parsed_query,
-                "error": last_error,
-                "grammar_version": plan_evidence["grammar_version"],
-            }
-            attempts.append(step)
-            if attempt < correction_budget:
-                plan_text = (
-                    f"{text}\n\nYour previous {parsed['dialect']} query failed "
-                    "and must be corrected.\n"
-                    f"Previous query: {parsed_query}\nError: {last_error}\n"
-                    "Generate one corrected read-only query grounded in the schema. "
-                    "Do not turn a query error into an empty answer."
-                )
+        last_error = execution_error
+        if attempt < correction_budget:
+            plan_text = _execution_retry_text(
+                text,
+                parsed["dialect"],
+                str(parsed["query"]),
+                last_error,
+            )
 
     # Every bounded attempt failed.  Preserve the final candidate and trace so
     # EvidenceBundle can report a planner/engine error instead of a false empty
     # result, while keeping the response shape useful to the operator.
-    if last_out is None:
-        last_out = {
-            "request": text,
-            "planner": "agent-utilities-fleet-llm",
-            "schema": schema,
-            "plan": {"grammar_version": UQL_GRAMMAR_VERSION, "bounded": True},
-        }
+    last_out = last_out or {
+        "request": text,
+        "planner": "agent-utilities-fleet-llm",
+        "schema": schema,
+        "plan": {"grammar_version": UQL_GRAMMAR_VERSION, "bounded": True},
+    }
     last_out["attempts"] = attempts
     last_out["error"] = last_error or "nl->query planning failed"
     return last_out
