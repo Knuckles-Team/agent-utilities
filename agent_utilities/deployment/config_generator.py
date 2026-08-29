@@ -283,7 +283,28 @@ _SECRET_REFERENCE_RE = re.compile(
 _SENSITIVE_MAPPING_KEYS = frozenset(
     {"authorization", "cookie", "set-cookie", "x-api-key"}
 )
+_NORMALIZED_SENSITIVE_MAPPING_KEYS = frozenset(
+    item.replace("-", "_") for item in _SENSITIVE_MAPPING_KEYS
+)
 _HEADER_CONTAINER_KEYS = frozenset({"headers", "extra_headers", "custom_headers"})
+
+
+def _sanitize_sensitive_generated_value(value: Any, *, key: str, parent: str) -> Any:
+    """Blank sensitive values while retaining valid secret references."""
+    reference_field = key.endswith("_ref") or (
+        key == "client_secret" and parent == "oauth2"
+    )
+    if reference_field and isinstance(value, str):
+        reference = value.strip()
+        if _SECRET_REFERENCE_RE.fullmatch(reference):
+            return reference
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return []
+    if isinstance(value, dict):
+        return {}
+    return ""
 
 
 def _sanitize_generated_value(value: Any, *, key: str = "", parent: str = "") -> Any:
@@ -291,26 +312,8 @@ def _sanitize_generated_value(value: Any, *, key: str = "", parent: str = "") ->
     normalized = key.strip().lower().replace("-", "_")
     if normalized in _HEADER_CONTAINER_KEYS:
         return {}
-    sensitive = _is_secret(normalized) or normalized in {
-        item.replace("-", "_") for item in _SENSITIVE_MAPPING_KEYS
-    }
-    if sensitive:
-        reference_field = normalized.endswith("_ref") or (
-            normalized == "client_secret" and parent == "oauth2"
-        )
-        if (
-            reference_field
-            and isinstance(value, str)
-            and _SECRET_REFERENCE_RE.fullmatch(value.strip())
-        ):
-            return value.strip()
-        if value is None:
-            return None
-        if isinstance(value, list):
-            return []
-        if isinstance(value, dict):
-            return {}
-        return ""
+    if _is_secret(normalized) or normalized in _NORMALIZED_SENSITIVE_MAPPING_KEYS:
+        return _sanitize_sensitive_generated_value(value, key=normalized, parent=parent)
     if isinstance(value, dict):
         return {
             str(child_key): _sanitize_generated_value(
