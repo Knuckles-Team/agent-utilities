@@ -57,6 +57,140 @@ def _step_result(
     return EtlResult.model_validate(payload)
 
 
+def _run_inbound(
+    engine: Any,
+    *,
+    source: str | None,
+    sink: str | None,
+    mode: str,
+    ids: list[str] | None,
+) -> tuple[EtlResult | None, bool]:
+    """Run the optional source-to-KG step and report whether it was partial."""
+    if not source or sink == "table":
+        return None, False
+
+    from ..core.source_sync import sync_source
+
+    try:
+        return (
+            _step_result(
+                sync_source(engine, source, mode=mode, ids=ids or None),
+                source=source,
+                mode=mode,
+            ),
+            False,
+        )
+    except Exception as e:  # noqa: BLE001 - report, don't crash the surface
+        return EtlResult(status="error", source=source, mode=mode, error=str(e)), True
+
+
+def _run_table_outbound(
+    engine: Any,
+    *,
+    source: str | None,
+    mode: str,
+    ops: dict[str, Any] | None,
+) -> tuple[EtlResult, bool]:
+    """Run the native SQL-table sink and report whether it was partial."""
+    from ..core.table_ingest import ingest_connector_to_table
+
+    options = ops or {}
+    try:
+        outbound = _step_result(
+            ingest_connector_to_table(
+                engine,
+                source or options.get("source", ""),
+                table=options.get("table"),
+                config=options.get("config"),
+                limit=int(options.get("limit", 1000)),
+                replace=bool(options.get("replace", False)),
+            ),
+            source=source,
+            sink="table",
+            mode=mode,
+        )
+    except Exception as e:  # noqa: BLE001
+        return EtlResult(status="error", sink="table", error=str(e)), True
+    return outbound, outbound.status in ("error", "skipped")
+
+
+def _run_sink_outbound(
+    engine: Any,
+    *,
+    sink: str | None,
+    sink_backend: Any,
+    sources: list[str] | None,
+    dry_run: bool,
+    ops: dict[str, Any] | None,
+) -> tuple[EtlResult | None, bool]:
+    """Run a writeback or graph-store sink and report whether it was partial."""
+    if not sink:
+        return None, False
+
+    try:
+        outbound = _step_result(
+            _run_outbound(
+                engine,
+                sink=sink,
+                sink_backend=sink_backend,
+                sources=sources,
+                dry_run=dry_run,
+                ops=ops or {},
+            ),
+            sink=sink,
+        )
+    except Exception as e:  # noqa: BLE001
+        return EtlResult(status="error", sink=sink, error=str(e)), True
+    return outbound, outbound.status in ("error", "refused")
+
+
+def _aggregate_counts(
+    *steps: EtlResult | None,
+) -> dict[str, int]:
+    """Combine count fields from completed ETL steps in execution order."""
+    counts: dict[str, int] = {}
+    for step in steps:
+        if step is None:
+            continue
+        for name, value in step.counts.items():
+            counts[name] = counts.get(name, 0) + value
+    return counts
+
+
+def _lineage_direction(source: str | None, sink: str | None) -> str:
+    """Name the direction represented by the requested ETL endpoints."""
+    if source and sink:
+        return "through"
+    if source:
+        return "inbound"
+    return "outbound"
+
+
+def _record_lineage(
+    record_etl_run: Any,
+    engine: Any,
+    *,
+    source: str | None,
+    sink: str | None,
+    counts: dict[str, int],
+    status: str,
+    record_lineage: bool,
+) -> dict[str, Any] | None:
+    """Record lineage when requested and return its response fragment."""
+    if not record_lineage or not (source or sink):
+        return None
+    direction = _lineage_direction(source, sink)
+    run_id = record_etl_run(
+        engine,
+        source=source,
+        sink=sink,
+        direction=direction,
+        counts=counts,
+        status=status,
+    )
+    return {"run_id": run_id, "direction": direction}
+
+
 def run_etl(
     engine: Any,
     *,
@@ -89,97 +223,37 @@ def run_etl(
     """
     from .lineage import record_etl_run
 
-    status = "ok"
-    inbound: EtlResult | None = None
-    outbound: EtlResult | None = None
-
-    # ── inbound: source → (ontological transform) → KG ──
-    # The native SQL-table sink (KG-2.266) mirrors the source straight into an engine
-    # table — the table is the destination, so skip the source→KG inbound hydrate.
-    if source and sink != "table":
-        from ..core.source_sync import sync_source
-
-        try:
-            inbound = _step_result(
-                sync_source(engine, source, mode=mode, ids=ids or None),
-                source=source,
-                mode=mode,
-            )
-        except Exception as e:  # noqa: BLE001 - report, don't crash the surface
-            inbound = EtlResult(status="error", source=source, mode=mode, error=str(e))
-            status = "partial"
-
-    # ── outbound: KG → sink (writeback system-of-record, graph store, or SQL table) ──
+    inbound, inbound_partial = _run_inbound(
+        engine, source=source, sink=sink, mode=mode, ids=ids
+    )
     if sink == "table":
         # CONCEPT:AU-KG.ingest.mirror-inbound — mirror the inbound `source` connector's data into a native
         # engine SQL table (CREATE TABLE + bulk INSERT). `ops` carries optional
         # {table, config, limit, replace}. This is the ETL→table sink.
-        from ..core.table_ingest import ingest_connector_to_table
-
-        opts = ops or {}
-        try:
-            outbound = _step_result(
-                ingest_connector_to_table(
-                    engine,
-                    source or opts.get("source", ""),
-                    table=opts.get("table"),
-                    config=opts.get("config"),
-                    limit=int(opts.get("limit", 1000)),
-                    replace=bool(opts.get("replace", False)),
-                ),
-                source=source,
-                sink="table",
-                mode=mode,
-            )
-            if outbound.status in ("error", "skipped"):
-                status = "partial"
-        except Exception as e:  # noqa: BLE001
-            outbound = EtlResult(status="error", sink="table", error=str(e))
-            status = "partial"
-    elif sink:
-        try:
-            outbound = _step_result(
-                _run_outbound(
-                    engine,
-                    sink=sink,
-                    sink_backend=sink_backend,
-                    sources=sources,
-                    dry_run=dry_run,
-                    ops=ops or {},
-                ),
-                sink=sink,
-            )
-            if outbound.status in ("error", "refused"):
-                status = "partial"
-        except Exception as e:  # noqa: BLE001
-            outbound = EtlResult(status="error", sink=sink, error=str(e))
-            status = "partial"
-
-    # ── lineage ──
-    # Computed unconditionally (not just when lineage recording is on) so the
-    # returned ``EtlResult.counts`` is always populated from the one place, even
-    # when ``record_lineage=False``.
-    counts: dict[str, int] = {}
-    for step in (inbound, outbound):
-        if step is None:
-            continue
-        for name, value in step.counts.items():
-            counts[name] = counts.get(name, 0) + value
-
-    lineage: dict[str, Any] | None = None
-    if record_lineage and (source or sink):
-        direction = (
-            "through" if (source and sink) else ("inbound" if source else "outbound")
+        outbound, outbound_partial = _run_table_outbound(
+            engine, source=source, mode=mode, ops=ops
         )
-        run_id = record_etl_run(
+    else:
+        outbound, outbound_partial = _run_sink_outbound(
             engine,
-            source=source,
             sink=sink,
-            direction=direction,
-            counts=counts,
-            status=status,
+            sink_backend=sink_backend,
+            sources=sources,
+            dry_run=dry_run,
+            ops=ops,
         )
-        lineage = {"run_id": run_id, "direction": direction}
+
+    status = "partial" if inbound_partial or outbound_partial else "ok"
+    counts = _aggregate_counts(inbound, outbound)
+    lineage = _record_lineage(
+        record_etl_run,
+        engine,
+        source=source,
+        sink=sink,
+        counts=counts,
+        status=status,
+        record_lineage=record_lineage,
+    )
 
     return EtlResult(
         status=status,
