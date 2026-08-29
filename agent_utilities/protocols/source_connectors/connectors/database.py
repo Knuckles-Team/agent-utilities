@@ -44,6 +44,61 @@ from ..registry import register_source
 _SECRET_REF_RE = re.compile(r"^(?:vault|env|secret)://[A-Za-z0-9_./#-]+$")
 _FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,254}$")
 _SOURCE_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
+_DATABASE_PROFILE_FIELDS = frozenset(
+    {"dsn", "kind", "tls_service", "tls_profile", "tls_profile_ref"}
+)
+
+
+def _render_connection_profile(raw: object) -> str:
+    rendered = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+    if not rendered or len(rendered.encode("utf-8")) > 65_536:
+        raise ValueError("database connection profile is unavailable")
+    return rendered
+
+
+def _load_connection_profile(rendered: str) -> dict[str, Any] | None:
+    try:
+        profile = json.loads(rendered)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(profile, dict):
+        return None
+    if set(profile).difference(_DATABASE_PROFILE_FIELDS):
+        raise ValueError("database connection profile has unsupported fields")
+    return profile
+
+
+def _validate_profile_dsn(resolved_dsn: str) -> None:
+    if not resolved_dsn:
+        raise ValueError("database connection profile is unavailable")
+    if "\x00" in resolved_dsn:
+        raise ValueError("database connection profile is unavailable")
+    if len(resolved_dsn.encode("utf-8")) > 8_192:
+        raise ValueError("database connection profile is unavailable")
+
+
+def _profile_tls_values(
+    profile: dict[str, Any] | None,
+) -> tuple[str | None, str | None, str | None]:
+    if profile is None:
+        return None, None, None
+    return tuple(
+        str(profile.get(key) or "").strip() or None
+        for key in ("tls_service", "tls_profile", "tls_profile_ref")
+    )
+
+
+def _parse_connection_profile(
+    rendered: str,
+) -> tuple[str, str | None, tuple[str | None, str | None, str | None]]:
+    profile = _load_connection_profile(rendered)
+    if profile is None:
+        resolved_dsn, profile_kind = rendered, None
+    else:
+        resolved_dsn = str(profile.get("dsn") or "")
+        profile_kind = str(profile.get("kind") or "").strip().lower() or None
+    _validate_profile_dsn(resolved_dsn)
+    return resolved_dsn, profile_kind, _profile_tls_values(profile)
 
 
 @register_source("database")
@@ -178,62 +233,31 @@ class DatabaseConnector(LoadConnector, PollConnector):
             raise ValueError("Database ingestion requires one read-only SELECT query")
 
     def _connection(self) -> Any:
-        if self._conn is None:
-            from agent_utilities.security.secrets_client import create_secrets_client
+        if self._conn is not None:
+            return self._conn
 
-            from ...universal_connector import UniversalConnector
-            from ..registry import logger  # reuse package logger
+        from agent_utilities.security.secrets_client import create_secrets_client
 
-            logger.debug("[ECO-4.25] opening database connection kind=%s", self.kind)
-            secrets = create_secrets_client()
-            raw = secrets.resolve_ref(self.connection_profile_ref)
-            rendered = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
-            if not rendered or len(rendered.encode("utf-8")) > 65_536:
-                raise ValueError("database connection profile is unavailable")
-            profile_kind = None
-            resolved_dsn = rendered
-            try:
-                profile = json.loads(rendered)
-            except (TypeError, ValueError):
-                profile = None
-            if isinstance(profile, dict):
-                if set(profile).difference(
-                    {"dsn", "kind", "tls_service", "tls_profile", "tls_profile_ref"}
-                ):
-                    raise ValueError(
-                        "database connection profile has unsupported fields"
-                    )
-                resolved_dsn = str(profile.get("dsn") or "")
-                profile_kind = str(profile.get("kind") or "").strip().lower() or None
-            if (
-                not resolved_dsn
-                or "\x00" in resolved_dsn
-                or len(resolved_dsn.encode("utf-8")) > 8_192
-            ):
-                raise ValueError("database connection profile is unavailable")
-            if self.kind and profile_kind and self.kind != profile_kind:
-                raise ValueError("database connection profile kind does not match")
-            self._conn = UniversalConnector(
-                resolved_dsn,
-                kind=self.kind or profile_kind,
-                source_alias=self.source_alias,
-                tls_service=(
-                    str(profile.get("tls_service") or "").strip() or None
-                    if isinstance(profile, dict)
-                    else None
-                ),
-                tls_profile=(
-                    str(profile.get("tls_profile") or "").strip() or None
-                    if isinstance(profile, dict)
-                    else None
-                ),
-                tls_profile_ref=(
-                    str(profile.get("tls_profile_ref") or "").strip() or None
-                    if isinstance(profile, dict)
-                    else None
-                ),
-                tls_resolver=secrets.resolve_ref,
-            )
+        from ...universal_connector import UniversalConnector
+        from ..registry import logger  # reuse package logger
+
+        logger.debug("[ECO-4.25] opening database connection kind=%s", self.kind)
+        secrets = create_secrets_client()
+        rendered = _render_connection_profile(
+            secrets.resolve_ref(self.connection_profile_ref)
+        )
+        resolved_dsn, profile_kind, tls_values = _parse_connection_profile(rendered)
+        if self.kind and profile_kind and self.kind != profile_kind:
+            raise ValueError("database connection profile kind does not match")
+        self._conn = UniversalConnector(
+            resolved_dsn,
+            kind=self.kind or profile_kind,
+            source_alias=self.source_alias,
+            tls_service=tls_values[0],
+            tls_profile=tls_values[1],
+            tls_profile_ref=tls_values[2],
+            tls_resolver=secrets.resolve_ref,
+        )
         return self._conn
 
     def health_check(self) -> bool:

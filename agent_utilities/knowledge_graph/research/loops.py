@@ -721,6 +721,101 @@ def claim_loop(engine: Any, loop_id: str) -> bool:
     return won
 
 
+def _addressed_loop_ids(engine: Any) -> set[str]:
+    """Read the research completion set, failing safe toward intake."""
+    try:
+        rows = engine.query_cypher(
+            "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
+        )
+        return {r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")}
+    except Exception as e:  # noqa: BLE001 — addressed stays empty on failure; every concept is then treated as not yet addressed, the safe direction for loop completion
+        logger.debug("active_loops: addressed query failed: %s", e)
+        return set()
+
+
+def _loop_concepts(engine: Any, limit: int) -> list[dict[str, Any]] | None:
+    """Read the bounded Concept intake rows, preserving backend ``None``."""
+    try:
+        return engine.query_cypher(
+            "MATCH (c:Concept) RETURN c.id AS id, c.name AS name, "
+            "c.loop_kind AS loop_kind, "
+            "c.objective AS objective, c.validation_cmd AS validation_cmd, "
+            "c.skill_ref AS skill_ref, c.end_state AS end_state, "
+            "c.spec_id AS spec_id, c.prio_bucket AS prio_bucket LIMIT $limit",
+            {"limit": int(limit) * 20},
+        )
+    except Exception as e:  # noqa: BLE001 — a failed primary query has no rows to intake
+        logger.debug("active_loops: concept query failed: %s", e)
+        return []
+
+
+def _loop_identity(row: Any) -> tuple[Any, str] | None:
+    """Return the supported loop identity carried by one Concept row."""
+    if not isinstance(row, dict) or not row.get("id"):
+        return None
+    cid = row["id"]
+    kind = str(row.get("loop_kind") or "")
+    if kind not in {"research", "develop", "skill"}:
+        return None
+    return cid, kind
+
+
+def _loop_work_item_status(engine: Any, cid: Any) -> str | None:
+    """Return a claimable loop WorkItem status, or ``None`` when unavailable."""
+    from agent_utilities.orchestration.work_item import (
+        TERMINAL_WORK_ITEM_STATUSES,
+        get_work_item,
+        loop_work_item_id,
+    )
+
+    item = get_work_item(engine, loop_work_item_id(cid))
+    if item is None or item.get("kind") != "goal_loop":
+        return None
+    status = str(item.get("status") or "")
+    if status in TERMINAL_WORK_ITEM_STATUSES:
+        return None
+    return status
+
+
+def _loop_in_flight(kind: str, status: str) -> bool:
+    """Keep an owned develop/skill iteration out of daemon intake."""
+    return kind in ("develop", "skill") and status in {"leased", "running"}
+
+
+def _settle_addressed_loop(engine: Any, cid: Any) -> None:
+    """Settle a research loop once its ADDRESSED_BY evidence is present."""
+    from agent_utilities.orchestration.work_item import (
+        claim_loop_work_item,
+        transition_loop_work_item,
+    )
+
+    claim = claim_loop_work_item(engine, cid)
+    if claim is not None:
+        transition_loop_work_item(
+            engine,
+            cid,
+            "completed",
+            result_ref=f"loop:{cid}:addressed",
+        )
+
+
+def _active_loop_candidate(
+    engine: Any, row: Any, addressed: set[str]
+) -> dict[str, Any] | None:
+    """Build one intake row while preserving WorkItem lifecycle rules."""
+    identity = _loop_identity(row)
+    if identity is None:
+        return None
+    cid, kind = identity
+    status = _loop_work_item_status(engine, cid)
+    if status is None or _loop_in_flight(kind, status):
+        return None
+    if kind == "research" and cid in addressed:
+        _settle_addressed_loop(engine, cid)
+        return None
+    return {**_loop_dict(cid, row), "status": status}
+
+
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     """Every Loop still needing work — the LoopController's intake (CONCEPT:AU-KG.research.these-properties-carry).
 
@@ -734,74 +829,14 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     Computed with SUPPORTED query shapes only (positive single-hop + plain node
     scan, then subtract) — same constraint as ``unresolved_topics``.
     """
-    addressed: set[str] = set()
-    try:
-        rows = engine.query_cypher(
-            "MATCH (c:Concept)-[:ADDRESSED_BY]->(s) RETURN c.id AS id"
-        )
-        addressed = {
-            r["id"] for r in (rows or []) if isinstance(r, dict) and r.get("id")
-        }
-    except Exception as e:  # noqa: BLE001 — addressed stays at its initialized empty set on failure; every concept is then simply treated as 'not yet addressed' below, the safe direction for a loop-completion signal (never wrongly hides an active loop)
-        logger.debug("active_loops: addressed query failed: %s", e)
-
-    try:
-        rows = engine.query_cypher(
-            "MATCH (c:Concept) RETURN c.id AS id, c.name AS name, "
-            "c.loop_kind AS loop_kind, "
-            "c.objective AS objective, c.validation_cmd AS validation_cmd, "
-            "c.skill_ref AS skill_ref, c.end_state AS end_state, "
-            "c.spec_id AS spec_id, c.prio_bucket AS prio_bucket LIMIT $limit",
-            {"limit": int(limit) * 20},
-        )
-    except Exception as e:  # noqa: BLE001 — returns [] (the documented no-loops-found case) on the primary concept query failing; there's nothing to iterate without it, unlike the addressed-set query above which is genuinely optional context
-        logger.debug("active_loops: concept query failed: %s", e)
-        return []
-
-    from agent_utilities.orchestration.work_item import (
-        TERMINAL_WORK_ITEM_STATUSES,
-        claim_loop_work_item,
-        get_work_item,
-        loop_work_item_id,
-        transition_loop_work_item,
-    )
+    addressed = _addressed_loop_ids(engine)
+    rows = _loop_concepts(engine, limit)
 
     out: list[dict[str, Any]] = []
-    for r in rows or []:
-        if not isinstance(r, dict) or not r.get("id"):
-            continue
-        cid = r["id"]
-        kind = str(r.get("loop_kind") or "")
-        if kind not in {"research", "develop", "skill"}:
-            continue
-        item_id = loop_work_item_id(cid)
-        item = get_work_item(engine, item_id)
-        if item is None or item.get("kind") != "goal_loop":
-            continue
-        status = str(item.get("status") or "")
-        if status in TERMINAL_WORK_ITEM_STATUSES:
-            continue
-        if kind in ("develop", "skill") and status in {
-            "leased",
-            "running",
-        }:
-            # In-flight: a run_loop / goal driver owns it. Excluding it from intake
-            # keeps the daemon cycle from double-driving the same iteration; a crash
-            # leaves it 'orphaned' (rehydrated, re-intakeable). (CONCEPT:AU-KG.research.these-properties-carry)
-            continue
-        if kind == "research" and cid in addressed:
-            # Addressed evidence is the research completion condition. Settle
-            # the WorkItem before dropping the Concept from intake.
-            claim = claim_loop_work_item(engine, cid)
-            if claim is not None:
-                transition_loop_work_item(
-                    engine,
-                    cid,
-                    "completed",
-                    result_ref=f"loop:{cid}:addressed",
-                )
-            continue
-        out.append({**_loop_dict(cid, r), "status": status})
+    for row in rows or []:
+        candidate = _active_loop_candidate(engine, row, addressed)
+        if candidate is not None:
+            out.append(candidate)
     # Priority-ordered intake is normalized once after the bounded native read,
     # so every query backend shares the same integer bucket semantics.
     out.sort(key=lambda d: _prio_bucket(d.get("prio_bucket")))

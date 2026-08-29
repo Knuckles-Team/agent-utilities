@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_utilities.core.config import AgentConfig
+from agent_utilities.messaging import alert_intake
 from agent_utilities.messaging.alert_intake import (
     _MAX_ALERT_CHARS,
     _extract_text,
@@ -36,6 +37,32 @@ def test_alert_intake_bind_and_payload_bounds():
 
     assert len(_extract_text("x" * (_MAX_ALERT_CHARS + 100))) == _MAX_ALERT_CHARS
     assert _extract_text({"alerts": [None, {"labels": "invalid"}]})
+
+
+def test_alert_intake_token_resolution_fails_closed_without_reference(monkeypatch):
+    monkeypatch.setattr(alert_intake, "setting", lambda *_args: "")
+    assert alert_intake._resolve_alert_intake_token() is None
+
+
+def test_alert_intake_token_resolution_uses_runtime_secret_reference(monkeypatch):
+    monkeypatch.setattr(
+        alert_intake,
+        "setting",
+        lambda key, *_args: "env://ALERT_INTAKE_TOKEN"
+        if key == "MESSAGING_ALERT_INTAKE_TOKEN_REF"
+        else "",
+    )
+
+    class _Secrets:
+        def resolve_ref(self, reference):
+            assert reference == "env://ALERT_INTAKE_TOKEN"
+            return "resolved-token"
+
+    monkeypatch.setattr(
+        "agent_utilities.security.secrets_client.create_secrets_client",
+        lambda: _Secrets(),
+    )
+    assert alert_intake._resolve_alert_intake_token() == "resolved-token"
 
 
 @pytest.mark.asyncio

@@ -45,6 +45,222 @@ def _workflow_mermaid(engine: Any, name: str) -> str | None:
         return None
 
 
+async def _compile_workflow(
+    orchestrator: Any, engine: Any, task: str, name: str
+) -> str:
+    compiled_name = name or f"compiled_{uuid.uuid4().hex}"
+    workflow_id = await orchestrator.compile_workflow(
+        name=compiled_name, task=task
+    )
+    return json.dumps(
+        {
+            "status": "compiled",
+            "workflow_id": workflow_id,
+            "name": compiled_name,
+            "mermaid": await asyncio.to_thread(
+                _workflow_mermaid, engine, compiled_name
+            ),
+        },
+        default=str,
+    )
+
+
+async def _compile_process_workflow(engine: Any, workflow: str, name: str) -> str:
+    if not workflow:
+        raise ValueError("workflow must contain the BusinessProcess id")
+    from agent_utilities.knowledge_graph.process_plan_compiler import (
+        ProcessPlanCompiler,
+    )
+
+    report = await ProcessPlanCompiler(engine).compile_and_store(
+        workflow, name=name or None
+    )
+    report["status"] = "compiled"
+    report["mermaid"] = await asyncio.to_thread(
+        _workflow_mermaid, engine, report["name"]
+    )
+    return json.dumps(report, default=str)
+
+
+async def _list_workflows(engine: Any, limit: int) -> str:
+    from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
+
+    workflows = await asyncio.to_thread(
+        WorkflowStore(engine).list_workflows, limit
+    )
+    return json.dumps(
+        {
+            "source": "kg",
+            "workflows": workflows,
+        },
+        default=str,
+    )
+
+
+async def _execute_or_dispatch_workflow(
+    action: str,
+    orchestrator: Any,
+    engine: Any,
+    workflow: str,
+    task: str,
+    max_steps: int,
+    max_agent_calls: int,
+    max_concurrency: int,
+    budget_tokens: int | None,
+    model_class: str,
+    dynamic_fallback: str,
+    workflow_run_id: str,
+) -> str:
+    if action in {"execute", "execute_dynamic", "dispatch"}:
+        if not workflow:
+            raise ValueError("workflow is required")
+        gate = await asyncio.to_thread(_workflow_gate, engine, workflow)
+        if gate.get("allowed") is not True:
+            return _gate_denial(workflow, gate)
+
+        if action == "execute":
+            return await _execute_workflow(
+                orchestrator, engine, workflow, task, max_steps
+            )
+
+        if action == "execute_dynamic":
+            return await _execute_dynamic_workflow(
+                orchestrator,
+                engine,
+                workflow,
+                task,
+                max_steps,
+                max_agent_calls,
+                max_concurrency,
+                budget_tokens,
+                model_class,
+                dynamic_fallback,
+                workflow_run_id,
+            )
+
+        return await _dispatch_workflow(engine, workflow, task)
+
+    raise ValueError(f"unsupported workflow execution action: {action}")
+
+
+async def _execute_workflow(
+    orchestrator: Any, engine: Any, workflow: str, task: str, max_steps: int
+) -> str:
+    result = await orchestrator.execute_workflow(
+        workflow_id=workflow,
+        task=task,
+        max_steps=max_steps,
+    )
+    return json.dumps(
+        {
+            "result": result,
+            "mermaid": await asyncio.to_thread(
+                _workflow_mermaid, engine, workflow
+            ),
+        },
+        default=str,
+    )
+
+
+async def _execute_dynamic_workflow(
+    orchestrator: Any,
+    engine: Any,
+    workflow: str,
+    task: str,
+    max_steps: int,
+    max_agent_calls: int,
+    max_concurrency: int,
+    budget_tokens: int | None,
+    model_class: str,
+    dynamic_fallback: str,
+    workflow_run_id: str,
+) -> str:
+    dynamic_result = await orchestrator.execute_dynamic_workflow(
+        workflow_id=workflow,
+        task=task,
+        max_steps=max_steps,
+        max_agent_calls=max_agent_calls,
+        max_concurrency=max_concurrency,
+        budget_tokens=budget_tokens,
+        model_class=model_class,
+        unavailable_fallback=dynamic_fallback,
+        workflow_run_id=workflow_run_id or None,
+    )
+    return json.dumps(
+        {
+            "result": dynamic_result,
+            "mermaid": await asyncio.to_thread(
+                _workflow_mermaid, engine, workflow
+            ),
+        },
+        default=str,
+    )
+
+
+async def _dispatch_workflow(engine: Any, workflow: str, task: str) -> str:
+    from agent_utilities.workflows.runner import WorkflowRunner
+
+    session_id = f"wf-{uuid.uuid4().hex}"
+    runner = WorkflowRunner()
+    background = asyncio.create_task(
+        runner.execute_by_name(
+            workflow,
+            engine,
+            trace_session=session_id,
+            task=task or None,
+        ),
+        name=f"workflow:{session_id}",
+    )
+    _WORKFLOW_TASKS[session_id] = background
+    return json.dumps(
+        {
+            "status": "dispatched",
+            "session_id": session_id,
+            "status_url": "/api/graph/workflows",
+            "status_request": {
+                "action": "status",
+                "workflow": session_id,
+            },
+        }
+    )
+
+
+def _workflow_status(workflow: str) -> str:
+    if not workflow:
+        raise ValueError("workflow must contain the run/session id")
+    status_task = _WORKFLOW_TASKS.get(workflow)
+    if status_task is not None and not status_task.done():
+        return json.dumps({"session_id": workflow, "status": "running"}, default=str)
+    if status_task is not None:
+        try:
+            task_result = status_task.result()
+        except Exception as exc:
+            return public_error_text(exc)
+        return json.dumps(task_result.to_dict(), default=str)
+
+    from agent_utilities.workflows.runner import _active_workflows
+
+    stored_result = _active_workflows.get(workflow)
+    if stored_result is None:
+        return json.dumps({"session_id": workflow, "status": "not_found"})
+    return json.dumps(stored_result.to_dict(), default=str)
+
+
+async def _export_workflow(engine: Any, workflow: str, export_format: str) -> str:
+    if not workflow:
+        raise ValueError("workflow is required for export")
+    from agent_utilities.knowledge_graph.governance_import import export_workflow
+
+    exported = await asyncio.to_thread(
+        export_workflow, engine, workflow, fmt=export_format
+    )
+    return json.dumps(
+        exported,
+        indent=2,
+        default=str,
+    )
+
+
 def register_workflow_tools(mcp: Any) -> None:
     """Register compile, execute, dispatch, inspect, and export operations."""
 
@@ -110,160 +326,37 @@ def register_workflow_tools(mcp: Any) -> None:
 
             orchestrator = Orchestrator(engine)
             if action == "compile":
-                compiled_name = name or f"compiled_{uuid.uuid4().hex}"
-                workflow_id = await orchestrator.compile_workflow(
-                    name=compiled_name, task=task
-                )
-                return json.dumps(
-                    {
-                        "status": "compiled",
-                        "workflow_id": workflow_id,
-                        "name": compiled_name,
-                        "mermaid": await asyncio.to_thread(
-                            _workflow_mermaid, engine, compiled_name
-                        ),
-                    },
-                    default=str,
+                return await _compile_workflow(
+                    orchestrator, engine, task, name
                 )
 
             if action == "compile_process":
-                if not workflow:
-                    raise ValueError("workflow must contain the BusinessProcess id")
-                from agent_utilities.knowledge_graph.process_plan_compiler import (
-                    ProcessPlanCompiler,
-                )
-
-                report = await ProcessPlanCompiler(engine).compile_and_store(
-                    workflow, name=name or None
-                )
-                report["status"] = "compiled"
-                report["mermaid"] = await asyncio.to_thread(
-                    _workflow_mermaid, engine, report["name"]
-                )
-                return json.dumps(report, default=str)
+                return await _compile_process_workflow(engine, workflow, name)
 
             if action == "list":
-                from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
-
-                workflows = await asyncio.to_thread(
-                    WorkflowStore(engine).list_workflows, limit
-                )
-                return json.dumps(
-                    {
-                        "source": "kg",
-                        "workflows": workflows,
-                    },
-                    default=str,
-                )
+                return await _list_workflows(engine, limit)
 
             if action in {"execute", "execute_dynamic", "dispatch"}:
-                if not workflow:
-                    raise ValueError("workflow is required")
-                gate = await asyncio.to_thread(_workflow_gate, engine, workflow)
-                if gate.get("allowed") is not True:
-                    return _gate_denial(workflow, gate)
-
-                if action == "execute":
-                    result = await orchestrator.execute_workflow(
-                        workflow_id=workflow,
-                        task=task,
-                        max_steps=max_steps,
-                    )
-                    return json.dumps(
-                        {
-                            "result": result,
-                            "mermaid": await asyncio.to_thread(
-                                _workflow_mermaid, engine, workflow
-                            ),
-                        },
-                        default=str,
-                    )
-
-                if action == "execute_dynamic":
-                    dynamic_result = await orchestrator.execute_dynamic_workflow(
-                        workflow_id=workflow,
-                        task=task,
-                        max_steps=max_steps,
-                        max_agent_calls=max_agent_calls,
-                        max_concurrency=max_concurrency,
-                        budget_tokens=budget_tokens,
-                        model_class=model_class,
-                        unavailable_fallback=dynamic_fallback,
-                        workflow_run_id=workflow_run_id or None,
-                    )
-                    return json.dumps(
-                        {
-                            "result": dynamic_result,
-                            "mermaid": await asyncio.to_thread(
-                                _workflow_mermaid, engine, workflow
-                            ),
-                        },
-                        default=str,
-                    )
-
-                from agent_utilities.workflows.runner import WorkflowRunner
-
-                session_id = f"wf-{uuid.uuid4().hex}"
-                runner = WorkflowRunner()
-                background = asyncio.create_task(
-                    runner.execute_by_name(
-                        workflow,
-                        engine,
-                        trace_session=session_id,
-                        task=task or None,
-                    ),
-                    name=f"workflow:{session_id}",
-                )
-                _WORKFLOW_TASKS[session_id] = background
-                return json.dumps(
-                    {
-                        "status": "dispatched",
-                        "session_id": session_id,
-                        "status_url": "/api/graph/workflows",
-                        "status_request": {
-                            "action": "status",
-                            "workflow": session_id,
-                        },
-                    }
+                return await _execute_or_dispatch_workflow(
+                    action,
+                    orchestrator,
+                    engine,
+                    workflow,
+                    task,
+                    max_steps,
+                    max_agent_calls,
+                    max_concurrency,
+                    budget_tokens,
+                    model_class,
+                    dynamic_fallback,
+                    workflow_run_id,
                 )
 
             if action == "status":
-                if not workflow:
-                    raise ValueError("workflow must contain the run/session id")
-                status_task = _WORKFLOW_TASKS.get(workflow)
-                if status_task is not None and not status_task.done():
-                    return json.dumps(
-                        {"session_id": workflow, "status": "running"}, default=str
-                    )
-                if status_task is not None:
-                    try:
-                        task_result = status_task.result()
-                    except Exception as exc:
-                        return public_error_text(exc)
-                    return json.dumps(task_result.to_dict(), default=str)
-
-                from agent_utilities.workflows.runner import _active_workflows
-
-                stored_result = _active_workflows.get(workflow)
-                if stored_result is None:
-                    return json.dumps({"session_id": workflow, "status": "not_found"})
-                return json.dumps(stored_result.to_dict(), default=str)
+                return _workflow_status(workflow)
 
             if action == "export":
-                if not workflow:
-                    raise ValueError("workflow is required for export")
-                from agent_utilities.knowledge_graph.governance_import import (
-                    export_workflow,
-                )
-
-                exported = await asyncio.to_thread(
-                    export_workflow, engine, workflow, fmt=export_format
-                )
-                return json.dumps(
-                    exported,
-                    indent=2,
-                    default=str,
-                )
+                return await _export_workflow(engine, workflow, export_format)
 
             return f"Error: Unknown graph_workflows action '{action}'"
         except PermissionError:

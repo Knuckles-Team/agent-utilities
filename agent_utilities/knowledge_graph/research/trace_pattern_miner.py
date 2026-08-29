@@ -80,17 +80,18 @@ def gather_failure_tool_sequences(
     return ids, sequences
 
 
-def _gather_failure_tool_sequences(
+def _query_failure_tool_rows(
     engine: Any,
     *,
     reward_threshold: float,
     limit: int,
     after_sequence: int,
-) -> tuple[list[str], list[list[str]], TraceCursor]:
+) -> list[dict[str, Any]] | None:
+    """Return one bounded failure-tool page, or ``None`` when unavailable."""
     if engine is None:
-        return [], [], TraceCursor(after_sequence)
+        return None
     try:
-        rows = (
+        return (
             engine.query_cypher(
                 f"MATCH (r:RunTrace)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation) "
                 "WHERE o.reward < $threshold AND r.event_sequence > $after_sequence "
@@ -108,20 +109,26 @@ def _gather_failure_tool_sequences(
         )
     except Exception as e:  # noqa: BLE001 — a query failure degrades, never raises
         logger.debug("trace_pattern_miner: failure-sequence query failed: %s", e)
-        return [], [], TraceCursor(after_sequence)
+        return None
 
-    # LIMIT counts tool-call rows, not traces. If the page is full, its last
-    # trace may be partial; defer that whole trace so advancing the cursor can
-    # never skip its remaining calls on the next pass.
-    if len(rows) >= int(limit) and rows:
-        partial_trace = rows[-1].get("trace_id") if isinstance(rows[-1], dict) else None
-        if partial_trace:
-            rows = [
-                row
-                for row in rows
-                if not isinstance(row, dict) or row.get("trace_id") != partial_trace
-            ]
 
+def _drop_partial_failure_trace(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Drop a full page's final trace when the row limit may have split it."""
+    if len(rows) < int(limit) or not rows:
+        return rows
+    last_row = rows[-1]
+    partial_trace = last_row.get("trace_id") if isinstance(last_row, dict) else None
+    if not partial_trace:
+        return rows
+    return [
+        row
+        for row in rows
+        if not isinstance(row, dict) or row.get("trace_id") != partial_trace
+    ]
+
+
+def _group_failure_tool_rows(rows: list[dict[str, Any]]) -> tuple[list[str], list[list[str]]]:
+    """Group valid tool rows by trace while retaining query order."""
     ordered_ids: list[str] = []
     by_trace: dict[str, list[str]] = {}
     for row in rows:
@@ -136,8 +143,38 @@ def _gather_failure_tool_sequences(
             ordered_ids.append(trace_id)
         by_trace[trace_id].append(str(tool_name))
 
-    sequences = [by_trace[tid] for tid in ordered_ids if len(by_trace[tid]) >= 2]
-    trace_ids = [tid for tid in ordered_ids if len(by_trace[tid]) >= 2]
+    trace_ids: list[str] = []
+    sequences: list[list[str]] = []
+    for trace_id in ordered_ids:
+        sequence = by_trace[trace_id]
+        if len(sequence) < 2:
+            continue
+        trace_ids.append(trace_id)
+        sequences.append(sequence)
+    return trace_ids, sequences
+
+
+def _gather_failure_tool_sequences(
+    engine: Any,
+    *,
+    reward_threshold: float,
+    limit: int,
+    after_sequence: int,
+) -> tuple[list[str], list[list[str]], TraceCursor]:
+    rows = _query_failure_tool_rows(
+        engine,
+        reward_threshold=reward_threshold,
+        limit=limit,
+        after_sequence=after_sequence,
+    )
+    if rows is None:
+        return [], [], TraceCursor(after_sequence)
+
+    # LIMIT counts tool-call rows, not traces. If the page is full, its last
+    # trace may be partial; defer that whole trace so advancing the cursor can
+    # never skip its remaining calls on the next pass.
+    rows = _drop_partial_failure_trace(rows, limit)
+    trace_ids, sequences = _group_failure_tool_rows(rows)
     cursor = TraceCursor.from_rows(rows)
     return trace_ids, sequences, max(cursor, TraceCursor(after_sequence))
 

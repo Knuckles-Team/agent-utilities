@@ -347,6 +347,63 @@ class TradingSwarm:
                 logger.warning("calibration outcome record failed: %s", e)
         return resolved
 
+    def _weighted_score(self, signals: list[AgentSignal]) -> float:
+        """Aggregate signal confidence using the effective role weights."""
+        role_weights = self._effective_role_weights()
+        total_weight = 0.0
+        weighted_sum = 0.0
+        for signal in signals:
+            weight = role_weights.get(signal.role, 1.0)
+            weighted_sum += signal.direction * signal.confidence * weight
+            total_weight += weight
+        return weighted_sum / total_weight if total_weight > 0 else 0.0
+
+    @staticmethod
+    def _agreement_ratio(signals: list[AgentSignal], weighted_score: float) -> float:
+        """Return the fraction of signals agreeing with the weighted score."""
+        majority_dir = 1 if weighted_score > 0 else (-1 if weighted_score < 0 else 0)
+        agreeing = sum(1 for s in signals if s.direction == majority_dir)
+        return agreeing / len(signals) if signals else 0.0
+
+    def _risk_override(self, signals: list[AgentSignal]) -> bool:
+        """Apply risk-manager vetoes while preserving every warning."""
+        if not self.config.risk_veto_enabled:
+            return False
+        risk_override = False
+        risk_signals = [s for s in signals if s.role == SwarmRole.RISK_MANAGER]
+        for rs in risk_signals:
+            if rs.direction == 0 and rs.confidence > 0.7:
+                risk_override = True
+                logger.warning(f"Risk manager veto: {rs.reasoning}")
+        return risk_override
+
+    @staticmethod
+    def _decision(weighted_score: float, risk_override: bool) -> SwarmDecision:
+        """Map the weighted score and veto state to a consensus decision."""
+        if risk_override:
+            return SwarmDecision.HOLD
+        if abs(weighted_score) < 0.1:
+            return SwarmDecision.HOLD
+        if weighted_score > 0.5:
+            return SwarmDecision.STRONG_BUY
+        if weighted_score > 0.1:
+            return SwarmDecision.BUY
+        if weighted_score < -0.5:
+            return SwarmDecision.STRONG_SELL
+        if weighted_score < -0.1:
+            return SwarmDecision.SELL
+        return SwarmDecision.HOLD
+
+    @staticmethod
+    def _dissenters(signals: list[AgentSignal], weighted_score: float) -> list[str]:
+        """Identify non-neutral signals opposing the weighted majority."""
+        majority_dir = 1 if weighted_score > 0 else (-1 if weighted_score < 0 else 0)
+        return [
+            s.agent_id
+            for s in signals
+            if s.direction != majority_dir and s.direction != 0
+        ]
+
     def analyze(self, market_data: dict[str, Any]) -> SwarmConsensus:
         """
         Run all agents and aggregate signals into a consensus decision.
@@ -367,57 +424,11 @@ class TradingSwarm:
             )
 
         # Weighted score aggregation (calibration-blended weights, KG-2.27)
-        role_weights = self._effective_role_weights()
-        total_weight = 0.0
-        weighted_sum = 0.0
-        for signal in signals:
-            weight = role_weights.get(signal.role, 1.0)
-            weighted_sum += signal.direction * signal.confidence * weight
-            total_weight += weight
-
-        weighted_score = weighted_sum / total_weight if total_weight > 0 else 0.0
-
-        # Agreement ratio
-        if weighted_score > 0:
-            agreeing = sum(1 for s in signals if s.direction > 0)
-        elif weighted_score < 0:
-            agreeing = sum(1 for s in signals if s.direction < 0)
-        else:
-            agreeing = sum(1 for s in signals if s.direction == 0)
-        agreement_ratio = agreeing / len(signals) if signals else 0.0
-
-        # Risk manager veto check
-        risk_override = False
-        if self.config.risk_veto_enabled:
-            risk_signals = [s for s in signals if s.role == SwarmRole.RISK_MANAGER]
-            for rs in risk_signals:
-                if rs.direction == 0 and rs.confidence > 0.7:
-                    risk_override = True
-                    logger.warning(f"Risk manager veto: {rs.reasoning}")
-
-        # Determine decision
-        if risk_override:
-            decision = SwarmDecision.HOLD
-        elif abs(weighted_score) < 0.1:
-            decision = SwarmDecision.HOLD
-        elif weighted_score > 0.5:
-            decision = SwarmDecision.STRONG_BUY
-        elif weighted_score > 0.1:
-            decision = SwarmDecision.BUY
-        elif weighted_score < -0.5:
-            decision = SwarmDecision.STRONG_SELL
-        elif weighted_score < -0.1:
-            decision = SwarmDecision.SELL
-        else:
-            decision = SwarmDecision.HOLD
-
-        # Identify dissenters
-        majority_dir = 1 if weighted_score > 0 else (-1 if weighted_score < 0 else 0)
-        dissenters = [
-            s.agent_id
-            for s in signals
-            if s.direction != majority_dir and s.direction != 0
-        ]
+        weighted_score = self._weighted_score(signals)
+        agreement_ratio = self._agreement_ratio(signals, weighted_score)
+        risk_override = self._risk_override(signals)
+        decision = self._decision(weighted_score, risk_override)
+        dissenters = self._dissenters(signals, weighted_score)
 
         consensus = SwarmConsensus(
             decision=decision,

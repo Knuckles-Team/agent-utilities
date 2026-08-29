@@ -323,82 +323,95 @@ class GpuSlotScheduler:
                 return jid
         return None
 
+    async def _next_job(self) -> Job:
+        async with self._cond:
+            job_id = self._select_next_locked()
+            while job_id is None:
+                await self._cond.wait()
+                job_id = self._select_next_locked()
+            job = self._jobs[job_id]
+            job.state = JobState.RUNNING
+            self._current = job_id
+            self._pause_flags.discard(job_id)
+            self._store.save(job)
+            return job
+
+    async def _acquire_lease(self, job: Job) -> ResourceLease | None:
+        authority = self._lease_authority
+        if authority is None:
+            return None
+        if self._lease_request_factory is None:
+            raise RuntimeError("GPU scheduler lease_request_factory is required")
+        request = self._lease_request_factory(job)
+        if request.resource_kind not in {
+            "gpu_concurrency",
+            "gpu_memory_bytes",
+        }:
+            raise RuntimeError("GPU scheduler leases must use a GPU resource kind")
+        return await asyncio.to_thread(authority.acquire, request)
+
+    async def _release_lease(self, lease: ResourceLease | None, job_id: str) -> None:
+        if lease is None:
+            return
+        authority = self._lease_authority
+        if authority is None:
+            logger.error(
+                "GPU lease held for job %s but lease authority is now "
+                "unavailable; authority will reclaim on expiry",
+                job_id,
+            )
+            return
+        try:
+            await asyncio.to_thread(
+                authority.release,
+                lease.lease_id,
+                tenant_ref=lease.request.tenant_ref,
+                principal_ref=lease.request.principal_ref,
+                fence_token=lease.fence_token,
+                lease_epoch=lease.lease_epoch,
+            )
+        except Exception as exc:  # noqa: BLE001 - preserve worker loop; authority remains fail-closed
+            logger.error(
+                "GPU lease release failed for job %s; authority will reclaim on expiry: %s",
+                job_id,
+                exc,
+            )
+
+    async def _run_job(self, job: Job) -> None:
+        lease: ResourceLease | None = None
+        try:
+            lease = await self._acquire_lease(job)
+            assert self._runner is not None
+            await self._runner(job, self)
+        except Exception as exc:  # noqa: BLE001 — one bad job never kills the loop
+            logger.warning("job %s failed: %s", job.job_id, exc)
+            async with self._cond:
+                job.state = JobState.FAILED
+                job.error = str(exc)
+                self._store.save(job)
+        finally:
+            await self._release_lease(lease, job.job_id)
+
+    async def _finish_job(self, job: Job) -> None:
+        async with self._cond:
+            self._current = None
+            paused = job.job_id in self._pause_flags
+            self._pause_flags.discard(job.job_id)
+            if job.state not in (JobState.DONE, JobState.FAILED):
+                if job.user_held:
+                    job.state = JobState.HELD
+                elif paused:
+                    job.state = JobState.PAUSED
+                else:
+                    # runner returned without finishing or pausing → treat as
+                    # done to avoid a stuck non-terminal job.
+                    job.state = JobState.DONE
+                self._store.save(job)
+            self._cond.notify_all()
+
     async def _worker(self) -> None:
         assert self._runner is not None
         while True:
-            async with self._cond:
-                job_id = self._select_next_locked()
-                while job_id is None:
-                    await self._cond.wait()
-                    job_id = self._select_next_locked()
-                job = self._jobs[job_id]
-                job.state = JobState.RUNNING
-                self._current = job_id
-                self._pause_flags.discard(job_id)
-                self._store.save(job)
-
-            lease: ResourceLease | None = None
-            try:
-                if self._lease_authority is not None:
-                    if self._lease_request_factory is None:
-                        raise RuntimeError(
-                            "GPU scheduler lease_request_factory is required"
-                        )
-                    request = self._lease_request_factory(job)
-                    if request.resource_kind not in {
-                        "gpu_concurrency",
-                        "gpu_memory_bytes",
-                    }:
-                        raise RuntimeError(
-                            "GPU scheduler leases must use a GPU resource kind"
-                        )
-                    lease = await asyncio.to_thread(
-                        self._lease_authority.acquire, request
-                    )
-                await self._runner(job, self)
-            except Exception as e:  # noqa: BLE001 — one bad job never kills the loop
-                logger.warning("job %s failed: %s", job_id, e)
-                async with self._cond:
-                    job.state = JobState.FAILED
-                    job.error = str(e)
-                    self._store.save(job)
-            finally:
-                if lease is not None:
-                    if self._lease_authority is None:
-                        logger.error(
-                            "GPU lease held for job %s but lease authority is now "
-                            "unavailable; authority will reclaim on expiry",
-                            job_id,
-                        )
-                    else:
-                        try:
-                            await asyncio.to_thread(
-                                self._lease_authority.release,
-                                lease.lease_id,
-                                tenant_ref=lease.request.tenant_ref,
-                                principal_ref=lease.request.principal_ref,
-                                fence_token=lease.fence_token,
-                                lease_epoch=lease.lease_epoch,
-                            )
-                        except Exception as exc:  # noqa: BLE001 - preserve worker loop; authority remains fail-closed
-                            logger.error(
-                                "GPU lease release failed for job %s; authority will reclaim on expiry: %s",
-                                job_id,
-                                exc,
-                            )
-
-            async with self._cond:
-                self._current = None
-                paused = job_id in self._pause_flags
-                self._pause_flags.discard(job_id)
-                if job.state not in (JobState.DONE, JobState.FAILED):
-                    if job.user_held:
-                        job.state = JobState.HELD
-                    elif paused:
-                        job.state = JobState.PAUSED
-                    else:
-                        # runner returned without finishing or pausing → treat as
-                        # done to avoid a stuck non-terminal job.
-                        job.state = JobState.DONE
-                    self._store.save(job)
-                self._cond.notify_all()
+            job = await self._next_job()
+            await self._run_job(job)
+            await self._finish_job(job)
