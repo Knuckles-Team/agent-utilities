@@ -207,6 +207,32 @@ def compute_baseline(
     }
 
 
+def _numeric_values(rows: list[dict[str, Any]], key: str) -> list[float]:
+    """Return the present values for ``key`` as floats."""
+    return [float(value) for row in rows if (value := row.get(key)) is not None]
+
+
+def _anomaly_kind(
+    observed: float,
+    p95: float,
+    zscore: float,
+    controls: list[float],
+    max_env: float,
+    z_thresh: float,
+    saturated_control: float,
+) -> str | None:
+    """Classify an observed value against its baseline thresholds."""
+    if observed > p95 and zscore >= z_thresh:
+        return "above-baseline"
+    if (
+        controls
+        and (sum(controls) / len(controls)) >= saturated_control
+        and observed > max_env
+    ):
+        return "saturated"
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # 3. detect anomalies off the entity's OWN baseline
 # --------------------------------------------------------------------------- #
@@ -236,12 +262,8 @@ def detect_anomaly(
     """
     if not baseline or not recent:
         return None
-    r_vals = [float(v) for r in recent if (v := r.get(value_key)) is not None]
-    r_ctrl = (
-        [float(v) for r in recent if (v := r.get(control_key)) is not None]
-        if control_key
-        else []
-    )
+    r_vals = _numeric_values(recent, value_key)
+    r_ctrl = _numeric_values(recent, control_key) if control_key else []
     if not r_vals:
         return None
     r_avg = sum(r_vals) / len(r_vals)
@@ -249,15 +271,15 @@ def detect_anomaly(
     spread = (p95 - p50) or 1e-6
     z = (r_avg - p50) / spread
 
-    kind = None
-    if r_avg > p95 and z >= z_thresh:
-        kind = "above-baseline"
-    elif (
-        r_ctrl
-        and (sum(r_ctrl) / len(r_ctrl)) >= saturated_control
-        and r_avg > float(baseline["max_env"])
-    ):
-        kind = "saturated"
+    kind = _anomaly_kind(
+        r_avg,
+        p95,
+        z,
+        r_ctrl,
+        float(baseline["max_env"]),
+        z_thresh,
+        saturated_control,
+    )
     if not kind:
         return None
     return {
