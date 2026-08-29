@@ -26,7 +26,6 @@
     "fasta2a": "MIT",
     "fastapi": "MIT",
     "fastmcp": "Apache-2.0",
-    "fastmcp-slim": "Apache-2.0",
     "feedparser": "BSD-2-Clause",
     "filelock": "MIT",
     "github-agent": "MIT",
@@ -39,7 +38,6 @@
     "hnswlib": "Apache-2.0",
     "home-assistant-agent": "MIT",
     "httpx": "BSD-3-Clause",
-    "humanize": "MIT",
     "hvac": "Apache-2.0",
     "hypothesis": "MPL-2.0",
     "idna": "BSD-3-Clause",
@@ -77,7 +75,6 @@
     "networkx": "BSD-3-Clause",
     "nextcloud-agent": "MIT",
     "nltk": "Apache-2.0",
-    "numpy": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
     "openbao-mcp": "MIT",
     "opensearch-py": "Apache-2.0",
     "opentelemetry-exporter-otlp-proto-http": "Apache-2.0",
@@ -152,6 +149,7 @@
     "vector-mcp": "MIT",
     "wasmtime": "Apache-2.0 WITH LLVM-exception",
     "websockets": "BSD-3-Clause",
+    "wheel": "MIT",
     "wger-agent": "MIT",
     "yfinance": "Apache-2.0"
   }

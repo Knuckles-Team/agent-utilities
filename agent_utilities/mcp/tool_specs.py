@@ -212,6 +212,12 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 #: reviewed as non-mutating.
 READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
+        # Atlas's source catalogue and one-source sync normalization are
+        # metadata/preview reads; neither action invokes a provider or writes
+        # through ``source_sync``.  Keep the allowlist explicit because adding
+        # an ``action`` parameter otherwise makes intent routing treat the
+        # operation as an unclassified mutation.
+        "graph_catalog": frozenset({"list", "preview_sync"}),
         "graph_context": frozenset({"get", "list"}),
         "graph_code": frozenset(
             {

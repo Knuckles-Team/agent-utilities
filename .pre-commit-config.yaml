@@ -312,6 +312,47 @@ repos:
   # workspace-level `plans/` directory, reached a public GitHub repo before
   # anyone noticed. A denylist would only ever catch the junk we already
   # thought of.
+  - id: clone-dupehound-changed-functions
+    name: Clone gate — changed functions (dupehound)
+    # The wrapper selects staged/worktree supported-language paths itself and
+    # passes the centrally pinned threshold/exclusions. It returns 2 when the
+    # binary/version/result cannot be trusted; no hook-time installation or
+    # baseline is allowed.
+    entry: python3 scripts/check_dupehound.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit]
+  # jscpd's differential mode is deliberately pre-push/manual: it materializes
+  # base + merged trees and detects copied blocks in code, templates, and
+  # configuration. Dupehound runs at pre-commit, so structural whole-function
+  # reuse and token-block cloning do not create two simultaneous hook failures.
+  - id: clone-jscpd-diff
+    name: Clone gate — new mixed-language blocks (jscpd)
+    # pre-commit exposes the immutable remote SHA as PRE_COMMIT_FROM_REF for a
+    # real pre-push. Manual runs derive HEAD^ (or the root commit) instead of
+    # resolving a mutable branch. CX_DUP_BASE_REF is reserved for CI, where
+    # the workflow has already validated its immutable PR/push base SHA.
+    entry: >-
+      bash -c 'base="${CX_DUP_BASE_REF:-${PRE_COMMIT_FROM_REF:-}}";
+      zero=0000000000000000000000000000000000000000; if [ -z "$base" ] || [
+      "$base" = "$zero" ]; then base="$(git rev-parse --verify HEAD^ 2>/dev/null
+      || git rev-list --max-parents=0 HEAD)"; fi; exec python3
+      scripts/check_duplication.py enforce --base-ref "$base"'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # The all-format jscpd census is informational by design. It reports real
+  # counts and pre-existing debt but never fails on findings; keep it out of
+  # the staged pre-commit path and expose it only at manual/pre-push tiers.
+  - id: clone-jscpd-census
+    name: Clone census — full tree (jscpd, advisory)
+    entry: python3 scripts/check_duplication.py census
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: complexity-staged
     name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
     entry: python3 scripts/check_complexity_staged.py
