@@ -755,6 +755,234 @@ class _Scope:
         return label if seen == 0 else f"{label} {seen + 1}"
 
 
+@dataclass
+class _MarkdownFragmenter:
+    """Stateful implementation for :func:`fragment_markdown`.
+
+    Keeping block dispatch and each block's span bookkeeping in small methods
+    leaves the public producer easy to audit while preserving one shared
+    emitter for sequence, parent, and provenance metadata.
+    """
+
+    artifact_id: str
+    lines: list[str]
+    offsets: list[int]
+    stack: list[_Scope]
+    fragments: list[Fragment]
+
+    @classmethod
+    def from_text(cls, text: str, artifact_id: str) -> _MarkdownFragmenter:
+        """Build parser state while retaining original character offsets."""
+        lines = (text or "").splitlines(keepends=True)
+        offsets: list[int] = []
+        cursor = 0
+        for line in lines:
+            offsets.append(cursor)
+            cursor += len(line)
+        return cls(
+            artifact_id=artifact_id,
+            lines=lines,
+            offsets=offsets,
+            stack=[_Scope(0, (), None)],
+            fragments=[],
+        )
+
+    def _end_of(self, index: int) -> int:
+        """Return the exclusive original-text offset for one line."""
+        return self.offsets[index] + len(self.lines[index])
+
+    def _emit(
+        self,
+        kind: FragmentKind,
+        *,
+        body: str,
+        start: int,
+        end: int,
+        label: str = "",
+        scope: _Scope | None = None,
+        parent_id: str | None = None,
+        attributes: dict[str, Any] | None = None,
+    ) -> Fragment:
+        owner = scope if scope is not None else self.stack[-1]
+        ordinal = owner.next_ordinal(kind)
+        fragment = Fragment.at(
+            artifact_id=self.artifact_id,
+            kind=kind,
+            parent_path=owner.path,
+            text=body,
+            label=label,
+            ordinal=ordinal,
+            sequence=len(self.fragments),
+            parent_fragment_id=(
+                parent_id if parent_id is not None else owner.fragment_id
+            ),
+            char_start=start,
+            char_end=end,
+            attributes=attributes or {},
+        )
+        self.fragments.append(fragment)
+        return fragment
+
+    def run(self) -> tuple[Fragment, ...]:
+        """Consume all lines and return fragments in source order."""
+        index = 0
+        while index < len(self.lines):
+            index = self._consume(index)
+        return tuple(self.fragments)
+
+    def _consume(self, index: int) -> int:
+        """Consume the block beginning at *index*."""
+        if not self.lines[index].strip():
+            return index + 1
+        for consumer in (
+            self._consume_fence,
+            self._consume_heading,
+            self._consume_table,
+            self._consume_quote,
+            self._consume_list,
+        ):
+            next_index = consumer(index)
+            if next_index is not None:
+                return next_index
+        return self._consume_paragraph(index)
+
+    def _consume_fence(self, index: int) -> int | None:
+        """Consume one fenced code block, if present."""
+        fence = _FENCE_RE.match(self.lines[index])
+        if not fence:
+            return None
+        marker, language = fence.group(1), fence.group(2)
+        close = index + 1
+        while close < len(self.lines) and not self.lines[close].strip().startswith(
+            marker[:3]
+        ):
+            close += 1
+        last = min(close, len(self.lines) - 1)
+        self._emit(
+            "code_block",
+            body="".join(self.lines[index + 1 : close]),
+            start=self.offsets[index],
+            end=self._end_of(last),
+            attributes={"language": language} if language else {},
+        )
+        return close + 1
+
+    def _consume_heading(self, index: int) -> int | None:
+        """Consume one ATX heading and open its child scope, if present."""
+        heading = _ATX_RE.match(self.lines[index])
+        if not heading:
+            return None
+        level = len(heading.group(1))
+        title = heading.group(2).strip()
+        while len(self.stack) > 1 and self.stack[-1].level >= level:
+            self.stack.pop()
+        parent = self.stack[-1]
+        fragment = self._emit(
+            "heading",
+            body=title,
+            start=self.offsets[index],
+            end=self._end_of(index),
+            label=parent.unique_label(title),
+            scope=parent,
+            attributes={"level": level},
+        )
+        self.stack.append(_Scope(level, fragment.path, fragment.fragment_id))
+        return index + 1
+
+    def _consume_table(self, index: int) -> int | None:
+        """Consume a pipe table and its row children, if present."""
+        if not self.lines[index].strip().startswith("|"):
+            return None
+        if index + 1 >= len(self.lines) or not _TABLE_DIVIDER_RE.match(
+            self.lines[index + 1]
+        ):
+            return None
+        header = self.lines[index].strip()
+        close = index + 2
+        while close < len(self.lines) and self.lines[close].strip().startswith("|"):
+            close += 1
+        table = self._emit(
+            "table",
+            body=header,
+            start=self.offsets[index],
+            end=self._end_of(close - 1),
+            label=header,
+            attributes={"row_count": close - index - 2},
+        )
+        table_scope = _Scope(0, table.path, table.fragment_id)
+        for row_index in range(index + 2, close):
+            cells = _split_row(self.lines[row_index])
+            self._emit(
+                "table_row",
+                body=self.lines[row_index].strip(),
+                start=self.offsets[row_index],
+                end=self._end_of(row_index),
+                label=cells[0] if cells else "",
+                scope=table_scope,
+                parent_id=table.fragment_id,
+                attributes={"cells": len(cells)},
+            )
+        return close
+
+    def _consume_quote(self, index: int) -> int | None:
+        """Consume one contiguous blockquote, if present."""
+        if not self.lines[index].strip().startswith(">"):
+            return None
+        close = index
+        while close < len(self.lines) and self.lines[close].strip().startswith(">"):
+            close += 1
+        body = "\n".join(
+            self.lines[line_index].strip().lstrip(">").strip()
+            for line_index in range(index, close)
+        )
+        self._emit(
+            "quote",
+            body=body,
+            start=self.offsets[index],
+            end=self._end_of(close - 1),
+        )
+        return close
+
+    def _consume_list(self, index: int) -> int | None:
+        """Consume list items and their continuation lines, if present."""
+        if not _LIST_RE.match(self.lines[index]):
+            return None
+        close = index
+        while close < len(self.lines) and (
+            _LIST_RE.match(self.lines[close]) or self.lines[close].strip()
+        ):
+            close += 1
+        for item_index in range(index, close):
+            match = _LIST_RE.match(self.lines[item_index])
+            if match:
+                self._emit(
+                    "list_item",
+                    body=match.group(1).strip(),
+                    start=self.offsets[item_index],
+                    end=self._end_of(item_index),
+                )
+        return close
+
+    def _consume_paragraph(self, index: int) -> int:
+        """Consume prose through the next blank line or block boundary."""
+        close = index
+        while (
+            close < len(self.lines)
+            and self.lines[close].strip()
+            and not _is_block_start(self.lines[close], close, self.lines)
+        ):
+            close += 1
+        if close == index:
+            close += 1
+        self._emit(
+            "paragraph",
+            body="".join(self.lines[index:close]).strip(),
+            start=self.offsets[index],
+            end=self._end_of(close - 1),
+        )
+        return close
+
+
 def fragment_markdown(text: str, *, artifact_id: str) -> tuple[Fragment, ...]:
     """Fragment a markdown document into its addressable citation units.
 
@@ -767,191 +995,7 @@ def fragment_markdown(text: str, *, artifact_id: str) -> tuple[Fragment, ...]:
     that is the property :func:`fragment_markdown`'s callers depend on and the
     wiring test asserts against a real file.
     """
-    root = _Scope(0, (), None)
-    stack: list[_Scope] = [root]
-    fragments: list[Fragment] = []
-    lines = (text or "").splitlines(keepends=True)
-
-    # Precompute each line's start offset so every fragment carries a true span.
-    offsets: list[int] = []
-    cursor = 0
-    for line in lines:
-        offsets.append(cursor)
-        cursor += len(line)
-    end_of = lambda i: offsets[i] + len(lines[i])  # noqa: E731 — local span helper
-
-    def emit(
-        kind: FragmentKind,
-        *,
-        body: str,
-        start: int,
-        end: int,
-        label: str = "",
-        scope: _Scope | None = None,
-        parent_id: str | None = None,
-        attributes: dict[str, Any] | None = None,
-    ) -> Fragment:
-        owner = scope if scope is not None else stack[-1]
-        ordinal = owner.next_ordinal(kind)
-        fragment = Fragment.at(
-            artifact_id=artifact_id,
-            kind=kind,
-            parent_path=owner.path,
-            text=body,
-            label=label,
-            ordinal=ordinal,
-            sequence=len(fragments),
-            parent_fragment_id=(
-                parent_id if parent_id is not None else owner.fragment_id
-            ),
-            char_start=start,
-            char_end=end,
-            attributes=attributes or {},
-        )
-        fragments.append(fragment)
-        return fragment
-
-    index = 0
-    total = len(lines)
-    while index < total:
-        raw = lines[index]
-        stripped = raw.strip()
-
-        if not stripped:
-            index += 1
-            continue
-
-        # ── fenced code block ────────────────────────────────────────────────
-        fence = _FENCE_RE.match(raw)
-        if fence:
-            marker, language = fence.group(1), fence.group(2)
-            start = offsets[index]
-            close = index + 1
-            while close < total and not lines[close].strip().startswith(marker[:3]):
-                close += 1
-            last = min(close, total - 1)
-            body = "".join(lines[index + 1 : close])
-            emit(
-                "code_block",
-                body=body,
-                start=start,
-                end=end_of(last),
-                attributes={"language": language} if language else {},
-            )
-            index = close + 1
-            continue
-
-        # ── ATX heading — opens a new scope ──────────────────────────────────
-        heading = _ATX_RE.match(raw)
-        if heading:
-            level = len(heading.group(1))
-            title = heading.group(2).strip()
-            while len(stack) > 1 and stack[-1].level >= level:
-                stack.pop()
-            parent = stack[-1]
-            label = parent.unique_label(title)
-            fragment = emit(
-                "heading",
-                body=title,
-                start=offsets[index],
-                end=end_of(index),
-                label=label,
-                scope=parent,
-                attributes={"level": level},
-            )
-            scope = _Scope(level, fragment.path, fragment.fragment_id)
-            stack.append(scope)
-            index += 1
-            continue
-
-        # ── pipe table — rows are child fragments ────────────────────────────
-        if stripped.startswith("|") and index + 1 < total:
-            if _TABLE_DIVIDER_RE.match(lines[index + 1]):
-                header = stripped
-                close = index + 2
-                while close < total and lines[close].strip().startswith("|"):
-                    close += 1
-                last = close - 1
-                table = emit(
-                    "table",
-                    body=header,
-                    start=offsets[index],
-                    end=end_of(last),
-                    # A table rarely has a caption; its HEADER ROW is its real
-                    # name and is stable under row insert/delete/sort, so it
-                    # anchors the address.
-                    label=header,
-                    attributes={"row_count": close - index - 2},
-                )
-                table_scope = _Scope(0, table.path, table.fragment_id)
-                for row_index in range(index + 2, close):
-                    cells = _split_row(lines[row_index])
-                    emit(
-                        "table_row",
-                        body=lines[row_index].strip(),
-                        start=offsets[row_index],
-                        end=end_of(row_index),
-                        # The first cell is a row's key in every table that has
-                        # one, so a re-sorted table keeps every row address.
-                        label=cells[0] if cells else "",
-                        scope=table_scope,
-                        parent_id=table.fragment_id,
-                        attributes={"cells": len(cells)},
-                    )
-                index = close
-                continue
-
-        # ── blockquote ───────────────────────────────────────────────────────
-        if stripped.startswith(">"):
-            close = index
-            while close < total and lines[close].strip().startswith(">"):
-                close += 1
-            body = "\n".join(
-                lines[i].strip().lstrip(">").strip() for i in range(index, close)
-            )
-            emit("quote", body=body, start=offsets[index], end=end_of(close - 1))
-            index = close
-            continue
-
-        # ── list — each item is its own citable fragment ─────────────────────
-        if _LIST_RE.match(raw):
-            close = index
-            while close < total and (
-                _LIST_RE.match(lines[close]) or lines[close].strip()
-            ):
-                if lines[close].strip() and not _LIST_RE.match(lines[close]):
-                    # A continuation line belongs to the item above it.
-                    close += 1
-                    continue
-                close += 1
-            for item_index in range(index, close):
-                match = _LIST_RE.match(lines[item_index])
-                if not match:
-                    continue
-                emit(
-                    "list_item",
-                    body=match.group(1).strip(),
-                    start=offsets[item_index],
-                    end=end_of(item_index),
-                )
-            index = close
-            continue
-
-        # ── paragraph — everything up to the next blank line ─────────────────
-        close = index
-        while (
-            close < total
-            and lines[close].strip()
-            and not _is_block_start(lines[close], close, lines)
-        ):
-            close += 1
-        if close == index:
-            close = index + 1
-        body = "".join(lines[index:close]).strip()
-        emit("paragraph", body=body, start=offsets[index], end=end_of(close - 1))
-        index = close
-
-    return tuple(fragments)
+    return _MarkdownFragmenter.from_text(text, artifact_id).run()
 
 
 def _is_block_start(line: str, index: int, lines: list[str]) -> bool:

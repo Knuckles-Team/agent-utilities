@@ -39,6 +39,58 @@ def _sse_data(line: str) -> str | None:
     return s
 
 
+def _normalize_openai(obj: Any) -> list[ExecEvent]:
+    """Normalize OpenAI-compatible ``choices[].delta.content`` chunks."""
+    out: list[ExecEvent] = []
+    for choice in obj.get("choices") or []:
+        delta = (choice.get("delta") or {}).get("content")
+        if delta:
+            out.append(ExecEvent(ExecEventType.TEXT_DELTA, text=str(delta)))
+        if choice.get("finish_reason"):
+            out.append(
+                ExecEvent(
+                    ExecEventType.END,
+                    data={"finish_reason": choice["finish_reason"]},
+                )
+            )
+    return out
+
+
+def _normalize_anthropic(obj: Any) -> list[ExecEvent]:
+    """Normalize Anthropic Messages API event chunks."""
+    event_type = obj.get("type", "")
+    if event_type == "content_block_delta":
+        text = (obj.get("delta") or {}).get("text", "")
+        return [ExecEvent(ExecEventType.TEXT_DELTA, text=str(text))] if text else []
+    if event_type == "message_stop":
+        return [ExecEvent(ExecEventType.END)]
+    if event_type == "error":
+        # Keep upstream messages, endpoints, request IDs, and credentials private.
+        return [ExecEvent(ExecEventType.ERROR, text="provider error")]
+    return []
+
+
+def _normalize_google(obj: Any) -> list[ExecEvent]:
+    """Normalize Google Gemini candidate content parts."""
+    out: list[ExecEvent] = []
+    for candidate in obj.get("candidates", []) or []:
+        for part in (candidate.get("content") or {}).get("parts", []) or []:
+            if part.get("text"):
+                out.append(
+                    ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"]))
+                )
+    return out
+
+
+_NORMALIZERS = {
+    "openai": _normalize_openai,
+    "azure": _normalize_openai,
+    "ollama": _normalize_openai,
+    "anthropic": _normalize_anthropic,
+    "google": _normalize_google,
+}
+
+
 def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
     """Normalize one raw stream line from ``provider`` into canonical events.
 
@@ -55,53 +107,7 @@ def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
     except json.JSONDecodeError:
         return []
 
-    p = provider.lower()
-    # OpenAI / Azure / Ollama (OpenAI-compatible): choices[].delta.content
-    if p in {"openai", "azure", "ollama"}:
-        choices = obj.get("choices") or []
-        out: list[ExecEvent] = []
-        for ch in choices:
-            delta = (ch.get("delta") or {}).get("content")
-            if delta:
-                out.append(ExecEvent(ExecEventType.TEXT_DELTA, text=str(delta)))
-            if ch.get("finish_reason"):
-                out.append(
-                    ExecEvent(
-                        ExecEventType.END, data={"finish_reason": ch["finish_reason"]}
-                    )
-                )
-        return out
-    # Anthropic Messages API: {type: content_block_delta, delta:{text}} / {type: message_stop}
-    if p == "anthropic":
-        t = obj.get("type", "")
-        if t == "content_block_delta":
-            txt = (obj.get("delta") or {}).get("text", "")
-            return [ExecEvent(ExecEventType.TEXT_DELTA, text=str(txt))] if txt else []
-        if t == "message_stop":
-            return [ExecEvent(ExecEventType.END)]
-        if t == "error":
-            return [
-                ExecEvent(
-                    ExecEventType.ERROR,
-                    # Upstream messages can contain echoed prompt fragments,
-                    # endpoint details, request identifiers, or credentials.
-                    # Keep the public normalization boundary deliberately
-                    # content-free while retaining the typed failure signal.
-                    text="provider error",
-                )
-            ]
-        return []
-    # Google Gemini: {candidates:[{content:{parts:[{text}]}}]}
-    if p == "google":
-        out_g: list[ExecEvent] = []
-        for cand in obj.get("candidates", []) or []:
-            for part in (cand.get("content") or {}).get("parts", []) or []:
-                if part.get("text"):
-                    out_g.append(
-                        ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"]))
-                    )
-        return out_g
-    return []
+    return _NORMALIZERS.get(provider.lower(), lambda _obj: [])(obj)
 
 
 def normalize_stream(provider: str, lines: Iterable[str]) -> Iterator[ExecEvent]:
