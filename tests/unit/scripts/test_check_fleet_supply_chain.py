@@ -117,6 +117,31 @@ def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
     assert "clean (2 repositories" in capsys.readouterr().out
 
 
+def test_source_snapshot_ignores_unmanifested_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    providers_root = tmp_path / "agents"
+    workspace = _snapshot_tree(providers_root)
+    unrelated = providers_root / "tests"
+    (unrelated / ".git").mkdir(parents=True)
+    (unrelated / "stress_run.py").write_text(
+        "print('test-only checkout')\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
+
+    result = POLICY.main(
+        [
+            "--source-snapshot-root",
+            str(providers_root),
+            "--snapshot-workspace",
+            str(workspace),
+        ]
+    )
+
+    assert result == 0
+    assert "clean (2 repositories" in capsys.readouterr().out
+
+
 def test_source_snapshot_rejects_undeclared_direct_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -163,6 +188,42 @@ def test_source_snapshot_rejects_symlinks_without_disclosing_host_path(
     assert result == 2
     assert "source snapshot contains a symlink" in output.err
     assert str(tmp_path) not in output.err
+
+
+def test_source_snapshot_skips_materialized_workspace_sibling_links(
+    tmp_path: Path,
+) -> None:
+    provider = tmp_path / "scholarx"
+    provider.mkdir()
+    (provider / "source.py").write_text("SOURCE = True\n", encoding="utf-8")
+    sibling_target = tmp_path / "agent-utilities"
+    sibling_target.mkdir()
+    (sibling_target / "not-provider-source.py").write_text(
+        "SHOULD_NOT_BE_WALKED = True\n", encoding="utf-8"
+    )
+    sibling_links = provider / ".uv-workspace-siblings"
+    sibling_links.mkdir()
+    (sibling_links / "agent-utilities").symlink_to(
+        sibling_target, target_is_directory=True
+    )
+
+    paths = POLICY._snapshot_source_files(provider, POLICY.SnapshotBudget())
+
+    assert [path.relative_to(provider).as_posix() for path in paths] == ["source.py"]
+
+
+def test_source_snapshot_rejects_same_named_nested_workspace_links(
+    tmp_path: Path,
+) -> None:
+    provider = tmp_path / "provider"
+    nested_links = provider / "src" / ".uv-workspace-siblings"
+    nested_links.mkdir(parents=True)
+    target = tmp_path / "outside"
+    target.mkdir()
+    (nested_links / "agent-utilities").symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(RuntimeError, match="source snapshot contains a symlink"):
+        POLICY._snapshot_source_files(provider, POLICY.SnapshotBudget())
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="special file needs mkfifo")
