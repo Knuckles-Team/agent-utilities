@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -1548,10 +1548,30 @@ async def _safe_catalog_entry(awaitable: Any) -> dict[str, Any]:
         )
 
 
+async def _catalog_sources() -> dict[str, Any]:
+    """Project the process-owned source/connection registries for Atlas.
+
+    The provider catalogue is synchronous and side-effect free, but wrapping it
+    in this async adapter keeps the existing ``graph_catalog`` fan-in shape and
+    ensures one malformed optional profile degrades only the ``sources`` leg.
+    """
+
+    from agent_utilities.knowledge_graph.core.source_catalog import (
+        build_source_catalog,
+    )
+
+    return build_source_catalog()
+
+
 async def _build_graph_catalog() -> dict[str, Any]:
     catalog: dict[str, Any] = {
         "graphs": await _safe_catalog_entry(_catalog_graphs()),
         "sql": await _safe_catalog_entry(_catalog_sql()),
+        # Atlas's governed external-source view is one more modality in this
+        # catalog.  It projects graph_configure's named connection registry,
+        # the source connector registry, and reference-only AgentConfig
+        # declarations; it never opens a provider or exposes resolved secrets.
+        "sources": await _safe_catalog_entry(_catalog_sources()),
         # KV namespaces and vector indexes have NO listing surface anywhere in
         # this codebase today (verified: no domain class in ENGINE_DOMAINS,
         # no `list_*` helper in agent_utilities) — reported honestly rather
@@ -1596,6 +1616,48 @@ async def _build_graph_catalog() -> dict[str, Any]:
         ),
     }
     return catalog
+
+
+async def _graph_catalog_response(
+    action: str,
+    *,
+    source: str,
+    mode: str,
+    ids_json: str,
+    connection: str,
+    graph: str,
+) -> str:
+    normalized_action = action if isinstance(action, str) else "list"
+    normalized_action = normalized_action.strip().lower()
+    if normalized_action == "preview_sync":
+        try:
+            from agent_utilities.knowledge_graph.core.source_catalog import (
+                normalize_source_sync_preview,
+            )
+
+            return json.dumps(
+                normalize_source_sync_preview(
+                    source=source,
+                    mode=mode,
+                    ids_json=ids_json,
+                    connection=connection,
+                    graph=graph,
+                ),
+                default=str,
+            )
+        except Exception as exc:  # noqa: BLE001 — deterministic client error
+            return public_error_json(exc, code="invalid_request")
+    if normalized_action != "list":
+        return public_error_json(
+            ValueError("action must be 'list' or 'preview_sync'"),
+            code="invalid_request",
+        )
+    try:
+        kg_server._get_engine()
+    except Exception as exc:  # noqa: BLE001
+        return public_error_json(exc, code="dependency_unavailable")
+    catalog = await _build_graph_catalog()
+    return json.dumps(catalog, default=str)
 
 
 async def _graph_context_put(
@@ -2289,17 +2351,66 @@ def register_query_tools(mcp):
             "'sql' lists user SQL tables with a best-effort per-table column probe "
             "(capped). Other modalities report compiled-in capability + their "
             "engine method list where the installed engine build has no safe "
-            "generic listing method — never a guessed/fabricated item list."
+            "generic listing method — never a guessed/fabricated item list. "
+            "The 'sources' entry is Atlas's governed provider catalogue: it "
+            "classifies PostgreSQL/database, registered Neo4j/AGE/Ladybug/"
+            "Epistemic Graph backends, generic OpenCypher and "
+            "PuppyGraph, GraphQL, virtual graphs, Spark (compute-only), "
+            "Iceberg/Trino, S3/object stores, and unsupported Teradata. It "
+            "returns only neutral connection/profile references and truthful "
+            "availability/reason/queryMode/dialects/sync/capabilities. "
+            "action='preview_sync' validates one source_sync request and "
+            "returns a typed non-executable normalization; it never runs a "
+            "connector."
         ),
         tags=["graph-os", "query", "introspection"],
     )
-    async def graph_catalog() -> str:
+    async def graph_catalog(
+        action: Literal["list", "preview_sync"] = Field(
+            default="list",
+            description=(
+                "'list' (default) returns modality and provider catalogues; "
+                "'preview_sync' validates one source_sync request without executing it."
+            ),
+        ),
+        source: str = Field(
+            default="",
+            description="For preview_sync: exactly one neutral source identifier.",
+        ),
+        mode: str = Field(
+            default="delta",
+            description="For preview_sync: 'delta', 'full', or 'reconcile'.",
+        ),
+        ids_json: str = Field(
+            default="[]",
+            description="For preview_sync: JSON list of bounded source record ids.",
+        ),
+        connection: str = Field(
+            default="",
+            description="For preview_sync: one neutral named backend connection.",
+        ),
+        graph: str = Field(
+            default="",
+            description="For preview_sync: one neutral physical graph name.",
+        ),
+    ) -> str:
         try:
-            kg_server._get_engine()
+            # ``_execute_tool`` already scopes served calls, but this explicit
+            # check protects direct MCP-function invocation and documents the
+            # metadata boundary: profile/connection status is a governed read.
+            from agent_utilities.knowledge_graph.core.session import resolve_session
+
+            resolve_session(required_scope="kg:read")
         except Exception as e:  # noqa: BLE001
-            return public_error_json(e, code="dependency_unavailable")
-        catalog = await _build_graph_catalog()
-        return json.dumps(catalog, default=str)
+            return public_error_json(e)
+        return await _graph_catalog_response(
+            action,
+            source=source,
+            mode=mode,
+            ids_json=ids_json,
+            connection=connection,
+            graph=graph,
+        )
 
     kg_server.REGISTERED_TOOLS["graph_catalog"] = graph_catalog
     kg_server.ACTION_TOOL_ROUTES["graph_catalog"] = "/graph/catalog"

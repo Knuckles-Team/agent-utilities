@@ -1320,7 +1320,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_audit", "action": "verify", "name": "graph_audit_verify"},
     {"tool": "graph_broker", "action": None, "name": "graph_broker"},
     {"tool": "graph_bus", "action": None, "name": "graph_bus"},
-    {"tool": "graph_catalog", "action": None, "name": "graph_catalog"},
+    {
+        "tool": "graph_catalog",
+        "action": "list",
+        "name": "graph_catalog_list",
+    },
+    {
+        "tool": "graph_catalog",
+        "action": "preview_sync",
+        "name": "graph_catalog_preview_sync",
+    },
     {
         "tool": "graph_candidate_claims",
         "action": "propose",
