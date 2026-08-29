@@ -28,7 +28,7 @@ import re
 from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NamedTuple
 
 from pydantic import (
     BaseModel,
@@ -689,100 +689,12 @@ class ScaleAuthority(_ContractModel):
 
     @model_validator(mode="after")
     def validate_inventory(self) -> ScaleAuthority:
-        self._unique(
-            (domain.domain_id for domain in self.failure_domains), "failure domain"
-        )
-        self._unique((pool.pool_id for pool in self.pools), "resource pool")
-        self._unique((workload.workload_id for workload in self.workloads), "workload")
-        self._unique((unit.unit_id for unit in self.units), "scale unit")
-        self._unique(
-            (
-                f"{registration.unit_id}:{registration.controller_id}"
-                for registration in self.controllers
-            ),
-            "controller registration",
-        )
-        pool_map = {pool.pool_id: pool for pool in self.pools}
-        workload_map = {workload.workload_id: workload for workload in self.workloads}
-        unit_map = {unit.unit_id: unit for unit in self.units}
-        domain_map = {domain.domain_id: domain for domain in self.failure_domains}
-        for pool in self.pools:
-            if pool.failure_domain_id not in domain_map:
-                raise ValueError("resource pool references an unknown failure domain")
-        for workload in self.workloads:
-            if workload.resource_pool_id not in pool_map:
-                raise ValueError("workload references an unknown resource pool")
-            if workload.quota.scope != workload.tenant_ref:
-                raise ValueError("workload quota scope must match tenant_ref")
-            pool = pool_map[workload.resource_pool_id]
-            if workload.quota.max_units + workload.quota.burst_units > (
-                pool.capacity_units - pool.reserved_headroom_units
-            ):
-                raise ValueError("workload quota plus burst exceeds pool headroom")
-            if workload.max_concurrency > workload.quota.max_units:
-                raise ValueError("workload concurrency exceeds workload quota")
-        for unit in self.units:
-            if unit.workload_class_id not in workload_map:
-                raise ValueError("scale unit references an unknown workload class")
-            workload = workload_map[unit.workload_class_id]
-            if unit.resource_pool_id != workload.resource_pool_id:
-                raise ValueError("scale unit pool differs from workload pool")
-            if unit.cadence != workload.cadence:
-                raise ValueError("scale unit cadence differs from workload cadence")
-            if unit.tenant_quota.scope != workload.tenant_ref:
-                raise ValueError("scale unit quota scope must match workload tenant")
-            if unit.max_replicas > unit.tenant_quota.max_units:
-                raise ValueError("scale unit max replicas exceed tenant quota")
-            if unit.tenant_quota.max_units > workload.quota.max_units:
-                raise ValueError("scale unit quota exceeds workload quota")
-            if unit.tenant_quota.burst_units > workload.quota.burst_units:
-                raise ValueError("scale unit burst exceeds workload burst")
-            unit_pool = pool_map.get(unit.resource_pool_id)
-            if unit_pool is None:
-                raise ValueError("scale unit references an unknown resource pool")
-            if unit.reserved_headroom_replicas + unit.max_replicas > (
-                unit_pool.capacity_units - unit_pool.reserved_headroom_units
-            ):
-                raise ValueError("scale unit max replicas breach pool headroom")
-            if unit.tenant_quota.max_units < unit.min_replicas:
-                raise ValueError("scale unit quota is below its replica floor")
-            if unit.failure_domain_id not in domain_map:
-                raise ValueError("scale unit references an unknown failure domain")
-            if unit.failure_domain_id != unit_pool.failure_domain_id:
-                raise ValueError("scale unit failure domain differs from resource pool")
-            for dependency in unit.depends_on:
-                if dependency == unit.unit_id:
-                    raise ValueError("scale unit contains a self-dependency")
-                if dependency not in unit_map:
-                    raise ValueError("scale unit depends on an unknown unit")
-
-        registrations_by_unit: dict[str, list[ControllerRegistration]] = {}
-        for registration in self.controllers:
-            if registration.unit_id not in unit_map:
-                raise ValueError("controller registration references an unknown unit")
-            registrations_by_unit.setdefault(registration.unit_id, []).append(
-                registration
-            )
-        for unit in self.units:
-            registrations = registrations_by_unit.get(unit.unit_id, [])
-            for registration in registrations:
-                if registration.mode != unit.controller_mode:
-                    raise ValueError("controller mode does not match scale unit")
-                if registration.delegated_controller != unit.delegated_controller:
-                    raise ValueError("delegated controller does not match scale unit")
-            writers = [entry for entry in registrations if entry.writes_replicas]
-            if len(writers) != 1:
-                raise ValueError(
-                    f"scale unit {unit.unit_id} requires exactly one replica writer"
-                )
-            writer = writers[0]
-            if writer.controller_id != unit.replica_writer_id:
-                raise ValueError("registered replica writer does not match scale unit")
-            if writer.mode != unit.controller_mode:
-                raise ValueError("replica writer mode does not match scale unit")
-            if writer.delegated_controller != unit.delegated_controller:
-                raise ValueError("delegated controller does not match scale unit")
-
+        _validate_inventory_identities(self)
+        maps = _inventory_maps(self)
+        _validate_pool_links(self.pools, maps.domains)
+        _validate_workload_links(self.workloads, maps.pools)
+        _validate_unit_links(self.units, maps)
+        _validate_controller_links(self.units, self.controllers, maps.units)
         _reject_dependency_cycles(self.units)
         return self
 
@@ -807,6 +719,181 @@ def _reject_dependency_cycles(units: Iterable[ScaleUnit]) -> None:
 
     for unit_id in graph:
         visit(unit_id)
+
+
+class _AuthorityMaps(NamedTuple):
+    """Indexes used while validating one authority inventory."""
+
+    domains: dict[str, FailureDomain]
+    pools: dict[str, ResourcePool]
+    workloads: dict[str, WorkloadClass]
+    units: dict[str, ScaleUnit]
+
+
+def _validate_inventory_identities(authority: ScaleAuthority) -> None:
+    checks = (
+        ((domain.domain_id for domain in authority.failure_domains), "failure domain"),
+        ((pool.pool_id for pool in authority.pools), "resource pool"),
+        ((workload.workload_id for workload in authority.workloads), "workload"),
+        ((unit.unit_id for unit in authority.units), "scale unit"),
+        (
+            (
+                f"{registration.unit_id}:{registration.controller_id}"
+                for registration in authority.controllers
+            ),
+            "controller registration",
+        ),
+    )
+    for values, label in checks:
+        authority._unique(values, label)
+
+
+def _inventory_maps(authority: ScaleAuthority) -> _AuthorityMaps:
+    return _AuthorityMaps(
+        {domain.domain_id: domain for domain in authority.failure_domains},
+        {pool.pool_id: pool for pool in authority.pools},
+        {workload.workload_id: workload for workload in authority.workloads},
+        {unit.unit_id: unit for unit in authority.units},
+    )
+
+
+def _validate_pool_links(
+    pools: Iterable[ResourcePool], domains: dict[str, FailureDomain]
+) -> None:
+    for pool in pools:
+        if pool.failure_domain_id not in domains:
+            raise ValueError("resource pool references an unknown failure domain")
+
+
+def _validate_workload_links(
+    workloads: Iterable[WorkloadClass], pools: dict[str, ResourcePool]
+) -> None:
+    for workload in workloads:
+        if workload.resource_pool_id not in pools:
+            raise ValueError("workload references an unknown resource pool")
+        if workload.quota.scope != workload.tenant_ref:
+            raise ValueError("workload quota scope must match tenant_ref")
+        pool = pools[workload.resource_pool_id]
+        if workload.quota.max_units + workload.quota.burst_units > (
+            pool.capacity_units - pool.reserved_headroom_units
+        ):
+            raise ValueError("workload quota plus burst exceeds pool headroom")
+        if workload.max_concurrency > workload.quota.max_units:
+            raise ValueError("workload concurrency exceeds workload quota")
+
+
+def _validate_unit_links(units: Iterable[ScaleUnit], maps: _AuthorityMaps) -> None:
+    for unit in units:
+        workload = maps.workloads.get(unit.workload_class_id)
+        if workload is None:
+            raise ValueError("scale unit references an unknown workload class")
+        _validate_unit_workload(unit, workload)
+        unit_pool = maps.pools.get(unit.resource_pool_id)
+        unit_pool = _validate_unit_pool(unit, unit_pool)
+        _validate_unit_domain(unit, unit_pool, maps.domains)
+        _validate_unit_dependencies(unit, maps.units)
+
+
+def _validate_unit_workload(unit: ScaleUnit, workload: WorkloadClass) -> None:
+    if unit.resource_pool_id != workload.resource_pool_id:
+        raise ValueError("scale unit pool differs from workload pool")
+    if unit.cadence != workload.cadence:
+        raise ValueError("scale unit cadence differs from workload cadence")
+    if unit.tenant_quota.scope != workload.tenant_ref:
+        raise ValueError("scale unit quota scope must match workload tenant")
+    if unit.max_replicas > unit.tenant_quota.max_units:
+        raise ValueError("scale unit max replicas exceed tenant quota")
+    if unit.tenant_quota.max_units > workload.quota.max_units:
+        raise ValueError("scale unit quota exceeds workload quota")
+    if unit.tenant_quota.burst_units > workload.quota.burst_units:
+        raise ValueError("scale unit burst exceeds workload burst")
+
+
+def _validate_unit_pool(
+    unit: ScaleUnit, pool: ResourcePool | None
+) -> ResourcePool:
+    if pool is None:
+        raise ValueError("scale unit references an unknown resource pool")
+    if unit.reserved_headroom_replicas + unit.max_replicas > (
+        pool.capacity_units - pool.reserved_headroom_units
+    ):
+        raise ValueError("scale unit max replicas breach pool headroom")
+    if unit.tenant_quota.max_units < unit.min_replicas:
+        raise ValueError("scale unit quota is below its replica floor")
+    return pool
+
+
+def _validate_unit_domain(
+    unit: ScaleUnit,
+    pool: ResourcePool,
+    domains: dict[str, FailureDomain],
+) -> None:
+    if unit.failure_domain_id not in domains:
+        raise ValueError("scale unit references an unknown failure domain")
+    if unit.failure_domain_id != pool.failure_domain_id:
+        raise ValueError("scale unit failure domain differs from resource pool")
+
+
+def _validate_unit_dependencies(
+    unit: ScaleUnit, units: dict[str, ScaleUnit]
+) -> None:
+    for dependency in unit.depends_on:
+        if dependency == unit.unit_id:
+            raise ValueError("scale unit contains a self-dependency")
+        if dependency not in units:
+            raise ValueError("scale unit depends on an unknown unit")
+
+
+def _validate_controller_links(
+    units: Iterable[ScaleUnit],
+    controllers: Iterable[ControllerRegistration],
+    unit_map: dict[str, ScaleUnit],
+) -> None:
+    registrations_by_unit = _group_controller_registrations(controllers, unit_map)
+    for unit in units:
+        registrations = registrations_by_unit.get(unit.unit_id, ())
+        _validate_unit_registrations(unit, registrations)
+
+
+def _group_controller_registrations(
+    controllers: Iterable[ControllerRegistration], unit_map: dict[str, ScaleUnit]
+) -> dict[str, list[ControllerRegistration]]:
+    grouped: dict[str, list[ControllerRegistration]] = {}
+    for registration in controllers:
+        if registration.unit_id not in unit_map:
+            raise ValueError("controller registration references an unknown unit")
+        grouped.setdefault(registration.unit_id, []).append(registration)
+    return grouped
+
+
+def _validate_unit_registrations(
+    unit: ScaleUnit, registrations: Iterable[ControllerRegistration]
+) -> None:
+    registrations = tuple(registrations)
+    for registration in registrations:
+        _validate_registration_mode(registration, unit)
+    writers = [entry for entry in registrations if entry.writes_replicas]
+    if len(writers) != 1:
+        raise ValueError(
+            f"scale unit {unit.unit_id} requires exactly one replica writer"
+        )
+    writer = writers[0]
+    if writer.controller_id != unit.replica_writer_id:
+        raise ValueError("registered replica writer does not match scale unit")
+    _validate_registration_mode(writer, unit, writer=True)
+
+
+def _validate_registration_mode(
+    registration: ControllerRegistration, unit: ScaleUnit, *, writer: bool = False
+) -> None:
+    if registration.mode != unit.controller_mode:
+        raise ValueError(
+            "replica writer mode does not match scale unit"
+            if writer
+            else "controller mode does not match scale unit"
+        )
+    if registration.delegated_controller != unit.delegated_controller:
+        raise ValueError("delegated controller does not match scale unit")
 
 
 def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> None:
