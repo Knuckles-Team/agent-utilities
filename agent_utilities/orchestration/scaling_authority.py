@@ -949,14 +949,8 @@ def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> Non
         raise ValueError("scale intent is blocked while failure domain is offline")
 
 
-def validate_scale_lifecycle(
-    intent: ScaleIntent,
-    decision: ScaleDecision,
-    execution: ScaleExecution,
-    outcome: ObservedOutcome,
-) -> None:
-    """Ensure every lifecycle record remains on one intent/unit/fence chain."""
-
+def _validate_lifecycle_decision(intent: ScaleIntent, decision: ScaleDecision) -> None:
+    """Keep a decision bound to its intent and controller authority."""
     if (
         decision.intent_id != intent.intent_id
         or decision.intent_revision != intent.revision
@@ -969,6 +963,14 @@ def validate_scale_lifecycle(
         or decision.delegated_controller != intent.delegated_controller
     ):
         raise ValueError("scale decision controller mode changed from the intent")
+
+
+def _validate_lifecycle_execution(
+    intent: ScaleIntent,
+    decision: ScaleDecision,
+    execution: ScaleExecution,
+) -> None:
+    """Keep execution bound to the decision and intent controller."""
     if (
         execution.intent_id != intent.intent_id
         or execution.intent_revision != intent.revision
@@ -981,11 +983,26 @@ def validate_scale_lifecycle(
         raise ValueError("scale execution is not bound to the decision/unit")
     if execution.controller_mode != intent.controller_mode:
         raise ValueError("scale execution controller mode changed from the intent")
+
+
+def _validate_lifecycle_outcome(
+    intent: ScaleIntent, execution: ScaleExecution, outcome: ObservedOutcome
+) -> None:
+    """Keep an observed outcome bound to its execution and unit."""
     if (
         outcome.execution_id != execution.execution_id
         or outcome.unit_id != intent.unit_id
     ):
         raise ValueError("observed outcome is not bound to the execution/unit")
+
+
+def _validate_lifecycle_authority(
+    intent: ScaleIntent,
+    decision: ScaleDecision,
+    execution: ScaleExecution,
+    outcome: ObservedOutcome,
+) -> None:
+    """Keep lease fencing and replica-writer authority stable in flight."""
     fences = (
         intent.lease_fence,
         decision.lease_fence,
@@ -1001,6 +1018,20 @@ def validate_scale_lifecycle(
         raise ValueError("scale execution uses a different replica writer")
     if decision.replica_writer_id != intent.replica_writer_id:
         raise ValueError("scale decision uses a different replica writer")
+
+
+def validate_scale_lifecycle(
+    intent: ScaleIntent,
+    decision: ScaleDecision,
+    execution: ScaleExecution,
+    outcome: ObservedOutcome,
+) -> None:
+    """Ensure every lifecycle record remains on one intent/unit/fence chain."""
+
+    _validate_lifecycle_decision(intent, decision)
+    _validate_lifecycle_execution(intent, decision, execution)
+    _validate_lifecycle_outcome(intent, execution, outcome)
+    _validate_lifecycle_authority(intent, decision, execution, outcome)
 
 
 __all__ = [
