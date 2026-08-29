@@ -555,6 +555,255 @@ def _chunk_workflow_body(
         )
 
 
+def _public_access_matches(raw_access: Any) -> bool:
+    """Validate the public ACL shape stored on a workflow node."""
+    from agent_utilities.protocols.source_connectors.base import ExternalAccess
+
+    if isinstance(raw_access, str):
+        try:
+            raw_access = json.loads(raw_access)
+        except (TypeError, ValueError):
+            return False
+    if not isinstance(raw_access, dict):
+        return False
+    try:
+        return ExternalAccess.model_validate(raw_access) == ExternalAccess(is_public=True)
+    except (TypeError, ValueError):
+        return False
+
+
+def _workflow_content_is_current(
+    engine: IntelligenceGraphEngine,
+    wf_id: str,
+    content_hash: str,
+    *,
+    tenant: str,
+) -> bool:
+    """Return whether an existing workflow has matching content and governance."""
+    from agent_utilities.models.company_brain import DataClassification
+
+    try:
+        existing = engine.query_cypher(
+            "MATCH (w:WorkflowDefinition) WHERE w.id = $wid "
+            "RETURN w.content_hash AS h, w.tenant_id AS tenant_id, "
+            "w.classification AS classification, w.external_access AS external_access",
+            {"wid": wf_id},
+        )
+    except Exception as exc:  # noqa: BLE001 — a failed existence probe is non-fatal
+        logger.debug(
+            "[KG-2.97] workflow existence probe failed for %s (%s); "
+            "proceeding as if no prior content exists",
+            wf_id,
+            _error_kind(exc),
+        )
+        return False
+
+    if not existing or existing[0].get("h") != content_hash:
+        return False
+
+    row = existing[0]
+    return (
+        str(row.get("tenant_id") or "") == tenant
+        and str(row.get("classification") or "") == DataClassification.PUBLIC.value
+        and _public_access_matches(row.get("external_access"))
+    )
+
+
+def _workflow_properties(
+    parsed: dict[str, Any],
+    governance: dict[str, Any],
+    *,
+    content_hash: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    """Build the persisted WorkflowDefinition properties."""
+    steps = parsed["steps"]
+    nl_lines = [
+        f"Step {s['step']}: {s['component']}"
+        + (f" [depends_on: {', '.join(s['depends_on'])}]" if s["depends_on"] else "")
+        for s in steps
+    ]
+    props: dict[str, Any] = {
+        **governance,
+        "name": parsed["name"],
+        "description": parsed["description"],
+        "domain": parsed["domain"],
+        "source": "universal-skills",
+        "tags_json": json.dumps(parsed["tags"], default=str),
+        "specialist_ids_json": json.dumps(parsed["specialist_ids"], default=str),
+        "nl_spec": parsed["description"] + "\n\nSteps:\n" + "\n".join(nl_lines),
+        "step_count": len(steps),
+        "content_hash": content_hash,
+        "source_ref": parsed["source_ref"],
+        "last_used": timestamp,
+        "use_count": 0,
+        "version": 1,
+        # Skill-type-unique marker so the skill family (atomic|graph|workflow) is
+        # queryable as one set while each keeps its own structure (here: the step DAG).
+        "skill_type": "workflow",
+    }
+    if parsed.get("concept"):
+        props["concept"] = str(parsed["concept"])
+    return props
+
+
+def _resolved_step_ids(
+    step: dict[str, Any],
+    comp_to_num: dict[str, int],
+    num_to_stepid: dict[int, str],
+) -> list[str]:
+    """Resolve and sort a step's dependency references to node ids."""
+    return sorted(
+        {
+            num_to_stepid[n]
+            for dep in step["depends_on"]
+            if (n := _resolve_dep(dep, comp_to_num)) is not None
+            and n in num_to_stepid
+        }
+    )
+
+
+def _step_properties(
+    step: dict[str, Any],
+    step_id: str,
+    governance: dict[str, Any],
+    resolved_deps: list[str],
+    on_reject_id: str | None,
+) -> dict[str, Any]:
+    """Build the persisted WorkflowStep properties."""
+    step_props: dict[str, Any] = {
+        **governance,
+        # NOTE: no "node_id" property here — step_id is already the node's own
+        # identity (the positional arg below becomes its `id` property via
+        # engine.add_node()). A literal "node_id" key in `properties` collides
+        # with the backend's own `add_node(node_id, **properties)` parameter
+        # name, raising "got multiple values for argument 'node_id'" for every
+        # step of every workflow (KG-2.97 ingestion report §5b).
+        "step_id": step_id,
+        "step_order": step["step"],
+        "component": step["component"],
+        "skill_name": step["skill_name"],
+        "is_parallel": not resolved_deps,
+        "timeout": 120.0,
+        "status": "pending",
+        "depends_on_json": json.dumps(resolved_deps),
+        # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 gate step kind.
+        "kind": step.get("kind") or "task",
+        "condition": step.get("condition") or "on_success",
+    }
+    if step.get("tools"):
+        step_props["tools_json"] = json.dumps(step["tools"], default=str)
+    if step.get("description"):
+        step_props["refined_subtask"] = step["description"]
+    if on_reject_id:
+        step_props["on_reject"] = on_reject_id
+    return step_props
+
+
+def _link_dependency_edges(
+    engine: IntelligenceGraphEngine,
+    step_id: str,
+    resolved_deps: list[str],
+    num_to_stepid: dict[int, str],
+    step_by_num: dict[int, dict[str, Any]],
+    governance: dict[str, Any],
+) -> None:
+    """Link predecessor steps to the current step with exit conditions."""
+    for dep_id in resolved_deps:
+        dep_num = next(n for n, sid in num_to_stepid.items() if sid == dep_id)
+        dep_condition = (step_by_num.get(dep_num) or {}).get("condition") or "on_success"
+        engine.link_nodes(
+            dep_id,
+            step_id,
+            "TRANSITION_TO",
+            properties={**governance, "condition": dep_condition},
+        )
+
+
+def _ingest_workflow_step(
+    engine: IntelligenceGraphEngine,
+    wf_id: str,
+    step: dict[str, Any],
+    *,
+    comp_to_num: dict[str, int],
+    num_to_stepid: dict[int, str],
+    step_by_num: dict[int, dict[str, Any]],
+    governance: dict[str, Any],
+) -> None:
+    """Persist one WorkflowStep, its edges, and its atomic Skill link."""
+    step_id = num_to_stepid[step["step"]]
+    resolved_deps = _resolved_step_ids(step, comp_to_num, num_to_stepid)
+    on_reject_num = (
+        _resolve_dep(step["on_reject"], comp_to_num) if step.get("on_reject") else None
+    )
+    on_reject_id = (
+        num_to_stepid.get(on_reject_num) if on_reject_num is not None else None
+    )
+    engine.add_node(
+        step_id,
+        "WorkflowStep",
+        properties=_step_properties(
+            step, step_id, governance, resolved_deps, on_reject_id
+        ),
+    )
+    engine.link_nodes(
+        wf_id,
+        step_id,
+        "HAS_STEP",
+        properties={**governance, "step_order": step["step"]},
+    )
+    _link_dependency_edges(
+        engine,
+        step_id,
+        resolved_deps,
+        num_to_stepid,
+        step_by_num,
+        governance,
+    )
+    if on_reject_id:
+        engine.link_nodes(
+            step_id,
+            on_reject_id,
+            "TRANSITION_TO",
+            properties={**governance, "condition": "on_reject"},
+        )
+    skill_id = f"skill:{_slug(step['skill_name'])}"
+    engine.add_node(
+        skill_id,
+        "Skill",
+        properties={
+            **governance,
+            "name": step["skill_name"],
+            "source": "universal-skills",
+            "source_ref": skill_reference(step["skill_name"]),
+        },
+    )
+    engine.link_nodes(step_id, skill_id, "USES_SKILL", properties={**governance})
+
+
+def _ingest_workflow_steps(
+    engine: IntelligenceGraphEngine,
+    wf_id: str,
+    parsed: dict[str, Any],
+    governance: dict[str, Any],
+) -> None:
+    """Persist every step in the parsed workflow while retaining write order."""
+    steps = parsed["steps"]
+    comp_to_num = {_slug(s["component"]): s["step"] for s in steps}
+    num_to_stepid = {s["step"]: f"{wf_id}:step:{s['step']}" for s in steps}
+    step_by_num = {s["step"]: s for s in steps}
+    for step in steps:
+        _ingest_workflow_step(
+            engine,
+            wf_id,
+            step,
+            comp_to_num=comp_to_num,
+            num_to_stepid=num_to_stepid,
+            step_by_num=step_by_num,
+            governance=governance,
+        )
+
+
 def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
     """Upsert a single parsed workflow into the KG as a WorkflowDefinition DAG.
 
@@ -582,188 +831,28 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         "external_access": ExternalAccess(is_public=True).model_dump(mode="json"),
     }
 
-    # Idempotent no-op: identical content already present. This is purely a
-    # perf/no-op-skip optimization over ``add_node``'s own idempotent upsert
-    # (MERGE) semantics below — NOT a correctness precondition. A brand-new
-    # graph with no prior writes at all (e.g. the very first ingest into a
-    # fresh tenant graph) can reject this read before the graph has any
-    # resident state to query (KG-2.97: observed as a ``CypherEngineError``
-    # here, the exact same "nothing there yet" condition
-    # ``IntelligenceGraphEngine.__init__``'s own ``ingest_queue_depth()`` boot
-    # check already tolerates by degrading instead of raising). Treat that
-    # failure the same way: there is no evidence of prior content, so proceed
-    # to the idempotent write below rather than aborting this file's ingest.
-    try:
-        existing = engine.query_cypher(
-            "MATCH (w:WorkflowDefinition) WHERE w.id = $wid "
-            "RETURN w.content_hash AS h, w.tenant_id AS tenant_id, "
-            "w.classification AS classification, w.external_access AS external_access",
-            {"wid": wf_id},
-        )
-    except Exception as exc:  # noqa: BLE001 — a failed existence probe must not
-        # abort an otherwise-idempotent write; see comment above.
-        logger.debug(
-            "[KG-2.97] workflow existence probe failed for %s (%s); "
-            "proceeding as if no prior content exists",
-            wf_id,
-            _error_kind(exc),
-        )
-        existing = []
-    if existing and existing[0].get("h") == chash:
-        row = existing[0]
-        raw_access = row.get("external_access")
-        if isinstance(raw_access, str):
-            try:
-                raw_access = json.loads(raw_access)
-            except (TypeError, ValueError):
-                raw_access = None
-        try:
-            access_matches = isinstance(
-                raw_access, dict
-            ) and ExternalAccess.model_validate(raw_access) == ExternalAccess(
-                is_public=True
-            )
-        except (TypeError, ValueError):
-            access_matches = False
-        governance_matches = (
-            str(row.get("tenant_id") or "") == session.tenant
-            and str(row.get("classification") or "") == DataClassification.PUBLIC.value
-            and access_matches
-        )
-        if governance_matches:
-            return "skipped"
+    # Idempotent no-op: identical content and governance are already present.
+    # A failed existence probe is non-fatal; the write below remains idempotent.
+    if _workflow_content_is_current(
+        engine, wf_id, chash, tenant=session.tenant
+    ):
+        return "skipped"
 
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    steps = parsed["steps"]
-    comp_to_num = {_slug(s["component"]): s["step"] for s in steps}
-    num_to_stepid = {s["step"]: f"{wf_id}:step:{s['step']}" for s in steps}
-
-    # nl_spec: a compact, dispatchable rendering of the step DAG.
-    nl_lines = [
-        f"Step {s['step']}: {s['component']}"
-        + (f" [depends_on: {', '.join(s['depends_on'])}]" if s["depends_on"] else "")
-        for s in steps
-    ]
-    nl_spec = parsed["description"] + "\n\nSteps:\n" + "\n".join(nl_lines)
-
-    props: dict[str, Any] = {
-        **governance,
-        "name": name,
-        "description": parsed["description"],
-        "domain": parsed["domain"],
-        "source": "universal-skills",
-        "tags_json": json.dumps(parsed["tags"], default=str),
-        "specialist_ids_json": json.dumps(parsed["specialist_ids"], default=str),
-        "nl_spec": nl_spec,
-        "step_count": len(steps),
-        "content_hash": chash,
-        "source_ref": parsed["source_ref"],
-        "last_used": ts,
-        "use_count": 0,
-        "version": 1,
-        # Skill-type-unique marker so the skill family (atomic|graph|workflow) is
-        # queryable as one set while each keeps its own structure (here: the step DAG).
-        "skill_type": "workflow",
-    }
-    if parsed.get("concept"):
-        props["concept"] = str(parsed["concept"])
-    engine.add_node(wf_id, "WorkflowDefinition", properties=props)
+    engine.add_node(
+        wf_id,
+        "WorkflowDefinition",
+        properties=_workflow_properties(
+            parsed, governance, content_hash=chash, timestamp=ts
+        ),
+    )
 
     # Same enrichment substrate as skills/skill-graphs/documents: chunk + embed the
     # workflow's prose body into Chunk objects linked to the WorkflowDefinition, so the
     # workflow corpus is semantically searchable (not just dispatchable). Best-effort.
     _chunk_workflow_body(engine, wf_id, str(parsed.get("body") or ""), name)
 
-    step_by_num = {s["step"]: s for s in steps}
-    for s in steps:
-        step_id = num_to_stepid[s["step"]]
-        resolved_deps = sorted(
-            {
-                num_to_stepid[n]
-                for d in s["depends_on"]
-                if (n := _resolve_dep(d, comp_to_num)) is not None
-                and n in num_to_stepid
-            }
-        )
-        kind = s.get("kind") or "task"
-        condition = s.get("condition") or "on_success"
-        step_props: dict[str, Any] = {
-            **governance,
-            # NOTE: no "node_id" property here — step_id is already the node's own
-            # identity (the positional arg below becomes its `id` property via
-            # engine.add_node()). A literal "node_id" key in `properties` collides
-            # with the backend's own `add_node(node_id, **properties)` parameter
-            # name, raising "got multiple values for argument 'node_id'" for every
-            # step of every workflow (KG-2.97 ingestion report §5b).
-            "step_id": step_id,
-            "step_order": s["step"],
-            "component": s["component"],
-            "skill_name": s["skill_name"],
-            "is_parallel": not resolved_deps,
-            "timeout": 120.0,
-            "status": "pending",
-            "depends_on_json": json.dumps(resolved_deps),
-            # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 gate step kind.
-            "kind": kind,
-            "condition": condition,
-        }
-        if s.get("tools"):
-            step_props["tools_json"] = json.dumps(s["tools"], default=str)
-        if s.get("description"):
-            step_props["refined_subtask"] = s["description"]
-        on_reject_num = (
-            _resolve_dep(s["on_reject"], comp_to_num) if s.get("on_reject") else None
-        )
-        on_reject_id = (
-            num_to_stepid.get(on_reject_num) if on_reject_num is not None else None
-        )
-        if on_reject_id:
-            step_props["on_reject"] = on_reject_id
-        engine.add_node(step_id, "WorkflowStep", properties=step_props)
-        engine.link_nodes(
-            wf_id,
-            step_id,
-            "HAS_STEP",
-            properties={**governance, "step_order": s["step"]},
-        )
-
-        # depends_on → TRANSITION_TO edges (predecessor → this step), carrying the
-        # PREDECESSOR's own exit condition (default "on_success"; a gate predecessor's
-        # configured condition otherwise — §7.1 delta 2).
-        for dep_id in resolved_deps:
-            dep_num = next(n for n, sid in num_to_stepid.items() if sid == dep_id)
-            dep_condition = (step_by_num.get(dep_num) or {}).get(
-                "condition"
-            ) or "on_success"
-            engine.link_nodes(
-                dep_id,
-                step_id,
-                "TRANSITION_TO",
-                properties={**governance, "condition": dep_condition},
-            )
-
-        # A gate's on_reject branch — a distinct TRANSITION_TO edge for the deny path.
-        if on_reject_id:
-            engine.link_nodes(
-                step_id,
-                on_reject_id,
-                "TRANSITION_TO",
-                properties={**governance, "condition": "on_reject"},
-            )
-
-        # Link the step to its atomic Skill node (create-if-absent).
-        skill_id = f"skill:{_slug(s['skill_name'])}"
-        engine.add_node(
-            skill_id,
-            "Skill",
-            properties={
-                **governance,
-                "name": s["skill_name"],
-                "source": "universal-skills",
-                "source_ref": skill_reference(s["skill_name"]),
-            },
-        )
-        engine.link_nodes(step_id, skill_id, "USES_SKILL", properties={**governance})
+    _ingest_workflow_steps(engine, wf_id, parsed, governance)
 
     return "ingested"
 
