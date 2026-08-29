@@ -81,6 +81,47 @@ def test_validates_declared_provider_contract(tmp_path):
     assert stats.requirements_file_requirements == 2
 
 
+def test_accepts_ephemeral_governed_workspace_source(tmp_path):
+    module = _module()
+    providers_root = tmp_path / "agents"
+    provider = _provider(
+        providers_root,
+        "sample-agent",
+        requirement="agent-utilities[mcp]>=2.0.0,<3.0.0",
+    )
+    (provider / "pyproject.toml").write_text(
+        (provider / "pyproject.toml").read_text(encoding="utf-8")
+        + "\n[tool.uv.sources]\n"
+        + 'agent-utilities = { path = ".uv-workspace-siblings/agent-utilities", '
+        + "editable = true }\n",
+        encoding="utf-8",
+    )
+    workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
+
+    findings, _ = module.validate_fleet(
+        workspace, providers_root, expected_provider_count=1
+    )
+
+    assert findings == []
+
+
+def test_rejects_local_source_in_published_dependency_metadata(tmp_path):
+    module = _module()
+    providers_root = tmp_path / "agents"
+    _provider(
+        providers_root,
+        "sample-agent",
+        requirement="agent-utilities @ file:///tmp/agent-utilities",
+    )
+    workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
+
+    findings, _ = module.validate_fleet(
+        workspace, providers_root, expected_provider_count=1
+    )
+
+    assert any(finding.rule == "local_source_forbidden" for finding in findings)
+
+
 def test_rejects_stale_bounds_source_and_documentation(tmp_path):
     module = _module()
     providers_root = tmp_path / "agents"
