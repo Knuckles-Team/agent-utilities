@@ -27,6 +27,14 @@ Two modes:
            gated. NO BASELINE FILE is ever read or written; the "before"
            state is recomputed live from the base ref on every run.
 
+The production differential pass is intentionally bounded to the reviewed
+``jscpd_diff_formats`` list in ``pyproject.toml``. It includes code as well as
+templates, configuration, and documentation: dupehound catches structurally
+equivalent whole functions, while jscpd must still catch a copied block inside
+two otherwise different functions. Dupehound runs at pre-commit and jscpd at
+pre-push, so one incident does not create two simultaneous blocking hooks. The
+all-format ``census`` remains advisory.
+
 Exit codes: 0 clean (or census mode, always), 1 NEW duplication in `enforce`
 mode, 2 CANNOT RUN. A gate that could not run has NOT found nothing.
 
@@ -36,7 +44,8 @@ Traps verified in THIS workspace 2026-08-28, all defended below:
  TRAP-J1  `jscpd --version` prints `cpd 5.0.16`, NOT `jscpd 5.0.16` — the
           published crate/binary is literally named `cpd`. A version guard
           that checks for the string "jscpd" would CANNOT-RUN forever on a
-          perfectly good install. EXPECT_VERSION below is the real string.
+          perfectly good install. The expected string is derived from the
+          central pyproject.toml scanner table.
 
  TRAP-J2  jscpd silently auto-loads a `.jscpd.json` (or `.jscpdrc*`) from the
           CURRENT WORKING DIRECTORY with NO `--config`/`-c` flag needed —
@@ -117,9 +126,10 @@ Usage::
     python scripts/check_duplication.py census PATH [PATH...]
     python scripts/check_duplication.py enforce [--base-ref main]
 
-Install jscpd (pin the exact version; do NOT let a hook install it)::
+Install the exact version declared in ``pyproject.toml`` (do NOT let a hook
+install it)::
 
-    npm install -g jscpd@5.0.16
+    npm install -g jscpd@<jscpd_version>
     # then either put the `jscpd` bin on PATH, or:
     export JSCPD_BIN=/path/to/jscpd
 """
@@ -130,15 +140,27 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import uuid
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 _AU_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _clone_scanner_config import (  # noqa: E402
+    CloneScannerConfig,
+    CloneScannerConfigError,
+    is_excluded_path,
+    is_jscpd_diff_path,
+    load_clone_scanner_config,
+)
 from _git_subprocess_env import (  # noqa: E402
     sanitized_git_env,
     strip_inherited_git_repository_env,
@@ -150,7 +172,7 @@ from _git_subprocess_env import (  # noqa: E402
 # `-C <dir>` does NOT override them.
 strip_inherited_git_repository_env()
 
-EXPECT_VERSION = "cpd 5.0.16"  # TRAP-J1 — see module docstring.
+_CONFIG_PATH = _AU_ROOT / "pyproject.toml"
 
 # Directory NAMES that are never product source anywhere in this workspace.
 # Matched by exact basename during the (shallow, one-level) decomposition in
@@ -174,66 +196,134 @@ _JUNK_DIR_NAMES = {
     "build-artifacts",
     # build/packaging output, reproducible-build byproducts.
     "__pycache__",
+    ".cache",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
     ".hypothesis",
     ".pytest_tmp",
     ".tox",  # tool caches / test scratch.
-    "site-packages",
     ".eggs",
+    "site-packages",
     "vendor",
+    "third_party",
+    "fixtures",
+    "fixture",
+    "samples",
+    "sample",
+    "examples",
     "htmlcov",  # vendored/3rd-party or
     # coverage HTML output.
+    "coverage",
     "__snapshots__",  # snapshot-test fixtures: duplication here is BY
     # DESIGN (a snapshot IS a copy of expected output) —
     # scanning it only produces noise, per the brief's
     # agreed exclusion list.
 }
 
+# A repository's metadata must never become a scan target, even if a caller
+# supplies a reduced prune set in a fixture or a future config edit. Other
+# hidden directories (notably `.github`) remain eligible when their files map
+# to a configured jscpd format.
+_MANDATORY_PRUNE_DIRECTORIES = frozenset({".git"})
 
-def _die(msg: str) -> None:
+
+def _prune_names(prune_directories: frozenset[str] | None) -> frozenset[str]:
+    configured = _JUNK_DIR_NAMES if prune_directories is None else prune_directories
+    return frozenset(configured) | _MANDATORY_PRUNE_DIRECTORIES
+
+
+def _die(msg: str) -> NoReturn:
     print(f"jscpd gate: CANNOT RUN: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
 
-def _resolve_jscpd() -> str:
+def _config() -> CloneScannerConfig:
+    """Read the checked-in scanner contract without substituting defaults."""
+
+    try:
+        return load_clone_scanner_config(_CONFIG_PATH)
+    except CloneScannerConfigError as exc:
+        _die(str(exc))
+
+
+def _setting(name: str, default: str) -> str:
+    """Read a live process override through the repository config boundary."""
+
+    try:
+        from agent_utilities.core.config import setting
+
+        value = setting(name, default, cast=str)
+    except (
+        ImportError,
+        ModuleNotFoundError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _die(f"could not read repository setting {name}: {exc}")
+    return str(value or default).strip()
+
+
+def _resolve_jscpd(config: CloneScannerConfig | None = None) -> str:
     """Find jscpd WITHOUT consulting any package index at hook time — the
     same discipline as scripts/check_complexity.py's `_resolve_cccc`: a hook
     that resolves a tool from an index at hook time is how a previous fleet
     sweep shipped a gate that could not pass anywhere (69/226 push failures).
     """
-    env = os.environ.get("JSCPD_BIN")
-    if env and Path(env).is_file():
-        return env
+    configured = _configured_binary("JSCPD_BIN")
+    if configured:
+        return configured
     for cand in (Path.home() / ".local/bin/jscpd", Path("/usr/local/bin/jscpd")):
         if cand.is_file():
             return str(cand)
     found = shutil.which("jscpd")
     if found:
         return found
+    version = (config or _config()).jscpd_version
     _die(
         "`jscpd` not found. Looked at $JSCPD_BIN, ~/.local/bin/jscpd, "
         "/usr/local/bin/jscpd and $PATH. Install the pinned version with "
-        "`npm install -g jscpd@5.0.16` and either put it on PATH or set "
+        f"`npm install -g jscpd@{version}` and either put it on PATH or set "
         "JSCPD_BIN. This gate never installs anything itself."
     )
 
 
-def _check_version(exe: str) -> None:
+def _configured_binary(setting_name: str) -> str | None:
+    configured = _setting(setting_name, "")
+    if not configured:
+        return None
+    candidate = Path(configured).expanduser()
+    if not candidate.is_file():
+        _die(f"{setting_name} points to a non-file path: {candidate}")
+    return str(candidate)
+
+
+def _run_version(exe: str) -> subprocess.CompletedProcess[str]:
     try:
-        r = subprocess.run(
+        return subprocess.run(
             [exe, "--version"], capture_output=True, text=True, timeout=30
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except (OSError, UnicodeError, subprocess.TimeoutExpired) as exc:
         _die(f"could not run `{exe} --version`: {exc}")
-    got = r.stdout.strip()
-    if got != EXPECT_VERSION:
+
+
+def _check_version(exe: str, config: CloneScannerConfig) -> None:
+    expected = config.jscpd_version_output
+    r = _run_version(exe)
+    if r.returncode != 0:
         _die(
-            f"version drift: want '{EXPECT_VERSION}', got '{got}' (see "
+            f"`{exe} --version` exited {r.returncode}: "
+            f"{_output_text(r.stderr).strip()[:400]}"
+        )
+    got = _output_text(r.stdout).strip()
+    if got != expected:
+        _die(
+            f"version drift: want '{expected}', got '{got}' (see "
             "TRAP-J1 — the version string is 'cpd X.Y.Z', not 'jscpd "
             "X.Y.Z'). Thresholds/behaviour are calibrated per version; a "
-            "different build may add, rename, or silently change defaults."
+            "different build may add, rename, or silently change defaults. "
+            "The expected version is loaded from pyproject.toml."
         )
 
 
@@ -254,56 +344,49 @@ def _guard_ambient_config(cwd: Path) -> None:
         "jscpd.config.cjs",
     ):
         p = cwd / name
-        if p.exists():
-            _die(
-                f"{p} exists. jscpd auto-loads this from the CURRENT "
-                "WORKING DIRECTORY with no --config flag (TRAP-J2) and it "
-                "silently overrides thresholds this script does not "
-                "control. Delete it — thresholds are pinned on the command "
-                "line, in this script, in git history, in the open."
-            )
+        if _ambient_config_exists(p):
+            _die(_ambient_config_message(p))
 
 
-# File-level glob exclusions (`--ignore`). Defense-in-depth ONLY (TRAP-J3
-# proved this does not prune the walk, so it does not save time by itself);
-# _repo_scan_targets's root decomposition is what keeps the walk fast. This
-# still matters for junk nested one level *inside* a kept top-level dir.
-_IGNORE_GLOBS = [
-    "**/.git/**",  # belt-and-suspenders on TRAP-J3.
-    "**/node_modules/**",  # npm dependency trees.
-    "**/target/**",
-    "**/target-isolated/**",  # cargo build output.
-    "**/dist/**",
-    "**/build/**",  # packaging output.
-    "**/.venv/**",
-    "**/venv/**",  # interpreter trees.
-    "**/__pycache__/**",
-    "**/*.lock",  # lockfiles: machine-generated,
-    # deliberately repetitive, not
-    # source a human wrote twice.
-    "**/*.snap",
-    "**/__snapshots__/**",  # snapshot-test fixtures — see
-    # _JUNK_DIR_NAMES's __snapshots__
-    # entry for the rationale.
-    "**/__generated__/**",
-    "**/generated/**",
-    "**/openapi_client/**",
-    "**/graphql_client/**",
-    # generated GraphQL/OpenAPI clients — machine-generated from a schema;
-    # any "duplication" here is a property of the schema, not a human
-    # decision, and the fix (if any) is upstream of this gate.
-]
+def _ambient_config_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError) as exc:
+        _die(f"could not inspect jscpd config candidate {path}: {exc}")
+    return True
 
 
-def _repo_scan_targets(root: Path) -> list[Path]:
+def _ambient_config_message(path: Path) -> str:
+    return (
+        f"{path} exists. jscpd auto-loads this from the CURRENT "
+        "WORKING DIRECTORY with no --config flag (TRAP-J2) and it "
+        "silently overrides thresholds this script does not "
+        "control. Delete it — thresholds are pinned on the command "
+        "line, in this script, in git history, in the open."
+    )
+
+
+# File-level glob exclusions (`--ignore`) are loaded from the central
+# ``pyproject.toml`` table.  They are defense-in-depth ONLY (TRAP-J3 proved
+# that jscpd's ignore option does not prune the walk); root decomposition and
+# the bounded diff target selection below keep the walk fast.
+
+
+def _repo_scan_targets(
+    root: Path, prune_directories: frozenset[str] | None = None
+) -> list[Path]:
     """Safe scan target(s) for one directory.
 
     TRAP-J3's actual fix: never hand jscpd a path that is ITSELF a git repo
-    root (has a `.git` entry) — decompose one level instead, dropping
-    dot-entries and _JUNK_DIR_NAMES, and pass the survivors (files AND
-    directories both — an earlier version of this function kept only
-    subdirectories and silently dropped every top-level *file*, losing e.g.
-    a repo's own top-level *.py/*.md content from every census run).
+    root (has a `.git` entry) — decompose one level instead, dropping only
+    configured junk directories and the metadata directory itself. Other
+    dot-entries (including `.github`) are valid scan roots when their files map
+    to a configured format. Pass the survivors (files AND directories both —
+    an earlier version of this function kept only subdirectories and silently
+    dropped every top-level *file*, losing e.g. a repo's own top-level
+    *.py/*.md content from every census run).
 
     A `root` that is NOT itself a git repo root (e.g. `scripts/`, one
     directory inside a repo already decomposed one level up) is handed to
@@ -311,25 +394,50 @@ def _repo_scan_targets(root: Path) -> list[Path]:
     --ignore does not already cover, and decomposing unconditionally is what
     silently dropped files in the first place.
     """
-    if not root.is_dir():
+    if not _is_directory(root):
         return [root]
-    if not (root / ".git").exists():
+    if not _has_git_entry(root):
         return [root]
-    kept = []
-    for child in sorted(root.iterdir()):
-        name = child.name
-        if name.startswith("."):
-            continue
-        if child.is_dir() and (name in _JUNK_DIR_NAMES or name.endswith(".egg-info")):
-            continue
-        kept.append(child)
-    return kept or [root]
+
+    return _kept_scan_children(root, _prune_names(prune_directories))
 
 
-def _expand_roots(paths: list[Path]) -> list[Path]:
+def _is_directory(path: Path) -> bool:
+    try:
+        path_stat = path.stat()
+    except (OSError, ValueError) as exc:
+        _die(f"could not inspect scan root {path}: {exc}")
+    return stat.S_ISDIR(path_stat.st_mode)
+
+
+def _has_git_entry(root: Path) -> bool:
+    try:
+        root.joinpath(".git").lstat()
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError) as exc:
+        _die(f"could not inspect scan root {root}: {exc}")
+    return True
+
+
+def _kept_scan_children(root: Path, junk_names: frozenset[str]) -> list[Path]:
+    try:
+        children = sorted(root.iterdir())
+    except OSError as exc:
+        _die(f"could not enumerate scan root {root}: {exc}")
+    return [child for child in children if _keep_scan_child(child, junk_names)]
+
+
+def _keep_scan_child(child: Path, junk_names: frozenset[str]) -> bool:
+    return child.name not in junk_names and not child.name.endswith(".egg-info")
+
+
+def _expand_roots(
+    paths: list[Path], prune_directories: frozenset[str] | None = None
+) -> list[Path]:
     out: list[Path] = []
     for p in paths:
-        out.extend(_repo_scan_targets(p))
+        out.extend(_repo_scan_targets(p, prune_directories))
     return out
 
 
@@ -340,6 +448,8 @@ def run_jscpd(
     cwd: Path,
     *,
     echo_console: bool = True,
+    config: CloneScannerConfig | None = None,
+    formats: tuple[str, ...] | None = None,
 ) -> dict:
     """Run jscpd over `targets`, writing a JSON report into `out_dir`
     (caller owns cleanup — always a tempdir in this script, never a path
@@ -352,34 +462,73 @@ def run_jscpd(
     verified). Guarded here, against the actual invocation cwd, rather than
     at each call site, so the two can never drift apart.
     """
+    config = config or _config()
     _guard_ambient_config(cwd)
     if not targets:
         _die("no scan targets resolved — refusing to report that as clean")
-    cmd = [
+    try:
+        out_dir_stat = out_dir.stat()
+    except (OSError, ValueError) as exc:
+        _die(f"could not inspect jscpd report directory {out_dir}: {exc}")
+    if not stat.S_ISDIR(out_dir_stat.st_mode):
+        _die(f"jscpd report directory does not exist: {out_dir}")
+    cmd = _jscpd_command(exe, targets, out_dir, config, echo_console, formats)
+    _execute_jscpd(cmd, cwd, targets, echo_console)
+    return _load_report(
+        out_dir / "jscpd-report.json",
+        out_dir=out_dir,
+        roots=targets,
+        formats=formats,
+    )
+
+
+def _jscpd_command(
+    exe: str,
+    targets: list[Path],
+    out_dir: Path,
+    config: CloneScannerConfig,
+    echo_console: bool,
+    formats: tuple[str, ...] | None,
+) -> list[str]:
+    command = [
         exe,
         "--min-tokens",
-        "50",
+        str(config.jscpd_min_tokens),
         "--min-lines",
-        "5",
+        str(config.jscpd_min_lines),
         "--mode",
-        "mild",
-        # ^ jscpd's own upstream defaults, PINNED explicitly rather than
-        # implied, so neither an ambient config (TRAP-J2) nor a future
-        # upstream default change can silently drift them.
+        config.jscpd_mode,
+        # ^ jscpd's own upstream defaults, PINNED explicitly in pyproject.toml
+        # rather than implied, so neither an ambient config (TRAP-J2) nor a
+        # future upstream default change can silently drift them.
         "--ignore",
-        ",".join(_IGNORE_GLOBS),
+        ",".join(config.exclusions),
         "--absolute",
         "-r",
         "console,json" if echo_console else "json",
         "-o",
         str(out_dir),
     ]
+    if config.jscpd_format_names_arg:
+        command += ["--formats-names", config.jscpd_format_names_arg]
+    if config.jscpd_format_exts_arg:
+        command += ["--formats-exts", config.jscpd_format_exts_arg]
+    if formats:
+        command += ["--format", ",".join(formats)]
     if not echo_console:
-        cmd += ["--silent", "--no-tips"]
-    cmd += [str(t) for t in targets]
+        command += ["--silent", "--no-tips"]
+    return [*command, *(str(target) for target in targets)]
+
+
+def _execute_jscpd(
+    command: list[str],
+    cwd: Path,
+    targets: list[Path],
+    echo_console: bool,
+) -> None:
     try:
         r = subprocess.run(
-            cmd,
+            command,
             cwd=str(cwd),
             stdout=None if echo_console else subprocess.PIPE,
             stderr=subprocess.STDOUT if not echo_console else None,
@@ -388,27 +537,309 @@ def run_jscpd(
         )
     except subprocess.TimeoutExpired:
         _die(f"jscpd timed out over {len(targets)} target(s) after 900s")
-    except OSError as exc:
-        _die(f"could not execute {exe}: {exc}")
+    except (OSError, UnicodeError) as exc:
+        _die(f"could not execute {command[0]}: {exc}")
     if r.returncode != 0:
         tail = (r.stdout or "")[-2000:] if not echo_console else ""
         _die(
             f"jscpd exited {r.returncode} (TRAP-J4 means this is a real "
             f"failure, not 'clones found'): {tail}"
         )
-    report_path = out_dir / "jscpd-report.json"
-    if not report_path.exists():
+
+
+def _resolved_path(path: str | Path, base: Path | None = None) -> Path:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        if base is None:
+            _die(f"relative scanner path has no trusted root: {path!r}")
+        candidate = base / candidate
+    try:
+        return candidate.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError) as exc:
+        _die(f"could not resolve scanner path {path!r}: {exc}")
+
+
+def _path_is_under(path: str | Path, root: Path) -> bool:
+    """Return whether a reported path stays inside one scan target.
+
+    jscpd is invoked with ``--absolute``. This primitive can resolve a relative
+    path only for trusted internal callers; clone locations in a report are
+    required to be absolute before reaching it. ``..`` traversal and symlinks
+    that leave the target fail closed instead of becoming an untrusted key.
+    """
+
+    candidate = _resolved_path(path, root)
+    trusted_root = _resolved_path(root)
+    return candidate == trusted_root or candidate.is_relative_to(trusted_root)
+
+
+def _require_under_root(
+    path: str | Path,
+    roots: Sequence[Path],
+    label: str,
+    *,
+    require_absolute: bool = True,
+) -> None:
+    if require_absolute and not Path(path).is_absolute():
+        _die(f"{label} is not absolute: {path}")
+    if not roots or not any(_path_is_under(path, root) for root in roots):
+        formatted = ", ".join(str(root) for root in roots) or "<none>"
+        _die(f"{label} escapes its trusted root(s) {formatted}: {path}")
+
+
+def _load_report(
+    report_path: Path,
+    out_dir: Path | None = None,
+    roots: Sequence[Path] | None = None,
+    formats: Sequence[str] | None = None,
+) -> dict:
+    try:
+        report_stat = report_path.lstat()
+    except FileNotFoundError:
         _die(f"jscpd exited 0 but wrote no report to {report_path}")
+    except (OSError, ValueError) as exc:
+        _die(f"could not inspect jscpd report {report_path}: {exc}")
+    if stat.S_ISLNK(report_stat.st_mode) or not stat.S_ISREG(report_stat.st_mode):
+        _die(f"jscpd report is not a regular file: {report_path}")
+    if out_dir is not None:
+        _require_under_root(
+            report_path,
+            (out_dir,),
+            "jscpd report",
+            require_absolute=False,
+        )
     try:
         doc = json.loads(report_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         _die(f"{report_path} was not valid JSON: {exc}")
+    return _validate_report(doc, report_path, roots=roots, formats=formats)
+
+
+def _validate_report(
+    doc: object,
+    report_path: Path,
+    roots: Sequence[Path] | None = None,
+    formats: Sequence[str] | None = None,
+) -> dict:
+    """Validate the report fields consumed by the census/diff code.
+
+    A pinned binary should emit this shape, but a truncated or incompatible
+    report must remain a gate error rather than becoming an uncaught traceback
+    (or, worse, an empty clone set).
+    """
+
+    if not isinstance(doc, dict):
+        _die(f"{report_path} did not contain a JSON object")
+    duplicates = doc.get("duplicates")
+    if not isinstance(duplicates, list):
+        _die(f"{report_path} has no duplicates array")
+    _validate_total_statistics(doc, report_path)
+    for index, clone in enumerate(duplicates):
+        _validate_clone(index, clone, report_path, roots=roots, formats=formats)
     return doc
 
 
-def _print_stats(doc: dict, targets: list[Path], label: str) -> None:
+def _validate_total_statistics(doc: dict, report_path: Path) -> None:
+    statistics = doc.get("statistics")
+    if not isinstance(statistics, dict):
+        _die(f"{report_path} has malformed statistics")
+    total = statistics.get("total")
+    if not isinstance(total, dict):
+        _die(f"{report_path} has malformed total statistics")
+    _validate_integer_metrics(total, report_path)
+    _validate_percentage(total, report_path)
+    duplicates = doc.get("duplicates")
+    if isinstance(duplicates, list) and total["clones"] != len(duplicates):
+        _die(
+            f"{report_path} total.clones ({total['clones']}) does not match "
+            f"the duplicates array ({len(duplicates)})"
+        )
+
+
+def _validate_integer_metrics(total: dict, report_path: Path) -> None:
+    for field in ("clones", "sources", "duplicatedLines", "lines"):
+        if field not in total:
+            _die(f"{report_path} has no total.{field}")
+        value = total[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            _die(f"{report_path} has invalid total.{field}")
+
+
+def _validate_percentage(total: dict, report_path: Path) -> None:
+    if "percentage" not in total:
+        _die(f"{report_path} has no total.percentage")
+    percentage = total["percentage"]
+    if (
+        isinstance(percentage, bool)
+        or not isinstance(percentage, (int, float))
+        or not 0.0 <= float(percentage) <= 100.0
+    ):
+        _die(f"{report_path} has invalid total.percentage")
+
+
+_REQUIRED_CLONE_FIELDS = (
+    "format",
+    "fragment",
+    "lines",
+    "tokens",
+    "firstFile",
+    "secondFile",
+)
+_REPORT_LOCATION_SUFFIX = re.compile(
+    r":(?P<format>[A-Za-z0-9_-]+)(?::(?P<start>[0-9]+)-(?P<end>[0-9]+))?$"
+)
+
+
+def _report_file_path(name: str, format_name: str) -> str:
+    """Strip jscpd's virtual-format location suffix from a report path.
+
+    jscpd appends ``:<format>`` (sometimes followed by
+    ``:<start>-<end>``) to locations for formats such as Markdown.  The suffix
+    is metadata, not part of the filesystem path; treating it as a filename
+    makes a top-level file target look like it escaped its trusted root.  Keep
+    ordinary paths (and paths with unrelated colon components) untouched.
+    """
+
+    match = _REPORT_LOCATION_SUFFIX.search(name)
+    if match and match.group("format") == format_name:
+        return name[: match.start()]
+    return name
+
+
+def _validate_clone(
+    index: int,
+    clone: object,
+    report_path: Path,
+    roots: Sequence[Path] | None = None,
+    formats: Sequence[str] | None = None,
+) -> None:
+    clone = _clone_mapping(index, clone, report_path)
+    format_name = _clone_format(index, clone, report_path, formats)
+    _validate_clone_payload(index, clone, report_path)
+    for side in ("firstFile", "secondFile"):
+        _validate_clone_location(
+            index,
+            clone[side],
+            side,
+            report_path,
+            roots=roots,
+            format_name=format_name,
+        )
+
+
+def _clone_mapping(index: int, clone: object, report_path: Path) -> dict:
+    if not isinstance(clone, dict):
+        _die(f"{report_path} duplicate {index} is not an object")
+    missing = [field for field in _REQUIRED_CLONE_FIELDS if field not in clone]
+    if missing:
+        _die(f"{report_path} duplicate {index} is missing {', '.join(missing)}")
+    return clone
+
+
+def _clone_format(
+    index: int,
+    clone: dict,
+    report_path: Path,
+    formats: Sequence[str] | None,
+) -> str:
+    format_name = clone["format"]
+    if not isinstance(format_name, str) or not format_name:
+        _die(f"{report_path} duplicate {index} has an invalid format")
+    if formats is not None and format_name not in formats:
+        _die(
+            f"{report_path} duplicate {index} has format {format_name!r} "
+            "outside the requested jscpd format scope"
+        )
+    return format_name
+
+
+def _validate_clone_payload(index: int, clone: dict, report_path: Path) -> None:
+    if not isinstance(clone["fragment"], str) or not clone["fragment"]:
+        _die(f"{report_path} duplicate {index} has no text fragment")
+    if not _positive_clone_sizes(clone):
+        _die(f"{report_path} duplicate {index} has invalid size fields")
+
+
+def _positive_clone_sizes(clone: dict) -> bool:
+    return all(
+        not isinstance(clone[field], bool)
+        and isinstance(clone[field], int)
+        and clone[field] > 0
+        for field in ("lines", "tokens")
+    )
+
+
+def _validate_clone_location(
+    index: int,
+    location: object,
+    side: str,
+    report_path: Path,
+    roots: Sequence[Path] | None = None,
+    format_name: str = "",
+) -> None:
+    location = _location_mapping(index, location, side, report_path)
+    report_name = _report_file_path(location["name"], format_name)
+    if roots is not None:
+        _validate_location_root(
+            index, side, location["name"], report_name, report_path, roots
+        )
+    _validate_location_lines(index, side, location, report_path)
+
+
+def _location_mapping(
+    index: int, location: object, side: str, report_path: Path
+) -> dict:
+    if (
+        not isinstance(location, dict)
+        or not isinstance(location.get("name"), str)
+        or not location["name"]
+    ):
+        _die(f"{report_path} duplicate {index} has an invalid {side}")
+    return location
+
+
+def _validate_location_root(
+    index: int,
+    side: str,
+    original_name: str,
+    report_name: str,
+    report_path: Path,
+    roots: Sequence[Path],
+) -> None:
+    if not Path(report_name).is_absolute():
+        _die(
+            f"{report_path} duplicate {index} {side} path is not absolute: "
+            f"{original_name!r}"
+        )
+    if not any(_path_is_under(report_name, root) for root in roots):
+        _die(
+            f"{report_path} duplicate {index} {side} path escapes the scan "
+            f"roots: {original_name!r}"
+        )
+
+
+def _validate_location_lines(
+    index: int, side: str, location: dict, report_path: Path
+) -> None:
+    for point in ("startLoc", "endLoc"):
+        position = location.get(point)
+        line = position.get("line") if isinstance(position, dict) else None
+        if isinstance(line, bool) or not isinstance(line, int) or line <= 0:
+            _die(f"{report_path} duplicate {index} has an invalid {side}.{point}.line")
+    start = location["startLoc"]["line"]
+    end = location["endLoc"]["line"]
+    if end < start:
+        _die(f"{report_path} duplicate {index} has a reversed {side} range")
+
+
+def _print_stats(
+    doc: dict,
+    targets: list[Path],
+    label: str,
+    prune_directories: frozenset[str] | None = None,
+) -> None:
     stats = doc.get("statistics", {}).get("total", {})
-    n_files_handed = sum(1 for _ in _iter_files(targets))
+    n_files_handed = sum(1 for _ in _iter_files(targets, prune_directories))
     print(
         f"\njscpd gate [{label}]: {stats.get('clones', 0)} clone(s) found "
         f"across {stats.get('sources', 0)} scanned file(s) of a matched "
@@ -423,7 +854,7 @@ def _print_stats(doc: dict, targets: list[Path], label: str) -> None:
     )
 
 
-def _iter_files(targets: list[Path]):
+def _iter_files(targets: list[Path], prune_directories: frozenset[str] | None = None):
     """Independent (no jscpd involved) file count for TRAP-J6's cross-check.
     MUST prune the same junk it would otherwise walk into: a bare `rglob`
     over a target that is not itself a decomposed git-repo root (e.g. the
@@ -432,19 +863,54 @@ def _iter_files(targets: list[Path]):
     is not an approximation of jscpd's real corpus, it is a multi-million-
     file stat() storm that dwarfs jscpd's own (ignore-scoped) runtime.
     Verified: killed after 2m37s still running on a 7-root fleet census."""
-    for t in targets:
-        if t.is_file():
-            yield t
-        elif t.is_dir():
-            for dirpath, dirnames, filenames in os.walk(t):
-                dirnames[:] = [
-                    d
-                    for d in dirnames
-                    if not d.startswith(".")
-                    and d not in _JUNK_DIR_NAMES
-                    and not d.endswith(".egg-info")
-                ]
-                yield from (Path(dirpath) / f for f in filenames)
+    junk_names = _prune_names(prune_directories)
+    for target in targets:
+        yield from _files_under_target(target, junk_names)
+
+
+def _files_under_target(target: Path, junk_names: frozenset[str]):
+    try:
+        target_stat = target.stat()
+    except OSError as exc:
+        _die(f"could not inspect scan target {target}: {exc}")
+    if stat.S_ISREG(target_stat.st_mode):
+        yield target
+        return
+    if not stat.S_ISDIR(target_stat.st_mode):
+        return
+
+    def onerror(error: OSError) -> NoReturn:
+        _die(f"could not enumerate files under {target}: {error}")
+
+    try:
+        walker = os.walk(target, onerror=onerror)
+        for dirpath, dirnames, filenames in walker:
+            dirnames[:] = [
+                name for name in dirnames if _kept_directory(name, junk_names)
+            ]
+            yield from (
+                Path(dirpath) / filename for filename in filenames if filename != ".git"
+            )
+    except OSError as exc:
+        _die(f"could not enumerate files under {target}: {exc}")
+
+
+def _kept_directory(name: str, junk_names: frozenset[str]) -> bool:
+    return name not in junk_names and not name.endswith(".egg-info")
+
+
+@contextmanager
+def _temporary_directory(prefix: str) -> Iterator[Path]:
+    """Create a report directory and map cleanup failures to CANNOT RUN."""
+
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=prefix,
+            ignore_cleanup_errors=False,
+        ) as directory:
+            yield Path(directory)
+    except (OSError, UnicodeError) as exc:
+        _die(f"could not create or clean temporary report directory: {exc}")
 
 
 def _worst_clones(doc: dict, n: int = 15) -> list[dict]:
@@ -467,10 +933,11 @@ def _print_worst(doc: dict, n: int = 15) -> None:
 
 
 def cmd_census(paths: list[str]) -> int:
-    exe = _resolve_jscpd()
-    _check_version(exe)
+    config = _config()
+    exe = _resolve_jscpd(config)
+    _check_version(exe, config)
     roots = [Path(p).resolve() for p in paths] if paths else [_AU_ROOT]
-    targets = _expand_roots(roots)
+    targets = _expand_roots(roots, config.prune_directories)
     print(
         f"jscpd gate [census]: scanning {len(targets)} root(s): "
         + ", ".join(
@@ -478,9 +945,16 @@ def cmd_census(paths: list[str]) -> int:
             for t in targets
         )
     )
-    with tempfile.TemporaryDirectory(prefix="cx-jscpd-census-") as tmp:
-        doc = run_jscpd(exe, targets, Path(tmp), _AU_ROOT)
-        _print_stats(doc, targets, "census")
+    with _temporary_directory(prefix="cx-jscpd-census-") as tmp:
+        doc = run_jscpd(
+            exe,
+            targets,
+            tmp,
+            _AU_ROOT,
+            echo_console=False,
+            config=config,
+        )
+        _print_stats(doc, targets, "census", config.prune_directories)
         _print_worst(doc)
     print(
         "\njscpd gate [census]: unconditional — this mode never fails on "
@@ -496,28 +970,48 @@ def cmd_census(paths: list[str]) -> int:
 def _workdir() -> Path:
     """Where enforce mode's throwaway worktrees live. TRAP-J7 — defaults to
     a real-disk sibling of the repo, NOT tempfile.gettempdir()/tmpfs."""
-    env = os.environ.get("CX_DUP_WORKDIR")
-    if env:
-        d = Path(env)
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-    d = _AU_ROOT.parent / ".cx-dup-enforce-tmp"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    configured = _setting("CX_DUP_WORKDIR", "")
+    d = (
+        Path(configured).expanduser()
+        if configured
+        else _AU_ROOT.parent / ".cx-dup-enforce-tmp"
+    )
+    return _ensure_workdir(d)
+
+
+def _ensure_workdir(path: Path) -> Path:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        if not stat.S_ISDIR(path.stat().st_mode):
+            _die(f"jscpd enforce workdir is not a directory: {path}")
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        _die(f"could not create jscpd enforce workdir {path}: {exc}")
+
+
+def _run_git(args: list[str], **kw) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(_AU_ROOT),
+            text=True,
+            capture_output=True,
+            env=sanitized_git_env(),
+            **kw,
+        )
+    except (OSError, UnicodeError) as exc:
+        _die(f"could not execute git ({' '.join(args)}): {exc}")
+
+
+def _output_text(value: str | None) -> str:
+    return value if value is not None else ""
 
 
 def _git(args: list[str], **kw) -> str:
-    r = subprocess.run(
-        ["git", *args],
-        cwd=str(_AU_ROOT),
-        text=True,
-        capture_output=True,
-        env=sanitized_git_env(),
-        **kw,
-    )
+    r = _run_git(args, **kw)
     if r.returncode != 0:
-        _die(f"`git {' '.join(args)}` failed: {r.stderr.strip()}")
-    return r.stdout.strip()
+        _die(f"`git {' '.join(args)}` failed: {_output_text(r.stderr).strip()}")
+    return _output_text(r.stdout).strip()
 
 
 def _clone_keys(doc: dict, worktree_root: Path) -> set[tuple]:
@@ -528,29 +1022,137 @@ def _clone_keys(doc: dict, worktree_root: Path) -> set[tuple]:
     never produces a spurious NEW/GONE pair."""
     keys = set()
     for c in doc.get("duplicates", []):
-        try:
-            f1 = Path(c["firstFile"]["name"]).relative_to(worktree_root)
-            f2 = Path(c["secondFile"]["name"]).relative_to(worktree_root)
-        except ValueError:
-            f1, f2 = c["firstFile"]["name"], c["secondFile"]["name"]
+        format_name = c["format"]
+        f1 = _relative_clone_path(
+            _report_file_path(c["firstFile"]["name"], format_name), worktree_root
+        )
+        f2 = _relative_clone_path(
+            _report_file_path(c["secondFile"]["name"], format_name), worktree_root
+        )
         digest = hashlib.sha256(
             c["fragment"].encode("utf-8", "surrogatepass")
         ).hexdigest()
-        keys.add((c["format"], digest, frozenset({str(f1), str(f2)})))
+        keys.add((c["format"], digest, frozenset({f1, f2})))
     return keys
 
 
-def _scan_worktree(exe: str, root: Path, label: str) -> tuple[dict, set[tuple]]:
-    targets = _expand_roots([root])
-    with tempfile.TemporaryDirectory(prefix=f"cx-jscpd-{label}-") as tmp:
-        doc = run_jscpd(exe, targets, Path(tmp), root)
-    _print_stats(doc, targets, label)
+def _relative_clone_path(name: str, worktree_root: Path) -> str:
+    """Return a trusted worktree-relative report path or fail closed."""
+
+    candidate = _resolved_path(name, worktree_root)
+    root = _resolved_path(worktree_root)
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        _die(f"jscpd report path escapes worktree {worktree_root}: {name!r}")
+    if not relative.parts:
+        _die(f"jscpd report path names the worktree root: {name!r}")
+    return relative.as_posix()
+
+
+def _scan_worktree(
+    exe: str,
+    root: Path,
+    label: str,
+    config: CloneScannerConfig,
+) -> tuple[dict, set[tuple]]:
+    return _scan_worktree_impl(exe, root, label, config)
+
+
+def _scan_worktree_impl(
+    exe: str,
+    root: Path,
+    label: str,
+    config: CloneScannerConfig,
+) -> tuple[dict, set[tuple]]:
+    roots = _expand_roots([root], config.prune_directories)
+    if not roots:
+        _die(f"jscpd gate [{label}] resolved no scan roots")
+    # The differential gate is intentionally bounded to reviewed code and
+    # non-code formats. Handing jscpd the already filtered file list also
+    # avoids walking nested repositories that its --ignore option would merely
+    # discard after reading.
+    if not _has_in_scope_file(root, roots, config):
+        # A change may delete the last file in this scope. Empty is a valid
+        # after-state; it is not a scanner failure or a clean baseline file.
+        print(f"jscpd gate [{label}]: no in-scope files")
+        return {"duplicates": []}, set()
+    # Pass the bounded top-level roots rather than thousands of individual
+    # files. Large repositories can otherwise exceed ARG_MAX before jscpd
+    # starts. The pinned format list and exclusions retain the same corpus.
+    targets = _in_scope_roots(root, roots, config)
+    if not targets:
+        _die(f"jscpd gate [{label}] resolved no scan roots")
+    with _temporary_directory(prefix=f"cx-jscpd-{label}-") as tmp:
+        doc = run_jscpd(
+            exe,
+            targets,
+            tmp,
+            root,
+            echo_console=False,
+            config=config,
+            formats=config.jscpd_diff_formats,
+        )
+    _print_stats(doc, targets, label, config.prune_directories)
     return doc, _clone_keys(doc, root)
 
 
+def _has_in_scope_file(
+    root: Path, roots: list[Path], config: CloneScannerConfig
+) -> bool:
+    for path in _iter_files(roots, config.prune_directories):
+        if is_jscpd_diff_path(path, config) and not is_excluded_path(
+            path.relative_to(root), config.exclusions
+        ):
+            return True
+    return False
+
+
+def _in_scope_roots(
+    root: Path, roots: list[Path], config: CloneScannerConfig
+) -> list[Path]:
+    return [
+        path
+        for path in roots
+        if not is_excluded_path(path.relative_to(root), config.exclusions)
+    ]
+
+
+def _changed_enforce_paths(base_ref: str, config: CloneScannerConfig) -> list[str]:
+    """Select changed paths in the reviewed jscpd format scope."""
+
+    raw = _git(
+        [
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            f"{base_ref}...HEAD",
+        ]
+    )
+    paths = []
+    for line in raw.splitlines():
+        rel = line.strip().replace("\\", "/")
+        if (
+            rel
+            and is_jscpd_diff_path(rel, config)
+            and not is_excluded_path(rel, config.exclusions)
+        ):
+            paths.append(rel)
+    return sorted(set(paths))
+
+
 def cmd_enforce(base_ref: str) -> int:
-    exe = _resolve_jscpd()
-    _check_version(exe)
+    config = _config()
+    changed_paths = _changed_enforce_paths(base_ref, config)
+    if not changed_paths:
+        print(
+            "jscpd gate [enforce]: no changed file in the reviewed code, "
+            "template, or configuration scope"
+        )
+        return 0
+
+    exe = _resolve_jscpd(config)
+    _check_version(exe, config)
 
     head_sha = _git(["rev-parse", "HEAD"])
     base_sha = _git(["rev-parse", base_ref])
@@ -589,18 +1191,10 @@ def cmd_enforce(base_ref: str) -> int:
             f"(tree {merged_tree[:10]}, via git merge-tree --write-tree)"
         )
 
-        _, before_keys = _scan_worktree(exe, before_wt, "enforce-before")
-        _, after_keys = _scan_worktree(exe, after_wt, "enforce-after")
+        _, before_keys = _scan_worktree(exe, before_wt, "enforce-before", config)
+        _, after_keys = _scan_worktree(exe, after_wt, "enforce-after", config)
     finally:
-        for wt in (before_wt, after_wt):
-            if wt.exists():
-                subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(wt)],
-                    cwd=str(_AU_ROOT),
-                    env=sanitized_git_env(),
-                    capture_output=True,
-                    text=True,
-                )
+        _cleanup_throwaway_worktrees((before_wt, after_wt))
 
     new_pairs = after_keys - before_keys
     gone_pairs = before_keys - after_keys
@@ -634,6 +1228,48 @@ def cmd_enforce(base_ref: str) -> int:
     return 1
 
 
+def _remove_throwaway_worktree(path: Path) -> None:
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "remove", "--force", str(path)],
+            cwd=str(_AU_ROOT),
+            env=sanitized_git_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, UnicodeError) as exc:
+        _die(f"could not remove throwaway worktree {path}: {exc}")
+    if result.returncode != 0:
+        _die(
+            f"could not remove throwaway worktree {path}: "
+            f"{(result.stderr or '').strip()}"
+        )
+    try:
+        remains = os.path.lexists(path)
+    except OSError as exc:
+        _die(f"could not verify throwaway worktree cleanup {path}: {exc}")
+    if remains:
+        _die(f"throwaway worktree cleanup left path behind: {path}")
+
+
+def _cleanup_throwaway_worktrees(paths: Sequence[Path]) -> None:
+    """Attempt every cleanup and fail closed if any worktree remains."""
+
+    failures: list[str] = []
+    for path in paths:
+        try:
+            if not os.path.lexists(path):
+                continue
+            _remove_throwaway_worktree(path)
+        except SystemExit as exc:
+            failures.append(f"{path} (exit {exc.code})")
+        except Exception as exc:  # pragma: no cover - defensive cleanup boundary
+            failures.append(f"{path} ({exc})")
+    if failures:
+        _die("throwaway worktree cleanup failed: " + "; ".join(failures))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -648,9 +1284,7 @@ def main() -> int:
     p_enforce = sub.add_parser(
         "enforce", help="diff-scoped: fail only on NEW duplication"
     )
-    p_enforce.add_argument(
-        "--base-ref", default=os.environ.get("CX_DUP_BASE_REF", "main")
-    )
+    p_enforce.add_argument("--base-ref", default=_setting("CX_DUP_BASE_REF", "main"))
 
     # Bare invocation (no subcommand) behaves as `census` with no paths —
     # census is always the safe default; enforce must be requested explicitly.

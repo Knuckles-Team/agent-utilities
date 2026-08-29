@@ -852,6 +852,282 @@ exclude = ["agent_utilities.harness.memorydata.tests*", "agent_utilities*.tests*
 line-length = 88
 target-version = "py311"
 
+[tool.agent_utilities.clone_scanners]
+# Native scanners are installed by the host/toolchain, never by a hook.  Keep
+# exact versions here so the wrappers, local setup notes, and CI all reject
+# silent algorithm/threshold drift from the same reviewed contract.
+dupehound_version = "0.1.2"
+dupehound_threshold = 0.85
+dupehound_min_tokens = 40
+jscpd_version = "5.0.16"
+jscpd_min_tokens = 50
+jscpd_min_lines = 5
+jscpd_mode = "mild"
+
+# jscpd's differential pass includes both code and non-code formats. Dupehound
+# detects structurally equivalent whole functions after renaming; it cannot
+# detect a copied block embedded in two otherwise different functions. Keeping
+# code formats here preserves that complementary block-level coverage. The two
+# scanners run at different stages (dupehound at pre-commit, jscpd at pre-push)
+# so one incident does not produce two simultaneous blocking hook verdicts.
+jscpd_diff_formats = [
+    "asciidoc",
+    "astro",
+    "bash",
+    "bicep",
+    "c",
+    "c-header",
+    "cpp",
+    "cpp-header",
+    "css",
+    "csharp",
+    "csv",
+    "cypher",
+    "dhall",
+    "docker",
+    "graphql",
+    "go",
+    "hcl",
+    "ini",
+    "java",
+    "javascript",
+    "json",
+    "json5",
+    "jsx",
+    "less",
+    "makefile",
+    "markdown",
+    "markup",
+    "mermaid",
+    "nginx",
+    "protobuf",
+    "promql",
+    "properties",
+    "pug",
+    "php",
+    "python",
+    "ruby",
+    "rust",
+    "sass",
+    "scss",
+    "sql",
+    "svelte",
+    "stylus",
+    "swift",
+    "toml",
+    "turtle",
+    # jscpd emits plain Markdown fragments as its virtual `text` format;
+    # retain `txt` as the extension-backed format for standalone .txt files.
+    "text",
+    "txt",
+    "tsx",
+    "typescript",
+    "vue",
+    "yaml",
+]
+jscpd_diff_extensions = [
+    ".adoc",
+    ".asciidoc",
+    ".astro",
+    ".bash",
+    ".bicep",
+    ".c",
+    ".c++",
+    ".cc",
+    ".cjs",
+    ".cpp",
+    ".cs",
+    ".cts",
+    ".cxx",
+    ".css",
+    ".csv",
+    ".cypher",
+    ".conf",
+    ".dhall",
+    ".gql",
+    ".graphql",
+    ".go",
+    ".h",
+    ".h++",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".hcl",
+    ".htm",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".json",
+    ".json5",
+    ".jsx",
+    ".less",
+    ".md",
+    ".markdown",
+    ".mkd",
+    ".mmd",
+    ".mermaid",
+    ".mjs",
+    ".mts",
+    ".nginx",
+    ".php",
+    ".proto",
+    ".promql",
+    ".properties",
+    ".pug",
+    ".py",
+    ".pyi",
+    ".rb",
+    ".rs",
+    ".sass",
+    ".scss",
+    ".sh",
+    ".sql",
+    ".svelte",
+    ".styl",
+    ".swift",
+    ".tf",
+    ".toml",
+    ".ttl",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".vue",
+    ".xml",
+    ".yaml",
+    ".yml",
+]
+# Both scanners receive these exclusions.  Generated/vendor/build output,
+# lockfiles, fixtures, and docs/examples are intentionally outside the clone
+# policy: they are machine-produced or expected to repeat, and including them
+# makes a changed-function gate report noise rather than a reusable source.
+exclusions = [
+    "AGENTS.md",
+    "genesis.yaml",
+    "docs/project_structure.md",
+    "docs/status.md",
+    "docs/concepts.yaml",
+    "docs/capabilities-power.md",
+    "docs/capabilities-power.json",
+    "docs/_vendor_eg_capability_ledger.json",
+    "docs/ecosystem-capability-fleet.md",
+    "agent_utilities/knowledge_graph/retrieval/capabilities-power.json",
+    "agent_utilities/knowledge_graph/ontology/connector_manifests/**",
+    "scripts/fleet_symbol_consumers.json",
+    "**/.git/**",
+    "**/.venv/**",
+    "**/.venv-base/**",
+    "**/venv/**",
+    "**/node_modules/**",
+    "**/.cache/**",
+    "**/target/**",
+    "**/target-isolated/**",
+    "**/build/**",
+    "**/build-artifacts/**",
+    "**/dist/**",
+    "**/dist-primary/**",
+    "**/dist-reproduction/**",
+    "**/__pycache__/**",
+    "**/.mypy_cache/**",
+    "**/.pytest_cache/**",
+    "**/.pytest_tmp/**",
+    "**/.ruff_cache/**",
+    "**/.hypothesis/**",
+    "**/.tox/**",
+    "**/.eggs/**",
+    "**/coverage/**",
+    "**/htmlcov/**",
+    "**/site-packages/**",
+    "**/*.egg-info/**",
+    "**/vendor/**",
+    "**/third_party/**",
+    "**/fixtures/**",
+    "**/fixture/**",
+    "**/samples/**",
+    "**/sample/**",
+    "**/examples/**",
+    "**/docs/examples/**",
+    "**/docs/samples/**",
+    "**/__snapshots__/**",
+    "**/*.snap",
+    "**/__generated__/**",
+    "**/generated/**",
+    "**/codegen/**",
+    "**/openapi_client/**",
+    "**/graphql_client/**",
+    "**/*.generated.*",
+    "**/*.map",
+    "**/*.min.css",
+    "**/*.min.js",
+    "**/*.lock",
+    "**/*lock",
+    "**/*lock.*",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/yarn.lock",
+    "**/poetry.lock",
+]
+
+# This is the directory-name subset needed to prune before invoking jscpd.
+# Its ignore globs above remain defense-in-depth for files nested below a kept
+# source directory; the native tool's ignore option does not prune its walk.
+prune_directories = [
+    ".git",
+    ".venv",
+    "venv",
+    ".venv-base",
+    "node_modules",
+    ".cache",
+    "target",
+    "target-isolated",
+    "dist",
+    "dist-primary",
+    "dist-reproduction",
+    "build",
+    "build-artifacts",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".pytest_tmp",
+    ".ruff_cache",
+    ".hypothesis",
+    ".tox",
+    ".eggs",
+    "coverage",
+    "htmlcov",
+    "site-packages",
+    "vendor",
+    "third_party",
+    "fixtures",
+    "fixture",
+    "samples",
+    "sample",
+    "examples",
+    "__snapshots__",
+    "__generated__",
+    "generated",
+    "codegen",
+    "openapi_client",
+    "graphql_client",
+]
+
+[tool.agent_utilities.clone_scanners.jscpd_diff_format_extensions]
+# v5 has grammars for these formats but no default extension mapping; the
+# wrapper passes this exact table via --formats-exts so selected files are real
+# scanner inputs rather than silently skipped paths.
+asciidoc = ["adoc", "asciidoc"]
+cypher = ["cypher"]
+dhall = ["dhall"]
+graphql = ["gql"]
+mermaid = ["mermaid", "mmd"]
+nginx = ["conf", "nginx"]
+promql = ["promql"]
+
+[tool.agent_utilities.clone_scanners.jscpd_diff_format_names]
+docker = ["Containerfile", "Dockerfile"]
+makefile = ["GNUmakefile", "Makefile"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E402", "B008", "E501", "B007"]
