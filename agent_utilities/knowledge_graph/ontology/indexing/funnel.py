@@ -182,11 +182,10 @@ class DataRestriction:
         node_type = self._type_of(node)
         if self.denied_types and node_type in {t.lower() for t in self.denied_types}:
             return False
-        if self.allowed_types:
-            if node_type is None:
-                return False
-            if node_type not in {t.lower() for t in self.allowed_types}:
-                return False
+        if self.allowed_types and node_type not in {
+            t.lower() for t in self.allowed_types
+        }:
+            return False
         if self.predicate is not None:
             try:
                 if not self.predicate(node):
