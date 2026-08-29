@@ -216,6 +216,162 @@ def _local_capability_filter(
     return out
 
 
+def _prepare_capability_search(
+    required_caps: list[str] | None,
+    tenant: str | None,
+    policy_tags: list[str] | None,
+    capability_hierarchy: Any | None,
+    active_release_channel: Any | None,
+    k: int,
+) -> tuple[Any, bool, list[dict[str, Any]], int]:
+    """Resolve push-down filters and the bounded local-check plan size."""
+    capability_hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
+    subsumed_caps = _subsumed_capabilities(required_caps, capability_hierarchy)
+    exact_caps = _exact_capabilities(required_caps, subsumed_caps)
+
+    needs_local_check = bool(subsumed_caps) or active_release_channel is not None
+    filters = build_capability_filters(exact_caps, tenant, policy_tags)
+    plan_k = max(int(k) * 4, 20) if needs_local_check else int(k)
+    return capability_hierarchy, needs_local_check, filters, plan_k
+
+
+def _subsumed_capabilities(
+    required_caps: list[str] | None,
+    capability_hierarchy: Any,
+) -> list[str]:
+    """Return required capabilities with known ontology descendants."""
+    return [
+        capability
+        for capability in required_caps or ()
+        if capability_hierarchy.descendants(capability)
+    ]
+
+
+def _exact_capabilities(
+    required_caps: list[str] | None,
+    subsumed_caps: list[str],
+) -> list[str] | None:
+    """Keep only exact push-down capabilities when subsumption widens a query."""
+    if not subsumed_caps or not required_caps:
+        return required_caps
+    return [
+        capability for capability in required_caps if capability not in subsumed_caps
+    ]
+
+
+def _build_unified_plan(
+    label: str,
+    filters: list[dict[str, Any]],
+    qvec: list[float],
+    plan_k: int,
+) -> list[dict[str, Any]]:
+    """Build the engine's cross-modal Scan/Filter/Rank/Limit plan."""
+    plan: list[dict[str, Any]] = []
+    if label:
+        plan.append({"Scan": {"label": label}})
+    for restriction in filters:
+        plan.append({"Filter": restriction})
+    plan.append({"Rank": {"query": qvec}})
+    plan.append({"Limit": {"k": plan_k}})
+    return plan
+
+
+def _rows_to_candidates(rows: Any) -> list[tuple[str, float]]:
+    """Convert unified-plan rows to the public candidate shape."""
+    return [
+        (str(row["id"]), float(row.get("score") or 0.0))
+        for row in rows
+        if isinstance(row, dict) and row.get("id") is not None
+    ]
+
+
+def _try_unified_filtered_search(
+    graph: Any,
+    qvec: list[float],
+    *,
+    label: str,
+    filters: list[dict[str, Any]],
+    plan_k: int,
+    needs_local_check: bool,
+    required_caps: list[str] | None,
+    tenant: str | None,
+    policy_tags: list[str] | None,
+    capability_hierarchy: Any,
+    active_release_channel: Any | None,
+    k: int,
+) -> list[tuple[str, float]] | None:
+    """Try the engine's unified filtered plan, returning ``None`` on fallback."""
+    query_unified = getattr(graph, "query_unified", None)
+    if not callable(query_unified):
+        return None
+
+    plan = _build_unified_plan(label, filters, qvec, plan_k)
+    try:
+        rows = query_unified(plan) or []
+        candidates = _rows_to_candidates(rows)
+        if not needs_local_check:
+            return candidates
+        return _local_capability_filter(
+            graph,
+            candidates,
+            required_caps,
+            tenant,
+            policy_tags,
+            capability_hierarchy,
+            active_release_channel,
+            k,
+        )
+    except Exception as e:  # noqa: BLE001 — unified plan unavailable (e.g. no query/Filter) -> tier 2
+        logger.debug(
+            "engine_capability_search: unified filtered plan unavailable, "
+            "falling to native ANN + bounded post-filter: %s",
+            e,
+        )
+        return None
+
+
+def _native_filtered_search(
+    graph: Any,
+    qvec: list[float],
+    *,
+    k: int,
+    filters: list[dict[str, Any]],
+    needs_local_check: bool,
+    required_caps: list[str] | None,
+    tenant: str | None,
+    policy_tags: list[str] | None,
+    capability_hierarchy: Any,
+    active_release_channel: Any | None,
+) -> list[tuple[str, float]] | None:
+    """Run native ANN and apply the bounded fallback filter when needed."""
+    semantic_search = getattr(graph, "semantic_search", None)
+    if not callable(semantic_search):
+        return None
+
+    has_any_filter = bool(filters) or needs_local_check
+    fetch_k = int(k) if not has_any_filter else max(int(k) * 4, 20)
+    try:
+        raw = semantic_search(qvec, fetch_k) or []
+    except Exception as e:  # noqa: BLE001 — no engine ANN reachable at all
+        logger.debug("engine_capability_search: native ANN unavailable: %s", e)
+        return None
+
+    candidates = [(str(nid), float(score)) for nid, score in raw if nid]
+    if not has_any_filter:
+        return candidates[: int(k)]
+
+    return _local_capability_filter(
+        graph,
+        candidates,
+        required_caps,
+        tenant,
+        policy_tags,
+        capability_hierarchy,
+        active_release_channel,
+        k,
+    )
+
+
 def engine_filtered_search(
     engine: Any,
     query_embedding: list[float],
@@ -238,90 +394,52 @@ def engine_filtered_search(
     resolves the bundled current hierarchy. See the module docstring for the
     push-down/post-filter split this triggers.
     """
-    capability_hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
-    graph = getattr(engine, "graph", None)
-    if graph is None:
-        return None
-    qvec = [float(x) for x in query_embedding]
-
-    # X-4: a required capability with known ontology subtypes cannot be expressed
-    # as a single exact `array_contains` Filter (that would miss a subtype-only
-    # declaration), so it is excluded from push-down and re-checked locally.
-    subsumed_caps: list[str] = []
-    exact_caps = required_caps
-    if required_caps:
-        subsumed_caps = [
-            c for c in required_caps if capability_hierarchy.descendants(c)
-        ]
-        if subsumed_caps:
-            exact_caps = [c for c in required_caps if c not in subsumed_caps]
-
-    # Release visibility is an ordered policy (stable < beta < edge), not an
-    # exact equality predicate. Apply it to the bounded ANN candidate set while
-    # the remaining exact predicates stay pushed into the native plan.
-    needs_local_check = bool(subsumed_caps) or active_release_channel is not None
-    filters = build_capability_filters(exact_caps, tenant, policy_tags)
-    plan_k = max(int(k) * 4, 20) if needs_local_check else int(k)
-
-    # Tier 1 — ONE unified cross-modal plan: Scan (optional) |> Filter* |> Rank |> Limit.
-    query_unified = getattr(graph, "query_unified", None)
-    if callable(query_unified):
-        plan: list[dict[str, Any]] = []
-        if label:
-            plan.append({"Scan": {"label": label}})
-        for f in filters:
-            plan.append({"Filter": f})
-        plan.append({"Rank": {"query": qvec}})
-        plan.append({"Limit": {"k": plan_k}})
-        try:
-            rows = query_unified(plan) or []
-            candidates = [
-                (str(r["id"]), float(r.get("score") or 0.0))
-                for r in rows
-                if isinstance(r, dict) and r.get("id") is not None
-            ]
-            if not needs_local_check:
-                return candidates
-            return _local_capability_filter(
-                graph,
-                candidates,
-                required_caps,
-                tenant,
-                policy_tags,
-                capability_hierarchy,
-                active_release_channel,
-                k,
-            )
-        except Exception as e:  # noqa: BLE001 — unified plan unavailable (e.g. no query/Filter) -> tier 2
-            logger.debug(
-                "engine_capability_search: unified filtered plan unavailable, "
-                "falling to native ANN + bounded post-filter: %s",
-                e,
-            )
-
-    # Tier 2 — native unfiltered ANN, then a BOUNDED post-filter over the returned pool.
-    semantic_search = getattr(graph, "semantic_search", None)
-    if not callable(semantic_search):
-        return None
-    has_any_filter = bool(filters) or needs_local_check
-    fetch_k = int(k) if not has_any_filter else max(int(k) * 4, 20)
-    try:
-        raw = semantic_search(qvec, fetch_k) or []
-    except Exception as e:  # noqa: BLE001 — no engine ANN reachable at all
-        logger.debug("engine_capability_search: native ANN unavailable: %s", e)
-        return None
-
-    candidates = [(str(nid), float(score)) for nid, score in raw if nid]
-    if not has_any_filter:
-        return candidates[: int(k)]
-
-    return _local_capability_filter(
-        graph,
-        candidates,
+    (
+        capability_hierarchy,
+        needs_local_check,
+        filters,
+        plan_k,
+    ) = _prepare_capability_search(
         required_caps,
         tenant,
         policy_tags,
         capability_hierarchy,
         active_release_channel,
         k,
+    )
+    graph = getattr(engine, "graph", None)
+    if graph is None:
+        return None
+    qvec = [float(x) for x in query_embedding]
+
+    # Tier 1 — ONE unified cross-modal plan: Scan (optional) |> Filter* |> Rank |> Limit.
+    unified = _try_unified_filtered_search(
+        graph,
+        qvec,
+        label=label,
+        filters=filters,
+        plan_k=plan_k,
+        needs_local_check=needs_local_check,
+        required_caps=required_caps,
+        tenant=tenant,
+        policy_tags=policy_tags,
+        capability_hierarchy=capability_hierarchy,
+        active_release_channel=active_release_channel,
+        k=k,
+    )
+    if unified is not None:
+        return unified
+
+    # Tier 2 — native unfiltered ANN, then a BOUNDED post-filter over the returned pool.
+    return _native_filtered_search(
+        graph,
+        qvec,
+        k=k,
+        filters=filters,
+        needs_local_check=needs_local_check,
+        required_caps=required_caps,
+        tenant=tenant,
+        policy_tags=policy_tags,
+        capability_hierarchy=capability_hierarchy,
+        active_release_channel=active_release_channel,
     )
