@@ -283,7 +283,9 @@ def _select_native_candidate(result_payload: Any) -> dict[str, Any] | None:
         logger.error("eg-program returned an invalid candidate shape")
         return None
     candidates = [
-        row for row in rows if isinstance(row, dict) and row.get("kind") == "program_candidate"
+        row
+        for row in rows
+        if isinstance(row, dict) and row.get("kind") == "program_candidate"
     ]
     selected_candidates = [row for row in candidates if row.get("selected") is True]
     if len(selected_candidates) != 1:

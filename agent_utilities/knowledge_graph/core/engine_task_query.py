@@ -45,6 +45,7 @@ class _TaskQueryHost(Protocol):
         self, job_id: str, *, pop: bool = False
     ) -> dict[str, Any] | None: ...
 
+
 # Rendered public status vocabulary a job can be bucketed under in
 # ``list_tasks``'s response (CONCEPT:AU-KG.compute.persistent-task-tracking).
 _TASK_STATUS_BUCKETS = (

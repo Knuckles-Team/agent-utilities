@@ -42,6 +42,8 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_document_tree": ("ask", "write"),
         "graph_engineering": ("ask", "write"),
         "graph_table": ("ask", "write"),
+        "graph_projection": ("ask",),
+        "graph_catalog": ("find", "ask"),
         "graph_promql": ("ask",),
         "graph_logs": ("ask",),
         "graph_federated_search": ("ask",),

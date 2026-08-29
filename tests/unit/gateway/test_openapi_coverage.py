@@ -217,6 +217,28 @@ def test_diff_is_not_fooled_by_a_matching_count(gate):
     assert new["undocumented_routes"] == ["POST /api/brand/new/route"]
 
 
+def test_snapshot_runner_collects_census_without_executing_main(gate, tmp_path):
+    """The HEAD child imports the gate; it must never execute its diffing main."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "check_openapi_coverage.py").write_text(
+        "def _load_findings():\n"
+        "    return {\n"
+        "        'undocumented_routes': {'POST /api/graph/query'},\n"
+        "        'missing_description': {'GET /api/undescribed'},\n"
+        "    }\n"
+        "def main():\n"
+        "    raise RuntimeError('recursive snapshot main executed')\n"
+        "if __name__ == '__main__':\n"
+        "    main()\n"
+    )
+
+    assert gate._run_gate_snapshot(tmp_path) == {
+        "undocumented_routes": ["POST /api/graph/query"],
+        "missing_description": ["GET /api/undescribed"],
+    }
+
+
 # --- retired flag ------------------------------------------------------
 
 

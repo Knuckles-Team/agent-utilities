@@ -530,7 +530,9 @@ class BeliefRevisionPass:
         claims = [Claim(id=b.id, text=b.statement) for b in beliefs]
         friction = self.detector.scan(claims)
         threshold_rank = _SEVERITY_RANK.get(self.severity_threshold, 1)
-        fresh_conflicts = _fresh_conflicts_from_friction(beliefs, friction, threshold_rank)
+        fresh_conflicts = _fresh_conflicts_from_friction(
+            beliefs, friction, threshold_rank
+        )
 
         revisions: list[BeliefRevision] = []
         for belief in beliefs:

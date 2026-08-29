@@ -1320,6 +1320,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_audit", "action": "verify", "name": "graph_audit_verify"},
     {"tool": "graph_broker", "action": None, "name": "graph_broker"},
     {"tool": "graph_bus", "action": None, "name": "graph_bus"},
+    {"tool": "graph_catalog", "action": None, "name": "graph_catalog"},
     {
         "tool": "graph_candidate_claims",
         "action": "propose",
@@ -2256,6 +2257,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_pipeline", "action": None, "name": "graph_pipeline"},
     {"tool": "graph_promql", "action": "instant", "name": "graph_promql_instant"},
     {"tool": "graph_promql", "action": "range", "name": "graph_promql_range"},
+    {"tool": "graph_projection", "action": None, "name": "graph_projection"},
     {"tool": "graph_query", "action": None, "name": "graph_query"},
     {
         "tool": "graph_reach",

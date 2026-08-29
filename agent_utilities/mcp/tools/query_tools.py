@@ -1075,9 +1075,7 @@ def _graph_search_fanout(
 # lane's ownership this wave); filed as a finding in the lane report rather
 # than reached into.
 _TABLE_QUERY_HEAD_RE = re.compile(r"^\s*(SELECT|WITH|EXPLAIN)\b", re.IGNORECASE)
-_TABLE_QUERY_EXPLAIN_ANALYZE_RE = re.compile(
-    r"^\s*EXPLAIN\s+ANALYZE\b", re.IGNORECASE
-)
+_TABLE_QUERY_EXPLAIN_ANALYZE_RE = re.compile(r"^\s*EXPLAIN\s+ANALYZE\b", re.IGNORECASE)
 _TABLE_QUERY_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _TABLE_QUERY_WRITE_TOKENS = frozenset(
     {
@@ -1122,9 +1120,7 @@ def _reject_unsafe_table_sql(sql: str) -> str | None:
     if not _TABLE_QUERY_HEAD_RE.match(statement):
         return "query must start with SELECT, WITH, or EXPLAIN"
     if _TABLE_QUERY_EXPLAIN_ANALYZE_RE.match(statement):
-        return (
-            "EXPLAIN ANALYZE executes the wrapped statement; use plain EXPLAIN"
-        )
+        return "EXPLAIN ANALYZE executes the wrapped statement; use plain EXPLAIN"
     tokens = {t.lower() for t in _TABLE_QUERY_TOKEN_RE.findall(statement)}
     banned = sorted(tokens & _TABLE_QUERY_WRITE_TOKENS)
     if banned:
@@ -1263,9 +1259,7 @@ def _node_link_edge_properties(value: dict[str, Any]) -> dict[str, Any]:
     properties = value.get("properties")
     if isinstance(properties, dict):
         return properties
-    return {
-        k: v for k, v in value.items() if k not in _NODE_LINK_RESERVED_EDGE_KEYS
-    }
+    return {k: v for k, v in value.items() if k not in _NODE_LINK_RESERVED_EDGE_KEYS}
 
 
 def _as_node_link_edge(value: dict[str, Any]) -> dict[str, Any] | None:
@@ -1441,6 +1435,7 @@ def _project_node_link(rows: list[Any]) -> dict[str, Any]:
 # class not present in the installed engine build) is reported unavailable;
 # NEVER fabricated as live.
 # ══════════════════════════════════════════════════════════════════
+
 
 def _capability_entry(
     available: bool,
