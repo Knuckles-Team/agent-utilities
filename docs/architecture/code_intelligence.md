@@ -121,6 +121,72 @@ The graph spans past the code itself:
 - **ADRs (AU-KG.compute.adr-crud).** `graph_analyze(action="adr")` creates/lists
   `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.
 
+## Change-scoped clone gates
+
+The repository also has a local, deterministic clone gate for code review. It
+uses two complementary scanners, with their exact versions and thresholds in
+`pyproject.toml` under `[tool.agent_utilities.clone_scanners]`:
+
+- `scripts/check_dupehound.py` runs on the normal pre-commit stage. It asks
+  dupehound to compare only staged functions (or the working tree when there is
+  no staged delta) against `HEAD`; `--base-ref` enables merge-base/PR semantics.
+  It blocks a newly changed supported-language function that duplicates an
+  existing function and returns exit 2 when the binary, version, or JSON result
+  cannot be trusted.
+- `scripts/check_duplication.py enforce --base-ref <ref>` is the bounded jscpd
+  differential pass for code, template, configuration, and documentation
+  blocks. Code remains in scope because jscpd can find a copied block inside
+  two different functions, which a whole-function detector cannot.
+  Markdown's plain-text fragments are reported by jscpd as its virtual `text`
+  format, so that report format is explicitly included alongside the
+  extension-backed `txt` format.
+  It recomputes the base and merged clone sets in throwaway worktrees and fails
+  only on new pairs. The `census` mode is all-format, full-tree, and advisory;
+  it is manual/pre-push only so a whole-repository report never becomes a
+  per-commit tax.
+
+Both wrappers read the same exclusion list for generated/vendor/build output,
+lockfiles, fixtures, snapshots, and examples. The dupehound wrapper mirrors the
+pinned v0.1.2 `check` classifier: test paths are outside its whole-function
+scope, and it passes `--exclude-tests` explicitly because `--include-tests`
+does not make that command inspect them. Ordinary test code remains in the
+jscpd differential scope unless it matches a deliberate fixture/snapshot
+exclusion; its block-level coverage is complementary. No baseline file is
+written: pre-existing clone debt stays visible in a census and is not silently
+converted into a permanent exception. The walkers preserve eligible hidden
+directories (including `.github` for mapped formats) and prune only configured
+junk plus Git metadata. Malformed or missing reports, non-regular report files,
+clone locations outside the scan roots, inconsistent counts, and incomplete
+throwaway-worktree cleanup all return exit 2 rather than a false green. Live
+binary/workdir overrides are read through the repository config abstraction,
+not directly from `os.environ`. Dupehound runs during pre-commit and jscpd
+during pre-push, so the complementary signals do not produce two simultaneous
+blocking hook failures.
+The differential list is an explicit, reviewable allowlist; formats not yet
+mapped there remain visible to the manual all-format census rather than
+silently expanding the blocking scope.
+
+```mermaid
+flowchart LR
+    Change["staged change / PR range"] --> Select["path selection + exclusions"]
+    Select --> Functions["dupehound\nchanged functions"]
+    Select --> Blocks["jscpd\ncode + non-code blocks"]
+    Functions -->|"new duplicate"| Block["exit 1: block"]
+    Blocks -->|"new clone pair"| Block
+    Census["manual/pre-push census\nall formats, advisory"] --> Report["real clone counts"]
+    Blocks -->|"pre-existing pair"| Report
+```
+
+The native binaries are intentionally not installed by pre-commit. Install the
+versions recorded in `pyproject.toml` ahead of time:
+
+```text
+cargo install dupehound --version <dupehound_version>
+npm install -g jscpd@<jscpd_version>
+```
+
+Missing or drifted binaries fail closed rather than passing as an empty scan.
+
 ## Grammar coverage (CONCEPT:AU-KG.compute.built-ast-extended)
 
 The core `ast` tier parses 9 languages (Python/JS/TS/Go/Rust/Java/C/C++/C#). The

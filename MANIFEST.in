@@ -5,6 +5,19 @@ include build_backend.py
 include deploy/__init__.py
 include deploy/release/__init__.py
 include scripts/__init__.py
+# Clone-scanner policies, wrappers, and the source-checkout CI workflow are
+# included in source distributions so a checkout recreated from the sdist has
+# the same reviewed quality surface. They are source tooling, not runtime
+# wheel/package data; native scanners are never installed by a hook or by the
+# installed Agent Utilities package.
+include .pre-commit-config.yaml
+include .cccc.toml
+include .kiss/kiss.toml
+include .github/workflows/release.yml
+include scripts/_clone_scanner_config.py
+include scripts/_git_subprocess_env.py
+include scripts/check_dupehound.py
+include scripts/check_duplication.py
 include agent_utilities/dependency-license-catalog.json
 include agent_utilities/knowledge_graph/retrieval/capabilities-power.json
 recursive-include agent_utilities *.py *.json *.md *.ttl *.yaml *.yml
