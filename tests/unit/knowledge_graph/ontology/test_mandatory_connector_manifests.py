@@ -220,6 +220,14 @@ def test_direct_external_graph_passes_the_signed_native_activation_gate():
     assert result["manifest_path"] == "native-source-connectors/connector_manifest.yml"
 
 
+def test_arxiv_native_source_passes_the_current_activation_gate():
+    result = gate.precheck_source("arxiv")
+
+    assert result["checked"] is True
+    assert result["ok"] is True, result["violations"]
+    assert result["connector"] == "native-source-connectors"
+
+
 def test_mandatory_set_is_a_superset_of_named_connector_packages():
     """Every package in :data:`NAMED_CONNECTOR_PACKAGES` is reachable from at
 
