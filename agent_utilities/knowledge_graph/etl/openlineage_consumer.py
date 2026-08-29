@@ -393,6 +393,31 @@ class OpenLineageKafkaConsumer(KafkaStreamAdapter):
                 return None
         return value
 
+    def _process_record(
+        self, engine: Any, rec: Any, record_openlineage_run_event: Any
+    ) -> tuple[int, int, int]:
+        """Map and persist one record, returning success/quarantine/failure deltas."""
+        value = self._decode_json(getattr(rec, "value", rec))
+        if not isinstance(value, dict):
+            logger.warning(
+                "openlineage consumer: undecodable RunEvent payload at offset %s",
+                getattr(rec, "offset", "?"),
+            )
+            return 0, 0, 1
+
+        mapped = map_openlineage_event(value)
+        if isinstance(mapped, QuarantinedLineageEvent):
+            logger.warning(
+                "openlineage consumer: quarantined run=%s job=%s (%s)",
+                mapped.run_id,
+                mapped.job_name,
+                mapped.reason,
+            )
+            return 0, 1, 0
+
+        activity_id = record_openlineage_run_event(engine, value)
+        return (1, 0, 0) if activity_id else (0, 0, 1)
+
     async def drain_once(
         self, engine: Any, *, batch_size: int = 500
     ) -> OpenLineageDrainResult:
@@ -415,32 +440,13 @@ class OpenLineageKafkaConsumer(KafkaStreamAdapter):
         for topic_partition, records in partitions.items():
             commit_offset: int | None = None
             for rec in records:
-                value = self._decode_json(getattr(rec, "value", rec))
                 commit_offset = getattr(rec, "offset", commit_offset)
-                if not isinstance(value, dict):
-                    failed += 1
-                    logger.warning(
-                        "openlineage consumer: undecodable RunEvent payload at offset %s",
-                        getattr(rec, "offset", "?"),
-                    )
-                    continue
-
-                mapped = map_openlineage_event(value)
-                if isinstance(mapped, QuarantinedLineageEvent):
-                    quarantined += 1
-                    logger.warning(
-                        "openlineage consumer: quarantined run=%s job=%s (%s)",
-                        mapped.run_id,
-                        mapped.job_name,
-                        mapped.reason,
-                    )
-                    continue
-
-                activity_id = record_openlineage_run_event(engine, value)
-                if activity_id:
-                    succeeded += 1
-                else:
-                    failed += 1
+                success_delta, quarantine_delta, failure_delta = self._process_record(
+                    engine, rec, record_openlineage_run_event
+                )
+                succeeded += success_delta
+                quarantined += quarantine_delta
+                failed += failure_delta
 
             if commit_offset is not None:
                 # Fire-and-forget (see class docstring): commit through the
