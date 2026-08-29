@@ -1022,29 +1022,31 @@ async def run_agent(
         if _is_uncatchable_exit(e):
             raise
         return await _handle_dispatch_failure(
-            e,
-            agent_name,
-            engine,
-            run_id,
-            task,
-            start_time,
-            _dispatch_state["route"],
-            _dispatch_state["stage_reached"],
-            _skill_used,
-            _bound_server,
-            _skill_id,
-            _skill_instruction_digest,
-            _model_ref,
-            _model_class,
-            config,
-            _dispatch_state["actual_execution_mode"],
-            _spawn_delegation,
-            execution_profile,
-            shape,
-            return_mermaid,
-            channel_id,
-            include_run_summary,
-            progress_sink,
+            _DispatchFailureContext(
+                error=e,
+                agent_name=agent_name,
+                engine=engine,
+                run_id=run_id,
+                task=task,
+                start_time=start_time,
+                route=_dispatch_state["route"],
+                stage_reached=_dispatch_state["stage_reached"],
+                skill_used=_skill_used,
+                bound_server=_bound_server,
+                skill_id=_skill_id,
+                skill_instruction_digest=_skill_instruction_digest,
+                model_ref=_model_ref,
+                model_class=_model_class,
+                config=config,
+                actual_execution_mode=_dispatch_state["actual_execution_mode"],
+                spawn_delegation=_spawn_delegation,
+                execution_profile=execution_profile,
+                shape=shape,
+                return_mermaid=return_mermaid,
+                channel_id=channel_id,
+                include_run_summary=include_run_summary,
+                progress_sink=progress_sink,
+            )
         )
     finally:
         # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — release the spawn's ambient
@@ -2087,30 +2089,43 @@ async def _handle_dispatch_cancellation(
         logger.debug("run_agent: best-effort timeout-trace write failed: %s", trace_exc)
 
 
+@dataclass(frozen=True)
+class _DispatchFailureContext:
+    """Immutable context carried from dispatch to failure rendering.
+
+    Keeping the execution metadata together makes the failure handler's contract
+    explicit without widening another internal helper signature.  The mutable
+    ``route`` mapping is intentionally retained by reference because dispatch
+    updates it before a branch that may raise.
+    """
+
+    error: BaseException
+    agent_name: str
+    engine: IntelligenceGraphEngine
+    run_id: str
+    task: str
+    start_time: float
+    route: dict[str, Any]
+    stage_reached: str
+    skill_used: str
+    bound_server: str
+    skill_id: str
+    skill_instruction_digest: str
+    model_ref: str
+    model_class: str
+    config: dict[str, Any]
+    actual_execution_mode: str
+    spawn_delegation: Any
+    execution_profile: str | None
+    shape: Any
+    return_mermaid: bool
+    channel_id: str | None
+    include_run_summary: bool
+    progress_sink: ProgressSink | None
+
+
 async def _handle_dispatch_failure(
-    e: BaseException,
-    agent_name: str,
-    engine: IntelligenceGraphEngine,
-    run_id: str,
-    task: str,
-    start_time: float,
-    route: dict[str, Any],
-    stage_reached: str,
-    skill_used: str,
-    bound_server: str,
-    skill_id: str,
-    skill_instruction_digest: str,
-    model_ref: str,
-    model_class: str,
-    config: dict[str, Any],
-    actual_execution_mode: str,
-    spawn_delegation: Any,
-    execution_profile: str | None,
-    shape: Any,
-    return_mermaid: bool,
-    channel_id: str | None,
-    include_run_summary: bool,
-    progress_sink: ProgressSink | None,
+    context: _DispatchFailureContext,
 ) -> str:
     """A remote MCP child (streamable-http/sse) that fails to connect or errors
     mid-call surfaces through anyio as a BaseExceptionGroup ("unhandled errors in a
@@ -2124,10 +2139,10 @@ async def _handle_dispatch_failure(
     planner/shape policy, streams the terminal failure event, and renders the
     failure result.
     """
-    err_msg = _flatten_exception_group(e)
+    err_msg = _flatten_exception_group(context.error)
     logger.error(
         "[ORCH-1.21] Agent execution failed: agent=%s, error=%s",
-        agent_name,
+        context.agent_name,
         err_msg,
     )
     from agent_utilities.core.contextual_model import grounding_snapshot as _gs
@@ -2135,21 +2150,21 @@ async def _handle_dispatch_failure(
     _grounding_degraded, _grounding_reason = _gs()
     # Record failure provenance
     await _record_execution_trace_ordered(
-        engine,
-        run_id,
-        agent_name,
-        task,
+        context.engine,
+        context.run_id,
+        context.agent_name,
+        context.task,
         status="failed",
         error=err_msg,
-        skill_used=skill_used,
-        bound_server=bound_server,
-        skill_id=skill_id,
-        skill_instruction_digest=skill_instruction_digest,
-        model_ref=model_ref,
-        model_class=model_class,
-        model_name=str(config.get("agent_model") or ""),
-        execution_mode=actual_execution_mode,
-        delegation=spawn_delegation,
+        skill_used=context.skill_used,
+        bound_server=context.bound_server,
+        skill_id=context.skill_id,
+        skill_instruction_digest=context.skill_instruction_digest,
+        model_ref=context.model_ref,
+        model_class=context.model_class,
+        model_name=str(context.config.get("agent_model") or ""),
+        execution_mode=context.actual_execution_mode,
+        delegation=context.spawn_delegation,
         grounding_status="degraded" if _grounding_degraded else "grounded",
         grounding_reason=_grounding_reason,
     )
@@ -2157,9 +2172,9 @@ async def _handle_dispatch_failure(
     # (a correct step in a failed trajectory must not be penalized).
     await _call_without_blocking(
         _write_step_credit,
-        engine,
-        run_id,
-        agent_name,
+        context.engine,
+        context.run_id,
+        context.agent_name,
         None,
         success=False,
     )
@@ -2168,11 +2183,11 @@ async def _handle_dispatch_failure(
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
     record_shape_outcome(
-        task,
-        execution_profile,
+        context.task,
+        context.execution_profile,
         success=False,
-        latency_s=time.monotonic() - start_time,
-        shape=shape,
+        latency_s=time.monotonic() - context.start_time,
+        shape=context.shape,
     )
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — stream the terminal
     # failure using the SAME translated text the run_summary carries, so the transparency
@@ -2186,33 +2201,33 @@ async def _handle_dispatch_failure(
 
     _fail_xlate = _translate_failure(err_msg)
     await _emit(
-        progress_sink,
-        run_id=run_id,
+        context.progress_sink,
+        run_id=context.run_id,
         stage="failure",
         status="failed",
         detail=_fail_xlate.translated,
         evidence={
             "category": _fail_xlate.category,
             "hint": _fail_xlate.hint,
-            "stage_reached": stage_reached,
-            "trace_ref": _trace_id_fail(run_id),
+            "stage_reached": context.stage_reached,
+            "trace_ref": _trace_id_fail(context.run_id),
         },
     )
     return _render_agent_result(
         f"Agent execution failed: {err_msg}",
-        run_id=run_id,
-        return_mermaid=return_mermaid,
-        channel_id=channel_id,
+        run_id=context.run_id,
+        return_mermaid=context.return_mermaid,
+        channel_id=context.channel_id,
         run_summary=(
             _build_run_summary(
-                route=route,
+                route=context.route,
                 outcome="failed",
-                stage_reached=stage_reached,
-                run_id=run_id,
+                stage_reached=context.stage_reached,
+                run_id=context.run_id,
                 raw_failure=err_msg,
-                execution_mode=actual_execution_mode,
+                execution_mode=context.actual_execution_mode,
             )
-            if include_run_summary
+            if context.include_run_summary
             else None
         ),
     )
