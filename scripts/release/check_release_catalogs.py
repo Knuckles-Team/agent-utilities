@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
-import os
-import secrets
+import re
 import stat
 import sys
 import tomllib
@@ -125,6 +123,91 @@ _CERTIFICATION_MODULES = (
     "scripts/scale/loadgen.py",
     "scripts/scale/workload_contract.py",
 )
+
+# Stable test surfaces (`test` and `test-backends`) are intentional package
+# extras.  Anything marked as disposable, fixture-only, or explicitly
+# test-only is not a release surface and must never reach wheel/lock metadata.
+_RELEASE_EXTRA_ALLOWED_TEST_NAMES = frozenset({"test", "test-backends"})
+_RELEASE_EXTRA_EPHEMERAL_TOKENS = frozenset(
+    {"dummy", "fixture", "scratch", "temp", "temporary", "throwaway"}
+)
+
+
+def _ephemeral_extra(name: str) -> bool:
+    normalized = re.sub(r"[._-]+", "-", name.casefold()).strip("-")
+    if not normalized or normalized in _RELEASE_EXTRA_ALLOWED_TEST_NAMES:
+        return False
+    tokens = set(normalized.split("-"))
+    return (
+        bool(tokens & _RELEASE_EXTRA_EPHEMERAL_TOKENS)
+        or {
+            "test",
+            "only",
+        }
+        <= tokens
+    )
+
+
+def _project_extra_names(pyproject_path: Path) -> tuple[str, ...]:
+    project = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    optional = project.get("project", {}).get("optional-dependencies", {})
+    if not isinstance(optional, dict):
+        raise ValueError("project optional-dependencies must be a table")
+    return tuple(str(name) for name in optional)
+
+
+def _lock_root_package(lock_path: Path) -> dict[str, object]:
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    packages = [
+        package
+        for package in lock.get("package", [])
+        if isinstance(package, dict)
+        and package.get("name") == "agent-utilities"
+        and package.get("source") == {"editable": "."}
+    ]
+    if len(packages) != 1:
+        raise ValueError("uv.lock must contain one editable agent-utilities root")
+    return packages[0]
+
+
+def _lock_extra_names(lock_path: Path) -> set[str]:
+    root_package = _lock_root_package(lock_path)
+    lock_optional = root_package.get("optional-dependencies", {})
+    metadata = root_package.get("metadata", {})
+    provided = metadata.get("provides-extras", []) if isinstance(metadata, dict) else []
+    names = set(lock_optional) if isinstance(lock_optional, dict) else set()
+    if isinstance(provided, list):
+        names.update(str(name) for name in provided)
+    return {str(name) for name in names}
+
+
+def _reject_ephemeral_extras(names: tuple[str, ...] | set[str], *, source: str) -> None:
+    bad = sorted(name for name in names if _ephemeral_extra(name))
+    if bad:
+        raise ValueError(
+            f"ephemeral dependency extras in {source} are not releaseable: "
+            + ", ".join(bad)
+        )
+
+
+def _validate_dependency_extras(
+    *,
+    pyproject_path: Path = ROOT / "pyproject.toml",
+    lock_path: Path = ROOT / "uv.lock",
+) -> None:
+    """Reject disposable extras before they become release metadata.
+
+    ``uv.lock`` records the root package's optional-dependency projection and
+    ``provides-extras`` list.  Checking both the source manifest and that
+    generated projection catches the exact failure mode where a temporary
+    dependency is removed from ``pyproject.toml`` but remains in the committed
+    lock (and therefore propagates to downstream workspace locks).
+    """
+
+    _reject_ephemeral_extras(
+        _project_extra_names(pyproject_path), source="pyproject.toml"
+    )
+    _reject_ephemeral_extras(_lock_extra_names(lock_path), source="uv.lock")
 
 
 def _retained_bytes(path: Path) -> bytes | None:
@@ -259,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     # writes any more: this gate only reads.
     parser.parse_args(argv)
     try:
+        _validate_dependency_extras()
         matrix_digest = _validate_matrix()
         connector = render_connector_catalog(
             agents_root=DEFAULT_AGENTS_ROOT,

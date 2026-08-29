@@ -39,7 +39,6 @@
     "hnswlib": "Apache-2.0",
     "home-assistant-agent": "MIT",
     "httpx": "BSD-3-Clause",
-    "humanize": "MIT",
     "hvac": "Apache-2.0",
     "hypothesis": "MPL-2.0",
     "idna": "BSD-3-Clause",
