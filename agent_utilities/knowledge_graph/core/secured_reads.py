@@ -134,6 +134,151 @@ def _id_indexed_batch_rows(backend: Any, node_ids: list[str]) -> list[dict[str, 
     return rows
 
 
+def _ambient_tenant_id() -> str:
+    """Return the authenticated ambient tenant for the SQL fast path."""
+    try:
+        actor = current_actor()
+        if getattr(actor, "authenticated", False):
+            return str(getattr(actor, "tenant_id", "") or "")
+    except Exception:  # noqa: BLE001 — no actor means no SQL fast path
+        pass
+    return ""
+
+
+def _catalog_acl_hits(
+    active: Any, node_ids: list[str], tenant_id: str
+) -> dict[str, dict[str, Any]]:
+    """Best-effort SQL ACL projection; an unavailable projection is a miss."""
+    from .fleet_catalog_tables import catalog_acl_rows
+
+    try:
+        return catalog_acl_rows(active, node_ids, tenant_id)
+    except Exception:  # noqa: BLE001 — Cypher remains the authoritative fallback
+        return {}
+
+
+def _selected_hydration_authority(active: Any) -> Any:
+    """Resolve durable ACL reads against the verified session graph."""
+    from .session import current_session
+
+    session = current_session()
+    requested_graph = (
+        str(getattr(session, "graph", "") or "") if session is not None else ""
+    )
+    active_graph = str(
+        getattr(getattr(active, "graph_compute", None), "graph_name", "") or ""
+    )
+    if not requested_graph or requested_graph == active_graph:
+        return active
+
+    view_factory = getattr(active, "for_graph", None)
+    if not callable(view_factory):
+        raise PermissionError("Durable ACL hydration authority is unavailable")
+    try:
+        authority = view_factory(requested_graph)
+    except Exception as exc:
+        raise PermissionError("Durable ACL hydration authority is unavailable") from exc
+    if authority is None:
+        raise PermissionError("Durable ACL hydration authority is unavailable")
+    return authority
+
+
+def _hydration_reader(active: Any) -> tuple[Any, Any]:
+    """Return the selected authority's backend and governed read method."""
+    authority = _selected_hydration_authority(active)
+    backend = getattr(authority, "backend", None)
+    execute_read = getattr(backend, "execute_read", None)
+    if not callable(execute_read):
+        raise PermissionError("Durable ACL hydration authority is unavailable")
+    return backend, execute_read
+
+
+def _accelerated_hydration_rows(
+    backend: Any, node_ids: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return id-indexed rows and ids that still need the Cypher path."""
+    rows = _id_indexed_batch_rows(backend, node_ids)
+    resolved_ids = {row["id"] for row in rows}
+    pending = [node_id for node_id in node_ids if node_id not in resolved_ids]
+    return rows, pending
+
+
+def _validated_labeled_rows(
+    found: Any,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Validate a labeled query response and collect ids it resolved."""
+    if not isinstance(found, list):
+        raise PermissionError("Durable ACL hydration response is invalid")
+    rows: list[dict[str, Any]] = []
+    resolved_ids: set[str] = set()
+    for row in found:
+        if not isinstance(row, dict):
+            raise PermissionError("Durable ACL hydration response is invalid")
+        rows.append(row)
+        row_id = row.get("id")
+        if isinstance(row_id, str):
+            resolved_ids.add(row_id)
+    return rows, resolved_ids
+
+
+def _read_cypher_hydration_rows(
+    execute_read: Any, remaining: list[str], return_clause: str
+) -> list[dict[str, Any]]:
+    """Read labeled candidates, then preserve the general Cypher fallback."""
+    rows: list[dict[str, Any]] = []
+    pending = list(remaining)
+    try:
+        for candidate_label in _LABELED_HYDRATION_CANDIDATES:
+            if not pending:
+                break
+            safe_label = validate_identifier(candidate_label, kind="label")
+            found = execute_read(
+                f"MATCH (n:{safe_label}) WHERE n.id IN $ids {return_clause}",
+                {"ids": pending},
+            )
+            found_rows, resolved_ids = _validated_labeled_rows(found)
+            rows.extend(found_rows)
+            pending = [node_id for node_id in pending if node_id not in resolved_ids]
+        if pending:
+            found = execute_read(
+                f"MATCH (n) WHERE n.id IN $ids {return_clause}",
+                {"ids": pending},
+            )
+            if not isinstance(found, list):
+                raise PermissionError("Durable ACL hydration response is invalid")
+            rows.extend(found)
+    except PermissionError:
+        raise
+    except Exception as exc:
+        raise PermissionError("Durable ACL hydration query failed") from exc
+    return rows
+
+
+def _merge_hydration_rows(
+    result: dict[str, dict[str, Any]], rows: list[dict[str, Any]]
+) -> None:
+    """Normalize durable query rows into the ACL hydrator's result shape."""
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PermissionError("Durable ACL hydration response is invalid")
+        node_id = row.get("id")
+        if not isinstance(node_id, str):
+            continue
+        external_access = row.get("external_access")
+        if isinstance(external_access, str):
+            try:
+                external_access = json.loads(external_access)
+            except (TypeError, ValueError):
+                external_access = None
+        result[node_id] = {
+            "tenant_id": row.get("tenant_id"),
+            "classification": row.get("classification"),
+            "external_access": external_access,
+            "owner_id": row.get("owner_id"),
+            "shared_scope": row.get("shared_scope"),
+        }
+
+
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
     resolved = actor or current_actor()
     resolved.ensure_credential_current()
@@ -246,8 +391,6 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     """
 
     from .engine import IntelligenceGraphEngine
-    from .fleet_catalog_tables import catalog_acl_rows
-    from .session import current_session
 
     active = IntelligenceGraphEngine.get_active()
     if active is None:
@@ -256,19 +399,9 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     remaining = list(dict.fromkeys(node_ids))
 
-    tenant_id = ""
-    try:
-        ambient_actor = current_actor()
-        if getattr(ambient_actor, "authenticated", False):
-            tenant_id = str(getattr(ambient_actor, "tenant_id", "") or "")
-    except Exception:  # noqa: BLE001 — no/invalid ambient actor just skips the fast path
-        tenant_id = ""
-
+    tenant_id = _ambient_tenant_id()
     if tenant_id and remaining:
-        try:
-            sql_hits = catalog_acl_rows(active, remaining, tenant_id)
-        except Exception:  # noqa: BLE001 — SQL fast path is a pure optimization, never authoritative on failure
-            sql_hits = {}
+        sql_hits = _catalog_acl_hits(active, remaining, tenant_id)
         if sql_hits:
             result.update(sql_hits)
             remaining = [node_id for node_id in remaining if node_id not in sql_hits]
@@ -276,32 +409,7 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     if not remaining:
         return result
 
-    session = current_session()
-    requested_graph = (
-        str(getattr(session, "graph", "") or "") if session is not None else ""
-    )
-    active_graph = str(
-        getattr(getattr(active, "graph_compute", None), "graph_name", "") or ""
-    )
-
-    hydration_authority = active
-    if requested_graph and requested_graph != active_graph:
-        view_factory = getattr(active, "for_graph", None)
-        if not callable(view_factory):
-            raise PermissionError("Durable ACL hydration authority is unavailable")
-        try:
-            hydration_authority = view_factory(requested_graph)
-        except Exception as exc:
-            raise PermissionError(
-                "Durable ACL hydration authority is unavailable"
-            ) from exc
-        if hydration_authority is None:
-            raise PermissionError("Durable ACL hydration authority is unavailable")
-
-    backend = getattr(hydration_authority, "backend", None)
-    execute_read = getattr(backend, "execute_read", None)
-    if not callable(execute_read):
-        raise PermissionError("Durable ACL hydration authority is unavailable")
+    backend, execute_read = _hydration_reader(active)
 
     # Label-scoped first: an unlabeled `MATCH (n)` resolves via
     # `GraphCore::get_nodes()`, which clones every node's property blob in
@@ -328,7 +436,6 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
         "n.external_access AS external_access, n._owner_id AS owner_id, "
         "n._shared_scope AS shared_scope"
     )
-    rows: list[dict[str, Any]] = []
 
     # Primary defense against the O(graph) unlabeled scan below: a bounded,
     # label-independent id lookup through the backend's own node store (see
@@ -338,84 +445,16 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     # transient failure, or a genuinely property-empty node) falls straight
     # through to the labeled/unlabeled Cypher path exactly as if this call
     # had never run.
-    accelerated_rows = _id_indexed_batch_rows(backend, remaining)
-    if accelerated_rows:
-        rows.extend(accelerated_rows)
-        resolved_by_accelerator = {row["id"] for row in accelerated_rows}
-        remaining = [
-            node_id for node_id in remaining if node_id not in resolved_by_accelerator
-        ]
+    result_rows, remaining = _accelerated_hydration_rows(backend, remaining)
 
-    try:
-        for candidate_label in _LABELED_HYDRATION_CANDIDATES:
-            if not remaining:
-                break
-            safe_label = validate_identifier(candidate_label, kind="label")
-            found = execute_read(
-                f"MATCH (n:{safe_label}) WHERE n.id IN $ids {return_clause}",
-                {"ids": remaining},
-            )
-            if not isinstance(found, list):
-                raise PermissionError("Durable ACL hydration response is invalid")
-            resolved_ids: set[str] = set()
-            for row in found:
-                if not isinstance(row, dict):
-                    raise PermissionError("Durable ACL hydration response is invalid")
-                rows.append(row)
-                row_id = row.get("id")
-                if isinstance(row_id, str):
-                    resolved_ids.add(row_id)
-            remaining = [
-                node_id for node_id in remaining if node_id not in resolved_ids
-            ]
-        if remaining:
-            found = execute_read(
-                f"MATCH (n) WHERE n.id IN $ids {return_clause}",
-                {"ids": remaining},
-            )
-            if not isinstance(found, list):
-                raise PermissionError("Durable ACL hydration response is invalid")
-            rows.extend(found)
-    except PermissionError:
-        raise
-    except Exception as exc:
-        raise PermissionError("Durable ACL hydration query failed") from exc
+    result_rows.extend(
+        _read_cypher_hydration_rows(execute_read, remaining, return_clause)
+    )
 
     # `result` was pre-seeded above with the SQL fast path's hits (for a
     # disjoint id set — `remaining` never contained an id SQL already
     # answered), so this only ever ADDS entries, never overwrites one.
-    for row in rows:
-        if not isinstance(row, dict):
-            raise PermissionError("Durable ACL hydration response is invalid")
-        node_id = row.get("id")
-        if not isinstance(node_id, str):
-            continue
-        external_access = row.get("external_access")
-        if isinstance(external_access, str):
-            try:
-                external_access = json.loads(external_access)
-            except (TypeError, ValueError):
-                external_access = None
-        result[node_id] = {
-            "tenant_id": row.get("tenant_id"),
-            "classification": row.get("classification"),
-            "external_access": external_access,
-            "owner_id": row.get("owner_id"),
-            # D-P0-U119: the write-time governance stamp
-            # (`tenant_sharing.stamp_ownership`) always writes `_owner_id` AND
-            # `_shared_scope` together -- an org-/commons-shared node has NO
-            # `external_access` descriptor (that shape is connector-only, see
-            # `_hydrate_missing_acls`'s docstring) and its private-by-default
-            # `_owner_id` alone denies every non-owner same-tenant reader. This
-            # field was previously dropped here, so `_hydrate_missing_acls` had
-            # no organization-sharing evidence and every non-owner reader in the
-            # SAME tenant was (incorrectly) default-denied post-restart/cache-miss
-            # even though `tenant_sharing.visible()`'s raw-row post-filter (a
-            # DIFFERENT, already-correct enforcement path) would have shown the
-            # row. Must be preserved through this mapping for
-            # `_hydrate_missing_acls` to reconcile it.
-            "shared_scope": row.get("shared_scope"),
-        }
+    _merge_hydration_rows(result, result_rows)
     return result
 
 
@@ -427,6 +466,51 @@ def _parse_classification(raw: Any) -> DataClassification | None:
         return DataClassification(str(raw or ""))
     except ValueError:
         return None
+
+
+def _hydrate_connector_acl(node_id: str, properties: dict[str, Any]) -> None:
+    """Restore an ACL backed by a source connector's access descriptor."""
+    from ...models.company_brain import DataClassification
+    from ...protocols.source_connectors.base import ExternalAccess
+    from ...protocols.source_connectors.permission_sync import sync_access
+
+    try:
+        access = ExternalAccess.model_validate(properties["external_access"])
+        classification = DataClassification(str(properties.get("classification") or ""))
+        sync_access(node_id, access, classification=classification)
+    except Exception as exc:
+        raise PermissionError("Durable ACL metadata is invalid") from exc
+
+
+def _hydrate_first_party_acl(
+    node_id: str,
+    properties: dict[str, Any],
+    actor: ActorContext,
+    org_shared_scopes: set[str],
+) -> None:
+    """Restore an ACL from first-party ownership/classification stamps."""
+    from ...models.company_brain import DataClassification
+
+    parsed_classification = _parse_classification(properties.get("classification"))
+    owner_id = str(properties.get("owner_id") or "").strip()
+    shared_scope = str(properties.get("shared_scope") or "").strip().lower()
+    org_shared = shared_scope in org_shared_scopes
+    if parsed_classification is DataClassification.PUBLIC:
+        get_company_brain().permissions.classify_node(
+            node_id, DataClassification.PUBLIC
+        )
+        return
+    if not owner_id and not org_shared:
+        return
+
+    acl = get_company_brain().permissions.classify_node(
+        node_id,
+        parsed_classification or DataClassification.CONFIDENTIAL,
+        data_owner=owner_id,
+    )
+    if org_shared and actor.actor_id not in acl.read_actors:
+        acl.read_actors.append(actor.actor_id)
+        get_company_brain().permissions.set_acl(acl)
 
 
 def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
@@ -479,9 +563,6 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
        unshared node, and the same-tenant gate above still applies first.
     """
 
-    from ...models.company_brain import DataClassification
-    from ...protocols.source_connectors.base import ExternalAccess
-    from ...protocols.source_connectors.permission_sync import sync_access
     from .tenant_sharing import SCOPE_COMMONS, SCOPE_ORG
 
     org_shared_scopes = {SCOPE_ORG, SCOPE_COMMONS}
@@ -489,44 +570,15 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
     rows = _durable_access_rows(node_ids)
     for node_id in node_ids:
         properties = rows.get(node_id)
-        if properties is None:
+        if (
+            properties is None
+            or str(properties.get("tenant_id") or "") != actor.tenant_id
+        ):
             continue
-        if str(properties.get("tenant_id") or "") != actor.tenant_id:
+        if isinstance(properties.get("external_access"), dict):
+            _hydrate_connector_acl(node_id, properties)
             continue
-        raw_access = properties.get("external_access")
-        if isinstance(raw_access, dict):
-            try:
-                access = ExternalAccess.model_validate(raw_access)
-                classification = DataClassification(
-                    str(properties.get("classification") or "")
-                )
-                sync_access(node_id, access, classification=classification)
-            except Exception as exc:
-                raise PermissionError("Durable ACL metadata is invalid") from exc
-            continue
-
-        # No connector descriptor: synthesize from the first-party write-time
-        # stamp instead of leaving the node permanently unclassified.
-        parsed_classification = _parse_classification(properties.get("classification"))
-        owner_id = str(properties.get("owner_id") or "").strip()
-        shared_scope = str(properties.get("shared_scope") or "").strip().lower()
-        org_shared = shared_scope in org_shared_scopes
-        if parsed_classification is DataClassification.PUBLIC:
-            get_company_brain().permissions.classify_node(
-                node_id, DataClassification.PUBLIC
-            )
-        elif owner_id or org_shared:
-            acl = get_company_brain().permissions.classify_node(
-                node_id,
-                parsed_classification or DataClassification.CONFIDENTIAL,
-                data_owner=owner_id,
-            )
-            if org_shared and actor.actor_id not in acl.read_actors:
-                acl.read_actors.append(actor.actor_id)
-                get_company_brain().permissions.set_acl(acl)
-        # else: no owner, not PUBLIC, not org-/commons-shared -> nothing to
-        # synthesize; the node stays denied (fail closed), identical to
-        # pre-fix behavior.
+        _hydrate_first_party_acl(node_id, properties, actor, org_shared_scopes)
 
 
 def audit_read(

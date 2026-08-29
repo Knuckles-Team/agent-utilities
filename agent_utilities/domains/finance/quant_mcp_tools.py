@@ -15,6 +15,186 @@ from agent_utilities.domains.finance.trading_swarm import TradingSwarm
 logger = logging.getLogger(__name__)
 
 
+def _quant_debate(engine: Any, ticker: str, asset_class: str, rounds: int) -> str:
+    if not engine:
+        return "Error: GraphEngine required for quant debate"
+
+    context = DebateContext(
+        ticker=ticker,
+        asset_class=asset_class,
+        market_report=f"Standard market report for {ticker}",
+        sentiment_report=f"Neutral sentiment for {ticker}",
+    )
+
+    debate = DebateEngine(engine=engine)
+    session_id = f"mcp_debate_{hash(ticker)}"
+    result = debate.run_debate(session_id, context, rounds)
+
+    approved = result.risk_assessment.approved if result.risk_assessment else False
+    reasoning = (
+        result.risk_assessment.reasoning
+        if result.risk_assessment
+        else "No risk assessment available"
+    )
+    pos_size = (
+        result.risk_assessment.max_position_size if result.risk_assessment else 0.0
+    )
+
+    summary = [
+        f"=== DEBATE FINAL DECISION: {result.final_decision} ===",
+        f"Asset: {ticker} ({asset_class})",
+        f"Risk Veto: {'APPROVED' if approved else 'VETOED'}",
+        f"Reasoning: {reasoning}",
+        f"Max Position Size: {pos_size:.1%}",
+        "\n--- Debate History ---",
+    ]
+
+    for r in result.rounds:
+        summary.append(f"Round {r.round_number}:")
+        summary.append(
+            f"  {r.bull_argument.role} (Conf: {r.bull_argument.confidence:.2f}): {r.bull_argument.content}"
+        )
+        summary.append(
+            f"  {r.bear_argument.role} (Conf: {r.bear_argument.confidence:.2f}): {r.bear_argument.content}"
+        )
+
+    return "\n".join(summary)
+
+
+def _quant_analyze(ticker: str) -> str:
+    swarm = TradingSwarm.create_default()
+    mock_data = {
+        "momentum": 0.05,
+        "volatility": 0.02,
+        "rsi": 65,
+        "trend": 0.02,
+        "volume_signal": 0.4,
+    }
+    consensus = swarm.analyze(mock_data)
+
+    lines = [f"Full analysis for {ticker}:"]
+    lines.append(f"Decision: {consensus.decision.value.upper()}")
+    lines.append(f"Confidence (Weighted Score): {consensus.weighted_score:.2f}")
+    lines.append(f"Agreement Ratio: {consensus.agreement_ratio:.2f}")
+    lines.append(f"Risk Override: {consensus.risk_override}")
+    lines.append("\nIndividual Signals:")
+    for sig in consensus.signals:
+        lines.append(
+            f"  - {sig.role.value}: {'Buy' if sig.direction > 0 else 'Sell' if sig.direction < 0 else 'Hold'} ({sig.confidence:.2f}) -> {sig.reasoning}"
+        )
+
+    return "\n".join(lines)
+
+
+def _quant_regime(engine: Any, ticker: str, period: str, interval: str) -> str:
+    registry = DataRegistry()
+    res = registry.fetch(ticker, period=period, interval=interval)
+
+    detector = RegimeDetector(engine)
+    regime = detector.detect_regime(res.data, ticker)
+
+    return f"Current market regime for {ticker}: {regime.upper()} (Data source: {res.provider})"
+
+
+def _quant_ensemble(ticker: str) -> str:
+    import time
+
+    from agent_utilities.harness.distributed_state_manager import (
+        OptimisticStateLocker,
+    )
+    from agent_utilities.orchestration.prediction_linkage import (
+        PredictionLinkageLayer,
+    )
+
+    pll = PredictionLinkageLayer()
+    state_locker = OptimisticStateLocker(use_redis=False)
+
+    expected_v = 0
+    state_data = state_locker.get_state(f"ensemble_{ticker}")
+    if state_data:
+        expected_v = state_data.get("version", 0)
+
+    now = time.time()
+    pll.register_prediction(
+        "agent_momentum",
+        ticker,
+        prediction=1.05,
+        confidence=0.8,
+        timestamp=now,
+    )
+    pll.register_prediction(
+        "agent_mean_rev",
+        ticker,
+        prediction=-0.95,
+        confidence=0.6,
+        timestamp=now,
+    )
+    pll.register_prediction(
+        "agent_macro",
+        ticker,
+        prediction=1.02,
+        confidence=0.9,
+        timestamp=now,
+    )
+
+    fused_result = pll.fuse_predictions(ticker)
+
+    success = state_locker.update_state(f"ensemble_{ticker}", fused_result, expected_v)
+
+    lines = [
+        f"=== QUANT ENSEMBLE PREDICTION FOR {ticker} ===",
+        f"Fused Prediction Score: {fused_result['ensemble_prediction']:.4f}",
+        f"Overall Confidence: {fused_result['overall_confidence']:.2f}",
+        f"State Lock Success: {'Yes' if success else 'No (Race Condition Detected)'}",
+        "Participating Sub-Agents: agent_momentum, agent_mean_rev, agent_macro",
+    ]
+    return "\n".join(lines)
+
+
+def _quant_orchestrate(
+    engine: Any,
+    action: str,
+    ticker: str,
+    asset_class: str,
+    period: str,
+    interval: str,
+    rounds: int,
+) -> str:
+    if action == "debate":
+        return _quant_debate(engine, ticker, asset_class, rounds)
+    elif action == "analyze":
+        return _quant_analyze(ticker)
+    elif action == "regime":
+        return _quant_regime(engine, ticker, period, interval)
+    elif action == "ensemble_predict":
+        return _quant_ensemble(ticker)
+    return f"Error: Unknown action '{action}' for orchestrate domain."
+
+
+def _quant_data(action: str) -> str:
+    if action in ["historical", "order_book", "fundamentals"]:
+        raise ProviderNotConfigured(
+            f"Integration not configured: Data provider for '{action}' is not connected. Mock fallback disabled."
+        )
+    return f"Error: Unknown action '{action}' for data domain."
+
+
+def _quant_execute(action: str) -> str:
+    if action in ["submit_order", "cancel_order", "status"]:
+        raise ProviderNotConfigured(
+            "Integration not configured: Execution broker not connected. Mock fallback disabled."
+        )
+    return f"Error: Unknown action '{action}' for execute domain."
+
+
+def _quant_portfolio(action: str) -> str:
+    if action in ["balances", "positions", "risk_metrics", "optimize"]:
+        raise ProviderNotConfigured(
+            f"Integration not configured: Portfolio manager for '{action}' is not connected. Mock fallback disabled."
+        )
+    return f"Error: Unknown action '{action}' for portfolio domain."
+
+
 def register_quant_tools(mcp: Any, engine_default: Any = None) -> Any:
     """Register the ``quant`` tool onto the MCP server and return the callable.
 
@@ -56,183 +236,21 @@ def register_quant_tools(mcp: Any, engine_default: Any = None) -> Any:
             engine = IntelligenceGraphEngine.get_active()
         try:
             if domain == "orchestrate":
-                if action == "debate":
-                    if not engine:
-                        return "Error: GraphEngine required for quant debate"
-
-                    context = DebateContext(
-                        ticker=ticker,
-                        asset_class=asset_class,
-                        market_report=f"Standard market report for {ticker}",
-                        sentiment_report=f"Neutral sentiment for {ticker}",
-                    )
-
-                    debate = DebateEngine(engine=engine)
-                    session_id = f"mcp_debate_{hash(ticker)}"
-                    result = debate.run_debate(session_id, context, rounds)
-
-                    approved = (
-                        result.risk_assessment.approved
-                        if result.risk_assessment
-                        else False
-                    )
-                    reasoning = (
-                        result.risk_assessment.reasoning
-                        if result.risk_assessment
-                        else "No risk assessment available"
-                    )
-                    pos_size = (
-                        result.risk_assessment.max_position_size
-                        if result.risk_assessment
-                        else 0.0
-                    )
-
-                    summary = [
-                        f"=== DEBATE FINAL DECISION: {result.final_decision} ===",
-                        f"Asset: {ticker} ({asset_class})",
-                        f"Risk Veto: {'APPROVED' if approved else 'VETOED'}",
-                        f"Reasoning: {reasoning}",
-                        f"Max Position Size: {pos_size:.1%}",
-                        "\n--- Debate History ---",
-                    ]
-
-                    for r in result.rounds:
-                        summary.append(f"Round {r.round_number}:")
-                        summary.append(
-                            f"  {r.bull_argument.role} (Conf: {r.bull_argument.confidence:.2f}): {r.bull_argument.content}"
-                        )
-                        summary.append(
-                            f"  {r.bear_argument.role} (Conf: {r.bear_argument.confidence:.2f}): {r.bear_argument.content}"
-                        )
-
-                    return "\n".join(summary)
-
-                elif action == "analyze":
-                    swarm = TradingSwarm.create_default()
-                    mock_data = {
-                        "momentum": 0.05,
-                        "volatility": 0.02,
-                        "rsi": 65,
-                        "trend": 0.02,
-                        "volume_signal": 0.4,
-                    }
-                    consensus = swarm.analyze(mock_data)
-
-                    lines = [f"Full analysis for {ticker}:"]
-                    lines.append(f"Decision: {consensus.decision.value.upper()}")
-                    lines.append(
-                        f"Confidence (Weighted Score): {consensus.weighted_score:.2f}"
-                    )
-                    lines.append(f"Agreement Ratio: {consensus.agreement_ratio:.2f}")
-                    lines.append(f"Risk Override: {consensus.risk_override}")
-                    lines.append("\nIndividual Signals:")
-                    for sig in consensus.signals:
-                        lines.append(
-                            f"  - {sig.role.value}: {'Buy' if sig.direction > 0 else 'Sell' if sig.direction < 0 else 'Hold'} ({sig.confidence:.2f}) -> {sig.reasoning}"
-                        )
-
-                    return "\n".join(lines)
-
-                elif action == "regime":
-                    registry = DataRegistry()
-                    res = registry.fetch(ticker, period=period, interval=interval)
-
-                    detector = RegimeDetector(engine)
-                    regime = detector.detect_regime(res.data, ticker)
-
-                    return f"Current market regime for {ticker}: {regime.upper()} (Data source: {res.provider})"
-
-                elif action == "ensemble_predict":
-                    import time
-
-                    from agent_utilities.harness.distributed_state_manager import (
-                        OptimisticStateLocker,
-                    )
-                    from agent_utilities.orchestration.prediction_linkage import (
-                        PredictionLinkageLayer,
-                    )
-
-                    pll = PredictionLinkageLayer()
-                    state_locker = OptimisticStateLocker(use_redis=False)
-
-                    expected_v = 0
-                    state_data = state_locker.get_state(f"ensemble_{ticker}")
-                    if state_data:
-                        expected_v = state_data.get("version", 0)
-
-                    now = time.time()
-                    pll.register_prediction(
-                        "agent_momentum",
-                        ticker,
-                        prediction=1.05,
-                        confidence=0.8,
-                        timestamp=now,
-                    )
-                    pll.register_prediction(
-                        "agent_mean_rev",
-                        ticker,
-                        prediction=-0.95,
-                        confidence=0.6,
-                        timestamp=now,
-                    )
-                    pll.register_prediction(
-                        "agent_macro",
-                        ticker,
-                        prediction=1.02,
-                        confidence=0.9,
-                        timestamp=now,
-                    )
-
-                    fused_result = pll.fuse_predictions(ticker)
-
-                    success = state_locker.update_state(
-                        f"ensemble_{ticker}", fused_result, expected_v
-                    )
-
-                    lines = [
-                        f"=== QUANT ENSEMBLE PREDICTION FOR {ticker} ===",
-                        f"Fused Prediction Score: {fused_result['ensemble_prediction']:.4f}",
-                        f"Overall Confidence: {fused_result['overall_confidence']:.2f}",
-                        f"State Lock Success: {'Yes' if success else 'No (Race Condition Detected)'}",
-                        "Participating Sub-Agents: agent_momentum, agent_mean_rev, agent_macro",
-                    ]
-                    return "\n".join(lines)
-
-                else:
-                    return f"Error: Unknown action '{action}' for orchestrate domain."
-
+                return _quant_orchestrate(
+                    engine,
+                    action,
+                    ticker,
+                    asset_class,
+                    period,
+                    interval,
+                    rounds,
+                )
             elif domain == "data":
-                if action in ["historical", "order_book", "fundamentals"]:
-                    raise ProviderNotConfigured(
-                        f"Integration not configured: Data provider for '{action}' is not connected. Mock fallback disabled."
-                    )
-                else:
-                    return f"Error: Unknown action '{action}' for data domain."
-
+                return _quant_data(action)
             elif domain == "execute":
-                if action == "submit_order":
-                    raise ProviderNotConfigured(
-                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
-                    )
-                elif action == "cancel_order":
-                    raise ProviderNotConfigured(
-                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
-                    )
-                elif action == "status":
-                    raise ProviderNotConfigured(
-                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
-                    )
-                else:
-                    return f"Error: Unknown action '{action}' for execute domain."
-
+                return _quant_execute(action)
             elif domain == "portfolio":
-                if action in ["balances", "positions", "risk_metrics", "optimize"]:
-                    raise ProviderNotConfigured(
-                        f"Integration not configured: Portfolio manager for '{action}' is not connected. Mock fallback disabled."
-                    )
-                else:
-                    return f"Error: Unknown action '{action}' for portfolio domain."
-
+                return _quant_portfolio(action)
             else:
                 return f"Error: Unknown domain '{domain}'."
 

@@ -356,6 +356,84 @@ def dashboard_layout_path() -> Path:
     return data_dir() / "layout.yaml"
 
 
+def _parse_mcp_servers(raw: bytes) -> dict[Any, Any]:
+    """Parse and validate the bounded MCP server catalog payload."""
+    if len(raw) > _MAX_CONFIG_BYTES:
+        raise ValueError("MCP catalog exceeds its size boundary")
+    mcp_config = json.loads(raw.decode("utf-8"))
+    if not isinstance(mcp_config, dict):
+        raise ValueError("MCP catalog must be an object")
+
+    servers = mcp_config.get("mcpServers", mcp_config.get("servers", {}))
+    if not isinstance(servers, dict) or len(servers) > _MAX_MCP_SERVERS:
+        raise ValueError("MCP server catalog has an invalid shape or size")
+    return servers
+
+
+def _resolve_discovered_url(env_vars: object, env_prefix: str) -> str:
+    """Resolve a concrete service URL without persisting runtime references."""
+    if not isinstance(env_vars, dict) or len(env_vars) > 256:
+        env_vars = {}
+    if not env_prefix:
+        return ""
+
+    candidate = env_vars.get(f"{env_prefix}_URL", "")
+    if isinstance(candidate, str) and not candidate.startswith(
+        ("${", "env://", "secret://", "vault://")
+    ):
+        url = candidate[:8192]
+        if url:
+            return url
+    return setting(f"{env_prefix}_URL", "")
+
+
+def _service_for_server(
+    server_name: object, server_config: object
+) -> ServiceConfig | None:
+    """Build a widget config for one supported MCP server entry."""
+    if not isinstance(server_name, str) or len(server_name) > 128:
+        return None
+    if not isinstance(server_config, dict):
+        return None
+    mapping = _MCP_TO_WIDGET.get(server_name)
+    if not mapping:
+        return None
+
+    env_prefix = mapping.get("env_prefix", "")
+    url = _resolve_discovered_url(server_config.get("env", {}), env_prefix)
+    return ServiceConfig(
+        id=server_name,
+        name=mapping["name"],
+        widget_type=mapping["widget_type"],
+        url=url,
+        icon=mapping.get("icon", ""),
+        category=mapping["category"],
+        env_prefix=env_prefix,
+        href=url,
+    )
+
+
+def _build_discovered_groups(servers: dict[Any, Any]) -> list[ServiceGroup]:
+    """Group supported server entries in the stable dashboard order."""
+    category_groups: dict[ServiceCategory, list[ServiceConfig]] = {}
+    for server_name, server_config in servers.items():
+        service = _service_for_server(server_name, server_config)
+        if service is not None:
+            category_groups.setdefault(service.category, []).append(service)
+
+    return [
+        ServiceGroup(
+            name=category.value,
+            services=services,
+            order=idx,
+            icon=services[0].icon if services else "",
+        )
+        for idx, (category, services) in enumerate(
+            sorted(category_groups.items(), key=lambda item: item[0].value)
+        )
+    ]
+
+
 class ConfigManager:
     """Manages service dashboard configuration.
 
@@ -492,75 +570,8 @@ class ConfigManager:
             logger.info("No MCP catalog configured for dashboard discovery")
             return DashboardLayout()
 
-        raw = mcp_path.read_bytes()
-        if len(raw) > _MAX_CONFIG_BYTES:
-            raise ValueError("MCP catalog exceeds its size boundary")
-        mcp_config = json.loads(raw.decode("utf-8"))
-        if not isinstance(mcp_config, dict):
-            raise ValueError("MCP catalog must be an object")
-
-        servers = mcp_config.get("mcpServers", mcp_config.get("servers", {}))
-        if not isinstance(servers, dict) or len(servers) > _MAX_MCP_SERVERS:
-            raise ValueError("MCP server catalog has an invalid shape or size")
-
-        # Group services by category
-        category_groups: dict[ServiceCategory, list[ServiceConfig]] = {}
-
-        for server_name, server_config in servers.items():
-            if not isinstance(server_name, str) or len(server_name) > 128:
-                continue
-            if not isinstance(server_config, dict):
-                continue
-            mapping = _MCP_TO_WIDGET.get(server_name)
-            if not mapping:
-                continue
-
-            # Extract URL from server config env vars or args
-            env_vars = server_config.get("env", {})
-            if not isinstance(env_vars, dict) or len(env_vars) > 256:
-                env_vars = {}
-            url = ""
-            env_prefix = mapping.get("env_prefix", "")
-            if env_prefix:
-                candidate = env_vars.get(f"{env_prefix}_URL", "")
-                # Persisted catalogs are parsed literally. Runtime templates and
-                # secret references stay unresolved here; environment lookup is
-                # the only source of concrete discovery values.
-                if isinstance(candidate, str) and not candidate.startswith(
-                    ("${", "env://", "secret://", "vault://")
-                ):
-                    url = candidate[:8192]
-                if not url:
-                    url = setting(f"{env_prefix}_URL", "")
-
-            category = mapping["category"]
-            svc = ServiceConfig(
-                id=server_name,
-                name=mapping["name"],
-                widget_type=mapping["widget_type"],
-                url=url,
-                icon=mapping.get("icon", ""),
-                category=category,
-                env_prefix=env_prefix,
-                href=url,
-            )
-
-            if category not in category_groups:
-                category_groups[category] = []
-            category_groups[category].append(svc)
-
-        groups = []
-        for idx, (cat, services) in enumerate(
-            sorted(category_groups.items(), key=lambda x: x[0].value)
-        ):
-            groups.append(
-                ServiceGroup(
-                    name=cat.value,
-                    services=services,
-                    order=idx,
-                    icon=services[0].icon if services else "",
-                )
-            )
+        servers = _parse_mcp_servers(mcp_path.read_bytes())
+        groups = _build_discovered_groups(servers)
 
         layout = DashboardLayout(groups=groups)
         logger.info(

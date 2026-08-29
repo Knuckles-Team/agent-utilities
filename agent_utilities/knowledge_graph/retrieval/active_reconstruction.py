@@ -119,6 +119,86 @@ class Reconstruction:
         return self.evidence[: max(0, k)]
 
 
+def _collect_candidates(
+    query: str,
+    frontier: list[str],
+    neighbor_fn: NeighborFn,
+    score_fn: ScoreFn,
+) -> tuple[list[tuple[str, dict[str, Any], float]], dict[str, float]]:
+    """Collect typed neighbours and their per-tag relevance for one hop."""
+    candidates: list[tuple[str, dict[str, Any], float]] = []
+    tag_relevance: dict[str, float] = {}
+    for cue in frontier:
+        for tag, node in neighbor_fn(cue) or []:
+            if not node.get("id"):
+                continue
+            content_score = score_fn(query, node_text(node))
+            # A tag's relevance is the query-relevance of its label OR of the
+            # best content it leads to (associative bridge salience).
+            tag_score = max(score_fn(query, humanize_tag(tag)), content_score)
+            if tag_score > tag_relevance.get(tag, -1.0):
+                tag_relevance[tag] = tag_score
+            candidates.append((tag, node, content_score))
+    return candidates, tag_relevance
+
+
+def _select_tags(tag_relevance: dict[str, float], tag_top_k: int) -> set[str]:
+    """Keep the most relevant tags for a reconstruction hop."""
+    return {
+        tag
+        for tag, _ in sorted(
+            tag_relevance.items(), key=lambda item: item[1], reverse=True
+        )[: max(1, tag_top_k)]
+    }
+
+
+def _accumulate_evidence(
+    query: str,
+    candidates: list[tuple[str, dict[str, Any], float]],
+    selected_tags: set[str],
+    seen: set[str],
+    best: dict[str, EvidenceNode],
+    relevance_floor: float,
+    hop: int,
+) -> tuple[list[tuple[str, float]], int, list[str]]:
+    """Record selected candidates and return fresh content for the next hop."""
+    added: list[tuple[str, float]] = []
+    pruned = 0
+    round_evidence: list[str] = []
+    for tag, node, content_score in candidates:
+        if tag not in selected_tags:
+            continue
+        if content_score < relevance_floor:
+            pruned += 1
+            continue
+        nid = str(node["id"])
+        round_evidence.append(nid)
+        previous = best.get(nid)
+        if previous is None or content_score > previous.score:
+            best[nid] = EvidenceNode(
+                id=nid,
+                text=node_text(node),
+                score=content_score,
+                via_tag=tag,
+                hop=hop,
+                label=str(node.get("label") or ""),
+            )
+        if nid not in seen:
+            seen.add(nid)
+            added.append((nid, content_score))
+    return added, pruned, round_evidence
+
+
+def _next_frontier(added: list[tuple[str, float]], content_top_k: int) -> list[str]:
+    """Select the highest-scoring fresh content as the next cue frontier."""
+    return [
+        nid
+        for nid, _ in sorted(added, key=lambda item: item[1], reverse=True)[
+            : max(1, content_top_k)
+        ]
+    ]
+
+
 def reconstruct(
     query: str,
     seed_ids: list[str],
@@ -160,65 +240,30 @@ def reconstruct(
 
     for hop in range(1, max_hops + 1):
         # Gather typed neighbours of every cue on the frontier.
-        candidates: list[tuple[str, dict[str, Any], float]] = []
-        tag_relevance: dict[str, float] = {}
-        for cue in frontier:
-            for tag, node in neighbor_fn(cue) or []:
-                if not node.get("id"):
-                    continue
-                content_score = score_fn(query, node_text(node))
-                # A tag's relevance is the query-relevance of its label OR of the
-                # best content it leads to (associative bridge salience).
-                tag_score = max(score_fn(query, humanize_tag(tag)), content_score)
-                if tag_score > tag_relevance.get(tag, -1.0):
-                    tag_relevance[tag] = tag_score
-                candidates.append((tag, node, content_score))
+        candidates, tag_relevance = _collect_candidates(
+            query, frontier, neighbor_fn, score_fn
+        )
 
         if not candidates:
             recon.stop_reason = "frontier_exhausted"
             break
 
         # Cue -> Tag: keep only the most relevant tags this hop (prune the blow-up).
-        selected_tags = {
-            t
-            for t, _ in sorted(
-                tag_relevance.items(), key=lambda kv: kv[1], reverse=True
-            )[: max(1, tag_top_k)]
-        }
+        selected_tags = _select_tags(tag_relevance, tag_top_k)
 
         # (Cue, Tag) -> Content: expand only the selected tags; prune weak content.
-        added: list[tuple[str, float]] = []
-        pruned = 0
-        round_evidence: list[str] = []
-        for tag, node, content_score in candidates:
-            if tag not in selected_tags:
-                continue
-            if content_score < relevance_floor:
-                pruned += 1
-                continue
-            nid = str(node["id"])
-            round_evidence.append(nid)
-            prev = best.get(nid)
-            if prev is None or content_score > prev.score:
-                best[nid] = EvidenceNode(
-                    id=nid,
-                    text=node_text(node),
-                    score=content_score,
-                    via_tag=tag,
-                    hop=hop,
-                    label=str(node.get("label") or ""),
-                )
-            if nid not in seen:
-                seen.add(nid)
-                added.append((nid, content_score))
+        added, pruned, round_evidence = _accumulate_evidence(
+            query,
+            candidates,
+            selected_tags,
+            seen,
+            best,
+            relevance_floor,
+            hop,
+        )
 
         # Content -> Cue: the best fresh content becomes the next cue frontier.
-        next_frontier = [
-            nid
-            for nid, _ in sorted(added, key=lambda t: t[1], reverse=True)[
-                : max(1, content_top_k)
-            ]
-        ]
+        next_frontier = _next_frontier(added, content_top_k)
         recon.steps.append(
             ReconstructionStep(
                 hop=hop,

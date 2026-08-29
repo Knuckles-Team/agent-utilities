@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 377 runtime-only call-site inputs.
+572 typed fields · 378 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -831,6 +831,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `FRESHRSS_USE_NOVELTY` | 1 |
 | `GITHUB_API_KEY` | 1 |
 | `GITHUB_TOKEN` | 1 |
+| `GITHUB_URL` | 1 |
 | `GITLAB_API_TOKEN` | 1 |
 | `GITLAB_TOKEN` | 2 |
 | `GITLAB_URL` | 2 |

@@ -106,6 +106,24 @@ def _bearer_token(request: web.Request) -> str:
     return ""
 
 
+def _resolve_alert_intake_token() -> str | None:
+    """Resolve the configured bearer token without exposing reference details."""
+    token_ref = str(setting("MESSAGING_ALERT_INTAKE_TOKEN_REF", "") or "").strip()
+    if not token_ref:
+        logger.error("messaging alert-intake disabled: token reference is required")
+        return None
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        token = create_secrets_client().resolve_ref(token_ref)
+    except Exception:  # noqa: BLE001 — never disclose provider/ref details
+        token = None
+    if not token:
+        logger.error("messaging alert-intake disabled: token reference is unresolved")
+        return None
+    return str(token)
+
+
 async def _handle(request: web.Request) -> web.Response:
     supplied = _bearer_token(request)
     required = request.app["alert_intake_token"]
@@ -168,23 +186,13 @@ async def serve_alert_intake(engine: Any, port: int) -> None:
         )
         return
 
-    token_ref = str(setting("MESSAGING_ALERT_INTAKE_TOKEN_REF", "") or "").strip()
-    if not token_ref:
-        logger.error("messaging alert-intake disabled: token reference is required")
-        return
-    try:
-        from agent_utilities.security.secrets_client import create_secrets_client
-
-        token = create_secrets_client().resolve_ref(token_ref)
-    except Exception:  # noqa: BLE001 — never disclose provider/ref details
-        token = None
-    if not token:
-        logger.error("messaging alert-intake disabled: token reference is unresolved")
+    token = _resolve_alert_intake_token()
+    if token is None:
         return
 
     app = web.Application(client_max_size=_MAX_BODY_BYTES)
     app["engine"] = engine
-    app["alert_intake_token"] = str(token)
+    app["alert_intake_token"] = token
     app["alert_intake_deliveries"] = asyncio.Semaphore(_MAX_CONCURRENT_DELIVERIES)
 
     async def _health(_request: web.Request) -> web.Response:

@@ -104,6 +104,35 @@ def test_fragments_are_orderable_and_nestable() -> None:
         assert row.depth == table.depth + 1 == section.depth + 2
 
 
+def test_fragment_spans_are_bounded_and_reference_original_text() -> None:
+    text = "# H\n\nintro π café 🧪\n\n> quoted line\n\n- item\n"
+    fragments = fragment_markdown(text, artifact_id=ARTIFACT)
+
+    assert [fragment.sequence for fragment in fragments] == list(range(len(fragments)))
+    starts = [fragment.char_start for fragment in fragments]
+    assert starts == sorted(starts)
+    for fragment in fragments:
+        assert 0 <= fragment.char_start < fragment.char_end <= len(text)
+        source = text[fragment.char_start : fragment.char_end]
+        assert source
+        # Markdown markers and surrounding whitespace are intentionally omitted
+        # from a fragment's normalized text, but the source span must contain it.
+        assert fragment.text in source
+
+
+def test_fragment_offsets_and_addresses_use_unicode_characters() -> None:
+    text = "## Café 🚀\n\nnaïve π 🧭\n"
+    fragments = fragment_markdown(text, artifact_id=ARTIFACT)
+
+    heading, paragraph = fragments
+    assert heading.address == "heading:cafe"
+    assert paragraph.text == "naïve π 🧭"
+    assert text[paragraph.char_start : paragraph.char_end] == "naïve π 🧭\n"
+    # Offsets are Python character positions, not UTF-8 byte positions.
+    assert paragraph.char_end == len(text)
+    assert paragraph.char_end < len(text.encode("utf-8"))
+
+
 def test_fragment_id_is_a_pure_function_of_artifact_and_path() -> None:
     for fragment in spine():
         assert fragment.fragment_id == fragment_id_for(ARTIFACT, fragment.path)

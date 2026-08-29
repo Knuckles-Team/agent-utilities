@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -467,13 +468,524 @@ def test_hydrate_source_control_default(mock_engine):
     assert res["nodes_hydrated"] >= 1
 
 
-@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"})
-def test_hydrate_source_control_github(mock_engine):
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_source_control_github_unavailable(mock_engine, monkeypatch):
+    """Credential presence must not create a provider-shaped demo batch."""
+
+    class UnavailableGitHubApi:
+        def get_repositories(self):
+            raise ConnectionError("GitHub API is unreachable")
+
     manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: UnavailableGitHubApi(),
+    )
+
     res = manager.hydrate_source(mock_engine, "source_control")
-    assert res["status"] == "ok"
-    assert res["nodes_hydrated"] == 2
-    assert res["relations_hydrated"] == 1
+
+    assert res["status"] == "unavailable"
+    assert res["nodes_hydrated"] == 0
+    assert res["relations_hydrated"] == 0
+    mock_engine.ingest_external_batch.assert_not_called()
+    assert "Test GitHub Project" not in str(res)
+    assert "github:repo:101" not in str(res)
+    assert "github:workflow:4001" not in str(res)
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_source_control_github_preserves_provider_identity(
+    mock_engine, monkeypatch
+):
+    """Injected provider records retain real IDs and source provenance."""
+
+    class InjectedGitHubApi:
+        def get_repositories(self):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": 31415,
+                        "name": "ledger",
+                        "full_name": "acme/ledger",
+                        "description": "Authoritative ledger repository",
+                        "default_branch": "main",
+                        "html_url": "https://github.com/acme/ledger",
+                    }
+                ]
+            )
+
+        def get_workflow_runs(self, *, owner, repo):
+            assert (owner, repo) == ("acme", "ledger")
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": 2718,
+                        "name": "CI",
+                        "head_branch": "main",
+                        "head_sha": "abcdef123456",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "push",
+                        "html_url": (
+                            "https://github.com/acme/ledger/actions/runs/2718"
+                        ),
+                    }
+                ]
+            )
+
+        def close(self):
+            return None
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: InjectedGitHubApi(),
+    )
+
+    res = manager.hydrate_source(mock_engine, "source_control")
+
+    assert res == {
+        "status": "ok",
+        "source": "github",
+        "nodes_hydrated": 2,
+        "relations_hydrated": 1,
+    }
+    mock_engine.ingest_external_batch.assert_called_once()
+    domain, entities, relationships = mock_engine.ingest_external_batch.call_args.args
+    assert domain == "github"
+    assert entities == [
+        {
+            "id": "github:repository:31415",
+            "type": "repository",
+            "domain": "github",
+            "source_system": "github",
+            "externalToolId": "31415",
+            "name": "ledger",
+            "full_name": "acme/ledger",
+            "description": "Authoritative ledger repository",
+            "default_branch": "main",
+            "web_url": "https://github.com/acme/ledger",
+            "source_uri": "https://github.com/acme/ledger",
+        },
+        {
+            "id": "github:pipelinerun:acme/ledger:2718",
+            "type": "pipeline",
+            "domain": "github",
+            "source_system": "github",
+            "externalToolId": "2718",
+            "name": "CI",
+            "status": "completed",
+            "conclusion": "success",
+            "head_sha": "abcdef123456",
+            "head_branch": "main",
+            "event": "push",
+            "web_url": "https://github.com/acme/ledger/actions/runs/2718",
+            "source_uri": "https://github.com/acme/ledger/actions/runs/2718",
+        },
+    ]
+    assert relationships == [
+        {
+            "source": "github:pipelinerun:acme/ledger:2718",
+            "target": "github:repository:31415",
+            "type": "depends_on",
+            "domain": "github",
+        }
+    ]
+
+
+def _github_repository_model():
+    """Build the real connector Repository model used by the hydration path."""
+    models = pytest.importorskip("github_agent.github_response_models")
+    Repository = models.Repository
+
+    user = {
+        "login": "acme",
+        "id": 7,
+        "node_id": "org-7",
+        "avatar_url": "https://github.example.test/acme.png",
+        "url": "https://github.example.test/users/acme",
+        "html_url": "https://github.example.test/acme",
+        "type": "Organization",
+        "site_admin": False,
+    }
+    return Repository.model_validate(
+        {
+            "id": 31415,
+            "node_id": "repo-31415",
+            "name": "ledger",
+            "full_name": "acme/ledger",
+            "private": True,
+            "owner": user,
+            "html_url": "https://github.example.test/acme/ledger",
+            "description": "Authoritative ledger repository",
+            "fork": False,
+            "url": "https://github.example.test/api/v3/repos/acme/ledger",
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-02T00:00:00Z",
+            "pushed_at": "2026-08-02T00:00:00Z",
+            "git_url": "git://github.example.test/acme/ledger.git",
+            "ssh_url": "git@github.example.test:acme/ledger.git",
+            "clone_url": "https://github.example.test/acme/ledger.git",
+            "svn_url": "https://github.example.test/acme/ledger",
+            "homepage": None,
+            "size": 10,
+            "stargazers_count": 0,
+            "watchers_count": 0,
+            "language": "Python",
+            "has_issues": True,
+            "has_projects": True,
+            "has_downloads": True,
+            "has_wiki": False,
+            "has_pages": False,
+            "forks_count": 0,
+            "mirror_url": None,
+            "archived": False,
+            "disabled": False,
+            "open_issues_count": 0,
+            "license": None,
+            "allow_forking": False,
+            "is_template": False,
+            "topics": [],
+            "visibility": "private",
+            "forks": 0,
+            "open_issues": 0,
+            "watchers": 0,
+            "default_branch": "main",
+        }
+    )
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_accepts_actual_connector_models(mock_engine, monkeypatch):
+    """The adapter consumes github-agent's typed Repository/WorkflowRun models."""
+    models = pytest.importorskip("github_agent.github_response_models")
+
+    repository = _github_repository_model()
+    workflow = models.WorkflowRun.model_validate(
+        {
+            "id": 2718,
+            "name": "CI",
+            "head_branch": "main",
+            "head_sha": "abcdef123456",
+            "status": "completed",
+            "conclusion": "success",
+            "event": "push",
+            "html_url": "https://github.example.test/acme/ledger/actions/2718",
+        }
+    )
+
+    class TypedGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(data=[repository])
+
+        def get_workflow_runs(self, *, owner, repo):
+            assert (owner, repo) == ("acme", "ledger")
+            return SimpleNamespace(data=[workflow])
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: TypedGitHubClient(),
+    )
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "ok"
+    assert result["nodes_hydrated"] == 2
+    assert result["relations_hydrated"] == 1
+    entities = mock_engine.ingest_external_batch.call_args.args[1]
+    assert entities[0]["id"] == "github:repository:31415"
+    assert entities[1]["id"] == "github:pipelinerun:acme/ledger:2718"
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_missing_connector_is_skipped(mock_engine, monkeypatch):
+    manager = HydrationManager()
+    monkeypatch.setattr(manager, "_load_github_api", lambda: None)
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result == {
+        "status": "skipped",
+        "source": "github",
+        "reason": "github-agent package not installed",
+        "nodes_hydrated": 0,
+        "relations_hydrated": 0,
+    }
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_reports_connector_runtime_incompatibility(
+    mock_engine, monkeypatch
+):
+    from agent_utilities.knowledge_graph.core.hydration import (
+        _GithubConnectorCompatibilityError,
+    )
+
+    def incompatible_connector():
+        raise _GithubConnectorCompatibilityError
+
+    manager = HydrationManager()
+    monkeypatch.setattr(manager, "_load_github_api", incompatible_connector)
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result == {
+        "status": "unavailable",
+        "source": "github",
+        "reason": "github-agent runtime incompatible",
+        "nodes_hydrated": 0,
+        "relations_hydrated": 0,
+    }
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+def test_hydrate_github_without_credentials_is_skipped(mock_engine, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_API_KEY", raising=False)
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: pytest.fail("connector must not load without credentials"),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "skipped"
+    assert result["reason"] == "Missing GITHUB_TOKEN/GITHUB_API_KEY"
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_empty_response_is_no_data(mock_engine, monkeypatch):
+    class EmptyGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(data=[])
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager, "_load_github_api", lambda: lambda: EmptyGitHubClient()
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "no_data"
+    assert result["nodes_hydrated"] == 0
+    assert result["relations_hydrated"] == 0
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_malformed_response_is_error(mock_engine, monkeypatch):
+    class MalformedGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(data={"repositories": "not-a-list"})
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: MalformedGitHubClient(),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "error"
+    assert result["reason"] == "GitHub provider returned malformed repository data"
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_invalid_provider_id_is_rejected(mock_engine, monkeypatch):
+    class InvalidIdGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": "not-an-integer",
+                        "name": "ledger",
+                        "full_name": "acme/ledger",
+                    }
+                ]
+            )
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: InvalidIdGitHubClient(),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "error"
+    assert result["reason"] == "GitHub provider returned malformed repository data"
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_invalid_provider_type_is_rejected(mock_engine, monkeypatch):
+    class InvalidTypeGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": 31415,
+                        "name": "ledger",
+                        "full_name": "acme/ledger",
+                        "private": "false",
+                    }
+                ]
+            )
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: InvalidTypeGitHubClient(),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "error"
+    assert result["reason"] == "GitHub provider returned malformed repository data"
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_workflow_failure_is_partial_and_redacted(
+    mock_engine, monkeypatch
+):
+    repository = {
+        "id": 31415,
+        "name": "ledger",
+        "full_name": "acme/ledger",
+    }
+
+    class WorkflowFailureGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(data=[repository])
+
+        def get_workflow_runs(self, *, owner, repo):
+            assert (owner, repo) == ("acme", "ledger")
+            raise RuntimeError("credential=query-fixture")
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: WorkflowFailureGitHubClient(),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "partial"
+    assert result["workflow_failures"] == 1
+    assert result["nodes_hydrated"] == 1
+    assert result["relations_hydrated"] == 0
+    assert "credential=query-fixture" not in str(result)
+    mock_engine.ingest_external_batch.assert_called_once()
+
+
+@patch.dict(
+    os.environ,
+    {
+        "GITHUB_TOKEN": "gh-tok",
+        "GITHUB_URL": "https://github.example.test/api/v3",
+    },
+    clear=True,
+)
+def test_hydrate_github_uses_governed_enterprise_endpoint(mock_engine, monkeypatch):
+    endpoint = os.environ["GITHUB_URL"]
+    factory_calls = 0
+
+    class EndpointGitHubClient:
+        def __init__(self):
+            self.url = endpoint
+
+        def get_repositories(self):
+            return SimpleNamespace(data=[])
+
+    def factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        return EndpointGitHubClient()
+
+    manager = HydrationManager()
+    monkeypatch.setattr(manager, "_load_github_api", lambda: factory)
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert factory_calls == 1
+    assert result["status"] == "no_data"
+    assert endpoint not in str(result)
+    status = manager.get_status()["github"]
+    assert status["endpoint_valid"] is True
+    assert status["url"] == "https://api.github.com"
+    assert endpoint not in str(status)
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_rejects_credential_bearing_endpoint(mock_engine, monkeypatch):
+    query_marker = "query-fixture-token"
+    hostile_endpoint = "https://github.example.test/api/v3?token=" + query_marker
+    monkeypatch.setenv("GITHUB_URL", hostile_endpoint)
+    factory_calls = 0
+
+    def factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        pytest.fail("hostile endpoint must be rejected before connector construction")
+
+    manager = HydrationManager()
+    monkeypatch.setattr(manager, "_load_github_api", lambda: factory)
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "error"
+    assert result["reason"] == "GitHub endpoint configuration is invalid"
+    assert factory_calls == 0
+    assert hostile_endpoint not in str(result)
+    assert query_marker not in str(result)
+    mock_engine.ingest_external_batch.assert_not_called()
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"}, clear=True)
+def test_hydrate_github_redacts_credential_bearing_provider_urls(
+    mock_engine, monkeypatch
+):
+    query_marker = "provider-fixture-token"
+    repository = {
+        "id": 31415,
+        "name": "ledger",
+        "full_name": "acme/ledger",
+        "html_url": "https://github.example.test/acme/ledger?token=" + query_marker,
+    }
+
+    class HostileUrlGitHubClient:
+        def get_repositories(self):
+            return SimpleNamespace(data=[repository])
+
+        def get_workflow_runs(self, *, owner, repo):
+            return SimpleNamespace(data=[])
+
+    manager = HydrationManager()
+    monkeypatch.setattr(
+        manager,
+        "_load_github_api",
+        lambda: lambda: HostileUrlGitHubClient(),
+    )
+
+    result = manager.hydrate_source(mock_engine, "github")
+
+    assert result["status"] == "ok"
+    entities = mock_engine.ingest_external_batch.call_args.args[1]
+    assert "web_url" not in entities[0]
+    assert query_marker not in str(entities)
 
 
 def test_hydrate_enterprise_architecture_default(mock_engine):
