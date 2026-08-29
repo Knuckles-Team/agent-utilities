@@ -36,35 +36,54 @@ _DELIVERY_TIMEOUT_SECONDS = 30
 _MAX_CONCURRENT_DELIVERIES = 16
 
 
+def _extract_scalar_text(body: dict[str, Any]) -> str | None:
+    for key in ("text", "msg", "message", "content"):
+        if body.get(key):
+            return str(body[key])[:_MAX_ALERT_CHARS]
+    return None
+
+
+def _format_alert(alert: Any) -> str | None:
+    if not isinstance(alert, dict):
+        return None
+    annotations = alert.get("annotations", {}) or {}
+    labels = alert.get("labels", {}) or {}
+    if not isinstance(annotations, dict):
+        annotations = {}
+    if not isinstance(labels, dict):
+        labels = {}
+    return f"[{alert.get('status', '?')}] " + (
+        annotations.get("summary")
+        or annotations.get("description")
+        or labels.get("alertname", "alert")
+    )
+
+
+def _extract_alerts_text(body: dict[str, Any]) -> str | None:
+    alerts = body.get("alerts")
+    if not isinstance(alerts, list):
+        return None
+    lines = []
+    for alert in alerts[:_MAX_ALERTS]:
+        line = _format_alert(alert)
+        if line is not None:
+            lines.append(line)
+    if lines:
+        return "\n".join(lines)[:_MAX_ALERT_CHARS]
+    return None
+
+
 def _extract_text(body: Any) -> str:
     """Pull a human-readable message out of a webhook payload."""
     if isinstance(body, str):
         return (body.strip() or "(empty alert)")[:_MAX_ALERT_CHARS]
     if isinstance(body, dict):
-        for key in ("text", "msg", "message", "content"):
-            if body.get(key):
-                return str(body[key])[:_MAX_ALERT_CHARS]
-        if isinstance(body.get("alerts"), list):
-            lines = []
-            for a in body["alerts"][:_MAX_ALERTS]:
-                if not isinstance(a, dict):
-                    continue
-                ann = a.get("annotations", {}) or {}
-                lab = a.get("labels", {}) or {}
-                if not isinstance(ann, dict):
-                    ann = {}
-                if not isinstance(lab, dict):
-                    lab = {}
-                lines.append(
-                    f"[{a.get('status', '?')}] "
-                    + (
-                        ann.get("summary")
-                        or ann.get("description")
-                        or lab.get("alertname", "alert")
-                    )
-                )
-            if lines:
-                return "\n".join(lines)[:_MAX_ALERT_CHARS]
+        text = _extract_scalar_text(body)
+        if text is not None:
+            return text
+        text = _extract_alerts_text(body)
+        if text is not None:
+            return text
     return json.dumps(body, ensure_ascii=False, default=str)[:_MAX_ALERT_CHARS]
 
 
