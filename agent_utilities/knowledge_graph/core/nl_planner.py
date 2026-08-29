@@ -84,6 +84,119 @@ def _is_uql_ident_continue(char: str) -> bool:
     return bool(char) and _UQL_IDENT_CONTINUE.fullmatch(char) is not None
 
 
+def _consume_uql_quote(query: str, start: int) -> tuple[int, str]:
+    """Return the quoted token beginning at ``start`` and its end offset."""
+    quote = query[start]
+    i = start + 1
+    while i < len(query):
+        char = query[i]
+        if char == quote:
+            if i + 1 < len(query) and query[i + 1] == quote:
+                i += 2
+                continue
+            i += 1
+            break
+        if char == "\\" and quote == '"' and i + 1 < len(query):
+            i += 2
+            continue
+        i += 1
+    return i, query[start:i]
+
+
+def _uql_iri_end(query: str, start: int) -> int | None:
+    """Return the end of a valid angle-bracketed IRI, if one starts here."""
+    close = query.find(">", start + 1)
+    if close == -1:
+        return None
+    body = query[start + 1 : close]
+    if not body or ":" not in body or any(char.isspace() for char in body):
+        return None
+    return close + 1
+
+
+def _uql_identifier_end(query: str, start: int) -> int:
+    """Return the first offset after the identifier beginning at ``start``."""
+    end = start + 1
+    while end < len(query) and _is_uql_ident_continue(query[end]):
+        end += 1
+    return end
+
+
+def _consume_uql_identifier(
+    query: str,
+    start: int,
+) -> tuple[int, str, dict[str, str] | None]:
+    """Consume an identifier and lower the one supported model wrapper."""
+    word_end = _uql_identifier_end(query, start)
+    word = query[start:word_end]
+    if (
+        word_end + 1 >= len(query)
+        or query[word_end] != "."
+        or not _is_uql_ident_start(query[word_end + 1])
+    ):
+        return word_end, word, None
+
+    property_start = word_end + 1
+    property_end = _uql_identifier_end(query, property_start)
+    prop = query[property_start:property_end]
+    dotted = f"{word}.{prop}"
+    if word.casefold() != "props":
+        raise UqlPlanError(
+            "UQL v1 WHERE properties must be bare identifiers; "
+            f"dotted reference {dotted!r} is not parseable",
+            query=query,
+            at=word_end,
+        )
+    return (
+        property_end,
+        prop,
+        {
+            "kind": "property_reference",
+            "from": dotted,
+            "to": prop,
+            "reason": "UQL v1 predicates use bare property identifiers",
+        },
+    )
+
+
+def _uql_dot_end(query: str, start: int) -> int:
+    """Return the end offset for a valid range or decimal dot token."""
+    if start + 1 < len(query) and query[start + 1] == ".":
+        return start + 2
+    if (start + 1 < len(query) and query[start + 1].isdigit()) or (
+        start > 0
+        and query[start - 1].isdigit()
+        and (start + 1 == len(query) or query[start + 1] != ".")
+    ):
+        return start + 1
+    raise UqlPlanError(
+        "UQL v1 does not define a standalone `.` token in a property "
+        "expression; use one bare identifier",
+        query=query,
+        at=start,
+    )
+
+
+def _consume_uql_token(
+    query: str,
+    start: int,
+) -> tuple[int, str, dict[str, str] | None]:
+    """Consume one lexical unit while preserving non-property text verbatim."""
+    char = query[start]
+    if char in ("'", '"'):
+        return (*_consume_uql_quote(query, start), None)
+
+    iri_end = _uql_iri_end(query, start) if char == "<" else None
+    if iri_end is not None:
+        return iri_end, query[start:iri_end], None
+    if _is_uql_ident_start(char):
+        return _consume_uql_identifier(query, start)
+    if char == ".":
+        end = _uql_dot_end(query, start)
+        return end, query[start:end], None
+    return start + 1, char, None
+
+
 def canonicalize_uql_query(
     query: str,
 ) -> tuple[str, list[dict[str, str]]]:
@@ -108,111 +221,11 @@ def canonicalize_uql_query(
     out: list[str] = []
     corrections: list[dict[str, str]] = []
     i = 0
-    n = len(query)
-    quote: str | None = None
-
-    while i < n:
-        char = query[i]
-
-        if quote is not None:
-            out.append(char)
-            if char == quote:
-                # UQL's lexer accepts doubled quotes inside either quote style.
-                if i + 1 < n and query[i + 1] == quote:
-                    out.append(query[i + 1])
-                    i += 2
-                    continue
-                quote = None
-            elif char == "\\" and quote == '"' and i + 1 < n:
-                # Match the engine lexer for the two supported double-quoted
-                # escapes; copying the escaped byte is sufficient here.
-                out.append(query[i + 1])
-                i += 2
-                continue
-            i += 1
-            continue
-
-        if char in ("'", '"'):
-            quote = char
-            out.append(char)
-            i += 1
-            continue
-
-        if char == "<":
-            # The v1 lexer also admits a whitespace-free angle-bracketed IRI
-            # (for example the target of `REASON <http://ex/Device>`).  Copy it
-            # as one opaque token so its path dots are not mistaken for a
-            # property qualifier; a numeric comparison (`year < 2024`) has no
-            # closing IRI shape and falls through unchanged.
-            close = query.find(">", i + 1)
-            if close != -1:
-                body = query[i + 1 : close]
-                if body and ":" in body and not any(c.isspace() for c in body):
-                    out.append(query[i : close + 1])
-                    i = close + 1
-                    continue
-
-        if _is_uql_ident_start(char):
-            start = i
-            i += 1
-            while i < n and _is_uql_ident_continue(query[i]):
-                i += 1
-            word = query[start:i]
-
-            # A dotted identifier is the exact cross-seam defect this contract
-            # owns.  Lower only the known model wrapper; reject every other
-            # qualifier instead of inventing alias semantics for UQL v1.
-            if i + 1 < n and query[i] == "." and _is_uql_ident_start(query[i + 1]):
-                dot_at = i
-                property_start = i + 1
-                i = property_start + 1
-                while i < n and _is_uql_ident_continue(query[i]):
-                    i += 1
-                prop = query[property_start:i]
-                dotted = f"{word}.{prop}"
-                if word.casefold() != "props":
-                    raise UqlPlanError(
-                        "UQL v1 WHERE properties must be bare identifiers; "
-                        f"dotted reference {dotted!r} is not parseable",
-                        query=query,
-                        at=dot_at,
-                    )
-                out.append(prop)
-                corrections.append(
-                    {
-                        "kind": "property_reference",
-                        "from": dotted,
-                        "to": prop,
-                        "reason": "UQL v1 predicates use bare property identifiers",
-                    }
-                )
-                continue
-
-            out.append(word)
-            continue
-
-        if char == ".":
-            # Preserve the two forms that are valid outside identifiers in the
-            # v1 lexer: hop ranges (`1..2`) and decimal numbers (`2.0`, `.5`).
-            if i + 1 < n and query[i + 1] == ".":
-                out.extend((".", "."))
-                i += 2
-                continue
-            if (i + 1 < n and query[i + 1].isdigit()) or (
-                i > 0 and query[i - 1].isdigit() and (i + 1 == n or query[i + 1] != ".")
-            ):
-                out.append(char)
-                i += 1
-                continue
-            raise UqlPlanError(
-                "UQL v1 does not define a standalone `.` token in a property "
-                "expression; use one bare identifier",
-                query=query,
-                at=i,
-            )
-
-        out.append(char)
-        i += 1
+    while i < len(query):
+        i, fragment, correction = _consume_uql_token(query, i)
+        out.append(fragment)
+        if correction is not None:
+            corrections.append(correction)
 
     return "".join(out), corrections
 
