@@ -696,6 +696,30 @@ class PostgreSQLBackend(GraphBackend):
 
     # ── Cypher Execution (Transpiled to SQL) ─────────────────────────
 
+    @staticmethod
+    def _global_edge_count_spec(
+        query: str,
+    ) -> tuple[str, str | None] | None:
+        """Return the alias and optional relationship type for a global count."""
+        import re as _re
+
+        q = query or ""
+        edge_pattern = _re.search(r"-\s*\[[^\]]*\]\s*->", q)
+        count_match = _re.search(
+            r"RETURN\s+count\s*\(\s*\w*\s*\)\s*(?:AS\s+(\w+))?", q, _re.I
+        )
+        if not edge_pattern or not count_match:
+            return None
+        constrained = (
+            _re.search(r"\{\s*id\s*:", q, _re.I),
+            _re.search(r"\(\s*\w*\s*:", q),
+            _re.search(r"\bWHERE\b", q, _re.I),
+        )
+        if any(constrained):
+            return None
+        rel_type = _re.search(r"-\s*\[\s*\w*\s*:\s*(\w+)", q)
+        return count_match.group(1) or "count", rel_type.group(1) if rel_type else None
+
     def _try_global_edge_count(
         self,
         query: str,
@@ -710,34 +734,22 @@ class PostgreSQLBackend(GraphBackend):
         the moment the pattern carries a node label, an ``{id:...}`` anchor, or a
         ``WHERE`` clause — a global count would be wrong for those.
         """
-        import re as _re
-
-        q = query or ""
-        if not _re.search(r"-\s*\[[^\]]*\]\s*->", q):
+        spec = self._global_edge_count_spec(query)
+        if spec is None:
             return False, []
-        m = _re.search(r"RETURN\s+count\s*\(\s*\w*\s*\)\s*(?:AS\s+(\w+))?", q, _re.I)
-        if not m:
-            return False, []
-        # Defer anything that constrains the endpoints: an {id:...} anchor, a
-        # node :Label, or a WHERE filter.
-        if _re.search(r"\{\s*id\s*:", q, _re.I):
-            return False, []
-        if _re.search(r"\(\s*\w*\s*:", q):
-            return False, []
-        if _re.search(r"\bWHERE\b", q, _re.I):
-            return False, []
-        alias = m.group(1) or "count"
-        rel_type = _re.search(r"-\s*\[\s*\w*\s*:\s*(\w+)", q)
+        alias, rel_type = spec
+        sql, params = (
+            (
+                "SELECT count(*) FROM kg_edges WHERE rel_type = %s",
+                (rel_type,),
+            )
+            if rel_type
+            else ("SELECT count(*) FROM kg_edges", None)
+        )
         try:
             with self._conn(read_only=read_only) as conn:
                 with conn.cursor() as cur:
-                    if rel_type:
-                        cur.execute(
-                            "SELECT count(*) FROM kg_edges WHERE rel_type = %s",
-                            (rel_type.group(1),),
-                        )
-                    else:
-                        cur.execute("SELECT count(*) FROM kg_edges")
+                    cur.execute(sql, params)
                     row = cur.fetchone()
                     return True, [{alias: int(row[0]) if row else 0}]
         except Exception as e:  # noqa: BLE001 — degrade to the transpiler path
