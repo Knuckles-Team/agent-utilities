@@ -429,6 +429,51 @@ def _parse_classification(raw: Any) -> DataClassification | None:
         return None
 
 
+def _hydrate_connector_acl(node_id: str, properties: dict[str, Any]) -> None:
+    """Restore an ACL backed by a source connector's access descriptor."""
+    from ...models.company_brain import DataClassification
+    from ...protocols.source_connectors.base import ExternalAccess
+    from ...protocols.source_connectors.permission_sync import sync_access
+
+    try:
+        access = ExternalAccess.model_validate(properties["external_access"])
+        classification = DataClassification(str(properties.get("classification") or ""))
+        sync_access(node_id, access, classification=classification)
+    except Exception as exc:
+        raise PermissionError("Durable ACL metadata is invalid") from exc
+
+
+def _hydrate_first_party_acl(
+    node_id: str,
+    properties: dict[str, Any],
+    actor: ActorContext,
+    org_shared_scopes: set[str],
+) -> None:
+    """Restore an ACL from first-party ownership/classification stamps."""
+    from ...models.company_brain import DataClassification
+
+    parsed_classification = _parse_classification(properties.get("classification"))
+    owner_id = str(properties.get("owner_id") or "").strip()
+    shared_scope = str(properties.get("shared_scope") or "").strip().lower()
+    org_shared = shared_scope in org_shared_scopes
+    if parsed_classification is DataClassification.PUBLIC:
+        get_company_brain().permissions.classify_node(
+            node_id, DataClassification.PUBLIC
+        )
+        return
+    if not owner_id and not org_shared:
+        return
+
+    acl = get_company_brain().permissions.classify_node(
+        node_id,
+        parsed_classification or DataClassification.CONFIDENTIAL,
+        data_owner=owner_id,
+    )
+    if org_shared and actor.actor_id not in acl.read_actors:
+        acl.read_actors.append(actor.actor_id)
+        get_company_brain().permissions.set_acl(acl)
+
+
 def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
     """Rebuild process-local ACL entries from governed durable node metadata.
 
@@ -479,9 +524,6 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
        unshared node, and the same-tenant gate above still applies first.
     """
 
-    from ...models.company_brain import DataClassification
-    from ...protocols.source_connectors.base import ExternalAccess
-    from ...protocols.source_connectors.permission_sync import sync_access
     from .tenant_sharing import SCOPE_COMMONS, SCOPE_ORG
 
     org_shared_scopes = {SCOPE_ORG, SCOPE_COMMONS}
@@ -489,44 +531,15 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
     rows = _durable_access_rows(node_ids)
     for node_id in node_ids:
         properties = rows.get(node_id)
-        if properties is None:
+        if (
+            properties is None
+            or str(properties.get("tenant_id") or "") != actor.tenant_id
+        ):
             continue
-        if str(properties.get("tenant_id") or "") != actor.tenant_id:
+        if isinstance(properties.get("external_access"), dict):
+            _hydrate_connector_acl(node_id, properties)
             continue
-        raw_access = properties.get("external_access")
-        if isinstance(raw_access, dict):
-            try:
-                access = ExternalAccess.model_validate(raw_access)
-                classification = DataClassification(
-                    str(properties.get("classification") or "")
-                )
-                sync_access(node_id, access, classification=classification)
-            except Exception as exc:
-                raise PermissionError("Durable ACL metadata is invalid") from exc
-            continue
-
-        # No connector descriptor: synthesize from the first-party write-time
-        # stamp instead of leaving the node permanently unclassified.
-        parsed_classification = _parse_classification(properties.get("classification"))
-        owner_id = str(properties.get("owner_id") or "").strip()
-        shared_scope = str(properties.get("shared_scope") or "").strip().lower()
-        org_shared = shared_scope in org_shared_scopes
-        if parsed_classification is DataClassification.PUBLIC:
-            get_company_brain().permissions.classify_node(
-                node_id, DataClassification.PUBLIC
-            )
-        elif owner_id or org_shared:
-            acl = get_company_brain().permissions.classify_node(
-                node_id,
-                parsed_classification or DataClassification.CONFIDENTIAL,
-                data_owner=owner_id,
-            )
-            if org_shared and actor.actor_id not in acl.read_actors:
-                acl.read_actors.append(actor.actor_id)
-                get_company_brain().permissions.set_acl(acl)
-        # else: no owner, not PUBLIC, not org-/commons-shared -> nothing to
-        # synthesize; the node stays denied (fail closed), identical to
-        # pre-fix behavior.
+        _hydrate_first_party_acl(node_id, properties, actor, org_shared_scopes)
 
 
 def audit_read(
