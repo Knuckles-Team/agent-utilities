@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 from pydantic import Field
+from pydantic.fields import FieldInfo
 
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.knowledge_graph.orchestration.engine_query import (
@@ -440,23 +441,465 @@ def _run_graph_query_federated(
 
 
 def _run_graph_query_normalize_args(
-    graph: str, params: str, include_epistemic: bool
-) -> tuple[str, dict[str, Any], bool]:
+    graph: str,
+    params: Any,
+    include_epistemic: bool,
+    *,
+    strict_params: bool = False,
+) -> tuple[str, Any, bool]:
     """Normalize a direct call's raw ``Field``-default bindings.
 
     A direct call bypassing `_execute_tool` (which resolves `Field` defaults)
-    binds an omitted `graph`/`include_epistemic` to its raw, truthy
-    `pydantic.fields.FieldInfo` rather than the declared default — normalize
-    once here so every use below sees a clean value, mirroring the SAME
-    defensiveness `ConnectionRegistry.resolve_names` already applies to
+    binds omitted ``graph``/``params``/``include_epistemic`` values to raw
+    ``pydantic.fields.FieldInfo`` objects rather than their declared defaults.
+    Normalize once here so every use below sees a clean value, mirroring the
+    SAME defensiveness `ConnectionRegistry.resolve_names` already applies to
     `connection`.
     """
     normalized_graph = graph if isinstance(graph, str) else ""
-    parsed_params = json.loads(params) if params else {}
+    parsed_params = _parse_graph_query_params(params, strict=strict_params)
     include_epistemic_flag = (
         include_epistemic if isinstance(include_epistemic, bool) else False
     )
     return normalized_graph, parsed_params, include_epistemic_flag
+
+
+def _parse_graph_query_params(params: Any, *, strict: bool = False) -> Any:
+    """Decode graph-query params while tolerating direct-call defaults.
+
+    MCP clients send the documented JSON string; REST callers and direct unit
+    callers occasionally hand us an already-decoded object. A raw pydantic
+    ``FieldInfo`` (the omitted direct-call default) is neither and therefore
+    means the declared empty object. Strict UQL calls reject malformed JSON,
+    non-object JSON, and scalar/non-object Python values; the existing
+    non-UQL path deliberately retains its historical permissive behavior.
+    """
+    if isinstance(params, str):
+        if strict and not params.strip():
+            raise ValueError("graph_query params must be a JSON object")
+        parsed = json.loads(params) if params else {}
+        if strict and not isinstance(parsed, dict):
+            raise ValueError("graph_query params must decode to a JSON object")
+        return parsed
+    if isinstance(params, dict):
+        return dict(params)
+    if isinstance(params, FieldInfo):
+        return {}
+    if strict:
+        raise ValueError("graph_query params must be a JSON object")
+    return {}
+
+
+def _run_graph_query_normalize_for_scope(
+    graph: str, params: Any, include_epistemic: bool, scope: Any
+) -> tuple[str, Any, bool] | str:
+    """Normalize direct-call defaults and expose strict UQL input errors.
+
+    ``graph_query`` historically lets non-UQL callers retain the parser's
+    existing behavior, including malformed JSON escaping from the direct
+    function call. UQL is a new governed boundary, so its parameter contract
+    is fail-closed and returns the same typed invalid-request envelope as its
+    query validator.
+    """
+    try:
+        return _run_graph_query_normalize_args(
+            graph,
+            params,
+            include_epistemic,
+            strict_params=scope == "uql",
+        )
+    except (TypeError, ValueError) as exc:
+        if scope != "uql":
+            raise
+        return public_error_json(
+            exc,
+            code="invalid_request",
+            context={"tool": "graph_query", "scope": "uql"},
+        )
+
+
+# CONCEPT:AU-KG.query.au-engine-execution-path — the MCP graph-query boundary deliberately
+# accepts only a bounded, read-only UQL *pipeline*.  The native UQL parser is
+# still the source of truth for the complete language; this small gate exists
+# before connection resolution so an obviously unbounded/statement-shaped
+# request cannot reach an external connection by accident.  UQL has no
+# parameter-binding surface, so the query text itself is the only input to the
+# engine's governed ``IntelligenceGraphEngine.uql`` method.
+# Intentional public bound: 1..1000 keeps every governed UQL read finite while
+# avoiding native LIMIT 0's empty-result/no-op semantics. Callers that need an
+# empty result should use a predicate, not a zero-row request.
+_UQL_MAX_LIMIT = 1000
+_UQL_SOURCE_RE = re.compile(r"^\s*MATCH\b", re.IGNORECASE)
+_UQL_LIMIT_RE = re.compile(r"\bLIMIT\s+([0-9]+)\b", re.IGNORECASE)
+_UQL_MUTATION_RE = re.compile(
+    r"(?:^|\|>)\s*(?:CREATE|MERGE|DELETE|REMOVE|DROP|INSERT|UPDATE|SET|LOAD)\b",
+    re.IGNORECASE,
+)
+
+
+class _UQLSurfaceUnavailable(RuntimeError):
+    """The resolved connection is not an IntelligenceGraphEngine UQL surface."""
+
+
+def _uql_iri_end(query: str, start: int) -> int | None:
+    """Return the closing offset for a native whitespace-free IRI token."""
+    close = query.find(">", start + 1)
+    if close == -1:
+        return None
+    body = query[start + 1 : close]
+    if not body or ":" not in body or any(char.isspace() for char in body):
+        return None
+    return close
+
+
+def _blank_uql_quoted_literal(
+    query: str, chars: list[str], start: int, quote: str
+) -> tuple[int, bool]:
+    """Blank one quoted UQL literal and return ``(next_offset, closed)``."""
+    chars[start] = " "
+    i = start + 1
+    while i < len(chars):
+        ch = query[i]
+        chars[i] = " "
+        if quote == '"' and ch == "\\" and i + 1 < len(chars):
+            # Treat escaped bytes as literal content for this lexical pass.
+            chars[i + 1] = " "
+            i += 2
+            continue
+        if ch == quote:
+            if i + 1 < len(chars) and query[i + 1] == quote:
+                # SQL/UQL-style doubled quote escape.
+                chars[i + 1] = " "
+                i += 2
+                continue
+            return i + 1, True
+        i += 1
+    return len(chars), False
+
+
+def _strip_uql_literals(query: str) -> tuple[str, bool]:
+    """Blank quoted UQL literals and IRIs while retaining surrounding grammar.
+
+    Mutation words, semicolons, and ``LIMIT`` are meaningful only outside
+    string/IRI literals. UQL uses single- and double-quoted strings and accepts
+    doubled quote escapes; accepting a backslash escape here is harmless and
+    keeps this lexical guard from flagging a value that the native parser will
+    later reject. The boolean reports an unterminated string literal so the
+    caller can fail with a stable invalid-request envelope before any engine
+    call. Angle-bracketed IRIs mirror the native lexer's whitespace-free
+    ``<scheme:...>`` rule and are blanked so punctuation in an IRI is data.
+    """
+
+    chars = list(query)
+    i = 0
+    while i < len(chars):
+        ch = query[i]
+        if ch in ("'", '"'):
+            i, closed = _blank_uql_quoted_literal(query, chars, i, ch)
+            if not closed:
+                return "".join(chars), True
+            continue
+        if ch == "<":
+            close = _uql_iri_end(query, i)
+            if close is not None:
+                chars[i : close + 1] = [" "] * (close - i + 1)
+                i = close + 1
+                continue
+        i += 1
+    return "".join(chars), False
+
+
+def _validate_uql_lexical_contract(query: str) -> str:
+    """Apply statement/literal safety checks and return the blanked query."""
+    lexical, unterminated = _strip_uql_literals(query)
+    if unterminated:
+        raise ValueError("scope='uql' query contains an unterminated string literal")
+    if ";" in lexical:
+        raise ValueError("scope='uql' accepts one read-only pipeline, not statements")
+    return lexical
+
+
+def _validate_uql_read_only_source(lexical: str) -> None:
+    """Require the native UQL leading source and reject write-shaped stages."""
+    if not _UQL_SOURCE_RE.match(lexical):
+        raise ValueError("scope='uql' query must start with MATCH")
+    if _UQL_MUTATION_RE.search(lexical):
+        raise ValueError("scope='uql' accepts read-only pipeline stages only")
+
+
+def _validate_uql_terminal_limit(lexical: str) -> int:
+    """Require every UQL limit to be bounded and the final one to be terminal."""
+    lexical_tail = lexical.rstrip()
+    limits = list(_UQL_LIMIT_RE.finditer(lexical_tail))
+    final_limit = limits[-1] if limits else None
+    if final_limit is None or final_limit.end() != len(lexical_tail):
+        raise ValueError(f"scope='uql' query must end with LIMIT 1..{_UQL_MAX_LIMIT}")
+    if any(not 1 <= int(match.group(1)) <= _UQL_MAX_LIMIT for match in limits):
+        raise ValueError(
+            f"scope='uql' every LIMIT must be between 1 and {_UQL_MAX_LIMIT}"
+        )
+    return int(final_limit.group(1))
+
+
+def _validate_uql_query(query: str) -> int:
+    """Validate the graph-query UQL contract and return its bounded LIMIT.
+
+    The native engine remains responsible for parsing/executing UQL.  This
+    boundary check only enforces the product contract: one UQL source form,
+    no mutation-shaped tokens outside literals, and a terminal ``LIMIT`` in
+    ``1.._UQL_MAX_LIMIT``.  Requiring the limit at the end makes the bound
+    apply to the final pipeline result even when the query contains ranking,
+    fusion, or other intermediate stages.
+    """
+
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("scope='uql' requires a non-empty UQL query")
+    lexical = _validate_uql_lexical_contract(query)
+    _validate_uql_read_only_source(lexical)
+    return _validate_uql_terminal_limit(lexical)
+
+
+def _prepare_uql_query(query: str) -> str:
+    """Reuse AU's shared text-rank pre-embedding chokepoint for native UQL."""
+    # Import lazily: engine_tools is a sibling MCP registration module and
+    # importing it at module load would create an avoidable registration cycle.
+    from agent_utilities.mcp.tools.engine_tools import _embed_uql_rank_text
+
+    prepared = _embed_uql_rank_text("query", "uql", {"text": query})
+    rewritten = prepared.get("text")
+    return rewritten if isinstance(rewritten, str) else query
+
+
+def _run_graph_query_uql_rows(
+    query: str,
+    engine: Any,
+    *,
+    graph: str = "",
+    include_epistemic: bool = False,
+) -> list[Any]:
+    """Run UQL through the governed engine surface, never its raw client.
+
+    ``IntelligenceGraphEngine.uql`` owns the engine-side parser, ACL/owner
+    post-filter, and epistemic enrichment.  Named external registry entries
+    normally expose only ``query_cypher``; rejecting them here prevents a
+    caller from accidentally bypassing that governed surface by reaching into
+    a backend/client object.
+    """
+
+    if not callable(getattr(engine, "uql", None)):
+        raise _UQLSurfaceUnavailable(
+            "the selected connection does not expose governed UQL through "
+            "IntelligenceGraphEngine.uql"
+        )
+    with kg_server.bound_to_graph(graph):
+        if include_epistemic:
+            rows = engine.uql(query, include_epistemic=True)
+        else:
+            # Preserve compatibility with older test doubles/adapters whose
+            # governed uql method predates the optional kwarg.
+            rows = engine.uql(query)
+    return list(rows or [])
+
+
+def _uql_fanout_evidence_request(
+    engine: Any, rows: Any
+) -> tuple[Callable[[list[Any]], Any] | None, list[Any]]:
+    """Resolve one target's provenance callable and returned-row IDs."""
+    if not isinstance(rows, list):
+        return None, []
+    fetch = getattr(getattr(engine, "graph", None), "explain_provenance_by_ids", None)
+    if not callable(fetch):
+        return None, []
+
+    from agent_utilities.knowledge_graph.core.epistemic_row import (
+        row_ids_from_plain_rows,
+    )
+
+    plain_rows = [row for row in rows if isinstance(row, dict)]
+    id_props = row_ids_from_plain_rows(plain_rows)
+    return fetch, [item["id"] for item in id_props]
+
+
+def _uql_fanout_target_evidence(
+    name: str, engine: Any, rows: Any, *, union_read: bool
+) -> list[Any]:
+    """Fetch one target's provenance, preserving partial-success semantics."""
+    fetch, ids = _uql_fanout_evidence_request(engine, rows)
+    if fetch is None or not ids:
+        return []
+    try:
+        # Routed content targets need the same verified graph binding for
+        # provenance as for the UQL read itself.  The default target is
+        # already the ambient authority and needs no retargeting.
+        target_graph = name if union_read and name != "default" else ""
+        with kg_server.bound_to_graph(target_graph):
+            return list(fetch(ids) or [])
+    except Exception as exc:  # noqa: BLE001 — evidence is best-effort per target
+        logger.warning(
+            "UQL fan-out provenance target failed (target=%s exception_type=%s)",
+            name,
+            type(exc).__name__,
+        )
+        return []
+
+
+def _evidence_bundle_for_uql_fanout(
+    entries: Sequence[tuple[str, Any]],
+    results: dict[str, Any],
+    *,
+    union_read: bool,
+) -> EvidenceBundle:
+    """Aggregate per-target UQL provenance into one complete bundle.
+
+    Each target owns its own provenance authority.  Fetching IDs from only the
+    default engine would silently drop evidence for routed/content graphs, so
+    this helper performs the same governed ``explain_provenance_by_ids`` read
+    per target and folds all returned wire rows into one bundle.  A target with
+    no primitive contributes no fabricated evidence; failures are logged and
+    leave the already-successful target evidence intact.
+    """
+    wire_rows: list[Any] = []
+    for name, engine in entries:
+        wire_rows.extend(
+            _uql_fanout_target_evidence(
+                name, engine, results.get(name), union_read=union_read
+            )
+        )
+    return EvidenceBundle.from_engine_wire({"rows": wire_rows})
+
+
+def _run_graph_query_uql_single(
+    query: str,
+    include_epistemic: bool,
+    graph: str,
+    name: str,
+    engine: Any,
+) -> str:
+    """Execute one governed UQL target and preserve typed evidence."""
+
+    if not callable(getattr(engine, "uql", None)):
+        return public_error_json(
+            _UQLSurfaceUnavailable(
+                f"connection {name!r} does not expose governed UQL through "
+                "IntelligenceGraphEngine.uql"
+            ),
+            code="dependency_unavailable",
+            context={"tool": "graph_query", "scope": "uql"},
+        )
+    try:
+        rows = _run_graph_query_uql_rows(
+            query, engine, graph=graph, include_epistemic=include_epistemic
+        )
+        payload: dict[str, Any] = {
+            "rows": rows,
+            "connection": name,
+            "graph": graph,
+        }
+        if not include_epistemic:
+            with kg_server.bound_to_graph(graph):
+                payload["evidence_bundle"] = _evidence_bundle_for_rows(
+                    engine, rows
+                ).model_dump()
+        return json.dumps(payload, default=_json_default)
+    except kg_server.GraphSelectionConflictError as exc:
+        return public_error_json(exc, code="graph_selection_conflict")
+    except PermissionError as exc:
+        return public_error_json(
+            exc, code="permission_denied" if graph else "operation_failed"
+        )
+    except Exception as exc:  # noqa: BLE001 — public MCP error boundary
+        return public_error_json(exc)
+
+
+def _run_graph_query_uql_fanout(
+    query: str,
+    include_epistemic: bool,
+    connection: str,
+    graph: str,
+    entries: list[tuple[str, Any]],
+    errors: dict[str, Any],
+    union_read: bool,
+) -> str:
+    """Execute governed UQL across explicit or routed connection targets."""
+
+    # ExternalGraphConnection intentionally exposes only read Cypher.  Filter
+    # unsupported targets before fan-out so the response says exactly which
+    # connection lacks the UQL capability instead of flattening that fact into
+    # a generic timeout/operation label.
+    supported: list[tuple[str, Any]] = []
+    unsupported: dict[str, str] = {}
+    for name, engine in entries:
+        if callable(getattr(engine, "uql", None)):
+            supported.append((name, engine))
+        else:
+            unsupported[name] = "uql_surface_unavailable"
+    errors = {**errors, **unsupported}
+
+    def _fanout_query(name: str, engine: Any) -> Any:
+        del name
+        return _run_graph_query_uql_rows(
+            query, engine, graph=graph, include_epistemic=include_epistemic
+        )
+
+    def _content_graph_query(name: str, engine: Any) -> Any:
+        return _run_graph_query_uql_rows(
+            query, engine, graph=name, include_epistemic=include_epistemic
+        )
+
+    results, fan_errors = _run_graph_query_fanout_targets(
+        supported, union_read, _fanout_query, _content_graph_query
+    )
+    all_errors = {**errors, **fan_errors}
+    if not results and all_errors:
+        return _uql_fanout_failure(connection, graph, all_errors)
+    payload: dict[str, Any]
+    if union_read:
+        payload = {
+            "rows": _merge_fanout_rows(results),
+            "connection": connection,
+            "graph": graph,
+        }
+    else:
+        payload = {
+            "targets": results,
+            "errors": all_errors,
+            "connection": connection,
+            "graph": graph,
+        }
+    if not include_epistemic:
+        payload["evidence_bundle"] = _evidence_bundle_for_uql_fanout(
+            supported, results, union_read=union_read
+        ).model_dump()
+    if union_read and all_errors:
+        # Keep partial-success diagnostics lossless alongside the canonical
+        # merged rows.  ``EvidenceBundle.from_payload`` retains this sibling
+        # in its reasoning trace when it unwraps the embedded bundle.
+        payload["errors"] = all_errors
+    return json.dumps(payload, default=_json_default)
+
+
+def _uql_fanout_failure(connection: str, graph: str, errors: dict[str, Any]) -> str:
+    """Return a typed failure when no UQL fan-out target produced a result."""
+    payload = json.loads(
+        public_error_json(
+            RuntimeError(
+                "all selected UQL fan-out targets failed or lack governed UQL"
+            ),
+            code="dependency_unavailable",
+            context={"tool": "graph_query", "scope": "uql"},
+        )
+    )
+    # Keep target diagnostics lossless beside the canonical typed error. The
+    # public EvidenceBundle retains these siblings in its reasoning trace.
+    payload.update(
+        {
+            "targets": {},
+            "errors": errors,
+            "connection": connection,
+            "graph": graph,
+        }
+    )
+    return json.dumps(payload, default=_json_default)
 
 
 def _run_graph_query_resolve_local(
@@ -489,6 +932,130 @@ def _run_graph_query_is_union_read(fanout: bool, connection: str | None) -> bool
     return isinstance(connection, str) and connection.strip().lower() in (
         "",
         "default",
+    )
+
+
+def _run_graph_query_uql(
+    query: str,
+    connection: str,
+    graph: str,
+    include_epistemic: bool,
+    params: dict[str, Any],
+    as_of: Any,
+) -> str:
+    """Validate, resolve, and execute one canonical ``graph_query`` UQL call.
+
+    UQL has no parameter-binding surface. Reject a non-empty ``params`` object
+    rather than silently accepting inputs that the governed engine cannot apply;
+    the text itself remains the sole execution input. The native UQL method
+    cannot honor the top-level as_of filter, so a non-empty value is rejected
+    explicitly rather than silently ignored. Connection and physical graph
+    selection still use the same resolver as local Cypher, so routed content
+    graphs and explicit graph authorization keep one policy path.
+    """
+    try:
+        _validate_uql_query(query)
+        if params != {}:
+            raise ValueError("scope='uql' does not accept query parameters")
+        if isinstance(as_of, str) and as_of.strip():
+            raise ValueError(
+                "scope='uql' does not accept top-level as_of; include an AS OF "
+                "stage in the UQL pipeline"
+            )
+    except ValueError as exc:
+        return public_error_json(
+            exc,
+            code="invalid_request",
+            context={"tool": "graph_query", "scope": "uql"},
+        )
+    try:
+        query = _prepare_uql_query(query)
+    except Exception as exc:  # noqa: BLE001 — embedding is a dependency boundary
+        return public_error_json(
+            exc,
+            code="dependency_unavailable",
+            context={"tool": "graph_query", "scope": "uql"},
+        )
+    entries, errors, fanout, error_response = _run_graph_query_resolve_local(
+        connection, graph
+    )
+    if error_response is not None:
+        return error_response
+    union_read = _run_graph_query_is_union_read(fanout, connection)
+    if not fanout:
+        name, engine = entries[0]
+        return _run_graph_query_uql_single(
+            query, include_epistemic, graph, name, engine
+        )
+    return _run_graph_query_uql_fanout(
+        query,
+        include_epistemic,
+        connection,
+        graph,
+        entries,
+        errors,
+        union_read,
+    )
+
+
+def _run_graph_query_local(
+    cypher: str,
+    parsed_params: dict[str, Any],
+    as_of: str,
+    include_epistemic: bool,
+    include_epistemic_flag: bool,
+    connection: str,
+    graph: str,
+) -> str:
+    """Resolve and execute the fall-through local Cypher query path.
+
+    CONCEPT:AU-KG.backend.multi-connection-registry — resolve the
+    connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — with ingestion
+    graph routing on, an implicit-default read fans across active content
+    graphs so split content remains queryable as one KG. CONCEPT:AU-KG.backend.
+    explicit-graph-selection — ``graph`` is a physical graph axis separate from
+    ``connection`` and is rejected by the resolver when fan-out would make it
+    ambiguous.
+    """
+    entries, errors, fanout, error_response = _run_graph_query_resolve_local(
+        connection, graph
+    )
+    if error_response is not None:
+        return error_response
+
+    # Whether this fan-out is the implicit content-graph UNION (no explicit
+    # connection). Those rows are merged into the canonical ``rows`` field; an
+    # explicit ``connection='all'``/list keeps the per-target map.
+    union_read = _run_graph_query_is_union_read(fanout, connection)
+
+    # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
+    # content-graph union CANNOT be fanned: aggregate rows carry no node id to
+    # dedup on, so id-dedup leaves one copy of every group row PER
+    # graph (for example, one aggregate row repeated per graph). Summing generically is
+    # unsafe (wrong for avg/min/max/distinct). Run the aggregation against the
+    # canonical default graph only — control-plane/aggregate reads resolve there.
+    if union_read and is_aggregation_cypher(cypher):
+        return _run_graph_query_union_aggregate(
+            cypher, parsed_params, as_of, include_epistemic_flag, graph
+        )
+
+    if not fanout:
+        # Single connection (default or one named).
+        name, engine = entries[0]
+        return _run_graph_query_single(
+            cypher, parsed_params, as_of, include_epistemic, graph, name, engine
+        )
+
+    return _run_graph_query_fanout(
+        cypher,
+        parsed_params,
+        as_of,
+        include_epistemic_flag,
+        connection,
+        graph,
+        entries,
+        errors,
+        union_read,
     )
 
 
@@ -1795,7 +2362,12 @@ def register_query_tools(mcp):
 
     def _run_graph_query(
         cypher: str = Field(
-            description="A Cypher query string (read-only — no CREATE/MERGE/DELETE)."
+            description=(
+                "A read-only query string. scope='local' expects Cypher; scope='uql' "
+                "expects a bounded UQL pipeline ending in LIMIT 1..1000; "
+                "scope='sql'/'sparql' use their respective dialect. UQL uses the "
+                "query text only; leave params as '{}'."
+            )
         ),
         params: str = Field(default="{}", description="JSON-encoded query parameters."),
         scope: str = Field(
@@ -1805,8 +2377,11 @@ def register_query_tools(mcp):
                 "KG + user tables via the engine's DataFusion surface (e.g. SELECT ... FROM "
                 "nodes — CONCEPT:AU-KG.query.read-only-sql-over, same path as the pg-wire listener), 'sparql' to "
                 "run a SPARQL 1.1 SELECT/ASK over the engine's RDF projection of the graph "
-                "(CONCEPT:AU-KG.ingest.mirror-inbound), or 'federated' to query an external graph endpoint. For "
-                "'sql'/'sparql' the `cypher` arg carries the SQL/SPARQL string."
+                "(CONCEPT:AU-KG.ingest.mirror-inbound), 'uql' to run a bounded, read-only "
+                "Unified Query Language pipeline through the governed engine surface, or "
+                "'federated' to query an external graph endpoint. For 'sql'/'sparql'/'uql' "
+                "the `cypher` arg carries the selected dialect's query string; UQL must "
+                "end in LIMIT 1..1000 and uses params='{}'."
             ),
         ),
         reference_id: str = Field(
@@ -1818,7 +2393,8 @@ def register_query_tools(mcp):
             description=(
                 "CONCEPT:AU-KG.query.as-of-instant-filter — optional ISO-8601 instant. When set, rows are filtered to "
                 "those whose bi-temporal validity (valid_from <= as_of < valid_to) holds, "
-                "answering 'what was true as of date T'."
+                "answering 'what was true as of date T'. Not supported for scope='uql'; "
+                "put temporal semantics in the native UQL pipeline instead."
             ),
         ),
         connection: str = Field(
@@ -1851,7 +2427,7 @@ def register_query_tools(mcp):
         include_epistemic: bool = Field(
             default=False,
             description=(
-                "CONCEPT:AU-KB-CURRENCY — opt-in for local Cypher "
+                "CONCEPT:AU-KB-CURRENCY — opt-in for local Cypher or UQL "
                 "(ignored on scope='sql'/'sparql'/'federated'). When true, each "
                 "result row is currency-upgraded via the "
                 "engine's `explain_provenance_by_ids` into a per-row epistemic "
@@ -1864,16 +2440,34 @@ def register_query_tools(mcp):
             ),
         ),
     ) -> str:
-        """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
+        """Execute a read-only graph query against the Knowledge Graph.
+
+        ``scope='local'`` uses Cypher and ``scope='uql'`` uses the bounded
+        native Unified Query Language surface; SQL, SPARQL, and federated
+        scopes retain their existing dialect-specific routes.
+        """
         # A direct call bypassing `_execute_tool` (which resolves `Field`
         # defaults) binds an omitted `graph` to its raw, truthy
         # `pydantic.fields.FieldInfo` rather than `""` — normalize once here so
         # every `if graph`/`resolve_explicit_graph`/`bound_to_graph` use below
         # sees a clean string, mirroring the SAME defensiveness
         # `ConnectionRegistry.resolve_names` already applies to `connection`.
-        graph, parsed_params, include_epistemic_flag = _run_graph_query_normalize_args(
-            graph, params, include_epistemic
+        normalized = _run_graph_query_normalize_for_scope(
+            graph, params, include_epistemic, scope
         )
+        if isinstance(normalized, str):
+            return normalized
+        graph, parsed_params, include_epistemic_flag = normalized
+
+        if scope == "uql":
+            return _run_graph_query_uql(
+                cypher,
+                connection,
+                graph,
+                include_epistemic_flag,
+                parsed_params,
+                as_of,
+            )
 
         if scope == "sql":
             # CONCEPT:AU-KG.query.read-only-sql-over — read-only SQL over the KG via the engine's
@@ -1899,78 +2493,48 @@ def register_query_tools(mcp):
         # The native engine requires an explicit read mode and validates it with
         # the complete parser; external backends without an equivalent contract
         # fail closed. No lexical query filter is an authorization boundary.
-        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). CONCEPT:AU-KG.ingest.unified-query-routing —
-        # with ingestion graph routing on, an implicit-default read fans across the
-        # active content-graph set so split content is still queryable as one KG.
-        # CONCEPT:AU-KG.backend.explicit-graph-selection — `graph` (a physical engine graph) is a SEPARATE axis
-        # from `connection` (a backend alias); it requires exactly one resolved
-        # connection, so it fails closed against any fan-out (explicit or the
-        # implicit content-graph union below) rather than silently ignoring the
-        # request or unioning across graphs.
-        entries, errors, fanout, error_response = _run_graph_query_resolve_local(
-            connection, graph
-        )
-        if error_response is not None:
-            return error_response
-
-        # Whether this fan-out is the implicit content-graph UNION (no explicit
-        # connection). Those rows are merged into the canonical ``rows`` field; an
-        # explicit ``connection='all'``/list keeps the per-target map.
-        _union_read = _run_graph_query_is_union_read(fanout, connection)
-
-        # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
-        # content-graph union CANNOT be fanned: aggregate rows carry no node id to
-        # dedup on, so id-dedup leaves one copy of every group row PER
-        # graph (for example, one aggregate row repeated per graph). Summing generically is
-        # unsafe (wrong for avg/min/max/distinct). Run the aggregation against the
-        # canonical default graph only — control-plane/aggregate reads resolve there.
-        if _union_read and is_aggregation_cypher(cypher):
-            return _run_graph_query_union_aggregate(
-                cypher, parsed_params, as_of, include_epistemic_flag, graph
-            )
-
-        if not fanout:
-            # Single connection (default or one named).
-            _name, engine = entries[0]
-            return _run_graph_query_single(
-                cypher, parsed_params, as_of, include_epistemic, graph, _name, engine
-            )
-
-        return _run_graph_query_fanout(
+        return _run_graph_query_local(
             cypher,
             parsed_params,
             as_of,
+            include_epistemic,
             include_epistemic_flag,
             connection,
             graph,
-            entries,
-            errors,
-            _union_read,
         )
 
     @mcp.tool(
         name="graph_query",
         description=(
-            "Execute a read-only Cypher, SQL, SPARQL, or federated graph query and "
+            "Execute a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and "
             "return the sole typed EvidenceBundle response."
         ),
         tags=["graph-os", "query"],
     )
     def graph_query(
         cypher: str = Field(
-            description="A read-only query string; the selected scope determines its dialect."
+            description=(
+                "A read-only query string; scope='local' expects Cypher and "
+                "scope='uql' expects a bounded UQL pipeline ending in LIMIT 1..1000 "
+                "with params='{}'."
+            )
         ),
         params: str = Field(default="{}", description="JSON-encoded query parameters."),
         scope: str = Field(
             default="local",
-            description="local | sql | sparql | federated",
+            description="local | uql | sql | sparql | federated",
         ),
         reference_id: str = Field(
             default="",
             description="ExternalGraphReference id required for federated queries.",
         ),
         as_of: str = Field(
-            default="", description="Optional ISO-8601 bitemporal query instant."
+            default="",
+            description=(
+                "Optional ISO-8601 bitemporal query instant; rejected for "
+                "scope='uql' because the native UQL path cannot honor this "
+                "top-level filter."
+            ),
         ),
         connection: str = Field(
             default="",

@@ -140,6 +140,18 @@ def test_unknown_domain_defaults_to_admin_fail_closed():
     assert engine_tools.action_policy("some_future_namespace", "list")["admin"] is True
 
 
+def test_uql_action_is_a_governed_read():
+    policy = engine_tools.action_policy("query", "uql")
+    structured_policy = engine_tools.action_policy("query", "unified")
+
+    assert policy["admin"] is False
+    assert policy["mutate"] is False
+    assert policy["scope"] == "kg:read"
+    assert structured_policy["admin"] is False
+    assert structured_policy["mutate"] is False
+    assert structured_policy["scope"] == "kg:read"
+
+
 # ── (b) normal read/write allowed for a non-admin actor ──────────────────────
 @pytest.mark.parametrize(
     ("domain", "action", "params"),
@@ -147,6 +159,7 @@ def test_unknown_domain_defaults_to_admin_fail_closed():
         ("nodes", "has", {"node_id": "n1"}),
         ("edges", "has", {"source_id": "a", "target_id": "b"}),
         ("query", "sql", {"query": "SELECT 1"}),
+        ("query", "uql", {"text": "MATCH (:Agent) |> LIMIT 5"}),
         ("broker", "publish", {"exchange": "ex", "routing_key": "rk", "payload": "hi"}),
         ("graphlearn", "predict", {}),
     ],

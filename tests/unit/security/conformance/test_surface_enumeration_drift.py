@@ -58,14 +58,14 @@ def test_manifest_has_no_stale_entries_for_dialects_that_no_longer_exist() -> No
     )
 
 
-def test_enumeration_finds_the_four_known_dialects() -> None:
+def test_enumeration_finds_the_five_known_dialects() -> None:
     """A concrete regression pin: today's real dialect set is exactly
-    {local, sql, sparql, federated}. This is not the drift mechanism itself
+    {local, sql, sparql, uql, federated}. This is not the drift mechanism itself
     (the two tests above are) — it exists so a change to query_tools.py that
     silently drops a dialect (rather than adding one) is also caught."""
 
     live_names = {s.name for s in surface_inventory.enumerate_query_dialect_surfaces()}
-    assert live_names == {"local", "sql", "sparql", "federated"}
+    assert live_names == {"local", "sql", "sparql", "uql", "federated"}
 
 
 def test_enumerator_fails_loudly_on_a_missing_module() -> None:
