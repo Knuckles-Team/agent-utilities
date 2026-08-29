@@ -482,6 +482,58 @@ def test_duplicate_identity_raises_exact_message(monkeypatch) -> None:
         )
 
 
+def test_cdc_duplicate_identity_identifies_the_cdc_batch(monkeypatch) -> None:
+    class _DuplicateCDCGraph:
+        def execute_read(self, _query: str, _params: dict):
+            raise AssertionError("snapshot query must not run when CDC is available")
+
+        def read_change_page(self, *, cursor: str | None, limit: int):
+            assert cursor is None
+            assert limit == 50
+            return {
+                "events": [
+                    {
+                        "operation": "upsert",
+                        "entity": "node",
+                        "record": {
+                            "id": "same-id",
+                            "kind": "Capability",
+                            "version": "1",
+                            "properties": {"title": "A"},
+                        },
+                    },
+                    {
+                        "operation": "upsert",
+                        "entity": "node",
+                        "record": {
+                            "id": "same-id",
+                            "kind": "Capability",
+                            "version": "2",
+                            "properties": {"title": "B"},
+                        },
+                    },
+                ],
+                "next_cursor": "cursor-1",
+                "has_more": False,
+            }
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
+        lambda _engine, _connector, *, source_instance: None,
+    )
+
+    with pytest.raises(
+        ExternalGraphIngestionError,
+        match=r"^External graph CDC batch contains a duplicate identity$",
+    ):
+        ingest_registered_graph(
+            object(),
+            _Registry(_DuplicateCDCGraph()),
+            _request(sync_mode="cdc"),
+            profile=_profile(),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Missing identity: pins the "nonauthoritative snapshot" (partial) behaviour,
 # not just an error -- this is an OBSERVED result shape, not a failure.

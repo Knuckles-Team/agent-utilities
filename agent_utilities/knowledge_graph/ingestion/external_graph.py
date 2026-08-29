@@ -1364,8 +1364,9 @@ def _prepare_node_row(
         return False, None, 0
     external_key = str(external_id)
     if external_key in internal_ids:
+        sync_context = {False: "snapshot", True: "CDC batch"}[use_cdc]
         raise ExternalGraphIngestionError(
-            "External graph snapshot contains a duplicate identity"
+            f"External graph {sync_context} contains a duplicate identity"
         )
     mapped_type, external_type = _safe_type(
         _dig(row, type_path), type_map, fallback="ExternalEntity"
