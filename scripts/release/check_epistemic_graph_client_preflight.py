@@ -3,10 +3,10 @@
 
 The unified image receives the engine as a build-time wheel.  A matching
 distribution version alone is not enough evidence: an old client can be
-source-shadowed, or can expose a package without the native work-item CAS
-surface.  This check validates the staged wheel before installation and the
-actually imported client after installation.  When an installer emits a PEP
-610 file URL without an archive hash, the wheel RECORD and installed
+source-shadowed, or can expose a package without the native work-item CAS and
+consensus identity surfaces.  This check validates the staged wheel before
+installation and the actually imported client after installation.  When an
+installer emits a PEP 610 file URL without an archive hash, the wheel RECORD and installed
 regular-file hashes provide the cryptographic binding instead of a basename
 heuristic.  The installed-tree proof runs before importing the client and rejects
 unproved interpreter caches while accepting only bytecode derived from verified
@@ -42,12 +42,26 @@ from urllib.parse import ParseResult, unquote, urlparse
 
 PACKAGE_NAME: Final = "epistemic-graph"
 EXPECTED_VERSION: Final = "2.27.0"
-REQUIRED_CAPABILITY: Final = "work_items.cas_metadata"
+CLIENT_CAPABILITY_SCHEMA_VERSION: Final = 1
+WORK_ITEM_METADATA_CAS_CAPABILITY: Final = "work_items.cas_metadata"
+CONSENSUS_GET_IDENTITY_CAPABILITY: Final = "consensus.get_identity"
+REQUIRED_CAPABILITIES: Final = (
+    WORK_ITEM_METADATA_CAS_CAPABILITY,
+    CONSENSUS_GET_IDENTITY_CAPABILITY,
+)
+# Keep the singular name as a compatibility alias for callers that only need
+# to identify the original CAS capability.  Validation always uses the full
+# capability set above.
+REQUIRED_CAPABILITY: Final = WORK_ITEM_METADATA_CAS_CAPABILITY
 CAPABILITIES_MODULE: Final = "epistemic_graph.client_capabilities"
 CLIENT_MODULE_PATH: Final = "epistemic_graph/client_capabilities.py"
 _WHEEL_FILENAME = re.compile(
     rf"^epistemic_graph-{re.escape(EXPECTED_VERSION)}-"
     r"[A-Za-z0-9.]+-[A-Za-z0-9.]+-[A-Za-z0-9_.]+\.whl$"
+)
+_CLIENT_BUILD_IDENTITY = re.compile(
+    rf"^{re.escape(PACKAGE_NAME)}-client/{re.escape(EXPECTED_VERSION)};"
+    r"capabilities-sha256=[0-9a-f]{64}$"
 )
 _MAX_RECORD_BYTES: Final = 4 * 1024 * 1024
 _MAX_BYTECODE_BYTES: Final = 16 * 1024 * 1024
@@ -369,7 +383,9 @@ def _bytecode_header_flags(payload: bytes) -> int:
     return flags
 
 
-def _assert_cache_source_binding(payload: bytes, flags: int, source_payload: bytes) -> None:
+def _assert_cache_source_binding(
+    payload: bytes, flags: int, source_payload: bytes
+) -> None:
     if flags & 0x01:
         try:
             expected_hash = importlib.util.source_hash(source_payload)
@@ -500,7 +516,9 @@ def _single_dist_info_metadata_name(info_by_name: Mapping[str, zipfile.ZipInfo])
     return metadata_names[0]
 
 
-def _read_dist_info_metadata(archive: zipfile.ZipFile, metadata_info: zipfile.ZipInfo) -> Any:
+def _read_dist_info_metadata(
+    archive: zipfile.ZipFile, metadata_info: zipfile.ZipInfo
+) -> Any:
     if metadata_info.file_size > 1_048_576:
         raise PreflightError("wheel-metadata-invalid")
     try:
@@ -609,7 +627,9 @@ def _open_wheel_archive(path: Path) -> _WheelArchive:
         dist_info = _archive_dist_info_metadata(archive, info_by_name)
         record_name = f"{dist_info}/RECORD"
         rows = _archive_record_rows(archive, info_by_name, record_name)
-        identities = _archive_record_identities(archive, info_by_name, rows, record_name)
+        identities = _archive_record_identities(
+            archive, info_by_name, rows, record_name
+        )
         if set(identities) != set(info_by_name) or record_name not in identities:
             raise PreflightError("wheel-record-coverage-mismatch")
         return _WheelArchive(
@@ -843,7 +863,9 @@ def _assert_installed_content_matches(
             raise PreflightError("installed-wheel-content-mismatch")
 
 
-def _resolve_install_layout(artifact: WheelEvidence, distribution: Any) -> _InstallLayout:
+def _resolve_install_layout(
+    artifact: WheelEvidence, distribution: Any
+) -> _InstallLayout:
     """Validate the archive and compute where each of its members must land."""
 
     archive_layout = _wheel_archive(artifact.path)
@@ -916,7 +938,9 @@ def _observe_record_row(
     if target == layout.record_target:
         _observe_record_self_row(target, digest, size, observed)
         return
-    _observe_record_member_row(layout, target, digest, size, observed, accepted_cache_targets)
+    _observe_record_member_row(
+        layout, target, digest, size, observed, accepted_cache_targets
+    )
 
 
 def _observed_record_targets(
@@ -931,7 +955,9 @@ def _observed_record_targets(
     accepted_cache_targets: set[Path] = set()
     for raw_name, digest, size in installed_rows:
         target = _record_target(layout.root, layout.scripts_root, raw_name)
-        _observe_record_row(layout, target, digest, size, observed, accepted_cache_targets)
+        _observe_record_row(
+            layout, target, digest, size, observed, accepted_cache_targets
+        )
     return observed, accepted_cache_targets
 
 
@@ -1105,7 +1131,9 @@ def _read_distribution_version(distribution: Any) -> None:
         raise PreflightError("client-distribution-version-mismatch")
 
 
-def _read_direct_url_data(distribution: Any, *, artifact_present: bool) -> Mapping[str, Any]:
+def _read_direct_url_data(
+    distribution: Any, *, artifact_present: bool
+) -> Mapping[str, Any]:
     """Parse the installed ``direct_url.json``, or fail closed if one is required."""
 
     try:
@@ -1175,7 +1203,9 @@ def _client_module_expected_file(distribution: Any) -> Path:
         raise PreflightError("client-distribution-layout-invalid") from exc
 
 
-def _import_capabilities_module(module_importer: Callable[[str], ModuleType]) -> ModuleType:
+def _import_capabilities_module(
+    module_importer: Callable[[str], ModuleType],
+) -> ModuleType:
     """Import the capabilities module with new-bytecode writes suppressed."""
 
     previous_dont_write_bytecode = sys.dont_write_bytecode
@@ -1196,16 +1226,17 @@ def _assert_module_not_shadowed(module: ModuleType, expected_file: Path) -> None
 
 
 def _require_capability_manifest(module: ModuleType) -> Mapping[str, Any]:
-    capability = getattr(
-        module, "WORK_ITEM_METADATA_CAS_CAPABILITY", REQUIRED_CAPABILITY
-    )
-    if capability != REQUIRED_CAPABILITY:
-        raise PreflightError("client-capability-unknown")
     require = getattr(module, "require_client_capabilities", None)
     if not callable(require):
         raise PreflightError("client-capability-gate-unavailable")
+    exported_capabilities = (
+        getattr(module, "WORK_ITEM_METADATA_CAS_CAPABILITY", None),
+        getattr(module, "CONSENSUS_GET_IDENTITY_CAPABILITY", None),
+    )
+    if exported_capabilities != REQUIRED_CAPABILITIES:
+        raise PreflightError("client-capability-unknown")
     try:
-        manifest = require((capability,))
+        manifest = require(REQUIRED_CAPABILITIES)
     except Exception as exc:
         raise PreflightError("client-capability-rejected") from exc
     if not isinstance(manifest, Mapping):
@@ -1213,16 +1244,44 @@ def _require_capability_manifest(module: ModuleType) -> Mapping[str, Any]:
     return manifest
 
 
+def _expected_client_build_identity(capabilities: Mapping[str, Any]) -> str:
+    """Derive the producer's capability identity without pinning a digest."""
+
+    payload = {
+        "schema_version": CLIENT_CAPABILITY_SCHEMA_VERSION,
+        "package": PACKAGE_NAME,
+        "package_version": EXPECTED_VERSION,
+        "capabilities": capabilities,
+    }
+    try:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError) as exc:
+        raise PreflightError("client-capability-identity-mismatch") from exc
+    digest = hashlib.sha256(canonical).hexdigest()
+    return f"{PACKAGE_NAME}-client/{EXPECTED_VERSION};capabilities-sha256={digest}"
+
+
 def _assert_capability_manifest_matches(manifest: Mapping[str, Any]) -> None:
     if (
-        manifest.get("package") != PACKAGE_NAME
+        manifest.get("schema_version") != CLIENT_CAPABILITY_SCHEMA_VERSION
+        or manifest.get("package") != PACKAGE_NAME
         or manifest.get("package_version") != EXPECTED_VERSION
     ):
         raise PreflightError("client-capability-identity-mismatch")
     capabilities = manifest.get("capabilities")
+    if not isinstance(capabilities, Mapping):
+        raise PreflightError("client-capability-unavailable")
+    build_identity = manifest.get("client_build_identity")
     if (
-        not isinstance(capabilities, Mapping)
-        or capabilities.get(REQUIRED_CAPABILITY) is not True
+        not isinstance(build_identity, str)
+        or not _CLIENT_BUILD_IDENTITY.fullmatch(build_identity)
+        or build_identity != _expected_client_build_identity(capabilities)
+    ):
+        raise PreflightError("client-capability-identity-mismatch")
+    if any(
+        capabilities.get(capability) is not True for capability in REQUIRED_CAPABILITIES
     ):
         raise PreflightError("client-capability-unavailable")
 
@@ -1247,7 +1306,9 @@ def validate_installed_client(
         raise PreflightError("client-distribution-unavailable") from exc
     _read_distribution_version(distribution)
 
-    direct_url_data = _read_direct_url_data(distribution, artifact_present=artifact is not None)
+    direct_url_data = _read_direct_url_data(
+        distribution, artifact_present=artifact is not None
+    )
     _assert_not_editable_install(direct_url_data)
     if artifact is not None:
         _assert_artifact_provenance(artifact, distribution, direct_url_data)
@@ -1303,7 +1364,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(
             "epistemic-graph client preflight OK: "
-            f"version={evidence.version} capability={REQUIRED_CAPABILITY}"
+            f"version={evidence.version} capabilities={','.join(REQUIRED_CAPABILITIES)}"
         )
     return 0
 
