@@ -211,66 +211,110 @@ class ValueType(BaseModel):
             return False
 
     def _check_constraints(self, value: Any) -> None:
+        self._check_allowed_values(value)
+        self._check_pattern(value)
+        self._check_length_constraints(value)
+        self._check_numeric_constraints(value)
+
+    def _check_allowed_values(self, value: Any) -> None:
+        """Enforce an enumeration after base-type coercion."""
         c = self.constraints
+        if c.allowed_values is None:
+            return
+        if not self._allowed_value_matches(value):
+            raise ValueError(
+                f"{value!r} is not one of the allowed values for {self.name}"
+            )
 
-        # Enumeration / allowed values (compared post-coercion).
-        if c.allowed_values is not None:
-            if c.case_insensitive and isinstance(value, str):
-                allowed = {
-                    str(a).lower() for a in c.allowed_values if isinstance(a, str)
-                }
-                allowed |= {a for a in c.allowed_values if not isinstance(a, str)}
-                ok = value.lower() in allowed or value in c.allowed_values
-            else:
-                ok = value in c.allowed_values
-            if not ok:
-                raise ValueError(
-                    f"{value!r} is not one of the allowed values for {self.name}"
-                )
+    def _allowed_value_matches(self, value: Any) -> bool:
+        """Return whether ``value`` matches the configured enumeration."""
+        c = self.constraints
+        if not c.case_insensitive or not isinstance(value, str):
+            return value in (c.allowed_values or [])
+        allowed_values = c.allowed_values or []
+        allowed = self._case_insensitive_allowed_values(allowed_values)
+        return value.lower() in allowed or value in allowed_values
 
-        # Regex pattern (string-valued types).
-        if c.pattern is not None:
-            flags = re.IGNORECASE if c.case_insensitive else 0
-            if not isinstance(value, str):
-                raise ValueError(
-                    f"{self.name} pattern applies to strings, got "
-                    f"{type(value).__name__}"
-                )
-            if re.fullmatch(c.pattern, value, flags) is None:
-                raise ValueError(f"{value!r} does not match pattern for {self.name}")
+    @staticmethod
+    def _case_insensitive_allowed_values(allowed_values: list[Any]) -> set[Any]:
+        """Normalize string members while retaining non-string members."""
+        allowed = {
+            str(item).lower() for item in allowed_values if isinstance(item, str)
+        }
+        allowed.update(item for item in allowed_values if not isinstance(item, str))
+        return allowed
 
-        # Length bounds (string length or array element count).
-        if c.min_length is not None or c.max_length is not None:
-            length = self._measurable_length(value)
-            if length is None:
-                raise ValueError(
-                    f"{self.name} length constraint applies to sized values, "
-                    f"got {type(value).__name__}"
-                )
-            if c.min_length is not None and length < c.min_length:
-                raise ValueError(
-                    f"{self.name}: length {length} < min_length {c.min_length}"
-                )
-            if c.max_length is not None and length > c.max_length:
-                raise ValueError(
-                    f"{self.name}: length {length} > max_length {c.max_length}"
-                )
+    def _check_pattern(self, value: Any) -> None:
+        """Enforce the optional regular expression on string values."""
+        c = self.constraints
+        if c.pattern is None:
+            return
+        flags = re.IGNORECASE if c.case_insensitive else 0
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{self.name} pattern applies to strings, got {type(value).__name__}"
+            )
+        if re.fullmatch(c.pattern, value, flags) is None:
+            raise ValueError(f"{value!r} does not match pattern for {self.name}")
 
-        # Numeric bounds.
-        if c.min_value is not None or c.max_value is not None:
-            num = self._as_number(value)
-            if c.min_value is not None:
-                if c.exclusive_min:
-                    if not num > c.min_value:
-                        raise ValueError(f"{self.name}: {num} not > min {c.min_value}")
-                elif num < c.min_value:
-                    raise ValueError(f"{self.name}: {num} < min {c.min_value}")
-            if c.max_value is not None:
-                if c.exclusive_max:
-                    if not num < c.max_value:
-                        raise ValueError(f"{self.name}: {num} not < max {c.max_value}")
-                elif num > c.max_value:
-                    raise ValueError(f"{self.name}: {num} > max {c.max_value}")
+    def _check_length_constraints(self, value: Any) -> None:
+        """Enforce optional string or collection length bounds."""
+        c = self.constraints
+        if c.min_length is None and c.max_length is None:
+            return
+        length = self._measurable_length(value)
+        if length is None:
+            raise ValueError(
+                f"{self.name} length constraint applies to sized values, "
+                f"got {type(value).__name__}"
+            )
+        if c.min_length is not None and length < c.min_length:
+            raise ValueError(
+                f"{self.name}: length {length} < min_length {c.min_length}"
+            )
+        if c.max_length is not None and length > c.max_length:
+            raise ValueError(
+                f"{self.name}: length {length} > max_length {c.max_length}"
+            )
+
+    def _check_numeric_constraints(self, value: Any) -> None:
+        """Enforce optional inclusive or exclusive numeric bounds."""
+        c = self.constraints
+        if c.min_value is None and c.max_value is None:
+            return
+        num = self._as_number(value)
+        self._check_numeric_bound(
+            num,
+            c.min_value,
+            minimum=True,
+            exclusive=c.exclusive_min,
+        )
+        self._check_numeric_bound(
+            num,
+            c.max_value,
+            minimum=False,
+            exclusive=c.exclusive_max,
+        )
+
+    def _check_numeric_bound(
+        self,
+        value: float,
+        bound: float | int | None,
+        *,
+        minimum: bool,
+        exclusive: bool,
+    ) -> None:
+        """Raise when ``value`` violates one numeric bound."""
+        if bound is None:
+            return
+        if minimum:
+            invalid = value <= bound if exclusive else value < bound
+            detail = f"not > min {bound}" if exclusive else f"< min {bound}"
+        else:
+            invalid = value >= bound if exclusive else value > bound
+            detail = f"not < max {bound}" if exclusive else f"> max {bound}"
+        if invalid:
+            raise ValueError(f"{self.name}: {value} {detail}")
 
     @staticmethod
     def _measurable_length(value: Any) -> int | None:
