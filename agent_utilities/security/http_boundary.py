@@ -52,6 +52,74 @@ async def _json_response(
     await send({"type": "http.response.body", "body": body})
 
 
+def _validate_authority_value(raw: Any) -> str:
+    value = str(raw or "").strip()
+    if (
+        not value
+        or len(value.encode("utf-8")) > _MAX_HEADER_VALUE_BYTES
+        or any(character in value for character in "/\\@?#\r\n\t ")
+        or (value.count(":") > 1 and not value.startswith("["))
+    ):
+        raise ValueError("host allowlist must contain exact authorities")
+    return value
+
+
+def _parse_authority(value: str) -> tuple[str, int | None]:
+    try:
+        parsed = urlsplit(f"//{value}")
+        host = str(parsed.hostname or "").rstrip(".").casefold()
+        port = parsed.port
+    except ValueError:
+        raise ValueError("host allowlist must contain exact authorities") from None
+    if (
+        not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("host allowlist must contain exact authorities")
+    return host, port
+
+
+def _valid_dns_label(label: str) -> bool:
+    return (
+        bool(label)
+        and len(label) <= 63
+        and not label.startswith("-")
+        and not label.endswith("-")
+        and all(character.isalnum() or character == "-" for character in label)
+    )
+
+
+def _render_dns_host(host: str) -> str:
+    try:
+        rendered_host = host.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError("host allowlist contains an invalid name") from exc
+    if not all(_valid_dns_label(label) for label in rendered_host.split(".")):
+        raise ValueError("host allowlist contains an invalid name") from None
+    return rendered_host
+
+
+def _render_host(host: str) -> str:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return _render_dns_host(host)
+    if isinstance(address, ipaddress.IPv6Address):
+        return f"[{address.compressed}]"
+    return address.compressed
+
+
+def _normalize_host_authority(raw: Any) -> str:
+    value = _validate_authority_value(raw)
+    host, port = _parse_authority(value)
+    rendered_host = _render_host(host)
+    return f"{rendered_host}:{port}" if port is not None else rendered_host
+
+
 def normalize_host_authorities(authorities: Iterable[str]) -> frozenset[str]:
     """Validate exact HTTP Host authorities, including an optional port.
 
@@ -61,57 +129,7 @@ def normalize_host_authorities(authorities: Iterable[str]) -> frozenset[str]:
     widening ``service.example:8443`` to every port on ``service.example``.
     """
 
-    normalized: set[str] = set()
-    for raw in authorities:
-        value = str(raw or "").strip()
-        if (
-            not value
-            or len(value.encode("utf-8")) > _MAX_HEADER_VALUE_BYTES
-            or any(character in value for character in "/\\@?#\r\n\t ")
-            or (value.count(":") > 1 and not value.startswith("["))
-        ):
-            raise ValueError("host allowlist must contain exact authorities")
-        try:
-            parsed = urlsplit(f"//{value}")
-            host = str(parsed.hostname or "").rstrip(".").casefold()
-            port = parsed.port
-        except ValueError:
-            raise ValueError("host allowlist must contain exact authorities") from None
-        if (
-            not host
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("host allowlist must contain exact authorities")
-        try:
-            address = ipaddress.ip_address(host)
-        except ValueError:
-            try:
-                rendered_host = host.encode("idna").decode("ascii")
-            except UnicodeError as exc:
-                raise ValueError("host allowlist contains an invalid name") from exc
-            labels = rendered_host.split(".")
-            if any(
-                not label
-                or len(label) > 63
-                or label.startswith("-")
-                or label.endswith("-")
-                or not all(
-                    character.isalnum() or character == "-" for character in label
-                )
-                for label in labels
-            ):
-                raise ValueError("host allowlist contains an invalid name") from None
-        else:
-            rendered_host = (
-                f"[{address.compressed}]"
-                if isinstance(address, ipaddress.IPv6Address)
-                else address.compressed
-            )
-        normalized.add(f"{rendered_host}:{port}" if port is not None else rendered_host)
+    normalized = {_normalize_host_authority(raw) for raw in authorities}
     if not normalized or len(normalized) > 256:
         raise ValueError("host allowlist must contain 1..256 exact authorities")
     return frozenset(normalized)
