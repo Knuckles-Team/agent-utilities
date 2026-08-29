@@ -898,6 +898,33 @@ class ConnectionRegistry:
         return _build_engine_generic(build_spec, backend_kind)
 
     # ── target resolution ──────────────────────────────────────────────────
+    @staticmethod
+    def _clean_target_names(target: list[Any] | tuple[Any, ...]) -> list[str]:
+        names = []
+        for value in target:
+            name = str(value).strip()
+            if name:
+                names.append(name)
+        return names
+
+    def _resolve_target_sequence(
+        self, target: list[Any] | tuple[Any, ...]
+    ) -> tuple[list[str], bool]:
+        names = self._clean_target_names(target)
+        return names or [DEFAULT_NAME], len(names) > 1
+
+    def _resolve_target_text(self, target: str) -> tuple[list[str], bool]:
+        clean = target.strip()
+        normalized = clean.lower()
+        if not clean or normalized == DEFAULT_NAME:
+            return [DEFAULT_NAME], False
+        if normalized == "all":
+            return self.names(), True
+        if "," not in clean:
+            return [clean], False
+        names = [part.strip() for part in clean.split(",") if part.strip()]
+        return names or [DEFAULT_NAME], len(names) > 1
+
     def resolve_names(self, target: Any) -> tuple[list[str], bool]:
         """Resolve a ``target`` into ``(names, fanout)``.
 
@@ -917,17 +944,8 @@ class ConnectionRegistry:
         if target is None or not isinstance(target, str | list | tuple):
             return [DEFAULT_NAME], False
         if isinstance(target, list | tuple):
-            names = [str(x).strip() for x in target if str(x).strip()]
-            return (names or [DEFAULT_NAME]), len(names) > 1
-        t = str(target).strip()
-        if t == "" or t.lower() == DEFAULT_NAME:
-            return [DEFAULT_NAME], False
-        if t.lower() == "all":
-            return self.names(), True
-        if "," in t:
-            names = [x.strip() for x in t.split(",") if x.strip()]
-            return (names or [DEFAULT_NAME]), len(names) > 1
-        return [t], False
+            return self._resolve_target_sequence(target)
+        return self._resolve_target_text(target)
 
     def safe_get_engine(self, name: str) -> tuple[Any, str | None]:
         """``get_engine`` variant for fan-out: returns ``(engine, error)`` instead
