@@ -169,6 +169,54 @@ def detect_communities(graph: Any) -> list[set[str]]:
         return []
 
 
+def _community_coherence(graph: Any, community: set[Any]) -> float:
+    """Calculate a community's internal edge density."""
+    edges = graph._get_all_edges() if hasattr(graph, "_get_all_edges") else ()
+    internal_edges = sum(
+        source in community and target in community for source, target in edges
+    )
+    possible_edges = len(community) * (len(community) - 1) / 2
+    return internal_edges / possible_edges
+
+
+def _persist_community(
+    engine: Any,
+    graph: Any,
+    index: int,
+    community: set[Any],
+) -> bool:
+    """Persist one stable community and return whether it succeeded."""
+    if len(community) < 3:
+        return False
+
+    community_id = f"community_cluster_{index}"
+    coherence = _community_coherence(graph, community)
+    community_node = CommunityNode(
+        id=community_id,
+        name=f"Emergent Cluster {index}",
+        description=f"Auto-detected topological community with {len(community)} members.",
+        coherence_score=coherence,
+        member_count=len(community),
+        is_permanent=True,
+    )
+
+    try:
+        engine.upsert_node(community_node)
+        for node_id in community:
+            engine.upsert_edge(
+                RegistryEdge(
+                    source=str(node_id),
+                    target=community_id,
+                    type=RegistryEdgeType.PART_OF_COMMUNITY,
+                    weight=coherence,
+                )
+            )
+    except Exception as exc:
+        logger.error(f"Failed to persist community {community_id}: {exc}")
+        return False
+    return True
+
+
 def persist_stable_communities(engine: Any) -> int:
     """Detect and persist stable communities into the Cypher backend.
 
@@ -192,51 +240,9 @@ def persist_stable_communities(engine: Any) -> int:
 
     graph = engine.graph
     communities = detect_communities(graph)
-    persisted_count = 0
-
-    for i, comm in enumerate(communities):
-        # We consider a community "stable" if it has > 3 members
-        if len(comm) < 3:
-            continue
-
-        comm_id = f"community_cluster_{i}"
-
-        # Calculate naive coherence from edge density
-        internal_edges = 0
-        if hasattr(graph, "_get_all_edges"):
-            for src, tgt in graph._get_all_edges():
-                if src in comm and tgt in comm:
-                    internal_edges += 1
-        possible_edges = len(comm) * (len(comm) - 1) / 2
-        coherence = (internal_edges / possible_edges) if possible_edges > 0 else 1.0
-
-        community_node = CommunityNode(
-            id=comm_id,
-            name=f"Emergent Cluster {i}",
-            description=f"Auto-detected topological community with {len(comm)} members.",
-            coherence_score=coherence,
-            member_count=len(comm),
-            is_permanent=True,
-        )
-
-        try:
-            # Upsert the node
-            engine.upsert_node(community_node)
-
-            # Upsert the edges connecting members to the community
-            for node_id in comm:
-                # Ensure node exists before linking
-                edge = RegistryEdge(
-                    source=str(node_id),
-                    target=comm_id,
-                    type=RegistryEdgeType.PART_OF_COMMUNITY,
-                    weight=coherence,
-                )
-                engine.upsert_edge(edge)
-
-            persisted_count += 1
-        except Exception as e:
-            logger.error(f"Failed to persist community {comm_id}: {e}")
-
+    persisted_count = sum(
+        _persist_community(engine, graph, index, community)
+        for index, community in enumerate(communities)
+    )
     logger.info(f"Persisted {persisted_count} emergent communities.")
     return persisted_count
