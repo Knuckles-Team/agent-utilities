@@ -311,20 +311,8 @@ class BaseBrowserAuthManager:
 
         return tokens.get("access_token")
 
-    def login(self) -> dict[str, Any]:
-        """Execute full interactive OAuth PKCE Flow.
-
-        Binds a local loopback server to capture authorization code.
-        If loopback server fails, prompts user to copy-paste (if TTY is available).
-        """
-        auth_endpoint, token_endpoint = self._discover_endpoints()
-        verifier, challenge = generate_pkce()
-
-        # Start loopback callback server
-        server: BaseLoopbackCallbackServer | None = None
-        server_thread: threading.Thread | None = None
-
-        # Build dynamic custom handler class
+    def _start_loopback_server(self) -> BaseLoopbackCallbackServer | None:
+        """Start the callback server, falling back when the port is unavailable."""
         class CustomHandler(BaseLoopbackCallbackHandler):
             redirect_path = self.redirect_path
 
@@ -333,17 +321,22 @@ class BaseBrowserAuthManager:
                 (self.redirect_host, self.redirect_port),
                 CustomHandler,
             )
-            server_thread = threading.Thread(target=server.handle_request, daemon=True)
+            server_thread = threading.Thread(
+                target=server.handle_request, daemon=True
+            )
             server_thread.start()
             logger.info("Started loopback HTTP server on port %d", self.redirect_port)
+            return server
         except OSError as exc:
             logger.warning(
                 "Unable to start loopback server on port %d: %s. Falling back to headless manual paste mode.",
                 self.redirect_port,
                 exc,
             )
+            return None
 
-        # Build Authorization URL
+    def _build_authorization_url(self, auth_endpoint: str, challenge: str) -> str:
+        """Build the authorization URL from the configured PKCE challenge."""
         authorize_params = {
             "response_type": "code",
             "client_id": self.client_id,
@@ -354,10 +347,11 @@ class BaseBrowserAuthManager:
         }
         if self.extra_auth_params:
             authorize_params.update(self.extra_auth_params)
+        return f"{auth_endpoint}?{urlencode(authorize_params)}"
 
-        auth_url = f"{auth_endpoint}?{urlencode(authorize_params)}"
-
-        # Prompt user & attempt browser launch
+    @staticmethod
+    def _announce_authorization(auth_url: str) -> None:
+        """Show the authorization URL and attempt to open it in a browser."""
         print("\n" + "=" * 80)
         print("Interactive OAuth Authentication Setup")
         print("=" * 80)
@@ -369,71 +363,85 @@ class BaseBrowserAuthManager:
         except Exception:
             pass
 
-        auth_code: str | None = None
-        if server:
-            # Wait up to 60 seconds for loopback thread callback to get code
-            wait_limit = 60.0
-            start_time = time.time()
-            print("Waiting for browser callback authorization...")
-            while time.time() - start_time < wait_limit:
-                if server.auth_code:
-                    auth_code = server.auth_code
-                    break
-                time.sleep(0.5)
+    @staticmethod
+    def _wait_for_loopback_code(
+        server: BaseLoopbackCallbackServer,
+    ) -> str | None:
+        """Wait briefly for the browser callback to populate the server."""
+        wait_limit = 60.0
+        start_time = time.time()
+        print("Waiting for browser callback authorization...")
+        while time.time() - start_time < wait_limit:
+            if server.auth_code:
+                return server.auth_code
+            time.sleep(0.5)
+        return None
 
-        # Headless manual fallback
-        if not auth_code:
-            import sys
+    @staticmethod
+    def _read_manual_code_file() -> str:
+        """Wait for and consume the authorization code supplied out of band."""
+        auth_file_path = os.path.expanduser("~/.agent-utilities/xai_auth_code.txt")
+        print(
+            f"Non-TTY environment detected. Please write the authorization code to {auth_file_path}"
+        )
+        print(f"Example: echo 'your_code_here' > {auth_file_path}")
 
-            print("Loopback server timed out or is unavailable.")
-            if not sys.stdin.isatty():
-                auth_file_path = os.path.expanduser(
-                    "~/.agent-utilities/xai_auth_code.txt"
-                )
-                print(
-                    f"Non-TTY environment detected. Please write the authorization code to {auth_file_path}"
-                )
-                print(f"Example: echo 'your_code_here' > {auth_file_path}")
-
-                wait_limit = 300.0
-                start_time = time.time()
-                while time.time() - start_time < wait_limit:
-                    if os.path.exists(auth_file_path):
-                        with open(auth_file_path) as f:
-                            code = f.read().strip()
-                        if code:
-                            auth_code = code
-                            try:
-                                os.remove(auth_file_path)
-                            except OSError:
-                                pass
-                            break
-                    time.sleep(1.0)
-
-                if not auth_code:
-                    raise TimeoutError(
-                        f"Browser callback timed out. Authorization code was not provided in {auth_file_path}."
-                    )
-            else:
-                print(
-                    "Please open the URL above in your local browser, authorize, and then:"
-                )
-                paste_val = input(
-                    "Paste the redirected URL (containing '?code=...') or the raw code: "
-                ).strip()
-                if "code=" in paste_val:
+        wait_limit = 300.0
+        start_time = time.time()
+        while time.time() - start_time < wait_limit:
+            if os.path.exists(auth_file_path):
+                with open(auth_file_path) as f:
+                    code = f.read().strip()
+                if code:
                     try:
-                        parsed = urlparse(paste_val)
-                        auth_code = parse_qs(parsed.query).get("code", [None])[0]
-                    except Exception:
-                        auth_code = paste_val
-                else:
-                    auth_code = paste_val
+                        os.remove(auth_file_path)
+                    except OSError:
+                        pass
+                    return code
+            time.sleep(1.0)
 
-        if not auth_code:
-            raise ValueError("Authentication cancelled or code was not provided.")
+        raise TimeoutError(
+            f"Browser callback timed out. Authorization code was not provided in {auth_file_path}."
+        )
 
-        # Exchange authorization code for access & refresh tokens
+    @staticmethod
+    def _prompt_for_manual_code() -> str | None:
+        """Prompt for a redirected URL or raw authorization code on a TTY."""
+        print("Please open the URL above in your local browser, authorize, and then:")
+        paste_val = input(
+            "Paste the redirected URL (containing '?code=...') or the raw code: "
+        ).strip()
+        if "code=" not in paste_val:
+            return paste_val
+        try:
+            parsed = urlparse(paste_val)
+            return parse_qs(parsed.query).get("code", [None])[0]
+        except Exception:
+            return paste_val
+
+    def _get_authorization_code(
+        self, server: BaseLoopbackCallbackServer | None
+    ) -> str | None:
+        """Obtain the authorization code from loopback or the manual fallback."""
+        auth_code = self._wait_for_loopback_code(server) if server else None
+        if auth_code:
+            return auth_code
+
+        import sys
+
+        print("Loopback server timed out or is unavailable.")
+        if not sys.stdin.isatty():
+            return self._read_manual_code_file()
+        return self._prompt_for_manual_code()
+
+    def _exchange_authorization_code(
+        self,
+        token_endpoint: str,
+        auth_code: str,
+        verifier: str,
+        challenge: str,
+    ) -> dict[str, Any]:
+        """Exchange the authorization code and return the normalized token set."""
         data = {
             "grant_type": "authorization_code",
             "code": auth_code,
@@ -468,11 +476,26 @@ class BaseBrowserAuthManager:
                 f"Failed to exchange authorization code for tokens: {exc}"
             ) from exc
 
-        tokens = {
+        return {
             "access_token": payload["access_token"],
             "refresh_token": payload.get("refresh_token", ""),
             "expires_at": time.time() + float(payload.get("expires_in", 3600)),
         }
+
+    def login(self) -> dict[str, Any]:
+        """Execute the interactive OAuth PKCE flow."""
+        auth_endpoint, token_endpoint = self._discover_endpoints()
+        verifier, challenge = generate_pkce()
+        server = self._start_loopback_server()
+        auth_url = self._build_authorization_url(auth_endpoint, challenge)
+        self._announce_authorization(auth_url)
+        auth_code = self._get_authorization_code(server)
+        if not auth_code:
+            raise ValueError("Authentication cancelled or code was not provided.")
+
+        tokens = self._exchange_authorization_code(
+            token_endpoint, auth_code, verifier, challenge
+        )
         self.save_tokens(tokens)
         print("Successfully authenticated and stored credentials!\n")
         return tokens
