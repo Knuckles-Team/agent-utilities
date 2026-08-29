@@ -552,6 +552,68 @@ def _jaccard(a: str, b: str) -> float:
     return inter / union if union else 0.0
 
 
+def _append_proof_edge(
+    edges: list[ProofEdge],
+    seen: set[tuple[str, str, str]],
+    src: str,
+    dst: str,
+    relation: str,
+) -> None:
+    """Append one non-empty, de-duplicated proof edge."""
+    if not src or not dst:
+        return
+    key = (src, dst, relation)
+    if key in seen:
+        return
+    seen.add(key)
+    edges.append(ProofEdge(src=src, dst=dst, relation=relation))
+
+
+def _candidate_proof_edges(
+    nid: str, node: Mapping[str, Any]
+) -> Iterable[tuple[str, str, str]]:
+    """Yield proof edges declared directly on one selected candidate."""
+    for pid in node.get("proof_ids") or []:
+        yield str(pid), nid, "supports"
+    for cid in node.get("contradiction_ids") or []:
+        yield nid, str(cid), "contradicts"
+    for aid in node.get("alternative_ids") or []:
+        yield nid, str(aid), "alternative_to"
+
+
+def _epistemic_view_edges(view: Mapping[str, Any]) -> Iterable[tuple[str, str, str]]:
+    """Yield proof edges exposed by the engine's epistemic view."""
+    for supporting in view.get("supporting") or []:
+        target = supporting.get("_target_claim")
+        src = supporting.get("id")
+        if src and target:
+            yield str(src), str(target), "supports"
+    for contradicting in view.get("contradicting") or []:
+        target = contradicting.get("_target_claim")
+        src = contradicting.get("id")
+        if src and target:
+            yield str(target), str(src), "contradicts"
+
+
+def _append_epistemic_view_edges(
+    engine: Any,
+    query: str,
+    candidate_count: int,
+    edges: list[ProofEdge],
+    seen: set[tuple[str, str, str]],
+) -> None:
+    """Best-effort append of proof edges from the engine's epistemic view."""
+    epistemic_view = getattr(engine, "retrieve_epistemic_view", None)
+    if not callable(epistemic_view):
+        return
+    try:
+        view = epistemic_view(query, top_k=max(5, candidate_count)) or {}
+        for src, dst, relation in _epistemic_view_edges(view):
+            _append_proof_edge(edges, seen, src, dst, relation)
+    except Exception as e:  # noqa: BLE001 — augmentation is best-effort
+        logger.debug("epistemic view proof-graph augmentation skipped: %s", e)
+
+
 class ContextCompiler:
     """Assemble a policy-aware, budgeted, cited LLM context bundle (CONCEPT:AU-KG.retrieval.context-compiler, Codex X-7).
 
@@ -1394,39 +1456,13 @@ class ContextCompiler:
         edges: list[ProofEdge] = []
         seen: set[tuple[str, str, str]] = set()
 
-        def _add(src: str, dst: str, relation: str) -> None:
-            if not src or not dst:
-                return
-            key = (src, dst, relation)
-            if key in seen:
-                return
-            seen.add(key)
-            edges.append(ProofEdge(src=src, dst=dst, relation=relation))
-
         for nid, node in records_by_id.items():
-            for pid in node.get("proof_ids") or []:
-                _add(str(pid), nid, "supports")
-            for cid in node.get("contradiction_ids") or []:
-                _add(nid, str(cid), "contradicts")
-            for aid in node.get("alternative_ids") or []:
-                _add(nid, str(aid), "alternative_to")
+            for src, dst, relation in _candidate_proof_edges(nid, node):
+                _append_proof_edge(edges, seen, src, dst, relation)
 
-        epistemic_view = getattr(self.engine, "retrieve_epistemic_view", None)
-        if callable(epistemic_view):
-            try:
-                view = epistemic_view(query, top_k=max(5, len(records_by_id))) or {}
-                for s in view.get("supporting") or []:
-                    target = s.get("_target_claim")
-                    src = s.get("id")
-                    if src and target:
-                        _add(str(src), str(target), "supports")
-                for c in view.get("contradicting") or []:
-                    target = c.get("_target_claim")
-                    src = c.get("id")
-                    if src and target:
-                        _add(str(target), str(src), "contradicts")
-            except Exception as e:  # noqa: BLE001 — augmentation is best-effort
-                logger.debug("epistemic view proof-graph augmentation skipped: %s", e)
+        _append_epistemic_view_edges(
+            self.engine, query, len(records_by_id), edges, seen
+        )
 
         return edges
 
