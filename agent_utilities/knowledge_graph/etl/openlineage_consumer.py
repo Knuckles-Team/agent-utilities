@@ -241,6 +241,19 @@ def _parent_run_id(event: dict[str, Any]) -> str:
     return str(parent_run.get(_FIELD_RUN_ID) or "").strip()
 
 
+def _dataset_ids(event: dict[str, Any], field: str) -> tuple[str, ...]:
+    """Map valid dataset objects from one event field to entity ids.
+
+    OpenLineage payloads may contain non-mapping values; the existing mapper
+    intentionally ignores those while allowing :class:`MalformedLineageDataset`
+    from a mapping to quarantine the whole event in its caller.
+    """
+    datasets = _as_list(event.get(field))
+    return tuple(
+        dataset_entity_id(dataset) for dataset in datasets if isinstance(dataset, dict)
+    )
+
+
 def map_openlineage_event(
     event: dict[str, Any],
 ) -> MappedRunEvent | QuarantinedLineageEvent:
@@ -280,11 +293,9 @@ def map_openlineage_event(
             reason=f"unmapped eventType {event_type!r}",
         )
 
-    inputs = _as_list(event.get(_FIELD_INPUTS))
-    outputs = _as_list(event.get(_FIELD_OUTPUTS))
     try:
-        input_ids = tuple(dataset_entity_id(d) for d in inputs if isinstance(d, dict))
-        output_ids = tuple(dataset_entity_id(d) for d in outputs if isinstance(d, dict))
+        input_ids = _dataset_ids(event, _FIELD_INPUTS)
+        output_ids = _dataset_ids(event, _FIELD_OUTPUTS)
     except MalformedLineageDataset as exc:
         return QuarantinedLineageEvent(
             run_id=run_id,
