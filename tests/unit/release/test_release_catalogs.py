@@ -56,6 +56,71 @@ def test_release_catalogs_are_declared_wheel_and_sdist_members() -> None:
     }
 
 
+def _write_dependency_metadata(
+    root: Path, *, project_extra: str = "test", lock_extra: str = "test"
+) -> tuple[Path, Path]:
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(
+        "[project]\n"
+        "name = 'agent-utilities'\n"
+        "[project.optional-dependencies]\n"
+        f"{project_extra} = []\n",
+        encoding="utf-8",
+    )
+    lock = root / "uv.lock"
+    lock.write_text(
+        "[[package]]\n"
+        "name = 'agent-utilities'\n"
+        "source = { editable = '.' }\n"
+        "[package.optional-dependencies]\n"
+        f"{lock_extra} = []\n"
+        "[package.metadata]\n"
+        f"provides-extras = ['{lock_extra}']\n",
+        encoding="utf-8",
+    )
+    return pyproject, lock
+
+
+def test_dependency_extra_gate_allows_stable_test_extras(tmp_path: Path) -> None:
+    pyproject, lock = _write_dependency_metadata(tmp_path)
+
+    release_gate._validate_dependency_extras(
+        pyproject_path=pyproject,
+        lock_path=lock,
+    )
+
+
+@pytest.mark.parametrize("extra", ["throwaway-dep-test", "fixture-only", "test-only"])
+def test_dependency_extra_gate_rejects_ephemeral_manifest_extra(
+    tmp_path: Path, extra: str
+) -> None:
+    pyproject, lock = _write_dependency_metadata(tmp_path)
+    pyproject.write_text(
+        pyproject.read_text(encoding="utf-8").replace("test = []", f"{extra} = []"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ephemeral dependency extras"):
+        release_gate._validate_dependency_extras(
+            pyproject_path=pyproject,
+            lock_path=lock,
+        )
+
+
+def test_dependency_extra_gate_rejects_stale_ephemeral_lock_extra(
+    tmp_path: Path,
+) -> None:
+    pyproject, lock = _write_dependency_metadata(
+        tmp_path, project_extra="test", lock_extra="throwaway-dep-test"
+    )
+
+    with pytest.raises(ValueError, match="in uv.lock"):
+        release_gate._validate_dependency_extras(
+            pyproject_path=pyproject,
+            lock_path=lock,
+        )
+
+
 def _load(name: str) -> dict[str, Any]:
     value = json.loads((RELEASE_ROOT / name).read_text(encoding="utf-8"))
     assert isinstance(value, dict)
@@ -114,7 +179,7 @@ def test_retained_connector_catalog_is_exact_workspace_membership() -> None:
     )
 
     assert [entry["connector"] for entry in document["entries"]] == configured
-    assert len(configured) == len(set(configured)) == 68
+    assert len(configured) == len(set(configured)) == 71
     assert document["membershipDigest"] == canonical_value_digest(configured)
     assert all(
         _DIGEST.fullmatch(entry[field])

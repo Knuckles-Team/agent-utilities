@@ -123,7 +123,7 @@ def _assert_precheck_ok_or_only_unattestable_fingerprint_drift(
 
 
 def test_entire_workspace_ecosystem_is_tracked():
-    assert len(NAMED_CONNECTOR_PACKAGES) == 69
+    assert len(NAMED_CONNECTOR_PACKAGES) == 72
     assert len(set(NAMED_CONNECTOR_PACKAGES)) == len(NAMED_CONNECTOR_PACKAGES)
 
 
@@ -218,6 +218,14 @@ def test_direct_external_graph_passes_the_signed_native_activation_gate():
     )
     assert result["connector"] == "native-source-connectors"
     assert result["manifest_path"] == "native-source-connectors/connector_manifest.yml"
+
+
+def test_arxiv_native_source_passes_the_current_activation_gate():
+    result = gate.precheck_source("arxiv")
+
+    assert result["checked"] is True
+    assert result["ok"] is True, result["violations"]
+    assert result["connector"] == "native-source-connectors"
 
 
 def test_mandatory_set_is_a_superset_of_named_connector_packages():

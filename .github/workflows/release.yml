@@ -6,10 +6,13 @@ name: Release
 # This repo ships exactly two GitHub Actions workflows:
 #
 #   release.yml (THIS FILE)  — the ONLY workflow that can block a release.
-#     Three jobs, wired strictly `needs:` so a failure names its stage at a
-#     glance: gates -> build -> numeric-runtime-gate -> publish-pypi ->
-#     publish-docker. "Release-critical" is deliberately narrow: secret-
-#     history scanning, the test suite, and wheel build + reproducibility +
+#     Four release-critical jobs, wired strictly `needs:` so a failure names
+#     its stage at a glance: clone-scanners + gates -> build ->
+#     numeric-runtime-gate -> publish-pypi -> publish-docker. The scanner job
+#     provisions the pinned native clone gates against an immutable PR/push
+#     SHA range; it is part of the release contract, not a report-only check.
+#     "Release-critical" is deliberately narrow: secret-history scanning, the
+#     test suite, clone gates, and wheel build + reproducibility +
 #     release-contract + wheel-privacy checks. NOTHING else may block
 #     publishing — if you are tempted to add a step here, it almost
 #     certainly belongs in advisory.yml instead.
@@ -50,6 +53,12 @@ on:
       - 'MANIFEST.in'
       - 'build_backend.py'
       - '.github/workflows/release.yml'
+      - 'docs/**'
+      - '**/*.md'
+      - '**/*.json'
+      - '**/*.toml'
+      - '**/*.yaml'
+      - '**/*.yml'
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -59,6 +68,154 @@ permissions:
   contents: read
 
 jobs:
+  # ── STAGE 0: source-checkout clone gates. ───────────────────────────────
+  # This job deliberately installs the exact native tools on an ephemeral
+  # runner. The pre-commit hooks never download dependencies; this CI lane is
+  # the reproducible provisioning boundary and is required by `build` below.
+  clone-scanners:
+    name: pinned clone scanners
+    runs-on: ubuntu-24.04
+    steps:
+      # A pull_request's default checkout is a synthetic merge commit. Pin the
+      # checkout to the immutable contributor SHA so the wrapper's HEAD and
+      # the range resolved below describe the same candidate.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Assert the checked-in clone scanner profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as handle:
+              profile = tomllib.load(handle)["tool"]["agent_utilities"]["clone_scanners"]
+          expected = {
+              "dupehound_version": "0.1.2",
+              "jscpd_version": "5.0.16",
+          }
+          drift = {
+              key: (profile.get(key), value)
+              for key, value in expected.items()
+              if profile.get(key) != value
+          }
+          if drift:
+              raise SystemExit(f"clone scanner profile drift: {drift}")
+          PY
+
+      - name: Sync source-checkout wrapper environment
+        run: |
+          set -euo pipefail
+          uv sync --frozen \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve immutable clone-gate range
+        id: clone-range
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          sha_re='^[0-9a-f]{40}$'
+
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          elif [[ "$EVENT_NAME" == push ]]; then
+            base="$PUSH_BEFORE_SHA"
+            head="$WORKFLOW_SHA"
+          else
+            echo "::error::unsupported event for immutable clone range: $EVENT_NAME"
+            exit 1
+          fi
+
+          if [[ ! "$head" =~ $sha_re ]] || ! git cat-file -e "$head^{commit}"; then
+            echo "::error::head is not a full commit SHA present in the checkout: $head"
+            exit 1
+          fi
+          if [[ "$(git rev-parse HEAD)" != "$head" ]]; then
+            echo "::error::checkout HEAD does not match the immutable candidate SHA"
+            exit 1
+          fi
+
+          if [[ -z "$base" || "$base" == "$zero" ]]; then
+            base="$(git rev-parse --verify "$head^" 2>/dev/null || git rev-list --max-parents=0 "$head")"
+          fi
+          if [[ ! "$base" =~ $sha_re ]] || ! git cat-file -e "$base^{commit}"; then
+            echo "::error::base is not a full commit SHA present in the checkout: $base"
+            exit 1
+          fi
+
+          {
+            echo "base_sha=$base"
+            echo "head_sha=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install exact clone scanner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          dupehound_root="$RUNNER_TEMP/dupehound"
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+          cargo install dupehound --version 0.1.2 --locked --root "$dupehound_root"
+          npm install --global jscpd@5.0.16
+          jscpd_bin="$(npm prefix --global)/bin/jscpd"
+          {
+            echo "DUPEHOUND_BIN=$dupehound_root/bin/dupehound"
+            echo "JSCPD_BIN=$jscpd_bin"
+          } >> "$GITHUB_ENV"
+          echo "$dupehound_root/bin" >> "$GITHUB_PATH"
+          echo "$(dirname "$jscpd_bin")" >> "$GITHUB_PATH"
+          test "$("$dupehound_root/bin/dupehound" --version)" = "dupehound 0.1.2"
+          test "$("$jscpd_bin" --version)" = "cpd 5.0.16"
+
+      - name: Dupehound changed-function gate
+        env:
+          CX_DUP_BASE_REF: ${{ steps.clone-range.outputs.base_sha }}
+          CX_DUP_HEAD_REF: ${{ steps.clone-range.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CX_DUP_HEAD_REF"
+          python3 scripts/check_dupehound.py --base-ref "$CX_DUP_BASE_REF"
+
+      - name: jscpd changed-block gate
+        env:
+          CX_DUP_BASE_REF: ${{ steps.clone-range.outputs.base_sha }}
+          CX_DUP_HEAD_REF: ${{ steps.clone-range.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CX_DUP_HEAD_REF"
+          python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
+
+      - name: jscpd full-tree census (advisory evidence)
+        run: python3 scripts/check_duplication.py census
+
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
@@ -184,7 +341,7 @@ jobs:
       - name: Test suite
         run: python3 -m pytest -q -n auto --dist loadfile
 
-  # ── STAGE 2: build the release wheel. Needs: gates. ─────────────────────
+  # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners. ────
   # This is release-critical item #3: wheel build + reproducibility +
   # release-contract + wheel-privacy checks, ALL against the exact candidate
   # that would publish. Unchanged from the former pipeline.yml `build-wheel`
@@ -193,7 +350,7 @@ jobs:
   # of a foreign workflow_run event.
   build:
     name: build
-    needs: gates
+    needs: [gates, clone-scanners]
     runs-on: ubuntu-latest
     env:
       SOURCE_DATE_EPOCH: "0"

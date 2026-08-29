@@ -7,6 +7,7 @@ claims:
     - find
     - graph_analyze
     - graph_ask
+    - graph_catalog
     - graph_code
     - graph_code_nav
     - graph_context
@@ -17,6 +18,7 @@ claims:
     - graph_explain
     - graph_federated_search
     - graph_gis
+    - graph_projection
     - graph_promql
     - graph_query
     - graph_search

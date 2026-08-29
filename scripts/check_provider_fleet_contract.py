@@ -2,9 +2,10 @@
 """Validate the Agent Utilities contract across the declared provider fleet.
 
 The repository-manager workspace is the source of truth for provider membership.
-The gate validates publishable dependency bounds, rejects workspace-local source
-overrides, and checks documentation language without emitting machine paths or
-matched content.
+The gate validates publishable dependency bounds, rejects local sources in
+published metadata, and checks documentation language without emitting machine
+paths or matched content.  The canonical uv sibling link is an ephemeral
+development override and is not published metadata.
 """
 
 from __future__ import annotations
@@ -21,9 +22,18 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-EXPECTED_PROVIDER_COUNT = 68
+EXPECTED_PROVIDER_COUNT = 71
 REQUIRED_SPECIFIERS = frozenset({(">=", "2.0.0"), ("<", "3.0.0")})
 _RETIRED_AGENT_UTILITIES_EXTRAS = frozenset({"agent", "engine"})
+_EPHEMERAL_AGENT_UTILITIES_SOURCE = {
+    "agent-utilities": {
+        "path": ".uv-workspace-siblings/agent-utilities",
+        "editable": True,
+    }
+}
+_LOCAL_SOURCE_URL_RE = re.compile(
+    r"(?i)^(?:file:|/|\.{1,2}/|\.uv-workspace-siblings/|[a-z]:[\\/])"
+)
 
 _PROVIDER_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _STALE_DOCKERFILE_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -195,6 +205,24 @@ def _has_required_bounds(requirement: Requirement) -> bool:
     return REQUIRED_SPECIFIERS.issubset(actual)
 
 
+def _is_local_source_url(url: str | None) -> bool:
+    """Return whether a direct dependency reference points at local source."""
+
+    return isinstance(url, str) and bool(_LOCAL_SOURCE_URL_RE.match(url))
+
+
+def _uv_sources(project: dict[str, Any]) -> object:
+    """Return uv source overrides without treating them as package metadata."""
+
+    tool = project.get("tool")
+    if not isinstance(tool, dict):
+        return None
+    uv = tool.get("uv")
+    if not isinstance(uv, dict):
+        return None
+    return uv.get("sources")
+
+
 def _requirement_lines(path: Path) -> list[tuple[int, str]]:
     if not path.is_file():
         return []
@@ -265,6 +293,10 @@ def _validate_provider(provider: Path, name: str) -> tuple[list[Finding], FleetS
         if requirement is None:
             continue
         declarations += 1
+        if _is_local_source_url(requirement.url):
+            findings.append(
+                Finding(name, "pyproject.toml", 0, "local_source_forbidden")
+            )
         if not _has_required_bounds(requirement):
             findings.append(
                 Finding(name, "pyproject.toml", 0, f"dependency_bounds:{context}")
@@ -283,8 +315,8 @@ def _validate_provider(provider: Path, name: str) -> tuple[list[Finding], FleetS
     if declarations == 0:
         findings.append(Finding(name, "pyproject.toml", 0, "dependency_missing"))
 
-    sources = project.get("tool", {}).get("uv", {}).get("sources", {})
-    if sources:
+    sources = _uv_sources(project)
+    if sources and sources != _EPHEMERAL_AGENT_UTILITIES_SOURCE:
         findings.append(Finding(name, "pyproject.toml", 0, "local_source_forbidden"))
 
     requirement_declarations = 0
@@ -300,6 +332,10 @@ def _validate_provider(provider: Path, name: str) -> tuple[list[Finding], FleetS
         if requirement is None:
             continue
         requirement_declarations += 1
+        if _is_local_source_url(requirement.url):
+            findings.append(
+                Finding(name, "requirements.txt", number, "local_source_forbidden")
+            )
         if not _has_required_bounds(requirement):
             findings.append(
                 Finding(name, "requirements.txt", number, "dependency_bounds")

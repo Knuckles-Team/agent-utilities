@@ -438,7 +438,7 @@ def check_wheel(path: Path) -> None:
                 # wheel-contract profile, see the extra's own docstring) still
                 # resolves this dependency unconditionally for that install.
                 or str(engine_requirements[0].marker) != 'extra == "graphos"'
-                or engine_requirements[0].specifier != SpecifierSet(">=2.23.2,<3.0.0")
+                or engine_requirements[0].specifier != SpecifierSet(">=2.27.0,<3.0.0")
             ):
                 raise WheelContractError("full-engine-requirement-invalid")
             if archive.getinfo(entry_points[0]).file_size > _MAX_CONTRACT_MEMBER_BYTES:

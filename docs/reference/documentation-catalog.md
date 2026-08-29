@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-415 publishable pages · 95 direct nav targets · 132 public capabilities · 879 action rows · 572 typed configuration fields · 378 runtime-only call-site inputs.
+416 publishable pages · 96 direct nav targets · 132 public capabilities · 880 action rows · 572 typed configuration fields · 378 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -158,6 +158,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — catalog
 - [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — catalog
 - [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — catalog
+- [Atlas source catalogue](../architecture/atlas-source-catalog.md) — direct nav
 - [Autonomous Governance & Zero-Trust Consensus](../architecture/autonomous_governance_and_zero_trust.md) — catalog
 - [Camunda + ARIS ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/camunda_aris_kg_integration.md) — catalog
 - [Chunked async drain — one big sourcesync(full) → capacity-guarded waves](../architecture/chunked-async-drain.md) — catalog

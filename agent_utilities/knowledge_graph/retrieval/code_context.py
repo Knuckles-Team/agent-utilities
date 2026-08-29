@@ -614,6 +614,125 @@ def build_code_context(
     ).as_dict()
 
 
+def _synthesize_call_lines(calls: list[dict[str, Any]]) -> list[str]:
+    if not calls:
+        return []
+    names = ", ".join(f"`{c['symbol']}`" for c in calls[:6] if c.get("symbol"))
+    return [f"It calls {names}."]
+
+
+def _synthesize_concept_lines(concepts: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for concept in concepts:
+        line = f"Implements concept {concept['concept']}"
+        if concept.get("definition"):
+            line += f": {concept['definition']}"
+        lines.append(line + ".")
+    return lines
+
+
+def _synthesize_route_lines(routes: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for route in (routes or [])[:3]:
+        line = f"Serves HTTP {route.get('method')} {route.get('path')}"
+        if route.get("service"):
+            line += f" (service {route['service']})"
+        lines.append(line + ".")
+    return lines
+
+
+def _synthesize_doc_lines(docs: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for doc in (docs or [])[:2]:
+        if doc.get("snippet"):
+            lines.append(f"Doc: {doc['snippet'].strip()} [{doc.get('source') or ''}]")
+    return lines
+
+
+def _synthesize_gotcha_lines(gotchas: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for gotcha in (gotchas or [])[:4]:
+        lines.append(f"⚠️ GOTCHA: {gotcha['note']}")
+    return lines
+
+
+def _synthesize_how(sections: dict[str, list[dict[str, Any]]]) -> list[str]:
+    lines: list[str] = []
+    lines.extend(_synthesize_call_lines(sections.get("calls") or []))
+    lines.extend(_synthesize_concept_lines(sections.get("concepts") or []))
+    lines.extend(_synthesize_route_lines(sections.get("routes") or []))
+    lines.extend(_synthesize_doc_lines(sections.get("docs") or []))
+    lines.extend(_synthesize_gotcha_lines(sections.get("gotchas") or []))
+    return lines
+
+
+def _synthesize_callers_lines(callers: list[dict[str, Any]]) -> list[str]:
+    if callers:
+        return [
+            f"Used by {len(callers)} caller(s): "
+            + ", ".join(_cite(c) for c in callers[:6])
+            + ("…" if len(callers) > 6 else "")
+            + "."
+        ]
+    return ["No resolved callers found (it may be an entry point)."]
+
+
+def _synthesize_cross_repo_lines(cross_repo: list[dict[str, Any]]) -> list[str]:
+    if not cross_repo:
+        return []
+    info = cross_repo[0]
+    return [
+        f"Across the fleet: {info.get('usage_count', 0)} usages in "
+        f"{len(info.get('repos', []))} repo(s) — {', '.join(info.get('repos', [])[:8])}."
+    ]
+
+
+def _synthesize_similar_lines(similar: list[dict[str, Any]]) -> list[str]:
+    if not similar:
+        return []
+    return [
+        "Near-clones: "
+        + ", ".join(f"`{s['symbol']}`" for s in similar[:4] if s.get("symbol"))
+        + "."
+    ]
+
+
+def _synthesize_usage(sections: dict[str, list[dict[str, Any]]]) -> list[str]:
+    lines: list[str] = []
+    lines.extend(_synthesize_callers_lines(sections.get("callers") or []))
+    lines.extend(_synthesize_cross_repo_lines(sections.get("cross_repo") or []))
+    lines.extend(_synthesize_similar_lines(sections.get("similar") or []))
+    return lines
+
+
+def _synthesize_impact_lines(impacted: list[dict[str, Any]]) -> list[str]:
+    if impacted:
+        return [
+            f"Changing it transitively impacts {len(impacted)} caller(s): "
+            + ", ".join(_cite(c) for c in impacted[:6])
+            + ("…" if len(impacted) > 6 else "")
+            + "."
+        ]
+    return ["No upstream callers resolved — low blast radius."]
+
+
+def _synthesize_coupling_lines(coupling: list[dict[str, Any]]) -> list[str]:
+    if not coupling:
+        return []
+    return [
+        "Historically co-changes with: "
+        + ", ".join(c["file"] for c in coupling[:4] if c.get("file"))
+        + "."
+    ]
+
+
+def _synthesize_impact(sections: dict[str, list[dict[str, Any]]]) -> list[str]:
+    lines: list[str] = []
+    lines.extend(_synthesize_impact_lines(sections.get("impacted_callers") or []))
+    lines.extend(_synthesize_coupling_lines(sections.get("change_coupling") or []))
+    return lines
+
+
 def _synthesize(
     query: str,
     intent: str,
@@ -627,70 +746,11 @@ def _synthesize(
     lines: list[str] = [f"`{name}` ({kind}) is defined at {_cite(primary)}."]
 
     if intent == "how":
-        calls = sections.get("calls") or []
-        if calls:
-            names = ", ".join(f"`{c['symbol']}`" for c in calls[:6] if c.get("symbol"))
-            lines.append(f"It calls {names}.")
-        for c in sections.get("concepts") or []:
-            lines.append(
-                f"Implements concept {c['concept']}"
-                + (f": {c['definition']}" if c.get("definition") else "")
-                + "."
-            )
-        for rt in (sections.get("routes") or [])[:3]:
-            lines.append(
-                f"Serves HTTP {rt.get('method')} {rt.get('path')}"
-                + (f" (service {rt['service']})" if rt.get("service") else "")
-                + "."
-            )
-        for d in (sections.get("docs") or [])[:2]:
-            if d.get("snippet"):
-                lines.append(f"Doc: {d['snippet'].strip()} [{d.get('source') or ''}]")
-        for g in (sections.get("gotchas") or [])[:4]:
-            lines.append(f"⚠️ GOTCHA: {g['note']}")
+        lines.extend(_synthesize_how(sections))
     elif intent == "usage":
-        callers = sections.get("callers") or []
-        if callers:
-            lines.append(
-                f"Used by {len(callers)} caller(s): "
-                + ", ".join(_cite(c) for c in callers[:6])
-                + ("…" if len(callers) > 6 else "")
-                + "."
-            )
-        else:
-            lines.append("No resolved callers found (it may be an entry point).")
-        cr = sections.get("cross_repo") or []
-        if cr:
-            info = cr[0]
-            lines.append(
-                f"Across the fleet: {info.get('usage_count', 0)} usages in "
-                f"{len(info.get('repos', []))} repo(s) — {', '.join(info.get('repos', [])[:8])}."
-            )
-        sim = sections.get("similar") or []
-        if sim:
-            lines.append(
-                "Near-clones: "
-                + ", ".join(f"`{s['symbol']}`" for s in sim[:4] if s.get("symbol"))
-                + "."
-            )
+        lines.extend(_synthesize_usage(sections))
     else:  # impact
-        impacted = sections.get("impacted_callers") or []
-        if impacted:
-            lines.append(
-                f"Changing it transitively impacts {len(impacted)} caller(s): "
-                + ", ".join(_cite(c) for c in impacted[:6])
-                + ("…" if len(impacted) > 6 else "")
-                + "."
-            )
-        else:
-            lines.append("No upstream callers resolved — low blast radius.")
-        coupling = sections.get("change_coupling") or []
-        if coupling:
-            lines.append(
-                "Historically co-changes with: "
-                + ", ".join(c["file"] for c in coupling[:4] if c.get("file"))
-                + "."
-            )
+        lines.extend(_synthesize_impact(sections))
 
     lines.append(
         f"({len(citations)} citation(s); query the cited file:line to edit, not to understand.)"

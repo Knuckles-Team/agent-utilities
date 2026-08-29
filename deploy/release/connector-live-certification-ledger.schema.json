@@ -24,11 +24,11 @@
     "apiVersion": {"const": "graphos.io/v1"},
     "kind": {"const": "ConnectorLiveCertificationLedger"},
     "ledgerVersion": {"const": 1},
-    "entryCount": {"const": 68},
+    "entryCount": {"const": 71},
     "entries": {
       "type": "array",
-      "minItems": 68,
-      "maxItems": 68,
+      "minItems": 71,
+      "maxItems": 71,
       "uniqueItems": true,
       "items": {
         "type": "object",

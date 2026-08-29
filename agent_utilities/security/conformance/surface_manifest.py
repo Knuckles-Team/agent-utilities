@@ -89,6 +89,16 @@ QUERY_DIALECT_MANIFEST: tuple[SurfaceEntry, ...] = (
         citation="engine_query.py:439 sparql() -- same wire-layer tier as sql, above",
     ),
     SurfaceEntry(
+        surface_id="query_dialect:uql",
+        disposition=Disposition.AUTHENTICATED_REQUIRED,
+        citation=(
+            "mcp/tools/query_tools.py's scope='uql' branch -> "
+            "IntelligenceGraphEngine.uql (engine_query.py:821-873), whose "
+            "governed engine-surface row pass applies ACL/owner filtering "
+            "before the typed EvidenceBundle projection"
+        ),
+    ),
+    SurfaceEntry(
         surface_id="query_dialect:federated",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(

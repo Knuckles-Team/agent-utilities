@@ -44,8 +44,9 @@ python3 "$AGENT_UTILITIES_ROOT/scripts/check_fleet_supply_chain.py" \
 ```
 
 Exact source-freeze certification uses the explicit no-Git snapshot mode. The
-providers root must contain exactly the 65 direct repositories declared by the
-repository-manager workspace; the workspace argument is accepted only from its
+providers root must contain exactly the 71 direct repositories declared by the
+repository-manager workspace (plus any evidenced local non-provider checkout);
+the workspace argument is accepted only from its
 canonical `repository-manager/repository_manager/workspace.yml` location inside
 that root:
 
@@ -57,10 +58,15 @@ python3 "$AGENT_UTILITIES_ROOT/scripts/check_fleet_supply_chain.py" \
 ```
 
 Snapshot mode never invokes Git. It rejects symlinks and special files in every
-declared provider, retains the normal skipped-directory policy, and bounds the
-provider count, total entries, files, bytes, per-file bytes, and traversal depth.
-It runs the same workflow, container, installer, dependency-lock, and credential
-scanners as normal mode. Undeclared or missing direct provider directories fail
+declared provider, except for the generated `.uv-workspace-siblings/` directory:
+that directory contains governed local editable-dependency links and is skipped
+as build plumbing rather than treated as provider source. It retains the normal
+skipped-directory policy and bounds the provider count, total entries, files,
+bytes, per-file bytes, and traversal depth. It runs the same workflow, container,
+installer, dependency-lock, and credential scanners as normal mode. Undeclared or
+missing direct provider directories fail closed; an unlisted directory is allowed
+only when its non-symlink `.git` entry proves it is a local checkout. Provider-root
+symlinks and symlinks outside the governed workspace-sibling directory fail
 closed.
 
 Diagnostics contain repository-relative paths only.

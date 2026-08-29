@@ -126,6 +126,13 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         blocking=True,
         executable_jobs=frozenset({"gates", "build"}),
         job_skip_reasons={
+            "clone-scanners": (
+                "provisions the pinned native dupehound 0.1.2 and jscpd 5.0.16 "
+                "toolchain on ubuntu-24.04 and executes source-checkout gates over "
+                "an immutable PR/push SHA range; local replay deliberately does not "
+                "install native tools or contact crates.io/npm, while the pre-commit "
+                "hooks exercise the same wrappers locally."
+            ),
             "numeric-runtime-gate": (
                 "installs the exact built wheel with its declared "
                 "epistemic-graph[full] floor FROM PyPI, on a matrix of "

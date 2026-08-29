@@ -286,8 +286,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         if len(values) != len(set(values)):
             raise ValueError(f"{label} identifiers must be unique")
 
-    @model_validator(mode="after")
-    def validate_references(self) -> Self:
+    def _validate_unique_identifiers(self) -> None:
         self._unique([item.event_id for item in self.events], "event")
         self._unique([item.object_id for item in self.objects], "object")
         self._unique([item.name for item in self.event_types], "event-type")
@@ -310,18 +309,31 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             "neural-prediction",
         )
 
-        declared_event_types = {item.name: item for item in self.event_types}
-        declared_object_types = {item.name: item for item in self.object_types}
+    def _declared_types(
+        self,
+    ) -> tuple[dict[str, OcelEventType], dict[str, OcelObjectType]]:
+        return (
+            {item.name: item for item in self.event_types},
+            {item.name: item for item in self.object_types},
+        )
+
+    def _validate_declaration_attributes(self) -> None:
         for declaration in self.event_types:
             self._unique(
                 [attribute.name for attribute in declaration.attributes],
                 f"{declaration.name} attribute",
             )
-        for object_declaration in self.object_types:
+        for declaration in self.object_types:
             self._unique(
-                [attribute.name for attribute in object_declaration.attributes],
-                f"{object_declaration.name} attribute",
+                [attribute.name for attribute in declaration.attributes],
+                f"{declaration.name} attribute",
             )
+
+    def _validate_declared_entity_types(
+        self,
+        declared_event_types: Mapping[str, OcelEventType],
+        declared_object_types: Mapping[str, OcelObjectType],
+    ) -> None:
         if any(event.activity not in declared_event_types for event in self.events):
             raise ValueError("events must reference a declared event type")
         if any(
@@ -330,46 +342,53 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         ):
             raise ValueError("objects must reference a declared object type")
 
+    def _validate_record_attributes(
+        self,
+        attributes: Sequence[EventAttributeValue | TemporalAttributeValue],
+        definitions: Sequence[OcelAttributeDefinition],
+        error_message: str,
+    ) -> None:
+        declared = {item.name: item.value_type for item in definitions}
+        if any(
+            attribute.name not in declared
+            or not _matches_ocel_type(
+                attribute.value,
+                declared[attribute.name],
+            )
+            for attribute in attributes
+        ):
+            raise ValueError(error_message)
+
+    def _validate_event_attributes(
+        self,
+        declared_event_types: Mapping[str, OcelEventType],
+    ) -> None:
         for event in self.events:
-            declarations = {
-                item.name: item.value_type
-                for item in declared_event_types[event.activity].attributes
-            }
             self._unique(
                 [attribute.name for attribute in event.attributes],
                 f"event {event.event_id} attribute",
             )
-            if any(
-                attribute.name not in declarations
-                or not _matches_ocel_type(
-                    attribute.value,
-                    declarations[attribute.name],
-                )
-                for attribute in event.attributes
-            ):
-                raise ValueError(
-                    "event attributes must match their declared OCEL names and types"
-                )
-        for business_object in self.objects:
-            declarations = {
-                item.name: item.value_type
-                for item in declared_object_types[
-                    business_object.object_type
-                ].attributes
-            }
-            if any(
-                attribute.name not in declarations
-                or not _matches_ocel_type(
-                    attribute.value,
-                    declarations[attribute.name],
-                )
-                for attribute in business_object.attributes
-            ):
-                raise ValueError(
-                    "object attributes must match their declared OCEL names and types"
-                )
+            self._validate_record_attributes(
+                event.attributes,
+                declared_event_types[event.activity].attributes,
+                "event attributes must match their declared OCEL names and types",
+            )
 
-        object_types = {item.object_id: item.object_type for item in self.objects}
+    def _validate_object_attributes(
+        self,
+        declared_object_types: Mapping[str, OcelObjectType],
+    ) -> None:
+        for business_object in self.objects:
+            self._validate_record_attributes(
+                business_object.attributes,
+                declared_object_types[business_object.object_type].attributes,
+                "object attributes must match their declared OCEL names and types",
+            )
+
+    def _object_types_by_id(self) -> dict[str, str]:
+        return {item.object_id: item.object_type for item in self.objects}
+
+    def _validate_object_references(self, object_types: Mapping[str, str]) -> None:
         for event in self.events:
             for participation in event.objects:
                 if (
@@ -395,6 +414,7 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "object relationship endpoints must reference declared objects"
                 )
 
+    def _validate_neural_references(self) -> None:
         valid_refs = (
             {("event", item.event_id) for item in self.events}
             | {("object", item.object_id) for item in self.objects}
@@ -412,6 +432,20 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 "neural and resolution references must target symbolic entities "
                 "in the same validated slice"
             )
+
+    @model_validator(mode="after")
+    def validate_references(self) -> Self:
+        self._validate_unique_identifiers()
+        declared_event_types, declared_object_types = self._declared_types()
+        self._validate_declaration_attributes()
+        self._validate_declared_entity_types(
+            declared_event_types,
+            declared_object_types,
+        )
+        self._validate_event_attributes(declared_event_types)
+        self._validate_object_attributes(declared_object_types)
+        self._validate_object_references(self._object_types_by_id())
+        self._validate_neural_references()
         return self
 
     def canonical_digest(self) -> str:

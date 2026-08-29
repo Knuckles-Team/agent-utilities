@@ -367,6 +367,14 @@ _READ_VERB_PREFIXES: tuple[str, ...] = (
     "list",
     "read",
     "query",
+    # Native Unified Query Language is a governed read surface on
+    # IntelligenceGraphEngine.uql(), not a write-capable operation.  Keep it
+    # under the same query:unified / kg:read policy classification as SQL and
+    # SPARQL (CONCEPT:AU-KG.query.au-engine-execution-path).
+    "uql",
+    # Structured UnifiedQuery is the same read-only query:unified operation
+    # that the UQL text surface lowers to.
+    "unified",
     "search",
     "sql",
     "sparql",
