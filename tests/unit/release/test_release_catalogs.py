@@ -114,7 +114,7 @@ def test_retained_connector_catalog_is_exact_workspace_membership() -> None:
     )
 
     assert [entry["connector"] for entry in document["entries"]] == configured
-    assert len(configured) == len(set(configured)) == 68
+    assert len(configured) == len(set(configured)) == 71
     assert document["membershipDigest"] == canonical_value_digest(configured)
     assert all(
         _DIGEST.fullmatch(entry[field])
