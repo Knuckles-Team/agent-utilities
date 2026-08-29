@@ -463,7 +463,7 @@ agents/microsoft-agent/connector_manifest.yml:
 agents/native-source-connectors/connector_manifest.yml:
   algorithm: urdna2015-sha256
   hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
-  manifest_hash: bcdb26351bc4bae5d1285824f1c750c41fc53bdbe82831b7342b2dad92260e83
+  manifest_hash: 3db47a464a32619ef2573d77d9106c5614ec174c3246fd6ccb673d13cc3b9d4a
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
