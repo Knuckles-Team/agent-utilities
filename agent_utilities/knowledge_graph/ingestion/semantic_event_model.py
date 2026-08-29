@@ -323,10 +323,10 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 [attribute.name for attribute in declaration.attributes],
                 f"{declaration.name} attribute",
             )
-        for declaration in self.object_types:
+        for object_declaration in self.object_types:
             self._unique(
-                [attribute.name for attribute in declaration.attributes],
-                f"{declaration.name} attribute",
+                [attribute.name for attribute in object_declaration.attributes],
+                f"{object_declaration.name} attribute",
             )
 
     def _validate_declared_entity_types(
@@ -521,36 +521,25 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
-    def to_graph_slice(
+    def _append_type_nodes(
         self,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Return canonical nodes/links for the existing ChangeEnvelope writer."""
-        digest = self.canonical_digest()
-        entities: list[dict[str, Any]] = [
-            {
-                "id": _stable_id("object-centric-log", self.source_ref, self.log_id),
-                "node_type": "ObjectCentricEventLog",
-                "source_record_id": self.log_id,
-                "source_ref": self.source_ref,
-                "mapping_version": self.mapping_version,
-                "content_hash": digest,
-            }
-        ]
-        links: list[dict[str, Any]] = []
-        log_node_id = entities[0]["id"]
-
-        event_type_ids: dict[str, str] = {}
-        for declaration in sorted(self.event_types, key=lambda value: value.name):
-            node_id = _stable_id(
-                "process-event-type",
-                self.source_ref,
-                declaration.name,
-            )
-            event_type_ids[declaration.name] = node_id
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        log_node_id: str,
+        declarations: Sequence[OcelEventType | OcelObjectType],
+        *,
+        id_kind: str,
+        node_type: str,
+        relationship: str,
+    ) -> dict[str, str]:
+        node_ids: dict[str, str] = {}
+        for declaration in sorted(declarations, key=lambda value: value.name):
+            node_id = _stable_id(id_kind, self.source_ref, declaration.name)
+            node_ids[declaration.name] = node_id
             entities.append(
                 {
                     "id": node_id,
-                    "node_type": "ProcessEventType",
+                    "node_type": node_type,
                     "source_record_id": declaration.name,
                     "attributes": [
                         value.model_dump(mode="json")
@@ -564,42 +553,18 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 {
                     "source": log_node_id,
                     "target": node_id,
-                    "relationship": "HAS_EVENT_TYPE",
+                    "relationship": relationship,
                 }
             )
+        return node_ids
 
-        object_type_ids: dict[str, str] = {}
-        for object_declaration in sorted(
-            self.object_types,
-            key=lambda value: value.name,
-        ):
-            node_id = _stable_id(
-                "business-object-type",
-                self.source_ref,
-                object_declaration.name,
-            )
-            object_type_ids[object_declaration.name] = node_id
-            entities.append(
-                {
-                    "id": node_id,
-                    "node_type": "BusinessObjectType",
-                    "source_record_id": object_declaration.name,
-                    "attributes": [
-                        value.model_dump(mode="json")
-                        for value in object_declaration.attributes
-                    ],
-                    "source_ref": self.source_ref,
-                    "mapping_version": self.mapping_version,
-                }
-            )
-            links.append(
-                {
-                    "source": log_node_id,
-                    "target": node_id,
-                    "relationship": "HAS_OBJECT_TYPE",
-                }
-            )
-
+    def _append_object_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        log_node_id: str,
+        object_type_ids: Mapping[str, str],
+    ) -> dict[str, str]:
         object_ids: dict[str, str] = {}
         for business_object in sorted(self.objects, key=lambda value: value.object_id):
             node_id = _stable_id(
@@ -623,21 +588,30 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "mapping_version": self.mapping_version,
                 }
             )
-            links.append(
-                {
-                    "source": log_node_id,
-                    "target": node_id,
-                    "relationship": "HAS_OBJECT",
-                }
+            links.extend(
+                [
+                    {
+                        "source": log_node_id,
+                        "target": node_id,
+                        "relationship": "HAS_OBJECT",
+                    },
+                    {
+                        "source": node_id,
+                        "target": object_type_ids[business_object.object_type],
+                        "relationship": "INSTANCE_OF_OBJECT_TYPE",
+                    },
+                ]
             )
-            links.append(
-                {
-                    "source": node_id,
-                    "target": object_type_ids[business_object.object_type],
-                    "relationship": "INSTANCE_OF_OBJECT_TYPE",
-                }
-            )
+        return object_ids
 
+    def _append_event_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        log_node_id: str,
+        event_type_ids: Mapping[str, str],
+        object_ids: Mapping[str, str],
+    ) -> dict[str, str]:
         event_ids: dict[str, str] = {}
         for event in sorted(self.events, key=lambda value: value.event_id):
             event_id = _stable_id("process-event", self.source_ref, event.event_id)
@@ -657,62 +631,85 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "sequence_tiebreaker": event.sequence_tiebreaker,
                 }
             )
-            links.append(
-                {
-                    "source": log_node_id,
-                    "target": event_id,
-                    "relationship": "HAS_EVENT",
-                }
-            )
-            links.append(
-                {
-                    "source": event_id,
-                    "target": event_type_ids[event.activity],
-                    "relationship": "INSTANCE_OF_EVENT_TYPE",
-                }
-            )
-            ordered_participations = sorted(
-                event.objects,
-                key=lambda value: (
-                    value.object_type,
-                    value.object_id,
-                    value.qualifier,
-                ),
-            )
-            for occurrence, participation in enumerate(ordered_participations):
-                participation_id = _stable_id(
-                    "event-object-participation",
-                    self.source_ref,
-                    event.event_id,
-                    participation.object_type,
-                    participation.object_id,
-                    participation.qualifier,
-                    str(occurrence),
-                )
-                entities.append(
+            links.extend(
+                [
                     {
-                        "id": participation_id,
-                        "node_type": "EventObjectParticipation",
-                        "qualifier": participation.qualifier,
-                        "source_ref": event.source_ref,
-                        "mapping_version": self.mapping_version,
-                    }
-                )
-                links.extend(
-                    [
-                        {
-                            "source": event_id,
-                            "target": participation_id,
-                            "relationship": "HAS_PARTICIPATION",
-                        },
-                        {
-                            "source": participation_id,
-                            "target": object_ids[participation.object_id],
-                            "relationship": "PARTICIPATES_AS",
-                        },
-                    ]
-                )
+                        "source": log_node_id,
+                        "target": event_id,
+                        "relationship": "HAS_EVENT",
+                    },
+                    {
+                        "source": event_id,
+                        "target": event_type_ids[event.activity],
+                        "relationship": "INSTANCE_OF_EVENT_TYPE",
+                    },
+                ]
+            )
+            self._append_event_participations(
+                entities,
+                links,
+                event,
+                event_id,
+                object_ids,
+            )
+        return event_ids
 
+    def _append_event_participations(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        event: ProcessEvent,
+        event_id: str,
+        object_ids: Mapping[str, str],
+    ) -> None:
+        ordered_participations = sorted(
+            event.objects,
+            key=lambda value: (
+                value.object_type,
+                value.object_id,
+                value.qualifier,
+            ),
+        )
+        for occurrence, participation in enumerate(ordered_participations):
+            participation_id = _stable_id(
+                "event-object-participation",
+                self.source_ref,
+                event.event_id,
+                participation.object_type,
+                participation.object_id,
+                participation.qualifier,
+                str(occurrence),
+            )
+            entities.append(
+                {
+                    "id": participation_id,
+                    "node_type": "EventObjectParticipation",
+                    "qualifier": participation.qualifier,
+                    "source_ref": event.source_ref,
+                    "mapping_version": self.mapping_version,
+                }
+            )
+            links.extend(
+                [
+                    {
+                        "source": event_id,
+                        "target": participation_id,
+                        "relationship": "HAS_PARTICIPATION",
+                    },
+                    {
+                        "source": participation_id,
+                        "target": object_ids[participation.object_id],
+                        "relationship": "PARTICIPATES_AS",
+                    },
+                ]
+            )
+
+    def _append_state_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        object_ids: Mapping[str, str],
+    ) -> dict[str, str]:
         state_ids: dict[str, str] = {}
         for state in sorted(self.object_states, key=lambda value: value.state_id):
             state_id = _stable_id("object-state", self.source_ref, state.state_id)
@@ -744,7 +741,14 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                     "relationship": "STATE_OF",
                 }
             )
+        return state_ids
 
+    def _append_relationship_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        object_ids: Mapping[str, str],
+    ) -> None:
         for relationship in sorted(
             self.object_relationships,
             key=lambda value: value.relationship_id,
@@ -789,6 +793,10 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 ]
             )
 
+    def _append_perspective_nodes(
+        self,
+        entities: list[dict[str, Any]],
+    ) -> None:
         for perspective in sorted(
             self.perspectives, key=lambda value: value.perspective_id
         ):
@@ -809,11 +817,24 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 }
             )
 
-        canonical_ids: dict[tuple[str, str], str] = {
+    @staticmethod
+    def _canonical_entity_ids(
+        event_ids: Mapping[str, str],
+        object_ids: Mapping[str, str],
+        state_ids: Mapping[str, str],
+    ) -> dict[tuple[str, str], str]:
+        return {
             **{("event", key): value for key, value in event_ids.items()},
             **{("object", key): value for key, value in object_ids.items()},
             **{("object_state", key): value for key, value in state_ids.items()},
         }
+
+    def _append_neural_representation_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        canonical_ids: Mapping[tuple[str, str], str],
+    ) -> None:
         for representation in sorted(
             self.neural_representations,
             key=lambda value: value.representation_id,
@@ -849,6 +870,12 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 }
             )
 
+    def _append_neural_prediction_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        canonical_ids: Mapping[tuple[str, str], str],
+    ) -> None:
         for prediction in sorted(
             self.neural_predictions, key=lambda value: value.prediction_id
         ):
@@ -892,6 +919,12 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 ]
             )
 
+    def _append_resolution_proposal_nodes(
+        self,
+        entities: list[dict[str, Any]],
+        links: list[dict[str, Any]],
+        canonical_ids: Mapping[tuple[str, str], str],
+    ) -> None:
         for proposal in sorted(
             self.entity_resolution_proposals,
             key=lambda value: value.proposal_id,
@@ -925,6 +958,61 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
                 }
             )
 
+    def to_graph_slice(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return canonical nodes/links for the existing ChangeEnvelope writer."""
+        digest = self.canonical_digest()
+        log_node_id = _stable_id("object-centric-log", self.source_ref, self.log_id)
+        entities: list[dict[str, Any]] = [
+            {
+                "id": log_node_id,
+                "node_type": "ObjectCentricEventLog",
+                "source_record_id": self.log_id,
+                "source_ref": self.source_ref,
+                "mapping_version": self.mapping_version,
+                "content_hash": digest,
+            }
+        ]
+        links: list[dict[str, Any]] = []
+        event_type_ids = self._append_type_nodes(
+            entities,
+            links,
+            log_node_id,
+            self.event_types,
+            id_kind="process-event-type",
+            node_type="ProcessEventType",
+            relationship="HAS_EVENT_TYPE",
+        )
+        object_type_ids = self._append_type_nodes(
+            entities,
+            links,
+            log_node_id,
+            self.object_types,
+            id_kind="business-object-type",
+            node_type="BusinessObjectType",
+            relationship="HAS_OBJECT_TYPE",
+        )
+        object_ids = self._append_object_nodes(
+            entities,
+            links,
+            log_node_id,
+            object_type_ids,
+        )
+        event_ids = self._append_event_nodes(
+            entities,
+            links,
+            log_node_id,
+            event_type_ids,
+            object_ids,
+        )
+        state_ids = self._append_state_nodes(entities, links, object_ids)
+        self._append_relationship_nodes(entities, links, object_ids)
+        self._append_perspective_nodes(entities)
+        canonical_ids = self._canonical_entity_ids(event_ids, object_ids, state_ids)
+        self._append_neural_representation_nodes(entities, links, canonical_ids)
+        self._append_neural_prediction_nodes(entities, links, canonical_ids)
+        self._append_resolution_proposal_nodes(entities, links, canonical_ids)
         return entities, links
 
     @classmethod
