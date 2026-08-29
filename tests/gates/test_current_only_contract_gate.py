@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from scripts import check_current_only_contract as current_only_contract
 from scripts.check_current_only_contract import (
     DATED_HISTORICAL_RECORD_MARKER,
     check,
-    check_report,
 )
 
 
@@ -61,6 +61,60 @@ def test_gate_rejects_retired_authority_surfaces(tmp_path: Path, retired: str) -
 
     assert len(violations) == 1
     assert retired in violations[0]
+
+
+def test_gate_reports_multiple_needles_once_in_declaration_order(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "multiple.md"
+    source.write_text(
+        "AGENT_" + "API_KEY GRAPH_" + "BACKEND AGENT_" + "API_KEY\n",
+        encoding="utf-8",
+    )
+
+    violations = check(tmp_path, paths=[source])
+
+    assert len(violations) == 2
+    assert "GRAPH_" + "BACKEND" in violations[0]
+    assert "AGENT_" + "API_KEY" in violations[1]
+
+
+def test_gate_does_not_match_a_retired_identifier_inside_a_current_name(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "current.py"
+    source.write_text("GRAPH_" + "BACKEND_L1 = 'live'\n", encoding="utf-8")
+
+    violations = check(tmp_path, paths=[source])
+
+    assert all("GRAPH_" + "BACKEND'" not in violation for violation in violations)
+
+
+def test_combined_matcher_preserves_legacy_matching_semantics() -> None:
+    needles = (
+        current_only_contract.RETIRED_IDENTIFIERS
+        + current_only_contract.RAW_ROUTE_FRAGMENTS
+    )
+    samples = [
+        candidate
+        for needle in needles
+        for candidate in (needle, f"before {needle} after", f"{needle} {needle}")
+    ]
+    samples.extend(
+        [
+            "GRAPH_" + "BACKEND_L1",
+            "prefix_GRAPH_" + "BACKEND",
+            "AGENT_" + "API_KEY GRAPH_" + "BACKEND AGENT_" + "API_KEY",
+        ]
+    )
+
+    for line in samples:
+        expected = [
+            needle
+            for needle in needles
+            if current_only_contract._needle_matches(needle, line)
+        ]
+        assert current_only_contract._matching_needles(line) == expected
 
 
 # NOTE: there is deliberately no "retired checkpoint module"/"retired durable
