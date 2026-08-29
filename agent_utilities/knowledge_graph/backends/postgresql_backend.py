@@ -856,6 +856,83 @@ class PostgreSQLBackend(GraphBackend):
             read_only=True,
         )
 
+    @staticmethod
+    def _format_select_rows(cur: Any, tq: Any) -> list[dict[str, Any]]:
+        """Convert SELECT-like cursor rows to the public result shape."""
+        from .cypher_transpiler import QueryType
+
+        cols = [desc.name for desc in cur.description] if cur.description else []
+        results = []
+        for row in cur.fetchall():
+            values = dict(zip(cols, row, strict=False))
+            if tq.node_alias and tq.query_type == QueryType.SELECT:
+                results.append({tq.node_alias: values})
+            else:
+                results.append(values)
+        return results
+
+    @staticmethod
+    def _format_update_rows(cur: Any) -> list[dict[str, Any]]:
+        """Convert an UPDATE cursor result to the public result shape."""
+        if cur.description:
+            cols = [desc.name for desc in cur.description]
+            return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+        return [{"affected": cur.rowcount}] if cur.rowcount else []
+
+    @staticmethod
+    def _format_cypher_result(conn: Any, cur: Any, tq: Any) -> list[dict[str, Any]]:
+        """Convert one transpiled cursor result to the public row shape."""
+        from .cypher_transpiler import QueryType
+
+        if tq.query_type in (
+            QueryType.SELECT,
+            QueryType.LABEL_LOOKUP,
+            QueryType.COUNT,
+        ):
+            return PostgreSQLBackend._format_select_rows(cur, tq)
+        if tq.query_type == QueryType.UPDATE:
+            return PostgreSQLBackend._format_update_rows(cur)
+        if tq.query_type in (
+            QueryType.INSERT,
+            QueryType.UPSERT_EDGE,
+            QueryType.DELETE,
+        ):
+            conn.commit()
+        return []
+
+    def _heal_cypher_schema_error(
+        self,
+        exc: Exception,
+        tq: Any,
+        attempts_used: int,
+        max_retries: int,
+    ) -> bool:
+        """Heal one reported schema gap when another retry remains."""
+        import re as _re
+
+        healed = False
+        missing_column = _re.search(
+            r'column "([^"]+)" of relation "([^"]+)" does not exist', str(exc)
+        )
+        if missing_column and attempts_used < max_retries:
+            # Heal EVERY column the INSERT references, not just the first one
+            # PG reported: a node with several undeclared props is missing
+            # several columns, and one-column-per-retry exhausts max_retries
+            # before they are all added (the node was then dropped). Adding
+            # them all here converges in a single retry.
+            healed = self._ensure_insert_columns(missing_column.group(2), tq.sql)
+            if not healed:  # fall back to the single reported column
+                healed = self.ensure_column(
+                    missing_column.group(2), missing_column.group(1)
+                )
+        else:
+            missing_table = _re.search(r'relation "([^"]+)" does not exist', str(exc))
+            if missing_table and attempts_used < max_retries:
+                # force=True: the DB just told us the table is missing, so
+                # the _known_tables cache is authoritatively stale here.
+                healed = self.ensure_label_table(missing_table.group(1), force=True)
+        return healed
+
     def _execute_cypher(
         self,
         query: str,
@@ -908,44 +985,7 @@ class PostgreSQLBackend(GraphBackend):
                 with self._conn(read_only=read_only) as conn:
                     with conn.cursor() as cur:
                         cur.execute(tq.sql, tq.params)
-
-                        if tq.query_type in (
-                            QueryType.SELECT,
-                            QueryType.LABEL_LOOKUP,
-                            QueryType.COUNT,
-                        ):
-                            cols = (
-                                [desc.name for desc in cur.description]
-                                if cur.description
-                                else []
-                            )
-                            rows = cur.fetchall()
-                            results = []
-                            for row in rows:
-                                d = dict(zip(cols, row, strict=False))
-                                # Wrap in node alias if engine expects {n: {...}}
-                                if tq.node_alias and tq.query_type == QueryType.SELECT:
-                                    results.append({tq.node_alias: d})
-                                else:
-                                    results.append(d)
-                            return results
-
-                        elif tq.query_type == QueryType.UPDATE:
-                            if cur.description:
-                                cols = [desc.name for desc in cur.description]
-                                rows = cur.fetchall()
-                                return [dict(zip(cols, r, strict=False)) for r in rows]
-                            return [{"affected": cur.rowcount}] if cur.rowcount else []
-
-                        elif tq.query_type in (
-                            QueryType.INSERT,
-                            QueryType.UPSERT_EDGE,
-                            QueryType.DELETE,
-                        ):
-                            conn.commit()
-                            return []
-
-                        return []
+                        return self._format_cypher_result(conn, cur, tq)
             except Exception as e:
                 if read_only:
                     raise
@@ -957,28 +997,7 @@ class PostgreSQLBackend(GraphBackend):
                 # write to a missing column ("column X of relation Y does not
                 # exist") adds the column and retries — so a new node type or a
                 # schema-drifted property persists durably instead of being dropped.
-                import re as _re
-
-                healed = False
-                mc = _re.search(
-                    r'column "([^"]+)" of relation "([^"]+)" does not exist', str(e)
-                )
-                if mc and attempts_used < max_retries:
-                    # Heal EVERY column the INSERT references, not just the first one
-                    # PG reported: a node with several undeclared props is missing
-                    # several columns, and one-column-per-retry exhausts max_retries
-                    # before they are all added (the node was then dropped). Adding
-                    # them all here converges in a single retry.
-                    healed = self._ensure_insert_columns(mc.group(2), tq.sql)
-                    if not healed:  # fall back to the single reported column
-                        healed = self.ensure_column(mc.group(2), mc.group(1))
-                else:
-                    mt = _re.search(r'relation "([^"]+)" does not exist', str(e))
-                    if mt and attempts_used < max_retries:
-                        # force=True: the DB just told us the table is missing, so
-                        # the _known_tables cache is authoritatively stale here.
-                        healed = self.ensure_label_table(mt.group(1), force=True)
-                if healed:
+                if self._heal_cypher_schema_error(e, tq, attempts_used, max_retries):
                     # Schema just healed — retry immediately (backoff_s=0.0).
                     raise RetryableError(str(e), backoff_s=0.0) from e
                 logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)

@@ -188,6 +188,45 @@ class TestBaseBrowserAuthManager:
             )
             mock_login.assert_called_once()
 
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_login_loopback_exchange_persists_tokens(self, manager):
+        """The live login path exchanges the callback code and stores tokens."""
+        server = MagicMock()
+        server.auth_code = "callback-code"
+        response = MagicMock()
+        response.json.return_value = {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+        }
+
+        with (
+            patch.object(manager, "_start_loopback_server", return_value=server) as start,
+            patch(
+                "agent_utilities.security.browser_auth.generate_pkce",
+                return_value=("verifier", "challenge"),
+            ),
+            patch("agent_utilities.security.browser_auth.webbrowser.open") as open_browser,
+            patch("httpx.post", return_value=response) as post,
+        ):
+            tokens = manager.login()
+
+        start.assert_called_once_with()
+        open_browser.assert_called_once()
+        post.assert_called_once()
+        assert post.call_args.args[0] == manager.token_endpoint
+        assert post.call_args.kwargs["data"] == {
+            "grant_type": "authorization_code",
+            "code": "callback-code",
+            "redirect_uri": manager.redirect_uri,
+            "client_id": manager.client_id,
+            "code_verifier": "verifier",
+            "code_challenge": "challenge",
+            "code_challenge_method": "S256",
+        }
+        assert tokens["access_token"] == "access-token"
+        assert manager.get_cached_tokens() == tokens
+
 
 class _FakeCallbackSelf:
     """Minimal stand-in for a BaseLoopbackCallbackHandler instance.

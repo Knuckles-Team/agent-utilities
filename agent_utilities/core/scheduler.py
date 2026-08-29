@@ -339,6 +339,117 @@ async def reload_cron_tasks():
         tasks = new_list
 
 
+def _run_internal_hydration(source: str = "", *, all_sources: bool = False) -> None:
+    """Run one of the scheduler's internal hydration commands."""
+    if all_sources:
+        logger.info("Running internal hydration task for all active sources")
+    else:
+        logger.info(f"Running internal hydration task for source: {source}")
+
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        logger.error("Failed to fetch active Knowledge Graph engine for hydration task")
+        return
+
+    try:
+        if all_sources:
+            res = HydrationManager().hydrate_all(engine)
+            logger.info(f"Internal hydration for all active sources completed: {res}")
+        else:
+            res = HydrationManager().hydrate_source(engine, source)
+            logger.info(f"Internal hydration for '{source}' completed: {res}")
+    except Exception as he:
+        if all_sources:
+            logger.error(f"Internal hydration for all active sources failed: {he}")
+        else:
+            logger.error(f"Internal hydration for '{source}' failed: {he}")
+
+
+def _run_internal_task(command: str) -> None:
+    """Dispatch a scheduler command that does not require the agent."""
+    if command == "cleanup_cron_log":
+        cleanup_cron_log()
+        logger.debug("Cron log cleanup completed")
+    elif command.startswith("hydrate:"):
+        _run_internal_hydration(command.split(":", 1)[1])
+    elif command == "hydrate_all" or command == "hydrate:all":
+        _run_internal_hydration(all_sources=True)
+
+
+def _save_cron_chat(
+    task: PeriodicTask, resolved_prompt: str, output: str
+) -> str | None:
+    """Persist a successful task exchange and return its chat identifier."""
+    try:
+        chat_id = f"cron-{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        messages = [
+            {
+                "id": "msg-u-1",
+                "role": "user",
+                "content": resolved_prompt,
+                "parts": [{"type": "text", "text": resolved_prompt}],
+            },
+            {
+                "id": "msg-a-1",
+                "role": "assistant",
+                "content": output,
+                "parts": [{"type": "text", "text": output}],
+            },
+        ]
+        save_chat_to_disk(chat_id, messages)
+        return chat_id
+    except Exception as e:
+        logger.error(f"Failed to save cron chat: {e}")
+        return None
+
+
+async def _run_agent_task(task: PeriodicTask, agent: Any) -> None:
+    """Resolve, execute, and record one externally-run periodic task."""
+    resolved_prompt = resolve_prompt(task.prompt)
+    logger.info(f"Running periodic task → {task.name} (ID: {task.id})")
+    result = await agent.run(resolved_prompt)
+
+    output = str(result.output or "")
+    if output:
+        logger.info(f"Task result: {output[:200]}...")
+
+    chat_id = _save_cron_chat(task, resolved_prompt, output)
+    append_cron_log(
+        task_id=task.id,
+        task_name=task.name,
+        output=output or "(no output)",
+        chat_id=chat_id,
+    )
+
+
+async def _process_due_task(task: PeriodicTask, agent: Any, now: datetime) -> None:
+    """Advance one task's attempt marker and execute it with error logging."""
+    # Advance ``last_run`` per-task, immediately before its own attempt
+    # — never for the whole ``due`` batch up front. Stamping the whole
+    # batch before any of it ran was a write-then-mark-seen shape: a
+    # crash (or unhandled failure) while executing an EARLY task in the
+    # batch left every LATER task in that same batch marked as "just
+    # ran" despite never being dispatched at all, silently skipping a
+    # full interval for work that was never attempted.
+    task.last_run = now
+    try:
+        if task.prompt.startswith("__internal:"):
+            _run_internal_task(task.prompt.split(":", 1)[1])
+            return
+
+        await _run_agent_task(task, agent)
+    except Exception as e:
+        logger.error(f"Error running periodic task {task.id}: {e}")
+        append_cron_log(
+            task_id=task.id,
+            task_name=task.name,
+            output=f"❌ ERROR: {e}",
+        )
+
+
 async def background_processor(agent: Any):
     """The main execution loop for periodic tasks.
 
@@ -349,7 +460,6 @@ async def background_processor(agent: Any):
         agent: The agent instance used to run resolved prompts.
 
     """
-    logger = logging.getLogger(__name__)
     logger.debug("In-memory periodic processor started (checks every 60 s)")
 
     while True:
@@ -370,125 +480,6 @@ async def background_processor(agent: Any):
                     due.append(t)
 
         for task in due:
-            # Advance ``last_run`` per-task, immediately before its own attempt
-            # — never for the whole ``due`` batch up front. Stamping the whole
-            # batch before any of it ran was a write-then-mark-seen shape: a
-            # crash (or unhandled failure) while executing an EARLY task in the
-            # batch left every LATER task in that same batch marked as "just
-            # ran" despite never being dispatched at all, silently skipping a
-            # full interval for work that was never attempted.
-            task.last_run = now
-            try:
-                if task.prompt.startswith("__internal:"):
-                    cmd = task.prompt.split(":", 1)[1]
-                    if cmd == "cleanup_cron_log":
-                        cleanup_cron_log()
-                        logger.debug("Cron log cleanup completed")
-                    elif cmd.startswith("hydrate:"):
-                        source = cmd.split(":", 1)[1]
-                        logger.info(
-                            f"Running internal hydration task for source: {source}"
-                        )
-                        from agent_utilities.knowledge_graph.core.engine import (
-                            IntelligenceGraphEngine,
-                        )
-                        from agent_utilities.knowledge_graph.core.hydration import (
-                            HydrationManager,
-                        )
-
-                        engine = IntelligenceGraphEngine.get_active()
-                        if engine:
-                            try:
-                                res = HydrationManager().hydrate_source(engine, source)
-                                logger.info(
-                                    f"Internal hydration for '{source}' completed: {res}"
-                                )
-                            except Exception as he:
-                                logger.error(
-                                    f"Internal hydration for '{source}' failed: {he}"
-                                )
-                        else:
-                            logger.error(
-                                "Failed to fetch active Knowledge Graph engine for hydration task"
-                            )
-                    elif cmd == "hydrate_all" or cmd == "hydrate:all":
-                        logger.info(
-                            "Running internal hydration task for all active sources"
-                        )
-                        from agent_utilities.knowledge_graph.core.engine import (
-                            IntelligenceGraphEngine,
-                        )
-                        from agent_utilities.knowledge_graph.core.hydration import (
-                            HydrationManager,
-                        )
-
-                        engine = IntelligenceGraphEngine.get_active()
-                        if engine:
-                            try:
-                                res = HydrationManager().hydrate_all(engine)
-                                logger.info(
-                                    f"Internal hydration for all active sources completed: {res}"
-                                )
-                            except Exception as he:
-                                logger.error(
-                                    f"Internal hydration for all active sources failed: {he}"
-                                )
-                        else:
-                            logger.error(
-                                "Failed to fetch active Knowledge Graph engine for hydration task"
-                            )
-                    continue
-
-                resolved_prompt = resolve_prompt(task.prompt)
-
-                logger.info(f"Running periodic task → {task.name} (ID: {task.id})")
-                result = await agent.run(resolved_prompt)
-
-                output = str(result.output or "")
-                if output:
-                    logger.info(f"Task result: {output[:200]}...")
-
-                try:
-                    chat_id = (
-                        f"cron-{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                    )
-                    messages = []
-
-                    messages.append(
-                        {
-                            "id": "msg-u-1",
-                            "role": "user",
-                            "content": resolved_prompt,
-                            "parts": [{"type": "text", "text": resolved_prompt}],
-                        }
-                    )
-
-                    messages.append(
-                        {
-                            "id": "msg-a-1",
-                            "role": "assistant",
-                            "content": output,
-                            "parts": [{"type": "text", "text": output}],
-                        }
-                    )
-
-                    save_chat_to_disk(chat_id, messages)
-                except Exception as e:
-                    logger.error(f"Failed to save cron chat: {e}")
-                    chat_id = None
-
-                append_cron_log(
-                    task_id=task.id,
-                    task_name=task.name,
-                    output=output or "(no output)",
-                    chat_id=chat_id,
-                )
-            except Exception as e:
-                logger.error(f"Error running periodic task {task.id}: {e}")
-                append_cron_log(
-                    task_id=task.id,
-                    task_name=task.name,
-                    output=f"❌ ERROR: {e}",
-                )
+            await _process_due_task(task, agent, now)
 
         await asyncio.sleep(60)
