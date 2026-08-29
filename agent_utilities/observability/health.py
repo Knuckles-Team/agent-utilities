@@ -145,6 +145,50 @@ class HealthTrendBuffer:
 # --------------------------------------------------------------------------- #
 # 2. learn a baseline
 # --------------------------------------------------------------------------- #
+def _numeric_series(trends: list[dict[str, Any]], key: str) -> list[float]:
+    """Return the present values for one numeric trend field."""
+    return [float(value) for row in trends if (value := row.get(key)) is not None]
+
+
+def _baseline_series(
+    trends: list[dict[str, Any]],
+    *,
+    value_key: str,
+    peak_key: str | None,
+    control_key: str | None,
+) -> tuple[list[float], list[float], list[float]]:
+    """Collect the value, peak, and optional control series for a baseline."""
+    return (
+        _numeric_series(trends, value_key),
+        _numeric_series(trends, peak_key) if peak_key else [],
+        _numeric_series(trends, control_key) if control_key else [],
+    )
+
+
+def _baseline_inertia(
+    trends: list[dict[str, Any]],
+    *,
+    value_key: str,
+    control_key: str | None,
+) -> float | None:
+    """Estimate the value response when the control signal varies."""
+    if not control_key:
+        return None
+    pairs = [
+        (float(control), float(value))
+        for row in trends
+        if (control := row.get(control_key)) is not None
+        and (value := row.get(value_key)) is not None
+    ]
+    if len({control for control, _ in pairs}) < 3:
+        return None
+    slope = _slope(
+        [control for control, _ in pairs],
+        [value for _, value in pairs],
+    )
+    return round(abs(slope), 3) if slope is not None else None
+
+
 def compute_baseline(
     trends: list[dict[str, Any]],
     *,
@@ -166,16 +210,11 @@ def compute_baseline(
     much a control step actually moves the value (``None`` when the control barely
     varied across the window, or no ``control_key`` was given).
     """
-    avg_v = [float(v) for r in trends if (v := r.get(value_key)) is not None]
-    peak_v = (
-        [float(v) for r in trends if (v := r.get(peak_key)) is not None]
-        if peak_key
-        else []
-    )
-    ctrl_v = (
-        [float(v) for r in trends if (v := r.get(control_key)) is not None]
-        if control_key
-        else []
+    avg_v, peak_v, ctrl_v = _baseline_series(
+        trends,
+        value_key=value_key,
+        peak_key=peak_key,
+        control_key=control_key,
     )
     if not avg_v or len(avg_v) < min_windows:
         return None
@@ -184,25 +223,17 @@ def compute_baseline(
     if p50 is None or p95 is None:
         return None
 
-    inertia = None
-    if control_key:
-        pairs = [
-            (float(c), float(v))
-            for r in trends
-            if (c := r.get(control_key)) is not None
-            and (v := r.get(value_key)) is not None
-        ]
-        if len({c for c, _ in pairs}) >= 3:
-            s = _slope([c for c, _ in pairs], [v for _, v in pairs])
-            inertia = round(abs(s), 3) if s is not None else None
-
     return {
         "p50": round(p50, 3),
         "p95": round(p95, 3),
         "min_env": round(min(avg_v), 3),
         "max_env": round(max(avg_v), 3),
         "avg_control": round(sum(ctrl_v) / len(ctrl_v), 3) if ctrl_v else None,
-        "inertia": inertia,
+        "inertia": _baseline_inertia(
+            trends,
+            value_key=value_key,
+            control_key=control_key,
+        ),
         "windows": len(avg_v),
     }
 
