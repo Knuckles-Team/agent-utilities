@@ -585,6 +585,32 @@ _IDENTIFIER_NEEDLE_PATTERN: dict[str, re.Pattern[str]] = {
     if _IDENTIFIER_RE.match(needle)
 }
 
+# Check every line with two compiled alternations instead of running one regex
+# or substring search per needle.  At the current tree size the former
+# O(files x lines x needles) loop performs roughly 350 million Python-level
+# matches and cannot finish inside the merge queue's 55-second forwarder
+# budget. Sorting longest-first, together with the surrounding word
+# boundaries, ensures an extended current identifier does not also match its
+# shorter retired base name; this preserves `_needle_matches`.
+_ALL_NEEDLES = RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS
+_NEEDLE_ORDER = {needle: index for index, needle in enumerate(_ALL_NEEDLES)}
+_IDENTIFIER_ALTERNATION = re.compile(
+    r"\b(?:"
+    + "|".join(
+        re.escape(needle)
+        for needle in sorted(_IDENTIFIER_NEEDLE_PATTERN, key=len, reverse=True)
+    )
+    + r")\b"
+)
+_LITERAL_NEEDLES = tuple(
+    needle for needle in _ALL_NEEDLES if needle not in _IDENTIFIER_NEEDLE_PATTERN
+)
+_LITERAL_ALTERNATION = re.compile(
+    "|".join(
+        re.escape(needle) for needle in sorted(_LITERAL_NEEDLES, key=len, reverse=True)
+    )
+)
+
 
 def _needle_matches(needle: str, line: str) -> bool:
     """Plain substring, except a pure-identifier needle (only
@@ -613,11 +639,17 @@ def _needle_matches(needle: str, line: str) -> bool:
     return needle in line
 
 
+def _matching_needles(line: str) -> list[str]:
+    """Return each matching needle once, in the legacy declaration order."""
+    matches = {match.group(0) for match in _IDENTIFIER_ALTERNATION.finditer(line)}
+    matches.update(match.group(0) for match in _LITERAL_ALTERNATION.finditer(line))
+    return sorted(matches, key=_NEEDLE_ORDER.__getitem__)
+
+
 def check_report(
     root: Path = ROOT, *, paths: Iterable[Path] | None = None
 ) -> ContractReport:
     new: list[str] = []
-    needles = RETIRED_IDENTIFIERS + RAW_ROUTE_FRAGMENTS
     inspected = _iter_files() if paths is None else sorted(set(paths))
     for path in inspected:
         relative = path.relative_to(root).as_posix()
@@ -637,14 +669,13 @@ def check_report(
         if _is_dated_historical_record(relative, lines):
             continue
         for line_number, line in enumerate(lines, start=1):
-            for needle in needles:
-                if _needle_matches(needle, line):
-                    if path == ROOT / "README.md" and line == _README_RETIRED_KEY_LINE:
-                        continue
-                    new.append(
-                        f"{path.relative_to(root)}:{line_number}: "
-                        f"retired surface {needle!r}"
-                    )
+            for needle in _matching_needles(line):
+                if path == ROOT / "README.md" and line == _README_RETIRED_KEY_LINE:
+                    continue
+                new.append(
+                    f"{path.relative_to(root)}:{line_number}: "
+                    f"retired surface {needle!r}"
+                )
             for retired_path, path_needle in PATH_RETIRED_IDENTIFIERS:
                 if relative == retired_path and path_needle in line:
                     new.append(

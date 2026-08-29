@@ -155,9 +155,7 @@ class LSHIndex:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
 
-    def _collect_candidates(
-        self, vec: list[float], exclude_id: str | None
-    ) -> set[str]:
+    def _collect_candidates(self, vec: list[float], exclude_id: str | None) -> set[str]:
         """Union the LSH buckets for ``vec`` across every table."""
         candidates: set[str] = set()
         for table_idx in range(self.num_tables):

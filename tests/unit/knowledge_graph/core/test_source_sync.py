@@ -400,7 +400,7 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     monkeypatch.setattr(ss, "sync_source", fake_sync)
 
     out = ss.sweep_all_sources(object(), mode="delta", include_materialize=False)
-    assert out["status"] == "ok" and out["mode"] == "delta"
+    assert out["status"] == "partial" and out["mode"] == "delta"
     # delta handlers (leanix/archivebox/gitlab) + configured capability (servicenow)
     assert set(out["synced"]) == {"leanix", "gitlab"}
     assert "archivebox" in out["skipped"]
@@ -428,10 +428,282 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     }
     assert set(out["skipped"]) == {"archivebox"} | always_on_unstubbed
     assert out["counts"] == {
+        "candidates": 4 + len(always_on_unstubbed),
         "synced": 2,
         "skipped": 1 + len(always_on_unstubbed),
         "errors": 1,
+        "rejected": 0,
     }
+
+
+class _SelectiveEnqueueEngine:
+    """Task engine double that can fail selected source submissions."""
+
+    def __init__(self, failures=()):
+        self.failures = set(failures)
+        self.calls: list[str] = []
+        self.handlers = {source: self._fail for source in self.failures}
+
+    @staticmethod
+    def _succeed(source):
+        return f"job-{source}"
+
+    @staticmethod
+    def _fail(source):
+        raise RuntimeError(f"{source} queue unavailable")
+
+    def submit_task(self, **kwargs):
+        source = kwargs["target_path"]
+        self.calls.append(source)
+        return self.handlers.get(source, self._succeed)(source)
+
+
+def _patch_sweep_candidates(monkeypatch, candidates):
+    """Keep enqueue behavior tests independent of live provider discovery."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    selected = set(candidates)
+    monkeypatch.setattr(ss, "_sweep_candidate_sources", lambda _include: selected)
+    monkeypatch.setattr(
+        ss,
+        "_sweep_governed_candidates",
+        lambda values, **_kwargs: values,
+    )
+
+
+class _ReturningHandleEngine:
+    """Task engine double that returns a configured handle, including invalid ones."""
+
+    def __init__(self, handle):
+        self.handle = handle
+        self.calls: list[str] = []
+
+    def submit_task(self, **kwargs):
+        self.calls.append(kwargs["target_path"])
+        return self.handle
+
+
+class _NonCallableSubmitEngine:
+    """Engine-shaped object with an optional but unusable submit attribute."""
+
+    submit_task = None
+
+
+def test_sweep_enqueue_reports_all_success(monkeypatch):
+    """All accepted submissions retain the established enqueued response."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, {"alpha", "beta"})
+    out = ss.sweep_all_sources(_SelectiveEnqueueEngine(), include_materialize=False)
+
+    assert out["status"] == "enqueued"
+    assert out["enqueued"] == 2
+    assert out["jobs"] == ["job-alpha", "job-beta"]
+    assert out["jobs_by_source"] == {
+        "alpha": "job-alpha",
+        "beta": "job-beta",
+    }
+    assert out["errors"] == {}
+    assert out["indeterminate"] == {}
+    assert out["rejected"] == {}
+    assert out["counts"] == {
+        "candidates": 2,
+        "enqueued": 2,
+        "errors": 0,
+        "indeterminate": 0,
+        "rejected": 0,
+    }
+
+
+def test_sweep_enqueue_reports_partial_failures_and_keeps_jobs(monkeypatch):
+    """A failed source is exposed without discarding successfully queued work."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, {"alpha", "beta"})
+    out = ss.sweep_all_sources(
+        _SelectiveEnqueueEngine({"beta"}), include_materialize=False
+    )
+
+    assert out["status"] == "partial"
+    assert out["enqueued"] == 1
+    assert out["jobs"] == ["job-alpha"]
+    assert out["jobs_by_source"] == {"alpha": "job-alpha"}
+    assert out["errors"] == {}
+    assert out["indeterminate"] == {
+        "beta": "submission_indeterminate:RuntimeError",
+    }
+    assert out["reason"] == "sweep completed partially"
+    assert out["counts"] == {
+        "candidates": 2,
+        "enqueued": 1,
+        "errors": 0,
+        "indeterminate": 1,
+        "rejected": 0,
+    }
+
+
+def test_sweep_enqueue_with_zero_success_is_indeterminate(monkeypatch):
+    """Raised submissions cannot claim that no durable task exists."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, {"alpha", "beta"})
+    out = ss.sweep_all_sources(
+        _SelectiveEnqueueEngine({"alpha", "beta"}), include_materialize=False
+    )
+
+    assert out["status"] == "indeterminate"
+    assert out["enqueued"] == 0
+    assert out["jobs"] == []
+    assert out["jobs_by_source"] == {}
+    assert out["errors"] == {}
+    assert out["indeterminate"] == {
+        "alpha": "submission_indeterminate:RuntimeError",
+        "beta": "submission_indeterminate:RuntimeError",
+    }
+    assert out["error"] is None
+    assert out["reason"] == "connector_sync submission outcome is indeterminate"
+    assert out["counts"] == {
+        "candidates": 2,
+        "enqueued": 0,
+        "errors": 0,
+        "indeterminate": 2,
+        "rejected": 0,
+    }
+
+
+@pytest.mark.parametrize("handle", [None, "", "   ", 0, object()])
+def test_sweep_enqueue_rejects_invalid_job_handles(monkeypatch, handle):
+    """Only nonblank string handles count as durable queued jobs."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, {"alpha"})
+    out = ss.sweep_all_sources(
+        _ReturningHandleEngine(handle), include_materialize=False
+    )
+
+    assert out["status"] == "error"
+    assert out["jobs"] == []
+    assert out["jobs_by_source"] == {}
+    assert out["errors"] == {"alpha": "invalid_job_handle"}
+    assert out["indeterminate"] == {}
+    assert out["counts"] == {
+        "candidates": 1,
+        "enqueued": 0,
+        "errors": 1,
+        "indeterminate": 0,
+        "rejected": 0,
+    }
+
+
+def test_sweep_enqueue_exception_does_not_expose_secret_message(monkeypatch):
+    """Submission diagnostics stay server-side; only class/code crosses the wire."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    class _SecretFailureEngine:
+        def submit_task(self, **_kwargs):
+            raise RuntimeError("provider-sensitive-marker-7f2e3b")
+
+    _patch_sweep_candidates(monkeypatch, {"alpha"})
+    out = ss.sweep_all_sources(_SecretFailureEngine(), include_materialize=False)
+
+    assert out["status"] == "indeterminate"
+    assert out["indeterminate"] == {"alpha": "submission_indeterminate:RuntimeError"}
+    assert "provider-sensitive-marker-7f2e3b" not in repr(out)
+
+
+def test_sweep_uses_inline_path_for_noncallable_submit(monkeypatch):
+    """An optional non-callable submit attribute is not a queue implementation."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, {"alpha"})
+    monkeypatch.setattr(
+        ss,
+        "sync_source",
+        lambda *_args, **_kwargs: {"status": "completed"},
+    )
+
+    out = ss.sweep_all_sources(_NonCallableSubmitEngine(), include_materialize=False)
+
+    assert out["status"] == "ok"
+    assert set(out["synced"]) == {"alpha"}
+
+
+def test_sweep_empty_candidates_have_consistent_noop_status(monkeypatch):
+    """Queue and inline execution report the same empty-governed-source result."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    _patch_sweep_candidates(monkeypatch, set())
+    queued = ss.sweep_all_sources(_SelectiveEnqueueEngine(), include_materialize=False)
+    inline = ss.sweep_all_sources(_NonCallableSubmitEngine(), include_materialize=False)
+
+    for out in (queued, inline):
+        assert out["status"] == "skipped"
+        assert out["reason"] == "no governed source candidates"
+        assert out["rejected"] == {}
+        assert out["counts"]["candidates"] == 0
+        assert out["counts"]["rejected"] == 0
+
+
+def test_sweep_surfaces_governed_precheck_rejections(monkeypatch):
+    """Provider-gate omissions are visible without returning manifest details."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_sweep_candidate_sources",
+        lambda _include: {"alpha", "beta"},
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda source: {"checked": True, "ok": source == "alpha"},
+    )
+
+    out = ss.sweep_all_sources(_SelectiveEnqueueEngine(), include_materialize=False)
+
+    assert out["status"] == "partial"
+    assert out["jobs_by_source"] == {"alpha": "job-alpha"}
+    assert out["rejected"] == {"beta": "provider_contract_unavailable"}
+    assert out["counts"] == {
+        "candidates": 1,
+        "enqueued": 1,
+        "errors": 0,
+        "indeterminate": 0,
+        "rejected": 1,
+    }
+
+    monkeypatch.setattr(
+        ss,
+        "sync_source",
+        lambda *_args, **_kwargs: {"status": "completed"},
+    )
+    inline = ss.sweep_all_sources(_NonCallableSubmitEngine(), include_materialize=False)
+    assert inline["status"] == "partial"
+    assert inline["reason"] == "sweep completed partially"
+    assert inline["rejected"] == {"beta": "provider_contract_unavailable"}
+
+
+def test_sweep_all_rejected_is_an_error_in_queue_and_inline_modes(monkeypatch):
+    """A failed governance gate must not masquerade as an empty successful sweep."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_sweep_candidate_sources",
+        lambda _include: {"alpha"},
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": False},
+    )
+
+    queued = ss.sweep_all_sources(_SelectiveEnqueueEngine(), include_materialize=False)
+    inline = ss.sweep_all_sources(_NonCallableSubmitEngine(), include_materialize=False)
+
+    for out in (queued, inline):
+        assert out["status"] == "error"
+        assert out["rejected"] == {"alpha": "provider_contract_unavailable"}
+        assert out["counts"]["candidates"] == 0
+        assert out["counts"]["rejected"] == 1
 
 
 def test_delta_handler_missing_data_error_is_not_misclassified_as_unconfigured(

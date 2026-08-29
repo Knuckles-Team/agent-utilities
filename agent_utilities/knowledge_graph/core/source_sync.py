@@ -6366,7 +6366,9 @@ def _sweep_candidate_sources(include_materialize: bool) -> set[str]:
     return candidates
 
 
-def _sweep_governed_candidates(candidates: set[str]) -> set[str]:
+def _sweep_governed_candidates(
+    candidates: set[str], *, rejections: dict[str, str] | None = None
+) -> set[str]:
     """Filter the candidate union through the signed compile-before-sync contract.
 
     A registered handler or locally importable extractor is only a candidate
@@ -6380,43 +6382,105 @@ def _sweep_governed_candidates(candidates: set[str]) -> set[str]:
 
     governed: set[str] = set()
     for source in sorted(candidates):
-        try:
-            if bool(precheck_source(source).get("ok")):
-                governed.add(source)
-            else:
-                logger.debug(
-                    "source sweep omitted %s because its governed provider "
-                    "contract is unavailable",
-                    source,
-                )
-        except Exception:  # noqa: BLE001 - fail closed before queue publication
-            logger.debug(
-                "source sweep contract precheck failed for %s",
-                source,
-                exc_info=True,
-            )
+        accepted, rejection = _precheck_sweep_source(precheck_source, source)
+        if accepted:
+            governed.add(source)
+        elif rejections is not None:
+            rejections[source] = rejection
     return governed
 
 
+def _precheck_sweep_source(
+    precheck: Callable[[str], dict[str, Any]], source: str
+) -> tuple[bool, str]:
+    """Run one provider gate and return a stable, content-free rejection."""
+    try:
+        gate = precheck(source)
+    except Exception as exc:  # noqa: BLE001 - fail closed before queue publication
+        logger.debug(
+            "source sweep contract precheck failed for %s",
+            source,
+            exc_info=True,
+        )
+        return False, "provider_precheck_failed:" + type(exc).__name__
+    if bool(gate.get("checked")) and bool(gate.get("ok")):
+        return True, ""
+    logger.debug(
+        "source sweep omitted %s because its governed provider contract is unavailable",
+        source,
+    )
+    return False, "provider_contract_unavailable"
+
+
+def _enqueue_one_sweep_task(
+    submit: Callable[..., Any],
+    source: str,
+    mode: str,
+    priority: int | None,
+    jobs: list[str],
+    jobs_by_source: dict[str, str],
+    failures: dict[str, str],
+    indeterminate: dict[str, str],
+) -> None:
+    """Submit and classify one task without leaking provider-controlled text."""
+    try:
+        handle = submit(
+            target_path=source,
+            is_codebase=False,
+            provenance={"sync_mode": mode},
+            task_type="connector_sync",
+            **({"priority": priority} if priority is not None else {}),
+        )
+    except Exception as exc:  # noqa: BLE001 — admission may already be durable
+        indeterminate[source] = f"submission_indeterminate:{type(exc).__name__}"
+        logger.warning(
+            "enqueue connector_sync outcome indeterminate for %s (error_class=%s)",
+            source,
+            type(exc).__name__,
+        )
+        return
+    if not isinstance(handle, str) or not handle.strip():
+        failures[source] = "invalid_job_handle"
+        logger.warning(
+            "enqueue connector_sync returned an invalid job handle for %s (return_type=%s)",
+            source,
+            type(handle).__name__,
+        )
+        return
+    jobs.append(handle)
+    jobs_by_source[source] = handle
+
+
 def _enqueue_sweep_tasks(
-    engine: Any, candidates: set[str], mode: str, priority: int | None
-) -> list[str]:
-    """Submit one laned ``connector_sync`` task per candidate source."""
+    submit: Callable[..., Any],
+    candidates: set[str],
+    mode: str,
+    priority: int | None,
+) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str]]:
+    """Submit one laned task per source and retain per-source failures.
+
+    A failed submission must remain visible to the sweep caller: a missing job
+    handle is not an enqueued task, and a debug-only log cannot tell an operator
+    which source needs retrying. An exception has indeterminate admission state:
+    ``submit_task`` may have durably admitted the WorkItem before a later
+    notification/readiness step raised.
+    """
     jobs: list[str] = []
+    jobs_by_source: dict[str, str] = {}
+    failures: dict[str, str] = {}
+    indeterminate: dict[str, str] = {}
     for src in sorted(candidates):
-        try:
-            jobs.append(
-                engine.submit_task(
-                    target_path=src,
-                    is_codebase=False,
-                    provenance={"sync_mode": mode},
-                    task_type="connector_sync",
-                    **({"priority": priority} if priority is not None else {}),
-                )
-            )
-        except Exception:  # noqa: BLE001 — one bad enqueue never aborts the sweep
-            logger.debug("enqueue connector_sync failed for %s", src, exc_info=True)
-    return jobs
+        _enqueue_one_sweep_task(
+            submit,
+            src,
+            mode,
+            priority,
+            jobs,
+            jobs_by_source,
+            failures,
+            indeterminate,
+        )
+    return jobs, jobs_by_source, failures, indeterminate
 
 
 _SWEEP_UNCONFIGURED = (
@@ -6430,9 +6494,18 @@ _SWEEP_UNCONFIGURED = (
 
 def _sweep_error_reason(res: Any) -> str:
     """The reason string for a connector result that reported error/failed."""
-    if not isinstance(res, dict):
-        return "error"
-    return str(res.get("error") or res.get("reason") or "error")
+    # Connector error strings are provider-controlled and may contain credentials,
+    # URLs, paths, or upstream payloads. Keep the public sweep contract stable and
+    # content-free; the connector's own server-side log retains diagnostics.
+    return "connector_error" if isinstance(res, dict) else "error"
+
+
+def _sweep_exception_text(exc: Exception) -> str:
+    """Render an exception only for private classification, never for output."""
+    try:
+        return str(exc)
+    except Exception:  # noqa: BLE001 - malformed exception rendering is still a failure
+        return ""
 
 
 def _sweep_synced_entry(res: Any, status: Any) -> Any:
@@ -6449,8 +6522,7 @@ def _classify_sweep_result(res: Any) -> tuple[str, Any]:
     """Bucket one connector's sync result as ``synced`` / ``skipped`` / ``errors``."""
     status = res.get("status") if isinstance(res, dict) else "ok"
     if status in {"skipped", "noop"}:
-        reason = res.get("reason") if isinstance(res, dict) else None
-        return "skipped", str(reason or "skipped")
+        return "skipped", "skipped"
     if status in {"error", "failed"}:
         return "errors", _sweep_error_reason(res)
     return "synced", _sweep_synced_entry(res, status)
@@ -6458,34 +6530,141 @@ def _classify_sweep_result(res: Any) -> tuple[str, Any]:
 
 def _classify_sweep_exception(src: str, exc: Exception) -> tuple[str, str]:
     """Bucket a raised connector failure — an unconfigured upstream is a skip."""
-    msg = str(exc)
+    msg = _sweep_exception_text(exc)
     if any(token in msg.lower() for token in _SWEEP_UNCONFIGURED):
-        return "skipped", f"unconfigured: {msg[:120]}"
-    logger.warning("sweep: source '%s' failed: %s", src, exc)
-    return "errors", msg[:200]
+        return "skipped", "unconfigured"
+    logger.warning(
+        "sweep: source '%s' failed (error_class=%s)",
+        src,
+        type(exc).__name__,
+    )
+    return "errors", f"connector_error:{type(exc).__name__}"
 
 
-def _sweep_inline(engine: Any, candidates: set[str], mode: str) -> dict[str, Any]:
+def _sweep_inline(
+    engine: Any,
+    candidates: set[str],
+    mode: str,
+    rejections: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Sequentially sync every candidate, isolating each connector's failure."""
     buckets: dict[str, dict[str, Any]] = {"synced": {}, "skipped": {}, "errors": {}}
     for src in sorted(candidates):
-        try:
-            bucket, value = _classify_sweep_result(sync_source(engine, src, mode=mode))
-        except Exception as exc:  # noqa: BLE001 — isolate one bad connector
-            bucket, value = _classify_sweep_exception(src, exc)
+        bucket, value = _run_inline_sweep_source(engine, src, mode)
         buckets[bucket][src] = value
+    rejected = dict(rejections or {})
+    status, reason = _inline_sweep_status(candidates, buckets, rejected)
+    return _inline_sweep_response(mode, candidates, buckets, rejected, status, reason)
+
+
+def _run_inline_sweep_source(engine: Any, source: str, mode: str) -> tuple[str, Any]:
+    """Run and classify one inline connector without affecting its siblings."""
+    try:
+        return _classify_sweep_result(sync_source(engine, source, mode=mode))
+    except Exception as exc:  # noqa: BLE001 — isolate one bad connector
+        return _classify_sweep_exception(source, exc)
+
+
+def _inline_sweep_status(
+    candidates: set[str],
+    buckets: dict[str, dict[str, Any]],
+    rejected: dict[str, str],
+) -> tuple[str, str | None]:
+    """Derive truthful inline status from completed and failed source counts."""
+    completed = len(buckets["synced"]) + len(buckets["skipped"])
+    failed = len(buckets["errors"]) + len(rejected)
+    if not candidates and not rejected:
+        return "skipped", "no governed source candidates"
+    if failed and completed:
+        return "partial", "sweep completed partially"
+    if failed:
+        return "error", "no source completed successfully"
+    return "ok", None
+
+
+def _inline_sweep_response(
+    mode: str,
+    candidates: set[str],
+    buckets: dict[str, dict[str, Any]],
+    rejected: dict[str, str],
+    status: str,
+    reason: str | None,
+) -> dict[str, Any]:
+    """Build the stable inline response envelope."""
     return {
-        "status": "ok",
+        "status": status,
         "mode": mode,
         "swept": len(candidates),
         "synced": buckets["synced"],
         "skipped": buckets["skipped"],
         "errors": buckets["errors"],
+        "rejected": rejected,
+        "reason": reason,
         "counts": {
+            "candidates": len(candidates),
             "synced": len(buckets["synced"]),
             "skipped": len(buckets["skipped"]),
             "errors": len(buckets["errors"]),
+            "rejected": len(rejected),
         },
+    }
+
+
+def _queued_sweep_status(
+    jobs: list[str],
+    failures: dict[str, str],
+    indeterminate: dict[str, str],
+    rejections: dict[str, str],
+) -> tuple[str, str | None, str | None]:
+    """Derive queue status without claiming an exception rolled admission back."""
+    if jobs:
+        status = "partial" if failures or indeterminate or rejections else "enqueued"
+        reason = "sweep completed partially" if status == "partial" else None
+        return status, reason, None
+    if indeterminate:
+        return (
+            "indeterminate",
+            "connector_sync submission outcome is indeterminate",
+            None,
+        )
+    if failures or rejections:
+        return "error", None, "no connector_sync tasks were enqueued"
+    return "skipped", "no governed source candidates", None
+
+
+def _queued_sweep_response(
+    submit: Callable[..., Any],
+    candidates: set[str],
+    rejections: dict[str, str],
+    mode: str,
+    priority: int | None,
+) -> dict[str, Any]:
+    """Submit the governed candidate set and return a truthful queue envelope."""
+    jobs, jobs_by_source, failures, indeterminate = _enqueue_sweep_tasks(
+        submit, candidates, mode, priority
+    )
+    status, reason, error = _queued_sweep_status(
+        jobs, failures, indeterminate, rejections
+    )
+    return {
+        "status": status,
+        "enqueued": len(jobs),
+        "candidates": len(candidates),
+        "mode": mode,
+        "jobs": jobs,
+        "jobs_by_source": jobs_by_source,
+        "errors": failures,
+        "indeterminate": indeterminate,
+        "rejected": rejections,
+        "counts": {
+            "candidates": len(candidates),
+            "enqueued": len(jobs),
+            "errors": len(failures),
+            "indeterminate": len(indeterminate),
+            "rejected": len(rejections),
+        },
+        "reason": reason,
+        "error": error,
     }
 
 
@@ -6510,23 +6689,20 @@ def sweep_all_sources(
     scheduled sweep only pulls (and, via the write-layer content-hash delta, only
     writes) what changed. Per-source failures are isolated and recorded — a
     background sweep never aborts on one bad connector. Optional unconfigured
-    sources are reported as *skipped*; mandatory contract failures are *errored*.
+    sources are omitted; governed precheck failures are surfaced in ``rejected``.
+    Queue admission exceptions are reported as *indeterminate* because the task
+    may have been durably admitted before the exception was raised.
     """
+    rejections: dict[str, str] = {}
     candidates = _sweep_governed_candidates(
-        _sweep_candidate_sources(include_materialize)
+        _sweep_candidate_sources(include_materialize), rejections=rejections
     )
     # CONCEPT:AU-ORCH.dispatch.laned-sweep-fanout — fan the sweep out as LANED
     # ``connector_sync`` tasks (the 'connectors' lane) so every connector syncs in
     # PARALLEL instead of one slow connector (gitlab/servicenow) head-of-line-blocking
     # the rest in the sequential inline loop below. Each task runs
     # ``sync_source(src, mode)`` → the same watermark/delta machinery + content-hash delta.
-    if enqueue and hasattr(engine, "submit_task"):
-        jobs = _enqueue_sweep_tasks(engine, candidates, mode, priority)
-        return {
-            "status": "enqueued",
-            "enqueued": len(jobs),
-            "candidates": len(candidates),
-            "mode": mode,
-            "jobs": jobs,
-        }
-    return _sweep_inline(engine, candidates, mode)
+    submit = getattr(engine, "submit_task", None)
+    if enqueue and callable(submit):
+        return _queued_sweep_response(submit, candidates, rejections, mode, priority)
+    return _sweep_inline(engine, candidates, mode, rejections)

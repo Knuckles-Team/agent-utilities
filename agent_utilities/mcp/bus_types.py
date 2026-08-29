@@ -14,11 +14,15 @@ re-exports these names so no import site has to change.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# NOTE: `fastmcp.Context` is a third-party type, not an `agent_utilities` module — importing
-# it here does not add an edge into the SCC this file exists to stay out of.
-from fastmcp import Context
+# This module is also imported by minimal/non-MCP installations.  Context is a
+# type-only collaborator, so importing FastMCP eagerly would defeat the leaf
+# boundary and make these plain value objects unusable without the ``mcp`` extra.
+if TYPE_CHECKING:
+    from fastmcp import Context
+else:
+    Context = Any
 
 
 @dataclass(frozen=True, slots=True)

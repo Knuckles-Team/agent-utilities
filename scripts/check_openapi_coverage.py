@@ -54,8 +54,9 @@ complexity, swallowed-errors, wire-first):
   class of bug in the first place). "Diff-scoped" here means: compare the
   route/operation set THIS commit produces against the set the SAME gate
   script, unmodified, produces when run against the repository AS OF HEAD —
-  i.e. this script recursively re-invokes its own ``HEAD`` revision inside a
-  ``git archive`` snapshot (see ``_run_gate_snapshot``) rather than
+  i.e. this script imports its own ``HEAD`` revision inside a ``git archive``
+  snapshot and invokes only its census function (see ``_run_gate_snapshot``)
+  rather than
   hand-maintaining a second comparison implementation that could drift from
   the first. A finding present now but absent at HEAD is new debt and fails
   the commit; the rest is pre-existing backlog, printed, not hidden.
@@ -128,6 +129,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -461,24 +463,52 @@ def _materialize_head_snapshot(root: str, dest: Path) -> bool:
     return True
 
 
+def _snapshot_subprocess_environment() -> dict[str, str]:
+    """Return an environment detached from the caller's Git worktree."""
+    # Hooks can export worktree-specific Git variables (especially
+    # GIT_INDEX_FILE). The materialized snapshot is deliberately not a Git
+    # worktree and must never resolve back into the caller's repository or
+    # index through ambient process state.
+    return {
+        name: value for name, value in os.environ.items() if not name.startswith("GIT_")
+    }
+
+
 def _run_gate_snapshot(snapshot_root: Path) -> dict[str, list[str]] | None:
-    """Run THIS gate script's OWN HEAD revision, unmodified, against
-    ``snapshot_root`` in a subprocess — reusing its own bootstrap (``ROOT =
-    Path(__file__).resolve().parent.parent``) instead of hand-rolling
-    sys.path surgery in THIS process, which already has this repo's
-    ``agent_utilities`` imported and cached in ``sys.modules`` (a second
-    ``import`` in-process would just return that stale copy, never the
-    snapshot's). Returns None when the snapshot has no gate script to run at
-    all (e.g. this gate itself was added after the HEAD commit under test)."""
+    """Run this gate's HEAD census once in an isolated subprocess.
+
+    The runner imports the archived script as a module and calls only
+    ``_load_findings``. It must not execute that script's ``main``: ``main``
+    performs another HEAD comparison, recursively spawning snapshots until
+    the host is exhausted. Importing in a subprocess still gives the HEAD
+    tree its own module cache and bootstrap without contaminating this
+    process. Returns None when the snapshot is unavailable or cannot emit a
+    valid census.
+    """
     script = snapshot_root / "scripts" / "check_openapi_coverage.py"
     if not script.exists():
         return None
+    census_runner = """
+import json
+import runpy
+import sys
+
+gate = runpy.run_path(sys.argv[1], run_name="_openapi_snapshot_gate")
+findings = gate["_load_findings"]()
+if findings is None:
+    raise SystemExit(1)
+print(json.dumps({
+    "undocumented_routes": sorted(findings["undocumented_routes"]),
+    "missing_description": sorted(findings["missing_description"]),
+}))
+"""
     proc = subprocess.run(
-        [sys.executable, str(script), "--json"],
+        [sys.executable, "-c", census_runner, str(script)],
         cwd=snapshot_root,
         capture_output=True,
         text=True,
         check=False,
+        env=_snapshot_subprocess_environment(),
     )
     try:
         data = json.loads(proc.stdout)

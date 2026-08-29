@@ -2341,13 +2341,6 @@ async def _mcp_run_fallback_agent(
 def _mcp_record_tool_call_provenance(ctx: StepContext, stream: Any) -> None:
     """Accumulate this MCP server's tool calls for :ToolCall provenance on the graph path.
 
-    Extracted verbatim from ``mcp_server_step`` (pure extract-method, no behaviour
-    change). NOTE: the pre-refactor inline code called this exact block TWICE in a
-    row (byte-identical, back to back) -- preserved as-is by the caller invoking
-    this helper twice; not something this decomposition introduced. See BUGS FOUND
-    in the lane report (double-appends every MCP-fallback step's tool calls into
-    ``ctx.state.tool_calls``).
-
     (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
     block below is gated on ``event_queue`` and skipped for headless
     (MCP/telegram) delegations, which is exactly the MCP-execution path a
@@ -2419,6 +2412,36 @@ def _mcp_stream_events_to_webui(
             _mcp_emit_tool_result_events(ctx, server_name, msg)
 
 
+async def _mcp_execute_server_path(
+    ctx: StepContext,
+    server_name: str,
+    query: str,
+    resource_node: Any | None,
+    matching_agents: list[Any],
+) -> list[str]:
+    """Execute the specialist or fallback path and return created result keys."""
+    if matching_agents:
+        existing_result_keys = set(ctx.state.results_registry)
+        await _mcp_execute_matching_specialists(ctx, matching_agents)
+        return [
+            key for key in ctx.state.results_registry if key not in existing_result_keys
+        ]
+    scoped_toolsets = await _mcp_build_fallback_toolsets(ctx, server_name)
+    result_key, stream = await _mcp_run_fallback_agent(
+        ctx, server_name, query, resource_node, scoped_toolsets
+    )
+    _mcp_record_tool_call_provenance(ctx, stream)
+    _mcp_stream_events_to_webui(ctx, server_name, stream)
+    return [result_key]
+
+
+def _mcp_result_summary(ctx: StepContext, result_keys: list[str]) -> str:
+    """Bound the combined result text emitted with server completion."""
+    return "\n".join(
+        str(ctx.state.results_registry.get(key, "")) for key in result_keys
+    )[:500]
+
+
 async def mcp_server_step(
     ctx: StepContext,
 ) -> str | End[Any]:
@@ -2455,28 +2478,16 @@ async def mcp_server_step(
 
         # Check if there's a matching dynamic MCP agent in the registry
         matching_agents = await _mcp_find_matching_specialist_agents(server_name)
-
-        if matching_agents:
-            # Execute each matching specialist agent for this server
-            await _mcp_execute_matching_specialists(ctx, matching_agents)
-        else:
-            scoped_toolsets = await _mcp_build_fallback_toolsets(ctx, server_name)
-            result_key, stream = await _mcp_run_fallback_agent(
-                ctx, server_name, query, resource_node, scoped_toolsets
-            )
-            # NOTE: called twice, matching the pre-refactor inline duplication —
-            # see ``_mcp_record_tool_call_provenance``'s docstring / BUGS FOUND.
-            _mcp_record_tool_call_provenance(ctx, stream)
-            _mcp_record_tool_call_provenance(ctx, stream)
-            # Stream events to WebUI
-            _mcp_stream_events_to_webui(ctx, server_name, stream)
+        result_keys = await _mcp_execute_server_path(
+            ctx, server_name, query, resource_node, matching_agents
+        )
 
         emit_graph_event(
             ctx.deps.event_queue,
             event_type="node_complete",
             id="mcp_server_execution",
             server=server_name,
-            result=str(ctx.state.results_registry.get(result_key, ""))[:500],
+            result=_mcp_result_summary(ctx, result_keys),
         )
 
         return "execution_joiner"

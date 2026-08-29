@@ -217,9 +217,10 @@ def _call_playbook(
     wider signature for this one call.
     """
     try:
-        if graph_writer is not None and "graph_writer" in inspect.signature(
-            playbook
-        ).parameters:
+        if (
+            graph_writer is not None
+            and "graph_writer" in inspect.signature(playbook).parameters
+        ):
             playbook_with_writer = cast("Callable[..., dict[str, Any]]", playbook)
             return playbook_with_writer(engine, event, graph_writer=graph_writer) or {}
         return playbook(engine, event) or {}

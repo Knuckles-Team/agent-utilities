@@ -1117,6 +1117,9 @@ class GraphMaintainer:
         more rows remain, which makes the loop's termination condition a
         fact rather than an inference from a delete count.
         """
+        from agent_utilities.security.identifiers import validate_identifier
+
+        label = validate_identifier(label, kind="label")
         select_query = f"""
         MATCH (n:{label})
         WHERE n.timestamp < $cutoff

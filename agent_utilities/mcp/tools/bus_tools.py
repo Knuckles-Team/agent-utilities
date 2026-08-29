@@ -146,7 +146,9 @@ def _bus_handle_send(ctx: _BusExecContext, request: BusRequest) -> str:
 
 
 def _bus_handle_receive(ctx: _BusExecContext, request: BusRequest) -> str:
-    return json.dumps(ctx.bus.receive(request.agent_id, since=request.since), default=str)
+    return json.dumps(
+        ctx.bus.receive(request.agent_id, since=request.since), default=str
+    )
 
 
 def _bus_handle_subscribe(ctx: _BusExecContext, request: BusRequest) -> str:

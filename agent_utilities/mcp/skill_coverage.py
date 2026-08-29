@@ -183,7 +183,9 @@ def _validate_core_tool_specs(core_claims: tuple[str, ...]) -> list[str]:
         if spec is None:
             errors.append(f"claims.core contains unknown tool {tool!r}")
         elif spec.feature is not None:
-            errors.append(f"claims.core tool {tool!r} requires feature {spec.feature!r}")
+            errors.append(
+                f"claims.core tool {tool!r} requires feature {spec.feature!r}"
+            )
     return errors
 
 

@@ -236,7 +236,9 @@ def _graph_ontology_validate(lc: Any, *, source: str, source_type: str) -> str:
     return json.dumps(lc.validate(source, source_type=source_type), default=str)
 
 
-def _graph_ontology_catalog(action: str, lc: Any, request: OntologyCatalogRequest) -> str:
+def _graph_ontology_catalog(
+    action: str, lc: Any, request: OntologyCatalogRequest
+) -> str:
     if action == "load":
         return _graph_ontology_load(
             lc,
@@ -2201,7 +2203,9 @@ def register_ontology_tools(mcp):
                     notes=notes,
                     status=status,
                 )
-                return _graph_ontology_proposal(action, engine, tenant, proposal_request)
+                return _graph_ontology_proposal(
+                    action, engine, tenant, proposal_request
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1230
+total_concepts: 1232
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1144,14 +1144,14 @@ concepts:
   - agent_utilities/messaging/bus.py
   doc: bus register under the served auth profile
 - id: AU-ECO.bus.federation-relay
-  name: ────────────────────────
+  name: lazy import, same as pre-refactor
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/mcp/tools/bus_tools.py
   - agent_utilities/messaging/bus.py
   - agent_utilities/messaging/federation.py
-  doc: ────────────────────────
+  doc: lazy import, same as pre-refactor
 - id: AU-ECO.bus.log-backend-resolution
   name: required engine-broker or Kafka log
   pillar: AU-ECO
@@ -2205,6 +2205,7 @@ concepts:
   - agent_utilities/pricing/catalog.py
   - agent_utilities/pricing/fallback.py
   - agent_utilities/pricing/litellm.py
+  - agent_utilities/pricing/model.py
   - agent_utilities/pricing/normalize.py
   - agent_utilities/pricing/store.py
   doc: Unified model pricing catalog
@@ -3028,6 +3029,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_task_query.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: Persistent Task Tracking
 - id: AU-KG.compute.plane-first-class-delta
@@ -4283,6 +4285,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_task_query.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/loops.py
   - agent_utilities/orchestration/agent_dispatch.py
@@ -6057,6 +6060,13 @@ concepts:
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/mcp/tools/compliance_tools.py
   doc: additive; a build/transport without the
+- id: AU-KG.query.node-link-projection
+  name: run the SAME query
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: run the SAME query
 - id: AU-KG.query.object-graph-mapper
   name: code AST parsing delegated to the epistemic-graph engine
   pillar: AU-KG
@@ -6196,6 +6206,13 @@ concepts:
   - agent_utilities/gateway/schemas/__init__.py
   - agent_utilities/gateway/schemas/graph_analyze.py
   doc: these routes are mounted in
+- id: AU-KG.query.unified-capability-catalog
+  name: one capability-shaped call across
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: one capability-shaped call across
 - id: AU-KG.query.vendor-agnostic-traversal
   name: standardized so an atomic skill gets the SAME enrichment level
   pillar: AU-KG
@@ -9037,6 +9054,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/registry/package_adapter.py
+  - agent_utilities/core/registry/package_types.py
   doc: Agent Registry
 - id: AU-OS.config.autonomous-spec-develop-off
   name: autonomous spec→develop. OFF by default = review-first
@@ -9089,6 +9107,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/mcp/env_policy.py
   - agent_utilities/mcp/env_sources.py
   doc: Env-var single source of truth
 - id: AU-OS.config.fleet-event-ingress

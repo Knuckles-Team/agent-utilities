@@ -628,10 +628,17 @@ async def test_mcp_server_fallback_preserves_approval_before_allowlist(
         _router_impl, "emit_graph_event", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(_router_impl, "create_context_agent", create_agent)
+    provenance_calls: list[Any] = []
+    monkeypatch.setattr(
+        _router_impl,
+        "_mcp_record_tool_call_provenance",
+        lambda _ctx, stream: provenance_calls.append(stream),
+    )
 
     result = await _router_impl.mcp_server_step(ctx)
 
     assert result == "execution_joiner"
+    assert len(provenance_calls) == 1
     assert len(constructed["toolsets"]) == 1
     scoped = constructed["toolsets"][0]
     approval = scoped.wrapped
@@ -645,6 +652,49 @@ async def test_mcp_server_fallback_preserves_approval_before_allowlist(
         is True
     )
     assert calls == [("authorize", "_graph_lookup")]
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_specialist_completion_uses_created_result_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = GraphState(query="Use the registered specialist")
+    deps = GraphDeps(tag_prompts={}, tag_env_vars={}, mcp_toolsets=[], agent_model=None)
+    ctx = SimpleNamespace(state=state, deps=deps, inputs="registered-server")
+    completed_events: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        _router_impl, "_mcp_lookup_resource_node", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        _router_impl,
+        "_mcp_find_matching_specialist_agents",
+        AsyncMock(return_value=[SimpleNamespace(name="registered-agent")]),
+    )
+
+    async def execute_specialists(_ctx: Any, _agents: list[Any]) -> None:
+        state.results_registry["registered_agent_0"] = "specialist completed"
+
+    monkeypatch.setattr(
+        _router_impl, "_mcp_execute_matching_specialists", execute_specialists
+    )
+
+    def record_completion_event(_queue: Any, event_type: str, **payload: Any) -> None:
+        if event_type == "node_complete":
+            completed_events.append(payload)
+
+    monkeypatch.setattr(_router_impl, "emit_graph_event", record_completion_event)
+
+    result = await _router_impl.mcp_server_step(ctx)
+
+    assert result == "execution_joiner"
+    assert completed_events == [
+        {
+            "id": "mcp_server_execution",
+            "server": "registered-server",
+            "result": "specialist completed",
+        }
+    ]
 
 
 class _SyntheticDynamicStream:
