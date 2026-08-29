@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from typing import Any
+from urllib.parse import urlsplit
 
 from agent_utilities.core.config import resolve_langfuse_host, setting
 from agent_utilities.observability.langfuse_trust import (
@@ -25,6 +27,15 @@ from agent_utilities.observability.langfuse_trust import (
 
 logger = logging.getLogger(__name__)
 
+_GITHUB_DEFAULT_URL = "https://api.github.com"
+_GITHUB_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_GITHUB_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+class _GithubConnectorCompatibilityError(RuntimeError):
+    """The installed connector cannot be imported against this AU runtime."""
+
+
 # ═══════════════════════════════════════════════════════════════════
 # CAPABILITY_REGISTRY — maps source identifiers to abstract capability
 # categories and their connector methods.  Adding a new data source only
@@ -32,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════
 CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     "gitlab": {"category": "source_control", "method": "_hydrate_source_control"},
-    "github": {"category": "source_control", "method": "_hydrate_source_control"},
+    "github": {"category": "source_control", "method": "_hydrate_github"},
     "source_control": {
         "category": "source_control",
         "method": "_hydrate_source_control",
@@ -128,10 +139,16 @@ class HydrationManager:
 
     def get_status(self) -> dict[str, Any]:
         """Check environment variables to see which sources are configured."""
+        github_endpoint = self._github_endpoint()
         status = {
             "gitlab": {
                 "configured": _any_setting("GITLAB_TOKEN", "GITLAB_API_TOKEN"),
                 "url": setting("GITLAB_URL", "https://gitlab.com"),
+            },
+            "github": {
+                "configured": _any_setting("GITHUB_TOKEN", "GITHUB_API_KEY"),
+                "url": _GITHUB_DEFAULT_URL,
+                "endpoint_valid": github_endpoint is not None,
             },
             "leanix": {
                 "configured": bool(setting("LEANIX_TOKEN")),
@@ -283,6 +300,511 @@ class HydrationManager:
     # Generalized Open-Source-First Hydration Layer
     # ══════════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _load_github_api() -> Any | None:
+        """Return the connector-owned client factory when it is compatible."""
+        try:
+            from github_agent.auth import get_client
+        except ModuleNotFoundError as exc:
+            if exc.name == "github_agent":
+                return None
+            raise _GithubConnectorCompatibilityError from None
+        except ImportError:
+            raise _GithubConnectorCompatibilityError from None
+        return get_client
+
+    @staticmethod
+    def _github_url_text(value: Any) -> str | None:
+        """Normalize a provider URL candidate without accepting whitespace."""
+        if not isinstance(value, str):
+            return None
+        rendered = value.strip().rstrip("/")
+        if not rendered or rendered != value.rstrip("/"):
+            return None
+        if any(character.isspace() or ord(character) < 32 for character in rendered):
+            return None
+        return rendered
+
+    @staticmethod
+    def _github_parsed_url(value: str) -> Any | None:
+        """Parse a URL and reject userinfo, query, fragment, and bad ports."""
+        try:
+            parsed = urlsplit(value)
+            port = parsed.port
+        except ValueError:
+            return None
+        if not parsed.netloc or not parsed.hostname:
+            return None
+        if (
+            parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+        if port is not None and not 1 <= port <= 65_535:
+            return None
+        return parsed
+
+    @classmethod
+    def _validate_github_endpoint(cls, endpoint: Any) -> str | None:
+        """Validate an endpoint without returning credentials in a result."""
+        rendered = cls._github_url_text(endpoint)
+        if rendered is None:
+            return None
+        parsed = cls._github_parsed_url(rendered)
+        if parsed is None:
+            return None
+        scheme = parsed.scheme.casefold()
+        if scheme not in {"http", "https"} or (
+            scheme == "http"
+            and parsed.hostname.casefold() not in _GITHUB_LOOPBACK_HOSTS
+        ):
+            return None
+        return rendered
+
+    @classmethod
+    def _github_endpoint(cls) -> str | None:
+        """Validate the governed connector endpoint without exposing it."""
+        return cls._validate_github_endpoint(setting("GITHUB_URL", _GITHUB_DEFAULT_URL))
+
+    @staticmethod
+    def _github_mapping(value: Any) -> dict[str, Any]:
+        """Convert a provider response model or mapping to a plain mapping."""
+        if isinstance(value, dict):
+            return value
+        dump = getattr(value, "model_dump", None)
+        if callable(dump):
+            try:
+                value = dump(mode="json")
+            except TypeError:
+                value = dump()
+        return value if isinstance(value, dict) else {}
+
+    @classmethod
+    def _github_records(cls, response: Any) -> list[dict[str, Any]] | None:
+        """Extract provider records without inventing values for malformed data."""
+        data = getattr(response, "data", response)
+        if isinstance(data, dict):
+            data = data.get("data", data.get("repositories", data.get("workflow_runs")))
+        if not isinstance(data, list):
+            return None
+        records: list[dict[str, Any]] = []
+        for item in data:
+            record = cls._github_mapping(item)
+            if not record:
+                return None
+            records.append(record)
+        return records
+
+    @staticmethod
+    def _github_provider_id(value: Any) -> int | None:
+        """Accept only the positive integer ids emitted by GitHub's models."""
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return None
+        return value
+
+    @staticmethod
+    def _github_text(value: Any, *, required: bool = False) -> str | None:
+        """Validate text fields from a connector model before graph projection."""
+        if value is None and not required:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            return None
+        if any(character.isspace() and character != " " for character in value):
+            return None
+        if any(ord(character) < 32 for character in value):
+            return None
+        return value
+
+    @staticmethod
+    def _github_valid_slug(value: Any) -> str:
+        """Accept one GitHub owner/name slug without path or query injection."""
+        if not isinstance(value, str) or value.strip() != value:
+            return ""
+        return value if _GITHUB_SLUG_RE.fullmatch(value) else ""
+
+    @classmethod
+    def _github_repository_identity(
+        cls, repository: dict[str, Any]
+    ) -> tuple[int, str, str] | None:
+        """Validate and return the stable identity fields for one repository."""
+        provider_id = cls._github_provider_id(repository.get("id"))
+        name = cls._github_text(repository.get("name"), required=True)
+        full_name = cls._github_valid_slug(repository.get("full_name"))
+        if provider_id is None or name is None or not full_name:
+            return None
+        return provider_id, name, full_name
+
+    @classmethod
+    def _github_repository_fields_valid(cls, repository: dict[str, Any]) -> bool:
+        """Validate the optional typed fields projected into a repository node."""
+        for field in ("description", "default_branch", "language"):
+            value = repository.get(field)
+            if value is not None and cls._github_text(value) is None:
+                return False
+        return not (
+            "private" in repository and not isinstance(repository["private"], bool)
+        )
+
+    @staticmethod
+    def _github_safe_url(value: Any) -> str | None:
+        """Retain ordinary HTTPS/HTTP links while dropping credential-bearing URLs."""
+        rendered = HydrationManager._github_url_text(value)
+        if rendered is None:
+            return None
+        parsed = HydrationManager._github_parsed_url(rendered)
+        if parsed is None:
+            return None
+        if parsed.scheme.casefold() not in {"http", "https"}:
+            return None
+        return rendered
+
+    @classmethod
+    def _github_repository_entity(
+        cls, repository: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Map one real provider repository, retaining its stable identity."""
+        identity = cls._github_repository_identity(repository)
+        if identity is None or not cls._github_repository_fields_valid(repository):
+            return None
+        provider_id, name, full_name = identity
+        entity: dict[str, Any] = {
+            "id": f"github:repository:{provider_id}",
+            "type": "repository",
+            "domain": "github",
+            "source_system": "github",
+            "externalToolId": str(provider_id),
+            "name": name,
+            "full_name": full_name,
+        }
+        for field in ("description", "default_branch", "private", "language"):
+            if repository.get(field) is not None:
+                entity[field] = repository[field]
+        source_uri = cls._github_safe_url(
+            repository.get("html_url") or repository.get("web_url")
+        )
+        if source_uri:
+            entity["web_url"] = str(source_uri)
+            entity["source_uri"] = str(source_uri)
+        return entity
+
+    @classmethod
+    def _github_repository_slug(cls, repository: dict[str, Any]) -> str:
+        """Resolve an owner/name slug strictly from provider fields."""
+        full_name = repository.get("full_name")
+        slug = cls._github_valid_slug(full_name)
+        if slug:
+            return slug
+        owner = repository.get("owner")
+        name = repository.get("name")
+        login = owner.get("login") if isinstance(owner, dict) else None
+        return cls._github_valid_slug(f"{login}/{name}") if login and name else ""
+
+    @classmethod
+    def _github_workflow_fields_valid(cls, run: dict[str, Any]) -> bool:
+        """Validate required and optional typed fields for an Actions run."""
+        for field in ("head_branch", "head_sha", "status", "event"):
+            if cls._github_text(run.get(field), required=True) is None:
+                return False
+        for field in (
+            "name",
+            "conclusion",
+            "head_branch",
+            "head_sha",
+            "status",
+            "event",
+            "run_started_at",
+            "updated_at",
+        ):
+            value = run.get(field)
+            if value is not None and cls._github_text(value) is None:
+                return False
+        return True
+
+    @classmethod
+    def _github_workflow_entity(
+        cls, run: dict[str, Any], repository_slug: str
+    ) -> dict[str, Any] | None:
+        """Map one real Actions run to a stable provider-scoped pipeline node."""
+        provider_id = cls._github_provider_id(run.get("id"))
+        repository_slug = cls._github_valid_slug(repository_slug)
+        if (
+            provider_id is None
+            or not repository_slug
+            or not cls._github_workflow_fields_valid(run)
+        ):
+            return None
+        entity: dict[str, Any] = {
+            "id": f"github:pipelinerun:{repository_slug}:{provider_id}",
+            "type": "pipeline",
+            "domain": "github",
+            "source_system": "github",
+            "externalToolId": str(provider_id),
+        }
+        for field in (
+            "name",
+            "status",
+            "conclusion",
+            "head_sha",
+            "head_branch",
+            "event",
+            "run_started_at",
+            "updated_at",
+        ):
+            if run.get(field) is not None:
+                entity[field] = run[field]
+        source_uri = cls._github_safe_url(run.get("html_url") or run.get("web_url"))
+        if source_uri:
+            entity["web_url"] = str(source_uri)
+            entity["source_uri"] = str(source_uri)
+        return entity
+
+    def _github_workflow_entities(
+        self, client: Any, repository: dict[str, Any], repository_id: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        """Fetch and map Actions runs, reporting failures instead of hiding them."""
+        get_runs = getattr(client, "get_workflow_runs", None)
+        slug = self._github_repository_slug(repository)
+        if not callable(get_runs) or not slug or "/" not in slug:
+            return [], [], 1
+        owner, repo = slug.split("/", 1)
+        try:
+            records = self._github_records(get_runs(owner=owner, repo=repo))
+        except Exception as exc:  # noqa: BLE001 — optional Actions slice is isolated
+            logger.debug(
+                "GitHub workflow fetch failed for %s: error_type=%s",
+                slug,
+                type(exc).__name__,
+            )
+            return [], [], 1
+        if records is None:
+            return [], [], 1
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        failures = 0
+        for run in records:
+            entity = self._github_workflow_entity(run, slug)
+            if entity is None:
+                failures += 1
+                continue
+            entities.append(entity)
+            relationships.append(
+                {
+                    "source": entity["id"],
+                    "target": repository_id,
+                    "type": "depends_on",
+                    "domain": "github",
+                }
+            )
+        return entities, relationships, failures
+
+    def _github_client_and_repositories(
+        self, client_factory: Any, endpoint: str
+    ) -> tuple[Any | None, list[dict[str, Any]] | None, dict[str, Any] | None]:
+        """Create the connector-owned client and fetch real repository records."""
+        client: Any | None = None
+        if not callable(client_factory):
+            return (
+                None,
+                None,
+                {
+                    "status": "unavailable",
+                    "source": "github",
+                    "reason": "github-agent runtime incompatible",
+                    "nodes_hydrated": 0,
+                    "relations_hydrated": 0,
+                },
+            )
+        try:
+            client = client_factory()
+            client_endpoint = getattr(client, "url", None)
+            if client_endpoint is not None and (
+                self._validate_github_endpoint(client_endpoint) != endpoint
+            ):
+                logger.debug("GitHub connector endpoint mismatch")
+                return (
+                    client,
+                    None,
+                    {
+                        "status": "unavailable",
+                        "source": "github",
+                        "reason": "github-agent runtime incompatible",
+                        "nodes_hydrated": 0,
+                        "relations_hydrated": 0,
+                    },
+                )
+            repositories = self._github_records(client.get_repositories())
+        except (AttributeError, ModuleNotFoundError, TypeError) as exc:  # noqa: BLE001 — connector compatibility exceptions may contain endpoint credentials; keep the provider result redacted
+            logger.debug(
+                "GitHub connector runtime incompatible: error_type=%s",
+                type(exc).__name__,
+            )
+            return (
+                client,
+                None,
+                {
+                    "status": "unavailable",
+                    "source": "github",
+                    "reason": "github-agent runtime incompatible",
+                    "nodes_hydrated": 0,
+                    "relations_hydrated": 0,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — provider reachability is an explicit result
+            logger.debug(
+                "GitHub provider unavailable: error_type=%s", type(exc).__name__
+            )
+            return (
+                client,
+                None,
+                {
+                    "status": "unavailable",
+                    "source": "github",
+                    "reason": "GitHub provider unavailable",
+                    "nodes_hydrated": 0,
+                    "relations_hydrated": 0,
+                },
+            )
+        return client, repositories, None
+
+    def _github_entities(
+        self, client: Any, repositories: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
+        """Map repositories and optional Actions runs to graph records."""
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
+        invalid_repositories = 0
+        workflow_failures = 0
+        for repository in repositories:
+            entity = self._github_repository_entity(repository)
+            if entity is None:
+                invalid_repositories += 1
+                continue
+            entities.append(entity)
+            workflow_entities, workflow_relationships, failures = (
+                self._github_workflow_entities(client, repository, entity["id"])
+            )
+            entities.extend(workflow_entities)
+            relationships.extend(workflow_relationships)
+            workflow_failures += failures
+        return entities, relationships, invalid_repositories, workflow_failures
+
+    @staticmethod
+    def _close_github_client(client: Any | None) -> None:
+        """Close a provider client without changing the hydration result."""
+        close_method = getattr(client, "close", None)
+        if not callable(close_method):
+            return None
+        try:
+            close_method()
+        except Exception as exc:  # noqa: BLE001 — cleanup cannot alter provider result
+            logger.debug(
+                "GitHub provider cleanup failed: error_type=%s",
+                type(exc).__name__,
+            )
+
+    @staticmethod
+    def _github_result(
+        status: str,
+        reason: str | None = None,
+        *,
+        nodes: int = 0,
+        relations: int = 0,
+    ) -> dict[str, Any]:
+        """Build a redacted, consistently shaped provider result."""
+        result: dict[str, Any] = {
+            "status": status,
+            "source": "github",
+            "nodes_hydrated": nodes,
+            "relations_hydrated": relations,
+        }
+        if reason is not None:
+            result["reason"] = reason
+        return result
+
+    def _hydrate_github_batch(
+        self,
+        engine: Any,
+        client: Any | None,
+        repositories: list[dict[str, Any]] | None,
+        provider_error: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Project one provider response and report partial/error outcomes."""
+        if provider_error is not None:
+            return provider_error
+        if repositories is None:
+            return self._github_result(
+                "error", "GitHub provider returned malformed repository data"
+            )
+        if not repositories:
+            return self._github_result("no_data", "GitHub returned no repositories")
+
+        entities, relationships, invalid_repositories, workflow_failures = (
+            self._github_entities(client, repositories)
+        )
+        if invalid_repositories:
+            return self._github_result(
+                "error", "GitHub provider returned malformed repository data"
+            )
+        if entities:
+            try:
+                engine.ingest_external_batch("github", entities, relationships)
+            except Exception as exc:  # noqa: BLE001 — graph errors stay redacted
+                logger.debug(
+                    "GitHub graph ingestion failed: error_type=%s",
+                    type(exc).__name__,
+                )
+                return self._github_result(
+                    "error", "GitHub entities could not be ingested"
+                )
+
+        result = self._github_result(
+            "ok",
+            nodes=len(entities),
+            relations=len(relationships),
+        )
+        if workflow_failures:
+            result.update(
+                {
+                    "status": "partial",
+                    "reason": "GitHub workflow data is incomplete",
+                    "workflow_failures": workflow_failures,
+                }
+            )
+        return result
+
+    def _hydrate_github(self, engine: Any) -> dict[str, Any]:
+        """Hydrate GitHub through the connector-owned API, never demo records."""
+        token = setting("GITHUB_TOKEN") or setting("GITHUB_API_KEY")
+        if not isinstance(token, str) or not token.strip():
+            return self._github_result("skipped", "Missing GITHUB_TOKEN/GITHUB_API_KEY")
+
+        endpoint = self._github_endpoint()
+        if endpoint is None:
+            return self._github_result(
+                "error", "GitHub endpoint configuration is invalid"
+            )
+
+        try:
+            client_factory = self._load_github_api()
+        except _GithubConnectorCompatibilityError:
+            return self._github_result(
+                "unavailable", "github-agent runtime incompatible"
+            )
+        if client_factory is None:
+            return self._github_result("skipped", "github-agent package not installed")
+
+        client, repositories, provider_error = self._github_client_and_repositories(
+            client_factory, endpoint
+        )
+        try:
+            return self._hydrate_github_batch(
+                engine, client, repositories, provider_error
+            )
+        finally:
+            self._close_github_client(client)
+
     def _hydrate_source_control(self, engine: Any) -> dict[str, Any]:
         """Hydrate source control metadata. Supports Git, GitLab, and GitHub."""
         # Pluggable GitLab
@@ -291,36 +813,7 @@ class HydrationManager:
 
         # Pluggable GitHub
         if setting("GITHUB_TOKEN") or setting("GITHUB_API_KEY"):
-            entities = [
-                {
-                    "id": "github:repo:101",
-                    "type": "repository",
-                    "name": "Test GitHub Project",
-                    "web_url": "https://github.com/example/project",
-                    "domain": "github",
-                },
-                {
-                    "id": "github:workflow:4001",
-                    "type": "pipeline",
-                    "name": "GitHub Action workflow",
-                    "status": "success",
-                    "domain": "github",
-                },
-            ]
-            relationships = [
-                {
-                    "source": "github:workflow:4001",
-                    "target": "github:repo:101",
-                    "type": "depends_on",
-                    "domain": "github",
-                }
-            ]
-            engine.ingest_external_batch("github", entities, relationships)
-            return {
-                "status": "ok",
-                "nodes_hydrated": len(entities),
-                "relations_hydrated": len(relationships),
-            }
+            return self._hydrate_github(engine)
 
         # Default Local Git
         entities = []

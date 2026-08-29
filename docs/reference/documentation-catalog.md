@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-416 publishable pages · 96 direct nav targets · 132 public capabilities · 880 action rows · 572 typed configuration fields · 377 runtime-only call-site inputs.
+416 publishable pages · 96 direct nav targets · 132 public capabilities · 880 action rows · 572 typed configuration fields · 378 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
