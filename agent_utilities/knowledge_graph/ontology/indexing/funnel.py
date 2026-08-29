@@ -239,6 +239,43 @@ class SyncResult:
         }
 
 
+def _remove_capability_membership(index: CapabilityIndex, object_id: str) -> None:
+    """Remove ``object_id`` from the capability inverted index."""
+    for cap in index._id_to_caps.pop(object_id, set()):
+        providers = index._cap_to_ids.get(cap)
+        if providers is not None:
+            providers.discard(object_id)
+            if not providers:
+                index._cap_to_ids.pop(cap, None)
+
+
+def _remove_swappable_membership(index: CapabilityIndex, object_id: str) -> None:
+    """Remove ``object_id`` from the symmetric swappable adjacency map."""
+    for partner in index._swappable.pop(object_id, set()):
+        peers = index._swappable.get(partner)
+        if peers is not None:
+            peers.discard(object_id)
+            if not peers:
+                index._swappable.pop(partner, None)
+
+
+def _mark_hnsw_tombstone(
+    index: CapabilityIndex, object_id: str, tombstones: set[str]
+) -> None:
+    """Mark a deleted HNSW label for compaction when one is still reserved."""
+    if index.backend != "hnsw" or object_id not in index._id_to_label:
+        return
+    label = index._id_to_label.get(object_id)
+    if label is not None and index._hnsw is not None:
+        try:
+            index._hnsw.mark_deleted(label)
+        except Exception:  # pragma: no cover - backend variance
+            # Older hnswlib without mark_deleted: removing the vector map
+            # entry + post-filter (below) still guarantees correctness.
+            pass
+    tombstones.add(object_id)
+
+
 class ObjectIndexFunnel:
     """Sync objects from the source-of-truth graph into the live search index.
 
@@ -422,35 +459,11 @@ class ObjectIndexFunnel:
         the physical eviction happens at the next rebuild.
         """
         idx = self.index
-        # Remove from capability inverted index + id->caps map.
-        for cap in idx._id_to_caps.pop(object_id, set()):
-            providers = idx._cap_to_ids.get(cap)
-            if providers is not None:
-                providers.discard(object_id)
-                if not providers:
-                    idx._cap_to_ids.pop(cap, None)
-        # Remove from swappable adjacency (symmetric).
-        for partner in idx._swappable.pop(object_id, set()):
-            peers = idx._swappable.get(partner)
-            if peers is not None:
-                peers.discard(object_id)
-                if not peers:
-                    idx._swappable.pop(partner, None)
+        _remove_capability_membership(idx, object_id)
+        _remove_swappable_membership(idx, object_id)
         idx._reward.pop(object_id, None)
         idx._id_to_type.pop(object_id, None)  # KG-2.44b ontology-type map
-
-        if idx.backend == "hnsw" and object_id in idx._id_to_label:
-            # Physically unreachable from rank only once the vector is gone; keep
-            # the label reserved and tombstone it for compaction.
-            label = idx._id_to_label.get(object_id)
-            if label is not None and idx._hnsw is not None:
-                try:
-                    idx._hnsw.mark_deleted(label)
-                except Exception:  # pragma: no cover - backend variance
-                    # Older hnswlib without mark_deleted: removing the vector map
-                    # entry + post-filter (below) still guarantees correctness.
-                    pass
-            self._tombstones.add(object_id)
+        _mark_hnsw_tombstone(idx, object_id, self._tombstones)
         # Remove the vector last (source of truth for numpy ranking + rebuilds).
         idx._id_to_vec.pop(object_id, None)
 
