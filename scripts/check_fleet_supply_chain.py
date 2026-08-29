@@ -37,7 +37,7 @@ from dataclasses import dataclass
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_REPOSITORIES = 1_000
 MAX_DISCOVERY_DEPTH = 5
-EXPECTED_SNAPSHOT_PROVIDERS = 68
+EXPECTED_SNAPSHOT_PROVIDERS = 71
 MAX_SNAPSHOT_ENTRIES = 200_000
 MAX_SNAPSHOT_FILES = 100_000
 MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024 * 1024
@@ -60,6 +60,11 @@ SKIP_DIRECTORIES = frozenset(
         "vendor",
     }
 )
+# ``uv_workspace.py`` materializes editable sibling dependencies here.  These
+# links are local build plumbing, not provider source, and must not be walked
+# by a no-Git source snapshot.  The root-only match keeps same-named source
+# directories subject to the ordinary fail-closed symlink policy.
+_SNAPSHOT_WORKSPACE_SIBLINGS_DIRECTORY = ".uv-workspace-siblings"
 
 ACTION_SHA_RE = re.compile(r"^[^/@\s]+/[^@\s]+@[0-9a-fA-F]{40}$")
 CONTAINER_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}(?:$|\s)")
@@ -293,6 +298,31 @@ def _workspace_provider_names(workspace: pathlib.Path) -> tuple[str, ...]:
     return tuple(sorted(providers))
 
 
+def _has_local_checkout_metadata(root: pathlib.Path, name: str) -> bool:
+    """Return whether an unlisted root directory has a real ``.git`` entry."""
+
+    try:
+        metadata = (root / name / ".git").lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise RuntimeError("source snapshot membership is unavailable") from None
+    return not stat.S_ISLNK(metadata.st_mode) and (
+        stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode)
+    )
+
+
+def _snapshot_membership_is_exact(
+    root: pathlib.Path, expected: set[str], direct_directories: set[str]
+) -> bool:
+    """Allow only direct roots declared in the workspace or local checkouts."""
+
+    for name in direct_directories - expected:
+        if not _has_local_checkout_metadata(root, name):
+            return False
+    return expected.issubset(direct_directories)
+
+
 def resolve_snapshot_repositories(
     providers_root: pathlib.Path, workspace: pathlib.Path
 ) -> tuple[pathlib.Path, tuple[pathlib.Path, ...]]:
@@ -328,7 +358,7 @@ def resolve_snapshot_repositories(
                     direct_directories.add(entry.name)
     except OSError:
         raise RuntimeError("source snapshot membership is unavailable") from None
-    if direct_directories != expected:
+    if not _snapshot_membership_is_exact(root, expected, direct_directories):
         raise RuntimeError("source snapshot provider membership is not exact")
 
     repositories: list[pathlib.Path] = []
@@ -342,6 +372,16 @@ def resolve_snapshot_repositories(
             raise RuntimeError("source snapshot provider must be a direct directory")
         repositories.append(repository)
     return root, tuple(repositories)
+
+
+def _should_walk_snapshot_directory(
+    repository: pathlib.Path, current: pathlib.Path, name: str
+) -> bool:
+    """Apply ordinary skips plus the root-only editable-sibling exclusion."""
+
+    return name not in SKIP_DIRECTORIES and not (
+        current == repository and name == _SNAPSHOT_WORKSPACE_SIBLINGS_DIRECTORY
+    )
 
 
 def _snapshot_source_files(
@@ -373,7 +413,7 @@ def _snapshot_source_files(
             if stat.S_ISLNK(metadata.st_mode):
                 raise RuntimeError("source snapshot contains a symlink")
             if stat.S_ISDIR(metadata.st_mode):
-                if entry.name not in SKIP_DIRECTORIES:
+                if _should_walk_snapshot_directory(repository, current, entry.name):
                     directories.append((pathlib.Path(entry.path), entry_depth))
                 continue
             if not stat.S_ISREG(metadata.st_mode):
