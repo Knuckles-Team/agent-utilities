@@ -270,45 +270,57 @@ class BaseBrowserAuthManager:
         self.save_tokens(new_tokens)
         return new_tokens
 
+    def _resolve_api_key(self) -> str | None:
+        """Return a configured direct API key, if this manager supports one."""
+        if not (self.api_key_secret_key or self.api_key_env_var):
+            return None
+        return self.secrets_client.get_or_env(
+            self.api_key_secret_key or "", self.api_key_env_var or ""
+        )
+
+    def _load_or_login_tokens(self, auto_login: bool) -> dict[str, Any] | None:
+        """Load cached OAuth tokens, optionally recovering through interactive login."""
+        tokens = self.get_cached_tokens()
+        if tokens or not auto_login:
+            return tokens
+
+        logger.info(
+            "Cached tokens missing for %r. Triggering interactive login...",
+            self.secret_key,
+        )
+        try:
+            return self.login()
+        except Exception as exc:
+            logger.error("Interactive login flow auto-trigger failed: %s", exc)
+            return None
+
+    def _refresh_if_expiring(self, tokens: dict[str, Any]) -> dict[str, Any] | None:
+        """Refresh tokens inside the configured skew window, failing closed."""
+        expires_at = tokens.get("expires_at", 0.0)
+        if time.time() + self.refresh_skew_seconds < expires_at:
+            return tokens
+        try:
+            return self.refresh_tokens(tokens)
+        except Exception as exc:
+            logger.error("Proactive token refresh failed: %s", exc)
+            return None
+
     def resolve_credentials(self, auto_login: bool = False) -> str | None:
         """Master credential resolver.
 
         Checks direct API Key overrides first. Otherwise resolves, validates, and
         proactively refreshes stored OAuth tokens.
         """
-        # 1. API Key Override Check
-        if self.api_key_secret_key or self.api_key_env_var:
-            api_key = self.secrets_client.get_or_env(
-                self.api_key_secret_key or "", self.api_key_env_var or ""
-            )
-            if api_key:
-                return api_key
+        api_key = self._resolve_api_key()
+        if api_key:
+            return api_key
 
-        # 2. OAuth Token resolution
-        tokens = self.get_cached_tokens()
+        tokens = self._load_or_login_tokens(auto_login)
         if not tokens:
-            if auto_login:
-                logger.info(
-                    "Cached tokens missing for %r. Triggering interactive login...",
-                    self.secret_key,
-                )
-                try:
-                    tokens = self.login()
-                except Exception as exc:
-                    logger.error("Interactive login flow auto-trigger failed: %s", exc)
-                    return None
-            else:
-                return None
-
-        expires_at = tokens.get("expires_at", 0.0)
-        # Check if expired or within refresh skew window
-        if time.time() + self.refresh_skew_seconds >= expires_at:
-            try:
-                tokens = self.refresh_tokens(tokens)
-            except Exception as exc:
-                logger.error("Proactive token refresh failed: %s", exc)
-                return None
-
+            return None
+        tokens = self._refresh_if_expiring(tokens)
+        if not tokens:
+            return None
         return tokens.get("access_token")
 
     def login(self) -> dict[str, Any]:
