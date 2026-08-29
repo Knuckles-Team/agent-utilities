@@ -1234,6 +1234,84 @@ def ingest_artifact(
     )
 
 
+def _fragment_read_query(
+    *, artifact_id: str, document_id: str
+) -> tuple[str, dict[str, str]]:
+    """Build the one projection shared by both fragment lookup keys."""
+    projection = (
+        "RETURN f.id AS id, f.artifact_id AS artifact_id, "
+        "f.fragment_kind AS fragment_kind, f.address AS address, "
+        "f.text AS text, f.content_hash AS content_hash, "
+        "f.ordinal AS ordinal, f.sequence AS sequence, f.depth AS depth, "
+        "f.parent_fragment_id AS parent_fragment_id, "
+        "f.char_start AS char_start, f.char_end AS char_end, "
+        "f.label AS label, f.locus_kind AS locus_kind"
+    )
+    if artifact_id:
+        return (
+            f"MATCH (f:{FRAGMENT_NODE_TYPE}) WHERE f.artifact_id = $key {projection}",
+            {"key": artifact_id},
+        )
+    return (
+        f"MATCH (d:Document)-[:{HAS_ARTIFACT_EDGE}]->(a:{ARTIFACT_NODE_TYPE})"
+        f"-[:{HAS_FRAGMENT_EDGE}]->(f:{FRAGMENT_NODE_TYPE}) "
+        f"WHERE d.id = $key {projection}",
+        {"key": document_id},
+    )
+
+
+def _read_fragment_rows(
+    engine: Any, cypher: str, params: dict[str, str], *, target: str
+) -> list[Any]:
+    """Read fragment rows through the engine, with the backend fallback."""
+    try:
+        run = getattr(engine, "query_cypher", None)
+        if callable(run):
+            return list(run(cypher, params) or [])
+        backend = getattr(engine, "backend", None)
+        execute = getattr(backend, "execute", None)
+        return list(execute(cypher, params) or []) if callable(execute) else []
+    except Exception as exc:  # noqa: BLE001 — advisory reads report no stored spine
+        logger.debug("fragment spine read failed for %r: %s", target, exc)
+        return []
+
+
+def _fragment_row_value(row: dict[str, Any], key: str, default: Any) -> Any:
+    """Apply the stored-row defaults used by the materialized spine reader."""
+    return row.get(key) or default
+
+
+def _fragment_from_row(row: Any) -> Fragment | None:
+    """Rehydrate one stored row, logging and dropping corrupt evidence."""
+    if not isinstance(row, dict) or not row.get("address"):
+        return None
+    try:
+        return Fragment(
+            fragment_id=str(_fragment_row_value(row, "id", "")),
+            artifact_id=str(_fragment_row_value(row, "artifact_id", "")),
+            kind=str(_fragment_row_value(row, "fragment_kind", "span")),  # type: ignore[arg-type]
+            path=tuple(str(row["address"]).split("/")),
+            text=str(_fragment_row_value(row, "text", "")),
+            content_hash=str(_fragment_row_value(row, "content_hash", "")),
+            ordinal=int(_fragment_row_value(row, "ordinal", 0)),
+            sequence=int(_fragment_row_value(row, "sequence", 0)),
+            depth=int(_fragment_row_value(row, "depth", 0)),
+            parent_fragment_id=_fragment_row_value(row, "parent_fragment_id", None),
+            char_start=int(_fragment_row_value(row, "char_start", -1)),
+            char_end=int(_fragment_row_value(row, "char_end", -1)),
+            label=str(_fragment_row_value(row, "label", "")),
+            locus_kind=str(_fragment_row_value(row, "locus_kind", "document_span")),
+        )
+    except (ValueError, TypeError) as exc:
+        # A stored row that fails Fragment's own invariants (a mismatched
+        # address/id pair, a missing digest) is CORRUPT evidence.  Dropping
+        # it is right — returning it would let a citation resolve against a
+        # fragment whose address no longer proves anything — but it is never
+        # dropped silently.
+        logger.warning("discarding corrupt Fragment row %r: %s", row.get("id"), exc)
+        return None
+
+
 def load_fragments(
     engine: Any, *, artifact_id: str = "", document_id: str = ""
 ) -> tuple[Fragment, ...]:
@@ -1247,77 +1325,17 @@ def load_fragments(
     """
     if engine is None or not (artifact_id or document_id):
         return ()
-    if artifact_id:
-        cypher = (
-            f"MATCH (f:{FRAGMENT_NODE_TYPE}) WHERE f.artifact_id = $key "
-            "RETURN f.id AS id, f.artifact_id AS artifact_id, "
-            "f.fragment_kind AS fragment_kind, f.address AS address, "
-            "f.text AS text, f.content_hash AS content_hash, "
-            "f.ordinal AS ordinal, f.sequence AS sequence, f.depth AS depth, "
-            "f.parent_fragment_id AS parent_fragment_id, "
-            "f.char_start AS char_start, f.char_end AS char_end, "
-            "f.label AS label, f.locus_kind AS locus_kind"
-        )
-        params = {"key": artifact_id}
-    else:
-        cypher = (
-            f"MATCH (d:Document)-[:{HAS_ARTIFACT_EDGE}]->(a:{ARTIFACT_NODE_TYPE})"
-            f"-[:{HAS_FRAGMENT_EDGE}]->(f:{FRAGMENT_NODE_TYPE}) "
-            "WHERE d.id = $key "
-            "RETURN f.id AS id, f.artifact_id AS artifact_id, "
-            "f.fragment_kind AS fragment_kind, f.address AS address, "
-            "f.text AS text, f.content_hash AS content_hash, "
-            "f.ordinal AS ordinal, f.sequence AS sequence, f.depth AS depth, "
-            "f.parent_fragment_id AS parent_fragment_id, "
-            "f.char_start AS char_start, f.char_end AS char_end, "
-            "f.label AS label, f.locus_kind AS locus_kind"
-        )
-        params = {"key": document_id}
-
-    try:
-        run = getattr(engine, "query_cypher", None)
-        if callable(run):
-            rows = list(run(cypher, params) or [])
-        else:
-            backend = getattr(engine, "backend", None)
-            execute = getattr(backend, "execute", None)
-            rows = list(execute(cypher, params) or []) if callable(execute) else []
-    except Exception as exc:  # noqa: BLE001 — a spine read is advisory: an unavailable/uningested graph is reported as "no fragments stored", never as a citation failure; the cause is preserved on the debug record below
-        logger.debug(
-            "fragment spine read failed for %r: %s", artifact_id or document_id, exc
-        )
-        return ()
-
+    cypher, params = _fragment_read_query(
+        artifact_id=artifact_id, document_id=document_id
+    )
+    rows = _read_fragment_rows(
+        engine, cypher, params, target=artifact_id or document_id
+    )
     fragments: list[Fragment] = []
     for row in rows:
-        if not isinstance(row, dict) or not row.get("address"):
-            continue
-        try:
-            fragments.append(
-                Fragment(
-                    fragment_id=str(row.get("id") or ""),
-                    artifact_id=str(row.get("artifact_id") or ""),
-                    kind=str(row.get("fragment_kind") or "span"),  # type: ignore[arg-type]
-                    path=tuple(str(row["address"]).split("/")),
-                    text=str(row.get("text") or ""),
-                    content_hash=str(row.get("content_hash") or ""),
-                    ordinal=int(row.get("ordinal") or 0),
-                    sequence=int(row.get("sequence") or 0),
-                    depth=int(row.get("depth") or 0),
-                    parent_fragment_id=row.get("parent_fragment_id") or None,
-                    char_start=int(row.get("char_start", -1) or -1),
-                    char_end=int(row.get("char_end", -1) or -1),
-                    label=str(row.get("label") or ""),
-                    locus_kind=str(row.get("locus_kind") or "document_span"),
-                )
-            )
-        except (ValueError, TypeError) as exc:
-            # A stored row that fails Fragment's own invariants (a mismatched
-            # address/id pair, a missing digest) is CORRUPT evidence.  Dropping
-            # it is right — returning it would let a citation resolve against a
-            # fragment whose address no longer proves anything — but it is never
-            # dropped silently.
-            logger.warning("discarding corrupt Fragment row %r: %s", row.get("id"), exc)
+        fragment = _fragment_from_row(row)
+        if fragment is not None:
+            fragments.append(fragment)
     fragments.sort(key=lambda f: f.sequence)
     return tuple(fragments)
 

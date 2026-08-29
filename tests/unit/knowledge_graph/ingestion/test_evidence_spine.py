@@ -17,6 +17,7 @@ from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnve
 from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
     ARTIFACT_NODE_TYPE,
     FRAGMENT_NODE_TYPE,
+    HAS_ARTIFACT_EDGE,
     HAS_FRAGMENT_EDGE,
     NEXT_FRAGMENT_EDGE,
     PARENT_FRAGMENT_EDGE,
@@ -27,6 +28,7 @@ from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
     content_digest,
     fragment_id_for,
     fragment_markdown,
+    load_fragments,
     resolve_fragment,
 )
 
@@ -268,6 +270,66 @@ def test_ambiguous_content_is_preserved_not_guessed() -> None:
     fragments = spine("# T\n\n## A\n\nsame text\n\n## B\n\nsame text\n")
     duplicate = next(f for f in fragments if f.text == "same text")
     assert resolve_fragment(fragments, content_hash=duplicate.content_hash) is None
+
+
+# ── the materialized spine reader ───────────────────────────────────────────
+
+
+def test_load_fragments_rehydrates_and_orders_engine_rows() -> None:
+    expected = spine()
+    rows = [expected[2].to_node(), expected[0].to_node(), expected[1].to_node()]
+
+    class Engine:
+        def query_cypher(self, query: str, params: dict[str, str]) -> list[dict]:
+            assert "f.artifact_id = $key" in query
+            assert params == {"key": ARTIFACT}
+            return rows
+
+    loaded = load_fragments(Engine(), artifact_id=ARTIFACT)
+
+    assert [fragment.fragment_id for fragment in loaded] == [
+        fragment.fragment_id for fragment in expected[:3]
+    ]
+
+
+def test_load_fragments_uses_document_join_backend_fallback() -> None:
+    expected = spine()[0]
+
+    class Backend:
+        def execute(self, query: str, params: dict[str, str]) -> list[dict]:
+            assert "d.id = $key" in query
+            assert HAS_ARTIFACT_EDGE in query
+            assert params == {"key": "document:1"}
+            return [expected.to_node()]
+
+    class Engine:
+        backend = Backend()
+
+    loaded = load_fragments(Engine(), document_id="document:1")
+    assert len(loaded) == 1
+    assert loaded[0].fragment_id == expected.fragment_id
+    assert loaded[0].address == expected.address
+
+
+def test_load_fragments_drops_corrupt_rows_and_degrades_on_read_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    expected = spine()[0]
+    corrupt = expected.to_node() | {"id": "fragment:corrupt"}
+
+    class Engine:
+        def __init__(self, rows: list[dict] | None = None) -> None:
+            self.rows = rows
+
+        def query_cypher(self, query: str, params: dict[str, str]) -> list[dict]:
+            if self.rows is None:
+                raise RuntimeError("graph unavailable")
+            return self.rows
+
+    with caplog.at_level("WARNING"):
+        assert load_fragments(Engine([corrupt]), artifact_id=ARTIFACT) == ()
+    assert "discarding corrupt Fragment row" in caplog.text
+    assert load_fragments(Engine(), artifact_id=ARTIFACT) == ()
 
 
 # ── the Artifact half of the spine ───────────────────────────────────────────
