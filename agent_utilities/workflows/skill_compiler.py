@@ -23,6 +23,131 @@ from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
 logger = logging.getLogger(__name__)
 
+_STEP_HEADER_PATTERN = re.compile(
+    r"###\s+Step\s+(\d+):\s*(.*?)\n(.*?)(?=\n###\s+Step|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+_STEP_LIST_PATTERN = re.compile(
+    r"^(\d+)\.\s+\*\*(.*?)\*\*(.*?)(?=\n\d+\.\s+\*\*|\Z)",
+    re.MULTILINE | re.IGNORECASE | re.DOTALL,
+)
+_SKILL_ANNOTATION_PATTERN = re.compile(r"\[skill:\s*(.*?)\]", re.IGNORECASE)
+_DEPENDENCY_ANNOTATION_PATTERN = re.compile(
+    r"\[depends_on:\s*(.*?)\]", re.IGNORECASE
+)
+_STEP_REFERENCE_PATTERN = re.compile(r"^(?:step-?)?(\d+)$")
+
+
+def _normalise_identifier(value: str) -> str:
+    """Normalise markdown identifiers to the compiler's node-id format."""
+    return value.strip().lower().replace(" ", "-").replace("_", "-")
+
+
+def _parse_dependencies(value: str) -> list[str]:
+    """Parse a comma-separated dependency annotation."""
+    cleaned = value.strip()
+    if cleaned.lower() in ("none", "[]", ""):
+        return []
+    return [_normalise_identifier(item) for item in cleaned.split(",")]
+
+
+def _parse_skill_annotation(title: str) -> tuple[str | None, str]:
+    """Return an explicit skill id and title with its annotation removed."""
+    match = _SKILL_ANNOTATION_PATTERN.search(title)
+    if match is None:
+        return None, title
+    return (
+        _normalise_identifier(match.group(1)),
+        _SKILL_ANNOTATION_PATTERN.sub("", title).strip(),
+    )
+
+
+def _parse_dependency_annotation(
+    title: str, body: str, previous_id: str | None
+) -> tuple[list[str], str, str]:
+    """Extract a dependency annotation from a title or body."""
+    match = _DEPENDENCY_ANNOTATION_PATTERN.search(title)
+    if match is not None:
+        return (
+            _parse_dependencies(match.group(1)),
+            _DEPENDENCY_ANNOTATION_PATTERN.sub("", title).strip(),
+            body,
+        )
+
+    match = _DEPENDENCY_ANNOTATION_PATTERN.search(body)
+    if match is not None:
+        return (
+            _parse_dependencies(match.group(1)),
+            title,
+            _DEPENDENCY_ANNOTATION_PATTERN.sub("", body).strip(),
+        )
+
+    dependencies = [previous_id] if previous_id is not None else []
+    return dependencies, title, body
+
+
+def _infer_agent_name(explicit_id: str | None, title: str) -> str:
+    """Infer the node id from an explicit id or the step title."""
+    if explicit_id:
+        return explicit_id
+    title_parts = title.split(":", 1)
+    candidate = title_parts[1] if len(title_parts) > 1 else title
+    return _normalise_identifier(candidate)
+
+
+def _ensure_unique_id(base_name: str, used_ids: set[str]) -> str:
+    """Return a unique node id, retaining the compiler's numeric suffixes."""
+    candidate = base_name
+    counter = 1
+    while candidate in used_ids:
+        candidate = f"{base_name}-{counter}"
+        counter += 1
+    return candidate
+
+
+def _parse_step(
+    match: tuple[str, str, str], previous_id: str | None, used_ids: set[str]
+) -> tuple[int, str, str, str, list[str]]:
+    """Parse one markdown match into its plan fields."""
+    step_num, title, body = match
+    explicit_id, title = _parse_skill_annotation(title.strip())
+    dependencies, clean_title, clean_body = _parse_dependency_annotation(
+        title, body.strip(), previous_id
+    )
+    agent_name = _ensure_unique_id(
+        _infer_agent_name(explicit_id, clean_title), used_ids
+    )
+    return int(step_num), agent_name, clean_title, clean_body, dependencies
+
+
+def _resolve_dependency(dependency: str, step_num_to_id: dict[int, str]) -> str:
+    """Resolve a numeric step reference to the corresponding node id."""
+    cleaned = _normalise_identifier(dependency)
+    match = _STEP_REFERENCE_PATTERN.match(cleaned)
+    if match is None:
+        return cleaned
+    step_num = int(match.group(1))
+    return step_num_to_id.get(step_num, cleaned)
+
+
+def _resolve_step_dependencies(
+    steps: list[ExecutionStep], parsed_step_info: list[tuple[int, str]]
+) -> None:
+    """Replace numeric dependency references with parsed node ids in-place."""
+    step_num_to_id = dict(parsed_step_info)
+    for step in steps:
+        step.depends_on = [
+            _resolve_dependency(dependency, step_num_to_id)
+            for dependency in step.depends_on
+        ]
+
+
+def _find_step_matches(markdown: str) -> list[tuple[str, str, str]]:
+    """Find header-style steps, falling back to the numbered-list form."""
+    return _STEP_HEADER_PATTERN.findall(markdown) or _STEP_LIST_PATTERN.findall(
+        markdown
+    )
+
 
 class SkillCompiler:
     """Compile a SKILL.md into a GraphPlan.
@@ -49,160 +174,40 @@ class SkillCompiler:
     @staticmethod
     def compile_from_text(name: str, markdown: str) -> GraphPlan:
         """Parse raw markdown into a GraphPlan."""
-        steps: list[ExecutionStep] = []
-        parsed_step_info: list[tuple[int, str]] = []  # To track (step_num, node_id)
-
-        # Simple parsing logic for headers matching "### Step N:" or similar
-        step_pattern = re.compile(
-            r"###\s+Step\s+(\d+):\s*(.*?)\n(.*?)(?=\n###\s+Step|\Z)",
-            re.IGNORECASE | re.DOTALL,
-        )
-        matches = step_pattern.findall(markdown)
-
+        matches = _find_step_matches(markdown)
         if not matches:
-            # Try alternate pattern: numbered lists
-            list_pattern = re.compile(
-                r"^(\d+)\.\s+\*\*(.*?)\*\*(.*?)(?=\n\d+\.\s+\*\*|\Z)",
-                re.MULTILINE | re.IGNORECASE | re.DOTALL,
-            )
-            matches = list_pattern.findall(markdown)
-
-        if not matches:
-            # If no clear steps found, we treat the whole body as a single task step
-            steps.append(
+            steps = [
                 ExecutionStep(
                     id="executor",
-                    refined_subtask=markdown.strip()[:1000],  # Truncate if very long
+                    refined_subtask=markdown.strip()[:1000],
                     depends_on=[],
                 )
+            ]
+            return GraphPlan(
+                steps=steps,
+                metadata={"name": name, "timeout_seconds": 600},
             )
-        else:
-            for i, match in enumerate(matches):
-                step_num = int(match[0])
-                step_title = match[1].strip()
-                step_body = match[2].strip()
 
-                # Parse an explicit skill annotation if present, e.g.
-                # "### Step 0: spec-intake-wizard [skill: spec-intake-wizard]".
-                # This MUST be stripped before the depends_on parsing and the
-                # colon-split heuristic below: the colon inside "[skill: ...]"
-                # otherwise gets mistaken for the "Step N: <title>" separator,
-                # corrupting the parsed id with a stray trailing "]" (e.g. the
-                # id comes out as "spec-intake-wizard]").
-                explicit_skill_id = None
-                skill_match = re.search(
-                    r"\[skill:\s*(.*?)\]", step_title, re.IGNORECASE
+        steps: list[ExecutionStep] = []
+        parsed_step_info: list[tuple[int, str]] = []
+        used_ids: set[str] = set()
+        previous_id = None
+        for match in matches:
+            step_num, agent_name, title, body, dependencies = _parse_step(
+                match, previous_id, used_ids
+            )
+            used_ids.add(agent_name)
+            parsed_step_info.append((step_num, agent_name))
+            steps.append(
+                ExecutionStep(
+                    id=agent_name,
+                    refined_subtask=f"{title}\n{body}",
+                    depends_on=dependencies,
                 )
-                if skill_match:
-                    explicit_skill_id = (
-                        skill_match.group(1)
-                        .strip()
-                        .lower()
-                        .replace(" ", "-")
-                        .replace("_", "-")
-                    )
-                    step_title = re.sub(
-                        r"\[skill:\s*(.*?)\]", "", step_title, flags=re.IGNORECASE
-                    ).strip()
+            )
+            previous_id = agent_name
 
-                # Parse explicit depends_on annotation if present: e.g. [depends_on: agent-a, agent-b]
-                depends_on = []
-                dep_match = re.search(
-                    r"\[depends_on:\s*(.*?)\]", step_title, re.IGNORECASE
-                )
-                if dep_match:
-                    dep_str = dep_match.group(1).strip()
-                    if dep_str.lower() not in ("none", "[]", ""):
-                        depends_on = [
-                            d.strip().lower().replace("_", "-").replace(" ", "-")
-                            for d in dep_str.split(",")
-                        ]
-                    step_title_clean = re.sub(
-                        r"\[depends_on:\s*(.*?)\]", "", step_title, flags=re.IGNORECASE
-                    ).strip()
-                    step_body_clean = step_body
-                else:
-                    step_title_clean = step_title
-                    # Check in step_body
-                    dep_match_body = re.search(
-                        r"\[depends_on:\s*(.*?)\]", step_body, re.IGNORECASE
-                    )
-                    if dep_match_body:
-                        dep_str = dep_match_body.group(1).strip()
-                        if dep_str.lower() not in ("none", "[]", ""):
-                            depends_on = [
-                                d.strip().lower().replace("_", "-").replace(" ", "-")
-                                for d in dep_str.split(",")
-                            ]
-                        step_body_clean = re.sub(
-                            r"\[depends_on:\s*(.*?)\]",
-                            "",
-                            step_body,
-                            flags=re.IGNORECASE,
-                        ).strip()
-                    else:
-                        step_body_clean = step_body
-                        # Fallback to sequential execution using the node ID of the last parsed step
-                        depends_on = (
-                            [parsed_step_info[-1][1]] if parsed_step_info else []
-                        )
-
-                # An explicit "[skill: ...]" annotation is the authoritative id;
-                # only fall back to inferring one from the title text when absent.
-                if explicit_skill_id:
-                    agent_name = explicit_skill_id
-                else:
-                    # Try to extract agent name if step title specifies it, e.g. "### Step 1: Agent Name"
-                    title_parts = step_title_clean.split(":", 1)
-                    if len(title_parts) > 1:
-                        agent_name = (
-                            title_parts[1]
-                            .strip()
-                            .lower()
-                            .replace(" ", "-")
-                            .replace("_", "-")
-                        )
-                    else:
-                        agent_name = (
-                            step_title_clean.lower().replace(" ", "-").replace("_", "-")
-                        )
-
-                # Ensure agent_name is unique
-                base_name = agent_name
-                counter = 1
-                while agent_name in [s.id for s in steps]:
-                    agent_name = f"{base_name}-{counter}"
-                    counter += 1
-
-                parsed_step_info.append((step_num, agent_name))
-                steps.append(
-                    ExecutionStep(
-                        id=agent_name,
-                        refined_subtask=f"{step_title_clean}\n{step_body_clean}",
-                        depends_on=depends_on,
-                    )
-                )
-
-            # Post-process resolution of step number dependencies
-            step_num_to_id = {num: node_id for num, node_id in parsed_step_info}
-            for step in steps:
-                resolved_deps = []
-                for dep in step.depends_on:
-                    dep_cleaned = (
-                        dep.strip().lower().replace("_", "-").replace(" ", "-")
-                    )
-                    # Only extract a step number if it's explicitly formatted as a step reference or just a number
-                    match_num = re.match(r"^(?:step-?)?(\d+)$", dep_cleaned)
-                    if match_num:
-                        dep_num = int(match_num.group(1))
-                        if dep_num in step_num_to_id:
-                            resolved_deps.append(step_num_to_id[dep_num])
-                        else:
-                            resolved_deps.append(dep_cleaned)
-                    else:
-                        resolved_deps.append(dep_cleaned)
-                step.depends_on = resolved_deps
-
+        _resolve_step_dependencies(steps, parsed_step_info)
         return GraphPlan(
             steps=steps,
             metadata={"name": name, "timeout_seconds": 600},
