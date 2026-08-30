@@ -23,16 +23,21 @@ class Widget(BaseWidget):
     description = "Media server — movies, TV shows, music, and live TV"
     env_prefix = "JELLYFIN"
 
+    _FIELD_SPECS = (
+        {"key": "movies", "label": "Movies", "format": "number"},
+        {"key": "series", "label": "Series", "format": "number"},
+        {"key": "episodes", "label": "Episodes", "format": "number"},
+        {"key": "songs", "label": "Songs", "format": "number"},
+        {
+            "key": "active_streams",
+            "label": "Streams",
+            "format": "number",
+            "highlight": True,
+        },
+    )
+
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="movies", label="Movies", format="number"),
-            WidgetField(key="series", label="Series", format="number"),
-            WidgetField(key="episodes", label="Episodes", format="number"),
-            WidgetField(key="songs", label="Songs", format="number"),
-            WidgetField(
-                key="active_streams", label="Streams", format="number", highlight=True
-            ),
-        ]
+        return [WidgetField.model_validate(spec) for spec in self._FIELD_SPECS]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from jellyfin_mcp.api_client import Api as JellyfinApi
