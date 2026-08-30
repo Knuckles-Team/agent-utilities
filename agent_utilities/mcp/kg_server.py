@@ -1669,6 +1669,14 @@ def _query_top_k_kwargs(body: Any, action: str) -> dict[str, Any]:
     }
 
 
+def _search_mode_top_k_kwargs(body: Any, mode: str) -> dict[str, Any]:
+    return {
+        "mode": mode,
+        "query": body.get("query", ""),
+        "top_k": int(body.get("top_k", 10)),
+    }
+
+
 def _change_coupling_kwargs(body: Any) -> dict[str, Any]:
     return {
         "action": "change_coupling",
@@ -1884,86 +1892,42 @@ async def graph_query_federated_endpoint(request: Request) -> JSONResponse:
 
 
 # 2. Granular Graph Search endpoints
-async def graph_search_concept_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search",
-            query=body.get("query", ""),
-            mode="concept",
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+def _make_granular_search_endpoint(
+    mode: str, *, include_top_k: bool = True
+) -> Callable[[Request], JSONResponse]:
+    """Build one mode-fixed ``graph_search`` REST adapter.
+
+    The per-mode URLs remain distinct, but all of them share the same JSON
+    parsing, async dispatch, authority propagation, success envelope, and
+    public error boundary. ``discover`` intentionally omits ``top_k`` because
+    its historical adapter never forwarded that field to the tool.
+    """
+
+    def kwargs_factory(body: Any) -> dict[str, Any]:
+        if include_top_k:
+            return _search_mode_top_k_kwargs(body, mode)
+        return {"query": body.get("query", ""), "mode": mode}
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        return await _run_json_endpoint(request, "graph_search", kwargs_factory)
+
+    endpoint_name = f"graph_search_{mode}_endpoint"
+    _endpoint.__name__ = endpoint_name
+    _endpoint.__qualname__ = endpoint_name
+    _endpoint.__doc__ = (
+        f"REST twin of graph_search mode={mode!r}; the route fixes the mode "
+        "while preserving the underlying tool's request and response boundary."
+    )
+    return _endpoint
 
 
-async def graph_search_analogy_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search",
-            query=body.get("query", ""),
-            mode="analogy",
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_search_memory_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search",
-            query=body.get("query", ""),
-            mode="memory",
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_search_discover_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search", query=body.get("query", ""), mode="discover"
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_search_dci_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search",
-            query=body.get("query", ""),
-            mode="dci",
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+graph_search_concept_endpoint = _make_granular_search_endpoint("concept")
+graph_search_analogy_endpoint = _make_granular_search_endpoint("analogy")
+graph_search_memory_endpoint = _make_granular_search_endpoint("memory")
+graph_search_discover_endpoint = _make_granular_search_endpoint(
+    "discover", include_top_k=False
+)
+graph_search_dci_endpoint = _make_granular_search_endpoint("dci")
 
 
 # 3. Collapsed Graph Write endpoint (POST + DELETE /graph/write)
@@ -5625,6 +5589,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         list_goals,
         submit_session_reply,
     )
+    from agent_utilities.gateway.schemas.graph_analyze import (
+        SearchDiscoverRequest,
+        SearchQueryTopKRequest,
+        SearchTextResponse,
+    )
 
     def route(path: str, handler, methods: list[str]) -> None:
         app.add_route(prefix + path, handler, methods=methods)
@@ -5638,6 +5607,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         summary: str,
         description: str,
         request_model: type | Any,
+        request_body_required: bool = True,
     ) -> None:
         """Like ``route()`` but mounted via FastAPI's
         ``add_api_route(..., response_model=...)`` when ``app`` supports it
@@ -5676,7 +5646,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
             description=description,
             openapi_extra={
                 "requestBody": {
-                    "required": True,
+                    "required": request_body_required,
                     "content": {"application/json": {"schema": body_schema}},
                 }
             },
@@ -5752,11 +5722,56 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/query/federated", graph_query_federated_endpoint, ["POST"])
 
     # ── Granular search ──
-    route("/graph/search/concept", graph_search_concept_endpoint, ["POST"])
-    route("/graph/search/analogy", graph_search_analogy_endpoint, ["POST"])
-    route("/graph/search/memory", graph_search_memory_endpoint, ["POST"])
-    route("/graph/search/discover", graph_search_discover_endpoint, ["POST"])
-    route("/graph/search/dci", graph_search_dci_endpoint, ["POST"])
+    # These mode-fixed adapters share one implementation, while each remains a
+    # separately documented route with the same request/response schemas that
+    # describe its existing wire behavior.
+    for _path, _handler, _summary, _description, _request_model in (
+        (
+            "/graph/search/concept",
+            graph_search_concept_endpoint,
+            "Search concepts",
+            "Search the knowledge graph using concept retrieval.",
+            SearchQueryTopKRequest,
+        ),
+        (
+            "/graph/search/analogy",
+            graph_search_analogy_endpoint,
+            "Search by analogy",
+            "Search the knowledge graph for analogous concepts.",
+            SearchQueryTopKRequest,
+        ),
+        (
+            "/graph/search/memory",
+            graph_search_memory_endpoint,
+            "Search memories",
+            "Search retained graph memories.",
+            SearchQueryTopKRequest,
+        ),
+        (
+            "/graph/search/discover",
+            graph_search_discover_endpoint,
+            "Discover graph capabilities",
+            "Discover ingested graph capabilities matching a query.",
+            SearchDiscoverRequest,
+        ),
+        (
+            "/graph/search/dci",
+            graph_search_dci_endpoint,
+            "Search with DCI",
+            "Search the knowledge graph using DCI retrieval.",
+            SearchQueryTopKRequest,
+        ),
+    ):
+        route_typed(
+            _path,
+            _handler,
+            ["POST"],
+            response_model=SearchTextResponse,
+            summary=_summary,
+            description=_description,
+            request_model=_request_model,
+            request_body_required=False,
+        )
 
     # ── Granular write (out of this consolidation's scope — see kg_server.py's
     # collapsed-write comment block above graph_write_endpoint) ──
