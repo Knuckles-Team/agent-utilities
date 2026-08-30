@@ -153,6 +153,29 @@ class WritebackContext:
             return False
 
 
+@dataclass(frozen=True)
+class WritebackInvocation:
+    """Prepared state passed from the shared sink runner to one sink body."""
+
+    ctx: WritebackContext
+    ops: dict[str, Any]
+    client: Any | None
+    result: WritebackResult
+    dry_run: bool
+
+    def unpack(
+        self,
+    ) -> tuple[
+        WritebackContext,
+        dict[str, Any],
+        Any | None,
+        WritebackResult,
+        bool,
+    ]:
+        """Return sink-local values for a target-specific body."""
+        return self.ctx, self.ops, self.client, self.result, self.dry_run
+
+
 def resolve_writeback_client(
     ops: dict[str, Any],
     module: str,
@@ -177,8 +200,24 @@ def resolve_writeback_client(
 class WritebackClientMixin:
     """Shared injected/authenticated client resolution for write-back sinks."""
 
+    domain: str
     client_module: str
     client_label: str | None = None
+
+    def run(
+        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
+    ) -> WritebackResult:
+        """Prepare one invocation, then dispatch its target-specific body."""
+        result = WritebackResult(target=self.domain)
+        client = self._client(ops)
+        if client is None and not dry_run:
+            result.skipped += 1
+            return result
+        return self._run(WritebackInvocation(ctx, ops, client, result, dry_run))
+
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        """Apply target-specific operations; concrete sinks override this hook."""
+        raise NotImplementedError  # ABSTRACT-OK
 
     def _client(self, ops: dict[str, Any]) -> Any | None:
         return resolve_writeback_client(

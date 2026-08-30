@@ -16,11 +16,10 @@ than guessed.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from ..core import (
     WritebackClientMixin,
-    WritebackContext,
+    WritebackInvocation,
     WritebackResult,
     register_sink,
 )
@@ -46,14 +45,8 @@ class CisoAssistantSink(WritebackClientMixin):
     client_module = "ciso_assistant_api"
     client_label = "ciso_assistant"
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        _, ops, client, result, dry_run = invocation.unpack()
 
         default_folder = ops.get("folder")
         for c in ops.get("creations") or []:
