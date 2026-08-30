@@ -361,6 +361,184 @@ def detect_version_variant(key_a: str, key_b: str) -> bool:
     return _has_version(key_a) or _has_version(key_b)
 
 
+def _prepare_resolution(
+    items: list[tuple[str, str]],
+) -> tuple[ResolutionResult, list[tuple[str, str]], dict[str, list[str]]]:
+    """Classify unique items and group high-entropy names by canonical key."""
+    result = ResolutionResult()
+    seen: set[str] = set()
+    eligible: list[tuple[str, str]] = []
+    by_key: dict[str, list[str]] = defaultdict(list)
+    for nid, name in items:
+        if nid in seen:
+            continue
+        seen.add(nid)
+        key = normalize_name(name)
+        if has_high_entropy(key):
+            eligible.append((nid, key))
+            by_key[key].append(nid)
+            continue
+        result.low_entropy += 1
+        result.residual_ids.add(nid)
+    return result, eligible, by_key
+
+
+def _apply_exact_merges(by_key: dict[str, list[str]], result: ResolutionResult) -> None:
+    """Record one exact merge for every duplicate in each canonical-key group."""
+    for ids in by_key.values():
+        survivor = ids[0]
+        for duplicate in ids[1:]:
+            result.merge_pairs.append((survivor, duplicate, 1.0, "exact"))
+            result.resolved_ids.update((survivor, duplicate))
+            result.exact_merges += 1
+
+
+def _variant_groups(by_key: dict[str, list[str]]) -> list[list[str]]:
+    """Return canonical-key groups that must be split into version variants."""
+    base_groups: dict[str, list[str]] = defaultdict(list)
+    for key in by_key:
+        base_groups[_strip_version(key)].append(key)
+    return [
+        group
+        for base, group in base_groups.items()
+        if len(group) >= 2 and base and any(_has_version(key) for key in group)
+    ]
+
+
+def _apply_variant_group(
+    group: list[str],
+    by_key: dict[str, list[str]],
+    result: ResolutionResult,
+) -> set[frozenset[str]]:
+    """Record one version-variant group and return its LSH-blocked pairs."""
+    group_sorted = sorted(group)
+    survivor = by_key[group_sorted[0]][0]
+    for variant_key in group_sorted[1:]:
+        result.variants.append((survivor, by_key[variant_key][0], 1.0, "version"))
+    return {
+        frozenset((left, right))
+        for index, left in enumerate(group_sorted)
+        for right in group_sorted[index + 1 :]
+    }
+
+
+def _apply_variant_split(
+    by_key: dict[str, list[str]], result: ResolutionResult
+) -> set[frozenset[str]]:
+    """Record version variants and collect key pairs excluded from LSH merges."""
+    variant_block: set[frozenset[str]] = set()
+    for group in _variant_groups(by_key):
+        variant_block.update(_apply_variant_group(group, by_key, result))
+    return variant_block
+
+
+def _lsh_candidates(
+    buckets: dict[tuple[int, int], list[str]],
+) -> set[tuple[str, str]]:
+    """Return canonical-key pairs sharing at least one LSH band."""
+    candidates: set[tuple[str, str]] = set()
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        candidates.update(
+            tuple(sorted((members[i], members[j])))
+            for i in range(len(members))
+            for j in range(i + 1, len(members))
+        )
+    return candidates
+
+
+def _build_lsh_index(
+    distinct_keys: list[str],
+) -> tuple[dict[str, frozenset[str]], set[tuple[str, str]]]:
+    """Build shingle sets and candidate pairs for the distinct canonical keys."""
+    shingles_by_key = {key: _shingles(key) for key in distinct_keys}
+    sig_by_key = {key: _minhash(shingles_by_key[key]) for key in distinct_keys}
+    buckets: dict[tuple[int, int], list[str]] = defaultdict(list)
+    for key in distinct_keys:
+        for band_key in _lsh_bands(sig_by_key[key]):
+            buckets[band_key].append(key)
+    return shingles_by_key, _lsh_candidates(buckets)
+
+
+def _find_lsh_root(parent: dict[str, str], key: str) -> str:
+    """Find a union-find root while applying path halving."""
+    while parent[key] != key:
+        parent[key] = parent[parent[key]]
+        key = parent[key]
+    return key
+
+
+def _union_lsh_matches(
+    distinct_keys: list[str],
+    candidates: set[tuple[str, str]],
+    shingles_by_key: dict[str, frozenset[str]],
+    variant_block: set[frozenset[str]],
+) -> tuple[dict[str, str], dict[tuple[str, str], float]]:
+    """Union candidate keys that pass the exact-Jaccard cutoff."""
+    parent = {key: key for key in distinct_keys}
+    fuzzy_scores: dict[tuple[str, str], float] = {}
+    for left, right in candidates:
+        if frozenset((left, right)) in variant_block:
+            continue
+        jac = _jaccard(shingles_by_key[left], shingles_by_key[right])
+        if jac < _JACCARD_THRESHOLD:
+            continue
+        fuzzy_scores[(left, right)] = jac
+        left_root = _find_lsh_root(parent, left)
+        right_root = _find_lsh_root(parent, right)
+        if left_root != right_root:
+            parent[left_root] = right_root
+    return parent, fuzzy_scores
+
+
+def _emit_lsh_merges(
+    by_key: dict[str, list[str]],
+    distinct_keys: list[str],
+    parent: dict[str, str],
+    fuzzy_scores: dict[tuple[str, str], float],
+    result: ResolutionResult,
+) -> None:
+    """Emit one merge pair per non-survivor canonical key in each LSH group."""
+    key_groups: dict[str, list[str]] = defaultdict(list)
+    for key in distinct_keys:
+        key_groups[_find_lsh_root(parent, key)].append(key)
+    for group_keys in key_groups.values():
+        if len(group_keys) < 2:
+            continue
+        survivor = by_key[group_keys[0]][0]
+        for other_key in group_keys[1:]:
+            duplicate = by_key[other_key][0]
+            pair = tuple(sorted((group_keys[0], other_key)))
+            score = fuzzy_scores.get(pair, _JACCARD_THRESHOLD)
+            result.merge_pairs.append((survivor, duplicate, float(score), "lsh"))
+            result.resolved_ids.update((survivor, duplicate))
+            result.lsh_merges += 1
+
+
+def _apply_lsh_merges(
+    by_key: dict[str, list[str]],
+    variant_block: set[frozenset[str]],
+    result: ResolutionResult,
+) -> None:
+    """Resolve high-entropy fuzzy candidates with MinHash/LSH and Jaccard."""
+    distinct_keys = list(by_key)
+    if len(distinct_keys) <= 1:
+        return
+    shingles_by_key, candidates = _build_lsh_index(distinct_keys)
+    parent, fuzzy_scores = _union_lsh_matches(
+        distinct_keys, candidates, shingles_by_key, variant_block
+    )
+    _emit_lsh_merges(by_key, distinct_keys, parent, fuzzy_scores, result)
+
+
+def _mark_residuals(eligible: list[tuple[str, str]], result: ResolutionResult) -> None:
+    """Mark high-entropy items not handled by exact or fuzzy resolution."""
+    for nid, _key in eligible:
+        if nid not in result.resolved_ids:
+            result.residual_ids.add(nid)
+
+
 def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
     """Resolve a batch of ``(id, display_name)`` entities, LLM-free.
 
@@ -376,116 +554,11 @@ def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
         duplicates; ``residual_ids`` is what should be escalated to the embedding
         tier.
     """
-    result = ResolutionResult()
-    seen: set[str] = set()
-    eligible: list[tuple[str, str]] = []  # (id, canonical_key)
-    for nid, name in items:
-        if nid in seen:
-            continue
-        seen.add(nid)
-        key = normalize_name(name)
-        if has_high_entropy(key):
-            eligible.append((nid, key))
-        else:
-            result.low_entropy += 1
-            result.residual_ids.add(nid)
-
-    # --- tier 1: exact canonical-key match ---
-    by_key: dict[str, list[str]] = defaultdict(list)
-    for nid, key in eligible:
-        by_key[key].append(nid)
-
-    for ids in by_key.values():
-        survivor = ids[0]
-        for dup in ids[1:]:
-            result.merge_pairs.append((survivor, dup, 1.0, "exact"))
-            result.resolved_ids.update((survivor, dup))
-            result.exact_merges += 1
-
-    # --- tier 2b: version-variant split (AHE-3.70) ---
-    # Group distinct keys by their version-stripped base; same-base keys that
-    # differ by a version suffix (``gpt`` / ``gpt4``, ``llama2`` / ``llama3``) are
-    # siblings/variants — linked as an EXTENDS relation, NOT merged. ``variant_block``
-    # stops the LSH tier from merging long version-variants whose Jaccard is high.
-    # O(n); the type-aware split lives in the engine op (KG-2.260).
-    variant_block: set[frozenset[str]] = set()
-    base_groups: dict[str, list[str]] = defaultdict(list)
-    for key in by_key:
-        base_groups[_strip_version(key)].append(key)
-    for base, group in base_groups.items():
-        if len(group) < 2 or not base or not any(_has_version(k) for k in group):
-            continue
-        group_sorted = sorted(group)
-        survivor = by_key[group_sorted[0]][0]
-        for variant_key in group_sorted[1:]:
-            result.variants.append((survivor, by_key[variant_key][0], 1.0, "version"))
-        for i in range(len(group_sorted)):
-            for j in range(i + 1, len(group_sorted)):
-                variant_block.add(frozenset((group_sorted[i], group_sorted[j])))
-
-    # --- tier 3: MinHash + LSH over the distinct canonical keys ---
-    distinct_keys = list(by_key.keys())
-    if len(distinct_keys) > 1:
-        shingles_by_key = {k: _shingles(k) for k in distinct_keys}
-        sig_by_key = {k: _minhash(shingles_by_key[k]) for k in distinct_keys}
-        buckets: dict[tuple[int, int], list[str]] = defaultdict(list)
-        for k in distinct_keys:
-            for band_key in _lsh_bands(sig_by_key[k]):
-                buckets[band_key].append(k)
-
-        # candidate key-pairs that share at least one band
-        candidates: set[tuple[str, str]] = set()
-        for members in buckets.values():
-            if len(members) < 2:
-                continue
-            for i in range(len(members)):
-                for j in range(i + 1, len(members)):
-                    a, b = sorted((members[i], members[j]))
-                    candidates.add((a, b))
-
-        # union-find over keys that pass the exact-Jaccard cutoff
-        parent = {k: k for k in distinct_keys}
-
-        def find(x: str) -> str:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        fuzzy_scores: dict[tuple[str, str], float] = {}
-        for a, b in candidates:
-            # never merge a pair already classified as a version-variant (AHE-3.70)
-            if frozenset((a, b)) in variant_block:
-                continue
-            jac = _jaccard(shingles_by_key[a], shingles_by_key[b])
-            if jac >= _JACCARD_THRESHOLD:
-                fuzzy_scores[(a, b)] = jac
-                ra, rb = find(a), find(b)
-                if ra != rb:
-                    parent[ra] = rb
-
-        # emit a merge pair linking the two key-groups' survivors
-        key_groups: dict[str, list[str]] = defaultdict(list)
-        for k in distinct_keys:
-            key_groups[find(k)].append(k)
-        for group_keys in key_groups.values():
-            if len(group_keys) < 2:
-                continue
-            survivor = by_key[group_keys[0]][0]
-            for other_key in group_keys[1:]:
-                dup = by_key[other_key][0]
-                # best fuzzy score we saw involving this key pair
-                pair = tuple(sorted((group_keys[0], other_key)))
-                score = fuzzy_scores.get(pair, _JACCARD_THRESHOLD)  # type: ignore[arg-type]
-                result.merge_pairs.append((survivor, dup, float(score), "lsh"))
-                result.resolved_ids.update((survivor, dup))
-                result.lsh_merges += 1
-
-    # high-entropy keys that matched nothing are still ambiguous → embedding tier
-    for nid, _key in eligible:
-        if nid not in result.resolved_ids:
-            result.residual_ids.add(nid)
-
+    result, eligible, by_key = _prepare_resolution(items)
+    _apply_exact_merges(by_key, result)
+    variant_block = _apply_variant_split(by_key, result)
+    _apply_lsh_merges(by_key, variant_block, result)
+    _mark_residuals(eligible, result)
     return result
 
 
