@@ -32,9 +32,7 @@ _STEP_LIST_PATTERN = re.compile(
     re.MULTILINE | re.IGNORECASE | re.DOTALL,
 )
 _SKILL_ANNOTATION_PATTERN = re.compile(r"\[skill:\s*(.*?)\]", re.IGNORECASE)
-_DEPENDENCY_ANNOTATION_PATTERN = re.compile(
-    r"\[depends_on:\s*(.*?)\]", re.IGNORECASE
-)
+_DEPENDENCY_ANNOTATION_PATTERN = re.compile(r"\[depends_on:\s*(.*?)\]", re.IGNORECASE)
 _STEP_REFERENCE_PATTERN = re.compile(r"^(?:step-?)?(\d+)$")
 
 
@@ -149,6 +147,73 @@ def _find_step_matches(markdown: str) -> list[tuple[str, str, str]]:
     )
 
 
+def _split_update_frontmatter(markdown: str) -> tuple[str, str]:
+    """Separate the original frontmatter from the markdown body."""
+    fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", markdown, re.DOTALL)
+    if fm_match:
+        return fm_match.group(0), markdown[fm_match.end() :]
+    return "", markdown
+
+
+def _split_update_sections(body: str) -> tuple[str, str, int]:
+    """Find the preserved prose and numbering style around markdown steps."""
+    step_header_pattern = re.compile(
+        r"^(###\s+Step\s+\d+:|^\d+\.\s+\*\*)", re.MULTILINE | re.IGNORECASE
+    )
+    matches = list(step_header_pattern.finditer(body))
+    if not matches:
+        return body.rstrip() + "\n\n", "", 1
+
+    intro_prose = body[: matches[0].start()]
+    step_blocks_raw: list[str] = []
+    for idx in range(len(matches)):
+        start = matches[idx].start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
+        step_blocks_raw.append(body[start:end])
+
+    last_block = step_blocks_raw[-1]
+    concluding_match = re.search(
+        r"\n\n(##?\s+.*)$", last_block, re.MULTILINE | re.DOTALL
+    )
+    if concluding_match:
+        concluding_prose = last_block[concluding_match.start() :]
+    else:
+        concluding_prose = ""
+
+    start_index = 1
+    first_header = matches[0].group(0)
+    num_match = re.search(r"\d+", first_header)
+    if num_match:
+        start_index = int(num_match.group(0))
+    return intro_prose, concluding_prose, start_index
+
+
+def _clean_update_subtask(refined_subtask: str | None) -> str:
+    """Remove duplicated step headers before rendering a step body."""
+    if refined_subtask:
+        subtask_lines = refined_subtask.strip().split("\n")
+        clean_lines = []
+        for line in subtask_lines:
+            line_strip = line.strip()
+            if (
+                line_strip.lower().startswith("step ") and ":" in line_strip
+            ) or line_strip.lower().startswith("### step "):
+                continue
+            clean_lines.append(line)
+        return "\n".join(clean_lines).strip()
+    return "Execute step task."
+
+
+def _format_update_step(step: ExecutionStep, step_num: int) -> str:
+    """Render one GraphPlan step in the compiler's markdown format."""
+    depends_suffix = ""
+    if step.depends_on:
+        depends_suffix = f" [depends_on: {', '.join(step.depends_on)}]"
+    header = f"### Step {step_num}: {step.id}{depends_suffix}\n"
+    body_text = _clean_update_subtask(step.refined_subtask)
+    return f"{header}{body_text}\n\n"
+
+
 class SkillCompiler:
     """Compile a SKILL.md into a GraphPlan.
 
@@ -221,86 +286,12 @@ class SkillCompiler:
         concluding prose, spacing, and comments, while updating step headers,
         bodies, and depends_on tags.
         """
-        # 1. Extract frontmatter
-        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", original_markdown, re.DOTALL)
-        if fm_match:
-            frontmatter = fm_match.group(0)
-            body = original_markdown[fm_match.end() :]
-        else:
-            frontmatter = ""
-            body = original_markdown
-
-        # 2. Find step boundaries
-        # Pattern for matching "### Step N:" or similar step headers
-        step_header_pattern = re.compile(
-            r"^(###\s+Step\s+\d+:|^\d+\.\s+\*\*)", re.MULTILINE | re.IGNORECASE
-        )
-        matches = list(step_header_pattern.finditer(body))
-
-        step_blocks_raw: list[str]
-        if not matches:
-            # If no original steps, we just append steps at the end
-            intro_prose = body.rstrip() + "\n\n"
-            step_blocks_raw = []
-            concluding_prose = ""
-            start_index = 1
-        else:
-            intro_prose = body[: matches[0].start()]
-            step_blocks_raw = []
-            for idx in range(len(matches)):
-                start = matches[idx].start()
-                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
-                step_blocks_raw.append(body[start:end])
-
-            # Extract concluding prose if any exists after the steps in the last block
-            last_block = step_blocks_raw[-1]
-            # Look for double-newline followed by a non-step header or general text at the end
-            concluding_match = re.search(
-                r"\n\n(##?\s+.*)$", last_block, re.MULTILINE | re.DOTALL
-            )
-            if concluding_match:
-                concluding_prose = last_block[concluding_match.start() :]
-                step_blocks_raw[-1] = last_block[: concluding_match.start()]
-            else:
-                concluding_prose = ""
-
-            # Detect step indexing style (0-indexed or 1-indexed)
-            start_index = 1
-            first_header = matches[0].group(0)
-            num_match = re.search(r"\d+", first_header)
-            if num_match:
-                start_index = int(num_match.group(0))
-
-        # 3. Format new steps
-        formatted_steps = []
-        for i, step in enumerate(plan.steps):
-            step_num = start_index + i
-            depends_suffix = ""
-            if step.depends_on:
-                depends_suffix = f" [depends_on: {', '.join(step.depends_on)}]"
-
-            header = f"### Step {step_num}: {step.id}{depends_suffix}\n"
-
-            # Parse subtask text
-            body_text = ""
-            if step.refined_subtask:
-                subtask_lines = step.refined_subtask.strip().split("\n")
-                clean_lines = []
-                for line in subtask_lines:
-                    line_strip = line.strip()
-                    # Skip lines that are just copies of the header/step/agent title
-                    if (
-                        line_strip.lower().startswith("step ") and ":" in line_strip
-                    ) or line_strip.lower().startswith("### step "):
-                        continue
-                    clean_lines.append(line)
-                body_text = "\n".join(clean_lines).strip()
-            else:
-                body_text = "Execute step task."
-
-            formatted_steps.append(f"{header}{body_text}\n\n")
-
-        # 4. Reconstruct the document
+        frontmatter, body = _split_update_frontmatter(original_markdown)
+        intro_prose, concluding_prose, start_index = _split_update_sections(body)
+        formatted_steps = [
+            _format_update_step(step, start_index + i)
+            for i, step in enumerate(plan.steps)
+        ]
         new_body = intro_prose + "".join(formatted_steps) + concluding_prose
         return f"{frontmatter}{new_body}"
 
