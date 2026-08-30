@@ -191,6 +191,348 @@ async def wide_search_joiner_step(
         return "error_recovery"
 
 
+def _begin_verification(ctx: StepContext) -> str:
+    """Validate state, emit the node-start event, and summarize results."""
+
+    try:
+        assert_state_valid(ctx.state, "verifier_step")
+    except StateInvariantError as exc:
+        logger.error(f"Verifier state invariant violation: {exc}")
+
+    logger.info(
+        f"[LAYER:GRAPH:VERIFIER] Starting (attempt {ctx.state.verification_attempts + 1})..."
+    )
+    _emit_node_lifecycle(
+        ctx.deps.event_queue,
+        "verifier",
+        "node_start",
+        attempt=ctx.state.verification_attempts + 1,
+    )
+    return "\n".join(
+        f"### {node}: {val}" for node, val in ctx.state.results_registry.items()
+    )
+
+
+def _quality_gate_skip(ctx: StepContext, results_summary: str) -> str | None:
+    """Return the fast-path destination when verification is unnecessary."""
+
+    if not results_summary.strip():
+        return None
+
+    shape = getattr(ctx.deps, "execution_shape", None)
+    if shape is not None and not getattr(shape, "run_verifier", True):
+        logger.info(
+            "[LAYER:GRAPH:VERIFIER] shape.run_verifier=False with results — skipping quality "
+            "gate, routing to synthesizer."
+        )
+        return "synthesizer"
+
+    plan = getattr(ctx.state, "plan", None)
+    plan_steps = len(plan.steps) if plan and getattr(plan, "steps", None) else 0
+    direct = bool(getattr(ctx.state, "direct_dispatch", False))
+    if plan_steps <= 1 or direct:
+        logger.info(
+            "[LAYER:GRAPH:VERIFIER] Low-risk run (%s) with results — skipping full "
+            "quality gate, routing to synthesizer.",
+            "direct-dispatch" if direct else f"{plan_steps}-step plan",
+        )
+        return "synthesizer"
+    return None
+
+
+async def _create_validation_agent(
+    ctx: StepContext, results_summary: str
+) -> tuple[Any, Any]:
+    """Build the structured quality-gate agent for the current graph context."""
+
+    from .executor import _get_domain_tools, agent_deps_from_graph
+
+    domain_tools, domain_toolsets = await _get_domain_tools("verifier", ctx.deps)
+    # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read
+    # ctx.deps.workspace_path); adapt the graph context so they don't NoneType.
+    agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
+    validation_agent = create_context_agent(
+        model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
+        output_type=ValidationResult,
+        tools=domain_tools,
+        toolsets=domain_toolsets,
+        system_prompt=(
+            f"You are a quality gate. Score ONLY whether the results answer what "
+            f"the query LITERALLY asked — nothing more.\n\n"
+            f"Original Query: {ctx.state.query}\n\n"
+            f"Execution Results:\n{results_summary}\n\n"
+            f"RULES:\n"
+            f"- If the query asks for a list/status/info, the results must contain the "
+            f"actual data records (not just 'task completed').\n"
+            f"- Do NOT penalize for missing fields, extra detail, or context the query "
+            f"did NOT explicitly request.\n"
+            f"- Do NOT require tests/pytest/artifacts UNLESS the query asked to modify, "
+            f"build, or test code. For read-only/list/get queries, testing is irrelevant.\n"
+            f"Score 0.0-1.0: high if the literal ask is satisfied. Only score < 0.7 when "
+            f"the data the query asked for is genuinely missing or wrong, and give EXACT "
+            f"feedback on what literal requirement is unmet."
+        ),
+    )
+    return validation_agent, agent_deps
+
+
+async def _run_structured_validation(
+    ctx: StepContext, validation_agent: Any, agent_deps: Any
+) -> ValidationResult:
+    """Run the structured quality gate within its request and timeout budgets."""
+
+    from pydantic_ai.usage import UsageLimits
+
+    from agent_utilities.core.config import setting
+    from agent_utilities.orchestration.loop_guards import (
+        DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+    )
+
+    async with validation_agent.run_stream(
+        "Evaluate the results",
+        deps=agent_deps,
+        usage_limits=UsageLimits(
+            request_limit=setting("VERIFIER_REQUEST_LIMIT", 4),
+            # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single
+            # oversized results payload must not blow the verifier's budget
+            # in one request.
+            per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
+        ),
+    ) as stream:
+        return await asyncio.wait_for(
+            stream.get_output(), timeout=ctx.deps.verifier_timeout
+        )
+
+
+def _validation_part_text(message: Any) -> str:
+    """Extract string content from one model message."""
+
+    if not hasattr(message, "parts"):
+        return ""
+    return "".join(
+        part.content
+        for part in message.parts
+        if hasattr(part, "content") and isinstance(part.content, str)
+    )
+
+
+def _validation_raw_text(validation_agent: Any) -> str:
+    """Collect raw model text for the unstructured validation fallback."""
+
+    if not hasattr(validation_agent, "last_run_messages"):
+        return ""
+    return "".join(
+        _validation_part_text(message)
+        for message in reversed(validation_agent.last_run_messages)
+    )
+
+
+async def _fallback_validation(
+    ctx: StepContext, results_summary: str, validation_agent: Any
+) -> ValidationResult:
+    """Recover a validation result from raw model text after structured failure."""
+
+    try:
+        raw_text = _validation_raw_text(validation_agent)
+        if not raw_text:
+            extraction_agent = create_context_agent(
+                model=ctx.deps.agent_model,
+                system_prompt=(
+                    "Extract the validation score (0.0 to 1.0) and feedback text from the previous response. "
+                    "Format exactly as: SCORE: <number>\\nFEEDBACK: <text>"
+                ),
+            )
+            res = await extraction_agent.run(
+                f"Evaluate the following results:\n{results_summary}"
+            )
+            raw_text = res.output
+        return _parse_fallback_validation(raw_text)
+    except Exception as exc:
+        logger.warning(f"Verifier Fallback failed: {exc}. Proceeding to synthesis.")
+        return ValidationResult(
+            is_valid=True, score=0.8, feedback="Fallback triggered."
+        )
+
+
+def _parse_fallback_validation(raw_text: str) -> ValidationResult:
+    """Parse score and feedback from an unstructured validation response."""
+
+    fallback_score = 0.5
+    fallback_feedback = "Fallback validation failed to parse output."
+    score_match = re.search(
+        r"(?:score|SCORE)[\s:=]+([0-1](?:\.\d+)?)", raw_text, re.IGNORECASE
+    )
+    if score_match:
+        fallback_score = float(score_match.group(1))
+
+    feedback_match = re.search(
+        r"(?:feedback|FEEDBACK)[\s:=]+(.*)",
+        raw_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if feedback_match:
+        fallback_feedback = feedback_match.group(1).strip()
+    elif raw_text:
+        fallback_feedback = raw_text.strip()[:500]
+
+    validation = ValidationResult(
+        is_valid=fallback_score >= 0.7,
+        score=fallback_score,
+        feedback=fallback_feedback,
+    )
+    logger.info(
+        f"Verifier Fallback: Extracted score {validation.score:.2f} and feedback."
+    )
+    return validation
+
+
+def _route_failed_validation(ctx: StepContext, validation: ValidationResult) -> str:
+    """Record failed validation and choose a planner or dispatcher retry."""
+
+    feedback = validation.feedback or ""
+    ctx.state.verification_attempts += 1
+    ctx.state.validation_feedback = feedback
+    if (
+        validation.score < 0.4
+        and ctx.state.verification_attempts < 1
+        and not ctx.state.results_registry
+    ):
+        logger.warning(
+            f"Verifier: Score {validation.score:.2f} < 0.4 and no partial "
+            f"results. Feedback: {feedback[:200]}. Re-planning once."
+        )
+        ctx.state.needs_replan = True
+        ctx.state.error = f"Plan-level failure: {feedback[:300]}"
+        return "planner"
+
+    logger.warning(
+        f"Verifier: Score {validation.score:.2f} < 0.7. "
+        f"Feedback: {feedback[:200]}. "
+        f"Re-dispatching (attempt {ctx.state.verification_attempts})."
+    )
+    ctx.state.step_cursor = 0
+    ctx.state.needs_replan = False
+    return "dispatcher"
+
+
+def _emit_validation_result(
+    ctx: StepContext, validation: ValidationResult
+) -> str | None:
+    """Emit validation telemetry and return a retry destination when needed."""
+
+    emit_graph_event(
+        ctx.deps.event_queue,
+        event_type="verification_result",
+        is_valid=validation.is_valid,
+        feedback=validation.feedback,
+        attempt=ctx.state.verification_attempts + 1,
+    )
+    if not validation.is_valid and validation.score < 0.7 and validation.feedback:
+        return _route_failed_validation(ctx, validation)
+    return None
+
+
+async def _run_adversarial_verification(
+    ctx: StepContext, results_summary: str
+) -> str | None:
+    """Run the optional adversarial pass and return a retry destination."""
+
+    try:
+        from ..capabilities.adversarial_verifier import (
+            ADVERSARIAL_ENABLED,
+            run_adversarial_pass,
+        )
+
+        if not ADVERSARIAL_ENABLED:
+            return None
+        adversarial_result = await run_adversarial_pass(
+            state=ctx.state,
+            deps=ctx.deps,
+            results_summary=results_summary,
+        )
+        if not adversarial_result or not adversarial_result.vulnerabilities_found:
+            return None
+        if adversarial_result.severity in ("high", "critical"):
+            ctx.state.verification_attempts += 1
+            ctx.state.validation_feedback = (
+                f"Adversarial verification found {len(adversarial_result.findings)} "
+                f"{adversarial_result.severity}-severity issue(s): "
+                + "; ".join(adversarial_result.findings[:3])
+                + ". Fix these before re-submitting."
+            )
+            logger.warning(
+                "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial FAIL (severity: %s). Re-dispatching.",
+                adversarial_result.severity,
+            )
+            ctx.state.step_cursor = 0
+            return "dispatcher"
+        logger.info(
+            "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial found %s issues (severity: %s) "
+            "— proceeding to synthesis with advisory.",
+            len(adversarial_result.findings),
+            adversarial_result.severity,
+        )
+    except Exception as exc:
+        # D-DST-5 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): adversarial
+        # verification is a security-adjacent "hacker agent" stress-test (AU-AHE.evaluation.
+        # adversarial-verification), not best-effort telemetry — a runtime failure here
+        # silently lets the step proceed to synthesis WITHOUT the adversarial pass ever
+        # having actually run, indistinguishable in the logs from "ran clean". Raised to
+        # warning so a persistently-erroring adversarial check is diagnosable rather than
+        # silently degrading to "quality gate only" coverage.
+        logger.warning(
+            f"Adversarial verification failed to run (step NOT adversarially checked): {exc}"
+        )
+    return None
+
+
+async def _process_structured_validation(
+    ctx: StepContext, validation: ValidationResult, results_summary: str
+) -> str | None:
+    """Handle a structured validation result and optional follow-up checks."""
+
+    route = _emit_validation_result(ctx, validation)
+    if route:
+        return route
+    logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
+    if ctx.state.verification_attempts > 0 or ctx.state.retry_count > 0:
+        await _distill_experience_from_retry(ctx, results_summary)
+    return await _run_adversarial_verification(ctx, results_summary)
+
+
+def _process_fallback_validation(
+    ctx: StepContext, validation: ValidationResult
+) -> str | None:
+    """Handle a fallback validation result without optional follow-up checks."""
+
+    route = _emit_validation_result(ctx, validation)
+    if route:
+        return route
+    logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
+    return None
+
+
+async def _run_quality_gate(ctx: StepContext, results_summary: str) -> str | None:
+    """Run structured validation, falling back to unstructured model output."""
+
+    validation_agent: Any = None
+    try:
+        validation_agent, agent_deps = await _create_validation_agent(
+            ctx, results_summary
+        )
+        validation = await _run_structured_validation(ctx, validation_agent, agent_deps)
+        return await _process_structured_validation(ctx, validation, results_summary)
+    except Exception as exc:
+        logger.warning(
+            f"Verifier: Structure validation failed: {exc}. Attempting unstructured fallback."
+        )
+        validation = await _fallback_validation(ctx, results_summary, validation_agent)
+        return _process_fallback_validation(ctx, validation)
+
+
 async def verifier_step(
     ctx: StepContext,
 ) -> str:
@@ -217,328 +559,16 @@ async def verifier_step(
         or ``'planner'``).
 
     """
-    # HSM: State invariant check
-    try:
-        assert_state_valid(ctx.state, "verifier_step")
-    except StateInvariantError as e:
-        logger.error(f"Verifier state invariant violation: {e}")
+    results_summary = _begin_verification(ctx)
+    fast_path = _quality_gate_skip(ctx, results_summary)
+    if fast_path:
+        return fast_path
 
-    logger.info(
-        f"[LAYER:GRAPH:VERIFIER] Starting (attempt {ctx.state.verification_attempts + 1})..."
-    )
-    _emit_node_lifecycle(
-        ctx.deps.event_queue,
-        "verifier",
-        "node_start",
-        attempt=ctx.state.verification_attempts + 1,
-    )
-
-    # Consolidate results for the verifier's context
-    results_summary = "\n".join(
-        [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
-    )
-
-    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — proportional verification. A trivial, single-step
-    # (or plan-less direct-dispatch) read produces a result that doesn't warrant the full
-    # LLM quality gate + re-plan machinery — which was scoring correct answers 0.00 for not
-    # volunteering fields the query never asked for, then looping until context overflow.
-    # Trust a non-empty result for low-risk runs and go straight to synthesis.
-    # CONCEPT:AU-ORCH.execution.dynamic-shaper-authority — the dynamic shaper owns this decision: when the shape opts out of
-    # verification (``run_verifier=False``) and a result exists, skip the quality gate straight
-    # to synthesis. The proportional heuristic below stays as a floor for shape-less callers.
-    _shape = getattr(ctx.deps, "execution_shape", None)
-    if (
-        _shape is not None
-        and not getattr(_shape, "run_verifier", True)
-        and results_summary.strip()
-    ):
-        logger.info(
-            "[LAYER:GRAPH:VERIFIER] shape.run_verifier=False with results — skipping quality "
-            "gate, routing to synthesizer."
-        )
-        return "synthesizer"
-
-    _plan = getattr(ctx.state, "plan", None)
-    _plan_steps = len(_plan.steps) if _plan and getattr(_plan, "steps", None) else 0
-    _direct = bool(getattr(ctx.state, "direct_dispatch", False))
-    if (_plan_steps <= 1 or _direct) and results_summary.strip():
-        logger.info(
-            "[LAYER:GRAPH:VERIFIER] Low-risk run (%s) with results — skipping full "
-            "quality gate, routing to synthesizer.",
-            "direct-dispatch" if _direct else f"{_plan_steps}-step plan",
-        )
-        return "synthesizer"
-
-    # Structured Validation (quality gate)
     if ctx.state.verification_attempts < 2 and results_summary.strip():
-        try:
-            from .executor import _get_domain_tools, agent_deps_from_graph
+        route = await _run_quality_gate(ctx, results_summary)
+        if route:
+            return route
 
-            domain_tools, domain_toolsets = await _get_domain_tools(
-                "verifier", ctx.deps
-            )
-            # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read
-            # ctx.deps.workspace_path); adapt the graph context so they don't NoneType.
-            _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
-
-            validation_agent = create_context_agent(
-                model=ctx.deps.agent_model,
-                permissions_kernel=ctx.deps.permissions_kernel,
-                agent_identity=ctx.deps.agent_identity,
-                permission_engine=ctx.deps.knowledge_engine,
-                output_type=ValidationResult,
-                tools=domain_tools,
-                toolsets=domain_toolsets,
-                system_prompt=(
-                    f"You are a quality gate. Score ONLY whether the results answer what "
-                    f"the query LITERALLY asked — nothing more.\n\n"
-                    f"Original Query: {ctx.state.query}\n\n"
-                    f"Execution Results:\n{results_summary}\n\n"
-                    f"RULES:\n"
-                    f"- If the query asks for a list/status/info, the results must contain the "
-                    f"actual data records (not just 'task completed').\n"
-                    f"- Do NOT penalize for missing fields, extra detail, or context the query "
-                    f"did NOT explicitly request.\n"
-                    f"- Do NOT require tests/pytest/artifacts UNLESS the query asked to modify, "
-                    f"build, or test code. For read-only/list/get queries, testing is irrelevant.\n"
-                    f"Score 0.0-1.0: high if the literal ask is satisfied. Only score < 0.7 when "
-                    f"the data the query asked for is genuinely missing or wrong, and give EXACT "
-                    f"feedback on what literal requirement is unmet."
-                ),
-            )
-            # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — a verifier needs few requests; cap it (default 50).
-            from pydantic_ai.usage import UsageLimits
-
-            from agent_utilities.core.config import setting
-            from agent_utilities.orchestration.loop_guards import (
-                DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
-            )
-
-            async with validation_agent.run_stream(
-                "Evaluate the results",
-                deps=_agent_deps,
-                usage_limits=UsageLimits(
-                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4),
-                    # CONCEPT:AU-ORCH.execution.execution-budget-caps — a single
-                    # oversized results payload must not blow the verifier's budget
-                    # in one request.
-                    per_request_input_tokens_limit=DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT,
-                ),
-            ) as stream:
-                validation = await asyncio.wait_for(
-                    stream.get_output(), timeout=ctx.deps.verifier_timeout
-                )
-
-            emit_graph_event(
-                ctx.deps.event_queue,
-                event_type="verification_result",
-                is_valid=validation.is_valid,
-                feedback=validation.feedback,
-                attempt=ctx.state.verification_attempts + 1,
-            )
-            if (
-                not validation.is_valid
-                and validation.score < 0.7
-                and validation.feedback
-            ):
-                ctx.state.verification_attempts += 1
-                ctx.state.validation_feedback = validation.feedback
-
-                # Distinguish plan-level failures from execution-level failures.
-                # Very low scores (< 0.4) suggest the approach itself was wrong and a fresh
-                # plan is needed; moderate scores suggest the right plan was executed poorly
-                # and can be re-dispatched.
-                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — re-planning is the most expensive action
-                # (rebuilds the whole plan + context). Only do it ONCE, and only when there
-                # are NO partial results to salvage; otherwise prefer cheap re-dispatch.
-                # This stops the score-0.00 → full-replan storm that overflowed context.
-                if (
-                    validation.score < 0.4
-                    and ctx.state.verification_attempts < 1
-                    and not ctx.state.results_registry
-                ):
-                    logger.warning(
-                        f"Verifier: Score {validation.score:.2f} < 0.4 and no partial "
-                        f"results. Feedback: {validation.feedback[:200]}. Re-planning once."
-                    )
-                    ctx.state.needs_replan = True
-                    ctx.state.error = f"Plan-level failure: {validation.feedback[:300]}"
-                    return "planner"
-
-                logger.warning(
-                    f"Verifier: Score {validation.score:.2f} < 0.7. "
-                    f"Feedback: {validation.feedback[:200]}. "
-                    f"Re-dispatching (attempt {ctx.state.verification_attempts})."
-                )
-                ctx.state.step_cursor = 0
-                ctx.state.needs_replan = False
-                return "dispatcher"
-            logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
-
-            # CONCEPT:AU-AHE.evaluation.backtest-harness: Cross-Rollout Critique (Distill Experience)
-            if ctx.state.verification_attempts > 0 or ctx.state.retry_count > 0:
-                await _distill_experience_from_retry(ctx, results_summary)
-
-            # CONCEPT:AU-AHE.evaluation.adversarial-verification — Adversarial Verification (opt-in)
-            # If ADVERSARIAL_VERIFICATION=true, run a second "hacker agent"
-            # pass to stress-test the implementation.  Only fires when the
-            # quality gate has already passed.
-            try:
-                from ..capabilities.adversarial_verifier import (
-                    ADVERSARIAL_ENABLED,
-                    run_adversarial_pass,
-                )
-
-                if ADVERSARIAL_ENABLED:
-                    adversarial_result = await run_adversarial_pass(
-                        state=ctx.state,
-                        deps=ctx.deps,
-                        results_summary=results_summary,
-                    )
-                    if adversarial_result and adversarial_result.vulnerabilities_found:
-                        # Only fail on high/critical severity
-                        if adversarial_result.severity in ("high", "critical"):
-                            ctx.state.verification_attempts += 1
-                            ctx.state.validation_feedback = (
-                                f"Adversarial verification found {len(adversarial_result.findings)} "
-                                f"{adversarial_result.severity}-severity issue(s): "
-                                + "; ".join(adversarial_result.findings[:3])
-                                + ". Fix these before re-submitting."
-                            )
-                            logger.warning(
-                                "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial FAIL (severity: %s). Re-dispatching.",
-                                adversarial_result.severity,
-                            )
-                            ctx.state.step_cursor = 0
-                            return "dispatcher"
-                        logger.info(
-                            "[CONCEPT:AU-AHE.evaluation.adversarial-verification] Adversarial found %s issues (severity: %s) "
-                            "— proceeding to synthesis with advisory.",
-                            len(adversarial_result.findings),
-                            adversarial_result.severity,
-                        )
-            except Exception as e:
-                # D-DST-5 (CONCEPT:AU-AHE.evaluation.debug-swallow-justification): adversarial
-                # verification is a security-adjacent "hacker agent" stress-test (AU-AHE.evaluation.
-                # adversarial-verification), not best-effort telemetry — a runtime failure here
-                # silently lets the step proceed to synthesis WITHOUT the adversarial pass ever
-                # having actually run, indistinguishable in the logs from "ran clean". Raised to
-                # warning so a persistently-erroring adversarial check is diagnosable rather than
-                # silently degrading to "quality gate only" coverage.
-                logger.warning(
-                    f"Adversarial verification failed to run (step NOT adversarially checked): {e}"
-                )
-
-        except Exception as e:
-            logger.warning(
-                f"Verifier: Structure validation failed: {e}. Attempting unstructured fallback."
-            )
-            try:
-                # Get the raw text from the agent response
-                raw_text = ""
-                if hasattr(validation_agent, "last_run_messages"):
-                    for msg in reversed(validation_agent.last_run_messages):
-                        if hasattr(msg, "parts"):
-                            for part in msg.parts:
-                                if hasattr(part, "content") and isinstance(
-                                    part.content, str
-                                ):
-                                    raw_text += part.content
-
-                # Simple heuristic extraction if we can't find raw text easily
-                fallback_score = 0.5
-                fallback_feedback = "Fallback validation failed to parse output."
-
-                if not raw_text:
-                    # Run a quick unstructured extraction pass
-                    extraction_agent = create_context_agent(
-                        model=ctx.deps.agent_model,
-                        system_prompt=(
-                            "Extract the validation score (0.0 to 1.0) and feedback text from the previous response. "
-                            "Format exactly as: SCORE: <number>\\nFEEDBACK: <text>"
-                        ),
-                    )
-                    res = await extraction_agent.run(
-                        f"Evaluate the following results:\n{results_summary}"
-                    )
-                    raw_text = res.output
-
-                import re
-
-                score_match = re.search(
-                    r"(?:score|SCORE)[\s:=]+([0-1](?:\.\d+)?)", raw_text, re.IGNORECASE
-                )
-                if score_match:
-                    fallback_score = float(score_match.group(1))
-
-                feedback_match = re.search(
-                    r"(?:feedback|FEEDBACK)[\s:=]+(.*)",
-                    raw_text,
-                    re.IGNORECASE | re.DOTALL,
-                )
-                if feedback_match:
-                    fallback_feedback = feedback_match.group(1).strip()
-                elif raw_text:
-                    fallback_feedback = raw_text.strip()[:500]
-
-                validation = ValidationResult(
-                    is_valid=fallback_score >= 0.7,
-                    score=fallback_score,
-                    feedback=fallback_feedback,
-                )
-                logger.info(
-                    f"Verifier Fallback: Extracted score {validation.score:.2f} and feedback."
-                )
-
-            except Exception as fallback_e:
-                logger.warning(
-                    f"Verifier Fallback failed: {fallback_e}. Proceeding to synthesis."
-                )
-                validation = ValidationResult(
-                    is_valid=True, score=0.8, feedback="Fallback triggered."
-                )
-
-            # Since validation fallback produced a result, we need to process it like normal
-            emit_graph_event(
-                ctx.deps.event_queue,
-                event_type="verification_result",
-                is_valid=validation.is_valid,
-                feedback=validation.feedback,
-                attempt=ctx.state.verification_attempts + 1,
-            )
-            if (
-                not validation.is_valid
-                and validation.score < 0.7
-                and validation.feedback
-            ):
-                ctx.state.verification_attempts += 1
-                ctx.state.validation_feedback = validation.feedback
-
-                # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — re-plan once, only when nothing salvageable
-                # (mirrors the structured path; prevents the re-plan storm).
-                if (
-                    validation.score < 0.4
-                    and ctx.state.verification_attempts < 1
-                    and not ctx.state.results_registry
-                ):
-                    logger.warning(
-                        f"Verifier: Score {validation.score:.2f} < 0.4 and no partial "
-                        f"results. Feedback: {validation.feedback[:200]}. Re-planning once."
-                    )
-                    ctx.state.needs_replan = True
-                    ctx.state.error = f"Plan-level failure: {validation.feedback[:300]}"
-                    return "planner"
-
-                logger.warning(
-                    f"Verifier: Score {validation.score:.2f} < 0.7. "
-                    f"Feedback: {validation.feedback[:200]}. "
-                    f"Re-dispatching (attempt {ctx.state.verification_attempts})."
-                )
-                ctx.state.step_cursor = 0
-                ctx.state.needs_replan = False
-                return "dispatcher"
-
-            logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
     # final response composition.  This separates the quality-gate
     # concern from the response-generation concern.
     _emit_node_lifecycle(
