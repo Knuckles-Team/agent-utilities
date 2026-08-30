@@ -116,6 +116,214 @@ def _iter_queries(task: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _build_agent(
+    config: str,
+    family_tag: str,
+    client_transport: str,
+    model: str,
+    top_k: Any,
+    is_router: bool,
+) -> GraphOSRouterMethod | GraphOSMemoryMethod:
+    """Construct the adapter for one config/family cell."""
+    agent_config = {
+        "agent_name": f"{model}_{config}",
+        "retrieval": config if not is_router else None,
+        "transport": client_transport,
+        "top_k": top_k,
+    }
+    dataset_config = {
+        "sub_dataset": str(family_tag),
+        "dataset": "memorydata",
+    }
+    if is_router:
+        from agent_utilities.harness.memorydata.router_method import GraphOSRouterMethod
+
+        agent_config.pop("retrieval", None)
+        return GraphOSRouterMethod(
+            agent_config=agent_config,
+            dataset_config=dataset_config,
+            family_tag=str(family_tag),
+        )
+    return GraphOSMemoryMethod(
+        agent_config=agent_config,
+        dataset_config=dataset_config,
+    )
+
+
+def _memorize_context(
+    agent: GraphOSRouterMethod | GraphOSMemoryMethod, context_chunks: Any
+) -> list[float]:
+    """Memorize every context chunk and return its measured latency."""
+    mem_times: list[float] = []
+    for idx, chunk in enumerate(context_chunks):
+        resp = agent.send_message(chunk, memorizing=True, context_id=idx)
+        mem_times.append(float(resp.get("memory_construction_time", 0.0)))
+    return mem_times
+
+
+def _score_queries(
+    agent: GraphOSRouterMethod | GraphOSMemoryMethod,
+    queries: list[dict[str, Any]],
+    rouge: Callable[[str, str], float],
+    judge_fn: Callable[[str, str], bool] | None,
+) -> tuple[int, float, int, list[float]]:
+    """Answer queries and return exact, ROUGE, judge, and latency totals."""
+    em_hits = 0
+    rouge_sum = 0.0
+    judge_hits = 0
+    query_times: list[float] = []
+    for query in queries:
+        question = query.get("question", "")
+        gold = query.get("answer", "")
+        resp = agent.send_message(
+            question,
+            memorizing=False,
+            query_id=query.get("query_id"),
+            context_id=query.get("context_id"),
+            eval_metadata=query.get("eval_metadata"),
+        )
+        output = str(resp.get("output", "") or "")
+        query_times.append(float(resp.get("query_time_len", 0.0)))
+        if _exact_hit(output, gold):
+            em_hits += 1
+        rouge_sum += rouge(output, gold)
+        if judge_fn is not None and judge_fn(output, gold):
+            judge_hits += 1
+    return em_hits, rouge_sum, judge_hits, query_times
+
+
+def _error_result(
+    config: str,
+    family_tag: str,
+    task_name: str,
+    n: int,
+    is_router: bool,
+    exc: Exception,
+) -> BakeoffResult:
+    """Build the zeroed result used when one bakeoff cell fails."""
+    return BakeoffResult(
+        config=config,
+        family=family_tag,
+        task=task_name,
+        n=n,
+        exact_match=0.0,
+        rouge_l=0.0,
+        judge_score=0.0,
+        mean_query_s=0.0,
+        mean_mem_s=0.0,
+        notes=f"error: {type(exc).__name__}: {exc}",
+        is_router=is_router,
+    )
+
+
+def _scored_result(
+    config: str,
+    family_tag: str,
+    task_name: str,
+    n: int,
+    is_router: bool,
+    judge_fn: Callable[[str, str], bool] | None,
+    em_hits: int,
+    rouge_sum: float,
+    judge_hits: int,
+    query_times: list[float],
+    mem_times: list[float],
+) -> BakeoffResult:
+    """Build the rounded result for a successfully completed bakeoff cell."""
+    return BakeoffResult(
+        config=config,
+        family=family_tag,
+        task=task_name,
+        n=n,
+        exact_match=round(em_hits / n, 4) if n else 0.0,
+        rouge_l=round(rouge_sum / n, 4) if n else 0.0,
+        judge_score=round(judge_hits / n, 4) if (n and judge_fn) else 0.0,
+        mean_query_s=round(sum(query_times) / len(query_times), 6)
+        if query_times
+        else 0.0,
+        mean_mem_s=round(sum(mem_times) / len(mem_times), 6) if mem_times else 0.0,
+        is_router=is_router,
+    )
+
+
+def _run_cell(
+    config: str,
+    family_tag: str,
+    family: dict[str, Any],
+    task: dict[str, Any],
+    context_chunks: Any,
+    client_transport: str,
+    judge_fn: Callable[[str, str], bool] | None,
+    model: str,
+    rouge: Callable[[str, str], float],
+    is_router: bool,
+) -> BakeoffResult:
+    """Run one independent config/family/task cell."""
+    task_name = task.get("task") or task.get("name") or "task"
+    queries = _iter_queries(task)
+    n = len(queries)
+    try:
+        agent = _build_agent(
+            config,
+            family_tag,
+            client_transport,
+            model,
+            family.get("top_k", 10),
+            is_router,
+        )
+        mem_times = _memorize_context(agent, context_chunks)
+        em_hits, rouge_sum, judge_hits, query_times = _score_queries(
+            agent, queries, rouge, judge_fn
+        )
+    except Exception as exc:  # noqa: BLE001 - failed cell scores 0, sweep continues
+        return _error_result(config, str(family_tag), str(task_name), n, is_router, exc)
+    return _scored_result(
+        config,
+        str(family_tag),
+        str(task_name),
+        n,
+        is_router,
+        judge_fn,
+        em_hits,
+        rouge_sum,
+        judge_hits,
+        query_times,
+        mem_times,
+    )
+
+
+def _run_config(
+    config: str,
+    families: list[dict[str, Any]],
+    client_transport: str,
+    judge_fn: Callable[[str, str], bool] | None,
+    model: str,
+    rouge: Callable[[str, str], float],
+) -> list[BakeoffResult]:
+    """Run one known config across all family/task cells."""
+    is_router = config == ROUTER_CONFIG
+    results: list[BakeoffResult] = []
+    for family in families:
+        family_tag = family.get("tag") or family.get("name") or "family"
+        context_chunks = family.get("context_chunks", [])
+        for task in family.get("tasks", []):
+            results.append(
+                _run_cell(
+                    config,
+                    str(family_tag),
+                    family,
+                    task,
+                    context_chunks,
+                    client_transport,
+                    judge_fn,
+                    model,
+                    rouge,
+                    is_router,
+                )
+            )
+    return results
+
+
 def run_bakeoff(
     configs: list[str],
     families: list[dict[str, Any]],
@@ -153,119 +361,16 @@ def run_bakeoff(
                 )
             )
             continue
-
-        for family in families:
-            family_tag = family.get("tag") or family.get("name") or "family"
-            context_chunks = family.get("context_chunks", [])
-            for task in family.get("tasks", []):
-                task_name = task.get("task") or task.get("name") or "task"
-                queries = _iter_queries(task)
-                em_hits = 0
-                rouge_sum = 0.0
-                judge_hits = 0
-                query_times: list[float] = []
-                mem_times: list[float] = []
-                errors = 0
-                n = len(queries)
-
-                try:
-                    agent_config = {
-                        "agent_name": f"{model}_{config}",
-                        "retrieval": config if not is_router else None,
-                        "transport": client_transport,
-                        "top_k": family.get("top_k", 10),
-                    }
-                    dataset_config = {
-                        "sub_dataset": str(family_tag),
-                        "dataset": "memorydata",
-                    }
-                    # Explicit union annotation: inside this per-family/task `for`
-                    # loop, mypy infers `agent`'s type from whichever branch it
-                    # sees first rather than joining both branches, so a bare
-                    # `agent = ...` here would flag the second iteration's other
-                    # branch as an incompatible reassignment.
-                    agent: GraphOSRouterMethod | GraphOSMemoryMethod
-                    if is_router:
-                        from agent_utilities.harness.memorydata.router_method import (
-                            GraphOSRouterMethod,
-                        )
-
-                        agent_config.pop("retrieval", None)
-                        agent = GraphOSRouterMethod(
-                            agent_config=agent_config,
-                            dataset_config=dataset_config,
-                            family_tag=str(family_tag),
-                        )
-                    else:
-                        agent = GraphOSMemoryMethod(
-                            agent_config=agent_config,
-                            dataset_config=dataset_config,
-                        )
-                    for idx, chunk in enumerate(context_chunks):
-                        resp = agent.send_message(
-                            chunk, memorizing=True, context_id=idx
-                        )
-                        mem_times.append(
-                            float(resp.get("memory_construction_time", 0.0))
-                        )
-
-                    for query in queries:
-                        question = query.get("question", "")
-                        gold = query.get("answer", "")
-                        resp = agent.send_message(
-                            question,
-                            memorizing=False,
-                            query_id=query.get("query_id"),
-                            context_id=query.get("context_id"),
-                            eval_metadata=query.get("eval_metadata"),
-                        )
-                        output = str(resp.get("output", "") or "")
-                        query_times.append(float(resp.get("query_time_len", 0.0)))
-                        if _exact_hit(output, gold):
-                            em_hits += 1
-                        rouge_sum += rouge(output, gold)
-                        if judge_fn is not None and judge_fn(output, gold):
-                            judge_hits += 1
-                except Exception as exc:  # noqa: BLE001 - failed cell scores 0, sweep continues
-                    errors += 1
-                    results.append(
-                        BakeoffResult(
-                            config=config,
-                            family=str(family_tag),
-                            task=str(task_name),
-                            n=n,
-                            exact_match=0.0,
-                            rouge_l=0.0,
-                            judge_score=0.0,
-                            mean_query_s=0.0,
-                            mean_mem_s=0.0,
-                            notes=f"error: {type(exc).__name__}: {exc}",
-                            is_router=is_router,
-                        )
-                    )
-                    continue
-
-                results.append(
-                    BakeoffResult(
-                        config=config,
-                        family=str(family_tag),
-                        task=str(task_name),
-                        n=n,
-                        exact_match=round(em_hits / n, 4) if n else 0.0,
-                        rouge_l=round(rouge_sum / n, 4) if n else 0.0,
-                        judge_score=round(judge_hits / n, 4)
-                        if (n and judge_fn)
-                        else 0.0,
-                        mean_query_s=round(sum(query_times) / len(query_times), 6)
-                        if query_times
-                        else 0.0,
-                        mean_mem_s=round(sum(mem_times) / len(mem_times), 6)
-                        if mem_times
-                        else 0.0,
-                        notes=f"{errors} error(s)" if errors else "",
-                        is_router=is_router,
-                    )
-                )
+        results.extend(
+            _run_config(
+                config,
+                families,
+                client_transport,
+                judge_fn,
+                model,
+                rouge,
+            )
+        )
     return results
 
 
