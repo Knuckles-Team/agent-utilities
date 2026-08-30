@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,7 +60,7 @@ class TraceCursor:
     event_sequence: int = 0
 
     @classmethod
-    def from_rows(cls, rows: list[Mapping[str, Any]]) -> TraceCursor:
+    def from_rows(cls, rows: Sequence[Mapping[str, Any]]) -> TraceCursor:
         greatest = 0
         for row in rows:
             try:
