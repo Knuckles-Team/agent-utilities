@@ -25,10 +25,19 @@ reverting only ``intent_tools.py`` to its pre-fix ``HEAD`` content: top-1
 
 from __future__ import annotations
 
+import ast
+import importlib
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 
+from agent_utilities.knowledge_graph.retrieval import intent_selection_accuracy
 from agent_utilities.knowledge_graph.retrieval.intent_selection_accuracy import (
     CORPUS,
+    AccuracyCase,
+    IntentResolverUnavailableError,
     measure_selection_accuracy,
     render_report,
 )
@@ -95,8 +104,71 @@ def test_corpus_is_a_bounded_labelled_set_covering_every_verb():
 def test_intent_surface_selection_accuracy_meets_measured_floor():
     """Live-measured, not fabricated — see the module docstring for the run
     that produced the baseline this floor is set (with margin) beneath."""
-    report = measure_selection_accuracy()
+    report = measure_selection_accuracy(intent_tools.resolve_intent)
     assert report.n == len(CORPUS)
     failure_detail = render_report(report)
     assert report.top1_accuracy >= 0.60, failure_detail
     assert report.top3_accuracy >= 0.75, failure_detail
+
+
+def test_measurement_requires_a_live_resolver_binding():
+    with pytest.raises(
+        IntentResolverUnavailableError,
+        match="requires an injected intent resolver",
+    ):
+        measure_selection_accuracy()
+
+
+def test_measurement_uses_the_injected_resolver_and_preserves_report_shape():
+    case = AccuracyCase("ask", "a bounded test intent", "expected_tool")
+    calls: list[tuple[str, str, int]] = []
+
+    def resolver(verb: str, intent: str, *, top_k: int):
+        calls.append((verb, intent, top_k))
+        return [SimpleNamespace(tool="expected_tool")]
+
+    report = measure_selection_accuracy(resolver, (case,), top_k=3)
+
+    assert calls == [("ask", "a bounded test intent", 3)]
+    assert report.n == 1
+    assert report.top1_accuracy == 1.0
+    assert report.top3_accuracy == 1.0
+    assert report.results[0].ranked_tools == ["expected_tool"]
+
+
+def test_evaluator_has_no_mcp_import_edge():
+    """The knowledge-graph evaluator must stay below the MCP composition root."""
+    source = Path(intent_selection_accuracy.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported_modules = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imported_modules.update(
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    )
+
+    assert not any(
+        module == "agent_utilities.mcp" or module.startswith("agent_utilities.mcp.")
+        for module in imported_modules
+    )
+
+
+def test_cli_composition_binds_the_real_resolver_once(monkeypatch):
+    cli = importlib.import_module("scripts.measure_intent_routing_accuracy")
+    observed: dict[str, object] = {}
+
+    def fake_measure(resolver):
+        observed["resolver"] = resolver
+        return type("Report", (), {})()
+
+    monkeypatch.setattr(cli, "measure_selection_accuracy", fake_measure)
+    monkeypatch.setattr(cli, "render_report", lambda report: "ok")
+    monkeypatch.setattr(sys, "argv", ["measure_intent_routing_accuracy"])
+
+    assert cli.main() == 0
+    assert observed["resolver"] is intent_tools.resolve_intent
