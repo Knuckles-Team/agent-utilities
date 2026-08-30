@@ -9,7 +9,7 @@ from typing import Any
 
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
-    DEFAULT_A2A_CONFIG,
+    DEFAULT_A2A_CONFIG,  # noqa: F401 — preserved module-level export
     DEFAULT_A2A_STORAGE,
     DEFAULT_ACP_SESSION_ROOT,
     DEFAULT_AGENT_SYSTEM_PROMPT,
@@ -40,7 +40,7 @@ from agent_utilities.core.config import (
 )
 
 from ..models import ModelRegistry
-from .app import build_agent_app
+from .app import _build_agent_app_kwargs, build_agent_app
 from .dependencies import setup_server_file_logging
 from .routers.human import _approval_manager
 
@@ -363,45 +363,32 @@ def _serve_on_socket(app: Any, sock: Any, host: str, port: int, debug: bool) -> 
 
 
 def _run_agent_server(
-    provider: str | None = DEFAULT_LLM_PROVIDER,
-    model_id: str | None = DEFAULT_LLM_MODEL_ID,
-    base_url: str | None = DEFAULT_LLM_BASE_URL,
-    api_key: str | None = DEFAULT_LLM_API_KEY,
-    mcp_url: str | None = DEFAULT_MCP_URL,
-    mcp_config: str | None = DEFAULT_MCP_CONFIG,
-    custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    *,
     debug: bool | None = DEFAULT_DEBUG,
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
-    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Callable[[Any], Any] | None = None,
-    custom_web_mount_path: str = "/",
-    web_ui_instructions: str | None = None,
-    html_source: str | Path | None = None,
-    name: str | None = None,
-    system_prompt: str | None = None,
-    enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
-    otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: str | None = None,
-    otel_public_key: str | None = None,
-    otel_secret_key: str | None = None,
-    otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    workspace: str | None = None,
-    a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_config: str | None = DEFAULT_A2A_CONFIG,
-    skill_types: list[str] | None = None,
-    agent_instance: Any | None = None,
-    graph_bundle: tuple[Any, ...] | None = None,
     enable_terminal_ui: bool = False,
-    enable_acp: bool = DEFAULT_ENABLE_ACP,
-    acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
-    isolate_mcp: bool = False,
-    mcp_toolsets: list[Any] | None = None,
-    model_registry: ModelRegistry | None = None,
     enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
+    **factory_values: Any,
 ):
     """Create and run an agent server with FastAPI and FastMCP."""
+    # ``build_agent_app`` is the one source of truth for factory arguments.
+    # Keep runner-only controls out of that contract while retaining the
+    # historical runner default for ``mcp_config``.
+    factory_values = dict(factory_values)
+    factory_values.setdefault("debug", debug)
+    factory_values.setdefault("host", host)
+    factory_values.setdefault("port", port)
+    acp_enabled = factory_values.get("enable_acp", DEFAULT_ENABLE_ACP)
+    acp_session_root = factory_values.get("acp_session_root", DEFAULT_ACP_SESSION_ROOT)
+    factory_kwargs = _build_agent_app_kwargs(
+        factory_values,
+        exclude=("enable_terminal_ui", "enable_acp", "acp_session_root"),
+        defaults={"mcp_config": DEFAULT_MCP_CONFIG},
+    )
+    enable_web_ui = factory_kwargs["enable_web_ui"]
+    workspace = factory_kwargs["workspace"]
+
     # Force disable terminal UI in tests or non-interactive environments to prevent hangs
     is_pytest = (
         "pytest" in sys.modules
@@ -483,42 +470,14 @@ def _run_agent_server(
             # See _spawn_gateway_workers_windows's docstring for the one
             # genuine capability difference (non-picklable embedding args).
             worker_kwargs = {
-                "provider": provider,
-                "model_id": model_id,
-                "base_url": base_url,
-                "api_key": api_key,
-                "mcp_url": mcp_url or "",
-                "mcp_config": mcp_config,
-                "custom_skills_directory": custom_skills_directory,
-                "enable_web_ui": enable_web_ui,
-                "custom_web_mount_path": custom_web_mount_path,
-                "web_ui_instructions": web_ui_instructions,
-                "html_source": html_source,
-                "name": name,
-                "system_prompt": system_prompt,
-                "enable_otel": enable_otel,
-                "otel_endpoint": otel_endpoint,
-                "otel_headers": otel_headers,
-                "otel_public_key": otel_public_key,
-                "otel_secret_key": otel_secret_key,
-                "otel_protocol": otel_protocol,
-                "workspace": workspace,
-                "a2a_broker": a2a_broker,
-                "a2a_storage": a2a_storage,
-                "skill_types": skill_types,
-                "enable_acp": enable_acp,
-                "acp_session_root": acp_session_root,
-                "isolate_mcp": isolate_mcp,
-                "a2a_config": a2a_config,
-                # Included (not pre-filtered) so _spawn_gateway_workers_windows
-                # can detect and refuse a live value explicitly, by name,
-                # rather than have it silently vanish.
-                "custom_web_app": custom_web_app,
-                "agent_instance": agent_instance,
-                "graph_bundle": graph_bundle,
-                "mcp_toolsets": mcp_toolsets,
-                "model_registry": model_registry,
+                key: value
+                for key, value in factory_kwargs.items()
+                if key not in {"debug", "host", "port"}
             }
+            worker_kwargs.update(
+                enable_acp=acp_enabled,
+                acp_session_root=acp_session_root,
+            )
             shared_socket, child_pids = _spawn_gateway_workers_windows(
                 workers,
                 host or "127.0.0.1",
@@ -534,39 +493,7 @@ def _run_agent_server(
             )
     is_worker_child = shared_socket is not None and not child_pids
 
-    app = build_agent_app(
-        provider=provider,
-        model_id=model_id,
-        base_url=base_url,
-        api_key=api_key,
-        mcp_url=mcp_url or "",
-        mcp_config=mcp_config,
-        custom_skills_directory=custom_skills_directory,
-        debug=debug,
-        enable_web_ui=enable_web_ui,
-        custom_web_app=custom_web_app,
-        custom_web_mount_path=custom_web_mount_path,
-        web_ui_instructions=web_ui_instructions,
-        html_source=html_source,
-        name=name,
-        system_prompt=system_prompt,
-        enable_otel=enable_otel,
-        otel_endpoint=otel_endpoint,
-        otel_headers=otel_headers,
-        otel_public_key=otel_public_key,
-        otel_secret_key=otel_secret_key,
-        otel_protocol=otel_protocol,
-        workspace=workspace,
-        a2a_broker=a2a_broker,
-        a2a_storage=a2a_storage,
-        skill_types=skill_types,
-        agent_instance=agent_instance,
-        graph_bundle=graph_bundle,
-        isolate_mcp=isolate_mcp,
-        mcp_toolsets=mcp_toolsets,
-        model_registry=model_registry,
-        a2a_config=a2a_config,
-    )
+    app = build_agent_app(**factory_kwargs)
 
     reloadable = app.state.reload_app
 

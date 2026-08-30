@@ -1,9 +1,10 @@
 import asyncio
+import inspect
 import ipaddress
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager, suppress
 from functools import partial
 from pathlib import Path
@@ -61,6 +62,40 @@ from .routers import agent_ui, ard, commands, core, human, interop, mcp_catalog,
 
 logger = logging.getLogger(__name__)
 _MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
+
+
+def _build_agent_app_kwargs(
+    values: Mapping[str, Any],
+    *,
+    exclude: tuple[str, ...] = (),
+    defaults: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Project runner values onto the public app-factory contract.
+
+    The server launcher and the app factory have deliberately different
+    responsibilities.  Keep their boundary honest by deriving the adapter
+    from ``build_agent_app``'s live signature instead of maintaining a second
+    hand-written forwarding list in the launcher.
+    """
+    factory_parameters = inspect.signature(build_agent_app).parameters
+    supplied_defaults = defaults or {}
+    kwargs = {
+        name: values[name]
+        if name in values
+        else supplied_defaults[name]
+        if name in supplied_defaults
+        else parameter.default
+        for name, parameter in factory_parameters.items()
+        if name not in exclude
+        and (
+            name in values
+            or name in supplied_defaults
+            or parameter.default is not inspect.Parameter.empty
+        )
+    }
+    if "mcp_url" in kwargs:
+        kwargs["mcp_url"] = kwargs["mcp_url"] or ""
+    return kwargs
 
 
 def _csv_values(value: str | None) -> list[str]:
