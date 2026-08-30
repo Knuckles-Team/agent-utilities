@@ -20,7 +20,7 @@ else:
 import logging
 import time
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from ...models.knowledge_graph import MemoryNode
@@ -198,6 +198,159 @@ class ContextBudgetOptimizer:
 
 # Default optimizer instance
 _context_optimizer = ContextBudgetOptimizer()
+
+
+def _is_recall_candidate(
+    result: dict[str, Any],
+    memory_type: str,
+    include_untrusted: bool,
+    memory_half_lives: dict[str, Any],
+) -> bool:
+    """Return whether one hybrid-search result is eligible for memory recall."""
+    result_type = str(result.get("type", "")).lower()
+    result_category = str(result.get("category", "")).lower()
+    if result_type != "memory" and result_category not in memory_half_lives:
+        return False
+    if memory_type and result_category != memory_type:
+        return False
+    trust = float(result.get("trust_score", 0.8))
+    return include_untrusted or trust >= 0.3
+
+
+def _filter_recall_candidates(
+    results: list[dict[str, Any]],
+    memory_type: str,
+    include_untrusted: bool,
+    memory_half_lives: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Keep memory results matching the requested tier and trust policy."""
+    return [
+        result
+        for result in results
+        if _is_recall_candidate(
+            result, memory_type, include_untrusted, memory_half_lives
+        )
+    ]
+
+
+def _memory_elapsed_seconds(timestamp: Any, now_ts: float) -> float:
+    """Return elapsed seconds for a persisted memory timestamp."""
+    if not timestamp:
+        return 0.0
+    try:
+        parsed = datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S")
+        return max(0.0, now_ts - parsed.replace(tzinfo=UTC).timestamp())
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _memory_decay_score(
+    memory: dict[str, Any],
+    *,
+    apply_decay: bool,
+    now_ts: float,
+    memory_half_lives: dict[str, Any],
+    ebbinghaus_decay: Any,
+) -> float:
+    """Calculate one memory's decay-adjusted score."""
+    base_score = float(memory.get("_score", 0.5))
+    if not apply_decay:
+        return base_score
+
+    elapsed = _memory_elapsed_seconds(
+        memory.get("last_accessed", memory.get("timestamp", "")), now_ts
+    )
+    memory_kind = str(
+        memory.get("memory_type", memory.get("category", "episodic"))
+    ).lower()
+    half_life = memory_half_lives.get(memory_kind, 14400)
+    if half_life > 0:
+        return round(ebbinghaus_decay(base_score, elapsed, half_life), 4)
+    return base_score
+
+
+def _apply_memory_decay(
+    memories: list[dict[str, Any]],
+    *,
+    apply_decay: bool,
+    now_ts: float,
+    memory_half_lives: dict[str, Any],
+    ebbinghaus_decay: Any,
+) -> None:
+    """Attach decay-adjusted scores to each recalled memory."""
+    for memory in memories:
+        memory["decay_adjusted_score"] = _memory_decay_score(
+            memory,
+            apply_decay=apply_decay,
+            now_ts=now_ts,
+            memory_half_lives=memory_half_lives,
+            ebbinghaus_decay=ebbinghaus_decay,
+        )
+
+
+def _memory_task_relevance(task_embedding: Any, memory_embedding: Any) -> float | None:
+    """Compute dot-product task relevance when both embeddings are present."""
+    if not memory_embedding or not task_embedding:
+        return None
+    dot = sum(
+        left * right
+        for left, right in zip(
+            task_embedding,
+            memory_embedding[: len(task_embedding)],
+            strict=False,
+        )
+    )
+    return round(dot, 4)
+
+
+def _apply_task_context_reranking(
+    memories: list[dict[str, Any]],
+    task_context: str,
+    embed_model: Any,
+) -> None:
+    """Rerank memories against optional instruction/task context."""
+    if not task_context or not embed_model:
+        return
+    try:
+        task_embedding = embed_model.get_text_embedding(task_context)
+        for memory in memories:
+            relevance = _memory_task_relevance(task_embedding, memory.get("embedding"))
+            if relevance is not None:
+                memory["task_relevance"] = relevance
+        memories.sort(
+            key=lambda item: item.get(
+                "task_relevance", item.get("decay_adjusted_score", 0)
+            ),
+            reverse=True,
+        )
+    except Exception as exc:
+        logger.warning("Task-context reranking failed: %s", exc)
+
+
+def _touch_memory_access(memory: dict[str, Any], backend: Any) -> None:
+    """Best-effort update of one memory's access metadata."""
+    memory_id = memory.get("id", "")
+    if not memory_id or not backend:
+        return
+    try:
+        backend.execute(
+            "MATCH (m:Memory {id: $id}) SET m.access_count = m.access_count + 1, "
+            "m.last_accessed = $now",
+            {
+                "id": memory_id,
+                "now": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — access metrics are best effort
+        logger.debug("Failed to update memory access count: %s", exc)
+
+
+def _update_memory_access_counts(
+    memories: list[dict[str, Any]], top_k: int, backend: Any
+) -> None:
+    """Best-effort access updates for the returned memory window."""
+    for memory in memories[:top_k]:
+        _touch_memory_access(memory, backend)
 
 
 class MemoryMixin(_Base):
@@ -484,84 +637,32 @@ class MemoryMixin(_Base):
         # Search for memories
         results = self.search_hybrid(query, top_k=top_k * 3)
 
-        # Filter to Memory nodes
-        memories = []
-        for r in results:
-            r_type = str(r.get("type", "")).lower()
-            r_category = str(r.get("category", "")).lower()
-            if r_type != "memory" and r_category not in MEMORY_HALF_LIVES:
-                continue
-            if memory_type and r_category != memory_type.lower():
-                continue
-            # Trust filter (ParamMem §6.2)
-            trust = float(r.get("trust_score", 0.8))
-            if not include_untrusted and trust < 0.3:
-                continue
-            memories.append(r)
+        # Filter to Memory nodes (and apply the ParamMem trust policy).
+        memories = _filter_recall_candidates(
+            results,
+            memory_type.lower() if memory_type else "",
+            include_untrusted,
+            MEMORY_HALF_LIVES,
+        )
 
         # Apply Ebbinghaus decay scoring
-        now_ts = time.time()
-        for mem in memories:
-            base_score = float(mem.get("_score", 0.5))
-
-            if apply_decay:
-                # Parse timestamp
-                ts_str = mem.get("last_accessed", mem.get("timestamp", ""))
-                elapsed = 0.0
-                if ts_str:
-                    try:
-                        from datetime import datetime
-
-                        dt = datetime.strptime(ts_str[:19], "%Y-%m-%dT%H:%M:%S")
-                        dt = dt.replace(tzinfo=UTC)
-                        elapsed = max(0.0, now_ts - dt.timestamp())
-                    except (ValueError, TypeError):
-                        elapsed = 0.0
-
-                # Get half-life for this memory tier
-                mem_type = str(
-                    mem.get("memory_type", mem.get("category", "episodic"))
-                ).lower()
-                half_life = MEMORY_HALF_LIVES.get(mem_type, 14400)
-
-                if half_life > 0:
-                    mem["decay_adjusted_score"] = round(
-                        ebbinghaus_decay(base_score, elapsed, half_life), 4
-                    )
-                else:
-                    # Procedural — no decay
-                    mem["decay_adjusted_score"] = base_score
-            else:
-                mem["decay_adjusted_score"] = base_score
+        _apply_memory_decay(
+            memories,
+            apply_decay=apply_decay,
+            now_ts=time.time(),
+            memory_half_lives=MEMORY_HALF_LIVES,
+            ebbinghaus_decay=ebbinghaus_decay,
+        )
 
         # Sort by decay-adjusted score
         memories.sort(key=lambda x: x.get("decay_adjusted_score", 0), reverse=True)
 
         # Instruction-aware reranking (MemReranker)
-        if task_context and self.hybrid_retriever.embed_model:
-            try:
-                task_emb = self.hybrid_retriever.embed_model.get_text_embedding(
-                    task_context
-                )
-                for mem in memories:
-                    mem_emb = mem.get("embedding")
-                    if mem_emb and task_emb:
-                        # Dot-product reranking — no LLM needed
-                        dot = sum(
-                            a * b
-                            for a, b in zip(
-                                task_emb, mem_emb[: len(task_emb)], strict=False
-                            )
-                        )
-                        mem["task_relevance"] = round(dot, 4)
-                memories.sort(
-                    key=lambda x: x.get(
-                        "task_relevance", x.get("decay_adjusted_score", 0)
-                    ),
-                    reverse=True,
-                )
-            except Exception as e:
-                logger.warning("Task-context reranking failed: %s", e)
+        _apply_task_context_reranking(
+            memories,
+            task_context,
+            self.hybrid_retriever.embed_model,
+        )
 
         # Context budget compaction (Research: 2604.20874v1)
         # Apply Root Theorem: compact results if they exceed budget
@@ -581,20 +682,7 @@ class MemoryMixin(_Base):
             )
 
         # Update access counts
-        for mem in memories[:top_k]:
-            mem_id = mem.get("id", "")
-            if mem_id and self.backend:
-                try:
-                    self.backend.execute(
-                        "MATCH (m:Memory {id: $id}) SET m.access_count = m.access_count + 1, "
-                        "m.last_accessed = $now",
-                        {
-                            "id": mem_id,
-                            "now": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                        },
-                    )
-                except Exception as e:  # noqa: BLE001 — access_count/last_accessed is an LRU-style usage metric, not the memory record itself; a failed bump just under-counts recency for this one read, it does not lose or duplicate the memory
-                    logger.debug("Failed to update memory access count: %s", e)
+        _update_memory_access_counts(memories, top_k, self.backend)
 
         return memories[:top_k]
 
