@@ -1172,7 +1172,7 @@ def _invoke_bounded(
                         pass
 
 
-def _installer_environment() -> dict[str, str]:
+def _clean_process_environment() -> dict[str, str]:
     environment = dict(os.environ)
     for name in tuple(environment):
         if (
@@ -1180,6 +1180,11 @@ def _installer_environment() -> dict[str, str]:
             or name in _UNSAFE_PROCESS_ENV
         ):
             environment.pop(name, None)
+    return environment
+
+
+def _installer_environment() -> dict[str, str]:
+    environment = _clean_process_environment()
     environment.update(
         {
             "PIP_NO_INDEX": "1",
@@ -1195,13 +1200,7 @@ def _installer_environment() -> dict[str, str]:
 
 
 def _runtime_environment(runtime: Path) -> dict[str, str]:
-    environment = dict(os.environ)
-    for name in tuple(environment):
-        if (
-            name.startswith(("PIP_", "UV_", "LD_", "DYLD_"))
-            or name in _UNSAFE_PROCESS_ENV
-        ):
-            environment.pop(name, None)
+    environment = _clean_process_environment()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONNOUSERSITE"] = "1"
     environment["VIRTUAL_ENV"] = os.fspath(runtime)
@@ -1703,6 +1702,20 @@ def _verify_release_sealed(root: Path) -> None:
                 raise ReleaseError("release-tree-writable")
 
 
+def _update_identity_digest(
+    digest: Any,
+    name: str,
+    content_digest: str,
+    size: int,
+) -> None:
+    digest.update(name.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(str(size).encode("ascii"))
+    digest.update(b"\0")
+    digest.update(content_digest.removeprefix("sha256:").encode("ascii"))
+    digest.update(b"\0")
+
+
 def _installed_agent_tree_identity(
     *,
     installed_record: dict[str, tuple[str, int]],
@@ -1723,12 +1736,7 @@ def _installed_agent_tree_identity(
         content_digest, size = _hash_regular(
             path, limit=_MAX_WHEEL_MEMBER_BYTES, code="installed-file-invalid"
         )
-        digest.update(name.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(str(size).encode("ascii"))
-        digest.update(b"\0")
-        digest.update(content_digest.removeprefix("sha256:").encode("ascii"))
-        digest.update(b"\0")
+        _update_identity_digest(digest, name, content_digest, size)
         count += 1
     if count < 10:
         raise ReleaseError("release-distribution-incomplete")
@@ -1759,12 +1767,7 @@ def _installed_closure_identity(
                 limit=_MAX_WHEEL_MEMBER_BYTES,
                 code="installed-file-invalid",
             )
-            digest.update(name.encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(str(size).encode("ascii"))
-            digest.update(b"\0")
-            digest.update(content_digest.removeprefix("sha256:").encode("ascii"))
-            digest.update(b"\0")
+            _update_identity_digest(digest, name, content_digest, size)
     return digest.hexdigest()
 
 
@@ -1850,16 +1853,12 @@ def attest_installed_release(release_root: Path) -> dict[str, Any]:
             raise ReleaseError("installed-attestation-record-overlap")
         recorded.update(entries)
         installed_records[package_name] = installed_record
-    site_packages_resolved = site_packages.resolve(strict=True)
-    site_regular = {
-        path.resolve(strict=True)
-        for path in all_regular
-        if site_packages in path.parents
-    }
-    if site_regular != {
-        path for path in recorded if site_packages_resolved in path.parents
-    }:
-        raise ReleaseError("installed-attestation-record-coverage-invalid")
+    _verify_site_package_coverage(
+        all_regular,
+        recorded,
+        site_packages,
+        error_code="installed-attestation-record-coverage-invalid",
+    )
 
     agent_digest, agent_file_count = _installed_agent_tree_identity(
         installed_record=installed_records["agent-utilities"],
@@ -1993,6 +1992,25 @@ def _verify_record(
     if record_resolved not in resolved_paths:
         raise ReleaseError("record-self-entry-missing")
     return resolved_paths, identities
+
+
+def _verify_site_package_coverage(
+    all_regular: list[Path],
+    recorded: set[Path],
+    site_packages: Path,
+    *,
+    error_code: str,
+) -> None:
+    site_packages_resolved = site_packages.resolve(strict=True)
+    site_regular = {
+        path.resolve(strict=True)
+        for path in all_regular
+        if site_packages in path.parents
+    }
+    if site_regular != {
+        path for path in recorded if site_packages_resolved in path.parents
+    }:
+        raise ReleaseError(error_code)
 
 
 def _verify_installed_record_matches_wheel(
@@ -2227,16 +2245,12 @@ def verify_installed_release(
         if recorded & entries:
             raise ReleaseError("record-ownership-overlap")
         recorded.update(entries)
-    site_packages_resolved = site_packages.resolve(strict=True)
-    site_regular = {
-        path.resolve(strict=True)
-        for path in all_regular
-        if site_packages in path.parents
-    }
-    if site_regular != {
-        path for path in recorded if site_packages_resolved in path.parents
-    }:
-        raise ReleaseError("unrecorded-site-package-file")
+    _verify_site_package_coverage(
+        all_regular,
+        recorded,
+        site_packages,
+        error_code="unrecorded-site-package-file",
+    )
     baseline_bin = {
         "activate",
         "activate.csh",
@@ -3038,6 +3052,40 @@ def _evidence_unsigned(evidence: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in evidence.items() if key != "signature"}
 
 
+_CERTIFICATION_FIELDS = frozenset(
+    {
+        "agentUtilitiesSha256",
+        "agentUtilitiesFileCount",
+        "distributionClosureSha256",
+        "releasePythonSha256",
+        "graphosSha256",
+        "engineSha256",
+    }
+)
+_CERTIFICATION_DIGEST_FIELDS = (
+    "agentUtilitiesSha256",
+    "distributionClosureSha256",
+    "releasePythonSha256",
+    "graphosSha256",
+    "engineSha256",
+)
+
+
+def _certification_shape_is_valid(certification: Any) -> bool:
+    return (
+        isinstance(certification, dict)
+        and set(certification) == _CERTIFICATION_FIELDS
+        and not isinstance(certification.get("agentUtilitiesFileCount"), bool)
+        and isinstance(certification.get("agentUtilitiesFileCount"), int)
+        and certification["agentUtilitiesFileCount"] >= 10
+        and all(
+            isinstance(certification.get(field), str)
+            and re.fullmatch(r"[a-f0-9]{64}", certification[field]) is not None
+            for field in _CERTIFICATION_DIGEST_FIELDS
+        )
+    )
+
+
 def _validate_evidence_semantics(evidence: dict[str, Any], spec: ReleaseSpec) -> None:
     _assert_path_free_evidence(evidence)
     if set(evidence) != {
@@ -3146,32 +3194,7 @@ def _validate_evidence_semantics(evidence: dict[str, Any], spec: ReleaseSpec) ->
             or _DIGEST.fullmatch(proof["outputDigest"]) is None
         ):
             raise ReleaseError("evidence-command-invalid")
-    if certification is not None and (
-        not isinstance(certification, dict)
-        or set(certification)
-        != {
-            "agentUtilitiesSha256",
-            "agentUtilitiesFileCount",
-            "distributionClosureSha256",
-            "releasePythonSha256",
-            "graphosSha256",
-            "engineSha256",
-        }
-        or isinstance(certification.get("agentUtilitiesFileCount"), bool)
-        or not isinstance(certification.get("agentUtilitiesFileCount"), int)
-        or certification["agentUtilitiesFileCount"] < 10
-        or any(
-            not isinstance(certification.get(field), str)
-            or re.fullmatch(r"[a-f0-9]{64}", certification[field]) is None
-            for field in (
-                "agentUtilitiesSha256",
-                "distributionClosureSha256",
-                "releasePythonSha256",
-                "graphosSha256",
-                "engineSha256",
-            )
-        )
-    ):
+    if certification is not None and not _certification_shape_is_valid(certification):
         raise ReleaseError("evidence-certification-invalid")
     status_value = evidence.get("status")
     if status_value not in {"promoted", "rejected", "rolled-back", "rollback-failed"}:
@@ -3225,33 +3248,7 @@ def _validate_evidence_semantics(evidence: dict[str, Any], spec: ReleaseSpec) ->
                 or not _DIGEST.fullmatch(proof["outputDigest"])
                 for proof in commands.values()
             )
-            or set(certification)
-            != {
-                "agentUtilitiesSha256",
-                "agentUtilitiesFileCount",
-                "distributionClosureSha256",
-                "releasePythonSha256",
-                "graphosSha256",
-                "engineSha256",
-            }
-            or not isinstance(
-                agent_utilities_file_count := certification.get(
-                    "agentUtilitiesFileCount"
-                ),
-                int,
-            )
-            or agent_utilities_file_count < 10
-            or any(
-                not isinstance(certification.get(field), str)
-                or re.fullmatch(r"[a-f0-9]{64}", certification[field]) is None
-                for field in (
-                    "agentUtilitiesSha256",
-                    "distributionClosureSha256",
-                    "releasePythonSha256",
-                    "graphosSha256",
-                    "engineSha256",
-                )
-            )
+            or not _certification_shape_is_valid(certification)
         ):
             raise ReleaseError("promoted-evidence-invariant-failed")
 
