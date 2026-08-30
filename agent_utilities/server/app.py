@@ -201,6 +201,616 @@ def _graph_native_list_skills() -> list[dict[str, Any]]:
     return sorted(skills, key=lambda x: x.get("name", "").lower())
 
 
+def _configure_observability(
+    enable_otel: bool | None,
+    *,
+    name: str,
+    endpoint: str | None,
+    headers: str | None,
+    public_key: str | None,
+    secret_key: str | None,
+    protocol: str | None,
+) -> bool:
+    """Configure the optional and standard OTLP gateway pipelines.
+
+    CONCEPT:AU-OS.observability.telemetry-observability (X2) — the standard-
+    env-var OTLP pipeline (TelemetryEngine) is independent of the
+    ``ENABLE_OTEL``-gated Logfire/Langfuse pipeline below. It is bootstrapped
+    once while the app is constructed, never per request.
+    """
+    if enable_otel is None:
+        enable_otel = to_boolean(setting("ENABLE_OTEL", "False"))
+
+    if enable_otel:
+        setup_otel(
+            name,
+            endpoint=endpoint,
+            headers=headers,
+            public_key=public_key,
+            secret_key=secret_key,
+            protocol=protocol,
+        )
+
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        configured = get_telemetry_engine().is_otel_configured()
+        logger.info(
+            "Gateway OTLP trace export (standard env vars): %s",
+            "enabled" if configured else "disabled",
+        )
+    except Exception as exc:  # noqa: BLE001 - observability cannot prevent serving
+        logger.warning(
+            "Gateway TelemetryEngine OTel setup failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+    return enable_otel
+
+
+def _initialize_agent(
+    *,
+    agent_instance: Any | None,
+    provider: str | None,
+    model_id: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    mcp_url: str | None,
+    mcp_config: str | None,
+    custom_skills_directory: str | None,
+    name: str,
+    system_prompt: str | None,
+    debug: bool | None,
+    skill_types: list[str] | None,
+    graph_bundle: tuple[Any, ...] | None,
+    isolate_mcp: bool,
+    mcp_toolsets: list[Any] | None,
+) -> tuple[Any, list[Any]]:
+    """Create or validate the served agent and return its MCP toolsets."""
+    initialized_mcp_toolsets: list[Any] = []
+    if agent_instance is None:
+        agent_instance, initialized_mcp_toolsets = create_agent(
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            mcp_url=mcp_url,
+            mcp_config=mcp_config,
+            custom_skills_directory=custom_skills_directory,
+            name=name,
+            system_prompt=system_prompt,
+            debug=debug,
+            skill_types=skill_types,
+            graph_bundle=graph_bundle,
+            isolate_mcp=isolate_mcp,
+            mcp_toolsets=mcp_toolsets,
+        )
+        return agent_instance, initialized_mcp_toolsets
+
+    from agent_utilities.security.tool_guard import apply_tool_guard_approvals
+
+    toolsets = list(getattr(agent_instance, "toolsets", ()) or ())
+    if any(
+        hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")
+        for toolset in toolsets
+    ):
+        raise RuntimeError(
+            "prebuilt served agents cannot bind MCP toolsets; use the "
+            "governed agent factory"
+        )
+    if hasattr(agent_instance, "toolsets"):
+        apply_tool_guard_approvals(agent_instance)
+    return agent_instance, initialized_mcp_toolsets
+
+
+def _skill_directories(
+    custom_skills_directory: str | None, skill_types: list[str] | None
+) -> list[Any]:
+    """Resolve the configured skill directories for one app construction."""
+    skill_dirs: list[Any] = []
+    _skill_types = skill_types or []
+    from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
+
+    if DEFAULT_VALIDATION_MODE:
+        return skill_dirs
+    if default_skills_path := get_skills_path():
+        skill_dirs.extend(default_skills_path)
+
+    if "universal" in _skill_types:
+        try:
+            from universal_skills.skill_utilities import (  # type: ignore
+                get_universal_skills_path,
+            )
+
+            skill_dirs.extend(get_universal_skills_path())
+        except ImportError:
+            pass
+
+    if "graphs" in _skill_types:
+        try:
+            from skill_graphs.skill_graph_utilities import (  # type: ignore
+                get_skill_graphs_path,
+            )
+
+            skill_dirs.extend(get_skill_graphs_path())
+        except ImportError:
+            logger.debug("skill-graphs package not found.")
+
+    if custom_skills_directory and os.path.exists(custom_skills_directory):
+        skill_dirs.append(custom_skills_directory)
+    return skill_dirs
+
+
+def _load_enabled_skills(skill_dirs: list[Any]) -> list[Any]:
+    """Load skill definitions and apply their ``ENABLE_*`` switches."""
+    skills_list: list[Any] = []
+    for directory in skill_dirs:
+        skills_list.extend(load_skills_from_directory(directory))
+
+    enabled_skills: list[Any] = []
+    for skill in skills_list:
+        skill_id = skill.id if hasattr(skill, "id") else skill.get("id")
+        if skill_id:
+            env_var = f"ENABLE_{skill_id.upper().replace('-', '_')}"
+            if setting(env_var, "true").lower() != "false":
+                enabled_skills.append(skill)
+    return enabled_skills
+
+
+def _ensure_fallback_skills(
+    skills_list: list[Any],
+    *,
+    graph_bundle: tuple[Any, ...] | None,
+    initialized_mcp_toolsets: list[Any],
+    name: str,
+) -> list[Any]:
+    """Provide a graph planner or generic skill when none were configured."""
+    if skills_list:
+        return skills_list
+
+    if graph_bundle is not None:
+        try:
+            from ..protocols.a2a_graph_skill import PlannerGraphSkill
+
+            graph_obj, graph_config = graph_bundle
+            skills_list.append(
+                PlannerGraphSkill(
+                    graph=graph_obj,
+                    graph_config=graph_config,
+                    mcp_toolsets=initialized_mcp_toolsets,
+                    skill_id="planner",
+                    name=f"{name} Planner",
+                    description=f"Graph-backed planning agent for {name}",
+                    tags=["agent", "planner", "graph"],
+                )
+            )
+            logger.info(
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] "
+                "Registered PlannerGraphSkill as A2A-native skill"
+            )
+        except Exception as exc:
+            logger.warning(
+                "PlannerGraphSkill registration failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+
+    if skills_list:
+        return skills_list
+
+    from fasta2a import Skill
+
+    return [
+        Skill(
+            id="agent",
+            name=name,
+            description=f"General access to {name} tools",
+            tags=["agent"],
+            input_modes=["text"],
+            output_modes=["text"],
+        )
+    ]
+
+
+def _append_epistemic_skill(skills_list: list[Any], name: str) -> None:
+    """Advertise the shared KG's epistemic answer capability on the card.
+
+    CONCEPT:AU-KB-CURRENCY (A2A projection, ``04-five-intersections.md`` item
+    1/4: "no epistemic descriptors" on the AgentCard). The capability is
+    additive and available through the one shared engine KG.
+    """
+    from fasta2a import Skill
+
+    skills_list.append(
+        Skill(
+            id="epistemic-answer",
+            name=f"{name} Epistemic Answer",
+            description=(
+                "Answers epistemic_status/why/what_changed queries over the "
+                "shared knowledge graph: calibrated confidence, evidence/"
+                "source citations, belief justification trees, bitemporal "
+                "valid/tx history, and policy-redaction-aware provenance."
+            ),
+            tags=["epistemic", "provenance", "confidence", "kg"],
+            examples=[
+                "Why do you believe X?",
+                "What is the epistemic status of Y?",
+                "What changed about Z since last week?",
+            ],
+            input_modes=["text"],
+            output_modes=["text"],
+        )
+    )
+
+
+def _build_a2a_app(
+    *,
+    agent_instance: Any,
+    broker: str,
+    storage: str,
+    name: str,
+    skills: list[Any],
+    debug: bool | None,
+) -> Any:
+    """Build the native epistemic-graph A2A adapter."""
+    if broker != "epistemic_graph" or storage != "epistemic_graph":
+        raise ValueError(
+            "A2A_BROKER and A2A_STORAGE must both select 'epistemic_graph'"
+        )
+    from agent_utilities.protocols.a2a_epistemic import (
+        agent_to_epistemic_a2a,
+        build_epistemic_graph_a2a_backends,
+    )
+
+    native_broker, native_storage = build_epistemic_graph_a2a_backends(config)
+    return agent_to_epistemic_a2a(
+        agent_instance,
+        broker=native_broker,
+        storage=native_storage,
+        name=name,
+        description=DEFAULT_AGENT_DESCRIPTION,
+        version=__version__,
+        skills=skills,
+        debug=debug or False,
+    )
+
+
+def _http_listener_settings(
+    host: str | None, port: int | None, debug: bool | None
+) -> tuple[list[str], list[str]]:
+    """Resolve listener CORS/host settings and loopback defaults."""
+    origins, hosts = _http_boundary_settings(host)
+    loopback = _is_loopback_listener(host)
+    if debug and not loopback:
+        raise RuntimeError("Debug exception responses are restricted to loopback")
+    if not origins and loopback:
+        scheme = "https" if config.server_tls_certfile else "http"
+        listen_port = int(port or DEFAULT_PORT)
+        default_port = {"http": 80, "https": 443}[scheme]
+        suffix = "" if listen_port == default_port else f":{listen_port}"
+        origins = [
+            f"{scheme}://localhost{suffix}",
+            f"{scheme}://127.0.0.1{suffix}",
+            f"{scheme}://[::1]{suffix}",
+        ]
+    return origins, hosts
+
+
+def _create_fastapi_app(
+    *,
+    origins: list[str],
+    name: str,
+    agent_description: str | None,
+    agent_emoji: str,
+    debug: bool | None,
+    lifespan: Callable[..., Any],
+) -> FastAPI:
+    """Create the base FastAPI app and install CORS before its middleware."""
+    app = FastAPI(
+        title=f"{agent_emoji} {name} - Agent Server",
+        description=agent_description or "",
+        version=__version__,
+        debug=debug or False,
+        lifespan=lifespan,
+        openapi_tags=[
+            {"name": "Core", "description": "Essential agent lifecycle endpoints"},
+            {
+                "name": "Agent UI",
+                "description": "Standard AG-UI and streaming protocols",
+            },
+            {
+                "name": "Interoperability",
+                "description": "A2A and external bridge endpoints",
+            },
+        ],
+    )
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=config.cors_allow_credentials,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-Agent-Model-Id"],
+        )
+    return app
+
+
+def _install_model_override_middleware(app: FastAPI) -> None:
+    """Install the per-request model override validation boundary."""
+
+    @app.middleware("http")
+    async def _model_override_middleware(request: Request, call_next):
+        from ..graph.state import REQUESTED_MODEL_ID_CTX
+
+        values = [
+            value
+            for key, value in request.scope.get("headers", ())
+            if key.lower() == b"x-agent-model-id"
+        ]
+        if len(values) > 1:
+            return JSONResponse(
+                {"error": "invalid model override"},
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
+        try:
+            header_value = values[0].decode("ascii") if values else None
+        except UnicodeDecodeError:
+            header_value = None
+            valid = False
+        else:
+            # An empty header value (``x-agent-model-id: ``) is treated the
+            # same as the header being absent entirely.
+            if header_value == "":
+                header_value = None
+            valid = header_value is None or bool(_MODEL_ID_RE.fullmatch(header_value))
+        if not valid:
+            return JSONResponse(
+                {"error": "invalid model override"},
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
+        request.state.requested_model_id = header_value
+        token = REQUESTED_MODEL_ID_CTX.set(header_value)
+        try:
+            return await call_next(request)
+        finally:
+            REQUESTED_MODEL_ID_CTX.reset(token)
+
+
+def _configure_app_state(
+    app: FastAPI,
+    *,
+    agent_instance: Any,
+    initialized_mcp_toolsets: list[Any],
+    graph_bundle: tuple[Any, ...] | None,
+    name: str,
+    mcp_config: str | None,
+    registry: Any | None,
+    provider: str | None,
+    model_id: str | None,
+    base_url: str | None,
+) -> Any:
+    """Attach runtime state and resolve the model registry."""
+    app.state.reload_app = None
+    resolved_registry = resolve_model_registry(
+        registry=registry,
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+    )
+    app.state.model_registry = resolved_registry
+    app.state.agent_instance = agent_instance
+    app.state.mcp_toolsets = initialized_mcp_toolsets
+    app.state.graph_bundle = graph_bundle
+    app.state.agent_name = name
+    app.state.mcp_config = mcp_config
+    app.state.concurrency_manager = AsyncioConcurrencyManager()
+    logger.info(
+        "Model registry bootstrapped with %d model(s)",
+        len(resolved_registry.models),
+    )
+    if graph_bundle is not None and len(resolved_registry.models) > 0:
+        _graph_obj, graph_config = graph_bundle
+        if isinstance(graph_config, dict):
+            graph_config.setdefault("model_registry", resolved_registry)
+    return resolved_registry
+
+
+def _include_gateway_routers(app: FastAPI) -> None:
+    """Mount the core, protocol, gateway, and benchmark router surfaces."""
+    app.include_router(core.router)
+    app.include_router(agent_ui.router)
+    app.include_router(interop.router)
+    # REST twin of the MCP fleet catalog meta-tools (`list_catalog` /
+    # `multiplexer_status`) — GOC-60-W03, closing the dispatchable catalog
+    # truth (/api/mcp/catalog, /api/mcp/status).
+    app.include_router(mcp_catalog.router)
+    # ARD registry surface (ECO-4.95): /.well-known/ai-catalog.json + /search.
+    # Mount before the optional SPA "/" mount so the well-known path resolves.
+    app.include_router(ard.router)
+    app.include_router(human.router)
+    app.include_router(commands.router)
+    # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK provider-normalizing
+    # proxy (/api/proxy/{provider}/stream).
+    app.include_router(proxy.router)
+
+    # CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable
+    # Artifacts (/api/artifacts...).
+    from agent_utilities.gateway.artifacts_api import artifacts_router
+    from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
+        install_kg_artifact_source,
+    )
+
+    app.include_router(artifacts_router)
+    install_kg_artifact_source()
+
+    # CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S
+    # validation harness (Quarq HTTP runner compatible).
+    from .routers import benchmark
+
+    app.include_router(benchmark.router)
+    # CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 —
+    # developer-workspace runtime HTTP surface (/api/runtime/*).
+    from .routers import runtime as runtime_router
+
+    app.include_router(runtime_router.router)
+    # SWE-bench harness + failure-driven remediation (AHE-3.22 / AHE-3.23).
+    from .routers import swebench as swebench_router
+
+    app.include_router(swebench_router.router)
+    # CONCEPT:AU-ECO.connector.git-task-resolver — git issue/PR -> SWE task
+    # resolver + webhook ingress.
+    from .routers import git_webhooks as git_router
+
+    app.include_router(git_router.router)
+    try:
+        from agent_utilities.gateway.api import dashboard_router
+        from agent_utilities.gateway.graph_api import register_graph_routes
+        from agent_utilities.gateway.usage_api import usage_router
+
+        app.include_router(dashboard_router, prefix="/api/dashboard")
+        register_graph_routes(app, prefix="/api")
+        # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/
+        # observability surface for all 3 UIs.
+        app.include_router(usage_router, prefix="/api/observability")
+        logger.info(
+            "Mounted centralized Gateway API "
+            "(Dashboard + Knowledge Graph + Observability)"
+        )
+    except ImportError as exc:
+        logger.error(
+            "Failed to load Gateway APIs (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
+def _mount_web_ui(
+    app: FastAPI,
+    *,
+    enable_web_ui: bool | None,
+    custom_web_app: Callable[[Any], Any] | None,
+    custom_web_mount_path: str,
+    agent_instance: Any,
+    identity_meta: dict[str, Any],
+    name: str,
+    html_source: str | Path | None,
+    resolved_registry: Any,
+    reload_callback: Callable[[], Any],
+) -> bool:
+    """Mount a custom UI or the governed standalone agent-web UI.
+
+    The WebUI dispatches every fleet MCP tool through a host-injected
+    delegation seam and refuses (501) without one.
+    CONCEPT:AU-ECO.mcp.webui-governed-mcp-delegation
+    The voice endpoint follows the same rule.
+    CONCEPT:AU-ECO.mcp.webui-voice-transcription-delegation
+    """
+    if enable_web_ui is None:
+        enable_web_ui = to_boolean(setting("ENABLE_WEB_UI", "False"))
+
+    if custom_web_app is not None:
+        app.mount(custom_web_mount_path, custom_web_app(agent_instance))
+        logger.info("Mounted custom web UI")
+    elif enable_web_ui:
+        try:
+            from .routers import enhanced
+
+            app.include_router(enhanced.router)
+            from agent_webui.server import create_agent_web_app
+
+            from agent_utilities.core.chat_persistence import (
+                delete_chat_from_disk,
+                get_chat_from_disk,
+                list_chats_from_disk,
+                save_chat_to_disk,
+            )
+            from agent_utilities.core.scheduler import get_cron_logs, get_cron_tasks
+            from agent_utilities.core.workspace import (
+                get_agent_icon_path,
+                get_workspace_path,
+                initialize_workspace,
+                list_workspace_files,
+                load_workspace_file,
+                write_md_file,
+                write_workspace_file,
+            )
+
+            helpers: dict[str, Any] = {
+                "agent_name": name,
+                "agent_description": identity_meta.get(
+                    "description", DEFAULT_AGENT_DESCRIPTION
+                ),
+                "agent_emoji": identity_meta.get("emoji", "🤖"),
+                "get_workspace_path": get_workspace_path,
+                "load_workspace_file": load_workspace_file,
+                "write_workspace_file": write_workspace_file,
+                "write_md_file": write_md_file,
+                "list_workspace_files": list_workspace_files,
+                "initialize_workspace": initialize_workspace,
+                "list_skills": _graph_native_list_skills,
+                "get_cron_calendar": get_cron_tasks,
+                "get_cron_logs": get_cron_logs,
+                "get_agent_icon_path": get_agent_icon_path,
+                "save_chat": save_chat_to_disk,
+                "list_chats": list_chats_from_disk,
+                "get_chat": get_chat_from_disk,
+                "delete_chat": delete_chat_from_disk,
+                "reload_callback": reload_callback,
+            }
+            from .webui_mcp_delegation import webui_mcp_delegation_helpers
+
+            helpers.update(webui_mcp_delegation_helpers())
+            from .webui_voice_delegation import webui_voice_delegation_helpers
+
+            helpers.update(webui_voice_delegation_helpers())
+            web_app = create_agent_web_app(
+                agent_instance,
+                workspace_helpers=helpers,
+                html_source=html_source,
+            )
+            web_app.state.reload_app = None
+            web_app.state.model_registry = resolved_registry
+            app.mount("/", web_app)
+            logger.debug("Mounted new standalone agent-web UI dashboard at /")
+        except ImportError:
+            logger.error("agent-web package not found. Enhanced UI dashboard disabled.")
+    return enable_web_ui
+
+
+def _add_http_middleware(
+    app: FastAPI,
+    *,
+    origins: list[str],
+    hosts: list[str],
+    effective_rate: float,
+) -> None:
+    """Install request-size, auth, origin, host, and optional TLS middleware."""
+    from agent_utilities.security.request_identity import HEALTH_PATHS
+
+    app.add_middleware(
+        BoundedRequestBodyMiddleware,
+        max_bytes=config.max_upload_size,
+    )
+    app.add_middleware(
+        AuthenticationBoundaryMiddleware,
+        exempt_paths=HEALTH_PATHS,
+    )
+    if effective_rate > 0:
+        app.add_middleware(
+            GatewayRateLimitMiddleware,
+            rate=effective_rate,
+            burst=(config.gateway_rate_burst or None),
+        )
+    app.add_middleware(OriginPolicyMiddleware, allowed_origins=origins)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+    if config.server_tls_terminated:
+        from agent_utilities.security.http_boundary import TrustedProxyPeerMiddleware
+
+        app.add_middleware(
+            TrustedProxyPeerMiddleware,
+            trusted_cidrs=config.server_trusted_proxy_cidrs,
+        )
+
+
 def build_agent_app(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -240,8 +850,6 @@ def build_agent_app(
     a2a_config: str | None = DEFAULT_A2A_CONFIG,
 ) -> FastAPI:
     """Construct and configure a complete Agent FastAPI application."""
-    from fasta2a import Skill
-
     _name = name or DEFAULT_AGENT_NAME
 
     if enable_acp:
@@ -260,212 +868,51 @@ def build_agent_app(
 
     def app_factory() -> FastAPI:
         nonlocal enable_otel, enable_web_ui
-        skill_dirs = []
-
-        if enable_otel is None:
-            enable_otel = to_boolean(setting("ENABLE_OTEL", "False"))
-
-        if enable_otel:
-            setup_otel(
-                _name,
-                endpoint=otel_endpoint,
-                headers=otel_headers,
-                public_key=otel_public_key,
-                secret_key=otel_secret_key,
-                protocol=otel_protocol,
-            )
-
-        # CONCEPT:AU-OS.observability.telemetry-observability (X2) — the standard-env-var
-        # OTLP pipeline (TelemetryEngine) is independent of the ``ENABLE_OTEL``-gated
-        # Logfire/Langfuse pipeline above: it self-gates purely on
-        # OTEL_EXPORTER_OTLP_ENDPOINT/OTEL_SERVICE_NAME/OTEL_TRACES_EXPORTER (falling
-        # back to EPISTEMIC_GRAPH_OBS_ADDR), so it is triggered unconditionally here —
-        # this app-construction call is the ONE gateway-side bootstrap site, never
-        # per-request setup.
-        try:
-            from agent_utilities.observability import get_telemetry_engine
-
-            configured = get_telemetry_engine().is_otel_configured()
-            logger.info(
-                "Gateway OTLP trace export (standard env vars): %s",
-                "enabled" if configured else "disabled",
-            )
-        except Exception as exc:  # noqa: BLE001 - observability cannot prevent serving
-            logger.warning(
-                "Gateway TelemetryEngine OTel setup failed (exception_type=%s)",
-                type(exc).__name__,
-            )
-
+        enable_otel = _configure_observability(
+            enable_otel,
+            name=_name,
+            endpoint=otel_endpoint,
+            headers=otel_headers,
+            public_key=otel_public_key,
+            secret_key=otel_secret_key,
+            protocol=otel_protocol,
+        )
         identity_meta = load_identity()
         _agent_description = identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION)
         _agent_emoji = identity_meta.get("emoji", "🤖")
-
-        _agent_instance = agent_instance
-        _initialized_mcp_toolsets: list[Any] = []
-        if _agent_instance is None:
-            _agent_instance, _initialized_mcp_toolsets = create_agent(
-                provider=provider,
-                model_id=model_id,
-                base_url=base_url,
-                api_key=api_key,
-                mcp_url=mcp_url,
-                mcp_config=mcp_config,
-                custom_skills_directory=custom_skills_directory,
-                name=_name,
-                system_prompt=system_prompt,
-                debug=debug,
-                skill_types=skill_types,
-                graph_bundle=graph_bundle,
-                isolate_mcp=isolate_mcp,
-                mcp_toolsets=mcp_toolsets,
-            )
-        else:
-            from agent_utilities.security.tool_guard import (
-                apply_tool_guard_approvals,
-            )
-
-            toolsets = list(getattr(_agent_instance, "toolsets", ()) or ())
-            if any(
-                hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")
-                for toolset in toolsets
-            ):
-                raise RuntimeError(
-                    "prebuilt served agents cannot bind MCP toolsets; use the "
-                    "governed agent factory"
-                )
-            if hasattr(_agent_instance, "toolsets"):
-                apply_tool_guard_approvals(_agent_instance)
-
-        _skill_types = skill_types or []
-        from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
-
-        if not DEFAULT_VALIDATION_MODE and (default_skills_path := get_skills_path()):
-            skill_dirs.extend(default_skills_path)
-
-        if not DEFAULT_VALIDATION_MODE:
-            if "universal" in _skill_types:
-                try:
-                    from universal_skills.skill_utilities import (
-                        get_universal_skills_path,  # type: ignore
-                    )
-
-                    skill_dirs.extend(get_universal_skills_path())
-                except ImportError:
-                    pass
-
-            if "graphs" in _skill_types:
-                try:
-                    from skill_graphs.skill_graph_utilities import (
-                        get_skill_graphs_path,  # type: ignore
-                    )
-
-                    skill_dirs.extend(get_skill_graphs_path())
-                except ImportError:
-                    logger.debug("skill-graphs package not found.")
-
-            if custom_skills_directory and os.path.exists(custom_skills_directory):
-                skill_dirs.append(custom_skills_directory)
-
-        skills_list = []
-        for d in skill_dirs:
-            skills_list.extend(load_skills_from_directory(d))
-
-        enabled_skills = []
-        for s in skills_list:
-            sid = s.id if hasattr(s, "id") else s.get("id")
-            if sid:
-                env_var = f"ENABLE_{sid.upper().replace('-', '_')}"
-                if setting(env_var, "true").lower() != "false":
-                    enabled_skills.append(s)
-        skills_list = enabled_skills
-
-        if not skills_list:
-            # CONCEPT:AU-ECO.messaging.native-backend-abstraction — Register PlannerGraphSkill when graph_bundle is available
-            if graph_bundle is not None:
-                try:
-                    from ..protocols.a2a_graph_skill import PlannerGraphSkill
-
-                    _graph_obj, _graph_cfg = graph_bundle
-                    planner_skill = PlannerGraphSkill(
-                        graph=_graph_obj,
-                        graph_config=_graph_cfg,
-                        mcp_toolsets=_initialized_mcp_toolsets,
-                        skill_id="planner",
-                        name=f"{_name} Planner",
-                        description=f"Graph-backed planning agent for {_name}",
-                        tags=["agent", "planner", "graph"],
-                    )
-                    skills_list.append(planner_skill)
-                    logger.info(
-                        "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Registered PlannerGraphSkill as A2A-native skill"
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "PlannerGraphSkill registration failed (exception_type=%s)",
-                        type(exc).__name__,
-                    )
-
-            if not skills_list:
-                skills_list = [
-                    Skill(
-                        id="agent",
-                        name=_name,
-                        description=f"General access to {_name} tools",
-                        tags=["agent"],
-                        input_modes=["text"],
-                        output_modes=["text"],
-                    )
-                ]
-
-        # CONCEPT:AU-KB-CURRENCY (A2A projection, `04-five-intersections.md`
-        # item 1/4: "no epistemic descriptors" on the AgentCard). Advertised
-        # unconditionally and additively (never replaces the skills a
-        # deployment already registers above) — every agent-utilities server
-        # shares the SAME one-engine KG, so `epistemic_status`/`why`/
-        # `what_changed` over it (the `graph-query-and-explanation` skill's
-        # `explain_provenance_by_ids`/`explain_belief`/`epistemic_status`/
-        # `explain_policy` actions) is a real, already-implemented
-        # capability of every deployment, not an aspirational one.
-        skills_list.append(
-            Skill(
-                id="epistemic-answer",
-                name=f"{_name} Epistemic Answer",
-                description=(
-                    "Answers epistemic_status/why/what_changed queries over the "
-                    "shared knowledge graph: calibrated confidence, evidence/"
-                    "source citations, belief justification trees, bitemporal "
-                    "valid/tx history, and policy-redaction-aware provenance."
-                ),
-                tags=["epistemic", "provenance", "confidence", "kg"],
-                examples=[
-                    "Why do you believe X?",
-                    "What is the epistemic status of Y?",
-                    "What changed about Z since last week?",
-                ],
-                input_modes=["text"],
-                output_modes=["text"],
-            )
-        )
-
-        if a2a_broker != "epistemic_graph" or a2a_storage != "epistemic_graph":
-            raise ValueError(
-                "A2A_BROKER and A2A_STORAGE must both select 'epistemic_graph'"
-            )
-        from agent_utilities.protocols.a2a_epistemic import (
-            agent_to_epistemic_a2a,
-            build_epistemic_graph_a2a_backends,
-        )
-
-        native_broker, native_storage = build_epistemic_graph_a2a_backends(config)
-        a2a_app = agent_to_epistemic_a2a(
-            _agent_instance,
-            broker=native_broker,
-            storage=native_storage,
+        _agent_instance, _initialized_mcp_toolsets = _initialize_agent(
+            agent_instance=agent_instance,
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            mcp_url=mcp_url,
+            mcp_config=mcp_config,
+            custom_skills_directory=custom_skills_directory,
             name=_name,
-            description=DEFAULT_AGENT_DESCRIPTION,
-            version=__version__,
+            system_prompt=system_prompt,
+            debug=debug,
+            skill_types=skill_types,
+            graph_bundle=graph_bundle,
+            isolate_mcp=isolate_mcp,
+            mcp_toolsets=mcp_toolsets,
+        )
+        skill_dirs = _skill_directories(custom_skills_directory, skill_types)
+        skills_list = _load_enabled_skills(skill_dirs)
+        skills_list = _ensure_fallback_skills(
+            skills_list,
+            graph_bundle=graph_bundle,
+            initialized_mcp_toolsets=_initialized_mcp_toolsets,
+            name=_name,
+        )
+        _append_epistemic_skill(skills_list, _name)
+        a2a_app = _build_a2a_app(
+            agent_instance=_agent_instance,
+            broker=a2a_broker,
+            storage=a2a_storage,
+            name=_name,
             skills=skills_list,
-            debug=debug or False,
+            debug=debug,
         )
 
         @asynccontextmanager
@@ -616,50 +1063,16 @@ def build_agent_app(
                 except asyncio.CancelledError:
                     pass
 
-        _origins, _hosts = _http_boundary_settings(host)
-        if debug and not _is_loopback_listener(host):
-            raise RuntimeError("Debug exception responses are restricted to loopback")
-        if not _origins and _is_loopback_listener(host):
-            scheme = "https" if config.server_tls_certfile else "http"
-            listen_port = int(port or DEFAULT_PORT)
-            default_port = {"http": 80, "https": 443}[scheme]
-            suffix = "" if listen_port == default_port else f":{listen_port}"
-            _origins = [
-                f"{scheme}://localhost{suffix}",
-                f"{scheme}://127.0.0.1{suffix}",
-                f"{scheme}://[::1]{suffix}",
-            ]
-        app = FastAPI(
-            title=f"{_agent_emoji} {_name} - Agent Server",
-            description=_agent_description or "",
-            version=__version__,
-            debug=debug or False,
+        _origins, _hosts = _http_listener_settings(host, port, debug)
+        app = _create_fastapi_app(
+            origins=_origins,
+            name=_name,
+            agent_description=_agent_description,
+            agent_emoji=_agent_emoji,
+            debug=debug,
             lifespan=lifespan,
-            openapi_tags=[
-                {"name": "Core", "description": "Essential agent lifecycle endpoints"},
-                {
-                    "name": "Agent UI",
-                    "description": "Standard AG-UI and streaming protocols",
-                },
-                {
-                    "name": "Interoperability",
-                    "description": "A2A and external bridge endpoints",
-                },
-            ],
         )
-
-        if _origins:
-            app.add_middleware(
-                CORSMiddleware,
-                allow_origins=_origins,
-                allow_credentials=config.cors_allow_credentials,
-                allow_methods=["GET", "POST", "OPTIONS"],
-                allow_headers=[
-                    "Authorization",
-                    "Content-Type",
-                    "X-Agent-Model-Id",
-                ],
-            )
+        _install_model_override_middleware(app)
 
         effective_rate = (
             config.gateway_rate_limit
@@ -667,267 +1080,40 @@ def build_agent_app(
             else (50.0 if not _is_loopback_listener(host) else 0.0)
         )
 
-        @app.middleware("http")
-        async def _model_override_middleware(request: Request, call_next):
-            from ..graph.state import REQUESTED_MODEL_ID_CTX
-
-            values = [
-                value
-                for key, value in request.scope.get("headers", ())
-                if key.lower() == b"x-agent-model-id"
-            ]
-            if len(values) > 1:
-                return JSONResponse(
-                    {"error": "invalid model override"},
-                    status_code=400,
-                    headers={"Cache-Control": "no-store"},
-                )
-            try:
-                header_value = values[0].decode("ascii") if values else None
-            except UnicodeDecodeError:
-                header_value = None
-                valid = False
-            else:
-                # An empty header value (``x-agent-model-id: ``) is treated the
-                # same as the header being absent entirely, not as an invalid
-                # model id -- ``_MODEL_ID_RE`` requires at least one character,
-                # so without this coercion an empty value would 400 instead of
-                # falling back to the default model.
-                if header_value == "":
-                    header_value = None
-                valid = header_value is None or bool(
-                    _MODEL_ID_RE.fullmatch(header_value)
-                )
-            if not valid:
-                return JSONResponse(
-                    {"error": "invalid model override"},
-                    status_code=400,
-                    headers={"Cache-Control": "no-store"},
-                )
-            request.state.requested_model_id = header_value
-            token = REQUESTED_MODEL_ID_CTX.set(header_value)
-            try:
-                return await call_next(request)
-            finally:
-                REQUESTED_MODEL_ID_CTX.reset(token)
-
-        app.state.reload_app = None
-
-        _resolved_registry = resolve_model_registry(
+        _resolved_registry = _configure_app_state(
+            app,
+            agent_instance=_agent_instance,
+            initialized_mcp_toolsets=_initialized_mcp_toolsets,
+            graph_bundle=graph_bundle,
+            name=_name,
+            mcp_config=mcp_config,
             registry=model_registry,
             provider=provider,
             model_id=model_id,
             base_url=base_url,
         )
-        app.state.model_registry = _resolved_registry
 
-        # Share variables with routers
-        app.state.agent_instance = _agent_instance
-        app.state.mcp_toolsets = _initialized_mcp_toolsets
-        app.state.graph_bundle = graph_bundle
-        app.state.agent_name = _name
-        app.state.mcp_config = mcp_config
-
-        # OS-5.3 process-local run coordination is separate from the durable
-        # native A2A broker.  No removed Redis broker shape is detected here.
-        app.state.concurrency_manager = AsyncioConcurrencyManager()
-
-        logger.info(
-            "Model registry bootstrapped with %d model(s)",
-            len(_resolved_registry.models),
-        )
-        if graph_bundle is not None and len(_resolved_registry.models) > 0:
-            _graph_obj, _graph_cfg = graph_bundle
-            if isinstance(_graph_cfg, dict):
-                _graph_cfg.setdefault("model_registry", _resolved_registry)
-
-        app.include_router(core.router)
-        app.include_router(agent_ui.router)
-        app.include_router(interop.router)
-        # REST twin of the MCP fleet catalog meta-tools (`list_catalog` /
-        # `multiplexer_status`) — GOC-60-W03, closing agent-utilities' own
-        # "Two surfaces by default" gap for the multiplexer's dispatchable
-        # truth (/api/mcp/catalog, /api/mcp/status).
-        app.include_router(mcp_catalog.router)
-        # ARD registry surface (ECO-4.95): /.well-known/ai-catalog.json + /search.
-        # Mounted before the optional SPA "/" mount so the well-known path resolves.
-        app.include_router(ard.router)
-        app.include_router(human.router)
-        app.include_router(commands.router)
-        # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK provider-normalizing proxy (/api/proxy/{provider}/stream).
-        app.include_router(proxy.router)
-        # CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifacts (/api/artifacts...).
-        from agent_utilities.gateway.artifacts_api import artifacts_router
-        from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
-            install_kg_artifact_source,
-        )
-
-        app.include_router(artifacts_router)
-        # Wire artifact refresh to re-derive from the live KG (falls back to preserve-prior on failure).
-        install_kg_artifact_source()
-        # CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S validation harness (Quarq HTTP runner compatible).
-        from .routers import benchmark
-
-        app.include_router(benchmark.router)
-
-        # CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 — developer-workspace runtime HTTP surface
-        # (/api/runtime/* — create session, post typed actions, SSE the event log).
-        from .routers import runtime as runtime_router
-
-        app.include_router(runtime_router.router)
-
-        # SWE-bench harness + failure-driven remediation (AHE-3.22 / AHE-3.23).
-        from .routers import swebench as swebench_router
-
-        app.include_router(swebench_router.router)
-
-        # CONCEPT:AU-ECO.connector.git-task-resolver — git issue/PR -> SWE task resolver + webhook ingress.
-        from .routers import git_webhooks as git_router
-
-        app.include_router(git_router.router)
-
-        try:
-            from agent_utilities.gateway.api import dashboard_router
-            from agent_utilities.gateway.graph_api import register_graph_routes
-            from agent_utilities.gateway.usage_api import usage_router
-
-            app.include_router(dashboard_router, prefix="/api/dashboard")
-            # The full Knowledge Graph REST surface is centralized here (graph-os
-            # MCP is now a thin FastMCP wrapper). Routes are mounted under /api/*.
-            register_graph_routes(app, prefix="/api")
-            # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/observability surface for all 3 UIs.
-            app.include_router(usage_router, prefix="/api/observability")
-            logger.info(
-                "Mounted centralized Gateway API "
-                "(Dashboard + Knowledge Graph + Observability)"
-            )
-        except ImportError as exc:
-            logger.error(
-                "Failed to load Gateway APIs (exception_type=%s)",
-                type(exc).__name__,
-            )
-
+        _include_gateway_routers(app)
         app.mount("/a2a", a2a_app)
-
-        if enable_web_ui is None:
-            enable_web_ui = to_boolean(setting("ENABLE_WEB_UI", "False"))
-
-        if custom_web_app is not None:
-            web_app = custom_web_app(_agent_instance)
-            app.mount(custom_web_mount_path, web_app)
-            logger.info("Mounted custom web UI")
-        elif enable_web_ui:
-            try:
-                from .routers import enhanced
-
-                app.include_router(enhanced.router)
-
-                from agent_webui.server import create_agent_web_app
-
-                from agent_utilities.core.chat_persistence import (
-                    delete_chat_from_disk,
-                    get_chat_from_disk,
-                    list_chats_from_disk,
-                    save_chat_to_disk,
-                )
-                from agent_utilities.core.scheduler import get_cron_logs, get_cron_tasks
-                from agent_utilities.core.workspace import (
-                    get_agent_icon_path,
-                    get_workspace_path,
-                    initialize_workspace,
-                    list_workspace_files,
-                    load_workspace_file,
-                    write_md_file,
-                    write_workspace_file,
-                )
-
-                helpers: dict[str, Any] = {
-                    "agent_name": _name,
-                    "agent_description": identity_meta.get(
-                        "description", DEFAULT_AGENT_DESCRIPTION
-                    ),
-                    "agent_emoji": identity_meta.get("emoji", "🤖"),
-                    "get_workspace_path": get_workspace_path,
-                    "load_workspace_file": load_workspace_file,
-                    "write_workspace_file": write_workspace_file,
-                    "write_md_file": write_md_file,
-                    "list_workspace_files": list_workspace_files,
-                    "initialize_workspace": initialize_workspace,
-                    "list_skills": _graph_native_list_skills,
-                    "get_cron_calendar": get_cron_tasks,
-                    "get_cron_logs": get_cron_logs,
-                    "get_agent_icon_path": get_agent_icon_path,
-                    "save_chat": save_chat_to_disk,
-                    "list_chats": list_chats_from_disk,
-                    "get_chat": get_chat_from_disk,
-                    "delete_chat": delete_chat_from_disk,
-                    "reload_callback": lambda: (
-                        reloadable.reload() if reloadable else None
-                    ),
-                }
-                # The WebUI dispatches every fleet MCP tool through a
-                # host-injected delegation seam and refuses (501) without one.
-                # CONCEPT:AU-ECO.mcp.webui-governed-mcp-delegation
-                from .webui_mcp_delegation import webui_mcp_delegation_helpers
-
-                helpers.update(webui_mcp_delegation_helpers())
-
-                # Same shape, for POST /voice/transcribe: refuses (501)
-                # without a host-injected transcribe_voice helper.
-                # CONCEPT:AU-ECO.mcp.webui-voice-transcription-delegation
-                from .webui_voice_delegation import webui_voice_delegation_helpers
-
-                helpers.update(webui_voice_delegation_helpers())
-
-                # Pydantic AI always includes the Agent's configured model.
-                # Passing the same model again as a provider string would create
-                # a second provider client and bypass this Agent's already-bound
-                # credentials/model wrapper during WebUI startup.
-                web_app = create_agent_web_app(
-                    _agent_instance,
-                    workspace_helpers=helpers,
-                    html_source=html_source,
-                )
-
-                web_app.state.reload_app = None
-                web_app.state.model_registry = _resolved_registry
-                app.mount("/", web_app)
-                logger.debug("Mounted new standalone agent-web UI dashboard at /")
-            except ImportError:
-                logger.error(
-                    "agent-web package not found. Enhanced UI dashboard disabled."
-                )
-
-        # Add these last so Starlette places them outside every router,
-        # middleware installed by the centralized graph API, and mounted
-        # A2A/ACP/custom application. Route dependencies do not cover mounts.
-        from agent_utilities.security.request_identity import HEALTH_PATHS
-
-        app.add_middleware(
-            BoundedRequestBodyMiddleware,
-            max_bytes=config.max_upload_size,
+        enable_web_ui = _mount_web_ui(
+            app,
+            enable_web_ui=enable_web_ui,
+            custom_web_app=custom_web_app,
+            custom_web_mount_path=custom_web_mount_path,
+            agent_instance=_agent_instance,
+            identity_meta=identity_meta,
+            name=_name,
+            html_source=html_source,
+            resolved_registry=_resolved_registry,
+            reload_callback=lambda: reloadable.reload() if reloadable else None,
         )
-        app.add_middleware(
-            AuthenticationBoundaryMiddleware,
-            exempt_paths=HEALTH_PATHS,
-        )
-        if effective_rate > 0:
-            app.add_middleware(
-                GatewayRateLimitMiddleware,
-                rate=effective_rate,
-                burst=(config.gateway_rate_burst or None),
-            )
-        app.add_middleware(OriginPolicyMiddleware, allowed_origins=_origins)
-        app.add_middleware(TrustedHostMiddleware, allowed_hosts=_hosts)
-        if config.server_tls_terminated:
-            from agent_utilities.security.http_boundary import (
-                TrustedProxyPeerMiddleware,
-            )
 
-            app.add_middleware(
-                TrustedProxyPeerMiddleware,
-                trusted_cidrs=config.server_trusted_proxy_cidrs,
-            )
+        _add_http_middleware(
+            app,
+            origins=_origins,
+            hosts=_hosts,
+            effective_rate=effective_rate,
+        )
 
         return app
 
