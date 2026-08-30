@@ -422,7 +422,9 @@ def _has_git_entry(root: Path) -> bool:
 
 def _kept_scan_children(root: Path, junk_names: frozenset[str]) -> list[Path]:
     try:
-        children = sorted(root.iterdir())
+        children = sorted(
+            root.iterdir(), key=lambda child: (child.is_symlink(), child.name)
+        )
     except OSError as exc:
         _die(f"could not enumerate scan root {root}: {exc}")
     return [child for child in children if _keep_scan_child(child, junk_names)]
@@ -438,7 +440,57 @@ def _expand_roots(
     out: list[Path] = []
     for p in paths:
         out.extend(_repo_scan_targets(p, prune_directories))
-    return out
+    return _deduplicate_scan_targets(out)
+
+
+def _deduplicate_scan_targets(targets: Sequence[Path]) -> list[Path]:
+    """Keep one materialization of each real scan path.
+
+    A symlink supplied alongside its target makes jscpd read the same file
+    twice and can produce a false clone whose two locations are identical.
+    Compare resolved paths and drop targets covered by an already-kept root;
+    non-symlink paths are considered first so an alias cannot replace the
+    repository's decomposed children with a broad, metadata-containing root.
+    """
+    ordered = sorted(
+        enumerate(targets), key=lambda item: (item[1].is_symlink(), item[0])
+    )
+    kept: list[Path] = []
+    resolved_kept: list[Path] = []
+    for _, target in ordered:
+        resolved = _canonical_scan_target(target)
+        if target.is_symlink() and _has_git_entry(resolved):
+            continue
+        if any(
+            resolved == existing or resolved.is_relative_to(existing)
+            for existing in resolved_kept
+        ):
+            continue
+        if target.is_symlink() and any(
+            existing == resolved or existing.is_relative_to(resolved)
+            for existing in resolved_kept
+        ):
+            continue
+        if not target.is_symlink():
+            nested = [
+                index
+                for index, existing in enumerate(resolved_kept)
+                if existing.is_relative_to(resolved)
+            ]
+            if nested:
+                for index in reversed(nested):
+                    del kept[index]
+                    del resolved_kept[index]
+        kept.append(target)
+        resolved_kept.append(resolved)
+    return kept
+
+
+def _canonical_scan_target(path: Path) -> Path:
+    try:
+        return path.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError) as exc:
+        _die(f"could not resolve scan target {path}: {exc}")
 
 
 def run_jscpd(
@@ -725,6 +777,13 @@ def _validate_clone(
             roots=roots,
             format_name=format_name,
         )
+    if _is_identical_clone_location(
+        clone["firstFile"], clone["secondFile"], format_name
+    ):
+        _die(
+            f"{report_path} duplicate {index} is a self-pair: both locations "
+            "name the same file and line range"
+        )
 
 
 def _clone_mapping(index: int, clone: object, report_path: Path) -> dict:
@@ -830,6 +889,32 @@ def _validate_location_lines(
     end = location["endLoc"]["line"]
     if end < start:
         _die(f"{report_path} duplicate {index} has a reversed {side} range")
+
+
+def _is_identical_clone_location(
+    first: dict, second: dict, format_name: str
+) -> bool:
+    first_name = _report_file_path(first["name"], format_name)
+    second_name = _report_file_path(second["name"], format_name)
+    if Path(first_name).is_absolute() and Path(second_name).is_absolute():
+        same_file = _canonical_scan_target(Path(first_name)) == _canonical_scan_target(
+            Path(second_name)
+        )
+    else:
+        same_file = os.path.normpath(first_name) == os.path.normpath(second_name)
+    first_range = (
+        first.get("start"),
+        first.get("end"),
+        first["startLoc"],
+        first["endLoc"],
+    )
+    second_range = (
+        second.get("start"),
+        second.get("end"),
+        second["startLoc"],
+        second["endLoc"],
+    )
+    return same_file and first_range == second_range
 
 
 def _print_stats(

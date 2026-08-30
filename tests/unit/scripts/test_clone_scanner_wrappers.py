@@ -137,6 +137,22 @@ def test_jscpd_keeps_supported_dot_directories_but_prunes_git(tmp_path, scanner_
     assert ".git/config" not in files
 
 
+def test_jscpd_deduplicates_symlinked_scan_targets(tmp_path, scanner_config):
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    (root / "docs").mkdir()
+    (root / "docs" / "guide.md").write_text("# guide\n")
+    alias = root / "repo-alias"
+    alias.symlink_to(root, target_is_directory=True)
+
+    targets = jscpd._expand_roots([root], scanner_config.prune_directories)
+
+    assert alias not in targets
+    assert root / "docs" in targets
+    assert len({target.resolve() for target in targets}) == len(targets)
+
+
 def test_dupehound_json_parser_accepts_versioned_finding_shape():
     dupehound = _load_script("check_dupehound")
     findings = dupehound.parse_result(
@@ -189,6 +205,44 @@ def test_jscpd_report_parser_fails_closed_without_statistics():
         jscpd._validate_report({"duplicates": []}, Path("/tmp/jscpd-report.json"))
 
     assert raised.value.code == 2
+
+
+def test_jscpd_report_parser_rejects_identical_file_and_range_self_pair(tmp_path):
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    root.mkdir()
+    report = _valid_jscpd_report(root)
+    report["duplicates"][0]["secondFile"] = report["duplicates"][0]["firstFile"].copy()
+
+    with pytest.raises(SystemExit) as raised:
+        jscpd._validate_report(
+            report,
+            tmp_path / "report.json",
+            roots=[root],
+            formats=["python"],
+        )
+
+    assert raised.value.code == 2
+
+
+def test_jscpd_report_parser_keeps_different_range_intra_file_clone(tmp_path):
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    root.mkdir()
+    report = _valid_jscpd_report(root)
+    clone = report["duplicates"][0]
+    clone["secondFile"]["name"] = clone["firstFile"]["name"]
+    clone["secondFile"]["startLoc"] = {"line": 4}
+    clone["secondFile"]["endLoc"] = {"line": 4}
+
+    jscpd._validate_report(
+        report,
+        tmp_path / "report.json",
+        roots=[root],
+        formats=["python"],
+    )
+
+    assert len(jscpd._clone_keys(report, root)) == 1
 
 
 def _valid_jscpd_report(root: Path) -> dict:
