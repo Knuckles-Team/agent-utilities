@@ -206,6 +206,7 @@ _STATIC_REQUIRED_MEMBERS = {
     "scripts/release/assemble_exact_local_release.py",
     "scripts/release/check_compatibility.py",
     "scripts/release/exact_artifact_closure.py",
+    "scripts/release/exact_local_cli.py",
     "scripts/release/exact_local_gates_manifest.py",
     "scripts/release/generate_component_evidence.py",
     "scripts/release/generate_oci_acquisition_attestation.py",
