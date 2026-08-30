@@ -783,6 +783,178 @@ class RLMEnvironment:
             f"  Continue analyzing or output FINAL_VAR('result', value)."
         )
 
+    @staticmethod
+    def _extract_rlm_code(output_text: str) -> str | None:
+        """Extract the first Python fenced block from a model response."""
+        code_blocks = [
+            block.split("```")[0] for block in output_text.split("```python\n")[1:]
+        ]
+        return code_blocks[0] if code_blocks else None
+
+    def _build_rlm_initial_prompt(self, prompt: str) -> str:
+        """Build the first-turn prompt, including metadata and output contracts."""
+        if self.config.metadata_only_root and self.depth == 0:
+            initial_prompt = f"{prompt}\n\n{self._build_context_metadata()}"
+        else:
+            initial_prompt = prompt
+
+        # CONCEPT:AU-ORCH.session.structured-subagent-contracts (structured subagent contracts) — show the output
+        # contract before any code is written, so the model knows the exact
+        # shape it must return via FINAL_VAR.
+        if self.output_contract is not None:
+            initial_prompt = (
+                f"{initial_prompt}\n\n"
+                f"REQUIRED OUTPUT CONTRACT:\n"
+                f"You MUST call `FINAL_VAR('result', value)` with a value conforming to "
+                f"this JSON Schema:\n{self.output_contract.json_schema_str}"
+            )
+        return initial_prompt
+
+    def _build_rlm_turn_feedback(self, stdout: str, turn: int) -> str:
+        """Build the bounded feedback sent to the model after code execution."""
+        if self.config.metadata_only_root and self.depth == 0:
+            return self._build_stdout_metadata(stdout, turn)
+        return (
+            f"Execution STDOUT:\n{stdout[:2000]}\n\n"
+            f"Continue analyzing or output FINAL_VAR."
+        )
+
+    async def _execute_rlm_code(
+        self,
+        code: str,
+        response: Any,
+        prompt: str,
+        run_trace: RunTrace,
+    ) -> str:
+        """Execute one generated block and record its trace and trajectory."""
+        # CONCEPT:AU-ORCH.execution.typed-failure-classification — record this iteration; classify + re-raise on failure (fatal
+        # sandbox death still fast-fails) so the RunTrace captures the failure class.
+        try:
+            _, stdout = await self.execute(code)
+        except SandboxFatalError as exc:
+            run_trace.add_step(code=code, failure_class=classify_failure(exc))
+            run_trace.final_status = "failure"
+            raise
+        except Exception as exc:  # noqa: BLE001
+            run_trace.add_step(code=code, failure_class=classify_failure(exc))
+            run_trace.final_status = "failure"
+            raise
+
+        run_trace.add_step(
+            code=code,
+            output=str(stdout)[:2000],
+            finish_reason=str(getattr(response, "finish_reason", "") or "stop"),
+        )
+        self._persist_rlm_trajectory(prompt, code, stdout)
+        return stdout
+
+    def _persist_rlm_trajectory(self, prompt: str, code: str, stdout: str) -> None:
+        """Persist one successful RLM step to the configured graph stores."""
+        if self.config.trajectory_storage != "process_flow" or not self.graph_deps:
+            return
+
+        import time
+
+        from ..graph.client import create_or_merge_node
+        from ..graph.models import GraphNode
+        from ..models.knowledge_graph import ReasoningTraceNode, RegistryNodeType
+
+        node_id = f"rlm_trace_{time.time_ns()}"
+        trace_node = ReasoningTraceNode(
+            id=node_id,
+            type=RegistryNodeType.REASONING_TRACE,
+            name=f"RLM Depth {self.depth} Execution",
+            thought=prompt,
+            reflection=f"Code: {code}\nResult: {stdout[:500]}",
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+
+        # 1. In-Memory Graph persistence if engine exists
+        if (
+            hasattr(self.graph_deps, "knowledge_engine")
+            and self.graph_deps.knowledge_engine
+        ):
+            try:
+                self.graph_deps.knowledge_engine.graph.add_node(
+                    trace_node.id, **trace_node.to_graph_properties()
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to store RLM trajectory in-memory: {exc}")
+
+        # 2. Asynchronous/Persistent Graph DB persistence
+        try:
+            g_node = GraphNode(
+                id=trace_node.id,
+                labels=["ReasoningTrace"],
+                properties=trace_node.to_graph_properties(exclude_none=True),
+            )
+            # Schedule background/async write to persistent backend
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(create_or_merge_node(g_node))
+        except Exception as exc:
+            logger.warning(f"Failed to store RLM trajectory in DB backend: {exc}")
+
+    async def _run_rlm_turn(
+        self,
+        agent: Any,
+        initial_prompt: str,
+        history: list[Any],
+        turn: int,
+        model_settings: Any,
+        run_trace: RunTrace,
+        prompt: str,
+    ) -> tuple[list[Any], str, str | None, bool]:
+        """Run one model turn, execute its optional code, and return bounded output."""
+        run_prompt = initial_prompt if turn == 0 else None
+        if not run_prompt:
+            run_prompt = "Continue."
+        response = await self._run_model(
+            agent,
+            run_prompt,
+            message_history=history,
+            model_settings=model_settings,
+        )
+        next_history = response.all_messages()
+        self._record_usage(
+            _accumulate_root_usage(run_trace.usage, response)
+        )  # CONCEPT:AU-AHE.rlm.long-context-benchmark cost capture
+        output_text = response.output
+        code = self._extract_rlm_code(output_text)
+        if code is None:
+            return next_history, output_text, None, False
+        stdout = await self._execute_rlm_code(code, response, prompt, run_trace)
+        return next_history, output_text, stdout, True
+
+    def _finalize_rlm_output(
+        self,
+        fallback: str,
+        stdout: str | None,
+        run_trace: RunTrace,
+        code_executed: bool,
+    ) -> tuple[bool, Any]:
+        """Validate and return a FINAL value, or return feedback for a retry."""
+        if "__FINAL__" not in self.vars:
+            return False, None
+
+        final_var_name = self.vars["__FINAL__"]
+        validation_err = self._validate_outputs()
+        if validation_err:
+            # Clear FINAL_VAR so the LLM has to try again.
+            del self.vars["__FINAL__"]
+            if not code_executed:
+                return False, f"CRITICAL: {validation_err}"
+            return (
+                False,
+                f"Execution STDOUT:\n{stdout[:2000]}\n\nCRITICAL: {validation_err}",
+            )
+
+        if code_executed:
+            run_trace.final_status = (
+                "success"  # CONCEPT:AU-ORCH.execution.typed-failure-classification
+            )
+        return True, self._final_value(final_var_name, fallback)
+
     async def run_full_rlm(self, prompt: str) -> str:
         """The main RLM agent loop (Algorithm 1, Zhang et al. 2025).
 
@@ -813,19 +985,16 @@ class RLMEnvironment:
         # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — family-aware system prompt (the paper's "one prompt fails across
         # model families" failure mode); 'auto' infers the family from the root model id.
         repl_system_prompt = build_system_prompt(self.config.prompt_family, model_id)
-        agent = create_context_agent(
-            model=model_id,
-            system_prompt=repl_system_prompt,
-        )
+        agent = create_context_agent(model=model_id, system_prompt=repl_system_prompt)
 
         # CONCEPT:AU-ORCH.routing.depth-tiered-sampling — depth-tiered sampling. The root is the strong reasoner
         # (higher temperature for exploration); recursive sub-calls are deterministic executors
         # writing/running code (low temp + tight top_k). Mirrors the model_id depth split above.
         from agent_utilities.agent.sampling_profile import resolve_sampling_profile
 
-        _profile_role = "rlm-root" if self.depth == 0 else "rlm-executor"
-        _profile_settings = resolve_sampling_profile(
-            role=_profile_role
+        profile_role = "rlm-root" if self.depth == 0 else "rlm-executor"
+        profile_settings = resolve_sampling_profile(
+            role=profile_role
         ).to_model_settings({})
         try:
             # D-54c-4 — the RLM REPL loop calls agent.run() directly with an explicit
@@ -835,8 +1004,8 @@ class RLMEnvironment:
             # the repeated-prefix shape prompt caching benefits from across turns/recursion.
             from agent_utilities.caching.prompt_cache import fold_prompt_cache_hint
 
-            _profile_settings = fold_prompt_cache_hint(
-                _profile_settings,
+            profile_settings = fold_prompt_cache_hint(
+                profile_settings,
                 system_prompt=repl_system_prompt,
                 model_identity=model_id,
             )
@@ -844,193 +1013,47 @@ class RLMEnvironment:
             pass
 
         history: list[Any] = []
-        max_turns = self.max_turns
 
         # CONCEPT:AU-ORCH.execution.typed-failure-classification — populate a
         # structured RunTrace as the live loop runs for canonical outcome analysis.
         run_trace = RunTrace()
         self.last_run_trace = run_trace
-
-        # Build the initial prompt — metadata-only or full depending on config
-        if self.config.metadata_only_root and self.depth == 0:
-            context_info = self._build_context_metadata()
-            initial_prompt = f"{prompt}\n\n{context_info}"
-        else:
-            initial_prompt = prompt
-
-        # CONCEPT:AU-ORCH.session.structured-subagent-contracts (structured subagent contracts) — show the output
-        # contract before any code is written, so the model knows the exact
-        # shape it must return via FINAL_VAR.
-        if self.output_contract is not None:
-            initial_prompt = (
-                f"{initial_prompt}\n\n"
-                f"REQUIRED OUTPUT CONTRACT:\n"
-                f"You MUST call `FINAL_VAR('result', value)` with a value conforming to "
-                f"this JSON Schema:\n{self.output_contract.json_schema_str}"
-            )
-
+        initial_prompt = self._build_rlm_initial_prompt(prompt)
         self._check_admission(payload=initial_prompt, label="RLM initial prompt")
 
-        for turn in range(max_turns):
+        for turn in range(self.max_turns):
             self._register_node()
-            run_prompt = initial_prompt if turn == 0 else None
-            if run_prompt:
-                res = await self._run_model(
-                    agent,
-                    run_prompt,
-                    message_history=history,
-                    model_settings=_profile_settings,
-                )
-            else:
-                # Subsequent turns use the history with stdout metadata appended
-                res = await self._run_model(
-                    agent,
-                    "Continue.",
-                    message_history=history,
-                    model_settings=_profile_settings,
-                )
-            history = res.all_messages()
-            self._record_usage(
-                _accumulate_root_usage(run_trace.usage, res)
-            )  # CONCEPT:AU-AHE.rlm.long-context-benchmark cost capture
-
-            output_text = res.output
-
-            # Extract code block
-            code_blocks = [
-                b.split("```")[0] for b in output_text.split("```python\n")[1:]
-            ]
-
-            if code_blocks:
-                code_to_run = code_blocks[0]
-                # CONCEPT:AU-ORCH.execution.typed-failure-classification — record this iteration; classify + re-raise on failure (fatal
-                # sandbox death still fast-fails) so the RunTrace captures the failure class.
-                try:
-                    _, stdout = await self.execute(code_to_run)
-                except SandboxFatalError as e:
-                    run_trace.add_step(
-                        code=code_to_run, failure_class=classify_failure(e)
-                    )
-                    run_trace.final_status = "failure"
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    run_trace.add_step(
-                        code=code_to_run, failure_class=classify_failure(e)
-                    )
-                    run_trace.final_status = "failure"
-                    raise
-                run_trace.add_step(
-                    code=code_to_run,
-                    output=str(stdout)[:2000],
-                    finish_reason=str(getattr(res, "finish_reason", "") or "stop"),
-                )
-
-                # Record trajectory
-                if self.config.trajectory_storage == "process_flow" and self.graph_deps:
-                    import time
-
-                    from ..graph.client import create_or_merge_node
-                    from ..graph.models import GraphNode
-                    from ..models.knowledge_graph import (
-                        ReasoningTraceNode,
-                        RegistryNodeType,
-                    )
-
-                    node_id = f"rlm_trace_{time.time_ns()}"
-                    trace_node = ReasoningTraceNode(
-                        id=node_id,
-                        type=RegistryNodeType.REASONING_TRACE,
-                        name=f"RLM Depth {self.depth} Execution",
-                        thought=prompt,
-                        reflection=f"Code: {code_to_run}\nResult: {stdout[:500]}",
-                        timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    )
-
-                    # 1. In-Memory Graph persistence if engine exists
-                    if (
-                        hasattr(self.graph_deps, "knowledge_engine")
-                        and self.graph_deps.knowledge_engine
-                    ):
-                        try:
-                            self.graph_deps.knowledge_engine.graph.add_node(
-                                trace_node.id, **trace_node.to_graph_properties()
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to store RLM trajectory in-memory: {e}"
-                            )
-
-                    # 2. Asynchronous/Persistent Graph DB persistence
-                    try:
-                        g_node = GraphNode(
-                            id=trace_node.id,
-                            labels=["ReasoningTrace"],
-                            properties=trace_node.to_graph_properties(
-                                exclude_none=True
-                            ),
-                        )
-                        # Schedule background/async write to persistent backend
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            loop.create_task(create_or_merge_node(g_node))
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to store RLM trajectory in DB backend: {e}"
-                        )
-
-                if "__FINAL__" in self.vars:
-                    final_var_name = self.vars["__FINAL__"]
-
-                    # Validate in-loop
-                    validation_err = self._validate_outputs()
-                    if validation_err:
-                        # Clear FINAL_VAR so the LLM has to try again
-                        del self.vars["__FINAL__"]
-                        stdout_feedback = (
-                            f"Execution STDOUT:\n{stdout[:2000]}\n\n"
-                            f"CRITICAL: {validation_err}"
-                        )
-                        history.append(
-                            ModelRequest(
-                                parts=[UserPromptPart(content=stdout_feedback)]
-                            )
-                        )
-                        continue
-
-                    run_trace.final_status = "success"  # CONCEPT:AU-ORCH.execution.typed-failure-classification
-                    return self._final_value(final_var_name, stdout)
-
-                # Feed stdout back as metadata (Algorithm 1 alignment)
-                if self.config.metadata_only_root and self.depth == 0:
-                    stdout_feedback = self._build_stdout_metadata(stdout, turn)
-                else:
-                    stdout_feedback = (
-                        f"Execution STDOUT:\n{stdout[:2000]}\n\n"
-                        f"Continue analyzing or output FINAL_VAR."
-                    )
-                history.append(
-                    ModelRequest(parts=[UserPromptPart(content=stdout_feedback)])
-                )
-            else:
-                if "__FINAL__" in self.vars:
-                    final_var_name = self.vars["__FINAL__"]
-
-                    validation_err = self._validate_outputs()
-                    if validation_err:
-                        del self.vars["__FINAL__"]
-                        history.append(
-                            ModelRequest(
-                                parts=[
-                                    UserPromptPart(
-                                        content=f"CRITICAL: {validation_err}"
-                                    )
-                                ]
-                            )
-                        )
-                        continue
-
-                    return self._final_value(final_var_name, output_text)
+            history, output_text, stdout, code_executed = await self._run_rlm_turn(
+                agent,
+                initial_prompt,
+                history,
+                turn,
+                profile_settings,
+                run_trace,
+                prompt,
+            )
+            finalized, feedback = self._finalize_rlm_output(
+                stdout if code_executed else output_text,
+                stdout,
+                run_trace,
+                code_executed,
+            )
+            if finalized:
+                return feedback
+            if feedback is not None:
+                history.append(ModelRequest(parts=[UserPromptPart(content=feedback)]))
+                continue
+            if not code_executed:
                 break
+            history.append(
+                ModelRequest(
+                    parts=[
+                        UserPromptPart(
+                            content=self._build_rlm_turn_feedback(stdout, turn)
+                        )
+                    ]
+                )
+            )
 
         return str(self.vars.get("__FINAL__", "Max turns reached without FINAL_VAR"))
 
