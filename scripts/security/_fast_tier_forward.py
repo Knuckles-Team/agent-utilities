@@ -40,9 +40,12 @@ a target that exits nonzero is relayed as nonzero, never swallowed.
 
 from __future__ import annotations
 
+import argparse
+import json
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 
@@ -138,3 +141,62 @@ def self_check(repository_root: Path, target_relative: str) -> None:
             f"self-check: the declared canonical target does not exist: "
             f"{target} — this forwarder's TARGET is stale"
         )
+
+
+def run_gate(
+    *,
+    argv: Sequence[str] | None = None,
+    prog: str,
+    target_relative: str,
+    extra_args: Sequence[str] = (),
+) -> int:
+    """Run one of the thin fast-tier gate entrypoints.
+
+    The security forwarders all expose the same CLI contract: optionally run
+    the forwarding self-check, fail closed when the canonical target cannot be
+    launched, relay a target failure unchanged, and emit a JSON verdict.  Keep
+    that contract here so each gate only declares its target and any fixed
+    arguments.
+    """
+    parser = argparse.ArgumentParser(prog=prog)
+    parser.add_argument("--repository-root", type=Path, default=Path("."))
+    parser.add_argument("--self-check", action="store_true")
+    args = parser.parse_args(argv)
+    repo_root = args.repository_root.resolve()
+
+    if args.self_check:
+        try:
+            self_check(repo_root, target_relative)
+        except AssertionError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
+            return 1
+
+    try:
+        rc = forward(
+            repository_root=repo_root,
+            target_relative=target_relative,
+            extra_args=list(extra_args),
+        )
+    except ForwardError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
+        return 1
+
+    if rc != 0:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"{target_relative} exited {rc}",
+                    "forwardedTo": target_relative,
+                },
+                sort_keys=True,
+            )
+        )
+        return rc
+    print(
+        json.dumps(
+            {"ok": True, "forwardedTo": target_relative, "selfCheck": args.self_check},
+            sort_keys=True,
+        )
+    )
+    return 0
