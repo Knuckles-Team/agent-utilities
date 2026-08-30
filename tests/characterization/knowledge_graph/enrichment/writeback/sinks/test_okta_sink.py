@@ -64,9 +64,7 @@ def _ctx_with_resolver(resolve_map: dict[str, str]) -> WritebackContext:
 
 def _no_client(monkeypatch: pytest.MonkeyPatch) -> OktaSink:
     sink = OktaSink()
-    import agent_utilities.knowledge_graph.enrichment.writeback.sinks.identity as identity_mod
-
-    monkeypatch.setattr(identity_mod, "_resolve_client", lambda ops, module: None)
+    monkeypatch.setattr(sink, "_client", lambda ops: None)
     return sink
 
 

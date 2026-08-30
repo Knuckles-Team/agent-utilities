@@ -12,7 +12,7 @@ from typing import Any
 
 from ..core import (
     WritebackClientMixin,
-    WritebackContext,
+    WritebackInvocation,
     WritebackResult,
     register_sink,
 )
@@ -61,14 +61,8 @@ class HomeAssistantSink(WritebackClientMixin):
             logger.debug("home assistant call_service failed", exc_info=True)
             result.errors += 1
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        _, ops, client, result, dry_run = invocation.unpack()
 
         call = getattr(client, "call_service", None)
         for c in ops.get("creations") or []:
