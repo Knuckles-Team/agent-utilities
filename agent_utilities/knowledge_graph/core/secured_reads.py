@@ -746,6 +746,36 @@ def row_node_ids(
     return [node_id for node_id in ids if node_id is not None]
 
 
+def _row_node_pairs(
+    rows: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], str | None]]:
+    """Pair each result row with the node id used for authorization."""
+    return [(row, _row_node_id(row)) for row in rows]
+
+
+def _require_governed_row_ids(
+    pairs: list[tuple[dict[str, Any], str | None]], trust_pushdown: bool
+) -> None:
+    """Reject rows that cannot be checked against a node ACL."""
+    if not trust_pushdown and any(node_id is None for _, node_id in pairs):
+        raise PermissionError("Graph result contains a row without a governed node id")
+
+
+def _permitted_row_ids(
+    pairs: list[tuple[dict[str, Any], str | None]], actor: ActorContext
+) -> set[str]:
+    """Return the ACL-approved ids represented by result rows."""
+    governed_ids = [node_id for _, node_id in pairs if node_id is not None]
+    return set(permit(governed_ids, actor)) if governed_ids else set()
+
+
+def _keep_permitted_rows(
+    pairs: list[tuple[dict[str, Any], str | None]], allowed: set[str]
+) -> list[dict[str, Any]]:
+    """Keep authorized rows and trusted pushdown-only projections."""
+    return [row for row, node_id in pairs if node_id is None or node_id in allowed]
+
+
 def filter_rows(
     rows: list[dict[str, Any]],
     actor: ActorContext | None = None,
@@ -779,9 +809,6 @@ def filter_rows(
     actor = _verified_actor(actor)
     if not rows:
         return []
-    pairs = [(row, _row_node_id(row)) for row in rows]
-    if not trust_pushdown and any(node_id is None for _, node_id in pairs):
-        raise PermissionError("Graph result contains a row without a governed node id")
-    governed_ids = [node_id for _, node_id in pairs if node_id is not None]
-    allowed = set(permit(governed_ids, actor)) if governed_ids else set()
-    return [row for row, node_id in pairs if node_id is None or node_id in allowed]
+    pairs = _row_node_pairs(rows)
+    _require_governed_row_ids(pairs, trust_pushdown)
+    return _keep_permitted_rows(pairs, _permitted_row_ids(pairs, actor))
