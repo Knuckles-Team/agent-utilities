@@ -223,54 +223,55 @@ def _validate_script_argv(argv: tuple[str, ...], repositories: set[str]) -> None
                 raise GateError("manifest-command-placeholder")
 
 
-def load_manifest(path: Path) -> Manifest:
-    """Load and strictly validate the complete current source-gate manifest."""
+def _read_manifest_descriptor(descriptor: int, metadata: os.stat_result) -> bytes:
+    opened = os.fstat(descriptor)
+    if (
+        opened.st_dev != metadata.st_dev
+        or opened.st_ino != metadata.st_ino
+        or not stat.S_ISREG(opened.st_mode)
+    ):
+        raise GateError("manifest-race")
+    raw = b""
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        raw += chunk
+        if len(raw) > 1024 * 1024:
+            raise GateError("manifest-bound")
+    return raw
 
+
+def _read_manifest_bytes(path: Path) -> bytes:
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise GateError("manifest-type")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
     try:
-        metadata = path.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            raise GateError("manifest-type")
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        descriptor = os.open(path, flags)
-        try:
-            opened = os.fstat(descriptor)
-            if (
-                opened.st_dev != metadata.st_dev
-                or opened.st_ino != metadata.st_ino
-                or not stat.S_ISREG(opened.st_mode)
-            ):
-                raise GateError("manifest-race")
-            raw = b""
-            while True:
-                chunk = os.read(descriptor, 1024 * 1024)
-                if not chunk:
-                    break
-                raw += chunk
-                if len(raw) > 1024 * 1024:
-                    raise GateError("manifest-bound")
-        finally:
-            os.close(descriptor)
+        return _read_manifest_descriptor(descriptor, metadata)
+    finally:
+        os.close(descriptor)
+
+
+def _read_manifest(path: Path) -> tuple[bytes, Any]:
+    try:
+        raw = _read_manifest_bytes(path)
         value = json.loads(raw)
     except GateError:
         raise
     except (OSError, json.JSONDecodeError) as exc:
         raise GateError("manifest-unreadable") from exc
-    root = _expect_mapping(value, "manifest-root")
-    _expect_keys(
-        root,
-        {"schema", "repositories", "commands", "gates"},
-        "manifest-root-fields",
-    )
-    if root["schema"] != MANIFEST_SCHEMA:
-        raise GateError("manifest-schema")
+    return raw, value
 
-    repositories_value = root["repositories"]
-    if not isinstance(repositories_value, list):
+
+def _parse_repositories(value: Any) -> set[str]:
+    if not isinstance(value, list):
         raise GateError("manifest-repositories")
     repositories: list[str] = []
-    for item in repositories_value:
+    for item in value:
         entry = _expect_mapping(item, "manifest-repository")
         _expect_keys(entry, {"id", "kind"}, "manifest-repository-fields")
         identifier = _safe_identifier(entry["id"], "manifest-repository-id")
@@ -281,88 +282,117 @@ def load_manifest(path: Path) -> Manifest:
         set(repositories)
     ):
         raise GateError("manifest-repository-set")
-    repository_set = set(repositories)
+    return set(repositories)
 
-    commands_value = root["commands"]
-    if not isinstance(commands_value, list) or not commands_value:
+
+def _parse_command(item: Any, repository_set: set[str]) -> Command:
+    entry = _expect_mapping(item, "manifest-command")
+    _expect_keys(
+        entry,
+        {"id", "repository", "argv", "timeout_seconds", "covers"},
+        "manifest-command-fields",
+    )
+    identifier = _safe_identifier(entry["id"], "manifest-command-id")
+    repository = _safe_identifier(entry["repository"], "manifest-command-repository")
+    if repository not in repository_set:
+        raise GateError("manifest-command-repository")
+    argv = _safe_string_list(entry["argv"], "manifest-command-argv")
+    _validate_script_argv(argv, repository_set)
+    timeout = entry["timeout_seconds"]
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or not 5 <= timeout <= 600
+    ):
+        raise GateError("manifest-command-timeout")
+    covers = _safe_string_list(entry["covers"], "manifest-command-covers")
+    if any(gate not in EXPECTED_GATES for gate in covers):
+        raise GateError("manifest-command-gate")
+    return Command(identifier, repository, argv, timeout, covers)
+
+
+def _parse_commands(value: Any, repository_set: set[str]) -> list[Command]:
+    if not isinstance(value, list) or not value:
         raise GateError("manifest-commands")
-    commands: list[Command] = []
-    for item in commands_value:
-        entry = _expect_mapping(item, "manifest-command")
-        _expect_keys(
-            entry,
-            {"id", "repository", "argv", "timeout_seconds", "covers"},
-            "manifest-command-fields",
-        )
-        identifier = _safe_identifier(entry["id"], "manifest-command-id")
-        repository = _safe_identifier(
-            entry["repository"], "manifest-command-repository"
-        )
-        if repository not in repository_set:
-            raise GateError("manifest-command-repository")
-        argv = _safe_string_list(entry["argv"], "manifest-command-argv")
-        _validate_script_argv(argv, repository_set)
-        timeout = entry["timeout_seconds"]
-        if (
-            not isinstance(timeout, int)
-            or isinstance(timeout, bool)
-            or not 5 <= timeout <= 600
-        ):
-            raise GateError("manifest-command-timeout")
-        covers = _safe_string_list(entry["covers"], "manifest-command-covers")
-        if any(gate not in EXPECTED_GATES for gate in covers):
-            raise GateError("manifest-command-gate")
-        commands.append(Command(identifier, repository, argv, timeout, covers))
+    commands = [_parse_command(item, repository_set) for item in value]
     command_ids = [command.identifier for command in commands]
     if len(command_ids) != len(set(command_ids)):
         raise GateError("manifest-command-duplicate")
+    return commands
 
-    gates_value = root["gates"]
-    if not isinstance(gates_value, list):
+
+def _parse_gate_header(
+    item: Any,
+) -> tuple[Mapping[str, Any], str, tuple[str, ...]]:
+    entry = _expect_mapping(item, "manifest-gate")
+    _expect_keys(
+        entry,
+        {"id", "evidence_classes", "scope", "command_ids", "rationale"},
+        "manifest-gate-fields",
+    )
+    identifier = _safe_text(entry["id"], "manifest-gate-id", maximum=4)
+    evidence_classes = _safe_string_list(
+        entry["evidence_classes"], "manifest-gate-evidence-classes"
+    )
+    if any(value not in EVIDENCE_CLASSES for value in evidence_classes):
+        raise GateError("manifest-gate-evidence-class")
+    expected_order = tuple(
+        value for value in EVIDENCE_CLASSES if value in evidence_classes
+    )
+    if evidence_classes != expected_order:
+        raise GateError("manifest-gate-evidence-order")
+    if "terminal" in evidence_classes and evidence_classes != ("terminal",):
+        raise GateError("manifest-gate-terminal")
+    return entry, identifier, evidence_classes
+
+
+def _parse_gate_scope(
+    entry: Mapping[str, Any], repository_set: set[str]
+) -> tuple[str, ...]:
+    scope = _safe_string_list(entry["scope"], "manifest-gate-scope")
+    if any(repository not in repository_set for repository in scope):
+        raise GateError("manifest-gate-scope")
+    return scope
+
+
+def _parse_gate_commands(entry: Mapping[str, Any]) -> tuple[str, ...]:
+    ids_value = entry["command_ids"]
+    if not isinstance(ids_value, list):
+        raise GateError("manifest-gate-commands")
+    ids = tuple(
+        _safe_identifier(command_id, "manifest-gate-command-id")
+        for command_id in ids_value
+    )
+    if len(ids) != len(set(ids)):
+        raise GateError("manifest-gate-command-duplicate")
+    return ids
+
+
+def _parse_gate(item: Any, repository_set: set[str]) -> Gate:
+    entry, identifier, evidence_classes = _parse_gate_header(item)
+    scope = _parse_gate_scope(entry, repository_set)
+    ids = _parse_gate_commands(entry)
+    _safe_text(entry["rationale"], "manifest-gate-rationale")
+    if "local-source" in evidence_classes and not ids:
+        raise GateError("manifest-gate-command-missing")
+    if "local-source" not in evidence_classes and ids:
+        raise GateError("manifest-nonlocal-command")
+    return Gate(identifier, evidence_classes, scope, ids)
+
+
+def _parse_gates(value: Any, repository_set: set[str]) -> list[Gate]:
+    if not isinstance(value, list):
         raise GateError("manifest-gates")
-    gates: list[Gate] = []
-    for item in gates_value:
-        entry = _expect_mapping(item, "manifest-gate")
-        _expect_keys(
-            entry,
-            {"id", "evidence_classes", "scope", "command_ids", "rationale"},
-            "manifest-gate-fields",
-        )
-        identifier = _safe_text(entry["id"], "manifest-gate-id", maximum=4)
-        evidence_classes = _safe_string_list(
-            entry["evidence_classes"], "manifest-gate-evidence-classes"
-        )
-        if any(value not in EVIDENCE_CLASSES for value in evidence_classes):
-            raise GateError("manifest-gate-evidence-class")
-        expected_order = tuple(
-            value for value in EVIDENCE_CLASSES if value in evidence_classes
-        )
-        if evidence_classes != expected_order:
-            raise GateError("manifest-gate-evidence-order")
-        if "terminal" in evidence_classes and evidence_classes != ("terminal",):
-            raise GateError("manifest-gate-terminal")
-        scope = _safe_string_list(entry["scope"], "manifest-gate-scope")
-        if any(repository not in repository_set for repository in scope):
-            raise GateError("manifest-gate-scope")
-        ids_value = entry["command_ids"]
-        if not isinstance(ids_value, list):
-            raise GateError("manifest-gate-commands")
-        ids = tuple(
-            _safe_identifier(command_id, "manifest-gate-command-id")
-            for command_id in ids_value
-        )
-        if len(ids) != len(set(ids)):
-            raise GateError("manifest-gate-command-duplicate")
-        _safe_text(entry["rationale"], "manifest-gate-rationale")
-        if "local-source" in evidence_classes and not ids:
-            raise GateError("manifest-gate-command-missing")
-        if "local-source" not in evidence_classes and ids:
-            raise GateError("manifest-nonlocal-command")
-        gates.append(Gate(identifier, evidence_classes, scope, ids))
-
+    gates = [_parse_gate(item, repository_set) for item in value]
     gate_ids = tuple(gate.identifier for gate in gates)
     if gate_ids != EXPECTED_GATES or len(gate_ids) != len(set(gate_ids)):
         raise GateError("manifest-gate-set")
+    return gates
+
+
+def _build_command_references(
+    commands: list[Command], gates: list[Gate]
+) -> tuple[dict[str, Command], dict[str, set[str]]]:
     command_by_id = {command.identifier: command for command in commands}
     references: dict[str, set[str]] = {
         identifier: set() for identifier in command_by_id
@@ -372,22 +402,39 @@ def load_manifest(path: Path) -> Manifest:
             if command_id not in command_by_id:
                 raise GateError("manifest-command-unlisted")
             references[command_id].add(gate.identifier)
+    return command_by_id, references
+
+
+def _validate_command_scope(
+    command: Command, gates: list[Gate], references: dict[str, set[str]]
+) -> None:
+    command_scope = {command.repository}
+    command_scope.update(
+        match.group(1)
+        for token in command.argv
+        if (match := _REPO_TOKEN.fullmatch(token)) is not None
+    )
+    for gate in gates:
+        if gate.identifier in references[
+            command.identifier
+        ] and not command_scope <= set(gate.scope):
+            raise GateError("manifest-command-scope")
+
+
+def _validate_command_references(
+    commands: list[Command], gates: list[Gate], references: dict[str, set[str]]
+) -> None:
     for command in commands:
         if not references[command.identifier]:
             raise GateError("manifest-command-orphan")
         if references[command.identifier] != set(command.covers):
             raise GateError("manifest-command-coverage")
-        command_scope = {command.repository}
-        command_scope.update(
-            match.group(1)
-            for token in command.argv
-            if (match := _REPO_TOKEN.fullmatch(token)) is not None
-        )
-        for gate in gates:
-            if gate.identifier in references[
-                command.identifier
-            ] and not command_scope <= set(gate.scope):
-                raise GateError("manifest-command-scope")
+        _validate_command_scope(command, gates, references)
+
+
+def _validate_gate_scope_coverage(
+    gates: list[Gate], command_by_id: dict[str, Command]
+) -> None:
     for gate in gates:
         if "local-source" not in gate.evidence_classes:
             continue
@@ -402,6 +449,31 @@ def load_manifest(path: Path) -> Manifest:
             )
         if covered_scope != set(gate.scope):
             raise GateError("manifest-gate-scope-coverage")
+
+
+def _validate_manifest_references(commands: list[Command], gates: list[Gate]) -> None:
+    command_by_id, references = _build_command_references(commands, gates)
+    _validate_command_references(commands, gates, references)
+    _validate_gate_scope_coverage(gates, command_by_id)
+
+
+def load_manifest(path: Path) -> Manifest:
+    """Load and strictly validate the complete current source-gate manifest."""
+
+    raw, value = _read_manifest(path)
+    root = _expect_mapping(value, "manifest-root")
+    _expect_keys(
+        root,
+        {"schema", "repositories", "commands", "gates"},
+        "manifest-root-fields",
+    )
+    if root["schema"] != MANIFEST_SCHEMA:
+        raise GateError("manifest-schema")
+
+    repository_set = _parse_repositories(root["repositories"])
+    commands = _parse_commands(root["commands"], repository_set)
+    gates = _parse_gates(root["gates"], repository_set)
+    _validate_manifest_references(commands, gates)
 
     return Manifest(hashlib.sha256(raw).hexdigest(), tuple(commands), tuple(gates))
 
