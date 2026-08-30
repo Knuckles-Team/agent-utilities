@@ -673,38 +673,48 @@ class RLMEnvironment:
             against the full Pydantic signature.
         """
         if self.output_contract is not None:
-            final_name = self.vars.get("__FINAL__")
-            if final_name is None:
-                return None
-            ok, coerced, err = self.output_contract.validate(self.vars.get(final_name))
-            if not ok:
-                return (
-                    f"FINAL value failed schema validation.\n"
-                    f"Required JSON Schema:\n{self.output_contract.json_schema_str}\n\n"
-                    f"Validation errors:\n{err}\n\n"
-                    f"Fix the value and call FINAL_VAR again."
-                )
-            # Persist the coerced (type-correct) value for the parent to consume.
-            self.vars[final_name] = coerced
-            return None
+            return self._validate_contract_output()
 
         if not self.signature:
             return None
 
-        try:
-            output_data = {}
-            for name in self.outputs_keys:
-                if name in self.vars:
-                    output_data[name] = self.vars[name]
-                elif "__FINAL__" in self.vars and self.vars["__FINAL__"] == name:
-                    output_data[name] = self.vars[name]
-                elif name in self.globals_dict:
-                    output_data[name] = self.globals_dict[name]
+        return self._validate_signature_outputs()
 
-            # Reconstruct inputs
+    def _validate_contract_output(self) -> str | None:
+        """Validate and coerce the single output-contract value, when present."""
+        final_name = self.vars.get("__FINAL__")
+        if final_name is None:
+            return None
+        ok, coerced, err = self.output_contract.validate(self.vars.get(final_name))
+        if not ok:
+            return (
+                f"FINAL value failed schema validation.\n"
+                f"Required JSON Schema:\n{self.output_contract.json_schema_str}\n\n"
+                f"Validation errors:\n{err}\n\n"
+                f"Fix the value and call FINAL_VAR again."
+            )
+        # Persist the coerced (type-correct) value for the parent to consume.
+        self.vars[final_name] = coerced
+        return None
+
+    def _signature_output_data(self) -> dict[str, Any]:
+        """Collect signature outputs from REPL vars, FINAL_VAR, or globals."""
+        output_data = {}
+        for name in self.outputs_keys:
+            if name in self.vars:
+                output_data[name] = self.vars[name]
+            elif "__FINAL__" in self.vars and self.vars["__FINAL__"] == name:
+                output_data[name] = self.vars[name]
+            elif name in self.globals_dict:
+                output_data[name] = self.globals_dict[name]
+        return output_data
+
+    def _validate_signature_outputs(self) -> str | None:
+        """Validate collected output values against the configured signature."""
+        try:
+            output_data = self._signature_output_data()
             context = self.vars.get("context", {})
             inputs = context if isinstance(context, dict) else {}
-
             full_data = {**inputs, **output_data}
             self.signature(**full_data)
             return None
