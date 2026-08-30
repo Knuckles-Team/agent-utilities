@@ -1496,6 +1496,43 @@ def environment_path(worktree: Path, selection: Sequence[str]) -> Path:
     return worktree / name
 
 
+def _environment_marker_matches(marker: Path, body: str) -> bool:
+    if not marker.is_file():
+        return False
+    try:
+        return marker.read_text(encoding="utf-8") == body
+    except OSError:
+        # An unreadable existing marker is evidence we cannot improve; retain
+        # the original best-effort behaviour and avoid replacing it.
+        return True
+
+
+def _stage_environment_marker(staged: Path, marker: Path, body: str) -> None:
+    staged.write_text(body, encoding="utf-8")
+    staged.replace(marker)
+
+
+def _remove_staged_environment_marker(staged: Path) -> None:
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _write_environment_marker(marker: Path, body: str) -> None:
+    staged = marker.with_name(f".{marker.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        if _environment_marker_matches(marker, body):
+            return
+        _stage_environment_marker(staged, marker, body)
+    except OSError:
+        # Evidence only; never fail an invocation because the note could not be
+        # written.
+        return
+    finally:
+        _remove_staged_environment_marker(staged)
+
+
 def _describe_environment(path: Path, selection: Sequence[str]) -> None:
     """Record which selection owns *path*, so a keyed directory is self-describing.
 
@@ -1512,21 +1549,187 @@ def _describe_environment(path: Path, selection: Sequence[str]) -> None:
         "label": environment_label(selection),
     }
     body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-    staged = marker.with_name(f".{marker.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        if marker.is_file() and marker.read_text(encoding="utf-8") == body:
-            return
-        staged.write_text(body, encoding="utf-8")
-        staged.replace(marker)
-    except OSError:
-        # Evidence only; never fail an invocation because the note could not be
-        # written.
-        return
-    finally:
-        try:
-            staged.unlink(missing_ok=True)
-        except OSError:
-            pass
+    _write_environment_marker(marker, body)
+
+
+class _UvSelection(NamedTuple):
+    selection: list[str]
+    recognized: bool
+    command_name: str | None
+
+
+class _UvArguments(NamedTuple):
+    uv: str
+    subcommand: str
+    tail: list[str]
+    requested_locked: bool
+    lock_check: bool
+
+
+class _UvCommandPlan(NamedTuple):
+    prepare: tuple[tuple[str, ...], ...]
+    execute: tuple[str, ...]
+    execute_is_heavy_sync: bool
+    allow_worktree_lock_update: bool
+
+
+def _parse_uv_arguments(arguments: list[str], *, own_lock: bool) -> _UvArguments:
+    uv = shutil.which("uv")
+    if uv is None:
+        raise RuntimeError("uv is not installed or visible on PATH")
+    if not arguments:
+        raise RuntimeError("an uv subcommand is required")
+    subcommand = arguments[0]
+    requested_locked = "--locked" in arguments[1:]
+    tail = [argument for argument in arguments[1:] if argument != "--locked"]
+    lock_check = subcommand == "lock" and "--check" in tail
+    if subcommand == "lock" and not own_lock and not lock_check:
+        raise RuntimeError(
+            "refusing to resolve a lock without an own tracked uv.lock; "
+            "use `lock --check` for read-only shadow verification"
+        )
+    return _UvArguments(uv, subcommand, tail, requested_locked, lock_check)
+
+
+def _select_uv_environment(subcommand: str, tail: list[str]) -> _UvSelection:
+    if subcommand not in {"run", "sync"}:
+        return _UvSelection([], True, None)
+    selection, recognized, start = split_selection(tail)
+    command_name = None
+    if subcommand == "run" and recognized and start < len(tail):
+        command_name = tail[start] if tail[start] != "--" else None
+    return _UvSelection(selection, recognized, command_name)
+
+
+def _run_command_plan(
+    *,
+    base: list[str],
+    tail: list[str],
+    selected: _UvSelection,
+    prerelease: list[str],
+) -> _UvCommandPlan:
+    prepare: list[tuple[str, ...]] = []
+    if selected.recognized:
+        prepare.append(
+            (
+                *base,
+                "sync",
+                "--locked",
+                "--inexact",
+                *prerelease,
+                "--package",
+                PROJECT_NAME,
+                *selected.selection,
+            )
+        )
+        command = [
+            *base,
+            "run",
+            "--no-sync",
+            "--locked",
+            *prerelease,
+            "--package",
+            PROJECT_NAME,
+        ]
+    else:
+        command = [*base, "run", "--locked", *prerelease, "--package", PROJECT_NAME]
+    command.extend(tail)
+    return _UvCommandPlan(
+        tuple(prepare),
+        tuple(command),
+        not selected.recognized,
+        False,
+    )
+
+
+def _sync_command_plan(
+    base: list[str], tail: list[str], prerelease: list[str]
+) -> _UvCommandPlan:
+    command = [
+        *base,
+        "sync",
+        "--locked",
+        *prerelease,
+        "--package",
+        PROJECT_NAME,
+        *tail,
+    ]
+    return _UvCommandPlan((), tuple(command), True, False)
+
+
+def _lock_command_plan(
+    base: list[str],
+    parsed: _UvArguments,
+    *,
+    own_lock: bool,
+) -> _UvCommandPlan:
+    lock_verification = parsed.lock_check or parsed.requested_locked
+    command = [
+        *base,
+        "lock",
+        *(["--locked"] if lock_verification else []),
+        *(["--prerelease", "allow"] if own_lock else []),
+        *parsed.tail,
+    ]
+    return _UvCommandPlan(
+        (),
+        tuple(command),
+        True,
+        own_lock and not lock_verification,
+    )
+
+
+def _build_uv_commands(
+    arguments: list[str],
+    *,
+    parsed: _UvArguments,
+    selected: _UvSelection,
+    shadow: Path,
+    own_lock: bool,
+) -> _UvCommandPlan:
+    base = [parsed.uv, "--project", str(shadow)]
+    prerelease = ["--prerelease", "allow"] if own_lock else []
+    if parsed.subcommand == "run":
+        return _run_command_plan(
+            base=base,
+            tail=parsed.tail,
+            selected=selected,
+            prerelease=prerelease,
+        )
+    if parsed.subcommand == "sync":
+        return _sync_command_plan(base, parsed.tail, prerelease)
+    if parsed.subcommand == "lock":
+        return _lock_command_plan(
+            base,
+            parsed,
+            own_lock=own_lock,
+        )
+    return _UvCommandPlan((), tuple([*base, *arguments]), False, False)
+
+
+def _uv_environment(worktree: Path, directory: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    # D-W5ALC-1 / D-GS27-2: when this launcher runs as (or under) a git hook
+    # -- `git commit`/`git push` set GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and
+    # GIT_PREFIX in the hook's own subprocess environment, pointing at THIS
+    # repository. Left in place, `os.environ.copy()` above carries them
+    # straight into the `uv` subprocess and, from there, into every git
+    # subprocess `uv` itself shells out to -- including fetching an unrelated
+    # workspace-member git dependency (searxng) into its own, completely
+    # different clone under ~/.cache/uv/git-v0/. That child `git fetch` then
+    # inherits a GIT_DIR pointing at agent-utilities' worktree gitdir, which
+    # is meaningless relative to the searxng clone's own directory, and fails
+    # with "fatal: not a git repository (or any parent up to mount point /)".
+    # Reproduced directly (no git hook involved): exporting GIT_DIR/
+    # GIT_INDEX_FILE to this worktree's real values before invoking this
+    # module standalone reproduces the identical failure; unsetting them
+    # fixes it. Same class of leak as the PYTHONPATH strip above, same fix.
+    for leaked in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        environment.pop(leaked, None)
+    environment["UV_PROJECT_ENVIRONMENT"] = str(directory)
+    environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
+    return environment
 
 
 class UvPlan(NamedTuple):
@@ -1572,214 +1775,112 @@ def uv_plan(
     IS that root, so the flag has to travel with the invocation rather than
     live in a config key.
     """
-    uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError("uv is not installed or visible on PATH")
-    if not arguments:
-        raise RuntimeError("an uv subcommand is required")
-    subcommand = arguments[0]
-    requested_locked = "--locked" in arguments[1:]
-    tail = [argument for argument in arguments[1:] if argument != "--locked"]
-    lock_check = subcommand == "lock" and "--check" in tail
-    if subcommand == "lock" and not own_lock and not lock_check:
-        raise RuntimeError(
-            "refusing to resolve a lock without an own tracked uv.lock; "
-            "use `lock --check` for read-only shadow verification"
-        )
+    parsed = _parse_uv_arguments(arguments, own_lock=own_lock)
 
-    selection: list[str] = []
-    recognized = True
-    command_name: str | None = None
-    if subcommand in {"run", "sync"}:
-        selection, recognized, start = split_selection(tail)
-        if subcommand == "run" and recognized and start < len(tail):
-            command_name = tail[start] if tail[start] != "--" else None
+    selected = _select_uv_environment(parsed.subcommand, parsed.tail)
 
-    prepare: list[tuple[str, ...]] = []
-    base = [uv, "--project", str(shadow)]
-    # ``--prerelease`` is a per-subcommand option, not a global ``uv`` flag, so
-    # it has to land after the subcommand token in every command built below.
-    prerelease = ["--prerelease", "allow"] if own_lock else []
-    allow_worktree_lock_update = False
-    if subcommand == "run":
-        if recognized:
-            # Synchronise explicitly, then exec without syncing, so this
-            # invocation cannot mutate the environment a sibling process is
-            # already running in.  ``--inexact`` keeps the pruning behaviour uv
-            # run has always had; partitioning, not pruning, is what makes the
-            # selection correct.
-            prepare.append(
-                (
-                    *base,
-                    "sync",
-                    "--locked",
-                    "--inexact",
-                    *prerelease,
-                    "--package",
-                    PROJECT_NAME,
-                    *selection,
-                )
-            )
-            command = [
-                *base,
-                "run",
-                "--no-sync",
-                "--locked",
-                *prerelease,
-                "--package",
-                PROJECT_NAME,
-            ]
-        else:
-            command = [*base, "run", "--locked", *prerelease, "--package", PROJECT_NAME]
-        command.extend(tail)
-    elif subcommand == "sync":
-        command = [
-            *base,
-            "sync",
-            "--locked",
-            *prerelease,
-            "--package",
-            PROJECT_NAME,
-            *tail,
-        ]
-    elif subcommand == "lock":
-        # A plain `lock` is the one explicit mutation this launcher permits:
-        # uv resolves against the target worktree's manifest and sibling paths.
-        # `--check` and an explicit `--locked` remain verification-only.
-        lock_verification = lock_check or requested_locked
-        allow_worktree_lock_update = own_lock and not lock_verification
-        command = [
-            *base,
-            "lock",
-            *(["--locked"] if lock_verification else []),
-            *prerelease,
-            *tail,
-        ]
-    else:
-        command = [*base, *arguments]
-
-    directory = environment_path(worktree, selection)
-    environment = os.environ.copy()
-    environment.pop("PYTHONPATH", None)
-    # D-W5ALC-1 / D-GS27-2: when this launcher runs as (or under) a git hook
-    # -- `git commit`/`git push` set GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and
-    # GIT_PREFIX in the hook's own subprocess environment, pointing at THIS
-    # repository. Left in place, `os.environ.copy()` above carries them
-    # straight into the `uv` subprocess and, from there, into every git
-    # subprocess `uv` itself shells out to -- including fetching an unrelated
-    # workspace-member git dependency (searxng) into its own, completely
-    # different clone under ~/.cache/uv/git-v0/. That child `git fetch` then
-    # inherits a GIT_DIR pointing at agent-utilities' worktree gitdir, which
-    # is meaningless relative to the searxng clone's own directory, and fails
-    # with "fatal: not a git repository (or any parent up to mount point /)".
-    # Reproduced directly (no git hook involved): exporting GIT_DIR/
-    # GIT_INDEX_FILE to this worktree's real values before invoking this
-    # module standalone reproduces the identical failure; unsetting them
-    # fixes it. Same class of leak as the PYTHONPATH strip above, same fix.
-    for leaked in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
-        environment.pop(leaked, None)
-    environment["UV_PROJECT_ENVIRONMENT"] = str(directory)
-    environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
-    # D-ORC-33: `prepare`'s own sync step is always pool-gated (see run_uv()).
-    # This flag covers the OTHER shape -- no separate `prepare` step, but the
-    # final `execute` command itself still resolves/downloads/writes against
-    # the shared uv cache: a bare `sync`/`lock` subcommand, or a `run` whose
-    # selection this launcher did not recognize (so it falls through to a
-    # plain `uv run` with no `--no-sync`, which performs its own implicit
-    # sync as a side effect).
-    execute_is_heavy_sync = subcommand in {"sync", "lock"} or (
-        subcommand == "run" and not recognized
+    commands = _build_uv_commands(
+        arguments,
+        parsed=parsed,
+        selected=selected,
+        shadow=shadow,
+        own_lock=own_lock,
     )
+    directory = environment_path(worktree, selected.selection)
     return UvPlan(
-        prepare=tuple(prepare),
-        execute=tuple(command),
-        environment=environment,
+        prepare=commands.prepare,
+        execute=commands.execute,
+        environment=_uv_environment(worktree, directory),
         environment_path=directory,
-        selection=normalized_selection(selection),
-        selection_recognized=recognized,
-        command_name=command_name,
-        execute_is_heavy_sync=execute_is_heavy_sync,
-        allow_worktree_lock_update=allow_worktree_lock_update,
+        selection=normalized_selection(selected.selection),
+        selection_recognized=selected.recognized,
+        command_name=selected.command_name,
+        execute_is_heavy_sync=commands.execute_is_heavy_sync,
+        allow_worktree_lock_update=commands.allow_worktree_lock_update,
     )
+
+
+def _environment_selection(directory: Path) -> list[str] | None:
+    marker = directory / _ENVIRONMENT_MARKER
+    if not marker.is_file():
+        return None
+    try:
+        loaded = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(loaded, dict) or not isinstance(loaded.get("selection"), list):
+        return None
+    return [str(item) for item in loaded["selection"]]
+
+
+def _environment_distribution_count(directory: Path) -> int:
+    return len(
+        [
+            path
+            for pattern in ("lib/python*/site-packages", "Lib/site-packages")
+            for parent in directory.glob(pattern)
+            for path in parent.glob("*.dist-info")
+        ]
+    )
+
+
+def _environment_evidence_entry(directory: Path) -> dict[str, Any]:
+    return {
+        "path": str(directory),
+        "selection": _environment_selection(directory),
+        "distributions": _environment_distribution_count(directory),
+    }
 
 
 def _environment_evidence(worktree: Path) -> list[dict[str, Any]]:
     """Report every partitioned environment this worktree owns, and its selection."""
     evidence: list[dict[str, Any]] = []
     for directory in sorted(worktree.glob(f"{_ENVIRONMENT_DIRNAME}*")):
-        if not directory.is_dir():
-            continue
-        marker = directory / _ENVIRONMENT_MARKER
-        selection: list[str] | None = None
-        if marker.is_file():
-            try:
-                loaded = json.loads(marker.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                loaded = None
-            if isinstance(loaded, dict) and isinstance(loaded.get("selection"), list):
-                selection = [str(item) for item in loaded["selection"]]
-        distributions = len(
-            [
-                path
-                for pattern in ("lib/python*/site-packages", "Lib/site-packages")
-                for parent in directory.glob(pattern)
-                for path in parent.glob("*.dist-info")
-            ]
-        )
-        evidence.append(
-            {
-                "path": str(directory),
-                "selection": selection,
-                "distributions": distributions,
-            }
-        )
+        if directory.is_dir():
+            evidence.append(_environment_evidence_entry(directory))
     return evidence
 
 
-def doctor_payload(
+def _doctor_own_lock_payload(
     worktree: Path,
+    *,
     canonical: Path,
     workspace: Path,
     shadow: Path,
-    *,
-    own_lock: bool = False,
 ) -> dict:
-    """Return bounded evidence of how *worktree* resolves.
-
-    Two disjoint shapes (D-75-1/D-CIP-19/D-W3BP-4): a repo with its own
-    tracked ``uv.lock`` resolves directly against itself (``own_lock=True``,
-    ``shadow == worktree``) and is evidenced by its declared
-    ``.uv-workspace-siblings/`` entries actually being materialized; a repo
-    with no lock of its own still resolves through the generated ecosystem
-    shadow and is evidenced exactly as before.
-    """
-    if own_lock:
-        names = _own_sibling_member_names(worktree)
-        siblings = {}
-        for name in names:
-            link = worktree / _OWN_SIBLINGS_DIRNAME / name
-            siblings[name] = {
-                "path": str(link),
-                "is_symlink": link.is_symlink(),
-                "resolves": link.exists(),
-            }
-        return {
-            "status": "ok",
-            "resolution_mode": "own_tracked_lock",
-            "lock_resolution": "isolated_worktree_only",
-            "canonical_lock_mutation": False,
-            "external_worktree": worktree != canonical,
-            "worktree": str(worktree),
-            "canonical_repository": str(canonical),
-            "workspace_root": str(workspace),
-            "project_root": str(shadow),
-            "environments": _environment_evidence(worktree),
-            "member_resolves_to_worktree": True,
-            "siblings": siblings,
-            "siblings_materialized": all(
-                entry["resolves"] for entry in siblings.values()
-            ),
+    names = _own_sibling_member_names(worktree)
+    siblings = {
+        name: {
+            "path": str(worktree / _OWN_SIBLINGS_DIRNAME / name),
+            "is_symlink": (worktree / _OWN_SIBLINGS_DIRNAME / name).is_symlink(),
+            "resolves": (worktree / _OWN_SIBLINGS_DIRNAME / name).exists(),
         }
+        for name in names
+    }
+    return {
+        "status": "ok",
+        "resolution_mode": "own_tracked_lock",
+        "lock_resolution": "isolated_worktree_only",
+        "canonical_lock_mutation": False,
+        "external_worktree": worktree != canonical,
+        "worktree": str(worktree),
+        "canonical_repository": str(canonical),
+        "workspace_root": str(workspace),
+        "project_root": str(shadow),
+        "environments": _environment_evidence(worktree),
+        "member_resolves_to_worktree": True,
+        "siblings": siblings,
+        "siblings_materialized": all(entry["resolves"] for entry in siblings.values()),
+    }
+
+
+def _doctor_shadow_payload(
+    worktree: Path,
+    *,
+    canonical: Path,
+    workspace: Path,
+    shadow: Path,
+) -> dict:
     member = shadow / canonical.relative_to(workspace)
     manifest = shadow / "pyproject.toml"
     lock = shadow / "uv.lock"
@@ -1805,6 +1906,38 @@ def doctor_payload(
     }
 
 
+def doctor_payload(
+    worktree: Path,
+    canonical: Path,
+    workspace: Path,
+    shadow: Path,
+    *,
+    own_lock: bool = False,
+) -> dict:
+    """Return bounded evidence of how *worktree* resolves.
+
+    Two disjoint shapes (D-75-1/D-CIP-19/D-W3BP-4): a repo with its own
+    tracked ``uv.lock`` resolves directly against itself (``own_lock=True``,
+    ``shadow == worktree``) and is evidenced by its declared
+    ``.uv-workspace-siblings/`` entries actually being materialized; a repo
+    with no lock of its own still resolves through the generated ecosystem
+    shadow and is evidenced exactly as before.
+    """
+    if own_lock:
+        return _doctor_own_lock_payload(
+            worktree,
+            canonical=canonical,
+            workspace=workspace,
+            shadow=shadow,
+        )
+    return _doctor_shadow_payload(
+        worktree,
+        canonical=canonical,
+        workspace=workspace,
+        shadow=shadow,
+    )
+
+
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -1816,6 +1949,226 @@ def _optional_digest(path: Path) -> str | None:
     if not path.is_file():
         raise RuntimeError(f"cannot guard a non-file path: {path}")
     return _digest(path)
+
+
+class _UvGuard(NamedTuple):
+    target_lock: Path
+    mutable: set[Path]
+    protected: tuple[Path, ...]
+    before: dict[Path, str | None]
+
+
+class _UvActivity(NamedTuple):
+    handle: int | None
+    won_sync: bool
+    execute_is_heavy_sync: bool
+
+
+class _UvPreparation(NamedTuple):
+    """Preparation outcome, retaining the parent's raw return-code sentinel."""
+
+    returned: bool
+    returncode: int | None
+
+
+def _validate_mutable_lock(worktree: Path, mutable: set[Path]) -> Path:
+    target_lock = worktree / "uv.lock"
+    if mutable and mutable != {target_lock.resolve()}:
+        raise RuntimeError(
+            "refusing to allow mutation outside the target worktree lock: "
+            + ", ".join(str(path) for path in sorted(mutable))
+        )
+    if mutable and (target_lock.is_symlink() or not target_lock.is_file()):
+        raise RuntimeError(
+            "refusing to resolve through a non-regular target worktree lock: "
+            f"{target_lock}"
+        )
+    return target_lock
+
+
+def _capture_uv_guard(
+    worktree: Path,
+    workspace: Path,
+    shadow: Path,
+    *,
+    guard_paths: Sequence[Path],
+    mutable_paths: Sequence[Path],
+) -> _UvGuard:
+    candidates = (
+        workspace / "pyproject.toml",
+        workspace / "uv.lock",
+        shadow / "pyproject.toml",
+        shadow / "uv.lock",
+        *guard_paths,
+    )
+    mutable = {Path(path).resolve() for path in mutable_paths}
+    target_lock = _validate_mutable_lock(worktree, mutable)
+    protected: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in mutable or resolved in seen:
+            continue
+        seen.add(resolved)
+        protected.append(path)
+    return _UvGuard(
+        target_lock,
+        mutable,
+        tuple(protected),
+        {path: _optional_digest(path) for path in protected},
+    )
+
+
+def _assert_uv_unchanged(guard: _UvGuard) -> None:
+    if guard.mutable and (
+        guard.target_lock.is_symlink() or not guard.target_lock.is_file()
+    ):
+        raise RuntimeError(
+            "uv replaced the target worktree lock with a non-regular path: "
+            f"{guard.target_lock}"
+        )
+    changed = [
+        str(path)
+        for path in guard.protected
+        if _optional_digest(path) != guard.before[path]
+    ]
+    if changed:
+        raise RuntimeError(
+            "uv changed a lock-governed workspace input: " + ", ".join(changed)
+        )
+
+
+def _acquire_uv_activity(
+    environment_path: Path | None,
+    *,
+    prepare: Sequence[Sequence[str]],
+    execute_is_heavy_sync: bool,
+) -> _UvActivity:
+    if environment_path is None:
+        return _UvActivity(None, True, execute_is_heavy_sync)
+    handle, won_sync = _acquire_environment_activity(
+        environment_path,
+        want_sync=bool(prepare) or execute_is_heavy_sync,
+        sync_mandatory=execute_is_heavy_sync,
+    )
+    return _UvActivity(handle, won_sync, execute_is_heavy_sync)
+
+
+def _run_prepare_steps(
+    prepare: Sequence[Sequence[str]],
+    *,
+    worktree: Path,
+    environment: dict[str, str],
+    environment_path: Path | None,
+    won_sync: bool,
+    guard: _UvGuard,
+) -> _UvPreparation:
+    if prepare and not won_sync:
+        print(
+            f"uv_workspace: another invocation is already using "
+            f"{environment_path} -- skipping `uv sync` for this "
+            "invocation and running directly against its current state "
+            "(D-W2T-3). This only coordinates uv_workspace.py "
+            "invocations on this host; it is not a guarantee against a "
+            "bare `uv sync`/`pip install` run outside this launcher "
+            "(D-VI-1).",
+            file=sys.stderr,
+        )
+        return _UvPreparation(False, None)
+    for step in prepare:
+        with _dependency_sync_slot():
+            result = subprocess.run(
+                list(step),
+                cwd=worktree,
+                env=environment,
+                check=False,
+            )
+        _assert_uv_unchanged(guard)
+        if result.returncode != 0:
+            return _UvPreparation(True, result.returncode)
+    return _UvPreparation(False, None)
+
+
+def _guard_uv_command(command_name: str | None, environment_path: Path | None) -> None:
+    if environment_path is None or command_name is None:
+        return
+    foreign = foreign_python_console_script(command_name, environment_path)
+    if foreign is None:
+        return
+    raise RuntimeError(
+        f"refusing to run {command_name!r}: it is not installed in "
+        f"{environment_path}, so uv would fall through to {foreign} and "
+        "execute against a DIFFERENT interpreter and site-packages. That "
+        "run would still execute this project's fail-closed guards, which "
+        "would then report truthfully about the wrong environment and look "
+        "authoritative. Request the extras that provide "
+        f"{command_name!r} (for the test suite: --all-extras), or invoke it "
+        "as 'python -m' so it can only resolve inside the environment."
+    )
+
+
+def _execute_uv_command(
+    command: list[str],
+    *,
+    worktree: Path,
+    environment: dict[str, str],
+    execute_is_heavy_sync: bool,
+) -> Any:
+    if execute_is_heavy_sync:
+        with _dependency_sync_slot():
+            return subprocess.run(
+                command,
+                cwd=worktree,
+                env=environment,
+                check=False,
+            )
+    return subprocess.run(
+        command,
+        cwd=worktree,
+        env=environment,
+        check=False,
+    )
+
+
+def _run_uv_activity(
+    command: list[str],
+    *,
+    worktree: Path,
+    environment: dict[str, str],
+    prepare: Sequence[Sequence[str]],
+    environment_path: Path | None,
+    command_name: str | None,
+    guard: _UvGuard,
+    activity: _UvActivity,
+) -> int | None:
+    preparation = _run_prepare_steps(
+        prepare,
+        worktree=worktree,
+        environment=environment,
+        environment_path=environment_path,
+        won_sync=activity.won_sync,
+        guard=guard,
+    )
+    if preparation.returned:
+        return preparation.returncode
+    if activity.handle is not None and not activity.execute_is_heavy_sync:
+        # Sync (if any) is done; become a plain reader for the exec below
+        # so a LATER sibling's sync attempt correctly loses the exclusive
+        # race instead of mutating a live child's environment. Skipped
+        # when `execute_is_heavy_sync` is true and we won the write lock:
+        # in that shape the sync is baked into `execute` itself (a bare
+        # `sync`/`lock`, or a `run` this launcher could not partition),
+        # so the exclusive lock must stay held through it.
+        _downgrade_environment_activity(activity.handle)
+    _guard_uv_command(command_name, environment_path)
+    result = _execute_uv_command(
+        command,
+        worktree=worktree,
+        environment=environment,
+        execute_is_heavy_sync=activity.execute_is_heavy_sync,
+    )
+    _assert_uv_unchanged(guard)
+    return result.returncode
 
 
 def run_uv(
@@ -1831,12 +2184,18 @@ def run_uv(
     execute_is_heavy_sync: bool = False,
     guard_paths: Sequence[Path] = (),
     mutable_paths: Sequence[Path] = (),
-) -> int:
+) -> int | None:
     """Execute uv and prove neither authoritative nor generated inputs changed.
 
     ``prepare`` runs first and short-circuits on failure: it is the environment
     synchronisation that must complete before the child may be exec'd against an
     environment nobody is allowed to mutate afterwards.
+
+    A real ``subprocess.CompletedProcess.returncode`` is always an ``int``. The
+    optional return preserves the historical parent behavior for test doubles
+    whose preparation result uses ``None``: the child is skipped and the raw
+    sentinel reaches ``SystemExit`` unchanged (where it means success). It is
+    never normalized to a different exit code.
 
     ``environment_path`` and ``command_name`` enable the interpreter guard, which
     runs between the two: the environment is final by then, so the check sees
@@ -1861,128 +2220,35 @@ def run_uv(
     mutating the environment out from under our still-running child. See that
     function's docstring for exactly what this does and does not guarantee.
     """
-    candidates = (
-        workspace / "pyproject.toml",
-        workspace / "uv.lock",
-        shadow / "pyproject.toml",
-        shadow / "uv.lock",
-        *guard_paths,
+    guard = _capture_uv_guard(
+        worktree,
+        workspace,
+        shadow,
+        guard_paths=guard_paths,
+        mutable_paths=mutable_paths,
     )
-    mutable = {Path(path).resolve() for path in mutable_paths}
-    target_lock = worktree / "uv.lock"
-    target_lock_resolved = target_lock.resolve()
-    if mutable and mutable != {target_lock_resolved}:
-        raise RuntimeError(
-            "refusing to allow mutation outside the target worktree lock: "
-            + ", ".join(str(path) for path in sorted(mutable))
-        )
-    if mutable and (target_lock.is_symlink() or not target_lock.is_file()):
-        raise RuntimeError(
-            "refusing to resolve through a non-regular target worktree lock: "
-            f"{target_lock}"
-        )
-    protected: list[Path] = []
-    seen: set[Path] = set()
-    for path in candidates:
-        resolved = path.resolve()
-        if resolved in mutable or resolved in seen:
-            continue
-        seen.add(resolved)
-        protected.append(path)
-    before = {path: _optional_digest(path) for path in protected}
-
-    def _assert_unchanged() -> None:
-        if mutable and (target_lock.is_symlink() or not target_lock.is_file()):
-            raise RuntimeError(
-                "uv replaced the target worktree lock with a non-regular path: "
-                f"{target_lock}"
-            )
-        changed = [
-            str(path) for path in protected if _optional_digest(path) != before[path]
-        ]
-        if changed:
-            raise RuntimeError(
-                "uv changed a lock-governed workspace input: " + ", ".join(changed)
-            )
-
-    activity_handle: int | None = None
-    won_sync = True
-    if environment_path is not None:
-        want_sync = bool(prepare) or execute_is_heavy_sync
-        activity_handle, won_sync = _acquire_environment_activity(
-            environment_path,
-            want_sync=want_sync,
-            sync_mandatory=execute_is_heavy_sync,
-        )
+    activity = _acquire_uv_activity(
+        environment_path,
+        prepare=prepare,
+        execute_is_heavy_sync=execute_is_heavy_sync,
+    )
     try:
-        if prepare and not won_sync:
-            print(
-                f"uv_workspace: another invocation is already using "
-                f"{environment_path} -- skipping `uv sync` for this "
-                "invocation and running directly against its current state "
-                "(D-W2T-3). This only coordinates uv_workspace.py "
-                "invocations on this host; it is not a guarantee against a "
-                "bare `uv sync`/`pip install` run outside this launcher "
-                "(D-VI-1).",
-                file=sys.stderr,
-            )
-        else:
-            for step in prepare:
-                with _dependency_sync_slot():
-                    step_result = subprocess.run(
-                        list(step),
-                        cwd=worktree,
-                        env=environment,
-                        check=False,
-                    )
-                _assert_unchanged()
-                if step_result.returncode != 0:
-                    return step_result.returncode
-        if activity_handle is not None and not execute_is_heavy_sync:
-            # Sync (if any) is done; become a plain reader for the exec below
-            # so a LATER sibling's sync attempt correctly loses the exclusive
-            # race instead of mutating a live child's environment. Skipped
-            # when `execute_is_heavy_sync` is true and we won the write lock:
-            # in that shape the sync is baked into `execute` itself (a bare
-            # `sync`/`lock`, or a `run` this launcher could not partition),
-            # so the exclusive lock must stay held through it.
-            _downgrade_environment_activity(activity_handle)
-        if environment_path is not None and command_name is not None:
-            foreign = foreign_python_console_script(command_name, environment_path)
-            if foreign is not None:
-                raise RuntimeError(
-                    f"refusing to run {command_name!r}: it is not installed in "
-                    f"{environment_path}, so uv would fall through to {foreign} and "
-                    "execute against a DIFFERENT interpreter and site-packages. That "
-                    "run would still execute this project's fail-closed guards, which "
-                    "would then report truthfully about the wrong environment and look "
-                    "authoritative. Request the extras that provide "
-                    f"{command_name!r} (for the test suite: --all-extras), or invoke it "
-                    "as 'python -m' so it can only resolve inside the environment."
-                )
-        if execute_is_heavy_sync:
-            with _dependency_sync_slot():
-                result = subprocess.run(
-                    command,
-                    cwd=worktree,
-                    env=environment,
-                    check=False,
-                )
-        else:
-            result = subprocess.run(
-                command,
-                cwd=worktree,
-                env=environment,
-                check=False,
-            )
-        _assert_unchanged()
-        return result.returncode
+        return _run_uv_activity(
+            command,
+            worktree=worktree,
+            environment=environment,
+            prepare=prepare,
+            environment_path=environment_path,
+            command_name=command_name,
+            guard=guard,
+            activity=activity,
+        )
     finally:
-        if activity_handle is not None:
-            _release_environment_activity(activity_handle)
+        if activity.handle is not None:
+            _release_environment_activity(activity.handle)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(
         description="Run uv with exact workspace sources from an XDG git worktree."
     )
@@ -2085,8 +2351,12 @@ def main(argv: list[str] | None = None) -> int:
     return returncode
 
 
-def _cli() -> int:
+def _cli() -> int | None:
     """Report a refusal as a message, not a traceback.
+
+    The optional result is intentional: a test-double preparation sentinel can
+    flow through ``main`` unchanged, and ``SystemExit(None)`` is success just
+    as it was in the parent implementation.
 
     Every ``RuntimeError`` this module raises is a deliberate refusal addressed to
     a human — a foreign interpreter, a mutated lock, an unmanaged shadow. A

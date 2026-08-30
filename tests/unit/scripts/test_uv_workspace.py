@@ -549,6 +549,43 @@ def test_failed_preparation_never_execs_the_child(tmp_path: Path) -> None:
     assert returncode == 3
 
 
+def test_none_preparation_return_code_short_circuits_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A missing preparation return code still means preparation returned."""
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    prepare = [sys.executable, "-c", "pass"]
+    child = [sys.executable, "-c", "raise SystemExit('the child must never run')"]
+    executed: list[list[str]] = []
+
+    def record(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        executed.append(list(command))
+        return SimpleNamespace(returncode=None)
+
+    monkeypatch.setattr(uv_workspace.subprocess, "run", record)
+
+    returncode = uv_workspace.run_uv(
+        child,
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=[prepare],
+    )
+
+    assert returncode is None
+    assert executed == [prepare]
+
+
 def test_partitioned_environment_is_a_classified_resource() -> None:
     """An unclassified shared resource is exactly how this defect survived."""
     from agent_utilities.governance import lanes
