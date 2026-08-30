@@ -2,9 +2,10 @@
 """Measure the graph-os intent surface's tool-selection accuracy.
 
 CONCEPT:AU-ECO.mcp.intent-surface-selection-accuracy — Seam 8 program-design §4 phase 4
-("A/B measurement — selection accuracy... condensed vs. intent"). Runs the
+("A/B measurement — selection accuracy... condensed vs. intent"). Binds the
 REAL resolver (:func:`agent_utilities.mcp.tools.intent_tools.resolve_intent`,
-CPD-backed when ``docs/capabilities-power.json`` is present) against a small,
+CPD-backed when ``docs/capabilities-power.json`` is present) at this
+composition root, then passes it to the evaluator against a small,
 hand-labelled corpus of natural-language phrasings
 (:mod:`agent_utilities.knowledge_graph.retrieval.intent_selection_accuracy`)
 and prints top-1/top-3 accuracy plus a per-case breakdown.
@@ -36,6 +37,7 @@ from agent_utilities.knowledge_graph.retrieval.intent_selection_accuracy import 
     measure_selection_accuracy,
     render_report,
 )
+from agent_utilities.mcp.tools import intent_tools  # noqa: E402
 
 
 def main() -> int:
@@ -45,7 +47,7 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    report = measure_selection_accuracy()
+    report = measure_selection_accuracy(intent_tools.resolve_intent)
     if args.json:
         print(json.dumps(_to_jsonable(report), indent=2))
     else:

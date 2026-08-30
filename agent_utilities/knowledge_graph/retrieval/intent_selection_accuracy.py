@@ -6,9 +6,10 @@ from __future__ import annotations
 Seam 8 program-design §4 phase 4 ("A/B measurement — selection accuracy + task
 success, condensed vs. intent"). The one number that actually matters for the
 condensed-vs-intent trade-off: given ONLY a natural-language description of a
-task (never the tool's own name), how often does :func:`~agent_utilities.mcp.
-tools.intent_tools.resolve_intent` rank the SAME capability a caller who
-already knew the tool name would have named directly?
+task (never the tool's own name), how often does the injected resolver rank the
+SAME capability a caller who already knew the tool name would have named
+directly?  The resolver is injected by the evaluation composition root; this
+knowledge-graph evaluator does not depend on the MCP transport or tool registry.
 
 "Naming the tool directly" is trivially 100% accurate by definition (you typed
 the name) — that is not a competing ranking to measure, it is the baseline the
@@ -26,14 +27,34 @@ call into the real resolver (against the real, checked-in CPD set when
 present) — never a fabricated/precomputed number.
 """
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
+
+
+class _IntentCandidate(Protocol):
+    """Minimal candidate shape needed by the measurement."""
+
+    tool: str
+
+
+# The resolver may expose optional keyword controls beyond ``top_k`` (the real
+# adapter also accepts hints); keep this one injected port independent of that
+# adapter's transport-specific signature.
+IntentResolver = Callable[..., Sequence[_IntentCandidate]]
+
+
+class IntentResolverUnavailableError(RuntimeError):
+    """The live resolver was not supplied, so no accuracy may be reported."""
+
 
 __all__ = [
     "AccuracyCase",
     "AccuracyResult",
     "AccuracyReport",
     "CORPUS",
+    "IntentResolver",
+    "IntentResolverUnavailableError",
     "measure_selection_accuracy",
     "render_report",
 ]
@@ -139,20 +160,28 @@ class AccuracyReport:
 
 
 def measure_selection_accuracy(
-    corpus: tuple[AccuracyCase, ...] = CORPUS, *, top_k: int = 5
+    resolver: IntentResolver | None = None,
+    corpus: tuple[AccuracyCase, ...] = CORPUS,
+    *,
+    top_k: int = 5,
 ) -> AccuracyReport:
     """Live-measure top-1/top-3 selection accuracy against ``corpus``.
 
-    Calls the REAL :func:`~agent_utilities.mcp.tools.intent_tools.resolve_intent`
-    for every case — never precomputed/fabricated. Lazy import so this module
-    stays importable without the optional ``[mcp]`` extra until actually
-    measured.
+    Calls the injected live resolver for every case — never
+    precomputed/fabricated.  The composition root binds the real resolver once;
+    a missing or invalid binding raises :class:`IntentResolverUnavailableError`
+    instead of returning fabricated accuracy.  Resolver execution errors are
+    intentionally allowed to propagate so setup and runtime failures remain
+    visible to the caller.
     """
-    from agent_utilities.mcp.tools import intent_tools
+    if not callable(resolver):
+        raise IntentResolverUnavailableError(
+            "intent selection measurement requires an injected intent resolver"
+        )
 
     results: list[AccuracyResult] = []
     for case in corpus:
-        candidates = intent_tools.resolve_intent(case.verb, case.intent, top_k=top_k)
+        candidates = resolver(case.verb, case.intent, top_k=top_k)
         tools = [c.tool for c in candidates]
         results.append(
             AccuracyResult(
@@ -163,8 +192,9 @@ def measure_selection_accuracy(
             )
         )
     n = len(results)
-    top1 = sum(1 for r in results if r.top1_hit) / n if n else 0.0
-    top3 = sum(1 for r in results if r.top3_hit) / n if n else 0.0
+    denominator = n or 1
+    top1 = sum(1 for r in results if r.top1_hit) / denominator
+    top3 = sum(1 for r in results if r.top3_hit) / denominator
     return AccuracyReport(results=results, n=n, top1_accuracy=top1, top3_accuracy=top3)
 
 
