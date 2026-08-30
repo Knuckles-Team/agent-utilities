@@ -423,6 +423,205 @@ def _make_capability_id(intent: str, anchors: list[dict[str, Any]], query: str) 
     return f"code_context:{intent}:{key}"
 
 
+def _degraded_context_answer(
+    *, intent: str, query: str, cross_repo: bool, cause: EngineReadDegraded
+) -> dict[str, Any]:
+    cap = _make_capability_id(intent, [], query)
+    return CodeContextAnswer(
+        query=query,
+        intent=intent,
+        answer=(
+            "The knowledge graph engine was unavailable while answering "
+            f"'{query}'. This is NOT evidence the symbol is unindexed — "
+            "retry shortly rather than re-ingesting."
+        ),
+        citations=[],
+        sections={},
+        anchors=[],
+        capability_id=cap,
+        used_primitives=[],
+        cross_repo=cross_repo,
+        coverage={"anchors": 0},
+        status="degraded",
+        error={"code": "engine_degraded", "cause_type": cause.cause_type},
+    ).as_dict()
+
+
+def _unanchored_context_answer(
+    engine: Any,
+    *,
+    query: str,
+    intent: str,
+    limit: int,
+    cross_repo: bool,
+) -> dict[str, Any]:
+    sections: dict[str, list[dict[str, Any]]] = {}
+    used: list[str] = []
+    docs = _docs(engine, query, limit)
+    if docs:
+        sections["docs"] = docs
+        used.append("docs")
+    answer = (
+        f"No resolved code symbol matched '{query}'. "
+        "The area may not be ingested yet (run a delta sweep), or try a more "
+        "specific symbol name."
+        if not docs
+        else f"No code symbol matched '{query}', but related docs were found."
+    )
+    cap = _make_capability_id(intent, [], query)
+    return CodeContextAnswer(
+        query=query,
+        intent=intent,
+        answer=answer,
+        citations=[],
+        sections=sections,
+        anchors=[],
+        capability_id=cap,
+        used_primitives=used,
+        cross_repo=cross_repo,
+        coverage={"anchors": 0},
+    ).as_dict()
+
+
+def _empty_code_rows() -> list[dict[str, Any]]:
+    return []
+
+
+def _cross_repo_section(engine: Any, name: str, limit: int) -> list[dict[str, Any]]:
+    return [cross_repo_usages(engine, name, limit)]
+
+
+def _collect_enrichment(
+    engine: Any,
+    *,
+    intent: str,
+    query: str,
+    name: str,
+    node_id: str,
+    file_path: str,
+    depth: int,
+    limit: int,
+    anchors: list[dict[str, Any]],
+    cross_repo: bool,
+) -> tuple[
+    dict[str, list[dict[str, Any]]],
+    list[str],
+    list[dict[str, Any]],
+    bool,
+    bool,
+]:
+    sections: dict[str, list[dict[str, Any]]] = {}
+    used: list[str] = []
+    citations: list[dict[str, Any]] = list(anchors)
+    similar_fetch = _similar
+    similar_args: tuple[Any, ...] = (engine, node_id, limit)
+    if not node_id:
+        similar_fetch = _empty_code_rows
+        similar_args = ()
+
+    operations = {
+        "how": (
+            ("calls", _callees, (engine, name, depth, limit), "call_graph", True),
+            ("concepts", _concepts, (engine, file_path, limit), "concepts", False),
+            ("routes", _routes, (engine, name, limit), "routes", False),
+            ("docs", _docs, (engine, query or name, limit), "docs", False),
+            ("gotchas", _gotchas, (engine, file_path, limit), "gotchas", False),
+        ),
+        "usage": (
+            ("callers", _callers, (engine, name, limit), "call_graph", True),
+            ("similar", similar_fetch, similar_args, "similar_code", True),
+            ("routes", _routes, (engine, name, limit), "routes", False),
+            (
+                "cross_repo",
+                _cross_repo_section,
+                (engine, name, limit),
+                "cross_repo",
+                False,
+            ),
+        ),
+        "impact": (
+            (
+                "impacted_callers",
+                _impact,
+                (engine, name, depth, limit),
+                "impact_of_change",
+                True,
+            ),
+            (
+                "change_coupling",
+                _coupling,
+                (engine, file_path, limit),
+                "change_coupling",
+                False,
+            ),
+            ("routes", _routes, (engine, name, limit), "routes", False),
+        ),
+    }
+
+    enrichment_degraded = False
+    try:
+        for section, fetch, args, primitive, cite_rows in operations[intent]:
+            rows = fetch(*args)
+            if rows:
+                sections[section] = rows
+                if cite_rows:
+                    citations += rows
+                used.append(primitive)
+                if section == "cross_repo":
+                    cross_repo = True
+    except EngineReadDegraded:
+        enrichment_degraded = True
+    return sections, used, citations, enrichment_degraded, cross_repo
+
+
+def _finalize_context_answer(
+    *,
+    query: str,
+    intent: str,
+    primary: dict[str, Any],
+    sections: dict[str, list[dict[str, Any]]],
+    cites: list[dict[str, Any]],
+    anchors: list[dict[str, Any]],
+    used: list[str],
+    cross_repo: bool,
+    enrichment_degraded: bool,
+) -> dict[str, Any]:
+    citations = _dedup_cites(cites)
+    answer = _synthesize(query, intent, primary, sections, citations)
+    if enrichment_degraded:
+        answer += (
+            " (The knowledge graph engine degraded partway through "
+            "enrichment; some sections above may be incomplete rather than "
+            "genuinely empty.)"
+        )
+    cap = _make_capability_id(intent, anchors, query)
+    status = "degraded" if enrichment_degraded else "ok"
+    error = (
+        {"code": "engine_degraded", "detail": "enrichment reads incomplete"}
+        if enrichment_degraded
+        else None
+    )
+    return CodeContextAnswer(
+        query=query,
+        intent=intent,
+        answer=answer,
+        citations=citations,
+        sections=sections,
+        anchors=anchors,
+        capability_id=cap,
+        used_primitives=used,
+        cross_repo=cross_repo,
+        coverage={
+            "anchors": len(anchors),
+            "citations": len(citations),
+            "sections": {k: len(v) for k, v in sections.items()},
+            "enrichment_degraded": enrichment_degraded,
+        },
+        status=status,
+        error=error,
+    ).as_dict()
+
+
 def build_code_context(
     engine: Any,
     *,
@@ -455,163 +654,47 @@ def build_code_context(
         # right now. Say so plainly and mark the answer non-"ok" so a
         # wrapping EvidenceBundle surfaces a real `error`, not a silent
         # empty success (CONCEPT:AU-KG.retrieval.synthesized-cited-answer).
-        cap = _make_capability_id(intent, [], query)
-        return CodeContextAnswer(
-            query=query,
-            intent=intent,
-            answer=(
-                "The knowledge graph engine was unavailable while answering "
-                f"'{query}'. This is NOT evidence the symbol is unindexed — "
-                "retry shortly rather than re-ingesting."
-            ),
-            citations=[],
-            sections={},
-            anchors=[],
-            capability_id=cap,
-            used_primitives=[],
-            cross_repo=cross_repo,
-            coverage={"anchors": 0},
-            status="degraded",
-            error={"code": "engine_degraded", "cause_type": exc.cause_type},
-        ).as_dict()
-    sections: dict[str, list[dict[str, Any]]] = {}
-    used: list[str] = []
-    cites: list[dict[str, Any]] = list(anchors)
+        return _degraded_context_answer(
+            intent=intent, query=query, cross_repo=cross_repo, cause=exc
+        )
 
     if not anchors:
         # No symbol anchor — still try docs so a prose question isn't a dead end.
-        docs = _docs(engine, query, limit)
-        if docs:
-            sections["docs"] = docs
-            used.append("docs")
-        answer = (
-            f"No resolved code symbol matched '{query}'. "
-            "The area may not be ingested yet (run a delta sweep), or try a more "
-            "specific symbol name."
-            if not docs
-            else f"No code symbol matched '{query}', but related docs were found."
-        )
-        cap = _make_capability_id(intent, anchors, query)
-        return CodeContextAnswer(
+        return _unanchored_context_answer(
+            engine,
             query=query,
             intent=intent,
-            answer=answer,
-            citations=[],
-            sections=sections,
-            anchors=[],
-            capability_id=cap,
-            used_primitives=used,
+            limit=limit,
             cross_repo=cross_repo,
-            coverage={"anchors": 0},
-        ).as_dict()
+        )
 
     primary = anchors[0]
     name = primary.get("symbol") or ""
     nid = primary.get("id") or ""
     fp = primary.get("file") or ""
-
-    # BUG-004: the anchor itself resolved (real, grounded evidence), but a
-    # SUPPLEMENTARY enrichment read below can still hit an engine outage
-    # mid-way (breaker trips between calls). Before this, that raised
-    # EngineReadDegraded (from `_rows`, now that it no longer swallows a
-    # degraded read into a bare `[]`) unhandled out of this function — a
-    # regression this fix must not introduce. Degrade the ENRICHMENT
-    # gracefully (keep whatever sections completed) while still marking the
-    # answer so a caller knows it is incomplete, rather than silently
-    # pretending the missing sections simply "have not run yet".
-    enrichment_degraded = False
-    try:
-        if intent == "how":
-            callees = _callees(engine, name, depth, limit)
-            if callees:
-                sections["calls"] = callees
-                cites += callees
-                used.append("call_graph")
-            concepts = _concepts(engine, fp, limit)
-            if concepts:
-                sections["concepts"] = concepts
-                used.append("concepts")
-            routes = _routes(engine, name, limit)
-            if routes:
-                sections["routes"] = routes
-                used.append("routes")
-            docs = _docs(engine, query or name, limit)
-            if docs:
-                sections["docs"] = docs
-                used.append("docs")
-            gotchas = _gotchas(engine, fp, limit)
-            if gotchas:
-                sections["gotchas"] = gotchas
-                used.append("gotchas")
-        elif intent == "usage":
-            callers = _callers(engine, name, limit)
-            if callers:
-                sections["callers"] = callers
-                cites += callers
-                used.append("call_graph")
-            similar = _similar(engine, nid, limit) if nid else []
-            if similar:
-                sections["similar"] = similar
-                cites += similar
-                used.append("similar_code")
-            routes = _routes(engine, name, limit)
-            if routes:
-                sections["routes"] = routes
-                used.append("routes")
-            # "Where is it used" is inherently a fleet-wide question — surface the
-            # cross-repo usage view by default for usage intent (CONCEPT:AU-KG.retrieval.every-usage-published-symbol).
-            sections["cross_repo"] = [cross_repo_usages(engine, name, limit)]
-            used.append("cross_repo")
-            cross_repo = True
-        else:  # impact
-            impacted = _impact(engine, name, depth, limit)
-            if impacted:
-                sections["impacted_callers"] = impacted
-                cites += impacted
-                used.append("impact_of_change")
-            coupling = _coupling(engine, fp, limit)
-            if coupling:
-                sections["change_coupling"] = coupling
-                used.append("change_coupling")
-            routes = _routes(engine, name, limit)
-            if routes:
-                sections["routes"] = routes
-                used.append("routes")
-    except EngineReadDegraded:
-        enrichment_degraded = True
-
-    citations = _dedup_cites(cites)
-    answer = _synthesize(query, intent, primary, sections, citations)
-    if enrichment_degraded:
-        answer += (
-            " (The knowledge graph engine degraded partway through "
-            "enrichment; some sections above may be incomplete rather than "
-            "genuinely empty.)"
-        )
-    cap = _make_capability_id(intent, anchors, query)
-    return CodeContextAnswer(
+    sections, used, cites, enrichment_degraded, cross_repo = _collect_enrichment(
+        engine,
+        intent=intent,
+        query=query,
+        name=name,
+        node_id=nid,
+        file_path=fp,
+        depth=depth,
+        limit=limit,
+        anchors=anchors,
+        cross_repo=cross_repo,
+    )
+    return _finalize_context_answer(
         query=query,
         intent=intent,
-        answer=answer,
-        citations=citations,
+        primary=primary,
         sections=sections,
+        cites=cites,
         anchors=anchors,
-        capability_id=cap,
-        used_primitives=used,
+        used=used,
         cross_repo=cross_repo,
-        coverage={
-            "anchors": len(anchors),
-            "citations": len(citations),
-            "sections": {k: len(v) for k, v in sections.items()},
-            "enrichment_degraded": enrichment_degraded,
-        },
-        status="degraded" if enrichment_degraded else "ok",
-        error=(
-            {"code": "engine_degraded", "detail": "enrichment reads incomplete"}
-            if enrichment_degraded
-            else None
-        ),
-    ).as_dict()
+        enrichment_degraded=enrichment_degraded,
+    )
 
 
 def _synthesize_call_lines(calls: list[dict[str, Any]]) -> list[str]:
