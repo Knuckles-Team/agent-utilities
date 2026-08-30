@@ -153,6 +153,42 @@ class WritebackContext:
             return False
 
 
+def resolve_writeback_client(
+    ops: dict[str, Any],
+    module: str,
+    *,
+    log: logging.Logger | None = None,
+    label: str | None = None,
+) -> Any | None:
+    """Resolve an injected or connector-authenticated write-back client."""
+    client = ops.get("client")
+    if client is not None:
+        return client
+    try:
+        connector = __import__(f"{module}.auth", fromlist=["get_client"])
+        return connector.get_client()
+    except Exception:  # noqa: BLE001 - connector absent / unconfigured
+        (log or logger).debug(
+            "%s write client unavailable", label or module, exc_info=True
+        )
+        return None
+
+
+class WritebackClientMixin:
+    """Shared injected/authenticated client resolution for write-back sinks."""
+
+    client_module: str
+    client_label: str | None = None
+
+    def _client(self, ops: dict[str, Any]) -> Any | None:
+        return resolve_writeback_client(
+            ops,
+            self.client_module,
+            log=logging.getLogger(type(self).__module__),
+            label=self.client_label,
+        )
+
+
 @runtime_checkable
 class WritebackSink(Protocol):
     """A target system's write-back adapter.

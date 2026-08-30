@@ -13,7 +13,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import PROVENANCE_TAG, WritebackContext, WritebackResult, register_sink
+from ..core import (
+    PROVENANCE_TAG,
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,23 +82,13 @@ def _extract_sys_id(res: Any) -> str | None:
     return str(sid) if sid else None
 
 
-class ServiceNowSink:
+class ServiceNowSink(WritebackClientMixin):
     """Write-back sink for ServiceNow CMDB."""
 
     domain = "servicenow"
     enable_flag = "SERVICENOW_ENABLE_WRITE"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from servicenow_api.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001 - connector absent / unconfigured
-            logger.debug("servicenow write client unavailable", exc_info=True)
-            return None
+    client_module = "servicenow_api"
+    client_label = "servicenow"
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

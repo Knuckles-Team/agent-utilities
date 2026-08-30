@@ -15,7 +15,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +56,13 @@ def _extract_doc_name(res: Any, fallback: str | None = None) -> str | None:
     return str(name) if name else fallback
 
 
-class ErpNextSink:
+class ErpNextSink(WritebackClientMixin):
     """Write-back sink for ERPNext Items & Assets."""
 
     domain = "erpnext"
     enable_flag = "ERPNEXT_ENABLE_WRITE"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from erpnext_agent.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001 - connector absent / unconfigured
-            logger.debug("erpnext write client unavailable", exc_info=True)
-            return None
+    client_module = "erpnext_agent"
+    client_label = "erpnext"
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

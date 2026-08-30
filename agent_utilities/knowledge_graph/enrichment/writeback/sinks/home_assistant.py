@@ -10,26 +10,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class HomeAssistantSink:
+class HomeAssistantSink(WritebackClientMixin):
     domain = "homeassistant"
     enable_flag = "HOMEASSISTANT_ENABLE_WRITE"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from home_assistant_agent.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("home assistant write client unavailable", exc_info=True)
-            return None
+    client_module = "home_assistant_agent"
+    client_label = "home assistant"
 
     def _call_creation(
         self,

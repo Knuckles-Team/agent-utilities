@@ -12,7 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,23 +39,13 @@ def _ics(uid: str, summary: str, start: str | None, end: str | None) -> str:
     return "\r\n".join(lines)
 
 
-class NextcloudSink:
+class NextcloudSink(WritebackClientMixin):
     """Write-back sink for Nextcloud calendar + files."""
 
     domain = "nextcloud"
     enable_flag = "NEXTCLOUD_ENABLE_WRITE"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from nextcloud_agent.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001 - connector absent / unconfigured
-            logger.debug("nextcloud write client unavailable", exc_info=True)
-            return None
+    client_module = "nextcloud_agent"
+    client_label = "nextcloud"
 
     def _calendar_url(self, client: Any, ops: dict[str, Any]) -> str | None:
         if ops.get("calendar_url"):

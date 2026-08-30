@@ -13,7 +13,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +32,12 @@ _FILING = {
 }
 
 
-class LegalSink:
+class LegalSink(WritebackClientMixin):
     domain = "legal"
     enable_flag = "LEGAL_ENABLE_WRITE"
     risk_tier = "high_stakes"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from legal_peripherals_mcp.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("legal write client unavailable", exc_info=True)
-            return None
+    client_module = "legal_peripherals_mcp"
+    client_label = "legal"
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

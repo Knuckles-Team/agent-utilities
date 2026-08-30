@@ -10,27 +10,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class WgerSink:
+class WgerSink(WritebackClientMixin):
     domain = "wger"
     enable_flag = "WGER_ENABLE_WRITE"
     risk_tier = "standard"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from wger_agent.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("wger write client unavailable", exc_info=True)
-            return None
+    client_module = "wger_agent"
+    client_label = "wger"
 
     def _apply_weight_entry(
         self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult

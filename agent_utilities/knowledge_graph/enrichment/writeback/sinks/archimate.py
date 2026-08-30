@@ -12,7 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,22 +34,12 @@ _REL_TYPE = {
 }
 
 
-class ArchimateSink:
+class ArchimateSink(WritebackClientMixin):
     domain = "archimate"
     enable_flag = "ARCHIMATE_ENABLE_WRITE"
     risk_tier = "standard"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from archimate_mcp.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("archimate write client unavailable", exc_info=True)
-            return None
+    client_module = "archimate_mcp"
+    client_label = "archimate"
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

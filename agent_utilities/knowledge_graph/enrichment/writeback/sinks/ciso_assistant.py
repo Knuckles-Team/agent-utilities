@@ -18,7 +18,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,22 +39,12 @@ _CREATE = {
 }
 
 
-class CisoAssistantSink:
+class CisoAssistantSink(WritebackClientMixin):
     domain = "ciso_assistant"
     enable_flag = "CISO_ASSISTANT_ENABLE_WRITE"
     risk_tier = "standard"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from ciso_assistant_api.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("ciso_assistant write client unavailable", exc_info=True)
-            return None
+    client_module = "ciso_assistant_api"
+    client_label = "ciso_assistant"
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
