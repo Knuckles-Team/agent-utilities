@@ -5,6 +5,7 @@ import os
 import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -837,6 +838,375 @@ def _add_http_middleware(
         )
 
 
+def _preload_ontology_tbox() -> None:
+    """Best-effort preload of the bundled OWL schema into local storage."""
+    # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
+    # OWL store at startup so OWL reasoning + the local SPARQL endpoint
+    # have the schema immediately (best-effort; a no-op when owlready2
+    # /rdflib aren't installed, e.g. the most minimal tiny profile).
+    try:
+        from pathlib import Path as _Path
+
+        import agent_utilities.knowledge_graph as _kgpkg
+        from agent_utilities.knowledge_graph.backends.owl import (
+            create_owl_backend,
+        )
+
+        _owl = create_owl_backend()
+        _core_ttl = _Path(_kgpkg.__file__).parent / "ontology.ttl"
+        if _owl is not None and _core_ttl.exists():
+            _owl.load_ontology(str(_core_ttl))
+            logger.info("Preloaded bundled ontology TBox into local OWL store")
+    except Exception as _tbox_e:  # noqa: BLE001 — best-effort
+        logger.debug(
+            "TBox preload skipped (exception_type=%s)",
+            type(_tbox_e).__name__,
+        )
+
+
+async def _run_synthesis_daemon(*, workspace: str | None) -> None:
+    """Run the periodic synthesis daemon under a write-authorized session."""
+    import asyncio
+
+    from agent_utilities.ecosystem.governance_agent import (
+        GraphGovernanceAgent,
+    )
+    from agent_utilities.knowledge_graph.core.engine import (
+        IntelligenceGraphEngine,
+    )
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.knowledge_graph.memory import (
+        SynthesisEngine,
+    )
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import (
+        system_write_session,
+    )
+
+    # BUG-056 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
+    # this ASGI-lifespan daemon (spawned at process startup via
+    # asyncio.create_task, never a served request) reaches
+    # SynthesisEngine._persist_proposals's GraphComputeEngine.add_node
+    # chokepoint with no ambient actor bound -- BUG-033's fail-closed
+    # stamp_ownership raises IdentityRequiredError on every 10-minute
+    # tick, caught by the loop's own broad except below and logged as
+    # a generic "SynthesisEngine error" -- indistinguishable from any
+    # other transient failure, so the daemon has silently never
+    # succeeded once BUG-033 landed. Bind for the whole daemon body
+    # (asyncio.create_task(gov_agent.start()) below copies this same
+    # context, so GraphGovernanceAgent's own writes are covered too).
+    session = system_write_session()
+    with use_actor(session.actor), use_session(session):
+        engine = IntelligenceGraphEngine.get_or_create()
+        synthesis = SynthesisEngine(engine=engine)
+        _preload_ontology_tbox()
+
+        # Boot Phase 5 Daemon using the SAME engine
+        gov_agent = GraphGovernanceAgent(engine=engine, workspace=workspace or ".")
+        asyncio.create_task(gov_agent.start())
+
+        while True:
+            try:
+                # Wait 10 seconds before first run to let system boot
+                await asyncio.sleep(10)
+                synthesis.run(dry_run=False)
+                await asyncio.sleep(600)  # Run every 10 minutes
+            except asyncio.CancelledError:
+                break
+            except Exception as ce:
+                logger.error(
+                    "SynthesisEngine error (exception_type=%s)",
+                    type(ce).__name__,
+                )
+                await asyncio.sleep(60)
+
+
+@asynccontextmanager
+async def _app_lifespan(
+    app: FastAPI,
+    *,
+    a2a_app: Any,
+    agent_instance: Any,
+    mcp_config: str | None,
+    enable_acp: bool,
+    a2a_config: str | None,
+    workspace: str | None,
+):
+    """Run the background tasks and nested A2A lifespan for one app."""
+    from agent_utilities.core.workspace import resolve_mcp_config_path
+    from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
+
+    try:
+        _mcp_path = resolve_mcp_config_path(mcp_config)
+        if _mcp_path and (enable_acp or should_sync(_mcp_path)):
+            logger.info("Startup sync: ingesting MCP tools")
+            asyncio.create_task(sync_mcp_agents(config_path=_mcp_path))
+    except Exception as exc:
+        logger.error(
+            "Automatic Knowledge Graph ingestion failed on startup (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+    # CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A agent sync and periodic refresh
+    _a2a_cfg = a2a_config or config.a2a_config
+    if _a2a_cfg:
+        try:
+            from agent_utilities.protocols.a2a_config import (
+                periodic_a2a_refresh,
+                sync_a2a_agents,
+            )
+
+            asyncio.create_task(sync_a2a_agents(config_path=_a2a_cfg))
+            asyncio.create_task(
+                periodic_a2a_refresh(
+                    config_path=_a2a_cfg,
+                    interval_seconds=DEFAULT_A2A_REFRESH_INTERVAL,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "A2A startup sync failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+
+    processor_task = asyncio.create_task(background_processor(agent_instance))
+
+    # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Boot SynthesisEngine daemon
+    synthesis_task = asyncio.create_task(_run_synthesis_daemon(workspace=workspace))
+
+    shutdown_event = anyio.Event()
+
+    try:
+        # We no longer connect to all MCP servers on startup.
+        # Servers are now lazy-loaded on demand during graph execution.
+        if hasattr(a2a_app, "router") and hasattr(a2a_app.router, "lifespan_context"):
+            async with a2a_app.router.lifespan_context(a2a_app):
+                yield
+        else:
+            yield
+
+        shutdown_event.set()
+    finally:
+        processor_task.cancel()
+        synthesis_task.cancel()
+        try:
+            await processor_task
+            await synthesis_task
+        except asyncio.CancelledError:
+            pass
+
+
+def _assemble_app(
+    *,
+    host: str | None,
+    port: int | None,
+    debug: bool | None,
+    name: str,
+    agent_description: str | None,
+    identity_meta: dict[str, Any],
+    agent_emoji: str,
+    lifespan: Callable[..., Any],
+    agent_instance: Any,
+    initialized_mcp_toolsets: list[Any],
+    graph_bundle: tuple[Any, ...] | None,
+    mcp_config: str | None,
+    model_registry: Any | None,
+    provider: str | None,
+    model_id: str | None,
+    base_url: str | None,
+    a2a_app: Any,
+    enable_web_ui: bool | None,
+    on_enable_web_ui: Callable[[bool], None],
+    custom_web_app: Callable[[Any], Any] | None,
+    custom_web_mount_path: str,
+    html_source: str | Path | None,
+    reload_callback: Callable[[], Any],
+) -> tuple[FastAPI, bool]:
+    """Assemble routes, UI, and middleware around one configured agent."""
+    _origins, _hosts = _http_listener_settings(host, port, debug)
+    app = _create_fastapi_app(
+        origins=_origins,
+        name=name,
+        agent_description=agent_description,
+        agent_emoji=agent_emoji,
+        debug=debug,
+        lifespan=lifespan,
+    )
+    _install_model_override_middleware(app)
+
+    effective_rate = (
+        config.gateway_rate_limit
+        if config.gateway_rate_limit > 0
+        else (50.0 if not _is_loopback_listener(host) else 0.0)
+    )
+
+    _resolved_registry = _configure_app_state(
+        app,
+        agent_instance=agent_instance,
+        initialized_mcp_toolsets=initialized_mcp_toolsets,
+        graph_bundle=graph_bundle,
+        name=name,
+        mcp_config=mcp_config,
+        registry=model_registry,
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+    )
+
+    _include_gateway_routers(app)
+    app.mount("/a2a", a2a_app)
+    enable_web_ui = _mount_web_ui(
+        app,
+        enable_web_ui=enable_web_ui,
+        custom_web_app=custom_web_app,
+        custom_web_mount_path=custom_web_mount_path,
+        agent_instance=agent_instance,
+        identity_meta=identity_meta,
+        name=name,
+        html_source=html_source,
+        resolved_registry=_resolved_registry,
+        reload_callback=reload_callback,
+    )
+    on_enable_web_ui(enable_web_ui)
+
+    _add_http_middleware(
+        app,
+        origins=_origins,
+        hosts=_hosts,
+        effective_rate=effective_rate,
+    )
+
+    return app, enable_web_ui
+
+
+def _build_app(
+    *,
+    provider: str | None,
+    model_id: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    mcp_url: str | None,
+    mcp_config: str | None,
+    custom_skills_directory: str | None,
+    debug: bool | None,
+    host: str | None,
+    port: int | None,
+    enable_web_ui: bool | None,
+    custom_web_app: Callable[[Any], Any] | None,
+    custom_web_mount_path: str,
+    html_source: str | Path | None,
+    name: str,
+    system_prompt: str | None,
+    enable_otel: bool | None,
+    otel_endpoint: str | None,
+    otel_headers: str | None,
+    otel_public_key: str | None,
+    otel_secret_key: str | None,
+    otel_protocol: str | None,
+    workspace: str | None,
+    a2a_broker: str,
+    a2a_storage: str,
+    skill_types: list[str] | None,
+    agent_instance: Any | None,
+    graph_bundle: tuple[Any, ...] | None,
+    enable_acp: bool,
+    isolate_mcp: bool,
+    mcp_toolsets: list[Any] | None,
+    model_registry: Any | None,
+    a2a_config: str | None,
+    on_enable_otel: Callable[[bool], None],
+    on_enable_web_ui: Callable[[bool], None],
+    reload_callback: Callable[[], Any],
+) -> tuple[FastAPI, bool, bool]:
+    """Build one FastAPI instance and return the resolved feature flags."""
+    _name = name
+
+    enable_otel = _configure_observability(
+        enable_otel,
+        name=_name,
+        endpoint=otel_endpoint,
+        headers=otel_headers,
+        public_key=otel_public_key,
+        secret_key=otel_secret_key,
+        protocol=otel_protocol,
+    )
+    on_enable_otel(enable_otel)
+    identity_meta = load_identity()
+    _agent_description = identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION)
+    _agent_emoji = identity_meta.get("emoji", "🤖")
+    _agent_instance, _initialized_mcp_toolsets = _initialize_agent(
+        agent_instance=agent_instance,
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        mcp_url=mcp_url,
+        mcp_config=mcp_config,
+        custom_skills_directory=custom_skills_directory,
+        name=_name,
+        system_prompt=system_prompt,
+        debug=debug,
+        skill_types=skill_types,
+        graph_bundle=graph_bundle,
+        isolate_mcp=isolate_mcp,
+        mcp_toolsets=mcp_toolsets,
+    )
+    skill_dirs = _skill_directories(custom_skills_directory, skill_types)
+    skills_list = _load_enabled_skills(skill_dirs)
+    skills_list = _ensure_fallback_skills(
+        skills_list,
+        graph_bundle=graph_bundle,
+        initialized_mcp_toolsets=_initialized_mcp_toolsets,
+        name=_name,
+    )
+    _append_epistemic_skill(skills_list, _name)
+    a2a_app = _build_a2a_app(
+        agent_instance=_agent_instance,
+        broker=a2a_broker,
+        storage=a2a_storage,
+        name=_name,
+        skills=skills_list,
+        debug=debug,
+    )
+
+    lifespan = partial(
+        _app_lifespan,
+        a2a_app=a2a_app,
+        agent_instance=_agent_instance,
+        mcp_config=mcp_config,
+        enable_acp=enable_acp,
+        a2a_config=a2a_config,
+        workspace=workspace,
+    )
+    app, enable_web_ui = _assemble_app(
+        host=host,
+        port=port,
+        debug=debug,
+        name=_name,
+        agent_description=_agent_description,
+        agent_emoji=_agent_emoji,
+        identity_meta=identity_meta,
+        lifespan=lifespan,
+        agent_instance=_agent_instance,
+        initialized_mcp_toolsets=_initialized_mcp_toolsets,
+        graph_bundle=graph_bundle,
+        mcp_config=mcp_config,
+        model_registry=model_registry,
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        a2a_app=a2a_app,
+        enable_web_ui=enable_web_ui,
+        on_enable_web_ui=on_enable_web_ui,
+        custom_web_app=custom_web_app,
+        custom_web_mount_path=custom_web_mount_path,
+        html_source=html_source,
+        reload_callback=reload_callback,
+    )
+
+    return app, enable_otel, enable_web_ui
+
+
 def build_agent_app(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -894,20 +1264,16 @@ def build_agent_app(
 
     def app_factory() -> FastAPI:
         nonlocal enable_otel, enable_web_ui
-        enable_otel = _configure_observability(
-            enable_otel,
-            name=_name,
-            endpoint=otel_endpoint,
-            headers=otel_headers,
-            public_key=otel_public_key,
-            secret_key=otel_secret_key,
-            protocol=otel_protocol,
-        )
-        identity_meta = load_identity()
-        _agent_description = identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION)
-        _agent_emoji = identity_meta.get("emoji", "🤖")
-        _agent_instance, _initialized_mcp_toolsets = _initialize_agent(
-            agent_instance=agent_instance,
+
+        def _set_enable_otel(value: bool) -> None:
+            nonlocal enable_otel
+            enable_otel = value
+
+        def _set_enable_web_ui(value: bool) -> None:
+            nonlocal enable_web_ui
+            enable_web_ui = value
+
+        app, enable_otel, enable_web_ui = _build_app(
             provider=provider,
             model_id=model_id,
             base_url=base_url,
@@ -915,232 +1281,36 @@ def build_agent_app(
             mcp_url=mcp_url,
             mcp_config=mcp_config,
             custom_skills_directory=custom_skills_directory,
-            name=_name,
-            system_prompt=system_prompt,
             debug=debug,
-            skill_types=skill_types,
-            graph_bundle=graph_bundle,
-            isolate_mcp=isolate_mcp,
-            mcp_toolsets=mcp_toolsets,
-        )
-        skill_dirs = _skill_directories(custom_skills_directory, skill_types)
-        skills_list = _load_enabled_skills(skill_dirs)
-        skills_list = _ensure_fallback_skills(
-            skills_list,
-            graph_bundle=graph_bundle,
-            initialized_mcp_toolsets=_initialized_mcp_toolsets,
-            name=_name,
-        )
-        _append_epistemic_skill(skills_list, _name)
-        a2a_app = _build_a2a_app(
-            agent_instance=_agent_instance,
-            broker=a2a_broker,
-            storage=a2a_storage,
-            name=_name,
-            skills=skills_list,
-            debug=debug,
-        )
-
-        @asynccontextmanager
-        async def lifespan(app: FastAPI):
-            from agent_utilities.core.workspace import resolve_mcp_config_path
-            from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
-
-            try:
-                _mcp_path = resolve_mcp_config_path(mcp_config)
-                if _mcp_path and (enable_acp or should_sync(_mcp_path)):
-                    logger.info("Startup sync: ingesting MCP tools")
-                    asyncio.create_task(sync_mcp_agents(config_path=_mcp_path))
-            except Exception as exc:
-                logger.error(
-                    "Automatic Knowledge Graph ingestion failed on startup "
-                    "(exception_type=%s)",
-                    type(exc).__name__,
-                )
-
-            # CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A agent sync and periodic refresh
-            _a2a_cfg = a2a_config or config.a2a_config
-            if _a2a_cfg:
-                try:
-                    from agent_utilities.protocols.a2a_config import (
-                        periodic_a2a_refresh,
-                        sync_a2a_agents,
-                    )
-
-                    asyncio.create_task(sync_a2a_agents(config_path=_a2a_cfg))
-                    asyncio.create_task(
-                        periodic_a2a_refresh(
-                            config_path=_a2a_cfg,
-                            interval_seconds=DEFAULT_A2A_REFRESH_INTERVAL,
-                        )
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "A2A startup sync failed (exception_type=%s)",
-                        type(exc).__name__,
-                    )
-
-            processor_task = asyncio.create_task(background_processor(_agent_instance))
-
-            # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Boot SynthesisEngine daemon
-            async def run_synthesis_daemon():
-                import asyncio
-
-                from agent_utilities.ecosystem.governance_agent import (
-                    GraphGovernanceAgent,
-                )
-                from agent_utilities.knowledge_graph.core.engine import (
-                    IntelligenceGraphEngine,
-                )
-                from agent_utilities.knowledge_graph.core.session import use_session
-                from agent_utilities.knowledge_graph.memory import (
-                    SynthesisEngine,
-                )
-                from agent_utilities.security.brain_context import use_actor
-                from agent_utilities.security.request_identity import (
-                    system_write_session,
-                )
-
-                # BUG-056 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
-                # this ASGI-lifespan daemon (spawned at process startup via
-                # asyncio.create_task, never a served request) reaches
-                # SynthesisEngine._persist_proposals's GraphComputeEngine.add_node
-                # chokepoint with no ambient actor bound -- BUG-033's fail-closed
-                # stamp_ownership raises IdentityRequiredError on every 10-minute
-                # tick, caught by the loop's own broad except below and logged as
-                # a generic "SynthesisEngine error" -- indistinguishable from any
-                # other transient failure, so the daemon has silently never
-                # succeeded once BUG-033 landed. Bind for the whole daemon body
-                # (asyncio.create_task(gov_agent.start()) below copies this same
-                # context, so GraphGovernanceAgent's own writes are covered too).
-                session = system_write_session()
-                with use_actor(session.actor), use_session(session):
-                    engine = IntelligenceGraphEngine.get_or_create()
-                    synthesis = SynthesisEngine(engine=engine)
-
-                    # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
-                    # OWL store at startup so OWL reasoning + the local SPARQL endpoint
-                    # have the schema immediately (best-effort; a no-op when owlready2
-                    # /rdflib aren't installed, e.g. the most minimal tiny profile).
-                    try:
-                        from pathlib import Path as _Path
-
-                        import agent_utilities.knowledge_graph as _kgpkg
-                        from agent_utilities.knowledge_graph.backends.owl import (
-                            create_owl_backend,
-                        )
-
-                        _owl = create_owl_backend()
-                        _core_ttl = _Path(_kgpkg.__file__).parent / "ontology.ttl"
-                        if _owl is not None and _core_ttl.exists():
-                            _owl.load_ontology(str(_core_ttl))
-                            logger.info(
-                                "Preloaded bundled ontology TBox into local OWL store"
-                            )
-                    except Exception as _tbox_e:  # noqa: BLE001 — best-effort
-                        logger.debug(
-                            "TBox preload skipped (exception_type=%s)",
-                            type(_tbox_e).__name__,
-                        )
-
-                    # Boot Phase 5 Daemon using the SAME engine
-                    gov_agent = GraphGovernanceAgent(
-                        engine=engine, workspace=workspace or "."
-                    )
-                    asyncio.create_task(gov_agent.start())
-
-                    while True:
-                        try:
-                            # Wait 10 seconds before first run to let system boot
-                            await asyncio.sleep(10)
-                            synthesis.run(dry_run=False)
-                            await asyncio.sleep(600)  # Run every 10 minutes
-                        except asyncio.CancelledError:
-                            break
-                        except Exception as ce:
-                            logger.error(
-                                "SynthesisEngine error (exception_type=%s)",
-                                type(ce).__name__,
-                            )
-                            await asyncio.sleep(60)
-
-            synthesis_task = asyncio.create_task(run_synthesis_daemon())
-
-            shutdown_event = anyio.Event()
-
-            try:
-                # We no longer connect to all MCP servers on startup.
-                # Servers are now lazy-loaded on demand during graph execution.
-                if hasattr(a2a_app, "router") and hasattr(
-                    a2a_app.router, "lifespan_context"
-                ):
-                    async with a2a_app.router.lifespan_context(a2a_app):
-                        yield
-                else:
-                    yield
-
-                shutdown_event.set()
-            finally:
-                processor_task.cancel()
-                synthesis_task.cancel()
-                try:
-                    await processor_task
-                    await synthesis_task
-                except asyncio.CancelledError:
-                    pass
-
-        _origins, _hosts = _http_listener_settings(host, port, debug)
-        app = _create_fastapi_app(
-            origins=_origins,
-            name=_name,
-            agent_description=_agent_description,
-            agent_emoji=_agent_emoji,
-            debug=debug,
-            lifespan=lifespan,
-        )
-        _install_model_override_middleware(app)
-
-        effective_rate = (
-            config.gateway_rate_limit
-            if config.gateway_rate_limit > 0
-            else (50.0 if not _is_loopback_listener(host) else 0.0)
-        )
-
-        _resolved_registry = _configure_app_state(
-            app,
-            agent_instance=_agent_instance,
-            initialized_mcp_toolsets=_initialized_mcp_toolsets,
-            graph_bundle=graph_bundle,
-            name=_name,
-            mcp_config=mcp_config,
-            registry=model_registry,
-            provider=provider,
-            model_id=model_id,
-            base_url=base_url,
-        )
-
-        _include_gateway_routers(app)
-        app.mount("/a2a", a2a_app)
-        enable_web_ui = _mount_web_ui(
-            app,
+            host=host,
+            port=port,
             enable_web_ui=enable_web_ui,
             custom_web_app=custom_web_app,
             custom_web_mount_path=custom_web_mount_path,
-            agent_instance=_agent_instance,
-            identity_meta=identity_meta,
-            name=_name,
             html_source=html_source,
-            resolved_registry=_resolved_registry,
+            name=_name,
+            system_prompt=system_prompt,
+            enable_otel=enable_otel,
+            otel_endpoint=otel_endpoint,
+            otel_headers=otel_headers,
+            otel_public_key=otel_public_key,
+            otel_secret_key=otel_secret_key,
+            otel_protocol=otel_protocol,
+            workspace=workspace,
+            a2a_broker=a2a_broker,
+            a2a_storage=a2a_storage,
+            skill_types=skill_types,
+            agent_instance=agent_instance,
+            graph_bundle=graph_bundle,
+            enable_acp=enable_acp,
+            isolate_mcp=isolate_mcp,
+            mcp_toolsets=mcp_toolsets,
+            model_registry=model_registry,
+            a2a_config=a2a_config,
+            on_enable_otel=_set_enable_otel,
+            on_enable_web_ui=_set_enable_web_ui,
             reload_callback=lambda: reloadable.reload() if reloadable else None,
         )
-
-        _add_http_middleware(
-            app,
-            origins=_origins,
-            hosts=_hosts,
-            effective_rate=effective_rate,
-        )
-
         return app
 
     reloadable = ReloadableApp(app_factory)
