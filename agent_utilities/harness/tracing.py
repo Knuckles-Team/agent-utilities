@@ -45,6 +45,7 @@ import time
 import traceback
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 from agent_utilities.core.config import config
@@ -207,6 +208,84 @@ def get_trace_id() -> str | None:
     return _current_trace_id.get()
 
 
+@contextmanager
+def _trace_context(
+    func: Callable,
+    *,
+    name: str | None,
+    trace_type: str,
+    tags: list[str] | None,
+    metadata: dict[str, Any] | None,
+    session_id: str | None,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+):
+    """Set trace context and emit the completed call for either wrapper shape."""
+    parent_trace_id = _current_trace_id.get()
+    parent_span_id = _current_span_id.get()
+    current_session = session_id or _current_session_id.get()
+
+    trace_id = parent_trace_id or str(uuid.uuid4())
+    span_id = str(uuid.uuid4())
+    span_name = name or func.__name__
+
+    token_trace = _current_trace_id.set(trace_id)
+    token_span = _current_span_id.set(span_id)
+
+    start_time = time.time()
+    start_iso = _iso_timestamp(start_time)
+    result: Any = None
+
+    def capture_result(value: Any) -> Any:
+        nonlocal result
+        result = value
+        return value
+
+    try:
+        yield capture_result
+        end_iso = _iso_timestamp(time.time())
+
+        _emit_trace(
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            name=span_name,
+            trace_type=trace_type if parent_trace_id else "trace-create",
+            start_time=start_iso,
+            end_time=end_iso,
+            input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+            output_data=_safe_serialize(result),
+            level="DEFAULT",
+            tags=tags,
+            metadata=metadata,
+            session_id=current_session,
+            is_root=not parent_trace_id,
+        )
+    except Exception as e:
+        end_iso = _iso_timestamp(time.time())
+        _emit_trace(
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            name=span_name,
+            trace_type=trace_type if parent_trace_id else "trace-create",
+            start_time=start_iso,
+            end_time=end_iso,
+            input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+            output_data={"error": str(e), "traceback": traceback.format_exc()},
+            level="ERROR",
+            status_message=str(e),
+            tags=tags,
+            metadata=metadata,
+            session_id=current_session,
+            is_root=not parent_trace_id,
+        )
+        raise
+    finally:
+        _current_trace_id.reset(token_trace)
+        _current_span_id.reset(token_span)
+
+
 def trace(
     name: str | None = None,
     trace_type: str = "SPAN",
@@ -241,130 +320,33 @@ def trace(
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             if not _tracing_active():
                 return func(*args, **kwargs)
-
-            parent_trace_id = _current_trace_id.get()
-            parent_span_id = _current_span_id.get()
-            current_session = session_id or _current_session_id.get()
-
-            trace_id = parent_trace_id or str(uuid.uuid4())
-            span_id = str(uuid.uuid4())
-            span_name = name or func.__name__
-
-            # Set context for child traces
-            token_trace = _current_trace_id.set(trace_id)
-            token_span = _current_span_id.set(span_id)
-
-            start_time = time.time()
-            start_iso = _iso_timestamp(start_time)
-
-            try:
-                result = func(*args, **kwargs)
-                end_iso = _iso_timestamp(time.time())
-
-                _emit_trace(
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    parent_span_id=parent_span_id,
-                    name=span_name,
-                    trace_type=trace_type if parent_trace_id else "trace-create",
-                    start_time=start_iso,
-                    end_time=end_iso,
-                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
-                    output_data=_safe_serialize(result),
-                    level="DEFAULT",
-                    tags=tags,
-                    metadata=metadata,
-                    session_id=current_session,
-                    is_root=not parent_trace_id,
-                )
-                return result
-            except Exception as e:
-                end_iso = _iso_timestamp(time.time())
-                _emit_trace(
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    parent_span_id=parent_span_id,
-                    name=span_name,
-                    trace_type=trace_type if parent_trace_id else "trace-create",
-                    start_time=start_iso,
-                    end_time=end_iso,
-                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
-                    output_data={"error": str(e), "traceback": traceback.format_exc()},
-                    level="ERROR",
-                    status_message=str(e),
-                    tags=tags,
-                    metadata=metadata,
-                    session_id=current_session,
-                    is_root=not parent_trace_id,
-                )
-                raise
-            finally:
-                _current_trace_id.reset(token_trace)
-                _current_span_id.reset(token_span)
+            with _trace_context(
+                func,
+                name=name,
+                trace_type=trace_type,
+                tags=tags,
+                metadata=metadata,
+                session_id=session_id,
+                args=args,
+                kwargs=kwargs,
+            ) as capture_result:
+                return capture_result(func(*args, **kwargs))
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             if not _tracing_active():
                 return await func(*args, **kwargs)
-
-            parent_trace_id = _current_trace_id.get()
-            parent_span_id = _current_span_id.get()
-            current_session = session_id or _current_session_id.get()
-
-            trace_id = parent_trace_id or str(uuid.uuid4())
-            span_id = str(uuid.uuid4())
-            span_name = name or func.__name__
-
-            token_trace = _current_trace_id.set(trace_id)
-            token_span = _current_span_id.set(span_id)
-
-            start_time = time.time()
-            start_iso = _iso_timestamp(start_time)
-
-            try:
-                result = await func(*args, **kwargs)
-                end_iso = _iso_timestamp(time.time())
-
-                _emit_trace(
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    parent_span_id=parent_span_id,
-                    name=span_name,
-                    trace_type=trace_type if parent_trace_id else "trace-create",
-                    start_time=start_iso,
-                    end_time=end_iso,
-                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
-                    output_data=_safe_serialize(result),
-                    level="DEFAULT",
-                    tags=tags,
-                    metadata=metadata,
-                    session_id=current_session,
-                    is_root=not parent_trace_id,
-                )
-                return result
-            except Exception as e:
-                end_iso = _iso_timestamp(time.time())
-                _emit_trace(
-                    trace_id=trace_id,
-                    span_id=span_id,
-                    parent_span_id=parent_span_id,
-                    name=span_name,
-                    trace_type=trace_type if parent_trace_id else "trace-create",
-                    start_time=start_iso,
-                    end_time=end_iso,
-                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
-                    output_data={"error": str(e), "traceback": traceback.format_exc()},
-                    level="ERROR",
-                    status_message=str(e),
-                    tags=tags,
-                    metadata=metadata,
-                    session_id=current_session,
-                    is_root=not parent_trace_id,
-                )
-                raise
-            finally:
-                _current_trace_id.reset(token_trace)
-                _current_span_id.reset(token_span)
+            with _trace_context(
+                func,
+                name=name,
+                trace_type=trace_type,
+                tags=tags,
+                metadata=metadata,
+                session_id=session_id,
+                args=args,
+                kwargs=kwargs,
+            ) as capture_result:
+                return capture_result(await func(*args, **kwargs))
 
         if inspect.iscoroutinefunction(func):
             return async_wrapper
