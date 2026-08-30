@@ -195,6 +195,160 @@ def _local_pairs(nodes: dict[str, dict[str, Any]], threshold: float):
     return pairs
 
 
+def _restrict_pairs(pairs, restrict_to: set[str] | None):
+    """Keep only pairs touching the incremental target set."""
+    if not restrict_to:
+        return pairs
+    return [
+        (a, b, score) for a, b, score in pairs if a in restrict_to or b in restrict_to
+    ]
+
+
+def _write_similarity_edges(engine: Any, pairs, write: bool) -> None:
+    """Persist ``SIMILAR_TO`` links for a set of scored pairs."""
+    if not write:
+        return
+    for a, b, score in pairs:
+        engine.link_nodes(
+            a,
+            b,
+            RegistryEdgeType.SIMILAR_TO,
+            properties={"_rel": "SIMILAR_TO", "score": round(score, 6)},
+        )
+
+
+def _name_duplicate_pairs(name_resolution, restrict_to: set[str] | None):
+    """Build duplicate pairs from the entropy-gated name resolver."""
+    return [
+        (a, b, score)
+        for a, b, score, _tier in name_resolution.merge_pairs
+        if not restrict_to or a in restrict_to or b in restrict_to
+    ]
+
+
+def _write_variant_links(
+    engine: Any, variants, restrict_to: set[str] | None, write: bool
+) -> int:
+    """Persist selected name-resolution variants and return their count."""
+    linked = 0
+    for base, variant, score, _kind in variants:
+        if restrict_to and base not in restrict_to and variant not in restrict_to:
+            continue
+        linked += 1
+        if write:
+            engine.link_nodes(
+                base,
+                variant,
+                RegistryEdgeType.VARIANT_OF,
+                properties={
+                    "_rel": "VARIANT_OF",
+                    "concept": "AU-AHE.assimilation.transliteration-singularization-extend-ahe",
+                    "score": round(score, 6),
+                },
+            )
+    return linked
+
+
+def _engine_candidates(engine: Any, residual_ids: set[str], dup_threshold: float):
+    """Fetch native ``ResolveCandidates`` proposals when available."""
+    if not residual_ids:
+        return []
+    resolve_fn = getattr(engine, "resolve_candidates", None)
+    if not callable(resolve_fn):
+        return []
+    try:
+        return resolve_fn(0.8, dup_threshold, None) or []
+    except Exception:  # noqa: BLE001 — escalation never breaks dedup
+        return []
+
+
+def _write_engine_variant_links(
+    engine: Any, canonical: str, members: list[str], write: bool
+) -> None:
+    """Persist an engine ``extends`` proposal as ``VARIANT_OF`` links."""
+    if not write:
+        return
+    for member in members:
+        if member == canonical:
+            continue
+        engine.link_nodes(
+            canonical,
+            member,
+            RegistryEdgeType.VARIANT_OF,
+            properties={
+                "_rel": "VARIANT_OF",
+                "concept": "AU-KG.compute.when-exposes-native",
+            },
+        )
+
+
+def _proposal_members(prop: dict[str, Any], nodes, residual: set[str]):
+    """Return valid in-scope proposal members and its canonical id."""
+    members = [member for member in (prop.get("members") or []) if member in nodes]
+    if len(members) < 2 or residual.isdisjoint(members):
+        return None
+    return prop.get("canonical") or members[0], members
+
+
+def _apply_engine_proposals(
+    engine: Any,
+    nodes: dict[str, dict[str, Any]],
+    residual_ids: set[str],
+    dup_threshold: float,
+    write: bool,
+) -> tuple[list[tuple[str, str, float]], int]:
+    """Apply native variant proposals and return native same-as pairs."""
+    residual = set(residual_ids)
+    duplicate_pairs: list[tuple[str, str, float]] = []
+    proposal_count = 0
+    for prop in _engine_candidates(engine, residual, dup_threshold):
+        parts = _proposal_members(prop, nodes, residual)
+        if parts is None:
+            continue
+        canonical, members = parts
+        if prop.get("kind") == "extends":
+            proposal_count += 1
+            _write_engine_variant_links(engine, canonical, members, write)
+            continue
+        score = float(prop.get("score", dup_threshold))
+        same_as = [
+            (canonical, member, score) for member in members if member != canonical
+        ]
+        duplicate_pairs.extend(same_as)
+        proposal_count += len(same_as)
+    return duplicate_pairs, proposal_count
+
+
+def _supersede_cluster(
+    engine: Any,
+    cluster: list[str],
+    nodes: dict[str, dict[str, Any]],
+    write: bool,
+) -> tuple[str, int]:
+    """Choose a survivor and persist its ``SUPERSEDES`` links."""
+    survivor = max(cluster, key=lambda node: (nodes[node]["importance"], node))
+    superseded = 0
+    for duplicate in cluster:
+        if duplicate == survivor:
+            continue
+        if write:
+            engine.link_nodes(
+                survivor,
+                duplicate,
+                RegistryEdgeType.SUPERSEDES,
+                # `_rel` mirrors the edge label into properties so the lifecycle
+                # read path (gap_analysis.open_features) is backend-portable —
+                # out_edges/in_edges expose properties, not the rel label.
+                properties={
+                    "_rel": "SUPERSEDES",
+                    "reason": "duplicate",
+                    "concept": "AU-KG.query.vendor-agnostic-traversal",
+                },
+            )
+        superseded += 1
+    return survivor, superseded
+
+
 def _clusters(ids: list[str], dup_pairs) -> list[list[str]]:
     """Union-find connected components over the duplicate pairs (size ≥ 2)."""
     parent = {n: n for n in ids}
@@ -248,18 +402,9 @@ def dedup_features(
     pairs = _engine_pairs(engine, ids, similar_threshold)
     if pairs is None:
         pairs = _local_pairs(nodes, similar_threshold)
-    if restrict_to:
-        pairs = [(a, b, s) for a, b, s in pairs if a in restrict_to or b in restrict_to]
+    pairs = _restrict_pairs(pairs, restrict_to)
     report.similar_pairs = len(pairs)
-
-    if write:
-        for a, b, s in pairs:
-            engine.link_nodes(
-                a,
-                b,
-                RegistryEdgeType.SIMILAR_TO,
-                properties={"_rel": "SIMILAR_TO", "score": round(s, 6)},
-            )
+    _write_similarity_edges(engine, pairs, write)
 
     # Entropy-gated name-resolution fast-path (CONCEPT:AU-AHE.assimilation.merge-entities): merge entities
     # whose normalized names match exactly or fuzzy-match (MinHash/LSH Jaccard) —
@@ -269,98 +414,33 @@ def dedup_features(
     name_res = resolve_entities([(nid, str(nodes[nid]["name"])) for nid in sorted(ids)])
     report.name_resolved_pairs = len(name_res.merge_pairs)
     report.low_entropy_skipped = name_res.low_entropy
-    name_dup_pairs: list[tuple[str, str, float]] = []
-    for a, b, score, _tier in name_res.merge_pairs:
-        if restrict_to and a not in restrict_to and b not in restrict_to:
-            continue
-        name_dup_pairs.append((a, b, score))
-        if write:
-            engine.link_nodes(
-                a,
-                b,
-                RegistryEdgeType.SIMILAR_TO,
-                properties={"_rel": "SIMILAR_TO", "score": round(score, 6)},
-            )
+    name_dup_pairs = _name_duplicate_pairs(name_res, restrict_to)
+    _write_similarity_edges(engine, name_dup_pairs, write)
 
     # Version-variant pairs are LINKED as VARIANT_OF, never merged (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe):
     # a base and its versioned sibling are distinct entities with a real relationship.
-    for base, variant, score, _kind in name_res.variants:
-        if restrict_to and base not in restrict_to and variant not in restrict_to:
-            continue
-        report.variants_linked += 1
-        if write:
-            engine.link_nodes(
-                base,
-                variant,
-                RegistryEdgeType.VARIANT_OF,
-                properties={
-                    "_rel": "VARIANT_OF",
-                    "concept": "AU-AHE.assimilation.transliteration-singularization-extend-ahe",
-                    "score": round(score, 6),
-                },
-            )
+    report.variants_linked = _write_variant_links(
+        engine, name_res.variants, restrict_to, write
+    )
 
     # Server-side escalation: when the engine exposes the native
     # ResolveCandidates op, escalate the ambiguous residual to it — embedding
     # similarity + clustering yields same_as (merge) AND extends (variant) proposals
     # the local name-only pass can't produce. Capability-gated + best-effort: a no-op
     # until the engine ships the op, so it never breaks the pre-deploy path.
-    resolve_fn = getattr(engine, "resolve_candidates", None)
-    if name_res.residual_ids and callable(resolve_fn):
-        try:
-            proposals = resolve_fn(0.8, dup_threshold, None) or []
-        except Exception:  # noqa: BLE001 — escalation never breaks dedup
-            proposals = []
-        residual = set(name_res.residual_ids)
-        for prop in proposals:
-            members = [m for m in (prop.get("members") or []) if m in nodes]
-            if len(members) < 2 or residual.isdisjoint(members):
-                continue
-            canonical = prop.get("canonical") or members[0]
-            if prop.get("kind") == "extends":
-                report.engine_proposals += 1
-                for m in members:
-                    if m != canonical and write:
-                        engine.link_nodes(
-                            canonical,
-                            m,
-                            RegistryEdgeType.VARIANT_OF,
-                            properties={
-                                "_rel": "VARIANT_OF",
-                                "concept": "AU-KG.compute.when-exposes-native",
-                            },
-                        )
-            else:  # same_as → feed the duplicate clustering below
-                score = float(prop.get("score", dup_threshold))
-                for m in members:
-                    if m != canonical:
-                        report.engine_proposals += 1
-                        name_dup_pairs.append((canonical, m, score))
+    engine_pairs, report.engine_proposals = _apply_engine_proposals(
+        engine, nodes, name_res.residual_ids, dup_threshold, write
+    )
 
-    dup_pairs = [(a, b, s) for a, b, s in pairs if s >= dup_threshold] + name_dup_pairs
+    dup_pairs = [pair for pair in pairs if pair[2] >= dup_threshold]
+    dup_pairs.extend(name_dup_pairs)
+    dup_pairs.extend(engine_pairs)
     clusters = _clusters(list(ids), dup_pairs)
     report.clusters = len(clusters)
     for cluster in clusters:
-        survivor = max(cluster, key=lambda n: (nodes[n]["importance"], n))
+        survivor, superseded = _supersede_cluster(engine, cluster, nodes, write)
         report.survivors.append(survivor)
-        for dup in cluster:
-            if dup == survivor:
-                continue
-            if write:
-                engine.link_nodes(
-                    survivor,
-                    dup,
-                    RegistryEdgeType.SUPERSEDES,
-                    # `_rel` mirrors the edge label into properties so the lifecycle
-                    # read path (gap_analysis.open_features) is backend-portable —
-                    # out_edges/in_edges expose properties, not the rel label.
-                    properties={
-                        "_rel": "SUPERSEDES",
-                        "reason": "duplicate",
-                        "concept": "AU-KG.query.vendor-agnostic-traversal",
-                    },
-                )
-            report.duplicates_superseded += 1
+        report.duplicates_superseded += superseded
     return report
 
 
