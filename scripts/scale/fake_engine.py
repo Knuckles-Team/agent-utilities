@@ -415,56 +415,59 @@ class FakeScaleEngine:
             row[field] = node.get(field)
         return [row]
 
+    def _iter_work_items(self) -> Any:
+        return filter(
+            lambda pair: pair[1].get("label") == "WorkItem",
+            self.nodes.items(),
+        )
+
+    @staticmethod
+    def _work_item_bucket_row(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": node_id,
+            **{
+                field: node.get(field)
+                for field in (
+                    "created_at",
+                    "next_retry_at",
+                    "resource_class",
+                    "tenant",
+                    "fairness_group",
+                )
+            },
+        }
+
     def _query_work_items_by_bucket(
         self, params: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        rows = []
-        for node_id, node in self.nodes.items():
-            if node.get("label") != "WorkItem":
-                continue
-            if (
-                node.get("status") != params["status"]
-                or node.get("prio_bucket") != params["bucket"]
-            ):
-                continue
-            rows.append(
-                {
-                    "id": node_id,
-                    "created_at": node.get("created_at"),
-                    "next_retry_at": node.get("next_retry_at"),
-                    "resource_class": node.get("resource_class"),
-                    "tenant": node.get("tenant"),
-                    "fairness_group": node.get("fairness_group"),
-                }
-            )
-        return rows
+        return [
+            self._work_item_bucket_row(node_id, node)
+            for node_id, node in self._iter_work_items()
+            if node.get("status") == params["status"]
+            and node.get("prio_bucket") == params["bucket"]
+        ]
 
     def _query_expired_work_items(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        rows = []
-        for node_id, node in self.nodes.items():
-            if node.get("label") != "WorkItem":
-                continue
-            if node.get("status") not in params["statuses"]:
-                continue
-            expires = node.get("lease_expires_at")
-            if expires is None or not (expires < params["now"]):
-                continue
-            rows.append({"id": node_id})
-        return rows
+        return [
+            {"id": node_id}
+            for node_id, node in self._iter_work_items()
+            if node.get("status") in params["statuses"]
+            and (expires := node.get("lease_expires_at")) is not None
+            and expires < params["now"]
+        ]
 
     def _query_work_item_tenant_count(
         self, params: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        count = 0
-        for node in self.nodes.values():
-            if node.get("label") != "WorkItem":
-                continue
-            if node.get("tenant") != params["tenant"]:
-                continue
-            if node.get("status") in params["terminal"]:
-                continue
-            count += 1
-        return [{"c": count}]
+        return [
+            {
+                "c": sum(
+                    node.get("tenant") == params["tenant"]
+                    and node.get("status") not in params["terminal"]
+                    for _, node in self._iter_work_items()
+                )
+            }
+        ]
 
     def _query_bus_agent_by_id(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         node = self.nodes.get(f"busagent:{params['aid']}")
@@ -577,11 +580,7 @@ class FakeScaleEngine:
     # -- introspection for soak/chaos invariant assertions --------------------
 
     def work_items(self) -> list[dict[str, Any]]:
-        return [
-            dict(n, id=nid)
-            for nid, n in self.nodes.items()
-            if n.get("label") == "WorkItem"
-        ]
+        return [dict(node, id=node_id) for node_id, node in self._iter_work_items()]
 
     def bus_messages(self) -> list[dict[str, Any]]:
         return [dict(n) for n in self.nodes.values() if n.get("label") == "BusMessage"]
