@@ -133,10 +133,10 @@ def _reference_hits(context: SearchContext) -> list[Hit]:
     return hits
 
 
-def _monkeypatch_hit(node: ast.AST, context: SearchContext) -> Hit | None:
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-        return None
-    if node.func.attr != "setattr" or len(node.args) < 2:
+def _dynamic_dispatch_target(
+    node: ast.AST, context: SearchContext
+) -> tuple[int, str | None] | None:
+    if not isinstance(node, ast.Call) or len(node.args) < 2:
         return None
     name_arg = node.args[1]
     if not isinstance(name_arg, ast.Constant) or name_arg.value != context.simple_name:
@@ -144,9 +144,21 @@ def _monkeypatch_hit(node: ast.AST, context: SearchContext) -> Hit | None:
     target_dotted, target_resolved = context.resolve_node(node.args[0])
     if target_resolved != context.module_path and target_dotted != context.module_alias:
         return None
+    return node.lineno, target_dotted
+
+
+def _monkeypatch_hit(node: ast.AST, context: SearchContext) -> Hit | None:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    if node.func.attr != "setattr":
+        return None
+    target = _dynamic_dispatch_target(node, context)
+    if target is None:
+        return None
+    line, target_dotted = target
     return Hit(
         context.relative_file,
-        node.lineno,
+        line,
         "monkeypatch",
         f"setattr({target_dotted}, {context.simple_name!r}, ...)",
     )
@@ -155,17 +167,15 @@ def _monkeypatch_hit(node: ast.AST, context: SearchContext) -> Hit | None:
 def _getattr_hit(node: ast.AST, context: SearchContext) -> Hit | None:
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
-    if node.func.id != "getattr" or len(node.args) < 2:
+    if node.func.id != "getattr":
         return None
-    name_arg = node.args[1]
-    if not isinstance(name_arg, ast.Constant) or name_arg.value != context.simple_name:
+    target = _dynamic_dispatch_target(node, context)
+    if target is None:
         return None
-    target_dotted, target_resolved = context.resolve_node(node.args[0])
-    if target_resolved != context.module_path and target_dotted != context.module_alias:
-        return None
+    line, target_dotted = target
     return Hit(
         context.relative_file,
-        node.lineno,
+        line,
         "getattr",
         f"getattr({target_dotted}, {context.simple_name!r})",
     )
