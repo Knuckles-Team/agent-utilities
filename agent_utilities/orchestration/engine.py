@@ -170,14 +170,50 @@ def _is_agent_error(output: str) -> bool:
         return False
 
 
-async def _connect_mcp_toolsets(stack: AsyncExitStack, deps: Any) -> None:
-    """Connect every MCP toolset in ``deps.mcp_toolsets``, tolerating failures.
+async def _enter_mcp_toolset(
+    stack: AsyncExitStack,
+    ts: Any,
+    timeout_style: Literal["current_task", "wait_for"],
+) -> Any:
+    """Enter one MCP toolset with the caller's timeout contract."""
+    if timeout_style == "current_task":
+        # Use asyncio.timeout() (not asyncio.wait_for) to bound the connect:
+        # wait_for runs the coroutine in a NEW task, so a stdio toolset's anyio
+        # cancel scope would be ENTERED in that child task while the AsyncExitStack
+        # EXITS it in this (outer) task -> "Attempted to exit cancel scope in a
+        # different task than it was entered in". asyncio.timeout() applies to the
+        # current task, keeping enter/exit on the same task.
+        async with asyncio.timeout(60.0):
+            return await stack.enter_async_context(ts)
+    return await asyncio.wait_for(stack.enter_async_context(ts), timeout=60.0)
 
-    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
-    extract-method, no behaviour change). Mutates ``deps.mcp_toolsets`` in
-    place to the connected subset, exactly as the original inline code did;
-    has no return value.
-    """
+
+def _record_connected_mcp_toolset(
+    connected_toolsets: list,
+    already_connected: set[int],
+    ts: Any,
+    *,
+    connected: Any,
+    log_prefix: str,
+    srv_id: str,
+) -> None:
+    """Record a successful MCP connection and emit its success log."""
+    already_connected.add(id(ts))
+    connected_toolsets.append(connected)
+    logger.info(f"{log_prefix}: ✅ MCP server '{srv_id}' connected")
+
+
+async def _connect_mcp_toolsets_common(
+    stack: AsyncExitStack,
+    deps: Any,
+    *,
+    timeout_style: Literal["current_task", "wait_for"],
+    log_prefix: str,
+    log_connect: bool,
+    failure_suffix: str,
+    warning_suffix: str,
+) -> None:
+    """Connect toolsets while retaining each caller's timeout/log contract."""
     failed_servers: list[tuple[str, str]] = []
     connected_toolsets: list = []
     _already_connected: set[int] = set()
@@ -191,23 +227,22 @@ async def _connect_mcp_toolsets(stack: AsyncExitStack, deps: Any) -> None:
             continue
 
         srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+        if log_connect:
+            logger.debug(f"{log_prefix}: Connecting to MCP server '{srv_id}'...")
         try:
-            logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
-            # Use asyncio.timeout() (not asyncio.wait_for) to bound the connect:
-            # wait_for runs the coroutine in a NEW task, so a stdio toolset's anyio
-            # cancel scope would be ENTERED in that child task while the AsyncExitStack
-            # EXITS it in this (outer) task → "Attempted to exit cancel scope in a
-            # different task than it was entered in". asyncio.timeout() applies to the
-            # current task, keeping enter/exit on the same task.
-            async with asyncio.timeout(60.0):
-                connected = await stack.enter_async_context(ts)
-            _already_connected.add(id(ts))
-            connected_toolsets.append(connected)
-            logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
+            connected = await _enter_mcp_toolset(stack, ts, timeout_style)
+            _record_connected_mcp_toolset(
+                connected_toolsets,
+                _already_connected,
+                ts,
+                connected=connected,
+                log_prefix=log_prefix,
+                srv_id=srv_id,
+            )
         except Exception as e:
             err_msg = str(e)
             logger.error(
-                f"run_graph: ❌ MCP server '{srv_id}' FAILED to connect: {err_msg}"
+                f"{log_prefix}: ❌ MCP server '{srv_id}' {failure_suffix}: {err_msg}"
             )
             failed_servers.append((srv_id, err_msg))
 
@@ -215,10 +250,28 @@ async def _connect_mcp_toolsets(stack: AsyncExitStack, deps: Any) -> None:
 
     if failed_servers:
         logger.warning(
-            f"run_graph: {len(failed_servers)} MCP server(s) failed to connect — "
-            f"graph will proceed without them:\n"
+            f"{log_prefix}: {len(failed_servers)} MCP server(s) {warning_suffix}:\n"
             + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
         )
+
+
+async def _connect_mcp_toolsets(stack: AsyncExitStack, deps: Any) -> None:
+    """Connect every MCP toolset in ``deps.mcp_toolsets``, tolerating failures.
+
+    Extracted verbatim from ``AgentOrchestrationEngine.execute_graph`` (pure
+    extract-method, no behaviour change). Mutates ``deps.mcp_toolsets`` in
+    place to the connected subset, exactly as the original inline code did;
+    has no return value.
+    """
+    await _connect_mcp_toolsets_common(
+        stack,
+        deps,
+        timeout_style="current_task",
+        log_prefix="run_graph",
+        log_connect=True,
+        failure_suffix="FAILED to connect",
+        warning_suffix="failed to connect — graph will proceed without them",
+    )
 
 
 def _run_security_preflight(query: str, run_id: str) -> dict | None:
@@ -403,6 +456,18 @@ class _TelemetryContext:
     run_model: str
 
 
+def _telemetry_run_kwargs(ctx: _TelemetryContext) -> dict[str, Any]:
+    """Return the common run fields shared by usage-plane exporters."""
+    return {
+        "run_id": ctx.run_id,
+        "query": ctx.query,
+        "status": "success" if ctx.result else "timeout",
+        "duration_ms": (time.perf_counter() - ctx.graph_run_start) * 1000.0,
+        "token_usage": ctx.usage,
+        "model": ctx.run_model,
+    }
+
+
 async def _export_langfuse_trace(ctx: _TelemetryContext) -> None:
     """Default-on: ships this graph run as a Langfuse trace + token-usage
     generation when LANGFUSE_* keys are configured (CONCEPT:AU-OS.
@@ -416,12 +481,7 @@ async def _export_langfuse_trace(ctx: _TelemetryContext) -> None:
         if _exporter is not None:
             await _offload_sync(
                 _exporter.export_graph_run,
-                run_id=ctx.run_id,
-                query=ctx.query,
-                status="success" if ctx.result else "timeout",
-                duration_ms=(time.perf_counter() - ctx.graph_run_start) * 1000.0,
-                token_usage=ctx.usage,
-                model=ctx.run_model,
+                **_telemetry_run_kwargs(ctx),
                 metadata={
                     "domain": ctx.state.routed_domain,
                     "execution_mode": "pydantic_graph",
@@ -480,12 +540,7 @@ async def _record_usage_row(ctx: _TelemetryContext) -> None:
 
         await _offload_sync(
             get_usage_recorder().record_run,
-            run_id=ctx.run_id,
-            query=ctx.query,
-            status="success" if ctx.result else "timeout",
-            duration_ms=(time.perf_counter() - ctx.graph_run_start) * 1000.0,
-            token_usage=ctx.usage,
-            model=ctx.run_model,
+            **_telemetry_run_kwargs(ctx),
             project=str(ctx.state.routed_domain or ""),
             tenant_id=current_actor().tenant_id,
         )
@@ -1024,6 +1079,23 @@ def _build_iter_state(
     )
 
 
+def _build_graph_state_context(
+    *,
+    graph: Any,
+    query: str,
+    query_parts: list[dict[str, Any]] | None,
+    run_id: str,
+    mode: str,
+    topology: str,
+    config: dict,
+) -> tuple[GraphState, GraphExecutionEvidenceCollector]:
+    """Build and bind the state/evidence pair shared by graph run shapes."""
+    state = _build_iter_state(query, query_parts, run_id, mode, topology, config)
+    graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
+    graph_evidence.bind_state(state)
+    return state, graph_evidence
+
+
 async def _hydrate_registry_tags_for_iter(deps: GraphDeps) -> None:
     """Merge registry tags into ``deps`` (iter_graph's own variant — also
     keys by a lowercased/underscored ``node_id``, which ``execute_graph``'s
@@ -1052,37 +1124,15 @@ async def _connect_mcp_toolsets_for_iter(stack: AsyncExitStack, deps: Any) -> No
     switched to for a documented cancel-scope/task-mismatch bug) and its own
     ``run_graph_iter``-prefixed log messages.
     """
-    failed_servers: list[tuple[str, str]] = []
-    connected_toolsets: list = []
-    _already_connected: set[int] = set()
-
-    for ts in deps.mcp_toolsets:
-        if not hasattr(ts, "__aenter__"):
-            connected_toolsets.append(ts)
-            continue
-        if id(ts) in _already_connected:
-            connected_toolsets.append(ts)
-            continue
-        srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
-        try:
-            connected = await asyncio.wait_for(
-                stack.enter_async_context(ts), timeout=60.0
-            )
-            _already_connected.add(id(ts))
-            connected_toolsets.append(connected)
-            logger.info(f"run_graph_iter: ✅ MCP server '{srv_id}' connected")
-        except Exception as e:
-            err_msg = str(e)
-            logger.error(f"run_graph_iter: ❌ MCP server '{srv_id}' FAILED: {err_msg}")
-            failed_servers.append((srv_id, err_msg))
-
-    deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
-
-    if failed_servers:
-        logger.warning(
-            f"run_graph_iter: {len(failed_servers)} MCP server(s) failed:\n"
-            + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
-        )
+    await _connect_mcp_toolsets_common(
+        stack,
+        deps,
+        timeout_style="wait_for",
+        log_prefix="run_graph_iter",
+        log_connect=False,
+        failure_suffix="FAILED",
+        warning_suffix="failed",
+    )
 
 
 def _drain_sideband_events(eq: asyncio.Queue) -> Iterator[dict[str, Any]]:
@@ -1358,6 +1408,62 @@ def _build_stream_deps(
         plan_sync=plan_sync,
         mode="stream",
     )
+
+
+def _build_graph_run_context(
+    deps_builder: Any,
+    *,
+    graph: Any,
+    config: dict,
+    query: str,
+    query_parts: list[dict[str, Any]] | None,
+    run_id: str,
+    mode: str,
+    topology: str,
+    event_queue: asyncio.Queue[Any] | None,
+    mcp_toolsets: list[Any] | None,
+    requested_model_id: str | None,
+    plan_sync: Any,
+) -> tuple[GraphDeps, GraphState, GraphExecutionEvidenceCollector]:
+    """Build dependencies, state, and evidence for one graph run shape."""
+    deps = deps_builder(
+        config,
+        mcp_toolsets=mcp_toolsets,
+        event_queue=event_queue,
+        requested_model_id=requested_model_id,
+        run_id=run_id,
+        plan_sync=plan_sync,
+    )
+    state, graph_evidence = _build_graph_state_context(
+        graph=graph,
+        query=query,
+        query_parts=query_parts,
+        run_id=run_id,
+        mode=mode,
+        topology=topology,
+        config=config,
+    )
+    return deps, state, graph_evidence
+
+
+def _prepare_run_context(
+    run_id: str | None, requested_model_id: str | None
+) -> tuple[str, str | None]:
+    """Resolve the run id, correlation id, and per-turn model override."""
+    if run_id is None:
+        run_id = secrets.token_hex(16)
+
+    # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
+    # agent/span/side-effect in this run is joinable. Idempotent: nested
+    # in-process runs inherit the parent's id via the contextvar.
+    with contextlib.suppress(Exception):
+        from ..observability.correlation import ensure_correlation_id
+
+        ensure_correlation_id()
+
+    if requested_model_id is None:
+        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+    return run_id, requested_model_id
 
 
 def _extract_stream_final_output(
@@ -1682,7 +1788,7 @@ class AgentOrchestrationEngine:
         state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "graph_state",
         streamdown: bool = True,
         eq: asyncio.Queue[Any] | None = None,
-        mode: str = "ask",
+        mode: str = "ask",  # execute_graph's request mode
         topology: str = "basic",
         mcp_toolsets: list[Any] | None = None,
         query_parts: list[dict[str, Any]] | None = None,
@@ -1718,19 +1824,7 @@ class AgentOrchestrationEngine:
             and execution metadata.
 
         """
-        if run_id is None:
-            run_id = secrets.token_hex(16)
-
-        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
-        # agent/span/side-effect in this run is joinable. Idempotent: nested
-        # in-process runs inherit the parent's id via the contextvar.
-        with contextlib.suppress(Exception):
-            from ..observability.correlation import ensure_correlation_id
-
-            ensure_correlation_id()
-
-        if requested_model_id is None:
-            requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+        run_id, requested_model_id = _prepare_run_context(run_id, requested_model_id)
 
         mermaid_prefix = ""
         if streamdown:
@@ -1739,17 +1833,20 @@ class AgentOrchestrationEngine:
                     f"```mermaid\n{get_graph_mermaid(graph, config)}\n```\n\n"
                 )
 
-        deps = _build_execute_deps(
-            config,
-            mcp_toolsets=mcp_toolsets,
-            event_queue=eq,
-            requested_model_id=requested_model_id,
+        deps, state, graph_evidence = _build_graph_run_context(
+            _build_execute_deps,
+            graph=graph,
+            config=config,
+            query=query,
+            query_parts=query_parts,
             run_id=run_id,
+            mode=mode,
+            topology=topology,
             plan_sync=plan_sync,
+            event_queue=eq,
+            mcp_toolsets=mcp_toolsets,
+            requested_model_id=requested_model_id,
         )
-        state = _build_iter_state(query, query_parts, run_id, mode, topology, config)
-        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
-        graph_evidence.bind_state(state)
 
         _ensure_persistence_dir(persist, state_dir, run_id)
         _apply_max_steps_cap(state, max_steps, config)
@@ -1784,7 +1881,7 @@ class AgentOrchestrationEngine:
         run_id: str | None = None,
         persist: bool = False,
         state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
-        mode: str = "ask",
+        mode: str = "ask",  # stream_graph's request mode
         topology: str = "basic",
         mcp_toolsets: list[Any] | None = None,
         query_parts: list[dict[str, Any]] | None = None,
@@ -1817,19 +1914,7 @@ class AgentOrchestrationEngine:
         """
         import asyncio
 
-        if run_id is None:
-            run_id = secrets.token_hex(16)
-
-        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
-        # agent/span/side-effect in this run is joinable. Idempotent: nested
-        # in-process runs inherit the parent's id via the contextvar.
-        with contextlib.suppress(Exception):
-            from ..observability.correlation import ensure_correlation_id
-
-            ensure_correlation_id()
-
-        if requested_model_id is None:
-            requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+        run_id, requested_model_id = _prepare_run_context(run_id, requested_model_id)
 
         eq: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
@@ -1842,17 +1927,20 @@ class AgentOrchestrationEngine:
             topology=topology,
         )
 
-        deps = _build_stream_deps(
-            config,
-            mcp_toolsets=mcp_toolsets,
-            event_queue=eq,
-            requested_model_id=requested_model_id,
+        deps, state, graph_evidence = _build_graph_run_context(
+            _build_stream_deps,
+            graph=graph,
+            config=config,
+            query=query,
+            query_parts=query_parts,
             run_id=run_id,
+            mode=mode,
+            topology=topology,
+            event_queue=eq,
+            mcp_toolsets=mcp_toolsets,
+            requested_model_id=requested_model_id,
             plan_sync=plan_sync,
         )
-        state = _build_iter_state(query, query_parts, run_id, mode, topology, config)
-        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
-        graph_evidence.bind_state(state)
 
         _ensure_persistence_dir(persist, state_dir, run_id)
 
@@ -2013,7 +2101,7 @@ class AgentOrchestrationEngine:
         config: dict,
         query: str,
         run_id: str | None = None,
-        mode: str = "ask",
+        mode: str = "ask",  # iter_graph's request mode
         topology: str = "basic",
         mcp_toolsets: list[Any] | None = None,
         query_parts: list[dict[str, Any]] | None = None,
@@ -2067,36 +2155,27 @@ class AgentOrchestrationEngine:
         """
         end_marker_type = _resolve_end_marker_type()
 
-        if run_id is None:
-            run_id = secrets.token_hex(16)
-
-        # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
-        # agent/span/side-effect in this run is joinable. Idempotent: nested
-        # in-process runs inherit the parent's id via the contextvar.
-        with contextlib.suppress(Exception):
-            from ..observability.correlation import ensure_correlation_id
-
-            ensure_correlation_id()
-
-        if requested_model_id is None:
-            requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+        run_id, requested_model_id = _prepare_run_context(run_id, requested_model_id)
 
         eq: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         emit_graph_event(
             eq, "graph_start", run_id=run_id, query=query, topology=topology
         )
 
-        deps = _build_iter_deps(
-            config,
-            mcp_toolsets=mcp_toolsets,
-            event_queue=eq,
-            requested_model_id=requested_model_id,
+        deps, state, graph_evidence = _build_graph_run_context(
+            _build_iter_deps,
+            graph=graph,
+            config=config,
+            query=query,
+            query_parts=query_parts,
             run_id=run_id,
+            mode=mode,
+            topology=topology,
+            event_queue=eq,
+            mcp_toolsets=mcp_toolsets,
+            requested_model_id=requested_model_id,
             plan_sync=plan_sync,
         )
-        state = _build_iter_state(query, query_parts, run_id, mode, topology, config)
-        graph_evidence = GraphExecutionEvidenceCollector(graph, topology=topology)
-        graph_evidence.bind_state(state)
 
         # Merge registry tags into deps (same as run_graph)
         await _hydrate_registry_tags_for_iter(deps)
