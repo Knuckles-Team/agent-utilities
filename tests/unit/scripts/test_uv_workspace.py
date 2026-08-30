@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import threading
+from collections.abc import Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,6 +50,19 @@ def workspace_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
     )
     (workspace / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     return workspace, canonical, worktree
+
+
+@pytest.fixture
+def run_uv_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    return workspace, shadow, worktree
 
 
 def test_shadow_workspace_substitutes_only_current_worktree(
@@ -526,16 +541,39 @@ def test_unrecognized_flag_degrades_instead_of_guessing(
     assert "--no-sync" not in plan.execute
 
 
-def test_failed_preparation_never_execs_the_child(tmp_path: Path) -> None:
+def _run_uv_with_sync_slot_spy(
+    monkeypatch: pytest.MonkeyPatch,
+    run_uv_layout: tuple[Path, Path, Path],
+    *,
+    prepare: Sequence[Sequence[str]] = (),
+    execute_is_heavy_sync: bool = False,
+) -> tuple[int | None, list[str]]:
+    calls: list[str] = []
+
+    @contextmanager
+    def spy():
+        calls.append("acquired")
+        yield
+
+    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
+    workspace, shadow, worktree = run_uv_layout
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "pass"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=prepare,
+        execute_is_heavy_sync=execute_is_heavy_sync,
+    )
+    return returncode, calls
+
+
+def test_failed_preparation_never_execs_the_child(
+    run_uv_layout: tuple[Path, Path, Path],
+) -> None:
     """A half-built environment must not be handed to a test run."""
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    workspace, shadow, worktree = run_uv_layout
 
     returncode = uv_workspace.run_uv(
         [sys.executable, "-c", "raise SystemExit('the child must never run')"],
@@ -551,17 +589,10 @@ def test_failed_preparation_never_execs_the_child(tmp_path: Path) -> None:
 
 def test_none_preparation_return_code_short_circuits_child(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    run_uv_layout: tuple[Path, Path, Path],
 ) -> None:
     """A missing preparation return code still means preparation returned."""
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    workspace, shadow, worktree = run_uv_layout
 
     prepare = [sys.executable, "-c", "pass"]
     child = [sys.executable, "-c", "raise SystemExit('the child must never run')"]
@@ -748,36 +779,16 @@ def test_uv_plan_marks_unrecognized_run_as_heavy(
 
 
 def test_run_uv_pool_gates_the_prepare_sync_step(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    run_uv_layout: tuple[Path, Path, Path],
 ) -> None:
     """Pins the D-ORC-33 wiring itself: `run_uv()` must acquire a pool slot for
     every `prepare` step. Proven against the restored bug: reverting the
     `with _dependency_sync_slot():` wrap around the `prepare` loop in
     `run_uv()` drops the recorded call count to 0 and this assertion fails."""
-    calls: list[str] = []
-    from contextlib import contextmanager
-
-    @contextmanager
-    def spy():
-        calls.append("acquired")
-        yield
-
-    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
-
-    returncode = uv_workspace.run_uv(
-        [sys.executable, "-c", "pass"],
-        worktree=worktree,
-        environment=dict(os.environ),
-        workspace=workspace,
-        shadow=shadow,
+    returncode, calls = _run_uv_with_sync_slot_spy(
+        monkeypatch,
+        run_uv_layout,
         prepare=[[sys.executable, "-c", "pass"]],
     )
 
@@ -786,36 +797,15 @@ def test_run_uv_pool_gates_the_prepare_sync_step(
 
 
 def test_run_uv_pool_gates_a_heavy_execute_with_no_prepare_step(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    run_uv_layout: tuple[Path, Path, Path],
 ) -> None:
     """Pins the OTHER half: a bare `sync`/`lock`-shaped invocation has no
     `prepare` step, so `execute_is_heavy_sync=True` must gate `execute`
     directly. Proven against the restored bug the same way as above."""
-    calls: list[str] = []
-    from contextlib import contextmanager
-
-    @contextmanager
-    def spy():
-        calls.append("acquired")
-        yield
-
-    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
-
-    returncode = uv_workspace.run_uv(
-        [sys.executable, "-c", "pass"],
-        worktree=worktree,
-        environment=dict(os.environ),
-        workspace=workspace,
-        shadow=shadow,
-        prepare=(),
+    returncode, calls = _run_uv_with_sync_slot_spy(
+        monkeypatch,
+        run_uv_layout,
         execute_is_heavy_sync=True,
     )
 
@@ -824,36 +814,15 @@ def test_run_uv_pool_gates_a_heavy_execute_with_no_prepare_step(
 
 
 def test_run_uv_does_not_pool_gate_an_ordinary_test_execution(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    run_uv_layout: tuple[Path, Path, Path],
 ) -> None:
     """The actual test/build run (`run --no-sync ...`) must stay OUTSIDE the
     pool -- gating it too would cap general lane parallelism, not just the
     disk/cache contention D-ORC-33 measured."""
-    calls: list[str] = []
-    from contextlib import contextmanager
-
-    @contextmanager
-    def spy():
-        calls.append("acquired")
-        yield
-
-    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
-
-    returncode = uv_workspace.run_uv(
-        [sys.executable, "-c", "pass"],
-        worktree=worktree,
-        environment=dict(os.environ),
-        workspace=workspace,
-        shadow=shadow,
-        prepare=(),
+    returncode, calls = _run_uv_with_sync_slot_spy(
+        monkeypatch,
+        run_uv_layout,
         execute_is_heavy_sync=False,
     )
 
@@ -940,6 +909,7 @@ def test_environment_activity_readers_never_block_each_other(tmp_path: Path) -> 
 
 def test_run_uv_never_overlaps_two_syncs_against_the_same_environment(
     tmp_path: Path,
+    run_uv_layout: tuple[Path, Path, Path],
 ) -> None:
     """End-to-end proof at the `run_uv()` level, using real subprocesses.
 
@@ -951,14 +921,7 @@ def test_run_uv_never_overlaps_two_syncs_against_the_same_environment(
     all), the same test observes an OVERLAPPING SYNC-START before the first
     SYNC-END, reproducing the corruption window this fix closes.
     """
-    workspace = tmp_path / "workspace"
-    shadow = tmp_path / "shadow"
-    worktree = tmp_path / "worktree"
-    for directory in (workspace, shadow, worktree):
-        directory.mkdir(parents=True)
-    for directory in (workspace, shadow):
-        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    workspace, shadow, worktree = run_uv_layout
 
     environment_path = worktree / ".venv"
     environment_path.mkdir()
@@ -1243,6 +1206,13 @@ def _decision(
     return uv_workspace._eg_sibling_target(checkout), vendored
 
 
+def _assert_fastpath_serves_wheel(
+    target: Path, checkout: Path, vendored: list[Path]
+) -> None:
+    assert target != checkout
+    assert len(vendored) == 1
+
+
 def test_fastpath_serves_a_wheel_matching_the_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1272,8 +1242,7 @@ def test_fastpath_still_serves_a_wheel_newer_than_the_checkout(
 
     target, vendored = _decision(checkout, monkeypatch)
 
-    assert target != checkout
-    assert len(vendored) == 1
+    _assert_fastpath_serves_wheel(target, checkout, vendored)
 
 
 def test_fastpath_has_no_opinion_when_the_manifest_is_unreadable(
@@ -1287,8 +1256,7 @@ def test_fastpath_has_no_opinion_when_the_manifest_is_unreadable(
 
     target, vendored = _decision(checkout, monkeypatch)
 
-    assert target != checkout
-    assert len(vendored) == 1
+    _assert_fastpath_serves_wheel(target, checkout, vendored)
 
 
 # ── The pre-push `uv-lock` hook must be runnable from the canonical checkout ──
