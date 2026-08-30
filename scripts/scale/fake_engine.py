@@ -406,150 +406,172 @@ class FakeScaleEngine:
 
     # -- query dispatch: the closed set work_item.py + messaging.bus.AgentBus issue --
 
-    def _dispatch_query(self, q: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-        # ---- orchestration.work_item ----
-        if q.startswith("MATCH (w:WorkItem {id: $id}) RETURN w.id"):
-            node = self.nodes.get(params["id"])
-            if node is None or node.get("label") != "WorkItem":
-                return []
-            row: dict[str, Any] = {"id": params["id"]}
-            for f in _wi._FIELDS:
-                row[f] = node.get(f)
-            return [row]
-
-        if q.startswith("MATCH (w:WorkItem {status: $status, prio_bucket: $bucket})"):
-            rows = []
-            for nid, node in self.nodes.items():
-                if node.get("label") != "WorkItem":
-                    continue
-                if (
-                    node.get("status") != params["status"]
-                    or node.get("prio_bucket") != params["bucket"]
-                ):
-                    continue
-                rows.append(
-                    {
-                        "id": nid,
-                        "created_at": node.get("created_at"),
-                        "next_retry_at": node.get("next_retry_at"),
-                        "resource_class": node.get("resource_class"),
-                        "tenant": node.get("tenant"),
-                        "fairness_group": node.get("fairness_group"),
-                    }
-                )
-            return rows
-
-        if q.startswith("MATCH (w:WorkItem) WHERE w.status IN $statuses AND"):
-            rows = []
-            for nid, node in self.nodes.items():
-                if node.get("label") != "WorkItem":
-                    continue
-                if node.get("status") not in params["statuses"]:
-                    continue
-                expires = node.get("lease_expires_at")
-                if expires is None or not (expires < params["now"]):
-                    continue
-                rows.append({"id": nid})
-            return rows
-
-        if q.startswith(
-            "MATCH (w:WorkItem {tenant: $tenant}) WHERE NOT w.status IN $terminal"
-        ):
-            c = 0
-            for node in self.nodes.values():
-                if node.get("label") != "WorkItem":
-                    continue
-                if node.get("tenant") != params["tenant"]:
-                    continue
-                if node.get("status") in params["terminal"]:
-                    continue
-                c += 1
-            return [{"c": c}]
-
-        # ---- messaging.bus.AgentBus graph fallback (log backend unconfigured) ----
-
-        if q.startswith("MATCH (a:BusAgent {agent_id: $aid}) RETURN a"):
-            node = self.nodes.get(f"busagent:{params['aid']}")
-            if node is None or node.get("label") != "BusAgent":
-                return []
-            return [{"a": {"properties": node}}]
-
-        if q.startswith("MATCH (a:BusAgent) RETURN a"):
-            return [
-                {"a": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusAgent"
-            ]
-
-        if q.startswith("MATCH (s:BusSubscription {topic: $t}) RETURN s"):
-            return [
-                {"s": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusSubscription" and n.get("topic") == params["t"]
-            ]
-
-        if q.startswith("MATCH (s:BusSubscription {agent_id: $aid}) RETURN s"):
-            return [
-                {"s": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusSubscription"
-                and n.get("agent_id") == params["aid"]
-            ]
-
-        if q.startswith(
-            "MATCH (c:BusTopicCursor {agent_id: $aid, topic: $t}) RETURN c"
-        ):
-            for n in self.nodes.values():
-                if (
-                    n.get("label") == "BusTopicCursor"
-                    and n.get("agent_id") == params["aid"]
-                    and n.get("topic") == params["t"]
-                ):
-                    return [{"c": {"properties": n}}]
+    def _query_work_item_by_id(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        node = self.nodes.get(params["id"])
+        if node is None or node.get("label") != "WorkItem":
             return []
+        row: dict[str, Any] = {"id": params["id"]}
+        for field in _wi._FIELDS:
+            row[field] = node.get(field)
+        return [row]
 
-        if q.startswith("MATCH (m:BusMessage {recipient: $aid}) RETURN m"):
-            return [
-                {"m": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusMessage"
-                and n.get("recipient") == params["aid"]
-            ]
+    def _query_work_items_by_bucket(
+        self, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        rows = []
+        for node_id, node in self.nodes.items():
+            if node.get("label") != "WorkItem":
+                continue
+            if (
+                node.get("status") != params["status"]
+                or node.get("prio_bucket") != params["bucket"]
+            ):
+                continue
+            rows.append(
+                {
+                    "id": node_id,
+                    "created_at": node.get("created_at"),
+                    "next_retry_at": node.get("next_retry_at"),
+                    "resource_class": node.get("resource_class"),
+                    "tenant": node.get("tenant"),
+                    "fairness_group": node.get("fairness_group"),
+                }
+            )
+        return rows
 
-        if q.startswith("MATCH (m:BusMessage {topic: $t, kind: 'topic'}) RETURN m"):
-            return [
-                {"m": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusMessage"
-                and n.get("topic") == params["t"]
-                and n.get("kind") == "topic"
-            ]
+    def _query_expired_work_items(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = []
+        for node_id, node in self.nodes.items():
+            if node.get("label") != "WorkItem":
+                continue
+            if node.get("status") not in params["statuses"]:
+                continue
+            expires = node.get("lease_expires_at")
+            if expires is None or not (expires < params["now"]):
+                continue
+            rows.append({"id": node_id})
+        return rows
 
-        if q.startswith("MATCH (m:BusMessage {kind: 'topic'}) RETURN m"):
-            return [
-                {"m": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusMessage" and n.get("kind") == "topic"
-            ]
+    def _query_work_item_tenant_count(
+        self, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        count = 0
+        for node in self.nodes.values():
+            if node.get("label") != "WorkItem":
+                continue
+            if node.get("tenant") != params["tenant"]:
+                continue
+            if node.get("status") in params["terminal"]:
+                continue
+            count += 1
+        return [{"c": count}]
 
-        if q.startswith("MATCH (m:BusMessage {msg_group: $g}) RETURN m"):
-            return [
-                {"m": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusMessage" and n.get("msg_group") == params["g"]
-            ]
+    def _query_bus_agent_by_id(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        node = self.nodes.get(f"busagent:{params['aid']}")
+        if node is None or node.get("label") != "BusAgent":
+            return []
+        return [{"a": {"properties": node}}]
 
-        if q.startswith("MATCH (i:BusInbox {recipient_ref: $aid}) RETURN i"):
-            # messaging.bus.AgentBus._read_committed_inbox (D-OTD-1: this
-            # query became reachable once AgentBus.receive()/_send_via_log()
-            # stopped crashing on a None log backend).
-            return [
-                {"i": {"properties": n}}
-                for n in self.nodes.values()
-                if n.get("label") == "BusInbox"
-                and n.get("recipient_ref") == params["aid"]
-            ]
+    def _query_bus_rows(
+        self, label: str, row_key: str, **filters: Any
+    ) -> list[dict[str, Any]]:
+        rows = []
+        for node in self.nodes.values():
+            if node.get("label") != label:
+                continue
+            if any(node.get(field) != value for field, value in filters.items()):
+                continue
+            rows.append({row_key: {"properties": node}})
+        return rows
 
+    def _query_bus_cursor(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        for node in self.nodes.values():
+            if node.get("label") != "BusTopicCursor":
+                continue
+            if (
+                node.get("agent_id") != params["aid"]
+                or node.get("topic") != params["t"]
+            ):
+                continue
+            return [{"c": {"properties": node}}]
+        return []
+
+    def _dispatch_query(self, q: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        handlers = (
+            (
+                "MATCH (w:WorkItem {id: $id}) RETURN w.id",
+                self._query_work_item_by_id,
+            ),
+            (
+                "MATCH (w:WorkItem {status: $status, prio_bucket: $bucket})",
+                self._query_work_items_by_bucket,
+            ),
+            (
+                "MATCH (w:WorkItem) WHERE w.status IN $statuses AND",
+                self._query_expired_work_items,
+            ),
+            (
+                "MATCH (w:WorkItem {tenant: $tenant}) WHERE NOT w.status IN $terminal",
+                self._query_work_item_tenant_count,
+            ),
+            (
+                "MATCH (a:BusAgent {agent_id: $aid}) RETURN a",
+                self._query_bus_agent_by_id,
+            ),
+            (
+                "MATCH (a:BusAgent) RETURN a",
+                lambda params: self._query_bus_rows("BusAgent", "a"),
+            ),
+            (
+                "MATCH (s:BusSubscription {topic: $t}) RETURN s",
+                lambda params: self._query_bus_rows(
+                    "BusSubscription", "s", topic=params["t"]
+                ),
+            ),
+            (
+                "MATCH (s:BusSubscription {agent_id: $aid}) RETURN s",
+                lambda params: self._query_bus_rows(
+                    "BusSubscription", "s", agent_id=params["aid"]
+                ),
+            ),
+            (
+                "MATCH (c:BusTopicCursor {agent_id: $aid, topic: $t}) RETURN c",
+                self._query_bus_cursor,
+            ),
+            (
+                "MATCH (m:BusMessage {recipient: $aid}) RETURN m",
+                lambda params: self._query_bus_rows(
+                    "BusMessage", "m", recipient=params["aid"]
+                ),
+            ),
+            (
+                "MATCH (m:BusMessage {topic: $t, kind: 'topic'}) RETURN m",
+                lambda params: self._query_bus_rows(
+                    "BusMessage", "m", topic=params["t"], kind="topic"
+                ),
+            ),
+            (
+                "MATCH (m:BusMessage {kind: 'topic'}) RETURN m",
+                lambda params: self._query_bus_rows("BusMessage", "m", kind="topic"),
+            ),
+            (
+                "MATCH (m:BusMessage {msg_group: $g}) RETURN m",
+                lambda params: self._query_bus_rows(
+                    "BusMessage", "m", msg_group=params["g"]
+                ),
+            ),
+            # AgentBus._read_committed_inbox (D-OTD-1) reaches this fallback
+            # when no durable log backend is configured.
+            (
+                "MATCH (i:BusInbox {recipient_ref: $aid}) RETURN i",
+                lambda params: self._query_bus_rows(
+                    "BusInbox", "i", recipient_ref=params["aid"]
+                ),
+            ),
+        )
+        for prefix, handler in handlers:
+            if q.startswith(prefix):
+                return handler(params)
         raise AssertionError(f"FakeScaleEngine: unrecognized query: {q[:200]!r}")
 
     # -- introspection for soak/chaos invariant assertions --------------------
