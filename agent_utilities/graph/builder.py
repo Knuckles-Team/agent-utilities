@@ -448,6 +448,376 @@ def create_master_graph(
     )
 
 
+def _initialize_registry_engine() -> Any:
+    """Initialize the optional engine-backed registry graph."""
+    knowledge_engine = None
+    try:
+        if not all([IntelligenceGraphEngine, PipelineConfig, RegistryPipeline]):
+            raise ImportError("Registry Graph dependencies missing")
+
+        if DEFAULT_VALIDATION_MODE:
+            logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
+        else:
+            from agent_utilities.knowledge_graph.backends.base import (
+                require_engine_authority_backend,
+            )
+
+            ws = get_agent_workspace()
+            # Engine-only (CONCEPT:AU-KG.compute.graph-builder): the registry graph persists as
+            # nodes/edges ON THE ONE epistemic-graph engine authority — never a
+            # local ladybug ``registry_graph.db`` beside it. Resolve the engine
+            # backend (the OS-5.63 resolver auto-starts the mandatory full engine
+            # artifact in prod; the KG-2.238 fixture provides a real ephemeral one
+            # in tests), raising
+            # a clear error if the engine is genuinely unreachable.
+            active_backend = require_engine_authority_backend(
+                "agent registry graph (CONCEPT:AU-KG.compute.graph-builder)"
+            )
+            reg_config = PipelineConfig(
+                workspace_path=str(ws),
+                persist_to_ladybug=False,
+            )
+            reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
+            logger.debug(
+                "Registry Graph: engine-backed via %s",
+                type(active_backend).__name__,
+            )
+
+            # We run the pipeline synchronously here during initialization
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    # We are in a running loop (e.g. during a request).
+                    # We can't block. We'll skip sync and hope the DB is ready.
+                    logger.debug(
+                        "Registry Graph: Skipping blocking sync in running loop."
+                    )
+            except RuntimeError:
+                # No running loop, safe to run blocking
+                try:
+                    logger.info("Running RegistryPipeline sync...")
+                    asyncio.run(reg_pipeline.run())
+                    knowledge_engine = IntelligenceGraphEngine.get_or_create(
+                        backend=active_backend
+                    )
+                except Exception as e:  # noqa: BLE001 — knowledge_engine defaults to None (line ~503) and every consumer graph-wide already gates on `if deps.knowledge_engine:`; this is the supported "KG disabled" path, not a false-success state
+                    logger.debug(f"Knowledge engine initialization failed: {e}")
+    except ImportError:
+        logger.debug("Registry Graph subpackage not found or dependencies missing.")
+    return knowledge_engine
+
+
+def _make_agent_step(tag: str) -> Any:
+    """Build the specialist step wrapper for a discovered agent tag."""
+
+    async def agent_specific_step(ctx: StepContext) -> str | End[Any]:
+        return await agent_package_step(ctx, node_id=tag)
+
+    agent_specific_step.__name__ = f"agent_{tag}_step"
+    return agent_specific_step
+
+
+def _register_graph_steps(
+    graph_builder: GraphBuilder,
+) -> tuple[dict[str, Any], dict[str, Any], Any]:
+    """Register static and discovered specialist nodes on a graph builder."""
+    router = graph_builder.step(router_step, node_id="router")
+    planner = graph_builder.step(planner_step, node_id="planner")
+    onboarding = graph_builder.step(onboarding_step, node_id="onboarding")
+    error = graph_builder.step(error_recovery_step, node_id="error_recovery")
+    process_executor = graph_builder.step(
+        load_and_execute_process_flow, node_id="process_executor"
+    )
+    dispatcher = graph_builder.step(dispatcher_step, node_id="dispatcher")
+    parallel_batch_step = graph_builder.step(
+        parallel_batch_processor, node_id="parallel_batch_processor"
+    )
+    expert_executor = graph_builder.step(
+        expert_executor_step, node_id="expert_executor"
+    )
+    research_joiner = graph_builder.step(join_step, node_id="research_joiner")
+    execution_joiner = graph_builder.step(join_step, node_id="execution_joiner")
+    wide_search_joiner = graph_builder.step(
+        wide_search_joiner_step, node_id="wide_search_joiner"
+    )
+    architect = graph_builder.step(architect_step, node_id="architect")
+    verifier = graph_builder.step(verifier_step, node_id="verifier")
+    synthesizer = graph_builder.step(synthesizer_step, node_id="synthesizer")
+    researcher = graph_builder.step(researcher_step, node_id="researcher")
+
+    dedicated_nodes = {
+        "researcher",
+        "architect",
+        "planner",
+        "verifier",
+        "python_programmer",
+        "c_programmer",
+        "cpp_programmer",
+        "golang_programmer",
+        "javascript_programmer",
+        "typescript_programmer",
+        "security_auditor",
+        "qa_expert",
+        "debugger_expert",
+        "ui_ux_designer",
+        "devops_engineer",
+        "cloud_architect",
+        "database_expert",
+        "rust_programmer",
+        "java_programmer",
+        "data_scientist",
+        "document_specialist",
+        "mobile_programmer",
+        "agent_engineer",
+        "project_manager",
+        "systems_manager",
+        "browser_automation",
+        "coordinator",
+        "critique",
+    }
+    memory_selection = graph_builder.step(
+        memory_selection_step, node_id="memory_selection"
+    )
+    mcp_router = graph_builder.step(dynamic_mcp_routing_step, node_id="mcp_router")
+    mcp_server = graph_builder.step(mcp_server_step, node_id="mcp_server_execution")
+
+    # Error and Onboarding
+    error = graph_builder.step(error_recovery_step, node_id="error_recovery")
+    onboarding = graph_builder.step(onboarding_step, node_id="onboarding")
+
+    _approval = graph_builder.step(approval_gate_step, node_id="approval_gate")
+    usage_guard = graph_builder.step(usage_guard_step, node_id="usage_guard")
+
+    specialist_node_configs = {
+        tag: _make_agent_step(tag)
+        for tag in discover_agents()
+        if tag not in dedicated_nodes and tag not in {"onboarding", "error_recovery"}
+    }
+    expert_nodes = {
+        node_id: graph_builder.step(step_func, node_id=node_id)
+        for node_id, step_func in specialist_node_configs.items()
+    }
+    for node_id in expert_nodes:
+        logger.debug("Registered graph specialist node: %s", node_id)
+
+    nodes_registry = {
+        "router": router,
+        "planner": planner,
+        "error_recovery": error,
+        "onboarding": onboarding,
+        "dispatcher": dispatcher,
+        "parallel_batch_processor": parallel_batch_step,
+        "expert_executor": expert_executor,
+        "research_joiner": research_joiner,
+        "execution_joiner": execution_joiner,
+        "wide_search_joiner": wide_search_joiner,
+        "architect": architect,
+        "verifier": verifier,
+        "synthesizer": synthesizer,
+        "researcher": researcher,
+        "memory_selection": memory_selection,
+        "mcp_router": mcp_router,
+        "mcp_server_execution": mcp_server,
+        "process_executor": process_executor,
+        **expert_nodes,
+    }
+    return nodes_registry, expert_nodes, usage_guard
+
+
+def _wire_graph_routes(
+    graph_builder: GraphBuilder,
+    nodes_registry: dict[str, Any],
+    expert_nodes: dict[str, Any],
+    usage_guard: Any,
+) -> None:
+    """Add the explicit dispatcher, joiner, and lifecycle graph routes."""
+    dispatcher_route = graph_builder.decision(node_id="dispatcher_route")
+    dispatcher_route.branches.append(
+        graph_builder.match(Literal["parallel_batch_processor"]).to(
+            nodes_registry["parallel_batch_processor"]
+        )  # type: ignore[arg-type]
+    )
+    sequential_routes = [
+        "researcher",
+        "architect",
+        "planner",
+        "verifier",
+        "synthesizer",
+        "wide_search_joiner",
+        "mcp_router",
+        "error_recovery",
+        "onboarding",
+        "expert_executor",
+        "memory_selection",
+        "process_executor",
+    ]
+    for node_id in sequential_routes:
+        dispatcher_route.branches.append(
+            graph_builder.match(Literal[node_id]).to(nodes_registry[node_id])  # type: ignore[arg-type]
+        )
+    for node_id in ("dispatcher", "error", "error_recovery"):
+        target = "error_recovery" if node_id != "dispatcher" else "dispatcher"
+        dispatcher_route.branches.append(
+            graph_builder.match(Literal[node_id]).to(nodes_registry[target])  # type: ignore[arg-type]
+        )
+    for node_id, node in expert_nodes.items():
+        dispatcher_route.branches.append(
+            graph_builder.match(Literal[node_id]).to(node)  # type: ignore[arg-type]
+        )
+    dispatcher_route.branches.append(
+        graph_builder.match(type(None)).to(graph_builder.end_node)
+    )
+
+    research_joiner_route = graph_builder.decision(node_id="research_joiner_route")
+    research_joiner_route.branches.append(
+        graph_builder.match(Literal["dispatcher"]).to(nodes_registry["dispatcher"])  # type: ignore[arg-type]
+    )
+    research_joiner_route.branches.append(
+        graph_builder.match(type(None)).to(graph_builder.end_node)
+    )
+
+    execution_joiner_route = graph_builder.decision(node_id="execution_joiner_route")
+    execution_joiner_route.branches.append(
+        graph_builder.match(Literal["dispatcher"]).to(nodes_registry["dispatcher"])  # type: ignore[arg-type]
+    )
+    execution_joiner_route.branches.append(
+        graph_builder.match(Literal["verifier"]).to(nodes_registry["verifier"])  # type: ignore[arg-type]
+    )
+    execution_joiner_route.branches.append(
+        graph_builder.match(type(None)).to(graph_builder.end_node)
+    )
+
+    memory_selection_route = graph_builder.decision(node_id="memory_selection_route")
+    memory_selection_route.branches.append(
+        graph_builder.match(Literal["dispatcher"]).to(nodes_registry["dispatcher"])  # type: ignore[arg-type]
+    )
+    memory_selection_route.branches.append(
+        graph_builder.match(Literal["researcher"]).to(nodes_registry["researcher"])  # type: ignore[arg-type]
+    )
+
+    verifier_route = graph_builder.decision(node_id="verifier_route")
+    for node_id in ("synthesizer", "dispatcher", "planner"):
+        verifier_route.branches.append(
+            graph_builder.match(Literal[node_id]).to(nodes_registry[node_id])  # type: ignore[arg-type]
+        )
+
+    # The second execution-joiner decision is the effective route; retain its
+    # existing node id and branch order for pydantic-graph compatibility.
+    execution_joiner_route = graph_builder.decision(node_id="execution_joiner_route")
+    for node_id in ("dispatcher", "router_step", "router", "wide_search_joiner"):
+        target_id = "router" if node_id == "router_step" else node_id
+        execution_joiner_route.branches.append(
+            graph_builder.match(Literal[node_id]).to(nodes_registry[target_id])  # type: ignore[arg-type]
+        )
+    execution_joiner_route.branches.append(
+        graph_builder.match(type(None)).to(graph_builder.end_node)
+    )
+
+    graph_builder.add(
+        graph_builder.edge_from(graph_builder.start_node)
+        .label("Query")
+        .to(usage_guard),
+        graph_builder.edge_from(usage_guard)
+        .label("Policy OK")
+        .to(nodes_registry["router"]),
+        graph_builder.edge_from(nodes_registry["router"])
+        .label("Plan")
+        .to(nodes_registry["dispatcher"]),
+        # CONCEPT:AU-ORCH.routing.single-router-edge — the router has a SINGLE outgoing edge (→ dispatcher). It must NOT
+        # have a second edge to the end node: pydantic-graph turns two edges from one node into
+        # a BROADCAST FORK (router → {end, dispatcher}), which terminated every full-graph turn
+        # via the end branch. A direct-completion turn never reaches the router — it is answered
+        # outside the graph by ``_run_direct_completion`` (agent_runner) — so the router never
+        # needs to end the run itself.
+        graph_builder.edge_from(nodes_registry["dispatcher"]).to(dispatcher_route),
+        graph_builder.edge_from(nodes_registry["planner"]).to(
+            nodes_registry["dispatcher"]
+        ),
+        graph_builder.edge_from(nodes_registry["process_executor"]).to(
+            nodes_registry["dispatcher"]
+        ),
+        graph_builder.edge_from(nodes_registry["memory_selection"]).to(
+            memory_selection_route
+        ),
+        graph_builder.edge_from(nodes_registry["parallel_batch_processor"])
+        .map()
+        .to(nodes_registry["expert_executor"]),
+        graph_builder.edge_from(nodes_registry["researcher"])
+        .label("Research Done")
+        .to(nodes_registry["research_joiner"]),
+        graph_builder.edge_from(nodes_registry["architect"])
+        .label("Design Done")
+        .to(nodes_registry["research_joiner"]),
+        *(
+            graph_builder.edge_from(node).to(nodes_registry["execution_joiner"])
+            for node in expert_nodes.values()
+        ),
+        graph_builder.edge_from(nodes_registry["expert_executor"]).to(
+            nodes_registry["execution_joiner"]
+        ),
+        graph_builder.edge_from(nodes_registry["mcp_router"])
+        .map()
+        .to(nodes_registry["mcp_server_execution"]),
+        graph_builder.edge_from(nodes_registry["mcp_server_execution"]).to(
+            nodes_registry["execution_joiner"]
+        ),
+        graph_builder.edge_from(nodes_registry["research_joiner"]).to(
+            research_joiner_route
+        ),
+        graph_builder.edge_from(nodes_registry["execution_joiner"]).to(
+            execution_joiner_route
+        ),
+        graph_builder.edge_from(nodes_registry["wide_search_joiner"]).to(
+            dispatcher_route
+        ),
+        graph_builder.edge_from(nodes_registry["error_recovery"]).to(
+            nodes_registry["planner"]
+        ),
+        graph_builder.edge_from(nodes_registry["verifier"]).to(verifier_route),
+        graph_builder.edge_from(nodes_registry["synthesizer"]).to(
+            graph_builder.end_node
+        ),
+        graph_builder.edge_from(nodes_registry["onboarding"]).to(
+            graph_builder.end_node
+        ),
+    )
+
+
+def _build_mcp_toolsets(
+    mcp_toolsets: list[Any] | None,
+    mcp_url: str | None,
+    mcp_config: str | None,
+    kwargs: dict[str, Any],
+) -> list[Any]:
+    """Build per-run MCP toolsets without caching connection objects."""
+    toolsets = list(mcp_toolsets) if mcp_toolsets else []
+    if DEFAULT_VALIDATION_MODE:
+        return toolsets
+    if mcp_url:
+        from agent_utilities.mcp.toolset_factory import build_http_toolset
+
+        if not is_loopback_url(
+            mcp_url, kwargs.get("current_host"), kwargs.get("current_port")
+        ):
+            toolsets.append(build_http_toolset(mcp_url, timeout=60))
+    if mcp_config:
+        config_path = resolve_mcp_config_path(mcp_config)
+        if config_path:
+            # Load MCP servers individually so that a single undefined env-var
+            # does not prevent the rest of the toolsets from loading.
+            # The canonical config loader validates commands, expands
+            # environment references, and constructs each MCP toolset.
+            toolsets = load_mcp_servers_from_config(config_path)
+            for toolset in toolsets:
+                server_id = getattr(toolset, "id", getattr(toolset, "name", "unknown"))
+                logger.info("MCP Startup: Registered server '%s'", server_id)
+        else:
+            logger.warning("MCP config %s not found", mcp_config)
+    return toolsets
+
+
 def create_graph_agent(
     tag_prompts: dict[str, str],
     tag_env_vars: dict[str, str] | None = None,
@@ -540,62 +910,7 @@ def create_graph_agent(
             kwargs=kwargs,
         )
 
-    knowledge_engine = None
-    try:
-        if not all([IntelligenceGraphEngine, PipelineConfig, RegistryPipeline]):
-            raise ImportError("Registry Graph dependencies missing")
-
-        if DEFAULT_VALIDATION_MODE:
-            logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
-        else:
-            from agent_utilities.knowledge_graph.backends.base import (
-                require_engine_authority_backend,
-            )
-
-            ws = get_agent_workspace()
-            # Engine-only (CONCEPT:AU-KG.compute.graph-builder): the registry graph persists as
-            # nodes/edges ON THE ONE epistemic-graph engine authority — never a
-            # local ladybug ``registry_graph.db`` beside it. Resolve the engine
-            # backend (the OS-5.63 resolver auto-starts the mandatory full engine
-            # artifact in prod; the KG-2.238 fixture provides a real ephemeral one
-            # in tests), raising
-            # a clear error if the engine is genuinely unreachable.
-            active_backend = require_engine_authority_backend(
-                "agent registry graph (CONCEPT:AU-KG.compute.graph-builder)"
-            )
-            reg_config = PipelineConfig(
-                workspace_path=str(ws),
-                persist_to_ladybug=False,
-            )
-            reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
-            logger.debug(
-                "Registry Graph: engine-backed via %s",
-                type(active_backend).__name__,
-            )
-
-            # We run the pipeline synchronously here during initialization
-            import asyncio
-
-            try:
-                loop = asyncio.get_running_loop()
-                if loop.is_running():
-                    # We are in a running loop (e.g. during a request).
-                    # We can't block. We'll skip sync and hope the DB is ready.
-                    logger.debug(
-                        "Registry Graph: Skipping blocking sync in running loop."
-                    )
-            except RuntimeError:
-                # No running loop, safe to run blocking
-                try:
-                    logger.info("Running RegistryPipeline sync...")
-                    asyncio.run(reg_pipeline.run())
-                    knowledge_engine = IntelligenceGraphEngine.get_or_create(
-                        backend=active_backend
-                    )
-                except Exception as e:  # noqa: BLE001 — knowledge_engine defaults to None (line ~503) and every consumer graph-wide already gates on `if deps.knowledge_engine:`; this is the supported "KG disabled" path, not a false-success state
-                    logger.debug(f"Knowledge engine initialization failed: {e}")
-    except ImportError:
-        logger.debug("Registry Graph subpackage not found or dependencies missing.")
+    knowledge_engine = _initialize_registry_engine()
 
     # Initialize GraphBuilder
 
@@ -605,293 +920,16 @@ def create_graph_agent(
         deps_type=GraphDeps,
         output_type=GraphResponse,
     )
-
-    # Register Steps
-    _router = g.step(router_step, node_id="router")
-    _planner = g.step(planner_step, node_id="planner")
-    _onboarding = g.step(onboarding_step, node_id="onboarding")
-    _error = g.step(error_recovery_step, node_id="error_recovery")
-    _process_executor = g.step(
-        load_and_execute_process_flow, node_id="process_executor"
-    )
-
-    # Dynamic Dispatcher Nodes
-    _dispatcher = g.step(dispatcher_step, node_id="dispatcher")
-    _parallel_batch_processor = g.step(
-        parallel_batch_processor, node_id="parallel_batch_processor"
-    )
-    _expert_executor = g.step(expert_executor_step, node_id="expert_executor")
-
-    # Dual Joiners for Phase Separation
-    _research_joiner = g.step(join_step, node_id="research_joiner")
-    _execution_joiner = g.step(join_step, node_id="execution_joiner")
-    _wide_search_joiner = g.step(wide_search_joiner_step, node_id="wide_search_joiner")
-    _architect = g.step(architect_step, node_id="architect")
-    _verifier = g.step(verifier_step, node_id="verifier")
-    _synthesizer = g.step(synthesizer_step, node_id="synthesizer")
-
-    # Native Developer Steps
-    _researcher = g.step(researcher_step, node_id="researcher")
-
-    _dedicated_nodes = {
-        "researcher",
-        "architect",
-        "planner",
-        "verifier",
-        "python_programmer",
-        "c_programmer",
-        "cpp_programmer",
-        "golang_programmer",
-        "javascript_programmer",
-        "typescript_programmer",
-        "security_auditor",
-        "qa_expert",
-        "debugger_expert",
-        "ui_ux_designer",
-        "devops_engineer",
-        "cloud_architect",
-        "database_expert",
-        "rust_programmer",
-        "java_programmer",
-        "data_scientist",
-        "document_specialist",
-        "mobile_programmer",
-        "agent_engineer",
-        "project_manager",
-        "systems_manager",
-        "browser_automation",
-        "coordinator",
-        "critique",
-    }
-
-    # --- Step Configuration Registry ---
-    # We will consolidate all specialized nodes (Skills, Graphs, A2A, Specialist MCP Agents)
-    # to ensure each unique node_id (tag) is only registered once in the graph.
-    specialist_node_configs = {}
-
-    # Steps for dedicated expert personas are removed.
-    # They are now instantiated dynamically via Knowledge Graph context in expert_executor_step.
-
-    _memory_selection = g.step(memory_selection_step, node_id="memory_selection")
-
-    _mcp_router = g.step(dynamic_mcp_routing_step, node_id="mcp_router")
-    _mcp_server = g.step(mcp_server_step, node_id="mcp_server_execution")
-
-    # Error and Onboarding
-    _error = g.step(error_recovery_step, node_id="error_recovery")
-    _onboarding = g.step(onboarding_step, node_id="onboarding")
-
-    # Approval Gate
-    _approval = g.step(approval_gate_step, node_id="approval_gate")
-
-    # Usage Guard
-    _usage_guard = g.step(usage_guard_step, node_id="usage_guard")
-
-    # --- Dynamic Agent Package & Specialist Registration ---
-
-    discovered_agents_map = discover_agents()
-
-    # 2. Expert Specialist Agents (prioritized over raw skills)
-    for tag, meta in discovered_agents_map.items():
-        if tag in _dedicated_nodes or tag == "onboarding" or tag == "error_recovery":
-            continue
-
-        def make_agent_step(t):
-            async def agent_specific_step(
-                ctx: StepContext,
-            ) -> str | End[Any]:
-                return await agent_package_step(ctx, node_id=t)
-
-            agent_specific_step.__name__ = f"agent_{t}_step"
-            return agent_specific_step
-
-        # Overwrite or Add the specialist agent configuration
-        specialist_node_configs[tag] = make_agent_step(tag)
-
-    # 3. Final Step Registration
-    # Now we register all collected configurations exactly once.
-    expert_nodes = {}
-    for nid, step_func in specialist_node_configs.items():
-        expert_nodes[nid] = g.step(step_func, node_id=nid)
-        logger.debug(f"Registered graph specialist node: {nid}")
-
-    # --- Node Registry for Explicit Transitions ---
-    # We populate a registry of all steps so that step functions can return explicit transitions (StepNodes)
-    # This bypasses ambiguity in pydantic-graph Beta's implicit type-matching.
-    nodes_registry = {
-        "router": _router,
-        "planner": _planner,
-        "error_recovery": _error,
-        "onboarding": _onboarding,
-        "dispatcher": _dispatcher,
-        "parallel_batch_processor": _parallel_batch_processor,
-        "expert_executor": _expert_executor,
-        "research_joiner": _research_joiner,
-        "execution_joiner": _execution_joiner,
-        "wide_search_joiner": _wide_search_joiner,
-        "architect": _architect,
-        "verifier": _verifier,
-        "synthesizer": _synthesizer,
-        "researcher": _researcher,
-        "memory_selection": _memory_selection,
-        "mcp_router": _mcp_router,
-        "mcp_server_execution": _mcp_server,
-        "process_executor": _process_executor,
-        **{nid: step for nid, step in expert_nodes.items()},
-    }
-
-    # Dispatcher: The Main Dynamic Branching Logic
-    # In pydantic-graph Beta, branching MUST use a Decision node.
-    _dispatcher_route = g.decision(node_id="dispatcher_route")
-
-    # 1. Parallel Batch Route (using the state-based caching pattern)
-    _dispatcher_route.branches.append(
-        g.match(Literal["parallel_batch_processor"]).to(_parallel_batch_processor)  # type: ignore[arg-type]
-    )
-
-    # 2. Sequential/Expert Routes (Literal matching on string return value)
-    _sequential_routes = [
-        ("researcher", _researcher),
-        ("architect", _architect),
-        ("planner", _planner),
-        ("verifier", _verifier),
-        ("synthesizer", _synthesizer),
-        ("wide_search_joiner", _wide_search_joiner),
-        ("mcp_router", _mcp_router),
-        ("error_recovery", _error),
-        ("onboarding", _onboarding),
-        ("expert_executor", _expert_executor),
-        ("memory_selection", _memory_selection),
-        ("process_executor", _process_executor),
-    ]
-    for nid, node in _sequential_routes:
-        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))  # type: ignore[arg-type]
-
-    # Explicit dispatcher routing if returned (e.g. by verifier)
-    _dispatcher_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))  # type: ignore[arg-type]
-    _dispatcher_route.branches.append(g.match(Literal["error"]).to(_error))  # type: ignore[arg-type]
-    _dispatcher_route.branches.append(g.match(Literal["error_recovery"]).to(_error))  # type: ignore[arg-type]
-
-    # Skill/Agent Nodes
-    for nid, node in expert_nodes.items():
-        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))  # type: ignore[arg-type]
-
-    # 3. Termination Route (returns None)
-    _dispatcher_route.branches.append(g.match(type(None)).to(g.end_node))
-
-    # Joiner Routes
-    _research_joiner_route = g.decision(node_id="research_joiner_route")
-    _research_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
-    )
-    _research_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
-
-    _execution_joiner_route = g.decision(node_id="execution_joiner_route")
-    _execution_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
-    )
-    _execution_joiner_route.branches.append(g.match(Literal["verifier"]).to(_verifier))  # type: ignore[arg-type]
-    _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
-
-    _memory_selection_route = g.decision(node_id="memory_selection_route")
-    _memory_selection_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
-    )
-    _memory_selection_route.branches.append(
-        g.match(Literal["researcher"]).to(_researcher)  # type: ignore[arg-type]
-    )
-
-    _verifier_route = g.decision(node_id="verifier_route")
-    _verifier_route.branches.append(g.match(Literal["synthesizer"]).to(_synthesizer))  # type: ignore[arg-type]
-    _verifier_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))  # type: ignore[arg-type]
-    _verifier_route.branches.append(g.match(Literal["planner"]).to(_planner))  # type: ignore[arg-type]
-
-    _execution_joiner_route = g.decision(node_id="execution_joiner_route")
-    _execution_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
-    )
-    _execution_joiner_route.branches.append(g.match(Literal["router_step"]).to(_router))  # type: ignore[arg-type]
-    _execution_joiner_route.branches.append(g.match(Literal["router"]).to(_router))  # type: ignore[arg-type]
-    _execution_joiner_route.branches.append(
-        g.match(Literal["wide_search_joiner"]).to(_wide_search_joiner)  # type: ignore[arg-type]
-    )
-    _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
-
-    # Register the decision node and edges
-    g.add(
-        # Start -> UsageGuard -> Router -> Dispatcher
-        g.edge_from(g.start_node).label("Query").to(_usage_guard),
-        g.edge_from(_usage_guard).label("Policy OK").to(_router),
-        g.edge_from(_router).label("Plan").to(_dispatcher),
-        # CONCEPT:AU-ORCH.routing.single-router-edge — the router has a SINGLE outgoing edge (→ dispatcher). It must NOT
-        # have a second edge to the end node: pydantic-graph turns two edges from one node into
-        # a BROADCAST FORK (router → {end, dispatcher}), which terminated every full-graph turn
-        # via the end branch. A direct-completion turn never reaches the router — it is answered
-        # outside the graph by ``_run_direct_completion`` (agent_runner) — so the router never
-        # needs to end the run itself.
-        # Edge to the decision node for experts
-        g.edge_from(_dispatcher).to(_dispatcher_route),
-        # Dead-end elimination for unused but registered nodes
-        g.edge_from(_planner).to(_dispatcher),
-        g.edge_from(_process_executor).to(_dispatcher),
-        g.edge_from(_memory_selection).to(_memory_selection_route),
-        # Rest of the graph
-        g.edge_from(_parallel_batch_processor).map().to(_expert_executor),
-        # Expert Nodes: Return to Joiner for synchronization
-        g.edge_from(_researcher).label("Research Done").to(_research_joiner),
-        g.edge_from(_architect).label("Design Done").to(_research_joiner),
-        # adaptive_agent_router returning strings are handled by dispatcher_route if they loop
-        *(g.edge_from(node).to(_execution_joiner) for node in expert_nodes.values()),
-        g.edge_from(_expert_executor).to(_execution_joiner),
-        # Special Handling for MCP Parallel Flow
-        g.edge_from(_mcp_router).map().to(_mcp_server),
-        g.edge_from(_mcp_server).to(_execution_joiner),
-        # Joiners: Return control to Dispatcher or designated node
-        g.edge_from(_research_joiner).to(_research_joiner_route),
-        g.edge_from(_execution_joiner).to(_execution_joiner_route),
-        g.edge_from(_wide_search_joiner).to(_dispatcher_route),
-        # Error handling and Finalization
-        g.edge_from(_error).to(_planner),
-        g.edge_from(_verifier).to(_verifier_route),
-        g.edge_from(_synthesizer).to(g.end_node),
-        g.edge_from(_onboarding).to(g.end_node),
-    )
-
+    nodes_registry, expert_nodes, usage_guard = _register_graph_steps(g)
+    _wire_graph_routes(g, nodes_registry, expert_nodes, usage_guard)
     graph = g.build()
 
-    # MCP Setup (same as before)
-    _mcp_toolsets = list(mcp_toolsets) if mcp_toolsets else []
-    # (Loading toolsets logic preserved...)
-    if not DEFAULT_VALIDATION_MODE:
-        if mcp_url:
-            from agent_utilities.mcp.toolset_factory import build_http_toolset
-
-            if is_loopback_url(
-                mcp_url, kwargs.get("current_host"), kwargs.get("current_port")
-            ):
-                pass
-            else:
-                _mcp_toolsets.append(
-                    build_http_toolset(
-                        mcp_url,
-                        timeout=60,
-                    )
-                )
-
-        if mcp_config:
-            _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
-            if _mcp_cfg_path:
-                # Load MCP servers individually so that a single undefined env-var
-                # does not prevent the rest of the toolsets from loading.
-                # The canonical config loader validates commands, expands
-                # environment references, and constructs each MCP toolset.
-                _mcp_toolsets = load_mcp_servers_from_config(_mcp_cfg_path)
-                for ts in _mcp_toolsets:
-                    srv_id = getattr(ts, "id", getattr(ts, "name", "unknown"))
-                    logger.info(f"MCP Startup: Registered server '{srv_id}'")
-            else:
-                logger.warning(f"MCP config {mcp_config} not found")
-
+    _mcp_toolsets = _build_mcp_toolsets(
+        mcp_toolsets,
+        mcp_url,
+        mcp_config,
+        kwargs,
+    )
     config = _build_graph_config(
         graph_nodes=nodes_registry,
         knowledge_engine=knowledge_engine,
