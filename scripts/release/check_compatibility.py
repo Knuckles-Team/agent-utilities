@@ -13,7 +13,7 @@ import stat
 import subprocess
 import threading
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -39,6 +39,9 @@ _COMPONENT_VERSION = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))*$")
 _OPAQUE_REFERENCE = re.compile(r"^pref_[a-z_]+_[a-f0-9]{64}$")
 _TRACE_NAME = re.compile(r"^graph_run:pref_run_[a-f0-9]{64}$")
 _SOURCE_FREEZE_DIGEST = re.compile(r"^(?!0{64}$)[a-f0-9]{64}$")
+_SOURCE_FREEZE_REPOSITORY_TOKEN = re.compile(
+    r"^\{repo:([a-z][a-z0-9-]{2,63})\}(.*)$"
+)
 _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = (
@@ -279,6 +282,29 @@ class CompatibilityError(ValueError):
     """The exact release is not compatible or is not verifiably signed."""
 
 
+class _SourceFreezeRepositories(NamedTuple):
+    ids: tuple[str, ...]
+    before: dict[str, str]
+    after: dict[str, str]
+
+
+class _ReleaseDocuments(NamedTuple):
+    source_freeze_authority: dict[str, str]
+    configuration: dict[str, Any]
+    migration_plan: dict[str, Any]
+    release_evidence: dict[str, Any]
+
+
+class _ReleaseCertifications(NamedTuple):
+    digests: dict[str, Any]
+    payloads: dict[str, bytes]
+    closure: dict[str, Any]
+    oci_vulnerability_scan: dict[str, Any]
+    skill_validation: dict[str, Any]
+    skill_deployment: dict[str, Any]
+    skill_lifecycle: dict[str, Any]
+
+
 def _exact_keys(
     value: dict[str, Any],
     *,
@@ -509,9 +535,9 @@ def _source_freeze_aggregate(values: dict[str, str]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
-    """Validate and content-address the sole canonical source-freeze authority."""
-
+def _load_source_freeze_documents(
+    payload: bytes,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     evidence = _json_evidence(payload, "source-freeze")
     _validate_release_schema(
         evidence,
@@ -539,7 +565,10 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
         "source_digest_before"
     ) != evidence.get("source_digest_after"):
         raise CompatibilityError("source-freeze evidence did not pass exactly")
+    return evidence, manifest
 
+
+def _validate_source_freeze_tools(evidence: dict[str, Any]) -> None:
     tools = evidence.get("tools")
     if not isinstance(tools, list) or [tool.get("id") for tool in tools] != [
         "git",
@@ -547,6 +576,17 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
     ]:
         raise CompatibilityError("source-freeze tool authority is not exact")
 
+
+def _source_freeze_repositories(
+    evidence: dict[str, Any], manifest: dict[str, Any]
+) -> _SourceFreezeRepositories:
+    repository_ids = _source_freeze_repository_ids(manifest)
+    repositories = _source_freeze_evidence_repositories(evidence, repository_ids)
+    before, after = _source_freeze_repository_digests(repositories)
+    return _SourceFreezeRepositories(repository_ids, before, after)
+
+
+def _source_freeze_repository_ids(manifest: dict[str, Any]) -> tuple[str, ...]:
     manifest_repositories = manifest.get("repositories")
     repository_ids = (
         tuple(
@@ -559,6 +599,12 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
     )
     if repository_ids != _SOURCE_FREEZE_REPOSITORIES:
         raise CompatibilityError("source-freeze repository authority is not exact")
+    return repository_ids
+
+
+def _source_freeze_evidence_repositories(
+    evidence: dict[str, Any], repository_ids: tuple[str, ...]
+) -> list[Any]:
     repositories = evidence.get("repositories")
     if (
         not isinstance(repositories, list)
@@ -568,6 +614,12 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
         != repository_ids
     ):
         raise CompatibilityError("source-freeze repository evidence is not exact")
+    return repositories
+
+
+def _source_freeze_repository_digests(
+    repositories: list[Any],
+) -> tuple[dict[str, str], dict[str, str]]:
     before: dict[str, str] = {}
     after: dict[str, str] = {}
     for repository in repositories:
@@ -584,11 +636,70 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
             raise CompatibilityError("source-freeze repository evidence is not exact")
         before[identifier] = before_digest
         after[identifier] = after_digest
+    return before, after
+
+
+def _validate_source_freeze_aggregate(
+    evidence: dict[str, Any], repositories: _SourceFreezeRepositories
+) -> None:
     if evidence.get("source_digest_before") != _source_freeze_aggregate(
-        before
-    ) or evidence.get("source_digest_after") != _source_freeze_aggregate(after):
+        repositories.before
+    ) or evidence.get("source_digest_after") != _source_freeze_aggregate(
+        repositories.after
+    ):
         raise CompatibilityError("source-freeze aggregate digest is not exact")
 
+
+def _source_freeze_command_identifiers(
+    expected: dict[str, Any], repository_ids: tuple[str, ...]
+) -> set[str]:
+    identifiers = {str(expected.get("repository") or "")}
+    argv = expected.get("argv")
+    if not isinstance(argv, list):
+        raise CompatibilityError("source-freeze command authority is invalid")
+    identifiers.update(
+        match.group(1)
+        for token in argv
+        if isinstance(token, str)
+        and (match := _SOURCE_FREEZE_REPOSITORY_TOKEN.fullmatch(token)) is not None
+    )
+    return identifiers
+
+
+def _validate_source_freeze_command(
+    command: Any,
+    expected: Any,
+    repositories: _SourceFreezeRepositories,
+) -> None:
+    if not isinstance(command, dict) or not isinstance(expected, dict):
+        raise CompatibilityError("source-freeze command evidence is not exact")
+    identifiers = _source_freeze_command_identifiers(expected, repositories.ids)
+    command_before = {
+        identifier: repositories.before[identifier]
+        for identifier in repositories.ids
+        if identifier in identifiers
+    }
+    command_after = {
+        identifier: repositories.after[identifier]
+        for identifier in repositories.ids
+        if identifier in identifiers
+    }
+    if command != {
+        "id": expected.get("id"),
+        "status": "passed",
+        "exit_code": 0,
+        "termination": "exited",
+        "source_digest_before": _source_freeze_aggregate(command_before),
+        "source_digest_after": _source_freeze_aggregate(command_after),
+    }:
+        raise CompatibilityError("source-freeze command evidence is not exact")
+
+
+def _validate_source_freeze_commands(
+    evidence: dict[str, Any],
+    manifest: dict[str, Any],
+    repositories: _SourceFreezeRepositories,
+) -> None:
     commands = evidence.get("commands")
     manifest_commands = manifest.get("commands")
     if (
@@ -597,40 +708,13 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
         or len(commands) != len(manifest_commands)
     ):
         raise CompatibilityError("source-freeze command evidence is not exact")
-    repository_token = re.compile(r"^\{repo:([a-z][a-z0-9-]{2,63})\}(.*)$")
     for command, expected in zip(commands, manifest_commands, strict=True):
-        if not isinstance(command, dict) or not isinstance(expected, dict):
-            raise CompatibilityError("source-freeze command evidence is not exact")
-        identifiers = {str(expected.get("repository") or "")}
-        argv = expected.get("argv")
-        if not isinstance(argv, list):
-            raise CompatibilityError("source-freeze command authority is invalid")
-        identifiers.update(
-            match.group(1)
-            for token in argv
-            if isinstance(token, str)
-            and (match := repository_token.fullmatch(token)) is not None
-        )
-        command_before = {
-            identifier: before[identifier]
-            for identifier in repository_ids
-            if identifier in identifiers
-        }
-        command_after = {
-            identifier: after[identifier]
-            for identifier in repository_ids
-            if identifier in identifiers
-        }
-        if command != {
-            "id": expected.get("id"),
-            "status": "passed",
-            "exit_code": 0,
-            "termination": "exited",
-            "source_digest_before": _source_freeze_aggregate(command_before),
-            "source_digest_after": _source_freeze_aggregate(command_after),
-        }:
-            raise CompatibilityError("source-freeze command evidence is not exact")
+        _validate_source_freeze_command(command, expected, repositories)
 
+
+def _validate_source_freeze_gates(
+    evidence: dict[str, Any], manifest: dict[str, Any]
+) -> None:
     gates = evidence.get("gates")
     manifest_gates = manifest.get("gates")
     if (
@@ -641,22 +725,37 @@ def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
     ):
         raise CompatibilityError("source-freeze gate evidence is not exact")
     for gate, expected in zip(gates, manifest_gates, strict=True):
-        if not isinstance(gate, dict) or not isinstance(expected, dict):
-            raise CompatibilityError("source-freeze gate evidence is not exact")
-        required_evidence = expected.get("evidence_classes")
-        if not isinstance(required_evidence, list):
-            raise CompatibilityError("source-freeze gate authority is invalid")
-        if gate != {
-            "id": expected.get("id"),
-            "required_evidence": required_evidence,
-            "source_status": (
-                "passed" if "local-source" in required_evidence else "not-applicable"
-            ),
-            "remaining_evidence": [
-                value for value in required_evidence if value != "local-source"
-            ],
-        }:
-            raise CompatibilityError("source-freeze gate evidence is not exact")
+        _validate_source_freeze_gate(gate, expected)
+
+
+def _validate_source_freeze_gate(gate: Any, expected: Any) -> None:
+    if not isinstance(gate, dict) or not isinstance(expected, dict):
+        raise CompatibilityError("source-freeze gate evidence is not exact")
+    required_evidence = expected.get("evidence_classes")
+    if not isinstance(required_evidence, list):
+        raise CompatibilityError("source-freeze gate authority is invalid")
+    if gate != {
+        "id": expected.get("id"),
+        "required_evidence": required_evidence,
+        "source_status": (
+            "passed" if "local-source" in required_evidence else "not-applicable"
+        ),
+        "remaining_evidence": [
+            value for value in required_evidence if value != "local-source"
+        ],
+    }:
+        raise CompatibilityError("source-freeze gate evidence is not exact")
+
+
+def validate_source_freeze_evidence(payload: bytes) -> dict[str, str]:
+    """Validate and content-address the sole canonical source-freeze authority."""
+
+    evidence, manifest = _load_source_freeze_documents(payload)
+    _validate_source_freeze_tools(evidence)
+    repositories = _source_freeze_repositories(evidence, manifest)
+    _validate_source_freeze_aggregate(evidence, repositories)
+    _validate_source_freeze_commands(evidence, manifest, repositories)
+    _validate_source_freeze_gates(evidence, manifest)
     return {
         "evidenceDigest": "sha256:" + hashlib.sha256(payload).hexdigest(),
         "snapshotDigest": "sha256:" + str(evidence["source_digest_after"]),
@@ -2572,16 +2671,22 @@ def _verify_manifest_signature(manifest: dict[str, Any]) -> None:
         raise CompatibilityError("release manifest verifier did not bind its subject")
 
 
-def verify_release_manifest(
+def _validate_release_manifest_basics(
     manifest: dict[str, Any],
     matrix: dict[str, Any],
     *,
-    matrix_path: Path | None = None,
-    manifest_path: Path | None = None,
-    verify_signatures: bool = True,
-    require_manifest_signature: bool = True,
-) -> dict[str, Any]:
+    matrix_path: Path | None,
+    require_manifest_signature: bool,
+) -> str:
     validate_compatibility_matrix(matrix)
+    _validate_release_manifest_header(manifest, require_manifest_signature)
+    _validate_release_matrix_header(matrix)
+    return _validate_release_identity(manifest, matrix_path)
+
+
+def _validate_release_manifest_header(
+    manifest: dict[str, Any], require_manifest_signature: bool
+) -> None:
     if (
         manifest.get("apiVersion") != "graphos.io/v1"
         or manifest.get("kind") != "ReleaseManifest"
@@ -2616,6 +2721,9 @@ def verify_release_manifest(
         raise CompatibilityError(
             "release manifest state does not match its signature phase"
         )
+
+
+def _validate_release_matrix_header(matrix: dict[str, Any]) -> None:
     _exact_keys(
         matrix,
         required={
@@ -2652,6 +2760,11 @@ def verify_release_manifest(
         },
         field="release train",
     )
+
+
+def _validate_release_identity(
+    manifest: dict[str, Any], matrix_path: Path | None
+) -> str:
     release_id = str(manifest.get("releaseId") or "")
     if not re.fullmatch(r"release-[a-z0-9][a-z0-9.-]{2,63}", release_id):
         raise CompatibilityError("releaseId must be an opaque release identifier")
@@ -2668,8 +2781,23 @@ def verify_release_manifest(
     )
     _digest(manifest.get("configurationDigest"), "configurationDigest")
     _digest(manifest.get("migrationPlanDigest"), "migrationPlanDigest")
-    if manifest_path is None:
-        raise CompatibilityError("release evidence requires the manifest location")
+    return release_id
+
+
+def _require_evidence_digest(
+    declared: Any, payload: bytes, message: str
+) -> None:
+    if declared != "sha256:" + hashlib.sha256(payload).hexdigest():
+        raise CompatibilityError(message)
+
+
+def _load_release_documents(
+    manifest: dict[str, Any],
+    matrix: dict[str, Any],
+    *,
+    manifest_path: Path,
+    release_id: str,
+) -> _ReleaseDocuments:
     release_evidence = manifest.get("evidence")
     if not isinstance(release_evidence, dict):
         raise CompatibilityError("release evidence catalog is required")
@@ -2689,12 +2817,11 @@ def verify_release_manifest(
         "sourceFreezeEvidence",
         maximum=_MAX_COMPONENT_SOURCE_BYTES,
     )
-    if manifest["sourceFreezeEvidenceDigest"] != (
-        "sha256:" + hashlib.sha256(source_freeze_raw).hexdigest()
-    ):
-        raise CompatibilityError(
-            "source-freeze digest differs from referenced evidence"
-        )
+    _require_evidence_digest(
+        manifest["sourceFreezeEvidenceDigest"],
+        source_freeze_raw,
+        "source-freeze digest differs from referenced evidence",
+    )
     source_freeze_authority = validate_source_freeze_evidence(source_freeze_raw)
     configuration_raw = _evidence_bytes(
         manifest_path, release_evidence["configuration"], "configuration"
@@ -2702,18 +2829,16 @@ def verify_release_manifest(
     migration_raw = _evidence_bytes(
         manifest_path, release_evidence["migrationPlan"], "migrationPlan"
     )
-    if manifest["configurationDigest"] != (
-        "sha256:" + hashlib.sha256(configuration_raw).hexdigest()
-    ):
-        raise CompatibilityError(
-            "configuration digest differs from referenced evidence"
-        )
-    if manifest["migrationPlanDigest"] != (
-        "sha256:" + hashlib.sha256(migration_raw).hexdigest()
-    ):
-        raise CompatibilityError(
-            "migration plan digest differs from referenced evidence"
-        )
+    _require_evidence_digest(
+        manifest["configurationDigest"],
+        configuration_raw,
+        "configuration digest differs from referenced evidence",
+    )
+    _require_evidence_digest(
+        manifest["migrationPlanDigest"],
+        migration_raw,
+        "migration plan digest differs from referenced evidence",
+    )
     configuration_document = _json_evidence(configuration_raw, "release configuration")
     migration_document = _json_evidence(migration_raw, "release migration plan")
     validate_release_configuration(
@@ -2722,6 +2847,20 @@ def verify_release_manifest(
         matrix=matrix,
         matrix_digest=str(manifest["matrixDigest"]),
     )
+    return _ReleaseDocuments(
+        source_freeze_authority,
+        configuration_document,
+        migration_document,
+        release_evidence,
+    )
+
+
+def _load_certification_payloads(
+    manifest: dict[str, Any],
+    release_evidence: dict[str, Any],
+    *,
+    manifest_path: Path,
+) -> tuple[dict[str, Any], dict[str, bytes]]:
     certification_digests = manifest.get("certificationDigests")
     if (
         not isinstance(certification_digests, dict)
@@ -2739,11 +2878,28 @@ def verify_release_manifest(
     certification_payloads: dict[str, bytes] = {}
     for name, reference in certification_evidence.items():
         payload = _evidence_bytes(manifest_path, reference, f"certification.{name}")
-        if certification_digests[name] != (
-            "sha256:" + hashlib.sha256(payload).hexdigest()
-        ):
-            raise CompatibilityError(f"certification digest differs for {name}")
+        _require_evidence_digest(
+            certification_digests[name],
+            payload,
+            f"certification digest differs for {name}",
+        )
         certification_payloads[name] = payload
+    return certification_digests, certification_payloads
+
+
+def _validate_release_certifications(
+    manifest: dict[str, Any],
+    documents: _ReleaseDocuments,
+    *,
+    manifest_path: Path,
+    release_id: str,
+    require_manifest_signature: bool,
+) -> _ReleaseCertifications:
+    certification_digests, certification_payloads = _load_certification_payloads(
+        manifest,
+        documents.release_evidence,
+        manifest_path=manifest_path,
+    )
     if require_manifest_signature:
         validate_connector_ledger(
             certification_payloads["connectorLiveCertificationLedger"]
@@ -2756,7 +2912,6 @@ def verify_release_manifest(
         certification_payloads["ociVulnerabilityScanEvidence"],
         release_id=release_id,
     )
-    closure_release = closure["release"]
     raw_components = manifest.get("components")
     skill_component = (
         raw_components.get("prebundled-skills")
@@ -2765,6 +2920,7 @@ def verify_release_manifest(
     )
     if not isinstance(skill_component, dict):
         raise CompatibilityError("prebundled skill component is unavailable")
+    closure_release = closure["release"]
     skill_validation = validate_prebundled_skill_matrix(
         certification_payloads["prebundledSkillValidationMatrix"],
         release_id=release_id,
@@ -2793,19 +2949,142 @@ def verify_release_manifest(
         validation_evidence=skill_validation,
         deployment=skill_deployment,
     )
+    return _ReleaseCertifications(
+        certification_digests,
+        certification_payloads,
+        closure,
+        oci_vulnerability_scan,
+        skill_validation,
+        skill_deployment,
+        skill_lifecycle,
+    )
+
+
+def _validate_release_component_declaration(
+    name: str,
+    component: dict[str, Any],
+    expected: dict[str, Any],
+) -> Version:
+    _exact_keys(
+        component,
+        required={
+            "version",
+            "kind",
+            "artifact",
+            "digest",
+            "sourceDigest",
+            "sbomDigest",
+            "provenanceDigest",
+            "signature",
+            "capabilities",
+            "evidence",
+        },
+        optional={"entryCount"},
+        field=f"component {name}",
+    )
+    version_text = str(component.get("version") or "")
+    try:
+        version = Version(version_text)
+    except InvalidVersion as exc:
+        raise CompatibilityError(f"component {name} has an invalid version") from exc
+    expected_version = _exact_version(expected["version"], f"{name}.version")
+    if version_text != expected_version or str(version) != version_text:
+        raise CompatibilityError(
+            f"component {name} version is not the current matrix version"
+        )
+    if component.get("kind") != expected.get("artifactKind"):
+        raise CompatibilityError(f"component {name} artifact kind does not match")
+    for field in ("digest", "sourceDigest", "sbomDigest", "provenanceDigest"):
+        _digest(component.get(field), f"{name}.{field}")
+    _validate_release_component_artifact(name, component)
+    return version
+
+
+def _validate_release_component_artifact(
+    name: str, component: dict[str, Any]
+) -> None:
+    artifact = str(component.get("artifact") or "")
+    if not artifact or "latest" in artifact.casefold():
+        raise CompatibilityError(
+            f"component {name} artifact must be exact and not latest"
+        )
+    if component.get("kind") == "oci":
+        expected_artifact = f"oci:{name}@{component['digest']}"
+        if artifact != expected_artifact:
+            raise CompatibilityError(
+                f"component {name} OCI subject is not pinned to its declared digest"
+            )
+    elif not re.fullmatch(
+        r"catalog:[a-z0-9][a-z0-9.-]{1,127}@sha256:[a-f0-9]{64}", artifact
+    ) or not artifact.endswith("@" + str(component["digest"])):
+        raise CompatibilityError(
+            f"component {name} catalog is not an opaque digest-pinned reference"
+        )
+
+
+def _validate_release_component_capabilities(
+    name: str, component: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    capability_values = component.get("capabilities")
+    if (
+        not isinstance(capability_values, list)
+        or len(capability_values) != len(set(capability_values))
+        or not all(isinstance(value, str) and value for value in capability_values)
+    ):
+        raise CompatibilityError(f"component {name} capabilities are invalid")
+    _validate_release_component_required_capabilities(
+        name,
+        capability_values,
+        component=component,
+        expected=expected,
+    )
+
+
+def _validate_release_component_required_capabilities(
+    name: str,
+    capability_values: list[Any],
+    *,
+    component: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    capabilities = set(capability_values)
+    missing = set(expected.get("requiredCapabilities") or ()) - capabilities
+    if missing:
+        raise CompatibilityError(
+            f"component {name} lacks required capabilities: {sorted(missing)}"
+        )
+    exact = expected.get("exactEntries")
+    if exact is not None and int(component.get("entryCount") or 0) != int(exact):
+        raise CompatibilityError(
+            f"component {name} entry count does not match the matrix"
+        )
+
+
+def _validate_release_component(
+    name: str,
+    component: Any,
+    expected: dict[str, Any],
+    *,
+    manifest_path: Path,
+    verify_signatures: bool,
+) -> tuple[Version, dict[str, Any]]:
+    if not isinstance(component, dict):
+        raise CompatibilityError(f"component {name} must be a mapping")
+    version = _validate_release_component_declaration(name, component, expected)
+    _validate_release_component_capabilities(name, component, expected)
+    inspected_evidence = _inspect_component_evidence(name, component, manifest_path)
+    source_document = inspected_evidence["sourceEvidence"]
+    if not isinstance(source_document, dict):
+        raise CompatibilityError(f"{name}.source evidence is unavailable")
+    signature_bundle = inspected_evidence["verificationRequest"]
     if verify_signatures:
-        _verify_exact_artifact_closure(closure)
-        _verify_skill_validation_evidence(
-            skill_validation,
-            deployment=skill_deployment,
-            field="prebundledSkillValidationMatrix",
-        )
-        _verify_skill_validation_evidence(
-            skill_lifecycle,
-            deployment=skill_deployment,
-            field="skillValidationLifecycleEvidence",
-        )
-        _verify_oci_vulnerability_scan_evidence(oci_vulnerability_scan)
+        _verify_signature(name, component, signature_bundle)
+    return version, source_document
+
+
+def _validate_release_component_catalog(
+    manifest: dict[str, Any], matrix: dict[str, Any]
+) -> tuple[list[str], dict[str, Any]]:
     expected_schemas = matrix.get("protocol", {}).get("schemas")
     if manifest.get("protocolSchemas") != expected_schemas:
         raise CompatibilityError(
@@ -2818,96 +3097,48 @@ def verify_release_manifest(
             "release component set does not match the matrix exactly"
         )
     _validate_distinct_oci_subjects(components)
+    return expected_names, components
+
+
+def _validate_release_components(
+    expected_names: list[str],
+    components: dict[str, Any],
+    matrix: dict[str, Any],
+    *,
+    manifest_path: Path,
+    verify_signatures: bool,
+) -> tuple[dict[str, Version], dict[str, dict[str, Any]]]:
     versions: dict[str, Version] = {}
     component_source_evidence: dict[str, dict[str, Any]] = {}
     for name in expected_names:
-        component = components[name]
-        if not isinstance(component, dict):
-            raise CompatibilityError(f"component {name} must be a mapping")
-        _exact_keys(
-            component,
-            required={
-                "version",
-                "kind",
-                "artifact",
-                "digest",
-                "sourceDigest",
-                "sbomDigest",
-                "provenanceDigest",
-                "signature",
-                "capabilities",
-                "evidence",
-            },
-            optional={"entryCount"},
-            field=f"component {name}",
+        version, source_document = _validate_release_component(
+            name,
+            components[name],
+            matrix["components"][name],
+            manifest_path=manifest_path,
+            verify_signatures=verify_signatures,
         )
-        version_text = str(component.get("version") or "")
-        try:
-            version = Version(version_text)
-        except InvalidVersion as exc:
-            raise CompatibilityError(
-                f"component {name} has an invalid version"
-            ) from exc
-        expected = matrix["components"][name]
-        expected_version = _exact_version(expected["version"], f"{name}.version")
-        if version_text != expected_version or str(version) != version_text:
-            raise CompatibilityError(
-                f"component {name} version is not the current matrix version"
-            )
-        if component.get("kind") != expected.get("artifactKind"):
-            raise CompatibilityError(f"component {name} artifact kind does not match")
         versions[name] = version
-        for field in ("digest", "sourceDigest", "sbomDigest", "provenanceDigest"):
-            _digest(component.get(field), f"{name}.{field}")
-        artifact = str(component.get("artifact") or "")
-        if not artifact or "latest" in artifact.casefold():
-            raise CompatibilityError(
-                f"component {name} artifact must be exact and not latest"
-            )
-        if component.get("kind") == "oci":
-            expected_artifact = f"oci:{name}@{component['digest']}"
-            if artifact != expected_artifact:
-                raise CompatibilityError(
-                    f"component {name} OCI subject is not pinned to its declared digest"
-                )
-        elif not re.fullmatch(
-            r"catalog:[a-z0-9][a-z0-9.-]{1,127}@sha256:[a-f0-9]{64}", artifact
-        ) or not artifact.endswith("@" + str(component["digest"])):
-            raise CompatibilityError(
-                f"component {name} catalog is not an opaque digest-pinned reference"
-            )
-        capability_values = component.get("capabilities")
-        if (
-            not isinstance(capability_values, list)
-            or len(capability_values) != len(set(capability_values))
-            or not all(isinstance(value, str) and value for value in capability_values)
-        ):
-            raise CompatibilityError(f"component {name} capabilities are invalid")
-        capabilities = set(capability_values)
-        missing = set(expected.get("requiredCapabilities") or ()) - capabilities
-        if missing:
-            raise CompatibilityError(
-                f"component {name} lacks required capabilities: {sorted(missing)}"
-            )
-        exact = expected.get("exactEntries")
-        if exact is not None and int(component.get("entryCount") or 0) != int(exact):
-            raise CompatibilityError(
-                f"component {name} entry count does not match the matrix"
-            )
-        inspected_evidence = _inspect_component_evidence(name, component, manifest_path)
-        source_document = inspected_evidence["sourceEvidence"]
-        if not isinstance(source_document, dict):
-            raise CompatibilityError(f"{name}.source evidence is unavailable")
         component_source_evidence[name] = source_document
-        signature_bundle = inspected_evidence["verificationRequest"]
-        if verify_signatures:
-            _verify_signature(name, component, signature_bundle)
+    return versions, component_source_evidence
+
+
+def _validate_release_migration_and_source(
+    migration_document: dict[str, Any],
+    components: dict[str, Any],
+    *,
+    release_id: str,
+    matrix: dict[str, Any],
+    matrix_digest: str,
+    component_source_evidence: dict[str, dict[str, Any]],
+    source_freeze_authority: dict[str, str],
+) -> None:
     index_migrations = components["index-migrations"]
     validate_release_migration_plan(
         migration_document,
         release_id=release_id,
         matrix=matrix,
-        matrix_digest=str(manifest["matrixDigest"]),
+        matrix_digest=matrix_digest,
         index_migration_catalog_digest=str(index_migrations["digest"]),
     )
     if migration_document["indexMigrationCount"] != index_migrations.get("entryCount"):
@@ -2918,6 +3149,13 @@ def verify_release_manifest(
         component_source_evidence,
         source_freeze_authority,
     )
+
+
+def _validate_oci_scan_bindings(
+    oci_vulnerability_scan: dict[str, Any],
+    components: dict[str, Any],
+    component_source_evidence: dict[str, dict[str, Any]],
+) -> None:
     scan_subjects = oci_vulnerability_scan.get("subjects")
     if not isinstance(scan_subjects, dict):
         raise CompatibilityError("OCI vulnerability scan subjects are unavailable")
@@ -2936,31 +3174,104 @@ def verify_release_manifest(
             raise CompatibilityError(
                 f"OCI vulnerability scan binding differs for {name}"
             )
+
+
+def _validate_exact_gate_mapping(
+    manifest: dict[str, Any],
+    components: dict[str, Any],
+    certification_digests: dict[str, Any],
+) -> None:
     if manifest.get("exactGateEvidence") != exact_gate_evidence(
         components,
         certification_digests,
     ):
         raise CompatibilityError("exact-gate evidence mapping is not authoritative")
+
+
+def _validate_release_dependencies(
+    matrix: dict[str, Any], versions: dict[str, Version]
+) -> None:
     for name, expected in matrix["components"].items():
-        if not isinstance(expected, dict):
-            raise CompatibilityError(f"matrix component {name} must be a mapping")
-        _exact_keys(
-            expected,
-            required={"version", "artifactKind"},
-            optional={
-                "dependsOn",
-                "requiredCapabilities",
-                "exactEntries",
-                "canonicalization",
-                "migrationMode",
-            },
-            field=f"matrix component {name}",
-        )
         for dependency, specifier in (expected.get("dependsOn") or {}).items():
             if versions[dependency] not in SpecifierSet(str(specifier)):
                 raise CompatibilityError(
                     f"{name} dependency {dependency} is incompatible"
                 )
+
+
+def verify_release_manifest(
+    manifest: dict[str, Any],
+    matrix: dict[str, Any],
+    *,
+    matrix_path: Path | None = None,
+    manifest_path: Path | None = None,
+    verify_signatures: bool = True,
+    require_manifest_signature: bool = True,
+) -> dict[str, Any]:
+    release_id = _validate_release_manifest_basics(
+        manifest,
+        matrix,
+        matrix_path=matrix_path,
+        require_manifest_signature=require_manifest_signature,
+    )
+    if manifest_path is None:
+        raise CompatibilityError("release evidence requires the manifest location")
+    documents = _load_release_documents(
+        manifest,
+        matrix,
+        manifest_path=manifest_path,
+        release_id=release_id,
+    )
+    certifications = _validate_release_certifications(
+        manifest,
+        documents,
+        manifest_path=manifest_path,
+        release_id=release_id,
+        require_manifest_signature=require_manifest_signature,
+    )
+    if verify_signatures:
+        _verify_exact_artifact_closure(certifications.closure)
+        _verify_skill_validation_evidence(
+            certifications.skill_validation,
+            deployment=certifications.skill_deployment,
+            field="prebundledSkillValidationMatrix",
+        )
+        _verify_skill_validation_evidence(
+            certifications.skill_lifecycle,
+            deployment=certifications.skill_deployment,
+            field="skillValidationLifecycleEvidence",
+        )
+        _verify_oci_vulnerability_scan_evidence(
+            certifications.oci_vulnerability_scan
+        )
+    expected_names, components = _validate_release_component_catalog(manifest, matrix)
+    versions, component_source_evidence = _validate_release_components(
+        expected_names,
+        components,
+        matrix,
+        manifest_path=manifest_path,
+        verify_signatures=verify_signatures,
+    )
+    _validate_release_migration_and_source(
+        documents.migration_plan,
+        components,
+        release_id=release_id,
+        matrix=matrix,
+        matrix_digest=str(manifest["matrixDigest"]),
+        component_source_evidence=component_source_evidence,
+        source_freeze_authority=documents.source_freeze_authority,
+    )
+    _validate_oci_scan_bindings(
+        certifications.oci_vulnerability_scan,
+        components,
+        component_source_evidence,
+    )
+    _validate_exact_gate_mapping(
+        manifest,
+        components,
+        certifications.digests,
+    )
+    _validate_release_dependencies(matrix, versions)
     if require_manifest_signature:
         _validate_manifest_signature(manifest)
         if verify_signatures:
@@ -2972,7 +3283,7 @@ def verify_release_manifest(
         "componentDigests": {
             name: components[name]["digest"] for name in expected_names
         },
-        "certificationDigests": dict(certification_digests),
+        "certificationDigests": dict(certifications.digests),
         "signaturesVerified": verify_signatures and require_manifest_signature,
     }
 
