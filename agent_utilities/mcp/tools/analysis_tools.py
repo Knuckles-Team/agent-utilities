@@ -4156,12 +4156,9 @@ def _configure_action_system_doctor(action, config_key, config_value):
     # action(s): 'system_doctor'
     from agent_utilities.deployment import run_doctor
 
-    try:
-        opts = json.loads(config_value) if config_value else {}
-    except Exception:
-        return json.dumps({"error": "config_value must contain valid JSON"})
-    if not isinstance(opts, dict):
-        return json.dumps({"error": "config_value must be a JSON object"})
+    opts, err = _configure_parse_json_opts(config_value)
+    if err:
+        return err
     return json.dumps(
         run_doctor(
             opts.get("only"),
@@ -4177,12 +4174,9 @@ def _configure_action_preflight(action, config_key, config_value):
     from agent_utilities.deployment.preflight import run_preflight
 
     profile = config_key or "tiny"
-    try:
-        opts = json.loads(config_value) if config_value else {}
-    except Exception:
-        return json.dumps({"error": "config_value must contain valid JSON"})
-    if not isinstance(opts, dict):
-        return json.dumps({"error": "config_value must be a JSON object"})
+    opts, err = _configure_parse_json_opts(config_value)
+    if err:
+        return err
     return json.dumps(
         run_preflight(profile, opts.get("components")),
         default=str,
