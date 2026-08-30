@@ -202,10 +202,18 @@ def _approved_profile() -> dict:
 def _capture_ingest(monkeypatch):
     captured: list = []
 
+    def fake_ingest_batch(_engine, envelopes):
+        captured.extend(envelopes)
+        return [{"status": "success"} for _ in envelopes]
+
     def fake_ingest(_engine, envelope):
         captured.append(envelope)
         return {"status": "success"}
 
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelopes",
+        fake_ingest_batch,
+    )
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
         fake_ingest,
@@ -244,7 +252,7 @@ def test_snapshot_ingestion_pins_full_result_dict(monkeypatch) -> None:
             "detected_types": ["personal_entity", "personal_field"],
         },
     }
-    # 2 node envelopes + 1 snapshot-complete marker == 3 ingest_envelope calls.
+    # 2 node envelopes in one batch + 1 snapshot-complete marker == 3 envelopes.
     assert len(captured) == 3
     marker = captured[-1]
     assert marker.operation == "snapshot_complete"
