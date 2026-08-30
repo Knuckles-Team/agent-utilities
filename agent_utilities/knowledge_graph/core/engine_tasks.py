@@ -3259,6 +3259,43 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("fleet_reconciler tick error: %s", e)
 
+    def _run_reported_maintenance_tick(
+        self,
+        module_name: str,
+        function_name: str,
+        report_handler: Any,
+        *,
+        error_message: str,
+        error_level: int = logging.ERROR,
+    ) -> None:
+        """Run one lazily imported maintenance operation and report its result.
+
+        The import, operation, and task-specific reporting share the same
+        best-effort boundary as the former inline tick shells.  Keeping that
+        lifecycle in one place prevents a reporting failure from escaping the
+        scheduler while retaining each task's own skip and log policy.
+        """
+        try:
+            from importlib import import_module
+
+            operation = getattr(import_module(module_name), function_name)
+            report_handler(operation(self))
+        except Exception as e:  # noqa: BLE001 — one maintenance tick never stops others
+            logger.log(error_level, error_message, e)
+
+    @staticmethod
+    def _report_fleet_autoscaler_tick(report: Any) -> None:
+        if report.get("actions"):
+            logger.info(
+                "[OS-5.29] fleet autoscale: evaluated=%s actions=%s scaled=%s "
+                "actuator=%s signals=%s",
+                report.get("evaluated"),
+                report.get("actions"),
+                report.get("scaled"),
+                report.get("actuator"),
+                report.get("signal_provider"),
+            )
+
     def _tick_fleet_autoscaler(self) -> None:
         """One reactive autoscale pass (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling).
 
@@ -3271,22 +3308,13 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         scale-ups get an OS-5.27 deploy watch. Leader-only via the
         consolidated maintenance scheduler.
         """
-        try:
-            from agent_utilities.orchestration.fleet_autoscaler import autoscale_fleet
-
-            report = autoscale_fleet(self)
-            if report.get("actions"):
-                logger.info(
-                    "[OS-5.29] fleet autoscale: evaluated=%s actions=%s scaled=%s "
-                    "actuator=%s signals=%s",
-                    report.get("evaluated"),
-                    report.get("actions"),
-                    report.get("scaled"),
-                    report.get("actuator"),
-                    report.get("signal_provider"),
-                )
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("fleet_autoscaler tick error: %s", e)
+        self._run_reported_maintenance_tick(
+            "agent_utilities.orchestration.fleet_autoscaler",
+            "autoscale_fleet",
+            self._report_fleet_autoscaler_tick,
+            error_message="fleet_autoscaler tick error: %s",
+            error_level=logging.DEBUG,
+        )
 
     def _fleet_autoscale_subscription(self) -> Any:
         """Lazily-built reactive control-plane WorkItem change-feed.
@@ -4125,6 +4153,16 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("optimization tick error: %s", e)
 
+    @staticmethod
+    def _report_anomaly_consumer_tick(report: Any) -> None:
+        if report.get("scanned"):
+            logger.info(
+                "Anomaly consumer: scanned=%s gaps=%s consumed=%s",
+                report.get("scanned"),
+                report.get("gaps_filed"),
+                report.get("consumed"),
+            )
+
     def _tick_anomaly_consumer(self) -> None:
         """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
 
@@ -4134,19 +4172,22 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         remediates them), and stamps every scanned anomaly ``consumed``.
         Propose-only and LLM-free; on by default via KG_ANOMALY_CONSUMER.
         """
-        try:
-            from ..adaptation.anomaly_consumer import consume_anomalies
+        self._run_reported_maintenance_tick(
+            "agent_utilities.knowledge_graph.adaptation.anomaly_consumer",
+            "consume_anomalies",
+            self._report_anomaly_consumer_tick,
+            error_message="anomaly_consumer tick error: %s",
+        )
 
-            report = consume_anomalies(self)
-            if report.get("scanned"):
-                logger.info(
-                    "Anomaly consumer: scanned=%s gaps=%s consumed=%s",
-                    report.get("scanned"),
-                    report.get("gaps_filed"),
-                    report.get("consumed"),
-                )
-        except Exception as e:  # noqa: BLE001
-            logger.error("anomaly_consumer tick error: %s", e)
+    @staticmethod
+    def _report_tms_revalidation_tick(report: Any) -> None:
+        if report.get("stale"):
+            logger.info(
+                "TMS revalidation: scanned=%s stale=%s revalidated=%s",
+                report.get("scanned"),
+                report.get("stale"),
+                report.get("revalidated"),
+            )
 
     def _tick_tms_revalidation(self) -> None:
         """Revalidate every TMS materialization the engine has marked stale.
@@ -4160,19 +4201,36 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         bundle from the KV cache. Stateless and propose-only; on by default,
         background priority.
         """
-        try:
-            from ..adaptation.tms_revalidation import revalidate_stale_materializations
+        self._run_reported_maintenance_tick(
+            "agent_utilities.knowledge_graph.adaptation.tms_revalidation",
+            "revalidate_stale_materializations",
+            self._report_tms_revalidation_tick,
+            error_message="tms_revalidation tick error: %s",
+        )
 
-            report = revalidate_stale_materializations(self)
-            if report.get("stale"):
-                logger.info(
-                    "TMS revalidation: scanned=%s stale=%s revalidated=%s",
-                    report.get("scanned"),
-                    report.get("stale"),
-                    report.get("revalidated"),
-                )
-        except Exception as e:  # noqa: BLE001
-            logger.error("tms_revalidation tick error: %s", e)
+    @staticmethod
+    def _report_runtime_reliability_tick(report: Any) -> None:
+        if report.get("retention_error"):
+            # The :RuntimeSignal retention sweep is the ONLY bound on that
+            # population's growth, and it was silently broken from the day it
+            # was written (a DETACH DELETE issued through the read-only Cypher
+            # surface, wrapped in `contextlib.suppress`). Surface its failure at
+            # ERROR from the tick itself so a regression is visible in the pod
+            # log rather than inferable only from an unexplained node count.
+            logger.error(
+                "Runtime reliability: :RuntimeSignal retention did NOT run — %s",
+                report.get("retention_error"),
+            )
+        if report.get("patterns"):
+            logger.info(
+                "Runtime reliability: scanned=%s patterns=%s gaps=%s "
+                "recommendations=%s heals=%s",
+                report.get("scanned"),
+                report.get("patterns"),
+                report.get("gaps_opened"),
+                report.get("recommendations"),
+                report.get("heals"),
+            )
 
     def _tick_runtime_reliability(self) -> None:
         """One runtime-reliability detect→gap pass (CONCEPT:AU-AHE.harness.runtime-reliability-loop).
@@ -4185,33 +4243,12 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         retrieval_degraded). Bounded, LLM-free, propose-only (never mutates prod); native by
         default, background priority — like ``anomaly_consumer``/``tms_revalidation`` above.
         """
-        try:
-            from ..research.runtime_reliability import runtime_reliability_analyzer
-
-            report = runtime_reliability_analyzer(self)
-            if report.get("retention_error"):
-                # The :RuntimeSignal retention sweep is the ONLY bound on that
-                # population's growth, and it was silently broken from the day it
-                # was written (a DETACH DELETE issued through the read-only Cypher
-                # surface, wrapped in `contextlib.suppress`). Surface its failure at
-                # ERROR from the tick itself so a regression is visible in the pod
-                # log rather than inferable only from an unexplained node count.
-                logger.error(
-                    "Runtime reliability: :RuntimeSignal retention did NOT run — %s",
-                    report.get("retention_error"),
-                )
-            if report.get("patterns"):
-                logger.info(
-                    "Runtime reliability: scanned=%s patterns=%s gaps=%s "
-                    "recommendations=%s heals=%s",
-                    report.get("scanned"),
-                    report.get("patterns"),
-                    report.get("gaps_opened"),
-                    report.get("recommendations"),
-                    report.get("heals"),
-                )
-        except Exception as e:  # noqa: BLE001
-            logger.error("runtime_reliability tick error: %s", e)
+        self._run_reported_maintenance_tick(
+            "agent_utilities.knowledge_graph.research.runtime_reliability",
+            "runtime_reliability_analyzer",
+            self._report_runtime_reliability_tick,
+            error_message="runtime_reliability tick error: %s",
+        )
 
     def _tick_scheduler(self) -> None:
         """Evaluate every durable ``:Schedule`` and ENQUEUE the jobs that are due.
