@@ -28,6 +28,7 @@ from ...models.domains.infrastructure import (
     StorageArrayNode,
 )
 from ...models.knowledge_graph import HostNode
+from .engine_action_result import _persist_action_result
 
 logger = logging.getLogger(__name__)
 
@@ -362,28 +363,18 @@ class InfrastructureEngineMixin(_Base):
         self, pr_number: int, repo_id: str, status: str = "open"
     ) -> str:
         """Record a pull request associated with a software project."""
-        pr_id = f"pr:{uuid.uuid4().hex}"
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-        node = PullRequestNode(
-            id=pr_id,
-            name=f"PR #{pr_number}",
-            pr_number=pr_number,
-            status=status,
-            timestamp=ts,
+        return _persist_action_result(
+            self,
+            "pr",
+            "PullRequest",
+            PullRequestNode,
+            lambda _node_id, _timestamp: {
+                "name": f"PR #{pr_number}",
+                "pr_number": pr_number,
+                "status": status,
+            },
+            backend_links=((repo_id, None, "HAS_PR"),),
         )
-        self.graph.add_node(node.id, **self._serialize_node(node))
-
-        if self.backend:
-            data = self._serialize_node(node, label="PullRequest")
-            self._upsert_node("PullRequest", pr_id, data)
-            # A comma-pattern MATCH plus an edge MERGE both exceed the
-            # engine's native Cypher write subset (one leading MATCH, MERGE
-            # on a single bare node only;
-            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
-            # ``link_nodes`` dispatches through the typed engine API.
-            self.link_nodes(repo_id, pr_id, "HAS_PR")
-        return pr_id
 
     def share_cross_tenant_insight(self, source_tenant: str, insight_id: str) -> str:
         """Promote an anonymized insight across tenants."""
