@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 
 from .models import (
     CheckpointMutation,
@@ -57,6 +58,202 @@ def _scope_manifest(scope: SourceScope, manifest: SourceManifest) -> None:
         raise RepositoryContractError(
             "repository returned a cross-tenant source manifest"
         )
+
+
+def _validate_outcome_scope(
+    scope: SourceScope,
+    manifest: SourceManifest,
+    outcome: EntryReconciliation,
+) -> None:
+    if outcome.authority_id != manifest.authority_id:
+        raise SourceReconciliationError("outcome_authority_mismatch")
+    if outcome.tenant_id != scope.tenant_id:
+        raise SourceReconciliationError("outcome_tenant_mismatch")
+
+
+def _manifest_entry(
+    manifest: SourceManifest, entry_id: str
+) -> SourceCatalogEntry | None:
+    return next(
+        (entry for entry in manifest.entries if entry.entry_id == entry_id),
+        None,
+    )
+
+
+def _validate_incomplete_outcome(
+    outcome: EntryReconciliation,
+    current: SourceCatalogEntry | None,
+) -> None:
+    if outcome.terminal:
+        raise SourceReconciliationError("incomplete_outcome_marked_terminal")
+    if current is not None and current.relative_path != outcome.relative_path:
+        raise SourceReconciliationError("reconciled_entry_path_mismatch")
+
+
+def _validate_tombstone_outcome(
+    repository: SourceRepository,
+    *,
+    scope: SourceScope,
+    manifest: SourceManifest,
+    outcome: EntryReconciliation,
+    current: SourceCatalogEntry | None,
+) -> None:
+    if current is not None:
+        raise SourceReconciliationError("present_entry_cannot_be_tombstoned")
+    previous = repository.get_catalog_entry(scope, outcome.entry_id)
+    if previous is None:
+        raise SourceReconciliationError("tombstone_source_entry_unavailable")
+    _scope_entry(scope, previous)
+    if previous.authority_id != manifest.authority_id:
+        raise RepositoryContractError("repository returned a cross-authority entry")
+    if previous.entry_digest != outcome.expected_entry_digest:
+        raise SourceReconciliationError("tombstone_digest_drift")
+    if previous.relative_path != outcome.relative_path:
+        raise SourceReconciliationError("tombstone_path_mismatch")
+
+
+def _validate_present_outcome(
+    outcome: EntryReconciliation,
+    current: SourceCatalogEntry | None,
+) -> None:
+    if current is None:
+        raise SourceReconciliationError("reconciled_entry_not_in_manifest")
+    if current.relative_path != outcome.relative_path:
+        raise SourceReconciliationError("reconciled_entry_path_mismatch")
+    if outcome.observed_entry_digest != current.entry_digest:
+        raise SourceReconciliationError("observed_entry_digest_mismatch")
+    if outcome.outcome == "added":
+        _validate_added_outcome(outcome)
+        return
+    if outcome.outcome == "updated":
+        _validate_updated_outcome(outcome)
+        return
+    if outcome.outcome == "unchanged":
+        _validate_unchanged_outcome(outcome)
+
+
+def _validate_added_outcome(outcome: EntryReconciliation) -> None:
+    if outcome.expected_entry_digest is not None:
+        raise SourceReconciliationError("added_entry_has_prior_digest")
+
+
+def _validate_updated_outcome(outcome: EntryReconciliation) -> None:
+    if outcome.expected_entry_digest is None:
+        raise SourceReconciliationError("updated_entry_missing_prior_digest")
+    if outcome.expected_entry_digest == outcome.observed_entry_digest:
+        raise SourceReconciliationError("updated_entry_digest_did_not_change")
+
+
+def _validate_unchanged_outcome(outcome: EntryReconciliation) -> None:
+    if outcome.expected_entry_digest != outcome.observed_entry_digest:
+        raise SourceReconciliationError("unchanged_entry_digest_changed")
+
+
+def _selected_entry_ids(
+    request: SourceReconciliationRequest, manifest: SourceManifest
+) -> tuple[str, ...]:
+    selected_entry_ids = request.selected_entry_ids or manifest.entry_ids
+    if set(outcome.entry_id for outcome in request.outcomes) != set(selected_entry_ids):
+        raise SourceReconciliationError("reconciliation_selection_not_fully_evidenced")
+    if tuple(sorted(selected_entry_ids)) != selected_entry_ids:
+        raise SourceReconciliationError("reconciliation_selection_not_sorted")
+    return selected_entry_ids
+
+
+def _persist_reconciliation(
+    repository: SourceRepository,
+    scope: SourceScope,
+    reconciliation: SourceReconciliation,
+) -> SourceReconciliation:
+    existing = repository.get_reconciliation(scope, reconciliation.reconciliation_id)
+    if existing is not None:
+        if (
+            existing.reconciliation_digest != reconciliation.reconciliation_digest
+            or existing.authority_id != reconciliation.authority_id
+            or existing.tenant_id != reconciliation.tenant_id
+            or existing.manifest_id != reconciliation.manifest_id
+            or existing.manifest_digest != reconciliation.manifest_digest
+        ):
+            raise RepositoryContractError(
+                "repository returned digest-drifted reconciliation"
+            )
+        return existing
+    repository.put_reconciliation(reconciliation)
+    return reconciliation
+
+
+def _reconcile_result(
+    reconciliation: SourceReconciliation,
+    checkpoint: SourceCheckpoint | None = None,
+) -> SourceReconcileResult:
+    if checkpoint is None:
+        return SourceReconcileResult(
+            result_version="source-reconcile-result.v1",
+            reconciliation=reconciliation,
+            result_digest=_result_digest(reconciliation, None),
+        )
+    return SourceReconcileResult(
+        result_version="source-reconcile-result.v1",
+        reconciliation=reconciliation,
+        checkpoint=checkpoint,
+        result_digest=_result_digest(reconciliation, checkpoint),
+    )
+
+
+def _validate_checkpoint_scope(
+    scope: SourceScope,
+    manifest: SourceManifest,
+    current: SourceCheckpoint | None,
+) -> None:
+    if current is not None and (
+        current.authority_id != manifest.authority_id
+        or current.tenant_id != scope.tenant_id
+    ):
+        raise RepositoryContractError(
+            "repository returned a cross-scope source checkpoint"
+        )
+
+
+def _advance_checkpoint(
+    repository: SourceRepository,
+    *,
+    request: SourceReconciliationRequest,
+    manifest: SourceManifest,
+    reconciliation: SourceReconciliation,
+    current: SourceCheckpoint | None,
+    checkpoint_for: Callable[
+        [SourceManifest, SourceReconciliation, int], SourceCheckpoint
+    ],
+) -> SourceCheckpoint:
+    current_revision = current.revision if current is not None else 0
+    current_id = current.checkpoint_id if current is not None else None
+    if current is not None and manifest.manifest_revision < current.manifest_revision:
+        raise SourceReconciliationError("checkpoint_manifest_revision_conflict")
+    if request.expected_checkpoint_revision != current_revision:
+        raise SourceReconciliationError("checkpoint_revision_conflict")
+    if request.expected_checkpoint_id != current_id:
+        raise SourceReconciliationError("checkpoint_identity_conflict")
+    checkpoint = checkpoint_for(manifest, reconciliation, current_revision + 1)
+    mutation = CheckpointMutation(
+        mutation_version="source-checkpoint-mutation.v1",
+        authority_id=manifest.authority_id,
+        tenant_id=manifest.tenant_id,
+        expected_revision=current_revision,
+        expected_checkpoint_id=current_id,
+        manifest_id=manifest.manifest_id,
+        manifest_revision=manifest.manifest_revision,
+        manifest_digest=manifest.manifest_digest,
+        reconciliation_id=reconciliation.reconciliation_id,
+        change_ref=request.change_ref,
+    )
+    applied = repository.compare_and_swap_checkpoint(
+        request.scope, mutation, checkpoint
+    )
+    if applied != checkpoint:
+        raise RepositoryContractError(
+            "repository returned a different source checkpoint"
+        )
+    return checkpoint
 
 
 class SourceControlPlane:
@@ -115,54 +312,23 @@ class SourceControlPlane:
         manifest: SourceManifest,
         outcome: EntryReconciliation,
     ) -> None:
-        if outcome.authority_id != manifest.authority_id:
-            raise SourceReconciliationError("outcome_authority_mismatch")
-        if outcome.tenant_id != scope.tenant_id:
-            raise SourceReconciliationError("outcome_tenant_mismatch")
-        current = next(
-            (entry for entry in manifest.entries if entry.entry_id == outcome.entry_id),
-            None,
-        )
+        _validate_outcome_scope(scope, manifest, outcome)
+        current = _manifest_entry(manifest, outcome.entry_id)
         if outcome.outcome in _INCOMPLETE_OUTCOMES:
-            if outcome.terminal:
-                raise SourceReconciliationError("incomplete_outcome_marked_terminal")
-            if current is not None and current.relative_path != outcome.relative_path:
-                raise SourceReconciliationError("reconciled_entry_path_mismatch")
+            _validate_incomplete_outcome(outcome, current)
             return
         if outcome.outcome not in _TERMINAL_OUTCOMES:
             raise SourceReconciliationError("unknown_reconciliation_outcome")
         if outcome.outcome == "tombstoned":
-            if current is not None:
-                raise SourceReconciliationError("present_entry_cannot_be_tombstoned")
-            previous = self._repository.get_catalog_entry(scope, outcome.entry_id)
-            if previous is None:
-                raise SourceReconciliationError("tombstone_source_entry_unavailable")
-            _scope_entry(scope, previous)
-            if previous.authority_id != manifest.authority_id:
-                raise RepositoryContractError(
-                    "repository returned a cross-authority entry"
-                )
-            if previous.entry_digest != outcome.expected_entry_digest:
-                raise SourceReconciliationError("tombstone_digest_drift")
-            if previous.relative_path != outcome.relative_path:
-                raise SourceReconciliationError("tombstone_path_mismatch")
+            _validate_tombstone_outcome(
+                self._repository,
+                scope=scope,
+                manifest=manifest,
+                outcome=outcome,
+                current=current,
+            )
             return
-        if current is None:
-            raise SourceReconciliationError("reconciled_entry_not_in_manifest")
-        if current.relative_path != outcome.relative_path:
-            raise SourceReconciliationError("reconciled_entry_path_mismatch")
-        if outcome.observed_entry_digest != current.entry_digest:
-            raise SourceReconciliationError("observed_entry_digest_mismatch")
-        if outcome.outcome == "added" and outcome.expected_entry_digest is not None:
-            raise SourceReconciliationError("added_entry_has_prior_digest")
-        if outcome.outcome == "updated":
-            if outcome.expected_entry_digest is None:
-                raise SourceReconciliationError("updated_entry_missing_prior_digest")
-            if outcome.expected_entry_digest == outcome.observed_entry_digest:
-                raise SourceReconciliationError("updated_entry_digest_did_not_change")
-        if outcome.outcome == "unchanged":
-            if outcome.expected_entry_digest != outcome.observed_entry_digest:
-                raise SourceReconciliationError("unchanged_entry_digest_changed")
+        _validate_present_outcome(outcome, current)
 
     def _build_reconciliation(
         self,
@@ -229,107 +395,37 @@ class SourceControlPlane:
 
     def reconcile(self, request: SourceReconciliationRequest) -> SourceReconcileResult:
         """Record outcomes and CAS a checkpoint only after complete evidence."""
-
         manifest = self._load_manifest(
             request.scope, request.authority_id, request.manifest_id
         )
         self._validate_manifest_for_checkpoint(manifest)
-        selected_entry_ids = request.selected_entry_ids or manifest.entry_ids
-        if set(outcome.entry_id for outcome in request.outcomes) != set(
-            selected_entry_ids
-        ):
-            raise SourceReconciliationError(
-                "reconciliation_selection_not_fully_evidenced"
-            )
-        if tuple(sorted(selected_entry_ids)) != selected_entry_ids:
-            raise SourceReconciliationError("reconciliation_selection_not_sorted")
+        selected_entry_ids = _selected_entry_ids(request, manifest)
         for outcome in request.outcomes:
             self._validate_outcome(request.scope, manifest, outcome)
         reconciliation = self._build_reconciliation(
             request, manifest, selected_entry_ids
         )
-        existing = self._repository.get_reconciliation(
-            request.scope, reconciliation.reconciliation_id
+        reconciliation = _persist_reconciliation(
+            self._repository, request.scope, reconciliation
         )
-        if existing is not None:
-            if (
-                existing.reconciliation_digest != reconciliation.reconciliation_digest
-                or existing.authority_id != reconciliation.authority_id
-                or existing.tenant_id != reconciliation.tenant_id
-                or existing.manifest_id != reconciliation.manifest_id
-                or existing.manifest_digest != reconciliation.manifest_digest
-            ):
-                raise RepositoryContractError(
-                    "repository returned digest-drifted reconciliation"
-                )
-            reconciliation = existing
-        else:
-            self._repository.put_reconciliation(reconciliation)
         if not reconciliation.complete:
-            return SourceReconcileResult(
-                result_version="source-reconcile-result.v1",
-                reconciliation=reconciliation,
-                result_digest=_result_digest(reconciliation, None),
-            )
+            return _reconcile_result(reconciliation)
 
         current = self._repository.get_checkpoint(request.scope, manifest.authority_id)
+        _validate_checkpoint_scope(request.scope, manifest, current)
         if current is not None and (
-            current.authority_id != manifest.authority_id
-            or current.tenant_id != request.scope.tenant_id
+            current.reconciliation_id == reconciliation.reconciliation_id
         ):
-            raise RepositoryContractError(
-                "repository returned a cross-scope source checkpoint"
-            )
-        current_revision = current.revision if current is not None else 0
-        current_id = current.checkpoint_id if current is not None else None
-        if (
-            current is not None
-            and current.reconciliation_id == reconciliation.reconciliation_id
-        ):
-            checkpoint = current
-            return SourceReconcileResult(
-                result_version="source-reconcile-result.v1",
-                reconciliation=reconciliation,
-                checkpoint=checkpoint,
-                result_digest=_result_digest(reconciliation, checkpoint),
-            )
-        if (
-            current is not None
-            and manifest.manifest_revision < current.manifest_revision
-        ):
-            raise SourceReconciliationError("checkpoint_manifest_revision_conflict")
-        if request.expected_checkpoint_revision != current_revision:
-            raise SourceReconciliationError("checkpoint_revision_conflict")
-        if request.expected_checkpoint_id != current_id:
-            raise SourceReconciliationError("checkpoint_identity_conflict")
-        checkpoint = self._checkpoint_for(
-            manifest, reconciliation, current_revision + 1
-        )
-        mutation = CheckpointMutation(
-            mutation_version="source-checkpoint-mutation.v1",
-            authority_id=manifest.authority_id,
-            tenant_id=manifest.tenant_id,
-            expected_revision=current_revision,
-            expected_checkpoint_id=current_id,
-            manifest_id=manifest.manifest_id,
-            manifest_revision=manifest.manifest_revision,
-            manifest_digest=manifest.manifest_digest,
-            reconciliation_id=reconciliation.reconciliation_id,
-            change_ref=request.change_ref,
-        )
-        applied = self._repository.compare_and_swap_checkpoint(
-            request.scope, mutation, checkpoint
-        )
-        if applied != checkpoint:
-            raise RepositoryContractError(
-                "repository returned a different source checkpoint"
-            )
-        return SourceReconcileResult(
-            result_version="source-reconcile-result.v1",
+            return _reconcile_result(reconciliation, current)
+        checkpoint = _advance_checkpoint(
+            self._repository,
+            request=request,
+            manifest=manifest,
             reconciliation=reconciliation,
-            checkpoint=checkpoint,
-            result_digest=_result_digest(reconciliation, checkpoint),
+            current=current,
+            checkpoint_for=self._checkpoint_for,
         )
+        return _reconcile_result(reconciliation, checkpoint)
 
     def project(
         self, scope: SourceScope, authority_id: str, manifest_id: str
