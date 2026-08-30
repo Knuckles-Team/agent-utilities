@@ -6,6 +6,9 @@ providing a unified interface for agent creation, graph orchestration, workspace
 management, and various helper utilities.
 """
 
+from importlib import import_module
+from typing import Any
+
 from agent_utilities._version import __version__
 from agent_utilities.core.log_privacy import install_log_privacy_boundary
 
@@ -19,381 +22,107 @@ install_log_privacy_boundary()
 # agent_utilities/core/live_mount_guard.py for why this is the one guard
 # that still fires when the other two (a parity gate, a version-independent
 # mount path) were bypassed or skipped.
-from agent_utilities.core import live_mount_guard  # noqa: F401
+live_mount_guard = import_module("agent_utilities.core.live_mount_guard")
 
 
-# Lazy imports for all modules to avoid heavy import chains
-def __getattr__(name):
-    if name in [
-        "get_logger",
-        "optional_import_block",
-        "require_optional_import",
-        "retrieve_package_name",
-        "safe_load_model",
-        "safe_save_model",
-        "to_boolean",
-        "to_dict",
-        "to_float",
-        "to_integer",
-        "to_list",
-        "ensure_package_installed",
-    ]:
-        from .base_utilities import (
-            ensure_package_installed,
-            get_logger,
-            optional_import_block,
-            require_optional_import,
-            retrieve_package_name,
-            safe_load_model,
-            safe_save_model,
-            to_boolean,
-            to_dict,
-            to_float,
-            to_integer,
-            to_list,
-        )
+# Lazy imports for all modules to avoid heavy import chains. Each tuple maps a
+# relative module path to the names it exports; imports happen only on lookup.
+_LAZY_MODULE_EXPORTS: tuple[tuple[str, str], ...] = (
+    (
+        ".base_utilities",
+        "get_logger optional_import_block require_optional_import retrieve_package_name safe_load_model safe_save_model to_boolean to_dict to_float to_integer to_list ensure_package_installed",
+    ),
+    (".agent.factory", "create_agent_parser create_agent"),
+    (".agent.discovery", "discover_agents discover_all_specialists"),
+    (".core.config", "DEFAULT_GRAPH_PERSISTENCE_PATH"),
+    (".core.embedding_utilities", "create_embedding_model"),
+    (".core.model_factory", "create_model"),
+    (".core.agentspec_catalog", "AgentSpecGenerator"),
+    (".core.wasm_runner", "WasmAgentRunner"),
+    (".core.cognitive_scheduler", "CognitiveScheduler"),
+    (
+        ".graph",
+        "GraphState build_tag_env_map create_graph_agent create_master_graph get_graph_mermaid initialize_graph_from_workspace register_on_enter_hook register_on_exit_hook run_graph run_graph_stream run_orthogonal_regions validate_graph",
+    ),
+    (
+        ".graph.reactive",
+        "EventLedger BehaviorDispatcher reactive_behavior BudgetGuard BudgetTrippedException",
+    ),
+    (".prompting.builder", "build_system_prompt_from_workspace load_identity"),
+    (".server", "create_agent_server"),
+    (".gateway_client", "GatewayClient"),
+    (".knowledge_graph.core.codemaps", "CodemapGenerator"),
+    (".agent_chat.parser", "parse_codemap_mentions"),
+    (
+        ".core.workspace",
+        "CORE_FILES append_to_md_file get_mcp_config_path get_workspace_path initialize_workspace list_workspace_files load_workspace_file read_md_file write_md_file write_workspace_file",
+    ),
+    (
+        ".core.chat_persistence",
+        "delete_chat_from_disk get_chat_from_disk list_chats_from_disk save_chat_to_disk",
+    ),
+    (
+        ".models",
+        "CodemapArtifact CodemapNode DiscoveredSpecialist ImplementationPlan NestedStructure PeriodicTask ProjectConstitution Spec StructuredPrompt Task Tasks",
+    ),
+    (".models.imodel", "DisplayComplexityBudget"),
+    (".security.secrets_client", "SecretsClient create_secrets_client"),
+    (".security.auth", "verify_credentials"),
+    (".security.sandboxed_executor", "SandboxedExecutor SandboxLimits SandboxResult"),
+    (".sdd", "SDDManager"),
+    (
+        ".harness.continuous_evaluation_engine",
+        "EvalRunner EvalStrategy TestCase EvalResult InterpretabilityTestSuite InterpretabilityGrader",
+    ),
+    (".harness.imodel_evolver", "IModelEvolver ParetoFrontier"),
+    (
+        ".harness.engineering",
+        "EngineeringPatternOrchestrator PatternType PatternResult",
+    ),
+    (".observability.token_tracker", "TokenUsageTracker TokenUsageRecord TokenBucket"),
+    (".observability.audit_logger", "AuditLogger AuditRecord"),
+    (
+        ".observability.config_versioning",
+        "AgentConfigVersionManager AgentConfigSnapshot",
+    ),
+    (
+        ".observability.replay_engine",
+        "DistributedReplayEngine ReplayManifest InteractionRecord",
+    ),
+    (".observability", "TelemetryEngine"),
+    (".knowledge_graph.core.model_display", "ModelDisplayOptimizer"),
+    (
+        ".knowledge_graph.core.ecosystem_topology",
+        "EcosystemTopologyBuilder PackageCategory PackageInfo",
+    ),
+    (
+        ".knowledge_graph.core.synergy_engine",
+        "SynergyEngine ConceptBridge PillarCoupling SynergyInsight",
+    ),
+    (".knowledge_graph.retrieval.chat_search", "ChatSearchResult search_sessions"),
+    (
+        ".knowledge_graph.core.agents_md",
+        "load_agents_md inject_project_context find_agents_md",
+    ),
+    (".tools.jupyter_adapter", "JupyterKernelAdapter"),
+    (".tools.sandbox_executor", "SandboxExecutor"),
+    (".orchestration.distributed_coordinator", "DistributedCoordinator"),
+    (".knowledge_graph.memory.agent_context", "SemanticCompactor"),
+)
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    name: (module_name, name)
+    for module_name, names in _LAZY_MODULE_EXPORTS
+    for name in names.split()
+}
 
-        return locals()[name]
-    elif name == "create_agent_parser":
-        from .agent.factory import create_agent_parser
 
-        return create_agent_parser
-    elif name == "create_agent":
-        from .agent.factory import create_agent
-
-        return create_agent
-    elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
-        from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-
-        return DEFAULT_GRAPH_PERSISTENCE_PATH
-    elif name in ["discover_agents", "discover_all_specialists"]:
-        from .agent.discovery import discover_agents, discover_all_specialists
-
-        return (
-            discover_agents if name == "discover_agents" else discover_all_specialists
-        )
-    elif name == "create_embedding_model":
-        from .core.embedding_utilities import create_embedding_model
-
-        return create_embedding_model
-    elif name in [
-        "GraphState",
-        "build_tag_env_map",
-        "create_graph_agent",
-        "create_master_graph",
-        "get_graph_mermaid",
-        "initialize_graph_from_workspace",
-        "register_on_enter_hook",
-        "register_on_exit_hook",
-        "run_graph",
-        "run_graph_stream",
-        "run_orthogonal_regions",
-        "validate_graph",
-    ]:
-        from .graph import (
-            GraphState,
-            build_tag_env_map,
-            create_graph_agent,
-            create_master_graph,
-            get_graph_mermaid,
-            initialize_graph_from_workspace,
-            register_on_enter_hook,
-            register_on_exit_hook,
-            run_graph,
-            run_graph_stream,
-            run_orthogonal_regions,
-            validate_graph,
-        )
-
-        return locals()[name]
-    elif name == "create_model":
-        from .core.model_factory import create_model
-
-        return create_model
-    elif name in ["build_system_prompt_from_workspace", "load_identity"]:
-        from .prompting.builder import build_system_prompt_from_workspace, load_identity
-
-        return (
-            build_system_prompt_from_workspace
-            if name == "build_system_prompt_from_workspace"
-            else load_identity
-        )
-    elif name == "create_agent_server":
-        from .server import create_agent_server
-
-        return create_agent_server
-    elif name == "GatewayClient":
-        from .gateway_client import GatewayClient
-
-        return GatewayClient
-    elif name == "CodemapGenerator":
-        from .knowledge_graph.core.codemaps import CodemapGenerator
-
-        return CodemapGenerator
-    elif name == "parse_codemap_mentions":
-        from .agent_chat.parser import parse_codemap_mentions
-
-        return parse_codemap_mentions
-    elif name in [
-        "CORE_FILES",
-        "append_to_md_file",
-        "get_mcp_config_path",
-        "get_workspace_path",
-        "initialize_workspace",
-        "list_workspace_files",
-        "load_workspace_file",
-        "read_md_file",
-        "write_md_file",
-        "write_workspace_file",
-    ]:
-        from .core.workspace import (
-            CORE_FILES,
-            append_to_md_file,
-            get_mcp_config_path,
-            get_workspace_path,
-            initialize_workspace,
-            list_workspace_files,
-            load_workspace_file,
-            read_md_file,
-            write_md_file,
-            write_workspace_file,
-        )
-
-        return locals()[name]
-    elif name in [
-        "delete_chat_from_disk",
-        "get_chat_from_disk",
-        "list_chats_from_disk",
-        "save_chat_to_disk",
-    ]:
-        from .core.chat_persistence import (
-            delete_chat_from_disk,
-            get_chat_from_disk,
-            list_chats_from_disk,
-            save_chat_to_disk,
-        )
-
-        return locals()[name]
-    elif name in [
-        "CodemapArtifact",
-        "CodemapNode",
-        "DiscoveredSpecialist",
-        "ImplementationPlan",
-        "NestedStructure",
-        "PeriodicTask",
-        "ProjectConstitution",
-        "Spec",
-        "StructuredPrompt",
-        "Task",
-        "Tasks",
-    ]:
-        from .models import (
-            CodemapArtifact,
-            CodemapNode,
-            DiscoveredSpecialist,
-            ImplementationPlan,
-            NestedStructure,
-            PeriodicTask,
-            ProjectConstitution,
-            Spec,
-            StructuredPrompt,
-            Task,
-            Tasks,
-        )
-
-        return locals()[name]
-    elif name in ["SecretsClient", "create_secrets_client"]:
-        from .security.secrets_client import SecretsClient, create_secrets_client
-
-        return SecretsClient if name == "SecretsClient" else create_secrets_client
-    elif name == "verify_credentials":
-        from .security.auth import verify_credentials
-
-        return verify_credentials
-    elif name == "SDDManager":
-        from .sdd import SDDManager
-
-        return SDDManager
-    elif name in ["EvalRunner", "EvalStrategy", "TestCase", "EvalResult"]:
-        from .harness.continuous_evaluation_engine import (
-            EvalResult,
-            EvalRunner,
-            EvalStrategy,
-            TestCase,
-        )
-
-        return locals()[name]
-    elif name in ["TokenUsageTracker", "TokenUsageRecord", "TokenBucket"]:
-        from .observability.token_tracker import (
-            TokenBucket,
-            TokenUsageRecord,
-            TokenUsageTracker,
-        )
-
-        return locals()[name]
-    elif name in ["AuditLogger", "AuditRecord"]:
-        from .observability.audit_logger import AuditLogger, AuditRecord
-
-        return AuditLogger if name == "AuditLogger" else AuditRecord
-    elif name in ["AgentConfigVersionManager", "AgentConfigSnapshot"]:
-        from .observability.config_versioning import (
-            AgentConfigSnapshot,
-            AgentConfigVersionManager,
-        )
-
-        return (
-            AgentConfigVersionManager
-            if name == "AgentConfigVersionManager"
-            else AgentConfigSnapshot
-        )
-    elif name in [
-        "IModelEvolver",
-        "ParetoFrontier",
-        "InterpretabilityTestSuite",
-        "InterpretabilityGrader",
-        "ModelDisplayOptimizer",
-        "DisplayComplexityBudget",
-    ]:
-        if name in ["IModelEvolver", "ParetoFrontier"]:
-            from .harness.imodel_evolver import IModelEvolver, ParetoFrontier
-
-            return locals()[name]
-        elif name in ["InterpretabilityTestSuite", "InterpretabilityGrader"]:
-            from .harness.continuous_evaluation_engine import (
-                InterpretabilityGrader,
-                InterpretabilityTestSuite,
-            )
-
-            return locals()[name]
-        else:
-            from .knowledge_graph.core.model_display import ModelDisplayOptimizer
-            from .models.imodel import DisplayComplexityBudget
-
-            return (
-                ModelDisplayOptimizer
-                if name == "ModelDisplayOptimizer"
-                else DisplayComplexityBudget
-            )
-    # Ecosystem Topology Map (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
-    elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
-        from .knowledge_graph.core.ecosystem_topology import (
-            EcosystemTopologyBuilder,
-            PackageCategory,
-            PackageInfo,
-        )
-
-        return locals()[name]
-    # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
-    elif name in ["SynergyEngine", "ConceptBridge", "PillarCoupling", "SynergyInsight"]:
-        from .knowledge_graph.core.synergy_engine import (
-            ConceptBridge,
-            PillarCoupling,
-            SynergyEngine,
-            SynergyInsight,
-        )
-
-        return locals()[name]
-    # Chat Search Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
-    elif name in ["ChatSearchResult", "search_sessions"]:
-        from .knowledge_graph.retrieval.chat_search import (
-            ChatSearchResult,
-            search_sessions,
-        )
-
-        return locals()[name]
-    # Agents MD Facade (CONCEPT:AU-KG.memory.tiered-memory-caching)
-    elif name in ["load_agents_md", "inject_project_context", "find_agents_md"]:
-        from .knowledge_graph.core.agents_md import (
-            find_agents_md,
-            inject_project_context,
-            load_agents_md,
-        )
-
-        return locals()[name]
-    # Engineering Patterns Facade (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
-    elif name in ["EngineeringPatternOrchestrator", "PatternType", "PatternResult"]:
-        from .harness.engineering import (
-            EngineeringPatternOrchestrator,
-            PatternResult,
-            PatternType,
-        )
-
-        return locals()[name]
-    # Agent-Runtimes Capabilities (CONCEPT:AU-ECO.messaging.native-backend-abstraction, CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle, CONCEPT:AU-AHE.harness.capability-ratchet)
-    elif name == "JupyterKernelAdapter":
-        from .tools.jupyter_adapter import JupyterKernelAdapter
-
-        return JupyterKernelAdapter
-    elif name == "SandboxExecutor":
-        from .tools.sandbox_executor import SandboxExecutor
-
-        return SandboxExecutor
-    elif name == "AgentSpecGenerator":
-        from .core.agentspec_catalog import AgentSpecGenerator
-
-        return AgentSpecGenerator
-    # Reactive Framework (CONCEPT:AU-ORCH.reactive.event-sourcing-ledger)
-    elif name in [
-        "EventLedger",
-        "BehaviorDispatcher",
-        "reactive_behavior",
-        "BudgetGuard",
-        "BudgetTrippedException",
-    ]:
-        from .graph.reactive import (
-            BehaviorDispatcher,
-            BudgetGuard,
-            BudgetTrippedException,
-            EventLedger,
-            reactive_behavior,
-        )
-
-        return locals()[name]
-    # WASM Agent Runner (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)
-    elif name == "WasmAgentRunner":
-        from .core.wasm_runner import WasmAgentRunner
-
-        return WasmAgentRunner
-    # Cognitive Scheduler (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)
-    elif name == "CognitiveScheduler":
-        from .core.cognitive_scheduler import CognitiveScheduler
-
-        return CognitiveScheduler
-    # Distributed Coordination (CONCEPT:AU-OS.host.homeostatic-recovery-daemon)
-    elif name == "DistributedCoordinator":
-        from .orchestration.distributed_coordinator import DistributedCoordinator
-
-        return DistributedCoordinator
-    # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
-    elif name == "SemanticCompactor":
-        from .knowledge_graph.memory.agent_context import SemanticCompactor
-
-        return SemanticCompactor
-    # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)
-    elif name in ["DistributedReplayEngine", "ReplayManifest", "InteractionRecord"]:
-        from .observability.replay_engine import (
-            DistributedReplayEngine,
-            InteractionRecord,
-            ReplayManifest,
-        )
-
-        return locals()[name]
-    # Telemetry Engine (CONCEPT:AU-OS.config.secrets-authentication)
-    elif name == "TelemetryEngine":
-        from .observability import TelemetryEngine
-
-        return TelemetryEngine
-    # Sandboxed Executor (CONCEPT:AU-OS.observability.deterministic-replay)
-    elif name in ["SandboxedExecutor", "SandboxLimits", "SandboxResult"]:
-        from .security.sandboxed_executor import (
-            SandboxedExecutor,
-            SandboxLimits,
-            SandboxResult,
-        )
-
-        return locals()[name]
-    else:
+def __getattr__(name: str) -> Any:
+    """Resolve one explicitly exported symbol without eager module imports."""
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute_name = target
+    return getattr(import_module(module_name, package=__name__), attribute_name)
 
 
 # ── Graph Integration ────────────────────────────────────────────────
