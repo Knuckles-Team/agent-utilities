@@ -127,6 +127,62 @@ class StructuralFingerprint:
 # ---------------------------------------------------------------------------
 
 
+def _extract_function_info(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> dict[str, Any]:
+    """Return the signature-level fields for one function node."""
+    func_info: dict[str, Any] = {
+        "name": node.name,
+        "args": [arg.arg for arg in node.args.args if arg.arg != "self"],
+        "decorators": [ast.dump(d) for d in node.decorator_list],
+        "defaults_count": len(node.args.defaults),
+    }
+    if node.returns:
+        func_info["return_type"] = ast.dump(node.returns)
+    return func_info
+
+
+def _extract_class_info(node: ast.ClassDef) -> dict[str, Any]:
+    """Return the name, bases, decorators, and direct methods of a class."""
+    return {
+        "name": node.name,
+        "bases": [ast.dump(base) for base in node.bases],
+        "methods": [
+            item.name
+            for item in node.body
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+        ],
+        "decorators": [ast.dump(d) for d in node.decorator_list],
+    }
+
+
+def _extract_import_names(node: ast.Import | ast.ImportFrom) -> list[str]:
+    """Return deterministic import specifiers for one import node."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+
+    module = node.module or ""
+    # ``".".join`` preserves the existing representation for relative imports
+    # while keeping this source-analysis helper independent of query syntax.
+    return [".".join((module, alias.name)) for alias in node.names]
+
+
+def _extract_export_names(node: ast.Assign) -> list[str]:
+    """Return string members of a literal ``__all__`` assignment."""
+    if not isinstance(node.value, ast.List):
+        return []
+    if not any(
+        isinstance(target, ast.Name) and target.id == "__all__"
+        for target in node.targets
+    ):
+        return []
+    return [
+        elt.value
+        for elt in node.value.elts
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+    ]
+
+
 def _extract_python_structure(source: str) -> dict[str, Any]:
     """Extract structural skeleton from Python source using AST.
 
@@ -150,55 +206,13 @@ def _extract_python_structure(source: str) -> dict[str, Any]:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            func_info: dict[str, Any] = {
-                "name": node.name,
-                "args": [arg.arg for arg in node.args.args if arg.arg != "self"],
-                "decorators": [ast.dump(d) for d in node.decorator_list],
-            }
-            # Return type annotation
-            if node.returns:
-                func_info["return_type"] = ast.dump(node.returns)
-            # Default values count (signature stability indicator)
-            func_info["defaults_count"] = len(node.args.defaults)
-            functions.append(func_info)
-
+            functions.append(_extract_function_info(node))
         elif isinstance(node, ast.ClassDef):
-            class_info: dict[str, Any] = {
-                "name": node.name,
-                "bases": [ast.dump(b) for b in node.bases],
-                "methods": [],
-                "decorators": [ast.dump(d) for d in node.decorator_list],
-            }
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
-                    class_info["methods"].append(item.name)
-            classes.append(class_info)
-
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imports.append(alias.name)
-
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            for alias in node.names:
-                # ".".join(...) rather than an f-string: a Python dotted
-                # import path derived from static AST analysis of the
-                # fingerprinted module's own source (never a query) — this
-                # two-part dotted shape is otherwise indistinguishable from a
-                # schema-qualified table cast at the AST level.
-                imports.append(".".join((module, alias.name)))
-
+            classes.append(_extract_class_info(node))
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            imports.extend(_extract_import_names(node))
         elif isinstance(node, ast.Assign):
-            # Detect __all__ = [...]
-            for target in node.targets:
-                if (
-                    isinstance(target, ast.Name)
-                    and target.id == "__all__"
-                    and isinstance(node.value, ast.List)
-                ):
-                    for elt in node.value.elts:
-                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                            exports.append(elt.value)
+            exports.extend(_extract_export_names(node))
 
     return {
         "functions": sorted(functions, key=lambda f: f["name"]),
