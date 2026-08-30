@@ -1500,6 +1500,31 @@ async def _analysis_action_recommend(
     )
 
 
+def _analysis_benchmark_response(run_all: Any, to_markdown: Any, top_k: Any) -> str:
+    """Run a benchmark suite and shape its stable MCP response payload."""
+
+    results = run_all(seed=int(top_k) if top_k else 0)
+    return json.dumps(
+        {
+            "reproduced": sum(1 for r in results if r.claim_reproduced),
+            "total": len(results),
+            "results": [
+                {
+                    "name": r.name,
+                    "metric": r.metric,
+                    "baseline": r.baseline,
+                    "ours": r.ours,
+                    "lift": r.lift,
+                    "claim_reproduced": r.claim_reproduced,
+                }
+                for r in results
+            ],
+            "markdown": to_markdown(results),
+        },
+        default=str,
+    )
+
+
 async def _analysis_action_assimilation_benchmark(
     engine, action, query, top_k, node_id, depth, target
 ):
@@ -1511,25 +1536,10 @@ async def _analysis_action_assimilation_benchmark(
         to_markdown as _bench_md,
     )
 
-    bench_results = _bench_run_all(seed=int(top_k) if top_k else 0)
-    return json.dumps(
-        {
-            "reproduced": sum(1 for r in bench_results if r.claim_reproduced),
-            "total": len(bench_results),
-            "results": [
-                {
-                    "name": r.name,
-                    "metric": r.metric,
-                    "baseline": r.baseline,
-                    "ours": r.ours,
-                    "lift": r.lift,
-                    "claim_reproduced": r.claim_reproduced,
-                }
-                for r in bench_results
-            ],
-            "markdown": _bench_md(bench_results),
-        },
-        default=str,
+    return _analysis_benchmark_response(
+        _bench_run_all,
+        _bench_md,
+        top_k,
     )
 
 
@@ -1544,25 +1554,10 @@ async def _analysis_action_latent_efficiency_benchmark(
         to_markdown as _lat_md,
     )
 
-    lat_results = _lat_run_all(seed=int(top_k) if top_k else 0)
-    return json.dumps(
-        {
-            "reproduced": sum(1 for r in lat_results if r.claim_reproduced),
-            "total": len(lat_results),
-            "results": [
-                {
-                    "name": r.name,
-                    "metric": r.metric,
-                    "baseline": r.baseline,
-                    "ours": r.ours,
-                    "lift": r.lift,
-                    "claim_reproduced": r.claim_reproduced,
-                }
-                for r in lat_results
-            ],
-            "markdown": _lat_md(lat_results),
-        },
-        default=str,
+    return _analysis_benchmark_response(
+        _lat_run_all,
+        _lat_md,
+        top_k,
     )
 
 
