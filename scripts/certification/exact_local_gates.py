@@ -34,7 +34,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -2337,6 +2337,21 @@ def _materialize_optimizer_artifacts(
     return artifacts
 
 
+@dataclass
+class _OptimizerVariant:
+    """Context and state carried through one governed optimizer variant."""
+
+    client: Any
+    graph: str
+    optimizer: str
+    execution: str
+    model_calls: int
+    training_steps: int
+    payload: dict[str, Any] = field(default_factory=dict)
+    plan_rows: list[dict[str, Any]] = field(default_factory=list)
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+
+
 def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> None:
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
@@ -2386,80 +2401,66 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
             for row in candidates
         )
 
-    def _materialize_variant(
-        client: Any,
-        graph: str,
-        payload: dict[str, Any],
-        optimizer: str,
-        execution: str,
-        plan_rows: list[dict[str, Any]],
-        candidates: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        if _invalid_plan(optimizer, plan_rows, candidates):
+    def _materialize_variant(variant: _OptimizerVariant) -> None:
+        if _invalid_plan(variant.optimizer, variant.plan_rows, variant.candidates):
             _fail("optimizer_governed_plan_invalid")
-        payload["optimizer_artifacts"] = _materialize_optimizer_artifacts(
-            payload, optimizer, plan_rows
+        variant.payload["optimizer_artifacts"] = _materialize_optimizer_artifacts(
+            variant.payload, variant.optimizer, variant.plan_rows
         )
-        materialized_job = _wait_job(client, _submit_program(client, graph, payload))
+        materialized_job = _wait_job(
+            variant.client,
+            _submit_program(variant.client, variant.graph, variant.payload),
+        )
         materialized = _optimization_rows(materialized_job)
         materialized_rows = _validate_optimizer_rows(
-            materialized["rows"], optimizer=optimizer, execution=execution
+            materialized["rows"],
+            optimizer=variant.optimizer,
+            execution=variant.execution,
         )
         if any(
             row["kind"] == "program_optimization_plan_step" for row in materialized_rows
         ):
             _fail("optimizer_artifact_materialization_incomplete")
-        candidates = [
+        variant.candidates = [
             row for row in materialized_rows if row["kind"] == "program_candidate"
         ]
-        if optimizer == "avatar" and _invalid_avatar_candidates(candidates):
+        if variant.optimizer == "avatar" and _invalid_avatar_candidates(
+            variant.candidates
+        ):
             _fail("optimizer_avatar_contract_invalid")
-        return candidates
 
-    def _prepare_variant(
-        client: Any,
-        graph: str,
-        optimizer: str,
-        execution: str,
-        model_calls: int,
-        training_steps: int,
-    ) -> tuple[
-        dict[str, Any],
-        list[dict[str, Any]],
-        list[dict[str, Any]],
-    ]:
-        payload, _raw_markers = _typed_optimizer_payload(optimizer)
-        budget = payload.get("budget")
+    def _prepare_variant(variant: _OptimizerVariant) -> None:
+        payload, _raw_markers = _typed_optimizer_payload(variant.optimizer)
+        variant.payload = payload
+        budget = variant.payload.get("budget")
         if budget != {
             "max_candidates": 8,
             "max_demonstrations": 14,
-            "max_model_calls": model_calls,
+            "max_model_calls": variant.model_calls,
             "max_evaluator_calls": 0,
-            "max_training_steps": training_steps,
+            "max_training_steps": variant.training_steps,
             "seed": 0,
         }:
             _fail("optimizer_budget_projection_mismatch")
-        first_job = _wait_job(client, _submit_program(client, graph, payload))
+        first_job = _wait_job(
+            variant.client,
+            _submit_program(variant.client, variant.graph, variant.payload),
+        )
         first_result = _optimization_rows(first_job)
         first_rows = _validate_optimizer_rows(
-            first_result["rows"], optimizer=optimizer, execution=execution
+            first_result["rows"],
+            optimizer=variant.optimizer,
+            execution=variant.execution,
         )
-        plan_rows = [
+        variant.plan_rows = [
             row for row in first_rows if row["kind"] == "program_optimization_plan_step"
         ]
-        candidates = [row for row in first_rows if row["kind"] == "program_candidate"]
-        required_artifacts = OPTIMIZER_ARTIFACT_KINDS.get(optimizer, ())
+        variant.candidates = [
+            row for row in first_rows if row["kind"] == "program_candidate"
+        ]
+        required_artifacts = OPTIMIZER_ARTIFACT_KINDS.get(variant.optimizer, ())
         if required_artifacts:
-            candidates = _materialize_variant(
-                client,
-                graph,
-                payload,
-                optimizer,
-                execution,
-                plan_rows,
-                candidates,
-            )
-        return payload, plan_rows, candidates
+            _materialize_variant(variant)
 
     def _invalid_candidate_cardinality(
         candidates: list[dict[str, Any]], budget: dict[str, Any]
@@ -2470,28 +2471,26 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
             or any(row["selected"] for row in candidates)
         )
 
-    def _promotion_rows(
-        client: Any,
-        graph: str,
-        payload: dict[str, Any],
-        optimizer: str,
-        execution: str,
-        candidates: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        evidence_ref = payload["baseline"]["evidence_refs"][0]
-        payload["candidate_evaluations"] = [
+    def _promotion_rows(variant: _OptimizerVariant) -> list[dict[str, Any]]:
+        evidence_ref = variant.payload["baseline"]["evidence_refs"][0]
+        variant.payload["candidate_evaluations"] = [
             {
                 "subject_ref": row["id"],
                 "aggregate_score": 0.75,
                 "modality_scores": {modality: 0.75 for modality in MODALITIES},
                 "evidence_refs": [evidence_ref],
             }
-            for row in candidates
+            for row in variant.candidates
         ]
-        promoted_job = _wait_job(client, _submit_program(client, graph, payload))
+        promoted_job = _wait_job(
+            variant.client,
+            _submit_program(variant.client, variant.graph, variant.payload),
+        )
         promoted = _optimization_rows(promoted_job)
         promoted_rows = _validate_optimizer_rows(
-            promoted["rows"], optimizer=optimizer, execution=execution
+            promoted["rows"],
+            optimizer=variant.optimizer,
+            execution=variant.execution,
         )
         selected = [row for row in promoted_rows if row["selected"]]
         if (
@@ -2502,20 +2501,19 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
             _fail("optimizer_valid_promotion_missing")
         return promoted_rows
 
-    def _rejection_rows(
-        client: Any,
-        graph: str,
-        payload: dict[str, Any],
-        optimizer: str,
-        execution: str,
-    ) -> list[dict[str, Any]]:
-        regressed = json.loads(json.dumps(payload))
+    def _rejection_rows(variant: _OptimizerVariant) -> list[dict[str, Any]]:
+        regressed = json.loads(json.dumps(variant.payload))
         for evaluation in regressed["candidate_evaluations"]:
             evaluation["modality_scores"][MODALITIES[0]] = 0.0
-        rejected_job = _wait_job(client, _submit_program(client, graph, regressed))
+        rejected_job = _wait_job(
+            variant.client,
+            _submit_program(variant.client, variant.graph, regressed),
+        )
         rejected = _optimization_rows(rejected_job)
         rejected_rows = _validate_optimizer_rows(
-            rejected["rows"], optimizer=optimizer, execution=execution
+            rejected["rows"],
+            optimizer=variant.optimizer,
+            execution=variant.execution,
         )
         if any(row["selected"] for row in rejected_rows):
             _fail("optimizer_modality_regression_promoted")
@@ -2555,37 +2553,21 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
             ),
         }
 
-    def _run_variant(
-        client: Any,
-        graph: str,
-        optimizer: str,
-        execution: str,
-        model_calls: int,
-        training_steps: int,
-    ) -> dict[str, Any]:
-        payload, plan_rows, candidates = _prepare_variant(
-            client,
-            graph,
-            optimizer,
-            execution,
-            model_calls,
-            training_steps,
-        )
-        budget = payload["budget"]
-        if _invalid_candidate_cardinality(candidates, budget):
+    def _run_variant(variant: _OptimizerVariant) -> dict[str, Any]:
+        _prepare_variant(variant)
+        budget = variant.payload["budget"]
+        if _invalid_candidate_cardinality(variant.candidates, budget):
             _fail("optimizer_candidate_cardinality_invalid")
-        promoted_rows = _promotion_rows(
-            client, graph, payload, optimizer, execution, candidates
-        )
-        rejected_rows = _rejection_rows(client, graph, payload, optimizer, execution)
-        invalid = json.loads(json.dumps(payload))
+        promoted_rows = _promotion_rows(variant)
+        rejected_rows = _rejection_rows(variant)
+        invalid = json.loads(json.dumps(variant.payload))
         invalid["budget"]["max_candidates"] = 0
-        _expect_resource_limit(client, graph, invalid)
+        _expect_resource_limit(variant.client, variant.graph, invalid)
         return _variant_report(
-            optimizer=optimizer,
-            execution=execution,
-            payload=payload,
-            plan_rows=plan_rows,
+            optimizer=variant.optimizer,
+            execution=variant.execution,
+            payload=variant.payload,
+            plan_rows=variant.plan_rows,
             promoted_rows=promoted_rows,
             rejected_rows=rejected_rows,
         )
@@ -2611,12 +2593,14 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
         ) in OPTIMIZER_FAMILIES:
             variant_rows = [
                 _run_variant(
-                    client,
-                    graph,
-                    optimizer,
-                    execution,
-                    model_calls,
-                    training_steps,
+                    _OptimizerVariant(
+                        client=client,
+                        graph=graph,
+                        optimizer=optimizer,
+                        execution=execution,
+                        model_calls=model_calls,
+                        training_steps=training_steps,
+                    )
                 )
                 for optimizer in variants
             ]
