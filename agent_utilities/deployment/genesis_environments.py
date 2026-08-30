@@ -296,6 +296,21 @@ _TOP_LEVEL_SECTIONS = (
     "validation",
 )
 
+_TARGET_KEYS = (
+    "orchestrator",
+    "namespace",
+    "authority",
+    "cluster_context_ref",
+    "node_selector",
+)
+_RELEASE_KEYS = (
+    "image_repository",
+    "tag_policy",
+    "image_pull_policy",
+    "revision",
+    "rollout_strategy",
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parsing — fail loud, name the exact section/key
@@ -324,6 +339,57 @@ def _require_keys(
             "every value must be present in the file; nothing is filled in silently."
         )
     return mapping
+
+
+@dataclass(frozen=True)
+class _SectionMapping:
+    """Validated section mapping with its error-reporting context attached.
+
+    The profile sections intentionally have different schemas, so each parser
+    still declares its own required keys and result model.  This adapter only
+    centralizes the common mapping/type conversion primitives while preserving
+    the section and source in every validation error.
+    """
+
+    values: Mapping[str, Any]
+    section: str
+    source: Path
+
+    @classmethod
+    def from_raw(
+        cls,
+        raw: Any,
+        keys: Sequence[str],
+        section: str,
+        source: Path,
+    ) -> _SectionMapping:
+        return cls(
+            _require_keys(raw, keys, section=section, source=source), section, source
+        )
+
+    def strings(self, *keys: str) -> dict[str, str]:
+        return {
+            key: _str(self.values, key, section=self.section, source=self.source)
+            for key in keys
+        }
+
+    def string(self, key: str) -> str:
+        return _str(self.values, key, section=self.section, source=self.source)
+
+    def optional_string(self, key: str) -> str | None:
+        return _opt_str(self.values, key, section=self.section, source=self.source)
+
+    def boolean(self, key: str) -> bool:
+        return _bool(self.values, key, section=self.section, source=self.source)
+
+    def integer(self, key: str) -> int:
+        return _int(self.values, key, section=self.section, source=self.source)
+
+    def string_tuple(self, key: str) -> tuple[str, ...]:
+        return _str_tuple(self.values, key, section=self.section, source=self.source)
+
+    def string_mapping(self, key: str) -> Mapping[str, str]:
+        return _str_mapping(self.values, key, section=self.section, source=self.source)
 
 
 def _str(mapping: Mapping[str, Any], key: str, *, section: str, source: Path) -> str:
@@ -408,57 +474,28 @@ def _environment_from_mapping(raw: Any, source: Path) -> EnvironmentInputs:
 
 
 def _target_from_mapping(raw: Any, source: Path) -> TargetInputs:
-    m = _require_keys(
-        raw,
-        (
-            "orchestrator",
-            "namespace",
-            "authority",
-            "cluster_context_ref",
-            "node_selector",
-        ),
-        section="target",
-        source=source,
-    )
+    m = _SectionMapping.from_raw(raw, _TARGET_KEYS, "target", source)
     return TargetInputs(
-        orchestrator=_str(m, "orchestrator", section="target", source=source),
-        namespace=_str(m, "namespace", section="target", source=source),
-        authority=_str(m, "authority", section="target", source=source),
-        cluster_context_ref=_opt_str(
-            m, "cluster_context_ref", section="target", source=source
-        ),
-        node_selector=_str_mapping(m, "node_selector", section="target", source=source),
+        **m.strings("orchestrator", "namespace", "authority"),
+        cluster_context_ref=m.optional_string("cluster_context_ref"),
+        node_selector=m.string_mapping("node_selector"),
     )
 
 
 def _release_from_mapping(raw: Any, source: Path) -> ReleaseInputs:
-    m = _require_keys(
-        raw,
-        (
-            "image_repository",
-            "tag_policy",
-            "image_pull_policy",
-            "revision",
-            "rollout_strategy",
-        ),
-        section="release",
-        source=source,
+    m = _SectionMapping.from_raw(raw, _RELEASE_KEYS, "release", source)
+    values: dict[str, Any] = m.strings(
+        "image_repository", "tag_policy", "image_pull_policy"
     )
-    return ReleaseInputs(
-        image_repository=_str(m, "image_repository", section="release", source=source),
-        tag_policy=_str(m, "tag_policy", section="release", source=source),
-        image_pull_policy=_str(
-            m, "image_pull_policy", section="release", source=source
-        ),
-        revision=_opt_str(m, "revision", section="release", source=source),
-        rollout_strategy=_str(m, "rollout_strategy", section="release", source=source),
-    )
+    values["revision"] = m.optional_string("revision")
+    values["rollout_strategy"] = m.string("rollout_strategy")
+    return ReleaseInputs(**values)
 
 
 def _runtime_from_mapping(raw: Any, source: Path) -> RuntimeInputs:
-    m = _require_keys(
+    m = _SectionMapping.from_raw(
         raw,
-        (
+        keys=(
             "replicas",
             "requests_cpu",
             "requests_memory",
@@ -470,12 +507,14 @@ def _runtime_from_mapping(raw: Any, source: Path) -> RuntimeInputs:
         source=source,
     )
     return RuntimeInputs(
-        replicas=_int(m, "replicas", section="runtime", source=source),
-        requests_cpu=_str(m, "requests_cpu", section="runtime", source=source),
-        requests_memory=_str(m, "requests_memory", section="runtime", source=source),
-        limits_cpu=_str(m, "limits_cpu", section="runtime", source=source),
-        limits_memory=_str(m, "limits_memory", section="runtime", source=source),
-        restart_policy=_str(m, "restart_policy", section="runtime", source=source),
+        replicas=m.integer("replicas"),
+        **m.strings(
+            "requests_cpu",
+            "requests_memory",
+            "limits_cpu",
+            "limits_memory",
+            "restart_policy",
+        ),
     )
 
 
@@ -614,9 +653,9 @@ def _secrets_from_mapping(raw: Any, source: Path) -> SecretsInputs:
 
 
 def _network_from_mapping(raw: Any, source: Path) -> NetworkInputs:
-    m = _require_keys(
+    m = _SectionMapping.from_raw(
         raw,
-        (
+        keys=(
             "ingress_host",
             "service_port",
             "network_policy_enabled",
@@ -626,21 +665,17 @@ def _network_from_mapping(raw: Any, source: Path) -> NetworkInputs:
         source=source,
     )
     return NetworkInputs(
-        ingress_host=_opt_str(m, "ingress_host", section="network", source=source),
-        service_port=_int(m, "service_port", section="network", source=source),
-        network_policy_enabled=_bool(
-            m, "network_policy_enabled", section="network", source=source
-        ),
-        allowed_namespaces=_str_tuple(
-            m, "allowed_namespaces", section="network", source=source
-        ),
+        ingress_host=m.optional_string("ingress_host"),
+        service_port=m.integer("service_port"),
+        network_policy_enabled=m.boolean("network_policy_enabled"),
+        allowed_namespaces=m.string_tuple("allowed_namespaces"),
     )
 
 
 def _identity_from_mapping(raw: Any, source: Path) -> IdentityInputs:
-    m = _require_keys(
+    m = _SectionMapping.from_raw(
         raw,
-        (
+        keys=(
             "idp",
             "service_account",
             "automount_service_account_token",
@@ -650,14 +685,9 @@ def _identity_from_mapping(raw: Any, source: Path) -> IdentityInputs:
         source=source,
     )
     return IdentityInputs(
-        idp=_str(m, "idp", section="identity", source=source),
-        service_account=_str(m, "service_account", section="identity", source=source),
-        automount_service_account_token=_bool(
-            m, "automount_service_account_token", section="identity", source=source
-        ),
-        client_secret_ref=_opt_str(
-            m, "client_secret_ref", section="identity", source=source
-        ),
+        **m.strings("idp", "service_account"),
+        automount_service_account_token=m.boolean("automount_service_account_token"),
+        client_secret_ref=m.optional_string("client_secret_ref"),
     )
 
 
