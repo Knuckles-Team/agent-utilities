@@ -456,6 +456,62 @@ class AdmissionPolicy:
             if pending_by_lane.get(lane, 0) > 0 and running_by_lane.get(lane, 0) < floor
         }
 
+    def _capacity_decision(
+        self,
+        lane: str,
+        task_type: str,
+        pending_by_lane: dict[str, int],
+        running_by_lane: dict[str, int],
+        running_by_type: dict[str, int],
+    ) -> _Decision | None:
+        """Apply heavy, best-effort, and two-pool capacity limits."""
+        cfg = self.config
+
+        if task_type == HEAVY_TYPE:
+            cap = self.codebase_cap(pending_by_lane)
+            if running_by_type.get(HEAVY_TYPE, 0) >= cap:
+                return _Decision(False, f"codebase_cap reached ({cap})")
+
+        if lane in BEST_EFFORT_LANES:
+            floor = max(1, cfg.per_lane_min)
+            if running_by_lane.get(lane, 0) >= floor:
+                return _Decision(False, f"{lane} best-effort cap ({floor})")
+
+        pool = pool_for(lane, task_type)
+        if pool == MEMORY_GEN_POOL:
+            cap = self.memory_gen_cap()
+            if self.registry.running_by_pool().get(MEMORY_GEN_POOL, 0) >= cap:
+                return _Decision(False, f"memory-gen pool cap ({cap})")
+
+        return None
+
+    def _interactive_decision(self, lane: str, free: int) -> _Decision | None:
+        """Apply the hard interactive-worker reservation."""
+        if lane not in INTERACTIVE_LANES:
+            floor = self.interactive_floor()
+            if floor > 0 and free - 1 < floor:
+                return _Decision(False, f"reserve interactive ({floor})")
+        return None
+
+    def _coverage_decision(
+        self,
+        lane: str,
+        pending_by_lane: dict[str, int],
+        running_by_lane: dict[str, int],
+        free: int,
+    ) -> _Decision | None:
+        """Steer toward uncovered lanes and preserve the hot spare."""
+        uncovered = self._uncovered_pending_lanes(pending_by_lane, running_by_lane)
+        this_lane_uncovered = lane in uncovered
+
+        if uncovered and not this_lane_uncovered:
+            return _Decision(False, "steer to uncovered lane")
+
+        if free - 1 < self.config.reserved and not this_lane_uncovered:
+            return _Decision(False, "reserve hot spare")
+
+        return None
+
     # -- the decision --------------------------------------------------------
     def decide(
         self,
@@ -469,63 +525,19 @@ class AdmissionPolicy:
         running_by_type = self.registry.running_by_type()
         free = self.registry.free_count(cfg.worker_count)
 
-        # 1) Heavy-type cap — never let codebase occupy more than its cap.
-        if task_type == HEAVY_TYPE:
-            cap = self.codebase_cap(pending_by_lane)
-            if running_by_type.get(HEAVY_TYPE, 0) >= cap:
-                return _Decision(False, f"codebase_cap reached ({cap})")
+        decision = self._capacity_decision(
+            lane, task_type, pending_by_lane, running_by_lane, running_by_type
+        )
+        if decision is not None:
+            return decision
 
-        # 1b) Best-effort lane cap (CONCEPT:AU-ORCH.scheduling.low-value-high-volume) — a low-value/high-volume
-        #     lane (maint interval ticks) is guaranteed its floor coverage but never
-        #     EXPANDS beyond it, so a backlog of cheap periodic ticks can't crowd out
-        #     the throughput lanes. Below the floor it falls through to the normal
-        #     steering/spare logic (so it still gets covered) — capped, not starved.
-        if lane in BEST_EFFORT_LANES:
-            floor = max(1, cfg.per_lane_min)
-            if running_by_lane.get(lane, 0) >= floor:
-                return _Decision(False, f"{lane} best-effort cap ({floor})")
+        decision = self._interactive_decision(lane, free)
+        if decision is not None:
+            return decision
 
-        # 1b2) Two-pool budget (CONCEPT:AU-ORCH.dispatch.two-pool) — the memory-gen
-        #      half (chunk→extract→embed→KG-write) BACK-PRESSURES on the single
-        #      per-graph write lock, so it may occupy at most ``memory_gen_cap``
-        #      workers concurrently. The complementary ``acquisition_floor`` workers
-        #      are thereby always available to the I/O-bound acquisition half
-        #      (connector syncs / feed sweeps / URL crawls), so a memory-gen burst
-        #      can never drive scraping to zero. Capped, never starved: the cap is
-        #      floored at 1 so memory-gen always makes progress.
-        pool = pool_for(lane, task_type)
-        if pool == MEMORY_GEN_POOL:
-            cap = self.memory_gen_cap()
-            if self.registry.running_by_pool().get(MEMORY_GEN_POOL, 0) >= cap:
-                return _Decision(False, f"memory-gen pool cap ({cap})")
-
-        # 1c) Interactive reservation (CONCEPT:AU-KG.compute.interactive-lane-floor) — the HARD floor that keeps
-        #     the host responsive. A NON-interactive task is refused if claiming would
-        #     drop the free-worker count below the interactive floor, and — unlike the
-        #     hot-spare (rule 3) — this is NOT relaxed to cover an uncovered ingestion
-        #     lane. So no amount of pending codebase/document/connector/maint work can
-        #     drive interactive capacity to 0; an MCP/interactive call always lands.
-        if lane not in INTERACTIVE_LANES:
-            floor = self.interactive_floor()
-            if floor > 0 and free - 1 < floor:
-                return _Decision(False, f"reserve interactive ({floor})")
-
-        uncovered = self._uncovered_pending_lanes(pending_by_lane, running_by_lane)
-        this_lane_uncovered = lane in uncovered
-
-        # 2) Coverage steering — if an uncovered pending lane exists and THIS
-        #    candidate's lane is already covered, steer away so the rotation can
-        #    offer the uncovered lane instead. (Never block the last-resort case
-        #    where this candidate's own lane is the uncovered one.)
-        if uncovered and not this_lane_uncovered:
-            return _Decision(False, "steer to uncovered lane")
-
-        # 3) Hot-spare reservation. Claiming consumes one free worker; refuse if
-        #    that would drop below the reserved spare — UNLESS this claim is
-        #    covering an otherwise-uncovered pending lane (min-coverage wins over
-        #    the spare; degrade to zero-spare rather than starve a channel).
-        if free - 1 < cfg.reserved and not this_lane_uncovered:
-            return _Decision(False, "reserve hot spare")
+        decision = self._coverage_decision(lane, pending_by_lane, running_by_lane, free)
+        if decision is not None:
+            return decision
 
         return _Decision(True, "admitted")
 
