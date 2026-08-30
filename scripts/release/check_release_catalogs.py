@@ -7,7 +7,6 @@ import argparse
 import ast
 import json
 import re
-import stat
 import sys
 import tomllib
 import traceback
@@ -23,6 +22,7 @@ if str(ROOT) not in sys.path:
 from agent_utilities.release_catalogs import (  # noqa: E402
     canonical_value_digest,
     content_digest,
+    read_retained_bytes,
 )
 from scripts.release import generate_oci_acquisition_attestation  # noqa: E402
 from scripts.release.check_compatibility import (  # noqa: E402
@@ -210,18 +210,8 @@ def _validate_dependency_extras(
     _reject_ephemeral_extras(_lock_extra_names(lock_path), source="uv.lock")
 
 
-def _retained_bytes(path: Path) -> bytes | None:
-    try:
-        metadata = path.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            return None
-        return path.read_bytes()
-    except OSError:
-        return None
-
-
 def _json_object(path: Path) -> dict[str, object]:
-    payload = _retained_bytes(path)
+    payload = read_retained_bytes(path)
     if payload is None:
         raise ValueError("release document must be a regular file")
     value = json.loads(payload)
@@ -318,7 +308,7 @@ def _validate_release_resources() -> None:
     """
 
     for relative in _RESOURCE_PATHS:
-        payload = _retained_bytes(ROOT / relative)
+        payload = read_retained_bytes(ROOT / relative)
         if payload is None:
             raise ValueError("release contract resource is unavailable")
         if relative.endswith(".schema.json"):
@@ -326,7 +316,7 @@ def _validate_release_resources() -> None:
 
 
 def _validate_matrix() -> str:
-    payload = _retained_bytes(DEFAULT_MATRIX)
+    payload = read_retained_bytes(DEFAULT_MATRIX)
     if payload is None:
         raise ValueError("compatibility matrix must be a regular file")
     matrix = yaml.safe_load(payload)
@@ -365,8 +355,8 @@ def main(argv: list[str] | None = None) -> int:
         traceback.print_exc(file=sys.stderr)
         return 1
     if (
-        _retained_bytes(CONNECTOR_OUTPUT) != connector
-        or _retained_bytes(SKILL_OUTPUT) != skill
+        read_retained_bytes(CONNECTOR_OUTPUT) != connector
+        or read_retained_bytes(SKILL_OUTPUT) != skill
     ):
         print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
         return 1

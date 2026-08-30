@@ -61,6 +61,18 @@ def canonical_value_digest(value: Any) -> str:
     return content_digest(payload)
 
 
+def read_retained_bytes(path: Path) -> bytes | None:
+    """Read a retained regular file without following a final symlink."""
+
+    try:
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            return None
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def write_catalog(path: Path, payload: bytes, *, prefix: str) -> None:
     """Atomically replace a regular catalog without following symlinks."""
 

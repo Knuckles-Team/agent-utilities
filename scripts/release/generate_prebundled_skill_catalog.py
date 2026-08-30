@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,7 @@ from agent_utilities.release_catalogs import (  # noqa: E402
     ReleaseCatalogError,
     content_digest,
     prebundled_skill_catalog_bytes,
+    read_retained_bytes,
     write_catalog,
 )
 from agent_utilities.skills import BUNDLED_SKILLS  # noqa: E402
@@ -48,16 +48,6 @@ def render_catalog(*, skills_root: Path, matrix_path: Path) -> bytes:
     return prebundled_skill_catalog_bytes(skills_root)
 
 
-def _regular_bytes(path: Path) -> bytes | None:
-    try:
-        metadata = path.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            return None
-        return path.read_bytes()
-    except OSError:
-        return None
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="generate-prebundled-skill-catalog")
     parser.add_argument("--skills-root", type=Path, default=DEFAULT_SKILLS_ROOT)
@@ -72,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             matrix_path=args.matrix,
         )
         if args.check:
-            if _regular_bytes(args.output) != payload:
+            if read_retained_bytes(args.output) != payload:
                 print(
                     json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
                 )
