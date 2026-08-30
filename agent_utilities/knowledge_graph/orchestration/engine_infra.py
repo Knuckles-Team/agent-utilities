@@ -34,6 +34,304 @@ logger = logging.getLogger(__name__)
 _MAX_INVENTORY_BYTES = 16 * 1024 * 1024
 _MAX_INVENTORY_GROUPS = 10_000
 _MAX_INVENTORY_HOSTS = 100_000
+_INVENTORY_ROLES = {"compute", "compute_high", "gpu", "storage"}
+_INVENTORY_STORAGE_TYPES = {"hdd", "hybrid", "nvme", "object", "sas", "ssd"}
+_INVENTORY_OS_TYPES = {"darwin", "freebsd", "linux", "unix", "windows"}
+_INVENTORY_ARCHES = {
+    "aarch64",
+    "amd64",
+    "arm64",
+    "ppc64le",
+    "riscv64",
+    "x86_64",
+}
+_INVENTORY_GPU_VENDORS = {"amd", "apple", "intel", "nvidia"}
+_InventoryHost = tuple[str, dict[str, typing.Any], dict[str, typing.Any]]
+_HostRecord = tuple[HostNode, str, dict[str, str], str]
+_INVALID_INVENTORY = object()
+
+
+def _read_inventory_file(path: Path) -> typing.Any:
+    """Read one bounded YAML inventory, preserving its parsed value."""
+    try:
+        if not path.is_file() or path.stat().st_size > _MAX_INVENTORY_BYTES:
+            logger.warning("Configured infrastructure inventory is not a bounded file")
+            return _INVALID_INVENTORY
+        with open(path) as stream:
+            return yaml.safe_load(stream)
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning(
+            "Configured infrastructure inventory could not be read (%s)",
+            type(exc).__name__,
+        )
+        return _INVALID_INVENTORY
+
+
+def _load_inventory_root(
+    inventory_path: str | None,
+) -> dict[str, typing.Any] | None:
+    """Resolve and parse the configured XDG-backed inventory file."""
+    configured_path = inventory_path
+    if configured_path is None:
+        configured_path = str(setting("INFRA_INVENTORY_PATH", "") or "").strip()
+    if not configured_path:
+        logger.warning("Infrastructure inventory path is not configured")
+        return None
+
+    path = Path(configured_path).expanduser()
+    if not path.exists():
+        logger.warning("Configured infrastructure inventory is unavailable")
+        return None
+    data = _read_inventory_file(path)
+    if data is _INVALID_INVENTORY:
+        return None
+
+    root = data.get("all", data) if isinstance(data, dict) else {}
+    if not isinstance(root, dict):
+        logger.error("Infrastructure inventory root must be a mapping")
+        return None
+    return root
+
+
+def _append_group_hosts(
+    group: dict[str, typing.Any],
+    inherited: dict[str, typing.Any],
+    discovered: list[_InventoryHost],
+) -> None:
+    """Append bounded host records from one inventory group."""
+    hosts = group.get("hosts", {})
+    if not isinstance(hosts, dict):
+        return
+    for alias, raw in hosts.items():
+        if len(discovered) >= _MAX_INVENTORY_HOSTS:
+            break
+        info = raw if isinstance(raw, dict) else {}
+        discovered.append((str(alias), info, inherited))
+
+
+def _queue_group_children(
+    group: dict[str, typing.Any],
+    inherited: dict[str, typing.Any],
+    pending: list[tuple[dict[str, typing.Any], dict[str, typing.Any]]],
+) -> None:
+    """Queue child groups while retaining their inherited variables."""
+    children = group.get("children", {})
+    if not isinstance(children, dict):
+        return
+    for child in children.values():
+        if isinstance(child, dict):
+            pending.append((child, inherited))
+
+
+def _discover_inventory_hosts(
+    root: dict[str, typing.Any],
+) -> list[_InventoryHost]:
+    """Walk Ansible groups in the same reverse-child order as the old loop."""
+    discovered: list[_InventoryHost] = []
+    seen_groups: set[int] = set()
+    pending: list[tuple[dict[str, typing.Any], dict[str, typing.Any]]] = [(root, {})]
+    while pending and len(seen_groups) < _MAX_INVENTORY_GROUPS:
+        group, inherited = pending.pop()
+        marker = id(group)
+        if marker in seen_groups:
+            continue
+        seen_groups.add(marker)
+        group_vars = group.get("vars", {})
+        merged = {
+            **inherited,
+            **(group_vars if isinstance(group_vars, dict) else {}),
+        }
+        _append_group_hosts(group, merged, discovered)
+        _queue_group_children(group, merged, pending)
+    return discovered
+
+
+def _bounded_inventory_numbers(
+    info: dict[str, typing.Any],
+) -> dict[str, str]:
+    """Convert supported positive inventory metrics into bounded labels."""
+    labels: dict[str, str] = {}
+    for key, upper in (
+        ("cores", 1_000_000),
+        ("ram_gb", 1_000_000),
+        ("capacity_tb", 1_000_000_000),
+        ("vram_gb", 1_000_000),
+    ):
+        raw_value = info.get(key)
+        if raw_value is None:
+            continue
+        try:
+            number = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and 0 < number <= upper:
+            labels[key] = f"{number:g}"
+    return labels
+
+
+def _normalise_inventory_choice(
+    value: typing.Any,
+    allowed: set[str],
+    default: str,
+) -> str:
+    """Lower-case a constrained inventory value, falling back safely."""
+    choice = str(value or default).lower()
+    return choice if choice in allowed else default
+
+
+def _inventory_labels(info: dict[str, typing.Any]) -> dict[str, str]:
+    """Build the privacy-safe capability labels for one host."""
+    role = _normalise_inventory_choice(
+        str(info.get("role") or "compute").strip(),
+        _INVENTORY_ROLES,
+        "compute",
+    )
+    labels = {"role": role}
+    labels.update(_bounded_inventory_numbers(info))
+    storage_type = str(info.get("storage_type") or "").lower()
+    if storage_type in _INVENTORY_STORAGE_TYPES:
+        labels["storage_type"] = storage_type
+    if info.get("gpu") not in (None, "", False):
+        labels["gpu"] = "present"
+    return labels
+
+
+def _inventory_port(info: dict[str, typing.Any]) -> int:
+    """Return a valid SSH port or the Ansible default."""
+    try:
+        port = int(info.get("ansible_port", 22))
+    except (TypeError, ValueError):
+        port = 22
+    return port if 1 <= port <= 65535 else 22
+
+
+def _inventory_docker_host(value: typing.Any) -> bool:
+    """Interpret the inventory's boolean-ish Docker capability value."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_host_record(
+    alias: str,
+    host_info: dict[str, typing.Any],
+    vars_dict: dict[str, typing.Any],
+    timestamp: str,
+) -> _HostRecord | None:
+    """Create one pseudonymous host node and its asset metadata."""
+    ansible_host = host_info.get("ansible_host") or vars_dict.get("ansible_host")
+    if not ansible_host:
+        return None
+
+    host_ref = persistence_reference(
+        "host", f"{alias}\0{ansible_host}", namespace="ansible-inventory"
+    )
+    merged_info = {**vars_dict, **host_info}
+    labels = _inventory_labels(merged_info)
+    account_ref = persistence_reference(
+        "account", merged_info.get("ansible_user", ""), namespace=host_ref
+    )
+    os_type = _normalise_inventory_choice(
+        merged_info.get("os_type"), _INVENTORY_OS_TYPES, "unknown"
+    )
+    arch = _normalise_inventory_choice(
+        merged_info.get("arch"), _INVENTORY_ARCHES, "unknown"
+    )
+    gpu_vendor = _normalise_inventory_choice(
+        merged_info.get("gpu_vendor"), _INVENTORY_GPU_VENDORS, "unknown"
+    )
+    node = HostNode(
+        id=f"host:{host_ref}",
+        name=host_ref,
+        hostname=host_ref,
+        alias=host_ref,
+        port=_inventory_port(merged_info),
+        user=account_ref,
+        identity_file_ref="",
+        os_type=os_type,
+        arch=arch,
+        labels=labels,
+        docker_host=_inventory_docker_host(merged_info.get("docker_host", False)),
+        timestamp=timestamp,
+    )
+    return node, host_ref, labels, gpu_vendor
+
+
+def _persist_infrastructure_node(
+    engine: typing.Any,
+    node: typing.Any,
+    label: str,
+) -> None:
+    """Write one node to the compute graph and optional persistent backend."""
+    engine.graph.add_node(node.id, **engine._serialize_node(node))
+    if engine.backend:
+        serialized = engine._serialize_node(node, label=label)
+        engine._upsert_node(label, node.id, serialized)
+
+
+def _add_gpu_asset(
+    engine: typing.Any,
+    host_id: str,
+    host_ref: str,
+    labels: dict[str, str],
+    gpu_vendor: str,
+    timestamp: str,
+) -> None:
+    """Persist a host GPU asset and its typed relationship when present."""
+    if "gpu" not in labels or "vram_gb" not in labels:
+        return
+    gpu_id = f"gpu:{host_ref}"
+    gpu_node = GPUAcceleratorNode(
+        id=gpu_id,
+        name=f"{host_ref}-gpu",
+        vram_gb=float(labels["vram_gb"]),
+        vendor=gpu_vendor,
+        timestamp=timestamp,
+    )
+    _persist_infrastructure_node(engine, gpu_node, "GPUAccelerator")
+    engine.graph.add_edge(host_id, gpu_id, relationship="has_accelerator")
+    if engine.backend:
+        # The native engine's Cypher write subset cannot MERGE a relationship
+        # pattern; link_nodes dispatches through the typed engine API.
+        engine.link_nodes(host_id, gpu_id, "HAS_ACCELERATOR")
+
+
+def _add_storage_asset(
+    engine: typing.Any,
+    host_id: str,
+    host_ref: str,
+    labels: dict[str, str],
+    timestamp: str,
+) -> None:
+    """Persist a storage asset and its typed relationship when present."""
+    if labels.get("role") != "storage" or "capacity_tb" not in labels:
+        return
+    storage_id = f"storage:{host_ref}"
+    storage_node = StorageArrayNode(
+        id=storage_id,
+        name=f"{host_ref}-storage",
+        capacity_tb=float(labels["capacity_tb"]),
+        storage_type=str(labels.get("storage_type", "unknown")),
+        timestamp=timestamp,
+    )
+    _persist_infrastructure_node(engine, storage_node, "StorageArray")
+    engine.graph.add_edge(host_id, storage_id, relationship="attached_storage")
+    if engine.backend:
+        # See _add_gpu_asset for why this uses the typed edge API.
+        engine.link_nodes(host_id, storage_id, "ATTACHED_STORAGE")
+
+
+def _ingest_host_record(
+    engine: typing.Any,
+    record: _HostRecord,
+    timestamp: str,
+) -> str:
+    """Persist a host record and any capability assets attached to it."""
+    node, host_ref, labels, gpu_vendor = record
+    _persist_infrastructure_node(engine, node, "Host")
+    _add_gpu_asset(engine, node.id, host_ref, labels, gpu_vendor, timestamp)
+    _add_storage_asset(engine, node.id, host_ref, labels, timestamp)
+    return node.id
 
 
 class InfrastructureEngineMixin(_Base):
@@ -121,211 +419,17 @@ class InfrastructureEngineMixin(_Base):
         addresses, and key paths are never persisted; the topology stores stable
         HMAC-backed references and only a small OOTB hardware/capability field set.
         """
-        if inventory_path is None:
-            inventory_path = str(setting("INFRA_INVENTORY_PATH", "") or "").strip()
-        if not inventory_path:
-            logger.warning("Infrastructure inventory path is not configured")
+        root = _load_inventory_root(inventory_path)
+        if root is None:
             return []
 
-        path = Path(inventory_path).expanduser()
-        if not path.exists():
-            logger.warning("Configured infrastructure inventory is unavailable")
-            return []
-        try:
-            if not path.is_file() or path.stat().st_size > _MAX_INVENTORY_BYTES:
-                logger.warning(
-                    "Configured infrastructure inventory is not a bounded file"
-                )
-                return []
-            with open(path) as f:
-                data = yaml.safe_load(f)
-        except (OSError, yaml.YAMLError) as exc:
-            logger.warning(
-                "Configured infrastructure inventory could not be read (%s)",
-                type(exc).__name__,
-            )
-            return []
-
-        root = data.get("all", data) if isinstance(data, dict) else {}
-        if not isinstance(root, dict):
-            logger.error("Infrastructure inventory root must be a mapping")
-            return []
-
-        discovered: list[tuple[str, dict[str, typing.Any], dict[str, typing.Any]]] = []
-        seen_groups: set[int] = set()
-        pending: list[tuple[dict[str, typing.Any], dict[str, typing.Any]]] = [
-            (root, {})
-        ]
-        while pending and len(seen_groups) < _MAX_INVENTORY_GROUPS:
-            group, inherited = pending.pop()
-            marker = id(group)
-            if marker in seen_groups:
-                continue
-            seen_groups.add(marker)
-            group_vars = group.get("vars", {})
-            merged = {
-                **inherited,
-                **(group_vars if isinstance(group_vars, dict) else {}),
-            }
-            hosts = group.get("hosts", {})
-            if isinstance(hosts, dict):
-                for alias, raw in hosts.items():
-                    if len(discovered) >= _MAX_INVENTORY_HOSTS:
-                        break
-                    info = raw if isinstance(raw, dict) else {}
-                    discovered.append((str(alias), info, merged))
-            children = group.get("children", {})
-            if isinstance(children, dict):
-                for child in children.values():
-                    if isinstance(child, dict):
-                        pending.append((child, merged))
-
+        discovered = _discover_inventory_hosts(root)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         ingested_ids: list[str] = []
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
         for alias, host_info, vars_dict in discovered:
-            ansible_host = host_info.get("ansible_host") or vars_dict.get(
-                "ansible_host"
-            )
-            if not ansible_host:
-                continue
-
-            namespace = "ansible-inventory"
-            host_ref = persistence_reference(
-                "host", f"{alias}\0{ansible_host}", namespace=namespace
-            )
-            host_id = f"host:{host_ref}"
-            merged_info = {**vars_dict, **host_info}
-            role = str(merged_info.get("role") or "compute").strip().lower()
-            if role not in {"compute", "compute_high", "gpu", "storage"}:
-                role = "compute"
-            labels = {"role": role}
-            for key, upper in (
-                ("cores", 1_000_000),
-                ("ram_gb", 1_000_000),
-                ("capacity_tb", 1_000_000_000),
-                ("vram_gb", 1_000_000),
-            ):
-                raw_value = merged_info.get(key)
-                if raw_value is None:
-                    continue
-                try:
-                    number = float(raw_value)
-                except (TypeError, ValueError):
-                    continue
-                if math.isfinite(number) and 0 < number <= upper:
-                    labels[key] = f"{number:g}"
-            storage_type = str(merged_info.get("storage_type") or "").lower()
-            if storage_type in {"hdd", "hybrid", "nvme", "object", "sas", "ssd"}:
-                labels["storage_type"] = storage_type
-            if merged_info.get("gpu") not in (None, "", False):
-                labels["gpu"] = "present"
-            account_ref = persistence_reference(
-                "account", merged_info.get("ansible_user", ""), namespace=host_ref
-            )
-            try:
-                port = int(merged_info.get("ansible_port", 22))
-            except (TypeError, ValueError):
-                port = 22
-            if not 1 <= port <= 65535:
-                port = 22
-            os_type = str(merged_info.get("os_type") or "unknown").lower()
-            if os_type not in {"darwin", "freebsd", "linux", "unix", "windows"}:
-                os_type = "unknown"
-            arch = str(merged_info.get("arch") or "unknown").lower()
-            if arch not in {
-                "aarch64",
-                "amd64",
-                "arm64",
-                "ppc64le",
-                "riscv64",
-                "x86_64",
-            }:
-                arch = "unknown"
-            gpu_vendor = str(merged_info.get("gpu_vendor") or "unknown").lower()
-            if gpu_vendor not in {"amd", "apple", "intel", "nvidia"}:
-                gpu_vendor = "unknown"
-            docker_value = merged_info.get("docker_host", False)
-            docker_host = (
-                docker_value
-                if isinstance(docker_value, bool)
-                else str(docker_value).strip().lower() in {"1", "true", "yes", "on"}
-            )
-
-            node = HostNode(
-                id=host_id,
-                name=host_ref,
-                hostname=host_ref,
-                alias=host_ref,
-                port=port,
-                user=account_ref,
-                identity_file_ref="",
-                os_type=os_type,
-                arch=arch,
-                labels=labels,
-                docker_host=docker_host,
-                timestamp=ts,
-            )
-
-            # Save Host to the graph compute engine
-            self.graph.add_node(node.id, **self._serialize_node(node))
-
-            # If backend is persistent, dual write
-            if self.backend:
-                serialized = self._serialize_node(node, label="Host")
-                self._upsert_node("Host", host_id, serialized)
-
-            ingested_ids.append(host_id)
-
-            # Create sub-assets (GPU or Storage Array) and link them!
-            if "gpu" in labels and "vram_gb" in labels:
-                gpu_id = f"gpu:{host_ref}"
-                gpu_node = GPUAcceleratorNode(
-                    id=gpu_id,
-                    name=f"{host_ref}-gpu",
-                    vram_gb=float(labels["vram_gb"]),
-                    vendor=gpu_vendor,
-                    timestamp=ts,
-                )
-                self.graph.add_node(gpu_node.id, **self._serialize_node(gpu_node))
-                if self.backend:
-                    s_gpu = self._serialize_node(gpu_node, label="GPUAccelerator")
-                    self._upsert_node("GPUAccelerator", gpu_id, s_gpu)
-
-                # Add edge has_accelerator
-                self.graph.add_edge(host_id, gpu_id, relationship="has_accelerator")
-                if self.backend:
-                    # A comma-pattern MATCH plus an edge MERGE both exceed the
-                    # engine's native Cypher write subset (one leading MATCH,
-                    # MERGE on a single bare node only;
-                    # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
-                    # ``link_nodes`` dispatches through the typed engine API.
-                    self.link_nodes(host_id, gpu_id, "HAS_ACCELERATOR")
-
-            if labels["role"] == "storage" and "capacity_tb" in labels:
-                storage_id = f"storage:{host_ref}"
-                storage_node = StorageArrayNode(
-                    id=storage_id,
-                    name=f"{host_ref}-storage",
-                    capacity_tb=float(labels["capacity_tb"]),
-                    storage_type=str(labels.get("storage_type", "unknown")),
-                    timestamp=ts,
-                )
-                self.graph.add_node(
-                    storage_node.id, **self._serialize_node(storage_node)
-                )
-                if self.backend:
-                    s_storage = self._serialize_node(storage_node, label="StorageArray")
-                    self._upsert_node("StorageArray", storage_id, s_storage)
-
-                # Add edge attached_storage
-                self.graph.add_edge(
-                    host_id, storage_id, relationship="attached_storage"
-                )
-                if self.backend:
-                    # See the GPU accelerator link above for why this is a
-                    # typed link, not a comma-pattern MATCH + edge MERGE.
-                    self.link_nodes(host_id, storage_id, "ATTACHED_STORAGE")
+            record = _build_host_record(alias, host_info, vars_dict, timestamp)
+            if record is not None:
+                ingested_ids.append(_ingest_host_record(self, record, timestamp))
 
         logger.info("Ingested %d pseudonymous inventory hosts", len(ingested_ids))
         return ingested_ids
