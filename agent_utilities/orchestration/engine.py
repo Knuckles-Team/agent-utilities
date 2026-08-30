@@ -9,7 +9,7 @@ parallel, workflow, SDD, and research execution.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -878,6 +878,95 @@ def _resolve_end_marker_type() -> type[Any]:
     return end_marker_type
 
 
+def _build_graph_deps(
+    config: dict[str, Any],
+    *,
+    mcp_toolsets: list[Any] | None,
+    event_queue: asyncio.Queue[Any] | None,
+    requested_model_id: str | None,
+    run_id: str,
+    plan_sync: Any,
+    mode: Literal["execute", "iter", "stream"],
+) -> GraphDeps:
+    """Build the shared graph dependencies for one execution mode.
+
+    The mode-specific fields intentionally stay explicit here: ``execute``
+    honors the configured request id and execution shape, ``iter`` and
+    ``execute`` include the node registry, and ``stream`` relies on
+    ``GraphDeps`` defaults for both fields.  Assignments follow the original
+    constructors' order so model creation and configuration lookup remain
+    lazy and their exceptions propagate unchanged.
+    """
+    _custom_headers = config.get("custom_headers")
+    deps_kwargs: dict[str, Any] = {
+        "tag_prompts": config.get("tag_prompts", {}),
+        "tag_env_vars": config.get("tag_env_vars", {}),
+        "mcp_toolsets": (
+            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
+        ),
+        "mcp_url": config.get("mcp_url", ""),
+        "mcp_config": config.get("mcp_config", ""),
+    }
+    deps_kwargs["router_model"] = create_model(
+        model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
+        api_key=config.get("api_key"),
+        base_url=config.get("base_url"),
+        custom_headers=_custom_headers,
+        provider=config.get("provider", DEFAULT_PROVIDER),
+    )
+    deps_kwargs["agent_model"] = create_model(
+        model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+        api_key=config.get("api_key"),
+        base_url=config.get("base_url"),
+        custom_headers=_custom_headers,
+        provider=config.get("provider", DEFAULT_PROVIDER),
+    )
+    if mode in {"execute", "iter"}:
+        deps_kwargs["nodes"] = config.get("nodes", {})
+    deps_kwargs.update(
+        {
+            "min_confidence": config.get("min_confidence", 0.6),
+            "sub_agents": config.get("sub_agents", {}),
+            "provider": config.get("provider", DEFAULT_PROVIDER),
+            "base_url": config.get("base_url"),
+            "api_key": config.get("api_key"),
+            "event_queue": event_queue,
+            "router_timeout": config.get(
+                "router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT
+            ),
+            "verifier_timeout": config.get(
+                "verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT
+            ),
+        }
+    )
+    if mode == "execute":
+        deps_kwargs["execution_shape"] = config.get("execution_shape")
+        deps_kwargs["request_id"] = config.get("request_id", run_id)
+    else:
+        deps_kwargs["request_id"] = run_id
+    deps_kwargs.update(
+        {
+            "routing_strategy": config.get("routing_strategy", "hybrid"),
+            "enable_llm_validation": config.get(
+                "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
+            ),
+            "discovery_metadata": config.get("discovery_metadata", {}),
+            "plan_sync": plan_sync,
+            "approval_manager": config.get("approval_manager"),
+            "model_registry": config.get("model_registry"),
+            "requested_model_id": requested_model_id,
+            "permissions_kernel": config.get("permissions_kernel"),
+            "agent_identity": config.get("agent_identity"),
+            "knowledge_engine": config.get("knowledge_engine"),
+            "response_format": config.get("response_format", "text"),
+            "execution_mode": config.get("execution_mode", "auto"),
+            "pinned_skill_name": config.get("pinned_skill_name", ""),
+            "pinned_skill_prompt": config.get("pinned_skill_prompt", ""),
+        }
+    )
+    return GraphDeps(**deps_kwargs)
+
+
 def _build_iter_deps(
     config: dict,
     *,
@@ -888,55 +977,14 @@ def _build_iter_deps(
     plan_sync: Any,
 ) -> GraphDeps:
     """Build the ``GraphDeps`` :func:`iter_graph` runs the graph with."""
-    _custom_headers = config.get("custom_headers")
-    return GraphDeps(
-        tag_prompts=config.get("tag_prompts", {}),
-        tag_env_vars=config.get("tag_env_vars", {}),
-        mcp_toolsets=(
-            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
-        ),
-        mcp_url=config.get("mcp_url", ""),
-        mcp_config=config.get("mcp_config", ""),
-        router_model=create_model(
-            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        nodes=config.get("nodes", {}),
-        min_confidence=config.get("min_confidence", 0.6),
-        sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
-        base_url=config.get("base_url"),
-        api_key=config.get("api_key"),
+    return _build_graph_deps(
+        config,
+        mcp_toolsets=mcp_toolsets,
         event_queue=event_queue,
-        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
-        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
-        request_id=run_id,
-        routing_strategy=config.get("routing_strategy", "hybrid"),
-        enable_llm_validation=config.get(
-            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
-        ),
-        discovery_metadata=config.get("discovery_metadata", {}),
-        plan_sync=plan_sync,
-        approval_manager=config.get("approval_manager"),
-        model_registry=config.get("model_registry"),
         requested_model_id=requested_model_id,
-        permissions_kernel=config.get("permissions_kernel"),
-        agent_identity=config.get("agent_identity"),
-        knowledge_engine=config.get("knowledge_engine"),
-        response_format=config.get("response_format", "text"),
-        execution_mode=config.get("execution_mode", "auto"),
-        pinned_skill_name=config.get("pinned_skill_name", ""),
-        pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
+        run_id=run_id,
+        plan_sync=plan_sync,
+        mode="iter",
     )
 
 
@@ -1187,56 +1235,14 @@ def _build_execute_deps(
 ) -> GraphDeps:
     """Build the ``GraphDeps`` :meth:`AgentOrchestrationEngine.execute_graph`
     runs the graph with."""
-    _custom_headers = config.get("custom_headers")
-    return GraphDeps(
-        tag_prompts=config.get("tag_prompts", {}),
-        tag_env_vars=config.get("tag_env_vars", {}),
-        mcp_toolsets=(
-            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
-        ),
-        mcp_url=config.get("mcp_url", ""),
-        mcp_config=config.get("mcp_config", ""),
-        router_model=create_model(
-            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        nodes=config.get("nodes", {}),
-        min_confidence=config.get("min_confidence", 0.6),
-        sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
-        base_url=config.get("base_url"),
-        api_key=config.get("api_key"),
+    return _build_graph_deps(
+        config,
+        mcp_toolsets=mcp_toolsets,
         event_queue=event_queue,
-        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
-        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
-        execution_shape=config.get("execution_shape"),
-        request_id=config.get("request_id", run_id),
-        routing_strategy=config.get("routing_strategy", "hybrid"),
-        enable_llm_validation=config.get(
-            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
-        ),
-        discovery_metadata=config.get("discovery_metadata", {}),
-        plan_sync=plan_sync,
-        approval_manager=config.get("approval_manager"),
-        model_registry=config.get("model_registry"),
         requested_model_id=requested_model_id,
-        permissions_kernel=config.get("permissions_kernel"),
-        agent_identity=config.get("agent_identity"),
-        knowledge_engine=config.get("knowledge_engine"),
-        response_format=config.get("response_format", "text"),
-        execution_mode=config.get("execution_mode", "auto"),
-        pinned_skill_name=config.get("pinned_skill_name", ""),
-        pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
+        run_id=run_id,
+        plan_sync=plan_sync,
+        mode="execute",
     )
 
 
@@ -1341,59 +1347,16 @@ def _build_stream_deps(
     plan_sync: Any,
 ) -> GraphDeps:
     """Build the ``GraphDeps`` :meth:`AgentOrchestrationEngine.stream_graph`
-    runs the graph with -- its own distinct field set (no ``nodes``/
-    ``execution_shape``, ``request_id`` is the raw ``run_id``); kept separate
-    from ``_build_execute_deps``/``_build_iter_deps`` rather than unified, to
-    avoid changing any of the three functions' behaviour.
+    runs the graph with its stream-specific dependency field set.
     """
-    _custom_headers = config.get("custom_headers")
-    return GraphDeps(
-        tag_prompts=config.get("tag_prompts", {}),
-        tag_env_vars=config.get("tag_env_vars", {}),
-        mcp_toolsets=(
-            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
-        ),
-        mcp_url=config.get("mcp_url", ""),
-        mcp_config=config.get("mcp_config", ""),
-        router_model=create_model(
-            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
-            api_key=config.get("api_key"),
-            base_url=config.get("base_url"),
-            custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
-        ),
-        min_confidence=config.get("min_confidence", 0.6),
-        sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
-        base_url=config.get("base_url"),
-        api_key=config.get("api_key"),
+    return _build_graph_deps(
+        config,
+        mcp_toolsets=mcp_toolsets,
         event_queue=event_queue,
-        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
-        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
-        request_id=run_id,
-        routing_strategy=config.get("routing_strategy", "hybrid"),
-        enable_llm_validation=config.get(
-            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
-        ),
-        discovery_metadata=config.get("discovery_metadata", {}),
-        plan_sync=plan_sync,
-        approval_manager=config.get("approval_manager"),
-        model_registry=config.get("model_registry"),
         requested_model_id=requested_model_id,
-        permissions_kernel=config.get("permissions_kernel"),
-        agent_identity=config.get("agent_identity"),
-        knowledge_engine=config.get("knowledge_engine"),
-        response_format=config.get("response_format", "text"),
-        execution_mode=config.get("execution_mode", "auto"),
-        pinned_skill_name=config.get("pinned_skill_name", ""),
-        pinned_skill_prompt=config.get("pinned_skill_prompt", ""),
+        run_id=run_id,
+        plan_sync=plan_sync,
+        mode="stream",
     )
 
 
