@@ -14,6 +14,12 @@ import sys
 from pathlib import Path
 from typing import Any, Final
 
+# Keep direct ``python scripts/release/...`` execution bound to this checkout.
+# Console entry points and ``python -m`` already establish the package root.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from scripts.release.exact_local_cli import add_exact_local_release_arguments
 from scripts.release.exact_local_gates_manifest import (
     ManifestError,
     _write_new_private,
@@ -1125,10 +1131,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="bind-exact-local-release-evidence",
         description="Validate and sign the complete local exact-artifact closure.",
     )
-    parser.add_argument("--release-id", required=True)
-    parser.add_argument("--spec", required=True, type=Path)
-    parser.add_argument("--promotion-evidence", required=True, type=Path)
-    parser.add_argument("--source-root", required=True, type=Path)
+    add_exact_local_release_arguments(parser)
     parser.add_argument("--campaign-manifest", required=True, type=Path)
     parser.add_argument("--fault-restart-evidence", required=True, type=Path)
     parser.add_argument("--protocol-authorization-evidence", required=True, type=Path)
