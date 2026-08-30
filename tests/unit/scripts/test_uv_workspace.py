@@ -365,15 +365,40 @@ def workspace_layout_for_own_lock(tmp_path: Path) -> tuple[Path, Path, Path]:
     return workspace, canonical, worktree
 
 
-def test_lock_resolution_allows_only_target_worktree_lock_to_change(
-    monkeypatch: pytest.MonkeyPatch,
+def _workspace_layout_with_sibling_lock(
     tmp_path: Path,
-) -> None:
+) -> tuple[Path, Path, Path, Path]:
     workspace, canonical, worktree = workspace_layout_for_own_lock(tmp_path)
     sibling = workspace / "agent-packages" / "epistemic-graph"
     sibling.mkdir(parents=True)
     sibling_lock = sibling / "uv.lock"
     sibling_lock.write_text("sibling\n", encoding="utf-8")
+    return workspace, canonical, worktree, sibling_lock
+
+
+def _environment_paths(
+    selections: Sequence[Sequence[str]],
+    *,
+    worktree: Path,
+    shadow: Path,
+) -> set[Path]:
+    return {
+        uv_workspace.uv_plan(
+            arguments,
+            worktree=worktree,
+            shadow=shadow,
+        ).environment_path
+        for arguments in selections
+    }
+
+
+def test_lock_resolution_allows_only_target_worktree_lock_to_change(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace, canonical, worktree, sibling_lock = _workspace_layout_with_sibling_lock(
+        tmp_path
+    )
     target_lock = worktree / "uv.lock"
 
     def resolve_target(*_args: object, **_kwargs: object) -> SimpleNamespace:
@@ -403,11 +428,9 @@ def test_lock_resolution_rejects_sibling_lock_mutation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    workspace, canonical, worktree = workspace_layout_for_own_lock(tmp_path)
-    sibling = workspace / "agent-packages" / "epistemic-graph"
-    sibling.mkdir(parents=True)
-    sibling_lock = sibling / "uv.lock"
-    sibling_lock.write_text("sibling\n", encoding="utf-8")
+    workspace, canonical, worktree, sibling_lock = _workspace_layout_with_sibling_lock(
+        tmp_path
+    )
 
     def mutate_sibling(*_args: object, **_kwargs: object) -> SimpleNamespace:
         sibling_lock.write_text("unauthorized\n", encoding="utf-8")
@@ -441,19 +464,16 @@ def test_distinct_selections_never_share_an_environment(
     monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
     worktree = tmp_path / "worktree"
 
-    directories = {
-        uv_workspace.uv_plan(
-            arguments,
-            worktree=worktree,
-            shadow=tmp_path / "shadow",
-        ).environment_path
-        for arguments in (
+    directories = _environment_paths(
+        (
             ["run", "--all-extras", "pytest"],
             ["run", "pytest"],
             ["run", "--extra", "graph", "pytest"],
             ["run", "--extra", "graph", "--extra", "owl", "pytest"],
-        )
-    }
+        ),
+        worktree=worktree,
+        shadow=tmp_path / "shadow",
+    )
 
     assert len(directories) == 4, "each dependency selection must own its environment"
     assert all(path.parent == worktree for path in directories)
@@ -484,19 +504,16 @@ def test_selection_identity_ignores_order_and_repetition(
     monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
     worktree = tmp_path / "worktree"
 
-    directories = {
-        uv_workspace.uv_plan(
-            arguments,
-            worktree=worktree,
-            shadow=tmp_path / "shadow",
-        ).environment_path
-        for arguments in (
+    directories = _environment_paths(
+        (
             ["run", "--extra", "graph", "--extra", "owl", "pytest"],
             ["run", "--extra", "owl", "--extra", "graph", "pytest"],
             ["run", "--extra=owl", "--extra", "graph", "--extra", "owl", "pytest"],
             ["run", "--locked", "--extra", "graph", "--extra", "owl", "pytest"],
-        )
-    }
+        ),
+        worktree=worktree,
+        shadow=tmp_path / "shadow",
+    )
 
     assert len(directories) == 1
 
