@@ -665,40 +665,45 @@ class TopologicalRoutingPolicy(RoutingPolicy):
             return
 
         try:
-            from agent_utilities.knowledge_graph.core import graph_primitives as rx
-
-            # Build a graph from the engine's node/edge data
-            rg = rx.PyDiGraph()
-            idx_map: dict[str, int] = {}
-
-            # Get all node IDs from the engine
-            try:
-                all_ids = self.engine.graph.node_ids()
-            except Exception:
-                all_ids = []
-
-            for nid in all_ids:
-                idx_map[nid] = rg.add_node(nid)
-
-            # Rebuild edges from successor relationships
-            for nid in all_ids:
-                try:
-                    successors = self.engine.graph.get_successors(nid)
-                except Exception:
-                    successors = []
-                for succ in successors:
-                    if succ in idx_map:
-                        rg.add_edge(idx_map[nid], idx_map[succ], None)
-
-            if rg.num_nodes() > 0:
-                # Use epistemic-graph native PageRank via the engine
-                try:
-                    pr = self.engine.graph.pagerank()
-                    self._centrality_cache = {nid: score for nid, score in pr}
-                except Exception:
-                    self._centrality_cache = {}
+            graph = self._build_centrality_graph()
+            if graph.num_nodes() > 0:
+                self._centrality_cache = self._read_centrality_scores()
         except Exception as e:  # noqa: BLE001 — self._centrality_cache is a routing-priority optimization; a failed rebuild just leaves it at its prior value (or {} on the pagerank-only sub-failure two lines above), degrading routing scoring quality rather than breaking routing itself
             logger.debug("Centrality computation failed: %s", e)
+
+    def _build_centrality_graph(self) -> Any:
+        """Build the local graph used to determine whether PageRank can run."""
+        from agent_utilities.knowledge_graph.core import graph_primitives as rx
+
+        graph = rx.PyDiGraph()
+        node_ids = self._centrality_node_ids()
+        index_by_id = {node_id: graph.add_node(node_id) for node_id in node_ids}
+        for node_id in node_ids:
+            for successor in self._centrality_successors(node_id):
+                if successor in index_by_id:
+                    graph.add_edge(index_by_id[node_id], index_by_id[successor], None)
+        return graph
+
+    def _centrality_node_ids(self) -> list[str]:
+        """Return graph node IDs, treating an unavailable graph as empty."""
+        try:
+            return list(self.engine.graph.node_ids())
+        except Exception:
+            return []
+
+    def _centrality_successors(self, node_id: str) -> list[str]:
+        """Return a node's successors, treating an unavailable read as empty."""
+        try:
+            return list(self.engine.graph.get_successors(node_id))
+        except Exception:
+            return []
+
+    def _read_centrality_scores(self) -> dict[str, float]:
+        """Read native PageRank scores, returning no scores on failure."""
+        try:
+            return {node_id: score for node_id, score in self.engine.graph.pagerank()}
+        except Exception:
+            return {}
 
     def _get_historical_success(self, candidate: RoutingCandidate) -> float | None:
         """Get historical success rate for this candidate from KG."""
