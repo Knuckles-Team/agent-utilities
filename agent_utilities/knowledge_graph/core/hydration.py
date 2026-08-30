@@ -17,6 +17,7 @@ import logging
 import os
 import re
 from abc import ABC, abstractmethod
+from importlib import import_module
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -34,6 +35,81 @@ _GITHUB_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 class _GithubConnectorCompatibilityError(RuntimeError):
     """The installed connector cannot be imported against this AU runtime."""
+
+
+# The metadata-only connectors share the same lifecycle, while their endpoint
+# settings, connector imports, and OWL records remain source-specific.  Keep
+# those values declarative so each source still gets a fresh batch on every
+# hydration call.
+_METADATA_CONNECTOR_SPECS: dict[str, dict[str, Any]] = {
+    "keycloak": {
+        "module_path": "keycloak_agent.api_client",
+        "connector_name": "KeycloakAdmin",
+        "unavailable_reason": "keycloak-agent package not installed",
+        "url_setting": "KEYCLOAK_URL",
+        "missing_url_reason": "Missing KEYCLOAK_URL",
+        "entities": (
+            {
+                "id": "keycloak:realm:master",
+                "type": "organization",
+                "name": "Keycloak Master Realm",
+                "domain": "keycloak",
+            },
+            {
+                "id": "keycloak:role:admin",
+                "type": "role",
+                "name": "Administrator Role Metadata",
+                "domain": "keycloak",
+            },
+        ),
+        "relationships": (
+            {
+                "source": "keycloak:role:admin",
+                "target": "keycloak:realm:master",
+                "type": "part_of",
+                "domain": "keycloak",
+            },
+        ),
+    },
+    "nextcloud": {
+        "module_path": "nextcloud_agent.api_client",
+        "connector_name": "NextcloudClient",
+        "unavailable_reason": "nextcloud-agent package not installed",
+        "url_setting": "NEXTCLOUD_URL",
+        "missing_url_reason": "Missing NEXTCLOUD_URL",
+        "entities": (
+            {
+                "id": "nextcloud:event:daily_sync",
+                "type": "event",
+                "name": "Daily Enterprise Sync Meeting",
+                "domain": "nextcloud",
+            },
+            {
+                "id": "nextcloud:doc:architecture_guide",
+                "type": "document",
+                "name": "Nextcloud Shared Architecture Guide.pdf",
+                "domain": "nextcloud",
+            },
+        ),
+        "relationships": (),
+    },
+    "mattermost": {
+        "module_path": "mattermost_mcp.api_client",
+        "connector_name": "MattermostApi",
+        "unavailable_reason": "mattermost-mcp package not installed",
+        "url_setting": "MATTERMOST_URL",
+        "missing_url_reason": "Missing MATTERMOST_URL",
+        "entities": (
+            {
+                "id": "mattermost:channel:engineering",
+                "type": "chat_channel",
+                "name": "Mattermost Engineering Channel",
+                "domain": "mattermost",
+            },
+        ),
+        "relationships": (),
+    },
+}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2230,65 +2306,44 @@ class HydrationManager:
     # Tier 5 - Keycloak & OpenBao strictly metadata
     # ══════════════════════════════════════════════════════════════════
 
-    def _hydrate_keycloak(self, engine: Any) -> dict[str, Any]:
-        """Hydrate Keycloak realms, clients, and role metadata (Tier 5)."""
+    def _hydrate_metadata_connector(self, engine: Any, source: str) -> dict[str, Any]:
+        """Validate one metadata connector and ingest one source-owned batch.
+
+        The connector import and endpoint check deliberately stay ahead of the
+        metadata materialization.  This retains the existing skipped results,
+        while copying the declarative records gives every invocation its own
+        entity and relationship lists for the single batch write.
+        """
+        spec = _METADATA_CONNECTOR_SPECS[source]
         try:
-            from keycloak_agent.api_client import (
-                KeycloakAdmin,  # type: ignore # noqa: F401
-            )
-        except ImportError:
+            module = import_module(spec["module_path"])
+            getattr(module, spec["connector_name"])
+        except (ImportError, AttributeError):
             return {
                 "status": "skipped",
-                "reason": "keycloak-agent package not installed",
+                "reason": spec["unavailable_reason"],
             }
 
-        url = setting("KEYCLOAK_URL")
-        if not url:
-            return {"status": "skipped", "reason": "Missing KEYCLOAK_URL"}
-
-        # Strictly metadata - realms and roles
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        realm_id = "keycloak:realm:master"
-        # OWL Mapping: KeycloakRealm -> organization (realm space)
-        entities.append(
-            {
-                "id": realm_id,
-                "type": "organization",
-                "name": "Keycloak Master Realm",
-                "domain": "keycloak",
+        if not setting(spec["url_setting"]):
+            return {
+                "status": "skipped",
+                "reason": spec["missing_url_reason"],
             }
-        )
 
-        role_id = "keycloak:role:admin"
-        # OWL Mapping: KeycloakRole -> role
-        entities.append(
-            {
-                "id": role_id,
-                "type": "role",
-                "name": "Administrator Role Metadata",
-                "domain": "keycloak",
-            }
-        )
-
-        relationships.append(
-            {
-                "source": role_id,
-                "target": realm_id,
-                "type": "part_of",
-                "domain": "keycloak",
-            }
-        )
-
+        entities = [dict(entity) for entity in spec["entities"]]
+        relationships = [dict(relationship) for relationship in spec["relationships"]]
         if entities:
-            engine.ingest_external_batch("keycloak", entities, relationships)
+            engine.ingest_external_batch(source, entities, relationships)
 
         return {
             "status": "ok",
             "nodes_hydrated": len(entities),
             "relations_hydrated": len(relationships),
         }
+
+    def _hydrate_keycloak(self, engine: Any) -> dict[str, Any]:
+        """Hydrate Keycloak realms, clients, and role metadata (Tier 5)."""
+        return self._hydrate_metadata_connector(engine, "keycloak")
 
     def _hydrate_openbao(self, engine: Any) -> dict[str, Any]:
         """Hydrate OpenBao secret engine metadata trees (Tier 5)."""
@@ -2326,54 +2381,7 @@ class HydrationManager:
 
     def _hydrate_nextcloud(self, engine: Any) -> dict[str, Any]:
         """Hydrate Nextcloud active calendars and document structures (Tier 6)."""
-        try:
-            from nextcloud_agent.api_client import (
-                NextcloudClient,  # type: ignore # noqa: F401
-            )
-        except ImportError:
-            return {
-                "status": "skipped",
-                "reason": "nextcloud-agent package not installed",
-            }
-
-        url = setting("NEXTCLOUD_URL")
-        if not url:
-            return {"status": "skipped", "reason": "Missing NEXTCLOUD_URL"}
-
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        # Map active calendar items and shared files to event and document
-        event_id = "nextcloud:event:daily_sync"
-        # OWL Mapping: CalendarEvent -> event
-        entities.append(
-            {
-                "id": event_id,
-                "type": "event",
-                "name": "Daily Enterprise Sync Meeting",
-                "domain": "nextcloud",
-            }
-        )
-
-        doc_id = "nextcloud:doc:architecture_guide"
-        # OWL Mapping: Document -> document
-        entities.append(
-            {
-                "id": doc_id,
-                "type": "document",
-                "name": "Nextcloud Shared Architecture Guide.pdf",
-                "domain": "nextcloud",
-            }
-        )
-
-        if entities:
-            engine.ingest_external_batch("nextcloud", entities, relationships)
-
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
+        return self._hydrate_metadata_connector(engine, "nextcloud")
 
     def _hydrate_listmonk(self, engine: Any) -> dict[str, Any]:
         """Hydrate Listmonk templates & campaigns (Tier 6)."""
@@ -2406,42 +2414,7 @@ class HydrationManager:
 
     def _hydrate_mattermost(self, engine: Any) -> dict[str, Any]:
         """Hydrate Mattermost channel structures and webhooks/integrations (Tier 6)."""
-        try:
-            from mattermost_mcp.api_client import (
-                MattermostApi,  # type: ignore # noqa: F401
-            )
-        except ImportError:
-            return {
-                "status": "skipped",
-                "reason": "mattermost-mcp package not installed",
-            }
-
-        url = setting("MATTERMOST_URL")
-        if not url:
-            return {"status": "skipped", "reason": "Missing MATTERMOST_URL"}
-
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        channel_id = "mattermost:channel:engineering"
-        # OWL Mapping: ChatChannel -> chat_channel
-        entities.append(
-            {
-                "id": channel_id,
-                "type": "chat_channel",
-                "name": "Mattermost Engineering Channel",
-                "domain": "mattermost",
-            }
-        )
-
-        if entities:
-            engine.ingest_external_batch("mattermost", entities, relationships)
-
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
+        return self._hydrate_metadata_connector(engine, "mattermost")
 
     def _hydrate_technitium_dns(self, engine: Any) -> dict[str, Any]:
         """Hydrate DNS zones and resource records from Technitium DNS (Tier 3)."""
