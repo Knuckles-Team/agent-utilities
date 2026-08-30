@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "GITHUB"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="repos", label="Repos", format="number"),
-            WidgetField(
-                key="open_prs", label="Open PRs", format="number", highlight=True
-            ),
-            WidgetField(key="open_issues", label="Issues", format="number"),
-        ]
+        return self.get_widget_fields("github")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from github_agent.api_client import Api as GitHubApi

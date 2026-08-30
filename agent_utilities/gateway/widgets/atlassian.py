@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "ATLASSIAN"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="open_issues", label="Open Issues", format="number", highlight=True
-            ),
-            WidgetField(key="in_progress", label="In Progress", format="number"),
-            WidgetField(key="wiki_pages", label="Wiki Pages", format="number"),
-        ]
+        return self.get_widget_fields("atlassian")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # No `atlassian_agent.api_client` module exists. The real clients live

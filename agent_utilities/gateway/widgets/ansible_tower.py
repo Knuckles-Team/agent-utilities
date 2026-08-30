@@ -24,16 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "ANSIBLE_TOWER"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="templates", label="Templates", format="number"),
-            WidgetField(
-                key="running_jobs", label="Running", format="number", highlight=True
-            ),
-            WidgetField(
-                key="failed_jobs", label="Failed", format="number", highlight=True
-            ),
-            WidgetField(key="hosts", label="Hosts", format="number"),
-        ]
+        return self.get_widget_fields("ansible_tower")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from ansible_tower_mcp.api_client import Api as AnsibleTowerApi

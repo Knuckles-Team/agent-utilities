@@ -24,15 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "QBITTORRENT"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="downloading", label="Downloading", format="number", highlight=True
-            ),
-            WidgetField(key="seeding", label="Seeding", format="number"),
-            WidgetField(key="paused", label="Paused", format="number"),
-            WidgetField(key="dl_speed", label="↓ Speed", format="bytes", suffix="/s"),
-            WidgetField(key="ul_speed", label="↑ Speed", format="bytes", suffix="/s"),
-        ]
+        return self.get_widget_fields("qbittorrent")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from qbittorrent_agent.api_client import QbittorrentApi as QBittorrentApi

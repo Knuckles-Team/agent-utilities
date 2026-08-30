@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "OLLAMA"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="models", label="Models", format="number"),
-            WidgetField(
-                key="running", label="Running", format="number", highlight=True
-            ),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("ollama")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # GOC-87 staged httpx -> httpx2 migration: this widget's two

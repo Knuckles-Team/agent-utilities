@@ -24,14 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "HOME_ASSISTANT"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="entities", label="Entities", format="number"),
-            WidgetField(
-                key="lights_on", label="Lights On", format="number", highlight=True
-            ),
-            WidgetField(key="automations", label="Automations", format="number"),
-            WidgetField(key="switches_on", label="Switches", format="number"),
-        ]
+        return self.get_widget_fields("home_assistant")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from home_assistant_agent.api_client import HomeAssistantApi

@@ -24,11 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "REPOSITORY_MANAGER"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(key="valid", label="Valid", format="number", highlight=True),
-            WidgetField(key="errors", label="Errors", format="number", highlight=True),
-        ]
+        return self.get_widget_fields("repository_manager")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # No `repository_manager.api_client` module exists. The package's real
