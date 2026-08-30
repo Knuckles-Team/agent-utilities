@@ -149,6 +149,7 @@ def run_gate(
     prog: str,
     target_relative: str,
     extra_args: Sequence[str] = (),
+    failure_target: str | None = None,
 ) -> int:
     """Run one of the thin fast-tier gate entrypoints.
 
@@ -156,7 +157,8 @@ def run_gate(
     the forwarding self-check, fail closed when the canonical target cannot be
     launched, relay a target failure unchanged, and emit a JSON verdict.  Keep
     that contract here so each gate only declares its target and any fixed
-    arguments.
+    arguments. ``failure_target`` preserves a forwarder's established error
+    label when it includes fixed arguments in that label.
     """
     parser = argparse.ArgumentParser(prog=prog)
     parser.add_argument("--repository-root", type=Path, default=Path("."))
@@ -186,7 +188,7 @@ def run_gate(
             json.dumps(
                 {
                     "ok": False,
-                    "error": f"{target_relative} exited {rc}",
+                    "error": f"{failure_target or target_relative} exited {rc}",
                     "forwardedTo": target_relative,
                 },
                 sort_keys=True,
