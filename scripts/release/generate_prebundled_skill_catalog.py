@@ -15,13 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_utilities.release_catalogs import (  # noqa: E402
-    ReleaseCatalogError,
-    content_digest,
-    prebundled_skill_catalog_bytes,
-    read_retained_bytes,
-    write_catalog,
-)
+import agent_utilities.release_catalogs as release_catalogs  # noqa: E402
 from agent_utilities.skills import BUNDLED_SKILLS  # noqa: E402
 
 DEFAULT_SKILLS_ROOT = ROOT / "agent_utilities" / "skills"
@@ -35,9 +29,13 @@ def _matrix_expected_entries(matrix_path: Path) -> int:
         component = value["components"]["prebundled-skills"]
         expected = component["exactEntries"]
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
-        raise ReleaseCatalogError("prebundled_skill_matrix_invalid") from exc
+        raise release_catalogs.ReleaseCatalogError(
+            "prebundled_skill_matrix_invalid"
+        ) from exc
     if type(expected) is not int or expected != len(BUNDLED_SKILLS):
-        raise ReleaseCatalogError("prebundled_skill_matrix_membership_invalid")
+        raise release_catalogs.ReleaseCatalogError(
+            "prebundled_skill_matrix_membership_invalid"
+        )
     return expected
 
 
@@ -45,7 +43,7 @@ def render_catalog(*, skills_root: Path, matrix_path: Path) -> bytes:
     """Return catalog bytes after binding the compatibility matrix count."""
 
     _matrix_expected_entries(matrix_path)
-    return prebundled_skill_catalog_bytes(skills_root)
+    return release_catalogs.prebundled_skill_catalog_bytes(skills_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,22 +59,22 @@ def main(argv: list[str] | None = None) -> int:
             skills_root=args.skills_root,
             matrix_path=args.matrix,
         )
-        if args.check:
-            if read_retained_bytes(args.output) != payload:
-                print(
-                    json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
-                )
-                return 1
-        else:
-            write_catalog(args.output, payload, prefix=".skill-catalog-")
-    except (ReleaseCatalogError, OSError, UnicodeError, ValueError):
+        if not release_catalogs.check_or_write_catalog(
+            args.output,
+            payload,
+            check=args.check,
+            prefix=".skill-catalog-",
+        ):
+            print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
+            return 1
+    except (release_catalogs.ReleaseCatalogError, OSError, UnicodeError, ValueError):
         print(json.dumps({"error": "CatalogInputInvalid", "ok": False}, sort_keys=True))
         return 1
 
     print(
         json.dumps(
             {
-                "digest": content_digest(payload),
+                "digest": release_catalogs.content_digest(payload),
                 "entries": len(BUNDLED_SKILLS),
                 "ok": True,
             },
