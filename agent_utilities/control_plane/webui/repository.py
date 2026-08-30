@@ -68,6 +68,22 @@ _ENTITY_TYPES: tuple[tuple[type[BaseModel], EntityKind], ...] = (
     (SupportIdentity, "support"),
 )
 _PILOT_AUTHORITY_KINDS = {"tenant", "workspace", "user", "profile"}
+_RETENTION_TARGETS = {
+    "active",
+    "retained",
+    "deletion_pending",
+    "deleted",
+    "legal_hold",
+}
+_RETENTION_ADMIN_TARGETS = {"deletion_pending", "deleted", "legal_hold"}
+_STANDARD_RETENTION_TRANSITIONS: dict[
+    tuple[LifecycleState, LifecycleState], LifecycleState
+] = {
+    ("active", "retained"): "retained",
+    ("active", "deletion_pending"): "deletion_pending",
+    ("retained", "deletion_pending"): "deletion_pending",
+    ("deletion_pending", "deleted"): "deleted",
+}
 
 
 def entity_kind_for(entity: WebUiEntity) -> EntityKind:
@@ -135,6 +151,126 @@ def _validate_expected_version(expected_version: int | None) -> None:
         raise WebUiCasConflictError()
 
 
+def _pilot_ref_mismatch(entity: WebUiEntity, context: AccessContext) -> bool:
+    expected_refs = (
+        ("session_ref", context.session_ref),
+        ("user_ref", "user:anonymous-pilot"),
+        ("owner_ref", "user:anonymous-pilot"),
+        ("actor_ref", "actor:anonymous-pilot"),
+        ("requester_ref", "actor:anonymous-pilot"),
+    )
+    return any(
+        getattr(entity, field_name, None) not in (None, expected)
+        for field_name, expected in expected_refs
+    )
+
+
+def _pilot_boundary_violation(
+    entity: WebUiEntity,
+    entity_kind: EntityKind,
+    context: AccessContext,
+) -> bool:
+    if entity_kind in _PILOT_AUTHORITY_KINDS:
+        return True
+    if getattr(entity, "visibility", "private") != "private":
+        return True
+    if _pilot_ref_mismatch(entity, context):
+        return True
+    return isinstance(entity, SessionIdentity) and not entity.anonymous_pilot
+
+
+def _validate_retention_target(target: LifecycleState) -> None:
+    if not isinstance(target, str) or target not in _RETENTION_TARGETS:
+        raise WebUiRetentionError()
+
+
+def _retention_permission(target: LifecycleState) -> UiPermission:
+    if target in _RETENTION_ADMIN_TARGETS:
+        return "admin"
+    return "write"
+
+
+def _same_retention_state(
+    current: RetentionRecord,
+    target: LifecycleState,
+    legal_hold_ref: str | None,
+) -> RetentionRecord:
+    if target == "legal_hold":
+        if legal_hold_ref != current.legal_hold_ref:
+            raise WebUiRetentionError("legal_hold_reference_mismatch")
+    elif legal_hold_ref is not None:
+        raise WebUiRetentionError("legal_hold_reference_unexpected")
+    return current
+
+
+def _place_legal_hold(
+    current: RetentionRecord,
+    legal_hold_ref: str | None,
+) -> tuple[LifecycleState, str | None, str | None]:
+    if current.state == "deleted":
+        raise WebUiRetentionError("legal_hold_after_delete")
+    if legal_hold_ref is None:
+        raise WebUiRetentionError("legal_hold_reference_required")
+    if current.state not in ("active", "retained", "deletion_pending"):
+        raise WebUiRetentionError("legal_hold_source_state_invalid")
+    return "legal_hold", legal_hold_ref, current.state
+
+
+def _release_legal_hold(
+    current: RetentionRecord,
+    target: LifecycleState,
+    legal_hold_ref: str | None,
+) -> tuple[LifecycleState, str | None, str | None]:
+    if legal_hold_ref is not None or target != current.resume_state:
+        raise WebUiRetentionError("legal_hold_release_mismatch")
+    return target, None, None
+
+
+def _standard_retention_transition(
+    current: RetentionRecord,
+    target: LifecycleState,
+) -> tuple[LifecycleState, str | None, str | None]:
+    next_state = _STANDARD_RETENTION_TRANSITIONS.get((current.state, target))
+    if next_state is None:
+        raise WebUiRetentionError("retention_transition_invalid")
+    return next_state, None, None
+
+
+def _retention_transition(
+    current: RetentionRecord,
+    target: LifecycleState,
+    legal_hold_ref: str | None,
+) -> tuple[LifecycleState, str | None, str | None]:
+    if target == "legal_hold":
+        return _place_legal_hold(current, legal_hold_ref)
+    if current.state == "legal_hold":
+        return _release_legal_hold(current, target, legal_hold_ref)
+    return _standard_retention_transition(current, target)
+
+
+def _updated_retention(
+    current: RetentionRecord,
+    *,
+    next_state: LifecycleState,
+    next_hold: str | None,
+    next_resume: str | None,
+    clock: Callable[[], int],
+) -> RetentionRecord:
+    if current.version >= 2_147_483_647:
+        raise WebUiCasConflictError()
+    return RetentionRecord(
+        tenant_ref=current.tenant_ref,
+        workspace_ref=current.workspace_ref,
+        entity_kind=current.entity_kind,
+        entity_ref=current.entity_ref,
+        state=next_state,
+        version=current.version + 1,
+        legal_hold_ref=next_hold,
+        resume_state=next_resume,
+        effective_at=max(0, int(clock())),
+    )
+
+
 class InMemoryWebUiRepository:
     """A contract repository suitable for unit fixtures and local pilots.
 
@@ -185,26 +321,7 @@ class InMemoryWebUiRepository:
     ) -> None:
         if not context.anonymous_pilot:
             return
-        if entity_kind in _PILOT_AUTHORITY_KINDS:
-            raise WebUiPilotBoundaryError()
-        if getattr(entity, "visibility", "private") != "private":
-            raise WebUiPilotBoundaryError()
-        entity_session = getattr(entity, "session_ref", None)
-        if entity_session is not None and entity_session != context.session_ref:
-            raise WebUiPilotBoundaryError()
-        entity_user = getattr(entity, "user_ref", None)
-        entity_owner = getattr(entity, "owner_ref", None)
-        entity_actor = getattr(entity, "actor_ref", None)
-        entity_requester = getattr(entity, "requester_ref", None)
-        if entity_user is not None and entity_user != "user:anonymous-pilot":
-            raise WebUiPilotBoundaryError()
-        if entity_owner is not None and entity_owner != "user:anonymous-pilot":
-            raise WebUiPilotBoundaryError()
-        if entity_actor is not None and entity_actor != "actor:anonymous-pilot":
-            raise WebUiPilotBoundaryError()
-        if entity_requester is not None and entity_requester != "actor:anonymous-pilot":
-            raise WebUiPilotBoundaryError()
-        if isinstance(entity, SessionIdentity) and not entity.anonymous_pilot:
+        if _pilot_boundary_violation(entity, entity_kind, context):
             raise WebUiPilotBoundaryError()
 
     def _initial_retention(
@@ -392,21 +509,10 @@ class InMemoryWebUiRepository:
         _validate_kind(entity_kind)
         _validate_ref(entity_ref)
         _validate_expected_version(expected_version)
-        if not isinstance(target, str) or target not in {
-            "active",
-            "retained",
-            "deletion_pending",
-            "deleted",
-            "legal_hold",
-        }:
-            raise WebUiRetentionError()
+        _validate_retention_target(target)
         if legal_hold_ref is not None:
             _validate_ref(legal_hold_ref)
-        permission: UiPermission = (
-            "admin"
-            if target in {"deletion_pending", "deleted", "legal_hold"}
-            else "write"
-        )
+        permission = _retention_permission(target)
         self._require_context(context, permission)
         self._require_scope(
             context,
@@ -427,56 +533,18 @@ class InMemoryWebUiRepository:
             if current.version != expected_version:
                 raise WebUiCasConflictError()
             if target == current.state:
-                if target == "legal_hold" and legal_hold_ref != current.legal_hold_ref:
-                    raise WebUiRetentionError("legal_hold_reference_mismatch")
-                if target != "legal_hold" and legal_hold_ref is not None:
-                    raise WebUiRetentionError("legal_hold_reference_unexpected")
-                return current
-            if target == "legal_hold":
-                if current.state == "deleted":
-                    raise WebUiRetentionError("legal_hold_after_delete")
-                if legal_hold_ref is None:
-                    raise WebUiRetentionError("legal_hold_reference_required")
-                if current.state not in ("active", "retained", "deletion_pending"):
-                    raise WebUiRetentionError("legal_hold_source_state_invalid")
-                next_state: LifecycleState = "legal_hold"
-                next_hold = legal_hold_ref
-                next_resume = current.state
-            elif current.state == "legal_hold":
-                if legal_hold_ref is not None or target != current.resume_state:
-                    raise WebUiRetentionError("legal_hold_release_mismatch")
-                next_state = target
-                next_hold = None
-                next_resume = None
-            elif current.state == "active" and target in {
-                "retained",
-                "deletion_pending",
-            }:
-                next_state = target
-                next_hold = None
-                next_resume = None
-            elif current.state == "retained" and target == "deletion_pending":
-                next_state = target
-                next_hold = None
-                next_resume = None
-            elif current.state == "deletion_pending" and target == "deleted":
-                next_state = target
-                next_hold = None
-                next_resume = None
-            else:
-                raise WebUiRetentionError("retention_transition_invalid")
-            if current.version >= 2_147_483_647:
-                raise WebUiCasConflictError()
-            updated = RetentionRecord(
-                tenant_ref=current.tenant_ref,
-                workspace_ref=current.workspace_ref,
-                entity_kind=current.entity_kind,
-                entity_ref=current.entity_ref,
-                state=next_state,
-                version=current.version + 1,
-                legal_hold_ref=next_hold,
-                resume_state=next_resume,
-                effective_at=max(0, int(self._clock())),
+                return _same_retention_state(current, target, legal_hold_ref)
+            next_state, next_hold, next_resume = _retention_transition(
+                current,
+                target,
+                legal_hold_ref,
+            )
+            updated = _updated_retention(
+                current,
+                next_state=next_state,
+                next_hold=next_hold,
+                next_resume=next_resume,
+                clock=self._clock,
             )
             self._retention[key] = updated
             return updated
