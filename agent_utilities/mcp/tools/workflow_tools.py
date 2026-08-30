@@ -316,9 +316,21 @@ def register_workflow_tools(mcp: Any) -> None:
         try:
             from agent_utilities.orchestration.manager import Orchestrator
 
-            orchestrator = Orchestrator(engine)
             if action == "compile":
-                return await _compile_workflow(orchestrator, engine, task, name)
+                from agent_utilities.knowledge_graph.workflow_compiler import (
+                    WorkflowCompiler,
+                )
+
+                # Compilation is the only workflow surface that needs the
+                # concrete NL compiler. Bind it at this composition root and
+                # inject the one instance into the manager; execution/status/
+                # list paths do not construct a compiler they cannot use.
+                compiler = WorkflowCompiler(engine)
+                return await _compile_workflow(
+                    Orchestrator(engine, compiler=compiler), engine, task, name
+                )
+
+            orchestrator = Orchestrator(engine)
 
             if action == "compile_process":
                 return await _compile_process_workflow(engine, workflow, name)

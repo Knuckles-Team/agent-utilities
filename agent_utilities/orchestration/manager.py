@@ -10,8 +10,6 @@ from agent_utilities.core.capability_contract import (
     DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
 )
 from agent_utilities.core.contextual_model import GroundingPolicy
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 from agent_utilities.observability.trace_ontology import (
     TRACE_USED_TOOL_EDGE,
 )
@@ -25,6 +23,7 @@ from agent_utilities.orchestration.execution_contract import (
     validate_pydantic_graph_contract,
     validate_tool_contract,
 )
+from agent_utilities.orchestration.protocol import WorkflowCompilerProtocol
 from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
@@ -36,6 +35,29 @@ logger = logging.getLogger(__name__)
 _GATEWAY_OUTPUT_LIMIT = 12_000
 _GATEWAY_MERMAID_LIMIT = 8_000
 _GATEWAY_TRACE_TOOL_LIMIT = 32
+
+
+class WorkflowCompilerNotBoundError(RuntimeError):
+    """Raised when workflow compilation has no composition-bound compiler."""
+
+
+async def _raise_unbound_workflow_compiler(
+    *, name: str, description: str, domain: str = "general"
+) -> str:
+    """Fail closed when an execution-only orchestrator is asked to compile."""
+    del name, description, domain
+    raise WorkflowCompilerNotBoundError(
+        "workflow_compiler_not_bound: compile_workflow requires a "
+        "WorkflowCompilerProtocol supplied by the application composition root"
+    )
+
+
+def _resolve_workflow_compiler(compiler: WorkflowCompilerProtocol | None) -> Any:
+    """Return the bound async compiler method or the typed unavailable path."""
+    compile_and_store = getattr(compiler, "compile_and_store", None)
+    if callable(compile_and_store):
+        return compile_and_store
+    return _raise_unbound_workflow_compiler
 
 
 class DynamicWorkflowExecutionPayload(TypedDict, total=False):
@@ -184,11 +206,22 @@ class Orchestrator:
 
     Provides dispatch, execution, compilation, and security capabilities for
     Graph-OS agent orchestration, replacing scattered scripts and wrappers.
+
+    The graph engine and optional workflow compiler are capabilities supplied by
+    an application composition root.  The manager deliberately does not import
+    or construct concrete Knowledge Graph classes: the engine remains the
+    process-owned graph capability, while compilation is available only when a
+    caller binds the existing compiler implementation.
     """
 
-    def __init__(self, engine: IntelligenceGraphEngine):
+    def __init__(
+        self,
+        engine: Any,
+        *,
+        compiler: WorkflowCompilerProtocol | None = None,
+    ) -> None:
         self.engine = engine
-        self.compiler = WorkflowCompiler(self.engine)
+        self.compiler = compiler
         self.scanner = PromptInjectionScanner()
 
     def _scan_task(self, task: str) -> None:
@@ -1053,11 +1086,10 @@ class Orchestrator:
         """Compile a workflow topology from a natural language task."""
         self._scan_task(task)
         logger.info(f"Compiling workflow {name} for task: {task[:50]}...")
+        compile_and_store = _resolve_workflow_compiler(self.compiler)
         # WorkflowCompiler.compile_and_store generally returns the workflow/topology ID
         try:
-            workflow_id = await self.compiler.compile_and_store(
-                name=name, description=task
-            )
+            workflow_id = await compile_and_store(name=name, description=task)
             return workflow_id
         except Exception as e:
             logger.error(f"Failed to compile workflow: {e}")
