@@ -472,18 +472,23 @@ def _deduplicate_scan_targets(targets: Sequence[Path]) -> list[Path]:
         ):
             continue
         if not target.is_symlink():
-            nested = [
-                index
-                for index, existing in enumerate(resolved_kept)
-                if existing.is_relative_to(resolved)
-            ]
-            if nested:
-                for index in reversed(nested):
-                    del kept[index]
-                    del resolved_kept[index]
+            _discard_nested_scan_targets(kept, resolved_kept, resolved)
         kept.append(target)
         resolved_kept.append(resolved)
     return kept
+
+
+def _discard_nested_scan_targets(
+    kept: list[Path], resolved_kept: list[Path], resolved: Path
+) -> None:
+    nested = [
+        index
+        for index, existing in enumerate(resolved_kept)
+        if existing.is_relative_to(resolved)
+    ]
+    for index in reversed(nested):
+        del kept[index]
+        del resolved_kept[index]
 
 
 def _canonical_scan_target(path: Path) -> Path:
@@ -891,9 +896,7 @@ def _validate_location_lines(
         _die(f"{report_path} duplicate {index} has a reversed {side} range")
 
 
-def _is_identical_clone_location(
-    first: dict, second: dict, format_name: str
-) -> bool:
+def _is_identical_clone_location(first: dict, second: dict, format_name: str) -> bool:
     first_name = _report_file_path(first["name"], format_name)
     second_name = _report_file_path(second["name"], format_name)
     if Path(first_name).is_absolute() and Path(second_name).is_absolute():
@@ -1100,25 +1103,113 @@ def _git(args: list[str], **kw) -> str:
 
 
 def _clone_keys(doc: dict, worktree_root: Path) -> set[tuple]:
-    """Content-addressed key per clone pair: (format, sha256(fragment),
-    frozenset of the two files' paths RELATIVE to their worktree root).
-    Relative + content-hashed so a trivial line-shift elsewhere in either
-    file (or the fact that before/after live in two different temp dirs)
-    never produces a spurious NEW/GONE pair."""
+    """Content-addressed key per clone pair.
+
+    Cross-file pairs use only their two worktree-relative paths, so a line
+    shift elsewhere in either file (or the fact that before/after live in two
+    different temp dirs) does not produce a spurious NEW/GONE pair.  An
+    intra-file pair also carries each location's range: a set of filenames
+    cannot distinguish two legitimate occurrences in the same file.
+
+    The third tuple member always contains two ``(path, range)`` locations.
+    ``range`` is ``None`` for cross-file pairs and a canonical, displayable
+    range tuple for intra-file pairs.  Keeping both locations, rather than a
+    set of paths, preserves same-file findings for the enforce renderer.
+    """
     keys = set()
     for c in doc.get("duplicates", []):
         format_name = c["format"]
-        f1 = _relative_clone_path(
-            _report_file_path(c["firstFile"]["name"], format_name), worktree_root
+        first_name = _report_file_path(c["firstFile"]["name"], format_name)
+        second_name = _report_file_path(c["secondFile"]["name"], format_name)
+        f1 = _relative_clone_path(first_name, worktree_root)
+        f2 = _relative_clone_path(second_name, worktree_root)
+        same_file = f1 == f2
+        first_location = _clone_location_key(
+            c["firstFile"], f1, include_range=same_file
         )
-        f2 = _relative_clone_path(
-            _report_file_path(c["secondFile"]["name"], format_name), worktree_root
+        second_location = _clone_location_key(
+            c["secondFile"], f2, include_range=same_file
         )
         digest = hashlib.sha256(
             c["fragment"].encode("utf-8", "surrogatepass")
         ).hexdigest()
-        keys.add((c["format"], digest, frozenset({f1, f2})))
+        keys.add(
+            (c["format"], digest, tuple(sorted((first_location, second_location))))
+        )
     return keys
+
+
+def _clone_location_key(
+    location: dict, path: str, *, include_range: bool
+) -> tuple[str, tuple[str, int, int] | None]:
+    if not include_range:
+        return path, None
+    range_payload = {
+        "start": location.get("start"),
+        "end": location.get("end"),
+        "startLoc": location["startLoc"],
+        "endLoc": location["endLoc"],
+    }
+    range_key = json.dumps(
+        range_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return (
+        path,
+        (
+            range_key,
+            location["startLoc"]["line"],
+            location["endLoc"]["line"],
+        ),
+    )
+
+
+def _format_clone_location(location: object) -> str:
+    """Render one canonical clone location, failing closed on bad identity."""
+
+    path, range_key = _clone_location_parts(location)
+    if range_key is None:
+        return path
+    start_line, end_line = _clone_range_lines(range_key, location)
+    return f"{path}:{start_line}-{end_line}"
+
+
+def _clone_location_parts(location: object) -> tuple[str, object]:
+    if (
+        not isinstance(location, tuple)
+        or len(location) != 2
+        or not isinstance(location[0], str)
+        or not location[0]
+    ):
+        _die(f"jscpd enforce produced an invalid clone location: {location!r}")
+    path, range_key = location
+    return path, range_key
+
+
+def _clone_range_lines(range_key: object, location: object) -> tuple[int, int]:
+    if (
+        not isinstance(range_key, tuple)
+        or len(range_key) != 3
+        or not isinstance(range_key[0], str)
+        or not isinstance(range_key[1], int)
+        or isinstance(range_key[1], bool)
+        or not isinstance(range_key[2], int)
+        or isinstance(range_key[2], bool)
+    ):
+        _die(f"jscpd enforce produced an invalid clone range: {location!r}")
+    _range_identity, start_line, end_line = range_key
+    return start_line, end_line
+
+
+def _format_clone_pair(locations: object) -> str:
+    """Render both sides of a clone finding without collapsing same-file pairs."""
+
+    if not isinstance(locations, tuple) or len(locations) != 2:
+        _die(f"jscpd enforce produced an invalid clone pair: {locations!r}")
+    first, second = locations
+    return f"{_format_clone_location(first)}  <->  {_format_clone_location(second)}"
 
 
 def _relative_clone_path(name: str, worktree_root: Path) -> str:
@@ -1301,9 +1392,8 @@ def cmd_enforce(base_ref: str) -> int:
         f"\njscpd gate [enforce]: FAIL — {len(new_pairs)} NEW duplicate "
         "pair(s) introduced by this change:"
     )
-    for fmt, digest, files in sorted(new_pairs, key=lambda k: sorted(k[2])):
-        a, b = sorted(files)
-        print(f"    [{fmt}] {a}  <->  {b}  (fragment {digest[:12]})")
+    for fmt, digest, locations in sorted(new_pairs, key=lambda k: str(k[2])):
+        print(f"    [{fmt}] {_format_clone_pair(locations)}  (fragment {digest[:12]})")
     print(
         "\nRemove the duplication, or if it is a deliberate, reviewed "
         "exception, say so in the PR description — this gate has no "

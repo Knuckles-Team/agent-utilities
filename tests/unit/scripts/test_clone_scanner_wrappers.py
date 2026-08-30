@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -242,7 +243,52 @@ def test_jscpd_report_parser_keeps_different_range_intra_file_clone(tmp_path):
         formats=["python"],
     )
 
-    assert len(jscpd._clone_keys(report, root)) == 1
+    keys = jscpd._clone_keys(report, root)
+    assert len(keys) == 1
+    _format, _digest, locations = next(iter(keys))
+    assert {location[0] for location in locations} == {"src/first.py"}
+    assert {location[1][1:] for location in locations} == {(2, 2), (4, 4)}
+    assert (
+        jscpd._format_clone_pair(locations) == "src/first.py:2-2  <->  src/first.py:4-4"
+    )
+
+
+def test_jscpd_clone_keys_distinguish_same_file_ranges(tmp_path):
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    root.mkdir()
+    report = _valid_jscpd_report(root)
+    clone = report["duplicates"][0]
+    same_file = root / "src" / "same.py"
+    clone["firstFile"]["name"] = str(same_file)
+    clone["secondFile"]["name"] = str(same_file)
+    clone["secondFile"]["startLoc"] = {"line": 4}
+    clone["secondFile"]["endLoc"] = {"line": 4}
+    another = deepcopy(clone)
+    another["firstFile"]["startLoc"] = {"line": 8}
+    another["firstFile"]["endLoc"] = {"line": 8}
+    another["secondFile"]["startLoc"] = {"line": 10}
+    another["secondFile"]["endLoc"] = {"line": 10}
+    report["duplicates"].append(another)
+    report["statistics"]["total"]["clones"] = 2
+
+    jscpd._validate_report(
+        report,
+        tmp_path / "report.json",
+        roots=[root],
+        formats=["python"],
+    )
+
+    assert len(jscpd._clone_keys(report, root)) == 2
+
+
+def test_jscpd_clone_pair_renderer_fails_closed_on_missing_location():
+    jscpd = _load_script("check_duplication")
+
+    with pytest.raises(SystemExit) as raised:
+        jscpd._format_clone_pair((("src/only.py", None),))
+
+    assert raised.value.code == 2
 
 
 def _valid_jscpd_report(root: Path) -> dict:
@@ -373,7 +419,8 @@ def test_jscpd_report_parser_normalizes_virtual_format_path_suffix(tmp_path):
     assert len(keys) == 1
     format_name, _digest, paths = next(iter(keys))
     assert format_name == "markdown"
-    assert paths == frozenset({"first.md", "second.md"})
+    assert {path for path, _range in paths} == {"first.md", "second.md"}
+    assert all(range_key is None for _path, range_key in paths)
 
 
 def test_jscpd_cleanup_fails_closed_when_worktree_remains(tmp_path, monkeypatch):
