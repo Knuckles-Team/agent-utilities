@@ -320,6 +320,18 @@ def _exact_keys(
         )
 
 
+def _signature_fields_are_valid(signature: dict[str, Any]) -> bool:
+    return (
+        signature.get("algorithm") in {"ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"}
+        and re.fullmatch(r"key:[a-f0-9]{64}", str(signature.get("keyId") or ""))
+        is not None
+        and re.fullmatch(
+            r"[A-Za-z0-9_-]{43,4096}", str(signature.get("signature") or "")
+        )
+        is not None
+    )
+
+
 def _input_bytes(path: Path, *, maximum: int = _MAX_EVIDENCE_BYTES) -> bytes:
     """Open one bounded input once and reject aliases or path replacement."""
 
@@ -2019,15 +2031,7 @@ def validate_prebundled_skill_matrix(
         required={"algorithm", "keyId", "signature", "subjectDigest"},
         field="skill validation signature",
     )
-    if (
-        signature.get("algorithm")
-        not in {"ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"}
-        or re.fullmatch(r"key:[a-f0-9]{64}", str(signature.get("keyId") or "")) is None
-        or re.fullmatch(
-            r"[A-Za-z0-9_-]{43,4096}", str(signature.get("signature") or "")
-        )
-        is None
-    ):
+    if not _signature_fields_are_valid(signature):
         raise CompatibilityError("skill validation signature is invalid")
     unsigned = {key: value for key, value in evidence.items() if key != "signature"}
     if signature.get("subjectDigest") != canonical_digest(unsigned):
@@ -2436,17 +2440,14 @@ def validate_exact_artifact_closure(
     if gates != {gate: "passed" for gate in _EXACT_ARTIFACT_GATES}:
         raise CompatibilityError("exact-artifact closure gate catalog is not exact")
     signature = evidence.get("signature")
-    if (
-        not isinstance(signature, dict)
-        or set(signature) != {"algorithm", "keyId", "signature", "subjectDigest"}
-        or signature.get("algorithm")
-        not in {"ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"}
-        or re.fullmatch(r"key:[a-f0-9]{64}", str(signature.get("keyId") or "")) is None
-        or re.fullmatch(
-            r"[A-Za-z0-9_-]{43,4096}", str(signature.get("signature") or "")
-        )
-        is None
-    ):
+    if not isinstance(signature, dict) or set(signature) != {
+        "algorithm",
+        "keyId",
+        "signature",
+        "subjectDigest",
+    }:
+        raise CompatibilityError("exact-artifact closure signature is invalid")
+    if not _signature_fields_are_valid(signature):
         raise CompatibilityError("exact-artifact closure signature is invalid")
     unsigned = {key: value for key, value in evidence.items() if key != "signature"}
     if signature.get("subjectDigest") != canonical_digest(unsigned):
