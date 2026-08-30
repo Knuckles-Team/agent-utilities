@@ -43,6 +43,7 @@ from ...models.knowledge_graph import (
     SpawnedAgentNode,
     SystemPromptNode,
 )
+from .engine_action_result import _persist_action_result
 
 logger = logging.getLogger(__name__)
 
@@ -278,35 +279,18 @@ class AHEMixin(_Base):
 
     def generate_critique(self, reasoning_trace_id: str, textual_gradient: str) -> str:
         """Generate a critique (textual gradient) for a reasoning trace (Lightning step 2)."""
-        crit_id = f"crit:{uuid.uuid4().hex}"
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        node = CritiqueNode(
-            id=crit_id,
-            name=f"Critique {ts}",
-            textual_gradient=textual_gradient,
-            timestamp=ts,
+        return _persist_action_result(
+            self,
+            "crit",
+            "Critique",
+            CritiqueNode,
+            lambda _node_id, timestamp: {
+                "name": f"Critique {timestamp}",
+                "textual_gradient": textual_gradient,
+            },
+            backend_links=((reasoning_trace_id, None, "GENERATED_CRITIQUE"),),
+            graph_edges=((reasoning_trace_id, None, "GENERATED_CRITIQUE"),),
         )
-        # Always add to in-memory graph
-        self.graph.add_node(node.id, **self._serialize_node(node))
-
-        if self.backend:
-            data = self._serialize_node(node, label="Critique")
-            self._upsert_node("Critique", crit_id, data)
-            # A comma-pattern MATCH plus an edge MERGE both exceed the
-            # engine's native Cypher write subset
-            # (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184);
-            # ``link_nodes`` falls back to the portable multi-clause Cypher
-            # (tolerant of a ``reasoning_trace_id`` that doesn't resolve to
-            # an existing node, same as the original MATCH) for a non-native
-            # store.
-            self.link_nodes(reasoning_trace_id, crit_id, "GENERATED_CRITIQUE")
-
-        if reasoning_trace_id in self.graph:
-            self.graph.add_edge(
-                reasoning_trace_id, crit_id, relationship="GENERATED_CRITIQUE"
-            )
-
-        return crit_id
 
     def optimize_prompt(self, prompt_id: str, critique_id: str) -> str:
         """Create a new optimized version of a system prompt based on a critique (Lightning step 3)."""
