@@ -648,36 +648,42 @@ class CognitiveScheduler:
         for proc in list(self._processes.values()):
             if proc.state != ProcessState.RUNNING:
                 continue
-
-            # Cost budget check (new — Research: 2605.05701v1)
-            budget = proc.inference_budget
-            if budget.cost_used_usd >= budget.cost_budget_usd:
-                # Try auto-downgrade first before preempting
-                if budget.auto_downgrade:
-                    next_tier = budget.next_cheaper_tier()
-                    if next_tier:
-                        budget.current_tier = next_tier
-                        logger.info(
-                            "Scheduler: %s BUDGET-DOWNGRADE → %s (avoiding preemption)",
-                            proc.id,
-                            next_tier,
-                        )
-                        continue
-                # No cheaper tier available — preempt
-                checkpoint_id = await self.preempt(
-                    proc.id, reason="cost_budget_exceeded"
-                )
-                if checkpoint_id:
-                    preempted.append(proc.id)
-                continue
-
-            # Legacy token quota check
-            if proc.tokens_used >= proc.token_quota:
-                checkpoint_id = await self.preempt(proc.id, reason="quota_exceeded")
-                if checkpoint_id:
-                    preempted.append(proc.id)
+            if await self._enforce_process_quota(proc):
+                preempted.append(proc.id)
 
         return preempted
+
+    async def _enforce_process_quota(self, proc: AgentProcess) -> bool:
+        """Enforce cost and token limits for one running process."""
+        budget = proc.inference_budget
+        if budget.cost_used_usd >= budget.cost_budget_usd:
+            if self._try_auto_downgrade(proc):
+                return False
+            reason = "cost_budget_exceeded"
+        elif proc.tokens_used >= proc.token_quota:
+            reason = "quota_exceeded"
+        else:
+            return False
+
+        return bool(await self.preempt(proc.id, reason=reason))
+
+    def _try_auto_downgrade(self, proc: AgentProcess) -> bool:
+        """Move to a cheaper tier when possible and report whether it moved."""
+        budget = proc.inference_budget
+        if not budget.auto_downgrade:
+            return False
+
+        next_tier = budget.next_cheaper_tier()
+        if not next_tier:
+            return False
+
+        budget.current_tier = next_tier
+        logger.info(
+            "Scheduler: %s BUDGET-DOWNGRADE → %s (avoiding preemption)",
+            proc.id,
+            next_tier,
+        )
+        return True
 
     # ── Scheduling ─────────────────────────────────────────────────────
 
