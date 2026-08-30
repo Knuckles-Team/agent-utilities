@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import stat
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -37,6 +36,7 @@ from agent_utilities.release_catalogs import (  # noqa: E402
     canonical_json_bytes,
     canonical_value_digest,
     content_digest,
+    read_retained_bytes,
     write_catalog,
 )
 
@@ -64,10 +64,10 @@ def _matrix_expected_entries(matrix_path: Path) -> int:
 def _regular_bytes(root: Path, path: Path) -> bytes:
     if not _is_regular_contained_file(root, path):
         raise ReleaseCatalogError("connector_catalog_artifact_not_regular")
-    try:
-        return path.read_bytes()
-    except OSError as exc:
-        raise ReleaseCatalogError("connector_catalog_artifact_unreadable") from exc
+    payload = read_retained_bytes(path)
+    if payload is None:
+        raise ReleaseCatalogError("connector_catalog_artifact_unreadable")
+    return payload
 
 
 def _entry(repo: Path) -> dict[str, Any]:
@@ -206,16 +206,6 @@ def render_catalog(
     )
 
 
-def _retained_bytes(path: Path) -> bytes | None:
-    try:
-        metadata = path.lstat()
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            return None
-        return path.read_bytes()
-    except OSError:
-        return None
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="generate-connector-bundle-catalog")
     parser.add_argument("--agents-root", type=Path, default=DEFAULT_AGENTS_ROOT)
@@ -236,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             matrix_path=args.matrix,
         )
         if args.check:
-            if _retained_bytes(args.output) != payload:
+            if read_retained_bytes(args.output) != payload:
                 print(
                     json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
                 )
