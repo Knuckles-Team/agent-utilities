@@ -68,6 +68,16 @@ def _no_client(monkeypatch: pytest.MonkeyPatch) -> OktaSink:
     return sink
 
 
+def _run_live_inference(client: _FakeClient) -> tuple[Any, _FakeClient]:
+    sink = OktaSink()
+    ctx = _ctx_with_resolver({"u1": "alice", "a1": "MyApp"})
+    ops: dict[str, Any] = {
+        "client": client,
+        "inferences": [{"source": "u1", "target": "a1"}],
+    }
+    return sink.run(ctx, ops, dry_run=False), client
+
+
 def test_no_client_live_mode_marks_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     sink = _no_client(monkeypatch)
     ops: dict[str, Any] = {"creations": [{"name": "alice"}]}
@@ -128,11 +138,7 @@ def test_inference_dry_run_proposal() -> None:
 
 
 def test_inference_live_success() -> None:
-    client = _FakeClient()
-    sink = OktaSink()
-    ctx = _ctx_with_resolver({"u1": "alice", "a1": "MyApp"})
-    ops: dict[str, Any] = {"client": client, "inferences": [{"source": "u1", "target": "a1"}]}
-    result = sink.run(ctx, ops, dry_run=False)
+    result, client = _run_live_inference(_FakeClient())
     assert (result.relations_written, result.errors, client.assigned) == (
         1,
         0,
@@ -141,11 +147,7 @@ def test_inference_live_success() -> None:
 
 
 def test_inference_live_exception_increments_errors() -> None:
-    client = _FakeClient(raise_on={"alice->MyApp"})
-    sink = OktaSink()
-    ctx = _ctx_with_resolver({"u1": "alice", "a1": "MyApp"})
-    ops: dict[str, Any] = {"client": client, "inferences": [{"source": "u1", "target": "a1"}]}
-    result = sink.run(ctx, ops, dry_run=False)
+    result, client = _run_live_inference(_FakeClient(raise_on={"alice->MyApp"}))
     assert (result.errors, result.relations_written) == (1, 0)
 
 
