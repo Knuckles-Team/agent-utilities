@@ -896,9 +896,10 @@ def _validate_registration_mode(
         raise ValueError("delegated controller does not match scale unit")
 
 
-def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> None:
-    """Validate a proposed intent against the current authority revision."""
-
+def _scale_intent_context(
+    intent: ScaleIntent, authority: ScaleAuthority
+) -> tuple[ScaleUnit, ResourcePool]:
+    """Resolve the unit and pool an intent is authorized to change."""
     unit = next(
         (
             candidate
@@ -919,6 +920,11 @@ def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> Non
     )
     if pool is None:  # pragma: no cover - ScaleAuthority already rejects this
         raise ValueError("scale intent references an unknown resource pool")
+    return unit, pool
+
+
+def _validate_scale_intent_identity(intent: ScaleIntent, unit: ScaleUnit) -> None:
+    """Keep an intent on the graph-owned unit revision and writer."""
     if intent.expected_unit_revision != unit.revision:
         raise ValueError("scale intent expected_unit_revision is stale")
     if (
@@ -928,6 +934,12 @@ def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> Non
         raise ValueError("scale intent cadence does not match graph-owned unit cadence")
     if intent.replica_writer_id != unit.replica_writer_id:
         raise ValueError("scale intent replica writer is not the unit authority")
+
+
+def _validate_scale_intent_capacity(
+    intent: ScaleIntent, unit: ScaleUnit, pool: ResourcePool
+) -> None:
+    """Enforce unit, tenant, and resource-pool capacity limits."""
     if not unit.min_replicas <= intent.desired_replicas <= unit.max_replicas:
         raise ValueError("scale intent violates unit min/max replica bounds")
     if intent.desired_replicas > unit.tenant_quota.max_units:
@@ -936,6 +948,12 @@ def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> Non
         pool.capacity_units - pool.reserved_headroom_units
     ):
         raise ValueError("scale intent violates resource-pool headroom")
+
+
+def _validate_scale_intent_failure_domain(
+    intent: ScaleIntent, unit: ScaleUnit, authority: ScaleAuthority
+) -> None:
+    """Reject new desired state while a hold-policy domain is offline."""
     failure_domain = next(
         candidate
         for candidate in authority.failure_domains
@@ -947,6 +965,15 @@ def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> Non
     ):
         # A stale/offline domain cannot safely authorize a new desired state.
         raise ValueError("scale intent is blocked while failure domain is offline")
+
+
+def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> None:
+    """Validate a proposed intent against the current authority revision."""
+
+    unit, pool = _scale_intent_context(intent, authority)
+    _validate_scale_intent_identity(intent, unit)
+    _validate_scale_intent_capacity(intent, unit, pool)
+    _validate_scale_intent_failure_domain(intent, unit, authority)
 
 
 def _validate_lifecycle_decision(intent: ScaleIntent, decision: ScaleDecision) -> None:
