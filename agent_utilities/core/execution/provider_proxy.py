@@ -76,9 +76,7 @@ def _normalize_google(obj: Any) -> list[ExecEvent]:
     for candidate in obj.get("candidates", []) or []:
         for part in (candidate.get("content") or {}).get("parts", []) or []:
             if part.get("text"):
-                out.append(
-                    ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"]))
-                )
+                out.append(ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"])))
     return out
 
 

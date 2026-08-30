@@ -2790,9 +2790,7 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
         return _external_error_response(e)
 
 
-async def _run_graph_code_scope_endpoint(
-    request: Request, action: str
-) -> JSONResponse:
+async def _run_graph_code_scope_endpoint(request: Request, action: str) -> JSONResponse:
     try:
         scope = request.query_params.get("scope") or request.query_params.get(
             "target", ""

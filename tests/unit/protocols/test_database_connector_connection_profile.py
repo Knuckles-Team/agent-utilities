@@ -28,7 +28,8 @@ class _FakeConnection:
 def test_connection_resolves_profile_and_caches_connector(monkeypatch):
     secrets = _FakeSecrets(
         '{"dsn":"sqlite:///records.db","kind":"sqlite",'
-        '"tls_service":" service ","tls_profile":" profile "}'
+        '"tls_service":" service ","tls_profile":" profile ",'
+        '"tls_profile_ref":" profile-ref "}'
     )
     connector = DatabaseConnector(
         query="SELECT 1",
@@ -54,8 +55,31 @@ def test_connection_resolves_profile_and_caches_connector(monkeypatch):
     assert first.kwargs["source_alias"] == "records"
     assert first.kwargs["tls_service"] == "service"
     assert first.kwargs["tls_profile"] == "profile"
-    assert first.kwargs["tls_profile_ref"] is None
+    assert first.kwargs["tls_profile_ref"] == "profile-ref"
     assert first.kwargs["tls_resolver"] == secrets.resolve_ref
+
+
+def test_connection_defaults_tls_for_raw_dsn(monkeypatch):
+    secrets = _FakeSecrets("sqlite:///records.db")
+    connector = DatabaseConnector(
+        query="SELECT 1",
+        connection_profile_ref="env://DB_PROFILE",
+    )
+    monkeypatch.setattr(
+        "agent_utilities.security.secrets_client.create_secrets_client",
+        lambda: secrets,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.universal_connector.UniversalConnector",
+        _FakeConnection,
+    )
+
+    connection = connector._connection()
+
+    assert connection.args == ("sqlite:///records.db",)
+    assert connection.kwargs["tls_service"] is None
+    assert connection.kwargs["tls_profile"] is None
+    assert connection.kwargs["tls_profile_ref"] is None
 
 
 def test_connection_rejects_unsupported_profile_fields(monkeypatch):

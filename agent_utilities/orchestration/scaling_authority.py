@@ -809,9 +809,7 @@ def _validate_unit_workload(unit: ScaleUnit, workload: WorkloadClass) -> None:
         raise ValueError("scale unit burst exceeds workload burst")
 
 
-def _validate_unit_pool(
-    unit: ScaleUnit, pool: ResourcePool | None
-) -> ResourcePool:
+def _validate_unit_pool(unit: ScaleUnit, pool: ResourcePool | None) -> ResourcePool:
     if pool is None:
         raise ValueError("scale unit references an unknown resource pool")
     if unit.reserved_headroom_replicas + unit.max_replicas > (
@@ -834,9 +832,7 @@ def _validate_unit_domain(
         raise ValueError("scale unit failure domain differs from resource pool")
 
 
-def _validate_unit_dependencies(
-    unit: ScaleUnit, units: dict[str, ScaleUnit]
-) -> None:
+def _validate_unit_dependencies(unit: ScaleUnit, units: dict[str, ScaleUnit]) -> None:
     for dependency in unit.depends_on:
         if dependency == unit.unit_id:
             raise ValueError("scale unit contains a self-dependency")

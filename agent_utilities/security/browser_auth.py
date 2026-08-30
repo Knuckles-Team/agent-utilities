@@ -325,6 +325,7 @@ class BaseBrowserAuthManager:
 
     def _start_loopback_server(self) -> BaseLoopbackCallbackServer | None:
         """Start the callback server, falling back when the port is unavailable."""
+
         class CustomHandler(BaseLoopbackCallbackHandler):
             redirect_path = self.redirect_path
 
@@ -333,9 +334,7 @@ class BaseBrowserAuthManager:
                 (self.redirect_host, self.redirect_port),
                 CustomHandler,
             )
-            server_thread = threading.Thread(
-                target=server.handle_request, daemon=True
-            )
+            server_thread = threading.Thread(target=server.handle_request, daemon=True)
             server_thread.start()
             logger.info("Started loopback HTTP server on port %d", self.redirect_port)
             return server

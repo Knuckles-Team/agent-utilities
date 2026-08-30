@@ -147,6 +147,20 @@ def test_kg_2_305_no_llm_configured_is_clean_error(monkeypatch):
     assert eng.uql_seen is None
 
 
+def test_kg_2_305_none_none_planner_resolution_fails_closed(monkeypatch):
+    """A malformed resolver result must never reach schema or planner execution."""
+    monkeypatch.setattr(nl_planner, "_resolve_planner", lambda _planner: (None, None))
+    monkeypatch.setattr(
+        nl_planner,
+        "build_schema_context",
+        lambda _engine: pytest.fail("schema must not be read without a planner"),
+    )
+
+    out = nl_planner.nl_query(_FakeEngine(), "list agents")
+
+    assert out == {"error": "nl->query planning unavailable: planner resolution failed"}
+
+
 def test_kg_2_305_uses_au_fleet_llm_when_configured(monkeypatch):
     """The default planner path builds the AU fleet model via create_model (KG-2.305)."""
     monkeypatch.setattr(nl_planner, "is_llm_configured", lambda: True)

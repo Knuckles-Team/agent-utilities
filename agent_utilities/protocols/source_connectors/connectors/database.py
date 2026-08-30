@@ -24,7 +24,7 @@ ontology objects (with all the OWL/ACL benefits the framework brings).
 import json
 import re
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 from agent_utilities.security.persistence_privacy import (
     PersistencePrivacyGuard,
@@ -80,11 +80,13 @@ def _validate_profile_dsn(resolved_dsn: str) -> None:
 def _profile_tls_values(
     profile: dict[str, Any] | None,
 ) -> tuple[str | None, str | None, str | None]:
-    if profile is None:
-        return None, None, None
-    return tuple(
-        str(profile.get(key) or "").strip() or None
-        for key in ("tls_service", "tls_profile", "tls_profile_ref")
+    profile = profile or {}
+    return cast(
+        tuple[str | None, str | None, str | None],
+        tuple(
+            str(profile.get(key) or "").strip() or None
+            for key in ("tls_service", "tls_profile", "tls_profile_ref")
+        ),
     )
 
 

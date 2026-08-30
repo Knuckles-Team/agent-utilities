@@ -483,7 +483,7 @@ def _unanchored_context_answer(
     ).as_dict()
 
 
-def _empty_code_rows() -> list[dict[str, Any]]:
+def _empty_code_rows(engine: Any, node_id: str, limit: int) -> list[dict[str, Any]]:
     return []
 
 
@@ -517,7 +517,6 @@ def _collect_enrichment(
     similar_args: tuple[Any, ...] = (engine, node_id, limit)
     if not node_id:
         similar_fetch = _empty_code_rows
-        similar_args = ()
 
     operations = {
         "how": (

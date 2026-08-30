@@ -13,6 +13,46 @@ def test_build_tag_env_map():
     assert env_map["git-ops"] == "GIT_OPSTOOL"
 
 
+def test_build_discovery_metadata_excludes_unbound_agents():
+    registry = SimpleNamespace(
+        agents=[
+            SimpleNamespace(mcp_server=None, tools=["orphan-tool"]),
+            SimpleNamespace(mcp_server="example", tools=["valid-tool"]),
+            SimpleNamespace(mcp_server="example", tools=["another-tool"]),
+        ]
+    )
+
+    with (
+        patch(
+            "agent_utilities.graph.builder.get_discovery_registry",
+            return_value=registry,
+        ),
+        patch("agent_utilities.graph.builder._ingest_prompts_if_enabled"),
+        patch("agent_utilities.graph.builder._sync_mcp_agents_if_needed"),
+    ):
+        metadata = builder._build_discovery_metadata("config", None)
+
+    assert metadata == {"example": ["valid-tool", "another-tool"]}
+
+
+def test_build_discovery_metadata_does_not_create_empty_server_keys():
+    registry = SimpleNamespace(
+        agents=[SimpleNamespace(mcp_server="empty", tools=[])],
+    )
+
+    with (
+        patch(
+            "agent_utilities.graph.builder.get_discovery_registry",
+            return_value=registry,
+        ),
+        patch("agent_utilities.graph.builder._ingest_prompts_if_enabled"),
+        patch("agent_utilities.graph.builder._sync_mcp_agents_if_needed"),
+    ):
+        metadata = builder._build_discovery_metadata("config", None)
+
+    assert metadata == {}
+
+
 @patch("agent_utilities.graph.builder.get_discovery_registry")
 @patch("agent_utilities.graph.builder.discover_all_specialists")
 @patch("agent_utilities.graph.builder.load_mcp_servers_from_config")

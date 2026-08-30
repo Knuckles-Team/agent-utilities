@@ -567,7 +567,9 @@ def _public_access_matches(raw_access: Any) -> bool:
     if not isinstance(raw_access, dict):
         return False
     try:
-        return ExternalAccess.model_validate(raw_access) == ExternalAccess(is_public=True)
+        return ExternalAccess.model_validate(raw_access) == ExternalAccess(
+            is_public=True
+        )
     except (TypeError, ValueError):
         return False
 
@@ -657,8 +659,7 @@ def _resolved_step_ids(
         {
             num_to_stepid[n]
             for dep in step["depends_on"]
-            if (n := _resolve_dep(dep, comp_to_num)) is not None
-            and n in num_to_stepid
+            if (n := _resolve_dep(dep, comp_to_num)) is not None and n in num_to_stepid
         }
     )
 
@@ -711,7 +712,9 @@ def _link_dependency_edges(
     """Link predecessor steps to the current step with exit conditions."""
     for dep_id in resolved_deps:
         dep_num = next(n for n, sid in num_to_stepid.items() if sid == dep_id)
-        dep_condition = (step_by_num.get(dep_num) or {}).get("condition") or "on_success"
+        dep_condition = (step_by_num.get(dep_num) or {}).get(
+            "condition"
+        ) or "on_success"
         engine.link_nodes(
             dep_id,
             step_id,
@@ -833,9 +836,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
 
     # Idempotent no-op: identical content and governance are already present.
     # A failed existence probe is non-fatal; the write below remains idempotent.
-    if _workflow_content_is_current(
-        engine, wf_id, chash, tenant=session.tenant
-    ):
+    if _workflow_content_is_current(engine, wf_id, chash, tenant=session.tenant):
         return "skipped"
 
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

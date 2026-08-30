@@ -615,13 +615,20 @@ def nl_query(
     planner, planner_error = _resolve_planner(planner)
     if planner_error:
         return {"error": planner_error}
+    if planner is None:
+        return {"error": "nl->query planning unavailable: planner resolution failed"}
 
     schema = build_schema_context(engine)
     correction_budget = max(0, int(max_corrections))
     schema_hint_text = _render_schema(schema, schema_hint)
     attempts: list[dict[str, Any]] = []
     plan_text = text
-    last_out: dict[str, Any] | None = None
+    last_out: dict[str, Any] = {
+        "request": text,
+        "planner": "agent-utilities-fleet-llm",
+        "schema": schema,
+        "plan": {"grammar_version": UQL_GRAMMAR_VERSION, "bounded": True},
+    }
     last_error = ""
 
     for attempt in range(1 + correction_budget):
@@ -664,12 +671,6 @@ def nl_query(
     # Every bounded attempt failed.  Preserve the final candidate and trace so
     # EvidenceBundle can report a planner/engine error instead of a false empty
     # result, while keeping the response shape useful to the operator.
-    last_out = last_out or {
-        "request": text,
-        "planner": "agent-utilities-fleet-llm",
-        "schema": schema,
-        "plan": {"grammar_version": UQL_GRAMMAR_VERSION, "bounded": True},
-    }
     last_out["attempts"] = attempts
     last_out["error"] = last_error or "nl->query planning failed"
     return last_out

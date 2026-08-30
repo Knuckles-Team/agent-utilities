@@ -914,7 +914,7 @@ class RLMEnvironment:
         model_settings: Any,
         run_trace: RunTrace,
         prompt: str,
-    ) -> tuple[list[Any], str, str | None, bool]:
+    ) -> tuple[list[Any], str, str, bool]:
         """Run one model turn, execute its optional code, and return bounded output."""
         run_prompt = initial_prompt if turn == 0 else None
         if not run_prompt:
@@ -932,14 +932,17 @@ class RLMEnvironment:
         output_text = response.output
         code = self._extract_rlm_code(output_text)
         if code is None:
-            return next_history, output_text, None, False
+            # ``code_executed`` is the authority for whether stdout is meaningful;
+            # keep the value typed as text so callers do not carry a second,
+            # redundant optional state through the turn loop.
+            return next_history, output_text, "", False
         stdout = await self._execute_rlm_code(code, response, prompt, run_trace)
         return next_history, output_text, stdout, True
 
     def _finalize_rlm_output(
         self,
         fallback: str,
-        stdout: str | None,
+        stdout: str,
         run_trace: RunTrace,
         code_executed: bool,
     ) -> tuple[bool, Any]:

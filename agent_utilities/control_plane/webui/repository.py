@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from threading import RLock
 from time import time
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel
 
@@ -76,6 +77,7 @@ _RETENTION_TARGETS = {
     "legal_hold",
 }
 _RETENTION_ADMIN_TARGETS = {"deletion_pending", "deleted", "legal_hold"}
+RetentionResumeState: TypeAlias = Literal["active", "retained", "deletion_pending"]
 _STANDARD_RETENTION_TRANSITIONS: dict[
     tuple[LifecycleState, LifecycleState], LifecycleState
 ] = {
@@ -206,21 +208,28 @@ def _same_retention_state(
 def _place_legal_hold(
     current: RetentionRecord,
     legal_hold_ref: str | None,
-) -> tuple[LifecycleState, str | None, str | None]:
+) -> tuple[LifecycleState, str | None, RetentionResumeState]:
     if current.state == "deleted":
         raise WebUiRetentionError("legal_hold_after_delete")
     if legal_hold_ref is None:
         raise WebUiRetentionError("legal_hold_reference_required")
     if current.state not in ("active", "retained", "deletion_pending"):
         raise WebUiRetentionError("legal_hold_source_state_invalid")
-    return "legal_hold", legal_hold_ref, current.state
+    return "legal_hold", legal_hold_ref, _retention_resume_state(current.state)
+
+
+def _retention_resume_state(state: LifecycleState) -> RetentionResumeState:
+    """Narrow a lifecycle state before persisting legal-hold metadata."""
+    if state == "active" or state == "retained" or state == "deletion_pending":
+        return state
+    raise WebUiRetentionError("legal_hold_source_state_invalid")
 
 
 def _release_legal_hold(
     current: RetentionRecord,
     target: LifecycleState,
     legal_hold_ref: str | None,
-) -> tuple[LifecycleState, str | None, str | None]:
+) -> tuple[LifecycleState, str | None, RetentionResumeState | None]:
     if legal_hold_ref is not None or target != current.resume_state:
         raise WebUiRetentionError("legal_hold_release_mismatch")
     return target, None, None
@@ -229,7 +238,7 @@ def _release_legal_hold(
 def _standard_retention_transition(
     current: RetentionRecord,
     target: LifecycleState,
-) -> tuple[LifecycleState, str | None, str | None]:
+) -> tuple[LifecycleState, str | None, RetentionResumeState | None]:
     next_state = _STANDARD_RETENTION_TRANSITIONS.get((current.state, target))
     if next_state is None:
         raise WebUiRetentionError("retention_transition_invalid")
@@ -240,7 +249,7 @@ def _retention_transition(
     current: RetentionRecord,
     target: LifecycleState,
     legal_hold_ref: str | None,
-) -> tuple[LifecycleState, str | None, str | None]:
+) -> tuple[LifecycleState, str | None, RetentionResumeState | None]:
     if target == "legal_hold":
         return _place_legal_hold(current, legal_hold_ref)
     if current.state == "legal_hold":
@@ -253,7 +262,7 @@ def _updated_retention(
     *,
     next_state: LifecycleState,
     next_hold: str | None,
-    next_resume: str | None,
+    next_resume: RetentionResumeState | None,
     clock: Callable[[], int],
 ) -> RetentionRecord:
     if current.version >= 2_147_483_647:

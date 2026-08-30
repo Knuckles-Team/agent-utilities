@@ -112,7 +112,9 @@ def _query_failure_tool_rows(
         return None
 
 
-def _drop_partial_failure_trace(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+def _drop_partial_failure_trace(
+    rows: list[dict[str, Any]], limit: int
+) -> list[dict[str, Any]]:
     """Drop a full page's final trace when the row limit may have split it."""
     if len(rows) < int(limit) or not rows:
         return rows
@@ -127,7 +129,9 @@ def _drop_partial_failure_trace(rows: list[dict[str, Any]], limit: int) -> list[
     ]
 
 
-def _group_failure_tool_rows(rows: list[dict[str, Any]]) -> tuple[list[str], list[list[str]]]:
+def _group_failure_tool_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[list[str], list[list[str]]]:
     """Group valid tool rows by trace while retaining query order."""
     ordered_ids: list[str] = []
     by_trace: dict[str, list[str]] = {}
