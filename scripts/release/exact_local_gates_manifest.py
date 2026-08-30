@@ -20,12 +20,10 @@ import sys
 from pathlib import Path
 from typing import Any, Final
 
-# Keep direct ``python scripts/release/...`` execution bound to this checkout.
-# Console entry points and ``python -m`` already establish the package root.
-if not __package__:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from scripts.release.exact_local_cli import add_exact_local_release_arguments
+if __package__:
+    from scripts.release.exact_local_cli import exact_local_parser
+else:
+    from exact_local_cli import exact_local_parser
 from scripts.release.promote_local_release import (
     ReleaseError,
     verify_evidence_file,
@@ -365,11 +363,10 @@ def _write_new_private(path: Path, value: dict[str, Any]) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = exact_local_parser(
         prog="generate-exact-local-gates-manifest",
         description="Generate a digest-bound manifest for exact local gate certification.",
     )
-    add_exact_local_release_arguments(parser)
     parser.add_argument("--output", required=True, type=Path)
     return parser
 
