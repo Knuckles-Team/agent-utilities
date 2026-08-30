@@ -1572,34 +1572,10 @@ async def graph_write_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e)
 
 
-async def graph_ingest_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool("graph_ingest", **body)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except UnsupportedToolFieldError as e:
-        # U-74, same class of fix as `graph_search_endpoint` above.
-        return _external_error_response(e, status_code=400, code="invalid_request")
-    except Exception as e:
-        return _external_error_response(e)
+graph_ingest_endpoint = _make_tool_endpoint("graph_ingest")
 
 
-async def graph_analyze_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool("graph_analyze", **body)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except UnsupportedToolFieldError as e:
-        # U-74, same class of fix as `graph_search_endpoint` above.
-        return _external_error_response(e, status_code=400, code="invalid_request")
-    except Exception as e:
-        return _external_error_response(e)
+graph_analyze_endpoint = _make_tool_endpoint("graph_analyze")
 
 
 #: The graph_mine actions with a natural-body REST twin (CONCEPT:EG-KG.mining.frequent-itemset-mining).
@@ -1734,6 +1710,33 @@ def _context_kwargs(body: Any) -> dict[str, Any]:
     return _target_query_kwargs(
         body, action="context", target_field="target", query_field="query"
     )
+
+
+def _code_context_kwargs(body: Any) -> dict[str, Any]:
+    intent = str(body.get("intent", "how"))
+    if body.get("cross_repo"):
+        intent = f"{intent}+xrepo"
+    return {
+        "action": "code_context",
+        "query": body.get("query", ""),
+        "target": intent,
+        "node_id": body.get("node_id", ""),
+        "top_k": int(body.get("top_k", 10)),
+        "depth": int(body.get("depth", 2)),
+    }
+
+
+def _explain_kwargs(body: Any) -> dict[str, Any]:
+    domain = str(body.get("domain", ""))
+    intent = str(body.get("intent", ""))
+    return {
+        "action": "explain",
+        "query": body.get("query", ""),
+        "target": f"{domain}:{intent}" if domain else intent,
+        "node_id": body.get("node_id", ""),
+        "top_k": int(body.get("top_k", 10)),
+        "depth": int(body.get("depth", 2)),
+    }
 
 
 def _make_action_body_endpoint(tool_name: str, action: str):
@@ -2796,52 +2799,14 @@ async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_code action=code_context (CONCEPT:AU-KG.retrieval.synthesized-cited-answer): the
     synthesized, cited codebase Q&A. Body: ``{query, intent?(how|usage|impact),
     node_id?, top_k?, depth?, cross_repo?}``."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        intent = str(body.get("intent", "how"))
-        if body.get("cross_repo"):
-            intent = f"{intent}+xrepo"
-        res = await _execute_tool(
-            "graph_code",
-            action="code_context",
-            query=body.get("query", ""),
-            target=intent,
-            node_id=body.get("node_id", ""),
-            top_k=int(body.get("top_k", 10)),
-            depth=int(body.get("depth", 2)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(request, "graph_code", _code_context_kwargs)
 
 
 async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_explain action=explain (CONCEPT:AU-KG.retrieval.route-question-its-domain): the universal
     context plane. Body: ``{query, domain?, intent?, node_id?, top_k?, depth?}`` —
     routes to the domain provider (code | ops | …) and returns the cited answer."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        domain = str(body.get("domain", ""))
-        intent = str(body.get("intent", ""))
-        target = f"{domain}:{intent}" if domain else intent
-        res = await _execute_tool(
-            "graph_explain",
-            action="explain",
-            query=body.get("query", ""),
-            target=target,
-            node_id=body.get("node_id", ""),
-            top_k=int(body.get("top_k", 10)),
-            depth=int(body.get("depth", 2)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(request, "graph_explain", _explain_kwargs)
 
 
 async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResponse:
@@ -2861,39 +2826,35 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
         return _external_error_response(e)
 
 
-async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=code_metrics (CONCEPT:AU-KG.retrieval.god-nodes-communities): Graphify-
-    style god nodes / communities / surprising connections over the :Code subgraph.
-    ``scope`` (or ``target``) = optional file_path/source_system substring;
-    ``top_k`` = section sizes."""
+async def _run_graph_code_scope_endpoint(
+    request: Request, action: str
+) -> JSONResponse:
     try:
         scope = request.query_params.get("scope") or request.query_params.get(
             "target", ""
         )
         top_k = int(request.query_params.get("top_k", "10"))
         res = await _execute_tool(
-            "graph_code", action="code_metrics", target=scope, top_k=top_k
+            "graph_code", action=action, target=scope, top_k=top_k
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
         return _external_error_response(e)
+
+
+async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=code_metrics (CONCEPT:AU-KG.retrieval.god-nodes-communities): Graphify-
+    style god nodes / communities / surprising connections over the :Code subgraph.
+    ``scope`` (or ``target``) = optional file_path/source_system substring;
+    ``top_k`` = section sizes."""
+    return await _run_graph_code_scope_endpoint(request, "code_metrics")
 
 
 async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=arch_report (CONCEPT:AU-KG.retrieval.architecture-report): the
     regenerable architecture report (GRAPH_REPORT.md analog) as Markdown + metrics.
     ``scope`` (or ``target``) = optional substring; ``top_k`` = section sizes."""
-    try:
-        scope = request.query_params.get("scope") or request.query_params.get(
-            "target", ""
-        )
-        top_k = int(request.query_params.get("top_k", "10"))
-        res = await _execute_tool(
-            "graph_code", action="arch_report", target=scope, top_k=top_k
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_graph_code_scope_endpoint(request, "arch_report")
 
 
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
