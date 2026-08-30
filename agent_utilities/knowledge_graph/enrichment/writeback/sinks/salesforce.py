@@ -11,7 +11,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +28,11 @@ _SOBJECT = {
 }
 
 
-class SalesforceSink:
+class SalesforceSink(WritebackClientMixin):
     domain = "salesforce"
     enable_flag = "SALESFORCE_ENABLE_WRITE"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from salesforce_agent.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("salesforce write client unavailable", exc_info=True)
-            return None
+    client_module = "salesforce_agent"
+    client_label = "salesforce"
 
     def _create(self, client: Any, sobject: str, data: dict) -> bool:
         for name in ("create_record", "create", "insert"):

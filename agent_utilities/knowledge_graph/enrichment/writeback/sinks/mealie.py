@@ -10,27 +10,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class MealieSink:
+class MealieSink(WritebackClientMixin):
     domain = "mealie"
     enable_flag = "MEALIE_ENABLE_WRITE"
     risk_tier = "standard"
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        client = ops.get("client")
-        if client is not None:
-            return client
-        try:
-            from mealie_mcp.auth import get_client
-
-            return get_client()
-        except Exception:  # noqa: BLE001
-            logger.debug("mealie write client unavailable", exc_info=True)
-            return None
+    client_module = "mealie_mcp"
+    client_label = "mealie"
 
     def _apply_mealplan(
         self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult
