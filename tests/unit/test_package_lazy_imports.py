@@ -7,68 +7,103 @@ Regression test for B-22: ``agent_utilities/__init__.py``'s module-level ``__get
 time for anyone who imported it that way (the real location is
 ``.knowledge_graph.memory.agent_context``).
 
-Rather than pinning that one entry, this walks every ``from <module> import <names>``
-statement inside ``__getattr__`` via the AST (so it needs no knowledge of the branch
-structure) and asserts each resolved module imports cleanly and actually defines every
-name it re-exports -- so a *future* lazy-import entry that drifts from its target (a
-rename, a moved module) fails this test instead of only failing for whichever caller
-happens to touch that specific attribute first.
+The package keeps its complete lazy-import surface in the declarative
+``_LAZY_MODULE_EXPORTS`` registry and derives ``_LAZY_EXPORTS`` from it. This test
+audits both layers, then asserts each resolved module imports cleanly and actually
+defines every name it re-exports -- so a *future* lazy-import entry that drifts from
+its target (a rename, a moved module) fails this test instead of only failing for
+whichever caller happens to touch that specific attribute first.
 """
 
 from __future__ import annotations
 
-import ast
 import importlib
-import inspect
 
 import agent_utilities
 
+_EXPECTED_LAZY_MODULE_COUNT = 41
+_EXPECTED_LAZY_EXPORT_COUNT = 117
+
 
 def _getattr_import_targets() -> list[tuple[str, list[str]]]:
-    """Every ``from <module> import <names>`` inside ``agent_utilities.__getattr__``."""
-    source = inspect.getsource(agent_utilities)
-    tree = ast.parse(
-        source, filename=agent_utilities.__file__ or "agent_utilities/__init__.py"
+    """Normalize the package's declarative registry into absolute module targets."""
+    return [
+        (
+            importlib.util.resolve_name(module_name, agent_utilities.__name__),
+            names.split(),
+        )
+        for module_name, names in agent_utilities._LAZY_MODULE_EXPORTS
+    ]
+
+
+def _flatten_targets(
+    targets: list[tuple[str, list[str]]],
+) -> list[tuple[str, str]]:
+    return [(module_name, name) for module_name, names in targets for name in names]
+
+
+def _duplicate_names(names: list[str]) -> list[str]:
+    return sorted(name for name in set(names) if names.count(name) > 1)
+
+
+def _expected_dispatch() -> list[tuple[str, tuple[str, str]]]:
+    return [
+        (name, (module_name, name))
+        for module_name, names in agent_utilities._LAZY_MODULE_EXPORTS
+        for name in names.split()
+    ]
+
+
+def _assert_registry_shape(targets: list[tuple[str, list[str]]]) -> None:
+    module_names = [module_name for module_name, _ in targets]
+    assert len(targets) == _EXPECTED_LAZY_MODULE_COUNT, (
+        "sanity check: expected the complete 41-module lazy-import surface; "
+        f"found {len(targets)} registry entries"
+    )
+    assert len(set(module_names)) == _EXPECTED_LAZY_MODULE_COUNT, (
+        f"duplicate lazy-import modules: {module_names}"
     )
 
-    func = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "__getattr__"
+    flattened_targets = _flatten_targets(targets)
+    assert len(flattened_targets) == _EXPECTED_LAZY_EXPORT_COUNT, (
+        f"sanity check: expected all 117 lazy exports; found {len(flattened_targets)}"
     )
 
-    targets: list[tuple[str, list[str]]] = []
-    for node in ast.walk(func):
-        if isinstance(node, ast.ImportFrom):
-            if node.level:
-                module = "agent_utilities" + (f".{node.module}" if node.module else "")
-            else:
-                module = node.module or ""
-            targets.append((module, [alias.name for alias in node.names]))
-    return targets
+    export_names = [name for _, name in flattened_targets]
+    duplicate_names = _duplicate_names(export_names)
+    assert not duplicate_names, f"duplicate lazy export names: {duplicate_names}"
+
+    assert list(agent_utilities._LAZY_EXPORTS.items()) == _expected_dispatch(), (
+        "_LAZY_EXPORTS must contain every registry export exactly once, "
+        "in registry order"
+    )
+
+
+def _target_failures(module_name: str, names: list[str]) -> list[str]:
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        return [f"{module_name!r} (importing {names}): {type(exc).__name__}: {exc}"]
+    return [
+        f"{module_name!r} has no attribute {name!r}"
+        for name in names
+        if not hasattr(module, name)
+    ]
+
+
+def _lazy_import_failures(targets: list[tuple[str, list[str]]]) -> list[str]:
+    return [
+        failure
+        for module_name, names in targets
+        for failure in _target_failures(module_name, names)
+    ]
 
 
 def test_every_lazy_import_target_module_exists_and_exports_its_names():
     targets = _getattr_import_targets()
-    assert len(targets) > 30, (
-        "sanity check: expected __getattr__ to contain the full lazy-import surface; "
-        f"only found {len(targets)} `from ... import ...` statements -- did the AST walk "
-        "or the function name change?"
-    )
+    _assert_registry_shape(targets)
 
-    failures: list[str] = []
-    for module_name, names in targets:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as exc:
-            failures.append(
-                f"{module_name!r} (importing {names}): {type(exc).__name__}: {exc}"
-            )
-            continue
-        for name in names:
-            if not hasattr(module, name):
-                failures.append(f"{module_name!r} has no attribute {name!r}")
-
+    failures = _lazy_import_failures(targets)
     assert not failures, (
         "broken lazy-import entries in agent_utilities.__getattr__:\n"
         + "\n".join(failures)
