@@ -10,6 +10,7 @@ import re
 import secrets
 import stat
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -40,14 +41,23 @@ def _canonical(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _load_regular(path: Path) -> dict[str, Any]:
+def _load_bounded(
+    path: Path,
+    *,
+    subject: str,
+    symlink_message: str,
+    parser: Callable[[bytes], Any],
+    parse_errors: tuple[type[Exception], ...],
+    parse_message: str,
+    type_message: str,
+) -> dict[str, Any]:
     if path.is_symlink():
-        raise ReleaseAssemblyError("component declarations must not be symlinks")
+        raise ReleaseAssemblyError(symlink_message)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
-        raise ReleaseAssemblyError("component declaration is unavailable") from exc
+        raise ReleaseAssemblyError(f"{subject} is unavailable") from exc
     try:
         metadata = os.fstat(descriptor)
         if (
@@ -56,9 +66,7 @@ def _load_regular(path: Path) -> dict[str, Any]:
             or metadata.st_size == 0
             or metadata.st_size > _MAX_DECLARATION_BYTES
         ):
-            raise ReleaseAssemblyError(
-                "component declaration violates its size boundary"
-            )
+            raise ReleaseAssemblyError(f"{subject} violates its size boundary")
         before = (
             metadata.st_dev,
             metadata.st_ino,
@@ -87,101 +95,49 @@ def _load_regular(path: Path) -> dict[str, Any]:
             )
             or len(payload) != metadata.st_size
         ):
-            raise ReleaseAssemblyError(
-                "component declaration changed while it was read"
-            )
+            raise ReleaseAssemblyError(f"{subject} changed while it was read")
         try:
             path_metadata = path.stat(follow_symlinks=False)
         except OSError:
-            raise ReleaseAssemblyError(
-                "component declaration changed while it was read"
-            ) from None
+            raise ReleaseAssemblyError(f"{subject} changed while it was read") from None
         if (path_metadata.st_dev, path_metadata.st_ino) != (
             metadata.st_dev,
             metadata.st_ino,
         ):
-            raise ReleaseAssemblyError(
-                "component declaration changed while it was read"
-            )
+            raise ReleaseAssemblyError(f"{subject} changed while it was read")
     finally:
         os.close(descriptor)
     try:
-        value = json.loads(bytes(payload))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ReleaseAssemblyError("component declaration must be JSON") from exc
+        value = parser(bytes(payload))
+    except parse_errors as exc:
+        raise ReleaseAssemblyError(f"{subject} {parse_message}") from exc
     if not isinstance(value, dict):
-        raise ReleaseAssemblyError("component declaration must be a JSON object")
+        raise ReleaseAssemblyError(f"{subject} {type_message}")
     return value
+
+
+def _load_regular(path: Path) -> dict[str, Any]:
+    return _load_bounded(
+        path,
+        subject="component declaration",
+        symlink_message="component declarations must not be symlinks",
+        parser=json.loads,
+        parse_errors=(UnicodeDecodeError, json.JSONDecodeError),
+        parse_message="must be JSON",
+        type_message="must be a JSON object",
+    )
 
 
 def _load_matrix(path: Path) -> dict[str, Any]:
-    if path.is_symlink():
-        raise ReleaseAssemblyError("compatibility matrix must not be a symlink")
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ReleaseAssemblyError("compatibility matrix is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_size == 0
-            or metadata.st_size > _MAX_DECLARATION_BYTES
-        ):
-            raise ReleaseAssemblyError(
-                "compatibility matrix violates its size boundary"
-            )
-        before = (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-            metadata.st_ctime_ns,
-        )
-        payload = bytearray()
-        while len(payload) <= _MAX_DECLARATION_BYTES:
-            chunk = os.read(
-                descriptor,
-                min(65_536, _MAX_DECLARATION_BYTES + 1 - len(payload)),
-            )
-            if not chunk:
-                break
-            payload.extend(chunk)
-        after = os.fstat(descriptor)
-        if (
-            before
-            != (
-                after.st_dev,
-                after.st_ino,
-                after.st_size,
-                after.st_mtime_ns,
-                after.st_ctime_ns,
-            )
-            or len(payload) != metadata.st_size
-        ):
-            raise ReleaseAssemblyError("compatibility matrix changed while it was read")
-        try:
-            path_metadata = path.stat(follow_symlinks=False)
-        except OSError:
-            raise ReleaseAssemblyError(
-                "compatibility matrix changed while it was read"
-            ) from None
-        if (path_metadata.st_dev, path_metadata.st_ino) != (
-            metadata.st_dev,
-            metadata.st_ino,
-        ):
-            raise ReleaseAssemblyError("compatibility matrix changed while it was read")
-    finally:
-        os.close(descriptor)
-    try:
-        value = yaml.safe_load(bytes(payload))
-    except (UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ReleaseAssemblyError("compatibility matrix is unavailable") from exc
-    if not isinstance(value, dict):
-        raise ReleaseAssemblyError("compatibility matrix must be a mapping")
-    return value
+    return _load_bounded(
+        path,
+        subject="compatibility matrix",
+        symlink_message="compatibility matrix must not be a symlink",
+        parser=yaml.safe_load,
+        parse_errors=(UnicodeDecodeError, yaml.YAMLError),
+        parse_message="is unavailable",
+        type_message="must be a mapping",
+    )
 
 
 def _reference(value: str, field: str) -> str:
