@@ -30,8 +30,9 @@ See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.execution.global-workspace
 import logging
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -380,34 +381,58 @@ class WorkspaceAttention:
         """
         engine = engine or self.engine
         _TELEMETRY.attention_reads += 1
-        graph = getattr(engine, "graph", None)
-        best_score: float | None = None
-        if graph is not None:
-            try:
-                node_iter = graph.nodes(data=True)
-            except TypeError:  # graph.nodes is not a callable view
-                node_iter = None
-            if node_iter is not None:
-                best_ts = ""
-                for _nid, data in node_iter:
-                    if not isinstance(data, dict):
-                        continue
-                    if (
-                        data.get("specialist_id") != node_id
-                        or "composite_score" not in data
-                    ):
-                        continue
-                    if not data.get("selected", False):
-                        continue
-                    ts = str(data.get("timestamp", ""))
-                    if best_score is None or ts >= best_ts:
-                        best_ts, best_score = ts, float(data["composite_score"])
+        best_score = self._latest_attention_score(
+            getattr(engine, "graph", None), node_id
+        )
         if best_score is None:
             _TELEMETRY.attention_misses += 1
             self._maybe_flag_engine_mismatch()
         else:
             _TELEMETRY.attention_hits += 1
         return best_score
+
+    @staticmethod
+    def _selected_attention_score(
+        data: object, node_id: str
+    ) -> tuple[str, float] | None:
+        """Return a selected proposal's timestamp and score when it matches."""
+        if not isinstance(data, dict):
+            return None
+        if data.get("specialist_id") != node_id:
+            return None
+        if "composite_score" not in data:
+            return None
+        if not data.get("selected", False):
+            return None
+        return str(data.get("timestamp", "")), float(data["composite_score"])
+
+    @classmethod
+    def _iter_selected_attention_scores(
+        cls, graph: Any, node_id: str
+    ) -> Iterator[tuple[str, float]]:
+        """Yield selected proposal scores from a graph-compatible node view."""
+        if graph is None:
+            return
+        try:
+            node_iter = graph.nodes(data=True)
+        except TypeError:  # graph.nodes is not a callable view
+            return
+        if node_iter is None:
+            return
+        for _node_id, data in node_iter:
+            candidate = cls._selected_attention_score(data, node_id)
+            if candidate is not None:
+                yield candidate
+
+    @classmethod
+    def _latest_attention_score(cls, graph: Any, node_id: str) -> float | None:
+        """Return the latest selected proposal score for ``node_id``."""
+        latest = max(
+            enumerate(cls._iter_selected_attention_scores(graph, node_id)),
+            key=lambda item: (item[1][0], item[0]),
+            default=None,
+        )
+        return latest[1][1] if latest is not None else None
 
     @staticmethod
     def _maybe_flag_engine_mismatch() -> None:
