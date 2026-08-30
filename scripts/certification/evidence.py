@@ -51,6 +51,72 @@ _FORBIDDEN_TEXT = (
     re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"),
 )
 
+_REQUIRED_SECTIONS = {
+    "apiVersion",
+    "kind",
+    "evidenceVersion",
+    "release",
+    "campaign",
+    "scenarios",
+    "metrics",
+    "recovery",
+    "privacy",
+    "result",
+}
+_EXACT_SECTION_KEYS = {
+    "release": {
+        "digest",
+        "configurationDigest",
+        "componentDigests",
+        "certificationDigests",
+    },
+    "campaign": {
+        "digest",
+        "scale",
+        "durationSeconds",
+        "observedDurationSeconds",
+        "startedAtUnix",
+        "hardwareClass",
+    },
+    "metrics": {
+        "rawDigest",
+        "loadReportDigest",
+        "sampleCount",
+        "sampleCoverage",
+        "sloPass",
+    },
+    "recovery": {
+        "rpoTargetSeconds",
+        "rtoTargetSeconds",
+        "observedRpoSeconds",
+        "observedRtoSeconds",
+        "pass",
+    },
+    "privacy": {
+        "policyDigest",
+        "containsDirectIdentifiers",
+        "containsEndpoints",
+        "containsFilesystemLocations",
+    },
+}
+_SCENARIO_KEYS = {
+    "id",
+    "result",
+    "faultApplied",
+    "actionDigest",
+    "observationDigest",
+    "metricsDigest",
+    "recoverySeconds",
+    "invariants",
+}
+_SIGNATURE_KEYS = {
+    "scheme",
+    "subjectDigest",
+    "bundleDigest",
+    "signerIdentityDigest",
+    "value",
+}
+
 
 class EvidenceError(ValueError):
     """Evidence is malformed, identifying, unsigned, or unverifiable."""
@@ -97,40 +163,72 @@ def _finite_nonnegative(value: Any, field: str) -> float:
 
 def _privacy_walk(value: Any, parent: str = "") -> None:
     if isinstance(value, dict):
-        for key, child in value.items():
-            key_text = str(key)
-            if _FORBIDDEN_KEYS.search(key_text) and key_text not in {
-                "hardwareClass",
-                "containsEndpoints",
-                "containsFilesystemLocations",
-            }:
-                raise EvidenceError(f"forbidden identifying evidence key: {key_text}")
-            _privacy_walk(child, key_text)
+        _privacy_walk_dict(value, parent)
     elif isinstance(value, list):
-        for child in value:
-            _privacy_walk(child, parent)
+        _privacy_walk_list(value, parent)
     elif isinstance(value, str):
-        for pattern in _FORBIDDEN_TEXT:
-            if pattern.search(value):
-                raise EvidenceError(f"forbidden identifying text in {parent}")
+        _validate_privacy_text(value, parent)
+
+
+def _validate_privacy_key(key_text: str) -> None:
+    if _FORBIDDEN_KEYS.search(key_text) and key_text not in {
+        "hardwareClass",
+        "containsEndpoints",
+        "containsFilesystemLocations",
+    }:
+        raise EvidenceError(f"forbidden identifying evidence key: {key_text}")
+
+
+def _validate_privacy_text(value: str, parent: str) -> None:
+    for pattern in _FORBIDDEN_TEXT:
+        if pattern.search(value):
+            raise EvidenceError(f"forbidden identifying text in {parent}")
+
+
+def _privacy_walk_dict(value: dict[Any, Any], parent: str) -> None:
+    for key, child in value.items():
+        key_text = str(key)
+        _validate_privacy_key(key_text)
+        _privacy_walk(child, key_text)
+
+
+def _privacy_walk_list(value: list[Any], parent: str) -> None:
+    for child in value:
+        _privacy_walk(child, parent)
 
 
 def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None:
-    required = {
-        "apiVersion",
-        "kind",
-        "evidenceVersion",
-        "release",
-        "campaign",
-        "scenarios",
-        "metrics",
-        "recovery",
-        "privacy",
-        "result",
-    }
-    if not required.issubset(value):
+    _validate_document_shape(value, require_signature)
+    campaign = value["campaign"]
+    duration, observed_duration = _validate_campaign_fields(campaign)
+    _validate_digest_fields(value)
+    policy = _validate_campaign_policy(campaign, duration)
+    _validate_release_catalogs(value["release"])
+    scenarios = value["scenarios"]
+    _validate_scenarios(scenarios, policy)
+    metrics = value["metrics"]
+    sample_coverage = _validate_metrics(metrics, duration, policy)
+    _validate_recovery(value["recovery"], policy)
+    privacy = value["privacy"]
+    _validate_privacy_assertions(privacy)
+    unsigned = {key: child for key, child in value.items() if key != "signature"}
+    _privacy_walk(unsigned)
+    _validate_passing_evidence(
+        value,
+        scenarios=scenarios,
+        observed_duration=observed_duration,
+        duration=duration,
+        sample_coverage=sample_coverage,
+        policy=policy,
+    )
+    if require_signature:
+        _validate_signature(value, unsigned)
+
+
+def _validate_evidence_header(value: dict[str, Any], require_signature: bool) -> None:
+    if not _REQUIRED_SECTIONS.issubset(value):
         raise EvidenceError("evidence is missing required sections")
-    allowed = required | ({"signature"} if require_signature else set())
+    allowed = _REQUIRED_SECTIONS | ({"signature"} if require_signature else set())
     if set(value) != allowed:
         raise EvidenceError("evidence top-level keys are not exact")
     if value["apiVersion"] != "graphos.io/v1" or value["kind"] != "OperationalEvidence":
@@ -139,47 +237,21 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         raise EvidenceError("unsupported evidenceVersion")
     if not isinstance(value["result"], str) or value["result"] not in {"pass", "fail"}:
         raise EvidenceError("evidence result is invalid")
-    exact_sections = {
-        "release": {
-            "digest",
-            "configurationDigest",
-            "componentDigests",
-            "certificationDigests",
-        },
-        "campaign": {
-            "digest",
-            "scale",
-            "durationSeconds",
-            "observedDurationSeconds",
-            "startedAtUnix",
-            "hardwareClass",
-        },
-        "metrics": {
-            "rawDigest",
-            "loadReportDigest",
-            "sampleCount",
-            "sampleCoverage",
-            "sloPass",
-        },
-        "recovery": {
-            "rpoTargetSeconds",
-            "rtoTargetSeconds",
-            "observedRpoSeconds",
-            "observedRtoSeconds",
-            "pass",
-        },
-        "privacy": {
-            "policyDigest",
-            "containsDirectIdentifiers",
-            "containsEndpoints",
-            "containsFilesystemLocations",
-        },
-    }
-    for section_name, keys in exact_sections.items():
+
+
+def _validate_evidence_sections(value: dict[str, Any]) -> None:
+    for section_name, keys in _EXACT_SECTION_KEYS.items():
         section = value.get(section_name)
         if not isinstance(section, dict) or set(section) != keys:
             raise EvidenceError(f"{section_name} evidence keys are not exact")
-    campaign = value["campaign"]
+
+
+def _validate_document_shape(value: dict[str, Any], require_signature: bool) -> None:
+    _validate_evidence_header(value, require_signature)
+    _validate_evidence_sections(value)
+
+
+def _validate_campaign_fields(campaign: dict[str, Any]) -> tuple[int, float]:
     if isinstance(campaign.get("scale"), bool) or campaign.get("scale") != 1.0:
         raise EvidenceError("production evidence requires scale=1.0")
     duration_value = campaign.get("durationSeconds")
@@ -197,27 +269,111 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         raise EvidenceError(
             "hardwareClass must be a capacity-* or tier-* non-identifying label"
         )
-    for section in (value["release"], campaign, value["metrics"], value["privacy"]):
+    return duration, observed_duration
+
+
+def _validate_digest_fields(value: dict[str, Any]) -> None:
+    for section in (
+        value["release"],
+        value["campaign"],
+        value["metrics"],
+        value["privacy"],
+    ):
         for key, child in section.items():
             if key.casefold().endswith("digest"):
                 _digest(child, key)
+
+
+def _validate_campaign_policy(
+    campaign: dict[str, Any], duration: int
+) -> dict[str, Any]:
     policy = _campaign_policy(duration)
     if campaign["digest"] != digest_bytes(canonical_bytes(policy)):
         raise EvidenceError("campaign digest does not bind the exact packaged policy")
-    component_digests = value["release"].get("componentDigests")
-    if not isinstance(component_digests, dict) or set(component_digests) != _COMPONENTS:
-        raise EvidenceError("component digest catalog is not exact")
-    for digest in component_digests.values():
-        _digest(digest, "componentDigest")
-    certification_digests = value["release"].get("certificationDigests")
+    return policy
+
+
+def _validate_digest_catalog(
+    release: dict[str, Any],
+    *,
+    field: str,
+    expected: set[str],
+    error: str,
+    digest_field: str,
+) -> None:
+    catalog = release.get(field)
+    if not isinstance(catalog, dict) or set(catalog) != expected:
+        raise EvidenceError(error)
+    for digest in catalog.values():
+        _digest(digest, digest_field)
+
+
+def _validate_release_catalogs(release: dict[str, Any]) -> None:
+    _validate_digest_catalog(
+        release,
+        field="componentDigests",
+        expected=_COMPONENTS,
+        error="component digest catalog is not exact",
+        digest_field="componentDigest",
+    )
+    _validate_digest_catalog(
+        release,
+        field="certificationDigests",
+        expected=_CERTIFICATIONS,
+        error="certification digest catalog is not exact",
+        digest_field="certificationDigest",
+    )
+
+
+def _validate_scenario_result(scenario: dict[str, Any]) -> None:
+    if scenario.get("result") not in {"pass", "fail"}:
+        raise EvidenceError("scenario result is invalid")
+    if type(scenario.get("faultApplied")) is not bool:
+        raise EvidenceError("scenario fault-applied observation is not boolean")
+    if scenario.get("result") == "pass" and scenario.get("faultApplied") is not True:
+        raise EvidenceError("passing scenario did not apply a real fault")
+
+
+def _validate_scenario_recovery(
+    scenario: dict[str, Any], policy: dict[str, Any]
+) -> None:
+    recovery_seconds = _finite_nonnegative(
+        scenario.get("recoverySeconds"), "scenario.recoverySeconds"
+    )
     if (
-        not isinstance(certification_digests, dict)
-        or set(certification_digests) != _CERTIFICATIONS
+        recovery_seconds > float(policy["targets"]["rtoSeconds"])
+        and scenario.get("result") == "pass"
     ):
-        raise EvidenceError("certification digest catalog is not exact")
-    for digest in certification_digests.values():
-        _digest(digest, "certificationDigest")
-    scenarios = value["scenarios"]
+        raise EvidenceError("passing scenario exceeded the canonical RTO")
+
+
+def _validate_scenario_invariants(
+    scenario: dict[str, Any], expected_scenario: dict[str, Any]
+) -> None:
+    invariants = scenario.get("invariants")
+    if (
+        not isinstance(invariants, dict)
+        or set(invariants) != set(expected_scenario["invariants"])
+        or any(type(observed) is not bool for observed in invariants.values())
+    ):
+        raise EvidenceError("scenario invariant observations are not exact")
+    if scenario.get("result") == "pass" and not all(invariants.values()):
+        raise EvidenceError("passing scenario contradicts its invariants")
+
+
+def _validate_scenario(
+    scenario: Any, expected_scenario: dict[str, Any], policy: dict[str, Any]
+) -> None:
+    if not isinstance(scenario, dict) or set(scenario) != _SCENARIO_KEYS:
+        raise EvidenceError("scenario evidence keys are not exact")
+    for key in ("actionDigest", "observationDigest", "metricsDigest"):
+        _digest(scenario.get(key), f"scenario.{key}")
+    _validate_scenario_result(scenario)
+    _validate_scenario_recovery(scenario, policy)
+    _validate_scenario_invariants(scenario, expected_scenario)
+
+
+def _validate_scenarios(scenarios: Any, policy: dict[str, Any]) -> None:
     expected_scenarios = policy["scenarios"]
     if (
         not isinstance(scenarios, list)
@@ -226,48 +382,13 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         != [item["id"] for item in expected_scenarios]
     ):
         raise EvidenceError("evidence does not cover the complete fault campaign")
-    scenario_keys = {
-        "id",
-        "result",
-        "faultApplied",
-        "actionDigest",
-        "observationDigest",
-        "metricsDigest",
-        "recoverySeconds",
-        "invariants",
-    }
     for scenario, expected_scenario in zip(scenarios, expected_scenarios, strict=True):
-        if not isinstance(scenario, dict) or set(scenario) != scenario_keys:
-            raise EvidenceError("scenario evidence keys are not exact")
-        for key in ("actionDigest", "observationDigest", "metricsDigest"):
-            _digest(scenario.get(key), f"scenario.{key}")
-        if scenario.get("result") not in {"pass", "fail"}:
-            raise EvidenceError("scenario result is invalid")
-        if type(scenario.get("faultApplied")) is not bool:
-            raise EvidenceError("scenario fault-applied observation is not boolean")
-        if (
-            scenario.get("result") == "pass"
-            and scenario.get("faultApplied") is not True
-        ):
-            raise EvidenceError("passing scenario did not apply a real fault")
-        recovery_seconds = _finite_nonnegative(
-            scenario.get("recoverySeconds"), "scenario.recoverySeconds"
-        )
-        if (
-            recovery_seconds > float(policy["targets"]["rtoSeconds"])
-            and scenario.get("result") == "pass"
-        ):
-            raise EvidenceError("passing scenario exceeded the canonical RTO")
-        invariants = scenario.get("invariants")
-        if (
-            not isinstance(invariants, dict)
-            or set(invariants) != set(expected_scenario["invariants"])
-            or any(type(observed) is not bool for observed in invariants.values())
-        ):
-            raise EvidenceError("scenario invariant observations are not exact")
-        if scenario.get("result") == "pass" and not all(invariants.values()):
-            raise EvidenceError("passing scenario contradicts its invariants")
-    metrics = value["metrics"]
+        _validate_scenario(scenario, expected_scenario, policy)
+
+
+def _validate_metrics(
+    metrics: dict[str, Any], duration: int, policy: dict[str, Any]
+) -> float:
     if type(metrics.get("sampleCount")) is not int or metrics["sampleCount"] < 0:
         raise EvidenceError("metrics sampleCount is invalid")
     sample_coverage = _finite_nonnegative(
@@ -281,7 +402,10 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         raise EvidenceError("metrics sampleCoverage is inconsistent with sampleCount")
     if type(metrics.get("sloPass")) is not bool:
         raise EvidenceError("metrics sloPass is not boolean")
-    recovery = value["recovery"]
+    return sample_coverage
+
+
+def _validate_recovery(recovery: dict[str, Any], policy: dict[str, Any]) -> None:
     rpo_target = _finite_nonnegative(
         recovery.get("rpoTargetSeconds"), "recovery.rpoTargetSeconds"
     )
@@ -302,7 +426,9 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         raise EvidenceError("recovery pass is not boolean")
     if recovery["pass"] != (observed_rpo <= rpo_target and observed_rto <= rto_target):
         raise EvidenceError("recovery pass contradicts its observations")
-    privacy = value["privacy"]
+
+
+def _validate_privacy_assertions(privacy: dict[str, Any]) -> None:
     if any(
         privacy.get(key) is not False
         for key in (
@@ -312,8 +438,17 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         )
     ):
         raise EvidenceError("privacy assertions must all be false")
-    unsigned = {key: child for key, child in value.items() if key != "signature"}
-    _privacy_walk(unsigned)
+
+
+def _validate_passing_evidence(
+    value: dict[str, Any],
+    *,
+    scenarios: list[Any],
+    observed_duration: float,
+    duration: int,
+    sample_coverage: float,
+    policy: dict[str, Any],
+) -> None:
     if value.get("result") == "pass" and (
         not all(scenario["result"] == "pass" for scenario in scenarios)
         or observed_duration < duration
@@ -322,26 +457,21 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         or value["recovery"].get("pass") is not True
     ):
         raise EvidenceError("passing evidence contradicts its observations")
-    if require_signature:
-        signature = value.get("signature")
-        signature_keys = {
-            "scheme",
-            "subjectDigest",
-            "bundleDigest",
-            "signerIdentityDigest",
-            "value",
-        }
-        if not isinstance(signature, dict) or set(signature) != signature_keys:
-            raise EvidenceError("signed evidence has no signature")
-        for key in ("subjectDigest", "bundleDigest", "signerIdentityDigest"):
-            _digest(signature.get(key), f"signature.{key}")
-        if not _SIGNATURE_SCHEME.fullmatch(str(signature.get("scheme") or "")):
-            raise EvidenceError("signature scheme is not an opaque algorithm label")
-        if not _SIGNATURE_VALUE.fullmatch(str(signature.get("value") or "")):
-            raise EvidenceError("signature value is not an opaque encoded signature")
-        if signature["subjectDigest"] != digest_bytes(canonical_bytes(unsigned)):
-            raise EvidenceError("signature subject digest does not bind the evidence")
-        _privacy_walk(signature)
+
+
+def _validate_signature(value: dict[str, Any], unsigned: dict[str, Any]) -> None:
+    signature = value.get("signature")
+    if not isinstance(signature, dict) or set(signature) != _SIGNATURE_KEYS:
+        raise EvidenceError("signed evidence has no signature")
+    for key in ("subjectDigest", "bundleDigest", "signerIdentityDigest"):
+        _digest(signature.get(key), f"signature.{key}")
+    if not _SIGNATURE_SCHEME.fullmatch(str(signature.get("scheme") or "")):
+        raise EvidenceError("signature scheme is not an opaque algorithm label")
+    if not _SIGNATURE_VALUE.fullmatch(str(signature.get("value") or "")):
+        raise EvidenceError("signature value is not an opaque encoded signature")
+    if signature["subjectDigest"] != digest_bytes(canonical_bytes(unsigned)):
+        raise EvidenceError("signature subject digest does not bind the evidence")
+    _privacy_walk(signature)
 
 
 def _command(value: Any, field: str) -> list[str]:
@@ -382,15 +512,9 @@ def _invoke(command: list[str], payload: bytes) -> dict[str, Any]:
     return value
 
 
-def sign_evidence(
-    unsigned: dict[str, Any], *, config: Any | None = None
-) -> dict[str, Any]:
-    if config is None:
-        from agent_utilities.core.config import AgentConfig
-
-        config = AgentConfig()
-    unsigned.pop("signature", None)
-    validate_evidence(unsigned, require_signature=False)
+def _sign_evidence_request(
+    unsigned: dict[str, Any], config: Any
+) -> tuple[str, dict[str, Any]]:
     payload = canonical_bytes(unsigned)
     subject_digest = digest_bytes(payload)
     response = _invoke(
@@ -400,6 +524,19 @@ def sign_evidence(
         ),
         payload,
     )
+    return subject_digest, response
+
+
+def sign_evidence(
+    unsigned: dict[str, Any], *, config: Any | None = None
+) -> dict[str, Any]:
+    if config is None:
+        from agent_utilities.core.config import AgentConfig
+
+        config = AgentConfig()
+    unsigned.pop("signature", None)
+    validate_evidence(unsigned, require_signature=False)
+    subject_digest, response = _sign_evidence_request(unsigned, config)
     if response.get("subjectDigest") != subject_digest:
         raise EvidenceError("external signer did not bind the canonical subject")
     signature = {
@@ -439,6 +576,17 @@ def verify_evidence(signed: dict[str, Any], *, config: Any | None = None) -> Non
         raise EvidenceError("external verifier returned a different subject digest")
 
 
+def _execute_operation(args: argparse.Namespace) -> None:
+    value = json.loads(args.input.read_text(encoding="utf-8"))
+    if args.operation == "sign":
+        signed = sign_evidence(value)
+        args.output.write_text(
+            json.dumps(signed, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+    else:
+        verify_evidence(value)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="graphos-operational-evidence")
     subparsers = parser.add_subparsers(dest="operation", required=True)
@@ -449,14 +597,7 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        value = json.loads(args.input.read_text(encoding="utf-8"))
-        if args.operation == "sign":
-            signed = sign_evidence(value)
-            args.output.write_text(
-                json.dumps(signed, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-            )
-        else:
-            verify_evidence(value)
+        _execute_operation(args)
     except Exception as exc:  # noqa: BLE001 - privacy-safe command boundary
         print(json.dumps({"ok": False, "error": type(exc).__name__}, sort_keys=True))
         return 1
