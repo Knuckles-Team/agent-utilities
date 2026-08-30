@@ -774,6 +774,24 @@ def _bind_launch_topology(
         _fail("graphos_engine_binary_mismatch")
 
 
+def _stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Gracefully stop a process group, then force-kill and reap it."""
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=20)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=20)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 @dataclass
 class _GraphOS:
     process: subprocess.Popen[bytes]
@@ -836,20 +854,7 @@ class _GraphOS:
                 process.stdin.close()
             except OSError:
                 pass
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=20)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=20)
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _stop_process_group(process)
         self.stderr.close()
 
 
@@ -1375,21 +1380,8 @@ class _ExactEngine:
 
     def stop(self) -> None:
         process = self.process
-        if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=20)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=20)
         if process is not None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            _stop_process_group(process)
         self.process = None
         if self.log is not None:
             self.log.close()
