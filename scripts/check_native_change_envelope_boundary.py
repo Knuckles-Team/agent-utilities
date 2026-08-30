@@ -47,21 +47,43 @@ def _dotted(node: ast.AST) -> str:
     return ""
 
 
-def violations() -> list[str]:
-    failures: list[str] = []
-    tree = ast.parse(INGEST.read_text(encoding="utf-8"), filename=str(INGEST))
-    functions = {
-        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+def _calls(function: ast.AST | None) -> set[str]:
+    if function is None:
+        return set()
+    return {
+        _dotted(node.func) for node in ast.walk(function) if isinstance(node, ast.Call)
     }
-    public = functions.get("ingest_envelope")
-    native = functions.get("_apply_native_change_envelope")
-    if public is None or native is None:
-        failures.append("native/public ChangeEnvelope functions are incomplete")
-        return failures
 
-    public_calls = {
-        _dotted(node.func) for node in ast.walk(public) if isinstance(node, ast.Call)
-    }
+
+def _class_node(tree: ast.Module, name: str) -> ast.ClassDef | None:
+    return next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == name
+        ),
+        None,
+    )
+
+
+def _class_method(class_node: ast.ClassDef | None, name: str) -> ast.FunctionDef | None:
+    if class_node is None:
+        return None
+    return next(
+        (
+            node
+            for node in class_node.body
+            if isinstance(node, ast.FunctionDef) and node.name == name
+        ),
+        None,
+    )
+
+
+def _ingest_call_failures(
+    public: ast.FunctionDef, native: ast.FunctionDef
+) -> list[str]:
+    failures: list[str] = []
+    public_calls = _calls(public)
     if "_apply_native_change_envelope" not in public_calls:
         failures.append(
             "ingest_envelope does not delegate to native ApplyChangeEnvelope"
@@ -72,32 +94,53 @@ def violations() -> list[str]:
             f"public ingest_envelope calls sequential durability steps: {leaked}"
         )
 
-    native_calls = {
-        _dotted(node.func) for node in ast.walk(native) if isinstance(node, ast.Call)
-    }
+    native_calls = _calls(native)
     if not any(call.endswith("changes.apply") for call in native_calls):
         failures.append(
             "native ingestion does not invoke the generated changes.apply client"
         )
+    return failures
 
+
+def _ingest_marker_failures(source: str) -> list[str]:
+    return [
+        f"native ingestion guard is missing {marker}"
+        for marker in (
+            "NativeChangeEnvelopeUnavailable",
+            'supports("ApplyChangeEnvelope")',
+            'supports("GetChangeCursor")',
+            "def read_change_cursor(",
+            "class NativeChangeEnvelopeEngineProxy:",
+            "def ingest_graph_slice(",
+        )
+        if marker not in source
+    ]
+
+
+def _ingest_failures() -> tuple[list[str], bool]:
     source = INGEST.read_text(encoding="utf-8")
-    for marker in (
-        "NativeChangeEnvelopeUnavailable",
-        'supports("ApplyChangeEnvelope")',
-        'supports("GetChangeCursor")',
-        "def read_change_cursor(",
-        "class NativeChangeEnvelopeEngineProxy:",
-        "def ingest_graph_slice(",
-    ):
-        if marker not in source:
-            failures.append(f"native ingestion guard is missing {marker}")
+    tree = ast.parse(source, filename=str(INGEST))
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    public = functions.get("ingest_envelope")
+    native = functions.get("_apply_native_change_envelope")
+    if public is None or native is None:
+        return ["native/public ChangeEnvelope functions are incomplete"], True
 
+    failures = _ingest_call_failures(public, native)
+    failures.extend(_ingest_marker_failures(source))
+    return failures, False
+
+
+def _retired_source_failures() -> list[str]:
     retired_sources = {
-        "envelope_ingest": source,
+        "envelope_ingest": INGEST.read_text(encoding="utf-8"),
         "source_sync": SOURCE_SYNC.read_text(encoding="utf-8"),
         "typed_config": CONFIG.read_text(encoding="utf-8"),
         "profile_guard": PROFILE_GUARD.read_text(encoding="utf-8"),
     }
+    failures: list[str] = []
     for label, text in retired_sources.items():
         if ("KG_ENVELOPE_" + "LEGACY_ADAPTER") in text or (
             "kg_envelope_" + "legacy_adapter"
@@ -114,7 +157,11 @@ def violations() -> list[str]:
             )
     if "check_native_change_envelope_boundary.py" not in CI.read_text(encoding="utf-8"):
         failures.append("CI does not execute the native ChangeEnvelope boundary gate")
+    return failures
 
+
+def _retired_import_failures() -> list[str]:
+    failures: list[str] = []
     for relative in (
         "agent_utilities/knowledge_graph/core/source_sync.py",
         "agent_utilities/knowledge_graph/ingestion/external_graph.py",
@@ -123,10 +170,24 @@ def violations() -> list[str]:
         text = (ROOT / relative).read_text(encoding="utf-8")
         if "_ingest_envelope_legacy" in text:
             failures.append(f"{relative} imports the retired sequential adapter")
+    return failures
 
-    sync_tree = ast.parse(
-        SOURCE_SYNC.read_text(encoding="utf-8"), filename=str(SOURCE_SYNC)
-    )
+
+def _source_sync_functions(
+    sync_tree: ast.Module,
+) -> dict[str, ast.FunctionDef]:
+    return {
+        node.name: node
+        for node in sync_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and (
+            node.name.startswith("_sync_")
+            or node.name in {"_write_fleet_nodes", "_reconcile"}
+        )
+    }
+
+
+def _source_sync_leanix_failures(sync_tree: ast.Module) -> list[str]:
     leanix = next(
         (
             node
@@ -136,301 +197,263 @@ def violations() -> list[str]:
         None,
     )
     if leanix is None:
-        failures.append("source_sync lacks the LeanIX ChangeEnvelope handler")
-    else:
-        leanix_calls = {
-            _dotted(node.func)
-            for node in ast.walk(leanix)
-            if isinstance(node, ast.Call)
-        }
-        if "engine.ingest_external_batch" in leanix_calls:
-            failures.append("LeanIX bypasses ApplyChangeEnvelope for graph rows")
+        return ["source_sync lacks the LeanIX ChangeEnvelope handler"]
+    if "engine.ingest_external_batch" in _calls(leanix):
+        return ["LeanIX bypasses ApplyChangeEnvelope for graph rows"]
+    return []
 
-    sync_functions = {
-        node.name: node
-        for node in sync_tree.body
-        if isinstance(node, ast.FunctionDef)
-        and (
-            node.name.startswith("_sync_")
-            or node.name in {"_write_fleet_nodes", "_reconcile"}
-        )
-    }
+
+def _source_sync_function_failures(
+    sync_functions: dict[str, ast.FunctionDef],
+) -> list[str]:
     forbidden = {
         "engine.ingest_external_batch",
         "engine.add_node",
         "engine.link_nodes",
         "_write_watermark",
     }
+    failures: list[str] = []
     for name, function in sync_functions.items():
-        calls = {
-            _dotted(node.func)
-            for node in ast.walk(function)
-            if isinstance(node, ast.Call)
-        }
-        leaked = sorted(calls.intersection(forbidden))
+        leaked = sorted(_calls(function).intersection(forbidden))
         if leaked:
             failures.append(
                 f"{name} contains durable native-boundary bypasses: {leaked}"
             )
+    return failures
 
+
+def _source_sync_package_failures(
+    sync_functions: dict[str, ast.FunctionDef],
+) -> list[str]:
     package_install = sync_functions.get("_sync_package_install")
     if package_install is None:
-        failures.append("source_sync lacks the package-install orchestrator")
-    else:
-        package_calls = {
-            _dotted(node.func)
-            for node in ast.walk(package_install)
-            if isinstance(node, ast.Call)
-        }
-        if package_calls != {"sync_package_install"}:
-            failures.append(
-                "package_install orchestration allowlist gained non-delegation calls: "
-                f"{sorted(package_calls)}"
-            )
+        return ["source_sync lacks the package-install orchestrator"]
+    package_calls = _calls(package_install)
+    if package_calls != {"sync_package_install"}:
+        return [
+            "package_install orchestration allowlist gained non-delegation calls: "
+            f"{sorted(package_calls)}"
+        ]
+    return []
 
-    sync_source = SOURCE_SYNC.read_text(encoding="utf-8")
+
+def _source_sync_marker_failures(source: str) -> list[str]:
+    failures: list[str] = []
     if (
         'ORCHESTRATION_ONLY_SOURCES: frozenset[str] = frozenset({"package_install"})'
-        not in sync_source
+        not in source
     ):
         failures.append("source_sync orchestration-only allowlist is not exact")
-    if (
-        "LEGACY_BATCH_SOURCES" in sync_source
-        or "NON_ENVELOPE_PIPELINE_SOURCES" in sync_source
-    ):
+    if "LEGACY_BATCH_SOURCES" in source or "NON_ENVELOPE_PIPELINE_SOURCES" in source:
         failures.append("source_sync still exposes a durable legacy migration bucket")
+    return failures
 
-    hydration_tree = ast.parse(
-        HYDRATION.read_text(encoding="utf-8"), filename=str(HYDRATION)
+
+def _source_sync_failures() -> list[str]:
+    source = SOURCE_SYNC.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(SOURCE_SYNC))
+    sync_functions = _source_sync_functions(tree)
+    failures = _source_sync_leanix_failures(tree)
+    failures.extend(_source_sync_function_failures(sync_functions))
+    failures.extend(_source_sync_package_failures(sync_functions))
+    failures.extend(
+        _source_sync_marker_failures(SOURCE_SYNC.read_text(encoding="utf-8"))
     )
-    hydration_class = next(
-        (
-            node
-            for node in hydration_tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "HydrationManager"
-        ),
-        None,
-    )
-    hydrate_source = (
-        next(
-            (
-                node
-                for node in hydration_class.body
-                if isinstance(node, ast.FunctionDef) and node.name == "hydrate_source"
-            ),
-            None,
-        )
-        if hydration_class is not None
-        else None
-    )
-    hydrate_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(hydrate_source)
-            if isinstance(node, ast.Call)
-        }
-        if hydrate_source is not None
-        else set()
-    )
-    if "NativeChangeEnvelopeEngineProxy" not in hydrate_calls:
-        failures.append(
+    return failures
+
+
+def _hydration_failures() -> list[str]:
+    source = HYDRATION.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(HYDRATION))
+    hydration_class = _class_node(tree, "HydrationManager")
+    hydrate_source = _class_method(hydration_class, "hydrate_source")
+    if "NativeChangeEnvelopeEngineProxy" not in _calls(hydrate_source):
+        return [
             "generic HydrationManager dispatch does not wrap batch writers in the "
             "native ChangeEnvelope proxy"
-        )
+        ]
+    return []
 
-    materialize_tree = ast.parse(
-        MATERIALIZE.read_text(encoding="utf-8"), filename=str(MATERIALIZE)
-    )
+
+def _materialize_failures() -> list[str]:
+    source = MATERIALIZE.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(MATERIALIZE))
     materialize_source = next(
         (
             node
-            for node in materialize_tree.body
+            for node in tree.body
             if isinstance(node, ast.FunctionDef) and node.name == "materialize_source"
         ),
         None,
     )
-    materialize_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(materialize_source)
-            if isinstance(node, ast.Call)
-        }
-        if materialize_source is not None
-        else set()
-    )
-    if "ingest_graph_slice" not in materialize_calls:
+    calls = _calls(materialize_source)
+    failures: list[str] = []
+    if "ingest_graph_slice" not in calls:
         failures.append("materialize_source bypasses the native graph-slice envelope")
-    if "write_batch" in materialize_calls:
+    if "write_batch" in calls:
         failures.append("materialize_source still invokes the direct batch writer")
+    return failures
 
-    chunked_source = CHUNKED_DRAIN.read_text(encoding="utf-8")
-    if "_write_watermark" in chunked_source or "_read_watermark" in chunked_source:
+
+def _chunked_drain_failures() -> list[str]:
+    source = CHUNKED_DRAIN.read_text(encoding="utf-8")
+    failures: list[str] = []
+    if "_write_watermark" in source or "_read_watermark" in source:
         failures.append("chunked drain bypasses the native typed source cursor")
     for marker in (
         "_ingest_graph_slice_via_envelope",
         "_read_envelope_watermark",
         '"failed": report.failed',
     ):
-        if marker not in chunked_source:
+        if marker not in source:
             failures.append(f"chunked drain native cursor boundary is missing {marker}")
+    return failures
 
-    document_source = DOCUMENT_PROCESSOR.read_text(encoding="utf-8")
-    for marker in ("def _persist_native(", 'record["_nodes"]', "ingest_envelope("):
-        if marker not in document_source:
-            failures.append(f"DocumentProcessor native slice is missing {marker}")
 
-    engine_tree = ast.parse(
-        INGESTION_ENGINE.read_text(encoding="utf-8"), filename=str(INGESTION_ENGINE)
-    )
-    ingestion_class = next(
-        (
-            node
-            for node in engine_tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "IngestionEngine"
-        ),
-        None,
-    )
-    ingestion_methods = (
-        {
-            node.name: node
-            for node in ingestion_class.body
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        }
-        if ingestion_class is not None
-        else {}
-    )
-    enrich_text = ingestion_methods.get("_enrich_text")
-    enrich_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(enrich_text)
-            if isinstance(node, ast.Call)
-        }
-        if enrich_text is not None
-        else set()
-    )
-    if "ingest_graph_slice" not in enrich_calls:
+def _document_processor_failures() -> list[str]:
+    source = DOCUMENT_PROCESSOR.read_text(encoding="utf-8")
+    return [
+        f"DocumentProcessor native slice is missing {marker}"
+        for marker in ("def _persist_native(", 'record["_nodes"]', "ingest_envelope(")
+        if marker not in source
+    ]
+
+
+def _ingestion_methods() -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    source = INGESTION_ENGINE.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(INGESTION_ENGINE))
+    ingestion_class = _class_node(tree, "IngestionEngine")
+    if ingestion_class is None:
+        return {}
+    return {
+        node.name: node
+        for node in ingestion_class.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+
+
+def _enrich_failures(methods: dict[str, ast.AST]) -> list[str]:
+    calls = _calls(methods.get("_enrich_text"))
+    failures: list[str] = []
+    if "ingest_graph_slice" not in calls:
         failures.append("shared text enrichment bypasses the native graph slice")
     for bypass in ("self.backend.add_node", "self.backend.add_edge"):
-        if bypass in enrich_calls:
+        if bypass in calls:
             failures.append(f"shared text enrichment writes directly: {bypass}")
+    return failures
 
-    document_method = ingestion_methods.get("_ingest_document_file")
-    document_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(document_method)
-            if isinstance(node, ast.Call)
-        }
-        if document_method is not None
-        else set()
-    )
-    if "ingest_graph_slice" not in document_calls:
+
+def _document_ingest_failures(methods: dict[str, ast.AST]) -> list[str]:
+    calls = _calls(methods.get("_ingest_document_file"))
+    failures: list[str] = []
+    if "ingest_graph_slice" not in calls:
         failures.append("generic document ingestion bypasses the native graph slice")
-    if "persistence_reference" not in document_calls:
+    if "persistence_reference" not in calls:
         failures.append("generic document ingestion persists a raw source location")
     for bypass in ("backend.add_node", "backend.add_edge"):
-        if bypass in document_calls:
+        if bypass in calls:
             failures.append(f"generic document ingestion writes directly: {bypass}")
+    return failures
 
-    acquire_method = ingestion_methods.get("_acquire_referenced_papers")
-    acquire_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(acquire_method)
-            if isinstance(node, ast.Call)
-        }
-        if acquire_method is not None
-        else set()
-    )
-    if "ingest_graph_slice" not in acquire_calls:
+
+def _paper_acquisition_failures(methods: dict[str, ast.AST]) -> list[str]:
+    calls = _calls(methods.get("_acquire_referenced_papers"))
+    failures: list[str] = []
+    if "ingest_graph_slice" not in calls:
         failures.append("research-roundup links bypass the native graph slice")
-    if "self.backend.add_edge" in acquire_calls:
+    if "self.backend.add_edge" in calls:
         failures.append("research-roundup links write directly")
+    return failures
 
-    connector_method = ingestion_methods.get("_ingest_connector")
-    connector_processors = (
+
+def _connector_processor_failures(method: ast.AST | None) -> list[str]:
+    processors = (
         [
             node
-            for node in ast.walk(connector_method)
+            for node in ast.walk(method)
             if isinstance(node, ast.Call)
             and _dotted(node.func).endswith("DocumentProcessor")
         ]
-        if connector_method is not None
+        if method is not None
         else []
     )
-    if not connector_processors or any(
+    if not processors or any(
         not any(keyword.arg == "engine" for keyword in call.keywords)
-        for call in connector_processors
+        for call in processors
     ):
-        failures.append("connector DocumentProcessor lacks native engine authority")
-    connector_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(connector_method)
-            if isinstance(node, ast.Call)
-        }
-        if connector_method is not None
-        else set()
-    )
+        return ["connector DocumentProcessor lacks native engine authority"]
+    return []
+
+
+def _connector_failures(methods: dict[str, ast.AST]) -> list[str]:
+    method = methods.get("_ingest_connector")
+    failures = _connector_processor_failures(method)
+    calls = _calls(method)
     for required in ("read_change_cursor", "ingest_graph_slice"):
-        if required not in connector_calls:
+        if required not in calls:
             failures.append(f"generic connector lacks native {required} boundary")
     for bypass in ("self.manifest.get", "self.manifest.record"):
-        if bypass in connector_calls:
+        if bypass in calls:
             failures.append(
                 f"generic connector retains split cursor authority: {bypass}"
             )
+    return failures
 
-    world_source = WORLD_MODEL.read_text(encoding="utf-8")
+
+def _ingestion_engine_failures() -> list[str]:
+    methods = _ingestion_methods()
+    failures = _enrich_failures(methods)
+    failures.extend(_document_ingest_failures(methods))
+    failures.extend(_paper_acquisition_failures(methods))
+    failures.extend(_connector_failures(methods))
+    return failures
+
+
+def _world_model_failures() -> list[str]:
+    source = WORLD_MODEL.read_text(encoding="utf-8")
+    failures: list[str] = []
     for bypass in (
         "engine.graph.add_node(",
         "self.engine._upsert_node(",
         "engine.add_edge(",
     ):
-        if bypass in world_source:
+        if bypass in source:
             failures.append(
                 f"world-model external ingest bypasses native envelope: {bypass}"
             )
-    if "._enrich_text(" in world_source:
+    if "._enrich_text(" in source:
         failures.append(
             "world-model external ingest invokes the legacy direct-write enrichment seam"
         )
+    return failures
 
-    research_source = RESEARCH_PIPELINE.read_text(encoding="utf-8")
-    research_tree = ast.parse(research_source, filename=str(RESEARCH_PIPELINE))
-    research_functions = {
+
+def _research_functions(
+    tree: ast.AST,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    functions = {
         node.name: node
-        for node in research_tree.body
+        for node in tree.body
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
-    runner = next(
-        (
-            node
-            for node in research_tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "ResearchPipelineRunner"
-        ),
-        None,
-    )
+    runner = _class_node(tree, "ResearchPipelineRunner")
     if runner is not None:
-        research_functions.update(
+        functions.update(
             {
                 node.name: node
                 for node in runner.body
                 if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
             }
         )
+    return functions
+
+
+def _research_paper_failures(
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[str]:
+    failures: list[str] = []
     for name in ("ingest_paper_full", "ingest_paper_marginal"):
-        function = research_functions.get(name)
-        calls = (
-            {
-                _dotted(node.func)
-                for node in ast.walk(function)
-                if isinstance(node, ast.Call)
-            }
-            if function is not None
-            else set()
-        )
+        calls = _calls(functions.get(name))
         if "_commit_research_paper_slice" not in calls:
             failures.append(f"{name} bypasses the native research paper slice")
         leaked = sorted(
@@ -449,39 +472,32 @@ def violations() -> list[str]:
             failures.append(
                 f"{name} contains research graph-authority bypasses: {leaked}"
             )
+    return failures
 
+
+def _research_document_failures(
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[str]:
+    failures: list[str] = []
     for name in ("ingest_local_file", "ingest_url"):
-        function = research_functions.get(name)
-        calls = (
-            {
-                _dotted(node.func)
-                for node in ast.walk(function)
-                if isinstance(node, ast.Call)
-            }
-            if function is not None
-            else set()
-        )
-        if "DocumentProcessor" not in calls:
+        if "DocumentProcessor" not in _calls(functions.get(name)):
             failures.append(f"{name} bypasses native DocumentProcessor ingestion")
+    return failures
 
-    paper_slice = research_functions.get("_commit_research_paper_slice")
-    paper_calls = (
-        {
-            _dotted(node.func)
-            for node in ast.walk(paper_slice)
-            if isinstance(node, ast.Call)
-        }
-        if paper_slice is not None
-        else set()
-    )
-    if "ingest_graph_slice" not in paper_calls:
+
+def _research_slice_failures(
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef], source: str
+) -> list[str]:
+    calls = _calls(functions.get("_commit_research_paper_slice"))
+    failures: list[str] = []
+    if "ingest_graph_slice" not in calls:
         failures.append("research paper slice does not invoke ingest_graph_slice")
     for marker in (
         "persistence_reference(",
         'name="[REDACTED_PERSON]"',
         "DocumentProcessor(",
     ):
-        if marker not in research_source:
+        if marker not in source:
             failures.append(f"research native/privacy boundary is missing {marker}")
     for bypass in (
         "ScholarXKGBridge",
@@ -490,42 +506,59 @@ def violations() -> list[str]:
         "self.engine.graph.add_edge(",
         "self.engine._upsert_node(",
     ):
-        if bypass in research_source:
+        if bypass in source:
             failures.append(
                 f"research paper graph authority bypasses native envelope: {bypass}"
             )
+    return failures
 
-    research_feed = RESEARCH_FEED.read_text(encoding="utf-8")
-    if '"authors": author_refs' not in research_feed:
-        failures.append("research fetch work item persists raw author identities")
 
-    cohort_source = RESEARCH_COHORT.read_text(encoding="utf-8")
+def _research_pipeline_failures() -> list[str]:
+    source = RESEARCH_PIPELINE.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(RESEARCH_PIPELINE))
+    functions = _research_functions(tree)
+    failures = _research_paper_failures(functions)
+    failures.extend(_research_document_failures(functions))
+    failures.extend(_research_slice_failures(functions, source))
+    return failures
+
+
+def _research_feed_failures() -> list[str]:
+    source = RESEARCH_FEED.read_text(encoding="utf-8")
+    if '"authors": author_refs' not in source:
+        return ["research fetch work item persists raw author identities"]
+    return []
+
+
+def _research_cohort_failures() -> list[str]:
+    source = RESEARCH_COHORT.read_text(encoding="utf-8")
+    failures: list[str] = []
     for marker in (
         "def _commit_cohort_state(",
         "ingest_graph_slice(",
         "def resolve_ephemeral_paper_pdf(",
     ):
-        if marker not in cohort_source:
+        if marker not in source:
             failures.append(f"research cohort native boundary is missing {marker}")
-    for bypass in (
-        "engine.add_node(",
-        '"pdf_path"',
-        "_paper_pdf_path",
-    ):
-        if bypass in cohort_source:
+    for bypass in ("engine.add_node(", '"pdf_path"', "_paper_pdf_path"):
+        if bypass in source:
             failures.append(
                 f"research cohort persists through a forbidden seam: {bypass}"
             )
+    return failures
 
-    engine_tasks = ENGINE_TASKS.read_text(encoding="utf-8")
-    if "resolve_ephemeral_paper_pdf(" not in engine_tasks:
+
+def _research_engine_task_failures() -> list[str]:
+    source = ENGINE_TASKS.read_text(encoding="utf-8")
+    failures: list[str] = []
+    if "resolve_ephemeral_paper_pdf(" not in source:
         failures.append("research worker does not resolve paper files ephemerally")
-    if 'paper.get("pdf_path")' in engine_tasks:
+    if 'paper.get("pdf_path")' in source:
         failures.append("research worker accepts a durable local paper path")
-    engine_tasks_tree = ast.parse(engine_tasks, filename=str(ENGINE_TASKS))
+    tree = ast.parse(source, filename=str(ENGINE_TASKS))
     task_processors = [
         node
-        for node in ast.walk(engine_tasks_tree)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and _dotted(node.func).endswith("DocumentProcessor")
     ]
@@ -534,10 +567,11 @@ def violations() -> list[str]:
         for call in task_processors
     ):
         failures.append("worker DocumentProcessor lacks native engine authority")
+    return failures
 
-    # Repository-wide external-batch regression fence. Hydration handlers retain
-    # the compatibility-shaped call only because source_sync supplies the native
-    # ChangeEnvelope proxy; no other production module may call it directly.
+
+def _external_batch_failures() -> list[str]:
+    failures: list[str] = []
     for path in (ROOT / "agent_utilities").rglob("*.py"):
         if path.resolve() == HYDRATION.resolve():
             continue
@@ -552,11 +586,38 @@ def violations() -> list[str]:
                     "external batch bypass outside native-proxied hydration: "
                     f"{relative}:{call.lineno} ({dotted})"
                 )
+    return failures
 
-    feed_source = FEED_SOURCES.read_text(encoding="utf-8")
-    for bypass in ("engine.add_node(", "DETACH DELETE"):
-        if bypass in feed_source:
-            failures.append(f"feed registry bypasses native envelope: {bypass}")
+
+def _feed_source_failures() -> list[str]:
+    source = FEED_SOURCES.read_text(encoding="utf-8")
+    return [
+        f"feed registry bypasses native envelope: {bypass}"
+        for bypass in ("engine.add_node(", "DETACH DELETE")
+        if bypass in source
+    ]
+
+
+def violations() -> list[str]:
+    failures, incomplete = _ingest_failures()
+    if incomplete:
+        return failures
+
+    failures.extend(_retired_source_failures())
+    failures.extend(_retired_import_failures())
+    failures.extend(_source_sync_failures())
+    failures.extend(_hydration_failures())
+    failures.extend(_materialize_failures())
+    failures.extend(_chunked_drain_failures())
+    failures.extend(_document_processor_failures())
+    failures.extend(_ingestion_engine_failures())
+    failures.extend(_world_model_failures())
+    failures.extend(_research_pipeline_failures())
+    failures.extend(_research_feed_failures())
+    failures.extend(_research_cohort_failures())
+    failures.extend(_research_engine_task_failures())
+    failures.extend(_external_batch_failures())
+    failures.extend(_feed_source_failures())
     return failures
 
 
