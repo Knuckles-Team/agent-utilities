@@ -440,11 +440,10 @@ def _lsh_candidates(
     for members in buckets.values():
         if len(members) < 2:
             continue
-        candidates.update(
-            tuple(sorted((members[i], members[j])))
-            for i in range(len(members))
-            for j in range(i + 1, len(members))
-        )
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                left, right = sorted((members[i], members[j]))
+                candidates.add((left, right))
     return candidates
 
 
@@ -509,7 +508,8 @@ def _emit_lsh_merges(
         survivor = by_key[group_keys[0]][0]
         for other_key in group_keys[1:]:
             duplicate = by_key[other_key][0]
-            pair = tuple(sorted((group_keys[0], other_key)))
+            pair_left, pair_right = sorted((group_keys[0], other_key))
+            pair = (pair_left, pair_right)
             score = fuzzy_scores.get(pair, _JACCARD_THRESHOLD)
             result.merge_pairs.append((survivor, duplicate, float(score), "lsh"))
             result.resolved_ids.update((survivor, duplicate))

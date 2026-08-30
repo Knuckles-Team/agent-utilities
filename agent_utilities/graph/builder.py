@@ -10,7 +10,7 @@ registration, and the definition of the graph's dynamic routing topology.
 
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic_graph import End
 from pydantic_graph.graph_builder import Graph, GraphBuilder
@@ -250,12 +250,14 @@ def _build_discovery_metadata(config_path: Any, loop: Any) -> dict[str, Any]:
         from collections import defaultdict
 
         registry = get_discovery_registry()
-        tools_by_server: dict[str, list[Any]] = defaultdict(list)
+        tools_by_server: dict[str | None, list[Any]] = defaultdict(list)
         for agent in registry.agents:
             for tool in agent.tools:
                 tools_by_server[agent.mcp_server].append(tool)
+        # Empty agents never create buckets; remove the unbound sentinel.
+        tools_by_server.pop(None, None)
 
-        discovery_metadata = dict(tools_by_server)
+        discovery_metadata = cast(dict[str, Any], dict(tools_by_server))
         logger.info(
             "Initializing Graph: Verified %s servers from registry.",
             len(discovery_metadata),

@@ -241,7 +241,7 @@ class SkillCompiler:
         """Parse raw markdown into a GraphPlan."""
         matches = _find_step_matches(markdown)
         if not matches:
-            steps = [
+            fallback_steps = [
                 ExecutionStep(
                     id="executor",
                     refined_subtask=markdown.strip()[:1000],
@@ -249,7 +249,7 @@ class SkillCompiler:
                 )
             ]
             return GraphPlan(
-                steps=steps,
+                steps=fallback_steps,
                 metadata={"name": name, "timeout_seconds": 600},
             )
 

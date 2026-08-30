@@ -49,9 +49,7 @@ async def _compile_workflow(
     orchestrator: Any, engine: Any, task: str, name: str
 ) -> str:
     compiled_name = name or f"compiled_{uuid.uuid4().hex}"
-    workflow_id = await orchestrator.compile_workflow(
-        name=compiled_name, task=task
-    )
+    workflow_id = await orchestrator.compile_workflow(name=compiled_name, task=task)
     return json.dumps(
         {
             "status": "compiled",
@@ -85,9 +83,7 @@ async def _compile_process_workflow(engine: Any, workflow: str, name: str) -> st
 async def _list_workflows(engine: Any, limit: int) -> str:
     from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
-    workflows = await asyncio.to_thread(
-        WorkflowStore(engine).list_workflows, limit
-    )
+    workflows = await asyncio.to_thread(WorkflowStore(engine).list_workflows, limit)
     return json.dumps(
         {
             "source": "kg",
@@ -154,9 +150,7 @@ async def _execute_workflow(
     return json.dumps(
         {
             "result": result,
-            "mermaid": await asyncio.to_thread(
-                _workflow_mermaid, engine, workflow
-            ),
+            "mermaid": await asyncio.to_thread(_workflow_mermaid, engine, workflow),
         },
         default=str,
     )
@@ -189,9 +183,7 @@ async def _execute_dynamic_workflow(
     return json.dumps(
         {
             "result": dynamic_result,
-            "mermaid": await asyncio.to_thread(
-                _workflow_mermaid, engine, workflow
-            ),
+            "mermaid": await asyncio.to_thread(_workflow_mermaid, engine, workflow),
         },
         default=str,
     )
@@ -326,9 +318,7 @@ def register_workflow_tools(mcp: Any) -> None:
 
             orchestrator = Orchestrator(engine)
             if action == "compile":
-                return await _compile_workflow(
-                    orchestrator, engine, task, name
-                )
+                return await _compile_workflow(orchestrator, engine, task, name)
 
             if action == "compile_process":
                 return await _compile_process_workflow(engine, workflow, name)

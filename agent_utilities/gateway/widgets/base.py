@@ -180,6 +180,7 @@ _WIDGET_FIELD_SPECS: dict[str, tuple[dict[str, Any], ...]] = {
     ),
 }
 
+
 class BaseWidget(ABC):
     """Abstract base class for all dashboard service widgets.
 

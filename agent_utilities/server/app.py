@@ -84,8 +84,7 @@ def _build_agent_app_kwargs(
         for name, parameter in factory_parameters.items()
         if name not in exclude
         and (
-            name in available_values
-            or parameter.default is not inspect.Parameter.empty
+            name in available_values or parameter.default is not inspect.Parameter.empty
         )
     }
     if "mcp_url" in kwargs:
