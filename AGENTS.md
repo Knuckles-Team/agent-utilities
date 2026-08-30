@@ -325,6 +325,26 @@ case itself next time. The goal is orchestrating completely off the harness.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
+## Greenfield AU/EG target invariants (one authority per input class)
+
+This is the **replacement target only**: current code, runtime observations, and historical
+defects are evidence, not compatibility authorities or proof of implementation. Detail is in
+[`DESIGN.md`](../../plans/refactor/DESIGN.md), [`DECISIONS.md`](../../plans/refactor/DECISIONS.md),
+[`QUALITY.md`](../../plans/refactor/QUALITY.md), [`OPTIMIZATION.md`](../../plans/refactor/OPTIMIZATION.md),
+and [`DELIVERY.md`](../../plans/refactor/DELIVERY.md).
+
+| Input / concern | Sole target authority and invariant |
+|---|---|
+| Contracts and projections | One language-neutral, versioned catalog owns wire/data, identity, errors, events, query, ingestion, and digest definitions. Python/Rust/TypeScript, REST/MCP/CLI, workflow, Atlas, and deployment forms are generated or validated projections; every registry/projection carries the same `catalog_digest`, and handwritten DTOs/route lists are not authorities. |
+| AU ↔ EG ownership | AU owns natural-language/typed intent, application use cases, orchestration, source-lifecycle control, and surface adapters; it emits typed `QueryIntent` and validated UQL requests. EG alone parses, lowers, optimizes, explains, and executes UQL, and owns graph storage/transactions, reasoning, compute, and durable work/job state. AU reaches one EG durable-ingestion boundary and observes typed receipts. |
+| Authority and policy | One catalog-defined `AuthorityContextV1` is admitted once as EG `VerifiedAuthorityV1`; use the complete [authority contract](../../plans/refactor/evidence/proposals/AUTHORITY-CONTEXT-V1.md), not abbreviated/local field lists. No surface, caller payload, ambient state, or adapter recreates context or policy. |
+| Application/source/query | AU has one `KnowledgeGraph`/private `ApplicationRegistryV1`, one source registry/lifecycle, and one `au-eg.query.v1` path. The application registry, source/query registries, and every generated adapter bind the catalog digest. REST, MCP, CLI, workflows, Atlas, and other edge modalities are thin adapters; none calls another adapter or chooses a private executor. |
+| Workspace and host inventory | Workspace-root `workspace.yml` is the canonical fleet manifest; runtime/package/generated copies are source-identified projections. The sole host input is `$XDG_CONFIG_HOME/agent-utilities/inventory.yml` (`authority_namespace=operator-host-xdg`, `source_identity=host-xdg-inventory.v1`), mounted to `/etc/agent-utilities/inventory.yml` read-only for inventory readers. Missing/malformed/wrong-digest input, `plans/refactor/inventory.yml`, legacy `.yaml`, package, directory, or service-local fallback fails closed. |
+| Durable source/data/work state | EG owns storage, transaction, source cursor/raw evidence, scheduler/queue, workflow run-state, durable work, and checkpoint authorities; there is no parallel source cursor/raw authority. AU source orchestration and caches/mirrors/receipts may project or request these authorities but cannot ingest, acknowledge, schedule, query, or resume in their place. |
+| Fleet graph | `workspace.yml` records layers and edge classes; `repository-manager` is control-plane-only for validation/projection/SCC/order and never an AU/EG runtime dependency or product/data authority. Record edge classes `production_runtime_package`, `build_generation`, `development_test`, `deployment_composition` separately from observation modalities `manifest_declared`, `statically_resolved`, `runtime_observed`, `generated_projection`, `dynamically_unresolved`, and `third_party_observed`; production/runtime/package has zero SCCs, while build/generation/dev/test cannot pull production upward. |
+| Refactor economics | Every slice supplies the optimization scorecard: owner, real consumer classes, base/candidate identity, deletion/merge, dependency/SCC/public/path/resource deltas, correctness/security/data/wiring evidence, and unknowns. Delete, reuse, merge, and move before extracting the smallest cohesive primitive; a new repository requires a lower-level owner, multiple live consumers, and measured cycle/duplication/public/dependency reduction. |
+| Release and data cutover | Regenerate and sign all direct, generated, dynamic, documented, frontend, service, image, deployment, package, workflow, docs, REST, MCP, CLI, Atlas/UI, agent, skill, and loader consumers under one catalog/release identity. Require signed identity and old-surface absence evidence per consumer, then activate through one atomic barrier; partial/mixed fleets are unsupported. Start fresh stores/namespaces from source-of-record reingestion or governed fixtures; no old readers/converters/dual paths/rollback-to-old. Target-format reset, discard, or recovery is allowed only from new artifacts and source-of-record data. |
+
 ## Dependency discipline — NO heavy ML/native deps in core (READ before adding a dependency)
 
 agent-utilities core is the **serving plane**: the KG, retrieval, MCP server (`kg_server`),
@@ -1269,42 +1289,6 @@ had just fixed. It recorded the deferral instead. The queue now does this for yo
 Budget derivation, measured costs, what is now *impossible* rather than discouraged,
 and the residual gaps: [`docs/architecture/merge-queue.md`](docs/architecture/merge-queue.md).
 
-## Project Structure (generated)
-
-_Auto-generated by `scripts/gen_agents_md.py`. Full tree moved out of AGENTS.md to keep its size cap governing hand-written guidance (D-WS-4) — see [`docs/project_structure.md`](docs/project_structure.md)._
-
-<!-- BEGIN concept-coordination (generated) -->
-## Concept-ID Coordination (multi-session)
-
-Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
-
-```bash
-agent-utilities --json concept reserve --id AU-KG.ingest.semantic-concept
-```
-
-Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordination.md`](docs/concept_coordination.md).
-<!-- END concept-coordination (generated) -->
-
-## Concept Reference (generated)
-
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 1216 concepts across 9 pillars._
-
-| Pillar | Count | Domains |
-|:------|:---:|:------|
-| **AU-AHE** | 120 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 141 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 512 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 219 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
-| **AU-OS** | 187 | audit, config, context, control-plane, deployment, governance, host, identity, measurement, observability, safety, scaling, state |
-| **EG-AHE** | 1 | harness |
-| **EG-KG** | 34 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
-| **EG-ORCH** | 1 | routing |
-| **EG-OS** | 1 | deployment |
-
-_Full id list + code paths: `docs/concepts.yaml`._
-
-See [`docs/status.md`](docs/status.md) for the live, generated breakdown by pillar and status.
-
 ## Provenance citations — `reports/*.md` resolves OUTSIDE this repo
 
 Code and docs here cite planning artifacts as `reports/issue-register.md`,
@@ -1329,3 +1313,39 @@ workspace root.** New citations should use the qualified path
 `reports/...` form; existing bare citations are upgraded opportunistically,
 not in a bulk sweep (a mass rewrite risks mis-mapping GOC-numbered items into
 the wrong archive directory).
+
+## Project Structure (generated)
+
+_Auto-generated by `scripts/gen_agents_md.py`. Full tree moved out of AGENTS.md to keep its size cap governing hand-written guidance (D-WS-4) — see [`docs/project_structure.md`](docs/project_structure.md)._
+
+<!-- BEGIN concept-coordination (generated) -->
+## Concept-ID Coordination (multi-session)
+
+Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
+
+```bash
+agent-utilities --json concept reserve --id AU-KG.ingest.semantic-concept
+```
+
+Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordination.md`](docs/concept_coordination.md).
+<!-- END concept-coordination (generated) -->
+
+## Concept Reference (generated)
+
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1232 concepts across 9 pillars._
+
+| Pillar | Count | Domains |
+|:------|:---:|:------|
+| **AU-AHE** | 120 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
+| **AU-ECO** | 141 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 526 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
+| **AU-ORCH** | 220 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 188 | audit, config, context, control-plane, deployment, governance, host, identity, measurement, observability, safety, scaling, state |
+| **EG-AHE** | 1 | harness |
+| **EG-KG** | 34 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
+| **EG-ORCH** | 1 | routing |
+| **EG-OS** | 1 | deployment |
+
+_Full id list + code paths: `docs/concepts.yaml`._
+
+See [`docs/status.md`](docs/status.md) for the live, generated breakdown by pillar and status.

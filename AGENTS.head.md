@@ -325,6 +325,26 @@ case itself next time. The goal is orchestrating completely off the harness.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
+## Greenfield AU/EG target invariants (one authority per input class)
+
+This is the **replacement target only**: current code, runtime observations, and historical
+defects are evidence, not compatibility authorities or proof of implementation. Detail is in
+[`DESIGN.md`](../../plans/refactor/DESIGN.md), [`DECISIONS.md`](../../plans/refactor/DECISIONS.md),
+[`QUALITY.md`](../../plans/refactor/QUALITY.md), [`OPTIMIZATION.md`](../../plans/refactor/OPTIMIZATION.md),
+and [`DELIVERY.md`](../../plans/refactor/DELIVERY.md).
+
+| Input / concern | Sole target authority and invariant |
+|---|---|
+| Contracts and projections | One language-neutral, versioned catalog owns wire/data, identity, errors, events, query, ingestion, and digest definitions. Python/Rust/TypeScript, REST/MCP/CLI, workflow, Atlas, and deployment forms are generated or validated projections; every registry/projection carries the same `catalog_digest`, and handwritten DTOs/route lists are not authorities. |
+| AU ↔ EG ownership | AU owns natural-language/typed intent, application use cases, orchestration, source-lifecycle control, and surface adapters; it emits typed `QueryIntent` and validated UQL requests. EG alone parses, lowers, optimizes, explains, and executes UQL, and owns graph storage/transactions, reasoning, compute, and durable work/job state. AU reaches one EG durable-ingestion boundary and observes typed receipts. |
+| Authority and policy | One catalog-defined `AuthorityContextV1` is admitted once as EG `VerifiedAuthorityV1`; use the complete [authority contract](../../plans/refactor/evidence/proposals/AUTHORITY-CONTEXT-V1.md), not abbreviated/local field lists. No surface, caller payload, ambient state, or adapter recreates context or policy. |
+| Application/source/query | AU has one `KnowledgeGraph`/private `ApplicationRegistryV1`, one source registry/lifecycle, and one `au-eg.query.v1` path. The application registry, source/query registries, and every generated adapter bind the catalog digest. REST, MCP, CLI, workflows, Atlas, and other edge modalities are thin adapters; none calls another adapter or chooses a private executor. |
+| Workspace and host inventory | Workspace-root `workspace.yml` is the canonical fleet manifest; runtime/package/generated copies are source-identified projections. The sole host input is `$XDG_CONFIG_HOME/agent-utilities/inventory.yml` (`authority_namespace=operator-host-xdg`, `source_identity=host-xdg-inventory.v1`), mounted to `/etc/agent-utilities/inventory.yml` read-only for inventory readers. Missing/malformed/wrong-digest input, `plans/refactor/inventory.yml`, legacy `.yaml`, package, directory, or service-local fallback fails closed. |
+| Durable source/data/work state | EG owns storage, transaction, source cursor/raw evidence, scheduler/queue, workflow run-state, durable work, and checkpoint authorities; there is no parallel source cursor/raw authority. AU source orchestration and caches/mirrors/receipts may project or request these authorities but cannot ingest, acknowledge, schedule, query, or resume in their place. |
+| Fleet graph | `workspace.yml` records layers and edge classes; `repository-manager` is control-plane-only for validation/projection/SCC/order and never an AU/EG runtime dependency or product/data authority. Record edge classes `production_runtime_package`, `build_generation`, `development_test`, `deployment_composition` separately from observation modalities `manifest_declared`, `statically_resolved`, `runtime_observed`, `generated_projection`, `dynamically_unresolved`, and `third_party_observed`; production/runtime/package has zero SCCs, while build/generation/dev/test cannot pull production upward. |
+| Refactor economics | Every slice supplies the optimization scorecard: owner, real consumer classes, base/candidate identity, deletion/merge, dependency/SCC/public/path/resource deltas, correctness/security/data/wiring evidence, and unknowns. Delete, reuse, merge, and move before extracting the smallest cohesive primitive; a new repository requires a lower-level owner, multiple live consumers, and measured cycle/duplication/public/dependency reduction. |
+| Release and data cutover | Regenerate and sign all direct, generated, dynamic, documented, frontend, service, image, deployment, package, workflow, docs, REST, MCP, CLI, Atlas/UI, agent, skill, and loader consumers under one catalog/release identity. Require signed identity and old-surface absence evidence per consumer, then activate through one atomic barrier; partial/mixed fleets are unsupported. Start fresh stores/namespaces from source-of-record reingestion or governed fixtures; no old readers/converters/dual paths/rollback-to-old. Target-format reset, discard, or recovery is allowed only from new artifacts and source-of-record data. |
+
 ## Dependency discipline — NO heavy ML/native deps in core (READ before adding a dependency)
 
 agent-utilities core is the **serving plane**: the KG, retrieval, MCP server (`kg_server`),
@@ -1268,3 +1288,28 @@ had just fixed. It recorded the deferral instead. The queue now does this for yo
 
 Budget derivation, measured costs, what is now *impossible* rather than discouraged,
 and the residual gaps: [`docs/architecture/merge-queue.md`](docs/architecture/merge-queue.md).
+
+## Provenance citations — `reports/*.md` resolves OUTSIDE this repo
+
+Code and docs here cite planning artifacts as `reports/issue-register.md`,
+`reports/seam-identity-closure.md`, `reports/waveN/ADR-*.md`, and similar.
+**These are workspace-level documents; they are NOT paths in this repository.**
+They resolve under the workspace root:
+
+- `reports/issue-register.md`, `reports/seam-*.md`, `reports/waveN/ADR-*.md`
+  → `plans/_archive/au-eg-program/`
+- GOC-numbered items → `plans/graph-os-completion-program/`
+
+`git log --all -- 'reports/issue-register.md'` in this repo correctly returns
+**zero commits**. That is expected and is *not* evidence the citation is
+fabricated — a per-repo git log cannot see a workspace-level document. That
+exact absence-of-evidence was misread as evidence-of-absence on 2026-08-25,
+and valid provenance was deleted from ~11 sites before it was caught and
+restored.
+
+**Before concluding any citation is fake, resolve the filename against the
+workspace root.** New citations should use the qualified path
+(e.g. `plans/_archive/au-eg-program/issue-register.md`) rather than the bare
+`reports/...` form; existing bare citations are upgraded opportunistically,
+not in a bulk sweep (a mass rewrite risks mis-mapping GOC-numbered items into
+the wrong archive directory).
