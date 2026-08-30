@@ -170,14 +170,18 @@ import subprocess
 import sys
 import time
 import tomllib
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _symbol_surface import (  # noqa: E402
     CallableSurface,
     ClassSurface,
     ModuleSurface,
+    ParamSignature,
     module_dotted_name,
     parse_module_surface,
     resolve_callable_surface,
@@ -189,6 +193,59 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PACKAGE = "agent_utilities"
 DEFAULT_INDEX = ROOT / "scripts" / "fleet_symbol_consumers.json"
 DEFAULT_MAX_INDEX_AGE_DAYS = 30
+
+SurfaceMap = dict[str, ModuleSurface]
+Consumer = dict[str, Any]
+ConsumerIndex = dict[str, Any]
+Violation = dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ScanOptions:
+    """Command-line values needed after argument parsing."""
+
+    tree: Path
+    base_ref: str
+    head_ref: str | None
+    package: str
+    consumer_index: Path | None
+    max_index_age_days: int
+    json_output: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ScanContext:
+    """Resolved refs, surfaces, dependencies, and index for one comparison."""
+
+    options: ScanOptions
+    tree: Path
+    index: ConsumerIndex
+    resolved_base: str
+    resolved_head: str | None
+    base_surface: SurfaceMap
+    head_surface: SurfaceMap
+    changes: ChangeSet
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeSet:
+    """All five detector outputs, kept together for reporting and totals."""
+
+    removed_symbols: list[tuple[str, str, str]]
+    eager_drift: list[tuple[str, list[str]]]
+    signature_breaks: list[tuple[str, list[str]]]
+    removed_modules: list[str]
+    class_removals: list[tuple[str, list[str]]]
+
+
+@dataclass(frozen=True, slots=True)
+class _BatchRead:
+    """One record read from ``git cat-file --batch`` output."""
+
+    next_position: int
+    content: bytes | None = None
+    error: str | None = None
+    stop: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +270,117 @@ def _resolve_ref(tree: Path, ref: str) -> str | None:
     return res.stdout.strip()
 
 
-def surface_at_ref(tree: Path, ref: str, package_name: str) -> dict[str, ModuleSurface]:
+def _tree_blob_entry(line: str, package_name: str) -> tuple[str, str] | None:
+    if "\t" not in line:
+        return None
+    meta, rel = line.split("\t", 1)
+    parts = meta.split(" ")
+    if len(parts) != 3:
+        return None
+    _mode, obj_type, sha = parts
+    if obj_type != "blob" or not rel.endswith(".py"):
+        return None
+    if rel.startswith(f"{package_name}/tests/") or "/tests/" in rel:
+        return None
+    return sha, rel
+
+
+def _python_blob_entries(tree_listing: str, package_name: str) -> list[tuple[str, str]]:
+    return [
+        entry
+        for line in tree_listing.splitlines()
+        if (entry := _tree_blob_entry(line, package_name)) is not None
+    ]
+
+
+def _read_batch_blob(buf: bytes, start: int, sha: str) -> _BatchRead:
+    newline = buf.find(b"\n", start)
+    if newline == -1:
+        return _BatchRead(
+            next_position=start,
+            error="git cat-file --batch: truncated output",
+            stop=True,
+        )
+    header = buf[start:newline].decode("utf-8", errors="replace")
+    position = newline + 1
+    parts = header.split(" ")
+    if len(parts) != 3 or parts[0] != sha or parts[1] != "blob":
+        return _BatchRead(
+            next_position=position,
+            error=f"git cat-file --batch: unexpected header {header!r}",
+        )
+    size = int(parts[2])
+    content = buf[position : position + size]
+    position += size
+    if buf[position : position + 1] == b"\n":
+        position += 1  # cat-file --batch appends one trailing newline per object
+    return _BatchRead(next_position=position, content=content)
+
+
+def _surface_for_batch_blob(
+    buf: bytes,
+    *,
+    position: int,
+    sha: str,
+    rel: str,
+    package_name: str,
+) -> tuple[ModuleSurface, int, bool]:
+    dotted = module_dotted_name(Path(package_name), Path(rel), package_name)
+    read = _read_batch_blob(buf, position, sha)
+    if read.error:
+        return (
+            ModuleSurface(dotted=dotted, relpath=rel, parse_error=read.error),
+            read.next_position,
+            read.stop,
+        )
+    assert read.content is not None
+    try:
+        source = read.content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return (
+            ModuleSurface(dotted=dotted, relpath=rel, parse_error=str(exc)),
+            read.next_position,
+            False,
+        )
+    return (
+        parse_module_surface(source, dotted, rel, package_name),
+        read.next_position,
+        False,
+    )
+
+
+def _surfaces_from_batch(
+    entries: list[tuple[str, str]], buf: bytes, package_name: str
+) -> SurfaceMap:
+    out: SurfaceMap = {}
+    position = 0
+    for sha, rel in entries:
+        surface, position, stop = _surface_for_batch_blob(
+            buf,
+            position=position,
+            sha=sha,
+            rel=rel,
+            package_name=package_name,
+        )
+        out[surface.dotted] = surface
+        if stop:
+            break
+    return out
+
+
+def _cat_file_batch(tree: Path, entries: list[tuple[str, str]]) -> bytes:
+    batch_input = ("\n".join(sha for sha, _ in entries) + "\n").encode("utf-8")
+    proc = subprocess.run(
+        ["git", "-C", str(tree), "cat-file", "--batch"],
+        input=batch_input,
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
+    return proc.stdout
+
+
+def surface_at_ref(tree: Path, ref: str, package_name: str) -> SurfaceMap:
     """Public surface of ``package_name/`` at a git ref.
 
     Performance: reads every file's blob in ONE ``git cat-file --batch`` call
@@ -231,73 +398,10 @@ def surface_at_ref(tree: Path, ref: str, package_name: str) -> dict[str, ModuleS
         raise RuntimeError(
             f"git ls-tree failed for ref {ref!r} in {tree}: {ls.stderr.strip()}"
         )
-    entries: list[tuple[str, str]] = []  # (blob_sha, repo-relative path)
-    for line in ls.stdout.splitlines():
-        if "\t" not in line:
-            continue
-        meta, rel = line.split("\t", 1)
-        meta_parts = meta.split(" ")
-        if len(meta_parts) != 3:
-            continue
-        _mode, obj_type, sha = meta_parts
-        if obj_type != "blob" or not rel.endswith(".py"):
-            continue
-        if rel.startswith(f"{package_name}/tests/") or "/tests/" in rel:
-            continue
-        entries.append((sha, rel))
-
-    out: dict[str, ModuleSurface] = {}
+    entries = _python_blob_entries(ls.stdout, package_name)
     if not entries:
-        return out
-
-    batch_input = ("\n".join(sha for sha, _ in entries) + "\n").encode("utf-8")
-    proc = subprocess.run(
-        ["git", "-C", str(tree), "cat-file", "--batch"],
-        input=batch_input,
-        capture_output=True,
-        check=False,
-        timeout=120,
-    )
-    buf = proc.stdout
-    pos = 0
-    for sha, rel in entries:
-        dotted = module_dotted_name(Path(package_name), Path(rel), package_name)
-        nl = buf.find(b"\n", pos)
-        if nl == -1:
-            out[dotted] = ModuleSurface(
-                dotted=dotted,
-                relpath=rel,
-                parse_error="git cat-file --batch: truncated output",
-            )
-            break
-        header = buf[pos:nl].decode("utf-8", errors="replace")
-        pos = nl + 1
-        header_parts = header.split(" ")
-        if (
-            len(header_parts) != 3
-            or header_parts[0] != sha
-            or header_parts[1] != "blob"
-        ):
-            out[dotted] = ModuleSurface(
-                dotted=dotted,
-                relpath=rel,
-                parse_error=f"git cat-file --batch: unexpected header {header!r}",
-            )
-            continue
-        size = int(header_parts[2])
-        content = buf[pos : pos + size]
-        pos += size
-        if buf[pos : pos + 1] == b"\n":
-            pos += 1  # cat-file --batch appends one trailing newline per object
-        try:
-            source = content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            out[dotted] = ModuleSurface(
-                dotted=dotted, relpath=rel, parse_error=str(exc)
-            )
-            continue
-        out[dotted] = parse_module_surface(source, dotted, rel, package_name)
-    return out
+        return {}
+    return _surfaces_from_batch(entries, _cat_file_batch(tree, entries), package_name)
 
 
 def surface_on_disk(tree: Path, package_name: str) -> dict[str, ModuleSurface]:
@@ -345,6 +449,11 @@ def _pyproject_text_at_ref(tree: Path, ref: str) -> str | None:
 def _import_name_to_pkg_guess(import_name: str) -> str:
     """Best-effort import-name -> distribution-name guess (documented limitation)."""
     return import_name.replace("_", "-").lower()
+
+
+def _is_optional_only(pkg_guess: str, deps: dict[str, dict]) -> bool:
+    entry = deps.get(pkg_guess)
+    return entry is not None and bool(entry["extras"]) and not entry["in_base"]
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +559,7 @@ def find_removed_symbols(
 def find_eager_dependency_drift(
     base: dict[str, ModuleSurface],
     head: dict[str, ModuleSurface],
+    *,
     base_deps: dict[str, dict],
     head_deps: dict[str, dict],
 ) -> list[tuple[str, list[str]]]:
@@ -459,12 +569,6 @@ def find_eager_dependency_drift(
     and was not both present-and-optional at the base ref.
     """
 
-    def is_optional_only(pkg_guess: str, deps: dict[str, dict]) -> bool:
-        entry = deps.get(pkg_guess)
-        if entry is None:
-            return False  # unknown package: cannot claim it's optional-only
-        return bool(entry["extras"]) and not entry["in_base"]
-
     out: list[tuple[str, list[str]]] = []
     for module, head_surface in head.items():
         base_surface = base.get(module)
@@ -473,11 +577,11 @@ def find_eager_dependency_drift(
         new_pkgs: list[str] = []
         for imp in sorted(head_surface.eager_external_packages):
             guess = _import_name_to_pkg_guess(imp)
-            head_optional = is_optional_only(guess, head_deps)
+            head_optional = _is_optional_only(guess, head_deps)
             if not head_optional:
                 continue
             was_eager_before = imp in base_surface.eager_external_packages
-            was_optional_before = is_optional_only(guess, base_deps)
+            was_optional_before = _is_optional_only(guess, base_deps)
             if not (was_eager_before and was_optional_before):
                 new_pkgs.append(guess)
         if new_pkgs:
@@ -490,6 +594,68 @@ def find_eager_dependency_drift(
 # ---------------------------------------------------------------------------
 
 
+def _parameter_kind_change(
+    base_p: ParamSignature, head_p: ParamSignature
+) -> str | None:
+    if base_p.kind == "POSITIONAL_OR_KEYWORD" and head_p.kind == "KEYWORD_ONLY":
+        return (
+            f"parameter '{base_p.name}' became keyword-only (was positional-or-keyword)"
+        )
+    if base_p.kind in ("POSITIONAL_ONLY", "POSITIONAL_OR_KEYWORD") and head_p.kind in (
+        "VAR_KEYWORD",
+        "VAR_POSITIONAL",
+    ):
+        return f"parameter '{base_p.name}' removed (absorbed into *args/**kwargs)"
+    return None
+
+
+def _parameter_default_change(
+    base_p: ParamSignature, head_p: ParamSignature
+) -> str | None:
+    if base_p.has_default and not head_p.has_default:
+        return f"parameter '{base_p.name}' lost its default (became required)"
+    if (
+        base_p.has_default
+        and head_p.has_default
+        and base_p.default_repr != head_p.default_repr
+    ):
+        return (
+            f"parameter '{base_p.name}' default changed "
+            f"({base_p.default_repr!r} -> {head_p.default_repr!r})"
+        )
+    return None
+
+
+def _parameter_change(
+    base_p: ParamSignature, head_p: ParamSignature | None
+) -> list[str]:
+    if base_p.kind in ("VAR_POSITIONAL", "VAR_KEYWORD"):
+        return []
+    if head_p is None:
+        return [f"parameter '{base_p.name}' removed or renamed"]
+    return [
+        reason
+        for reason in (
+            _parameter_kind_change(base_p, head_p),
+            _parameter_default_change(base_p, head_p),
+        )
+        if reason is not None
+    ]
+
+
+def _new_required_parameters(
+    base_by_name: dict[str, ParamSignature],
+    head_by_name: dict[str, ParamSignature],
+) -> list[str]:
+    return [
+        f"new required parameter '{name}'"
+        for name, parameter in head_by_name.items()
+        if parameter.kind not in ("VAR_POSITIONAL", "VAR_KEYWORD")
+        and name not in base_by_name
+        and not parameter.has_default
+    ]
+
+
 def _diff_signature(base_fn: CallableSurface, head_fn: CallableSurface) -> list[str]:
     """Human-readable reasons a function's caller-visible signature changed in
     a way an existing caller could not survive unmodified. See Check 3's
@@ -500,41 +666,8 @@ def _diff_signature(base_fn: CallableSurface, head_fn: CallableSurface) -> list[
     head_by_name = {p.name: p for p in head_fn.params}
 
     for name, base_p in base_by_name.items():
-        if base_p.kind in ("VAR_POSITIONAL", "VAR_KEYWORD"):
-            continue
-        head_p = head_by_name.get(name)
-        if head_p is None:
-            reasons.append(f"parameter '{name}' removed or renamed")
-            continue
-        if base_p.kind == "POSITIONAL_OR_KEYWORD" and head_p.kind == "KEYWORD_ONLY":
-            reasons.append(
-                f"parameter '{name}' became keyword-only (was positional-or-keyword)"
-            )
-        elif base_p.kind in (
-            "POSITIONAL_ONLY",
-            "POSITIONAL_OR_KEYWORD",
-        ) and head_p.kind in (
-            "VAR_KEYWORD",
-            "VAR_POSITIONAL",
-        ):
-            reasons.append(f"parameter '{name}' removed (absorbed into *args/**kwargs)")
-        if base_p.has_default and not head_p.has_default:
-            reasons.append(f"parameter '{name}' lost its default (became required)")
-        elif (
-            base_p.has_default
-            and head_p.has_default
-            and base_p.default_repr != head_p.default_repr
-        ):
-            reasons.append(
-                f"parameter '{name}' default changed ({base_p.default_repr!r} -> {head_p.default_repr!r})"
-            )
-
-    for name, head_p in head_by_name.items():
-        if head_p.kind in ("VAR_POSITIONAL", "VAR_KEYWORD"):
-            continue
-        if name not in base_by_name and not head_p.has_default:
-            reasons.append(f"new required parameter '{name}'")
-
+        reasons.extend(_parameter_change(base_p, head_by_name.get(name)))
+    reasons.extend(_new_required_parameters(base_by_name, head_by_name))
     return reasons
 
 
@@ -625,20 +758,22 @@ def find_class_surface_removals(
 # ---------------------------------------------------------------------------
 
 
-def _consumers_for(index: dict, key: str) -> list[dict]:
+def _consumers_for(index: ConsumerIndex, key: str) -> list[Consumer]:
     return index.get("consumers", {}).get(key, [])
 
 
-def _consumers_for_module_prefix(index: dict, module: str) -> dict[str, list[dict]]:
+def _consumers_for_module_prefix(
+    index: ConsumerIndex, module: str
+) -> dict[str, list[Consumer]]:
     prefix = module + "."
-    hits: dict[str, list[dict]] = {}
+    hits: dict[str, list[Consumer]] = {}
     for key, cons in index.get("consumers", {}).items():
         if key == module or key.startswith(prefix):
             hits[key] = cons
     return hits
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--tree",
@@ -674,255 +809,408 @@ def main() -> int:
         "--max-index-age-days", type=int, default=DEFAULT_MAX_INDEX_AGE_DAYS
     )
     parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+    return parser
 
-    t_start = time.monotonic()
 
-    tree = args.tree.resolve()
-    index_path = args.consumer_index or (
-        tree / "scripts" / "fleet_symbol_consumers.json"
+def _parse_args() -> ScanOptions:
+    args = _build_parser().parse_args()
+    return ScanOptions(
+        tree=args.tree,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        package=args.package,
+        consumer_index=args.consumer_index,
+        max_index_age_days=args.max_index_age_days,
+        json_output=args.json,
     )
 
+
+def _load_index_or_report(options: ScanOptions, path: Path) -> ConsumerIndex | None:
     try:
-        index = load_consumer_index(index_path, args.max_index_age_days)
+        return load_consumer_index(path, options.max_index_age_days)
     except IndexError_ as exc:
         print(f"REMOVED-SYMBOL-CONSUMER GATE FAILED (index): {exc}", file=sys.stderr)
-        return 1
+        return None
 
-    resolved_base = _resolve_ref(tree, args.base_ref)
+
+def _resolve_base_or_report(tree: Path, ref: str) -> str | None:
+    resolved = _resolve_ref(tree, ref)
+    if resolved is not None:
+        return resolved
+    print(
+        f"REMOVED-SYMBOL-CONSUMER GATE FAILED: base ref {ref!r} does not "
+        f"resolve in {tree}. Fetch it first (e.g. `git fetch origin main`) — this "
+        "gate refuses to silently skip the comparison.",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _resolve_head_or_report(tree: Path, ref: str) -> str | None:
+    resolved = _resolve_ref(tree, ref)
+    if resolved is not None:
+        return resolved
+    print(
+        f"REMOVED-SYMBOL-CONSUMER GATE FAILED: head ref {ref!r} does "
+        f"not resolve in {tree}.",
+        file=sys.stderr,
+    )
+    return None
+
+
+def _package_exists_or_report(tree: Path, package: str) -> bool:
+    package_dir = tree / package
+    if package_dir.is_dir():
+        return True
+    print(
+        f"REMOVED-SYMBOL-CONSUMER GATE FAILED: package dir {package_dir} does not exist.",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _head_pyproject_text(tree: Path, resolved_head: str | None) -> str | None:
+    if resolved_head is not None:
+        return _pyproject_text_at_ref(tree, resolved_head)
+    path = tree / "pyproject.toml"
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def _dependency_drift(
+    *,
+    tree: Path,
+    resolved_base: str,
+    resolved_head: str | None,
+    base_surface: SurfaceMap,
+    head_surface: SurfaceMap,
+) -> list[tuple[str, list[str]]]:
+    base_text = _pyproject_text_at_ref(tree, resolved_base)
+    head_text = _head_pyproject_text(tree, resolved_head)
+    if not base_text or not head_text:
+        return []
+    base_deps = _classify_dependencies(base_text)
+    head_deps = _classify_dependencies(head_text)
+    if not base_deps or not head_deps:
+        return []
+    return find_eager_dependency_drift(
+        base_surface,
+        head_surface,
+        base_deps=base_deps,
+        head_deps=head_deps,
+    )
+
+
+def _discover_changes(
+    base_surface: SurfaceMap,
+    head_surface: SurfaceMap,
+    eager_drift: list[tuple[str, list[str]]],
+) -> ChangeSet:
+    removed_modules = find_removed_modules(base_surface, head_surface)
+    return ChangeSet(
+        removed_symbols=find_removed_symbols(
+            base_surface, head_surface, frozenset(removed_modules)
+        ),
+        eager_drift=eager_drift,
+        signature_breaks=find_signature_breaks(base_surface, head_surface),
+        removed_modules=removed_modules,
+        class_removals=find_class_surface_removals(base_surface, head_surface),
+    )
+
+
+def _build_scan_context(options: ScanOptions) -> ScanContext | None:
+    tree = options.tree.resolve()
+    index_path = options.consumer_index or (
+        tree / "scripts" / "fleet_symbol_consumers.json"
+    )
+    index = _load_index_or_report(options, index_path)
+    if index is None:
+        return None
+    resolved_base = _resolve_base_or_report(tree, options.base_ref)
     if resolved_base is None:
-        print(
-            f"REMOVED-SYMBOL-CONSUMER GATE FAILED: base ref {args.base_ref!r} does not "
-            f"resolve in {tree}. Fetch it first (e.g. `git fetch origin main`) — this "
-            "gate refuses to silently skip the comparison.",
-            file=sys.stderr,
-        )
-        return 1
+        return None
 
     resolved_head = None
-    if args.head_ref is not None:
-        resolved_head = _resolve_ref(tree, args.head_ref)
+    if options.head_ref is not None:
+        resolved_head = _resolve_head_or_report(tree, options.head_ref)
         if resolved_head is None:
-            print(
-                f"REMOVED-SYMBOL-CONSUMER GATE FAILED: head ref {args.head_ref!r} does "
-                f"not resolve in {tree}.",
-                file=sys.stderr,
-            )
-            return 1
-    else:
-        package_dir = tree / args.package
-        if not package_dir.is_dir():
-            print(
-                f"REMOVED-SYMBOL-CONSUMER GATE FAILED: package dir {package_dir} does not exist.",
-                file=sys.stderr,
-            )
-            return 1
+            return None
+    elif not _package_exists_or_report(tree, options.package):
+        return None
 
-    base_surface = surface_at_ref(tree, resolved_base, args.package)
+    base_surface = surface_at_ref(tree, resolved_base, options.package)
     head_surface = (
-        surface_at_ref(tree, resolved_head, args.package)
+        surface_at_ref(tree, resolved_head, options.package)
         if resolved_head is not None
-        else surface_on_disk(tree, args.package)
+        else surface_on_disk(tree, options.package)
+    )
+    eager_drift = _dependency_drift(
+        tree=tree,
+        resolved_base=resolved_base,
+        resolved_head=resolved_head,
+        base_surface=base_surface,
+        head_surface=head_surface,
+    )
+    changes = _discover_changes(base_surface, head_surface, eager_drift)
+    return ScanContext(
+        options=options,
+        tree=tree,
+        index=index,
+        resolved_base=resolved_base,
+        resolved_head=resolved_head,
+        base_surface=base_surface,
+        head_surface=head_surface,
+        changes=changes,
     )
 
-    removed_modules = find_removed_modules(base_surface, head_surface)
-    removed = find_removed_symbols(
-        base_surface, head_surface, frozenset(removed_modules)
+
+def _flatten_consumers(hits: dict[str, list[Consumer]]) -> list[Consumer]:
+    return [consumer for consumers in hits.values() for consumer in consumers]
+
+
+def _unique_consumers(hits: dict[str, list[Consumer]]) -> list[Consumer]:
+    unique = sorted(
+        {
+            (consumer["repo"], consumer["file"], consumer["line"])
+            for consumers in hits.values()
+            for consumer in consumers
+        }
     )
-    signature_breaks = find_signature_breaks(base_surface, head_surface)
-    class_removals = find_class_surface_removals(base_surface, head_surface)
+    return [{"repo": repo, "file": file, "line": line} for repo, file, line in unique]
 
-    base_pyproject = _pyproject_text_at_ref(tree, resolved_base)
-    if resolved_head is not None:
-        head_pyproject = _pyproject_text_at_ref(tree, resolved_head)
-    else:
-        head_pyproject_path = tree / "pyproject.toml"
-        head_pyproject = (
-            head_pyproject_path.read_text(encoding="utf-8")
-            if head_pyproject_path.is_file()
-            else None
-        )
-    base_deps = _classify_dependencies(base_pyproject) if base_pyproject else {}
-    head_deps = _classify_dependencies(head_pyproject) if head_pyproject else {}
-    drift = (
-        find_eager_dependency_drift(base_surface, head_surface, base_deps, head_deps)
-        if (base_deps and head_deps)
-        else []
-    )
 
-    violations: list[dict] = []
-    for fq_target, module, symbol in removed:
-        consumers = _consumers_for(index, fq_target)
-        if consumers:
-            violations.append(
-                {
-                    "kind": "removed_symbol",
-                    "target": fq_target,
-                    "base_ref": args.base_ref,
-                    "resolved_base_ref": resolved_base,
-                    "consumers": consumers,
-                }
-            )
+def _removed_symbol_violations(context: ScanContext) -> list[Violation]:
+    changes = context.changes
+    return [
+        {
+            "kind": "removed_symbol",
+            "target": fq_target,
+            "base_ref": context.options.base_ref,
+            "resolved_base_ref": context.resolved_base,
+            "consumers": consumers,
+        }
+        for fq_target, _module, _symbol in changes.removed_symbols
+        if (consumers := _consumers_for(context.index, fq_target))
+    ]
 
-    for module, new_pkgs in drift:
-        hits = _consumers_for_module_prefix(index, module)
+
+def _eager_dependency_violations(context: ScanContext) -> list[Violation]:
+    violations: list[Violation] = []
+    for module, new_pkgs in context.changes.eager_drift:
+        hits = _consumers_for_module_prefix(context.index, module)
         if hits:
-            flat_consumers = [c for cons in hits.values() for c in cons]
             violations.append(
                 {
                     "kind": "eager_dependency_drift",
                     "module": module,
                     "new_optional_packages": new_pkgs,
-                    "consumers": flat_consumers,
+                    "consumers": _flatten_consumers(hits),
                 }
             )
+    return violations
 
-    for fq_target, reasons in signature_breaks:
-        consumers = _consumers_for(index, fq_target)
-        if consumers:
-            violations.append(
-                {
-                    "kind": "signature_change",
-                    "target": fq_target,
-                    "base_ref": args.base_ref,
-                    "resolved_base_ref": resolved_base,
-                    "reasons": reasons,
-                    "consumers": consumers,
-                }
-            )
 
-    for module in removed_modules:
-        hits = _consumers_for_module_prefix(index, module)
+def _signature_violations(context: ScanContext) -> list[Violation]:
+    return [
+        {
+            "kind": "signature_change",
+            "target": fq_target,
+            "base_ref": context.options.base_ref,
+            "resolved_base_ref": context.resolved_base,
+            "reasons": reasons,
+            "consumers": consumers,
+        }
+        for fq_target, reasons in context.changes.signature_breaks
+        if (consumers := _consumers_for(context.index, fq_target))
+    ]
+
+
+def _removed_module_violations(context: ScanContext) -> list[Violation]:
+    violations: list[Violation] = []
+    for module in context.changes.removed_modules:
+        hits = _consumers_for_module_prefix(context.index, module)
         if hits:
-            flat_consumers = sorted(
-                {
-                    (c["repo"], c["file"], c["line"])
-                    for cons in hits.values()
-                    for c in cons
-                }
-            )
             violations.append(
                 {
                     "kind": "module_removed",
                     "module": module,
-                    "base_ref": args.base_ref,
-                    "resolved_base_ref": resolved_base,
-                    "consumers": [
-                        {"repo": r, "file": f, "line": ln}
-                        for (r, f, ln) in flat_consumers
-                    ],
+                    "base_ref": context.options.base_ref,
+                    "resolved_base_ref": context.resolved_base,
+                    "consumers": _unique_consumers(hits),
                 }
             )
+    return violations
 
-    for fq_target, removed_members in class_removals:
-        consumers = _consumers_for(index, fq_target)
-        if consumers:
-            violations.append(
-                {
-                    "kind": "class_surface_removed",
-                    "target": fq_target,
-                    "base_ref": args.base_ref,
-                    "resolved_base_ref": resolved_base,
-                    "removed_members": removed_members,
-                    "consumers": consumers,
-                }
-            )
 
-    elapsed_s = time.monotonic() - t_start
+def _class_surface_violations(context: ScanContext) -> list[Violation]:
+    return [
+        {
+            "kind": "class_surface_removed",
+            "target": fq_target,
+            "base_ref": context.options.base_ref,
+            "resolved_base_ref": context.resolved_base,
+            "removed_members": removed_members,
+            "consumers": consumers,
+        }
+        for fq_target, removed_members in context.changes.class_removals
+        if (consumers := _consumers_for(context.index, fq_target))
+    ]
 
-    if args.json:
+
+def _build_violations(context: ScanContext) -> list[Violation]:
+    return [
+        *_removed_symbol_violations(context),
+        *_eager_dependency_violations(context),
+        *_signature_violations(context),
+        *_removed_module_violations(context),
+        *_class_surface_violations(context),
+    ]
+
+
+def _print_removed_symbol(v: Violation) -> None:
+    print(
+        f"\nREMOVED PUBLIC SYMBOL STILL IMPORTED BY FLEET CONSUMERS:"
+        f"\n  {v['target']}"
+        f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
+        f"\n    consumers:"
+    )
+    _print_consumer_lines(v["consumers"])
+
+
+def _print_eager_dependency(v: Violation) -> None:
+    print(
+        f"\nMODULE GAINED EAGER IMPORT OF OPTIONAL-EXTRA PACKAGE(S), "
+        f"STILL IMPORTED BY FLEET CONSUMERS:"
+        f"\n  {v['module']}"
+        f"\n    newly eager: {', '.join(v['new_optional_packages'])}"
+        f"\n    consumers:"
+    )
+    _print_consumer_lines(v["consumers"])
+
+
+def _print_signature(v: Violation) -> None:
+    print(
+        f"\nPUBLIC FUNCTION SIGNATURE/CONTRACT CHANGED, "
+        f"STILL IMPORTED BY FLEET CONSUMERS:"
+        f"\n  {v['target']}"
+        f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
+        f"\n    changes:"
+    )
+    for reason in v["reasons"]:
+        print(f"      - {reason}")
+    print("    consumers:")
+    _print_consumer_lines(v["consumers"])
+
+
+def _print_removed_module(v: Violation) -> None:
+    print(
+        f"\nMODULE REMOVED/RENAMED, STILL IMPORTED BY FLEET CONSUMERS:"
+        f"\n  {v['module']}"
+        f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
+        f"\n    consumers:"
+    )
+    _print_consumer_lines(v["consumers"])
+
+
+def _print_class_surface(v: Violation) -> None:
+    print(
+        f"\nCLASS LOST PUBLIC METHOD(S)/ATTRIBUTE(S), "
+        f"CLASS STILL IMPORTED BY FLEET CONSUMERS:"
+        f"\n  {v['target']}"
+        f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
+        f"\n    removed:"
+    )
+    for member in v["removed_members"]:
+        print(f"      - {member}")
+    print(
+        "    consumers (import the CLASS; usage of the specific "
+        "removed member is not verifiable statically):"
+    )
+    _print_consumer_lines(v["consumers"])
+
+
+def _print_consumer_lines(consumers: list[Consumer]) -> None:
+    for consumer in consumers:
+        print(f"      - {consumer['repo']}: {consumer['file']}:{consumer['line']}")
+
+
+_VIOLATION_REPORTERS: dict[str, Callable[[Violation], None]] = {
+    "removed_symbol": _print_removed_symbol,
+    "eager_dependency_drift": _print_eager_dependency,
+    "signature_change": _print_signature,
+    "module_removed": _print_removed_module,
+    "class_surface_removed": _print_class_surface,
+}
+
+
+def _print_violation(v: Violation) -> None:
+    reporter = _VIOLATION_REPORTERS.get(str(v["kind"]), _print_class_surface)
+    reporter(v)
+
+
+def _print_json_report(
+    context: ScanContext, violations: list[Violation], elapsed_s: float
+) -> None:
+    changes = context.changes
+    print(
+        json.dumps(
+            {
+                "base_ref": context.options.base_ref,
+                "resolved_base_ref": context.resolved_base,
+                "removed_symbols_total": len(changes.removed_symbols),
+                "eager_drift_modules_total": len(changes.eager_drift),
+                "signature_breaks_total": len(changes.signature_breaks),
+                "removed_modules_total": len(changes.removed_modules),
+                "class_surface_removals_total": len(changes.class_removals),
+                "violations": violations,
+                "elapsed_seconds": round(elapsed_s, 3),
+            },
+            indent=2,
+        )
+    )
+
+
+def _print_text_report(
+    context: ScanContext, violations: list[Violation], elapsed_s: float
+) -> None:
+    options = context.options
+    changes = context.changes
+    print(
+        f"base ref {options.base_ref} -> {context.resolved_base}; "
+        f"{len(changes.removed_symbols)} removed/renamed public symbol(s), "
+        f"{len(changes.eager_drift)} module(s) with new eager-optional-dependency imports, "
+        f"{len(changes.signature_breaks)} function signature change(s), "
+        f"{len(changes.removed_modules)} module(s) removed/renamed, "
+        f"{len(changes.class_removals)} class(es) with removed public member(s)"
+    )
+    for violation in violations:
+        _print_violation(violation)
+    if violations:
         print(
-            json.dumps(
-                {
-                    "base_ref": args.base_ref,
-                    "resolved_base_ref": resolved_base,
-                    "removed_symbols_total": len(removed),
-                    "eager_drift_modules_total": len(drift),
-                    "signature_breaks_total": len(signature_breaks),
-                    "removed_modules_total": len(removed_modules),
-                    "class_surface_removals_total": len(class_removals),
-                    "violations": violations,
-                    "elapsed_seconds": round(elapsed_s, 3),
-                },
-                indent=2,
-            )
+            f"\n{len(violations)} violation(s). Migrate the named consumers "
+            "before this lands, or restore/re-export the symbol."
         )
     else:
-        print(
-            f"base ref {args.base_ref} -> {resolved_base}; "
-            f"{len(removed)} removed/renamed public symbol(s), "
-            f"{len(drift)} module(s) with new eager-optional-dependency imports, "
-            f"{len(signature_breaks)} function signature change(s), "
-            f"{len(removed_modules)} module(s) removed/renamed, "
-            f"{len(class_removals)} class(es) with removed public member(s)"
-        )
-        for v in violations:
-            if v["kind"] == "removed_symbol":
-                print(
-                    f"\nREMOVED PUBLIC SYMBOL STILL IMPORTED BY FLEET CONSUMERS:"
-                    f"\n  {v['target']}"
-                    f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
-                    f"\n    consumers:"
-                )
-                for c in v["consumers"]:
-                    print(f"      - {c['repo']}: {c['file']}:{c['line']}")
-            elif v["kind"] == "eager_dependency_drift":
-                print(
-                    f"\nMODULE GAINED EAGER IMPORT OF OPTIONAL-EXTRA PACKAGE(S), "
-                    f"STILL IMPORTED BY FLEET CONSUMERS:"
-                    f"\n  {v['module']}"
-                    f"\n    newly eager: {', '.join(v['new_optional_packages'])}"
-                    f"\n    consumers:"
-                )
-                for c in v["consumers"]:
-                    print(f"      - {c['repo']}: {c['file']}:{c['line']}")
-            elif v["kind"] == "signature_change":
-                print(
-                    f"\nPUBLIC FUNCTION SIGNATURE/CONTRACT CHANGED, "
-                    f"STILL IMPORTED BY FLEET CONSUMERS:"
-                    f"\n  {v['target']}"
-                    f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
-                    f"\n    changes:"
-                )
-                for r in v["reasons"]:
-                    print(f"      - {r}")
-                print("    consumers:")
-                for c in v["consumers"]:
-                    print(f"      - {c['repo']}: {c['file']}:{c['line']}")
-            elif v["kind"] == "module_removed":
-                print(
-                    f"\nMODULE REMOVED/RENAMED, STILL IMPORTED BY FLEET CONSUMERS:"
-                    f"\n  {v['module']}"
-                    f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
-                    f"\n    consumers:"
-                )
-                for c in v["consumers"]:
-                    print(f"      - {c['repo']}: {c['file']}:{c['line']}")
-            else:  # class_surface_removed
-                print(
-                    f"\nCLASS LOST PUBLIC METHOD(S)/ATTRIBUTE(S), "
-                    f"CLASS STILL IMPORTED BY FLEET CONSUMERS:"
-                    f"\n  {v['target']}"
-                    f"\n    existed at base ref {v['base_ref']} ({v['resolved_base_ref']})"
-                    f"\n    removed:"
-                )
-                for m in v["removed_members"]:
-                    print(f"      - {m}")
-                print(
-                    "    consumers (import the CLASS; usage of the specific "
-                    "removed member is not verifiable statically):"
-                )
-                for c in v["consumers"]:
-                    print(f"      - {c['repo']}: {c['file']}:{c['line']}")
-        if violations:
-            print(
-                f"\n{len(violations)} violation(s). Migrate the named consumers "
-                "before this lands, or restore/re-export the symbol."
-            )
-        else:
-            print("no violations")
-        print(f"\ngate runtime: {elapsed_s:.2f}s")
+        print("no violations")
+    print(f"\ngate runtime: {elapsed_s:.2f}s")
 
+
+def _print_report(
+    context: ScanContext, violations: list[Violation], elapsed_s: float
+) -> None:
+    if context.options.json_output:
+        _print_json_report(context, violations, elapsed_s)
+    else:
+        _print_text_report(context, violations, elapsed_s)
+
+
+def main() -> int:
+    options = _parse_args()
+    t_start = time.monotonic()
+    context = _build_scan_context(options)
+    if context is None:
+        return 1
+    violations = _build_violations(context)
+    _print_report(context, violations, time.monotonic() - t_start)
     return 1 if violations else 0
 
 
