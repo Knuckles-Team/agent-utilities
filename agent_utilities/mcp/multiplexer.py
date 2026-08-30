@@ -39,7 +39,7 @@ import time
 import weakref
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
 from fastmcp.exceptions import ToolError
@@ -139,6 +139,32 @@ _PROMPT_RESOURCE_RE = re.compile(r"^prompt://(?P<provider>[^/]+)/(?P<name>[^/]+)
 _MAX_PROMPT_BODY_BYTES = 512 * 1024
 _MAX_PROMPT_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
 _PROMPT_HARVEST_BUDGET_SEC = 120.0
+
+
+class _ResourceHarvestSpec(NamedTuple):
+    """Per-resource result and safety policy for the shared body harvester."""
+
+    kind: str
+    body_field: str
+    max_body_bytes: int
+    max_total_bytes: int
+    budget_sec: float
+
+
+_SKILL_HARVEST_SPEC = _ResourceHarvestSpec(
+    "skill",
+    "instructions",
+    _MAX_SKILL_BODY_BYTES,
+    _MAX_HARVEST_TOTAL_BYTES,
+    _SKILL_HARVEST_BUDGET_SEC,
+)
+_PROMPT_HARVEST_SPEC = _ResourceHarvestSpec(
+    "prompt",
+    "body",
+    _MAX_PROMPT_BODY_BYTES,
+    _MAX_PROMPT_HARVEST_TOTAL_BYTES,
+    _PROMPT_HARVEST_BUDGET_SEC,
+)
 # Share of the ENCLOSING probe's remaining time an OPTIONAL body harvest may
 # consume (BUG-PE-054). ``_SKILL_HARVEST_BUDGET_SEC``/``_PROMPT_HARVEST_BUDGET_SEC``
 # above are 120s, but every harvest runs INSIDE ``probe_server``'s own
@@ -4675,76 +4701,75 @@ class MCPMultiplexer:
                 redact_for_log(exc),
             )
             return []
-        await self._harvest_skill_bodies(
-            server_name, session, skills, probe_deadline=probe_deadline
+        await self._harvest_resource_bodies(
+            server_name,
+            session,
+            skills,
+            _SKILL_HARVEST_SPEC,
+            self._read_skill_body,
+            probe_deadline=probe_deadline,
         )
         return skills
 
-    async def _harvest_skill_bodies(
+    async def _harvest_resource_bodies(
         self,
         server_name: str,
         session: Any,
-        skills: list[dict],
+        entries: list[dict],
+        spec: _ResourceHarvestSpec,
+        reader: Any,
         *,
         probe_deadline: float | None = None,
     ) -> None:
-        """Read each catalogued ``skill://`` body over the OPEN probe session.
+        """Read one bounded family of resource bodies over an open session.
 
-        CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — the fleet's ~62
-        ``agents/*`` packages are deliberately NOT co-installed into graph-os's
-        serving venv (AGENTS.md "Dependency discipline"), so
-        ``resolve_skill_provider_dirs()`` — an in-process
-        ``importlib.metadata`` walk — structurally cannot see their skills. But
-        each child ALREADY serves them as fastmcp-4 ``skill://{name}/SKILL.md``
-        resources, and we ALREADY hold a live session to it. Reading the body
-        here is what turns a name-only fleet ``Skill`` node into something
-        :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.ingest_runnable_skill`
-        can promote to a runnable ``CallableResource``.
-
-        Mutates each entry in place, adding EITHER ``instructions`` (the body)
-        OR ``harvest_error`` (a named reason). Never both, and never silently
-        neither: an entry without ``instructions`` carries the reason it has
-        none, so the downstream promotion fails CLOSED against a named
-        precondition instead of quietly skipping the skill.
+        Skills and prompts have distinct result fields, byte budgets, retry
+        readers, and user-visible error wording, but their safety and failure
+        semantics are the same. Keeping the accounting loop here makes those
+        two resource families evolve together without allowing one family's
+        budget or result model to leak into the other.
         """
         harvested_bytes = 0
-        deadline = _harvest_deadline(probe_deadline, _SKILL_HARVEST_BUDGET_SEC)
-        for entry in skills:
+        deadline = _harvest_deadline(probe_deadline, spec.budget_sec)
+        for entry in entries:
             uri = entry.get("uri") or ""
             if time.monotonic() >= deadline:
                 entry["harvest_error"] = (
-                    "skill body harvest budget exceeded (bounded by the "
-                    f"smaller of {_SKILL_HARVEST_BUDGET_SEC:g}s and this probe's own "
+                    f"{spec.kind} body harvest budget exceeded (bounded by the "
+                    f"smaller of {spec.budget_sec:g}s and this probe's own "
                     "remaining deadline)"
                 )
                 continue
-            if harvested_bytes >= _MAX_HARVEST_TOTAL_BYTES:
-                entry["harvest_error"] = "skill body harvest exceeded its total budget"
+            if harvested_bytes >= spec.max_total_bytes:
+                entry["harvest_error"] = (
+                    f"{spec.kind} body harvest exceeded its total budget"
+                )
                 continue
             try:
-                body = await self._read_skill_body(session, uri, deadline)
-            except Exception as exc:  # noqa: BLE001 - one unreadable skill body
-                # must not fail the tool probe that already succeeded. The
-                # named reason is recorded ON THE ENTRY (so the promotion can
-                # name it and a caller sees why) and logged — never a raw
-                # traceback (served-boundary exception-surface policy).
+                body = await reader(session, uri, deadline)
+            except Exception as exc:  # noqa: BLE001 - one unreadable body
+                # One unreadable resource must not fail the tool probe that
+                # already succeeded. The named reason is recorded ON THE
+                # ENTRY (so promotion can name it and a caller sees why) and
+                # logged — never a raw traceback (served-boundary policy).
                 entry["harvest_error"] = self._harvest_error_reason(exc)
                 logger.warning(
-                    "Server %s could not serve skill body %s (%s)",
+                    "Server %s could not serve %s body %s (%s)",
                     server_name,
+                    spec.kind,
                     entry.get("name", "?"),
                     type(exc).__name__,
                 )
                 continue
             encoded = len(body.encode("utf-8"))
             if not body.strip():
-                entry["harvest_error"] = "server served an empty skill body"
+                entry["harvest_error"] = f"server served an empty {spec.kind} body"
                 continue
-            if encoded > _MAX_SKILL_BODY_BYTES:
-                entry["harvest_error"] = "skill body exceeded its size boundary"
+            if encoded > spec.max_body_bytes:
+                entry["harvest_error"] = f"{spec.kind} body exceeded its size boundary"
                 continue
             harvested_bytes += encoded
-            entry["instructions"] = body
+            entry[spec.body_field] = body
 
     @staticmethod
     async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
@@ -4812,66 +4837,15 @@ class MCPMultiplexer:
                 redact_for_log(exc),
             )
             return []
-        await self._harvest_prompt_bodies(
-            server_name, session, prompts, probe_deadline=probe_deadline
+        await self._harvest_resource_bodies(
+            server_name,
+            session,
+            prompts,
+            _PROMPT_HARVEST_SPEC,
+            self._read_prompt_body,
+            probe_deadline=probe_deadline,
         )
         return prompts
-
-    async def _harvest_prompt_bodies(
-        self,
-        server_name: str,
-        session: Any,
-        prompts: list[dict],
-        *,
-        probe_deadline: float | None = None,
-    ) -> None:
-        """Read each catalogued ``prompt://`` body over the OPEN probe session.
-
-        CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
-        sibling of :meth:`_harvest_skill_bodies`. Mutates each entry in place,
-        adding EITHER ``body`` (the raw JSON text) OR ``harvest_error`` (a
-        named reason). Never both, and never silently neither:
-        ``fleet_prompt_harvest.promote_harvested_prompts`` fails closed
-        against the named reason instead of quietly skipping the prompt.
-        """
-        harvested_bytes = 0
-        deadline = _harvest_deadline(probe_deadline, _PROMPT_HARVEST_BUDGET_SEC)
-        for entry in prompts:
-            uri = entry.get("uri") or ""
-            if time.monotonic() >= deadline:
-                entry["harvest_error"] = (
-                    "prompt body harvest budget exceeded (bounded by the "
-                    f"smaller of {_PROMPT_HARVEST_BUDGET_SEC:g}s and this probe's own "
-                    "remaining deadline)"
-                )
-                continue
-            if harvested_bytes >= _MAX_PROMPT_HARVEST_TOTAL_BYTES:
-                entry["harvest_error"] = "prompt body harvest exceeded its total budget"
-                continue
-            try:
-                body = await self._read_prompt_body(session, uri, deadline)
-            except Exception as exc:  # noqa: BLE001 - one unreadable prompt
-                # body must not fail the tool probe that already succeeded.
-                # The named reason is recorded ON THE ENTRY (so promotion can
-                # name it and a caller sees why) and logged — never a raw
-                # traceback (served-boundary exception-surface policy).
-                entry["harvest_error"] = self._harvest_error_reason(exc)
-                logger.warning(
-                    "Server %s could not serve prompt body %s (%s)",
-                    server_name,
-                    entry.get("name", "?"),
-                    type(exc).__name__,
-                )
-                continue
-            encoded = len(body.encode("utf-8"))
-            if not body.strip():
-                entry["harvest_error"] = "server served an empty prompt body"
-                continue
-            if encoded > _MAX_PROMPT_BODY_BYTES:
-                entry["harvest_error"] = "prompt body exceeded its size boundary"
-                continue
-            harvested_bytes += encoded
-            entry["body"] = body
 
     @staticmethod
     async def _read_prompt_body(session: Any, uri: str, deadline: float) -> str:
