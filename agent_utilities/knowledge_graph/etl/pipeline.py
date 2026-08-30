@@ -226,6 +226,7 @@ def run_etl(
     inbound, inbound_partial = _run_inbound(
         engine, source=source, sink=sink, mode=mode, ids=ids
     )
+    outbound: EtlResult | None
     if sink == "table":
         # CONCEPT:AU-KG.ingest.mirror-inbound — mirror the inbound `source` connector's data into a native
         # engine SQL table (CREATE TABLE + bulk INSERT). `ops` carries optional
