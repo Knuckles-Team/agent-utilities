@@ -788,211 +788,264 @@ def _apply_rename(old: str, new: str, sites: list[Site], *, write: bool) -> list
     return edits
 
 
-def cmd_apply(domain_prefix: str, *, write: bool) -> int:
+@dataclass
+class _ApplyPlan:
+    """Validated decision results accumulated before any tree writes."""
+
+    concepts: dict
+    evidence: dict[str, Evidence]
+    parents: dict
+    retired: dict
+    renamed: dict
+    all_live: frozenset[str]
+    problems: list[str] = field(default_factory=list)
+    owed: list[str] = field(default_factory=list)
+    deferred: list[str] = field(default_factory=list)
+    to_retire: list[str] = field(default_factory=list)
+    to_rename: list[tuple[str, str]] = field(default_factory=list)
+    edits: list[str] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+def _load_apply_plan(domain_prefix: str) -> _ApplyPlan:
+    """Load proposal, live evidence, and the current lineage registry."""
     path = proposal_path(domain_prefix)
     data = _load_yaml(path)
     if not data:
         raise SystemExit(f"no proposal at {path} — run `propose {domain_prefix}` first")
-    concepts = data.get("concepts") or {}
-
     evidence, _ = gather(domain_prefix)
     lineage_raw = _load_yaml(LINEAGE_PATH)
-    parents = dict(lineage_raw.get("parents") or {})
-    retired = dict(lineage_raw.get("retired") or {})
-    renamed = dict(lineage_raw.get("renamed") or {})
-    all_live = frozenset(all_registered_concepts())
+    return _ApplyPlan(
+        concepts=data.get("concepts") or {},
+        evidence=evidence,
+        parents=dict(lineage_raw.get("parents") or {}),
+        retired=dict(lineage_raw.get("retired") or {}),
+        renamed=dict(lineage_raw.get("renamed") or {}),
+        all_live=frozenset(all_registered_concepts()),
+    )
 
-    problems: list[str] = []
-    owed: list[str] = []
-    deferred: list[str] = []
-    to_retire: list[str] = []
-    to_rename: list[tuple[str, str]] = []
-    edits: list[str] = []
-    counts: dict[str, int] = defaultdict(int)
 
-    for cid, entry in sorted(concepts.items()):
-        decision = (entry or {}).get("decision", "PENDING")
-        counts[decision] += 1
-        if decision in {"PENDING", "keep"}:
-            if decision == "keep" and not (entry.get("reason") or "").strip():
-                problems.append(f"{cid}: decision 'keep' requires a reason")
-            continue
-        if decision not in DECISIONS:
-            problems.append(
-                f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})"
-            )
-            continue
-        if decision == "document":
-            # NOT a blocker: "this earns its own document" is a classification,
-            # and classifying a domain is useful before every document is
-            # written. The gate is the enforcer here — an undocumented concept
-            # simply stays visible in --audit-merged's unconditional census
-            # (D-WD5-RAT-03: no baseline any more) until someone writes it.
-            if not has_design_doc(cid):
-                owed.append(cid)
-            continue
-        if decision == "parent":
-            parent = (entry.get("parent") or "").strip()
-            if not parent:
-                problems.append(f"{cid}: decision 'parent' requires a `parent:` id")
-                continue
-            if not has_design_doc(parent):
-                # Deferred, not blocked. Refusing to write a link into an
-                # undocumented parent is the safety property; refusing every
-                # OTHER link because one parent's document is unwritten is just
-                # an unresumable tool. The decision stays recorded in the
-                # proposal and lands on a later run.
-                deferred.append(
-                    f"{cid} -> {parent} (waiting on the parent's design document)"
-                )
-                continue
-            parents[cid] = {
-                "parent": parent,
-                "rationale": (entry.get("rationale") or "").strip(),
-            }
-            edits.append(f"  lineage parent  {cid} -> {parent}")
-            continue
-        if decision == "retire":
-            reason = (entry.get("reason") or "").strip()
-            if not reason:
-                problems.append(f"{cid}: decision 'retire' requires a `reason:`")
-                continue
-            retired[cid] = {"reason": reason}
-            edits.append(f"  lineage retire  {cid}")
-            # A retired concept that is no longer live has already had its
-            # markers removed (by an earlier `apply --write`, or by hand for a
-            # site the tool refused to touch). Recording the retirement is still
-            # required — that is the ratchet — but there is nothing left to edit.
-            if cid in evidence:
-                to_retire.append(cid)
-            continue
-        if decision == "rename":
-            target_raw = (entry.get("rename_to") or "").strip()
-            reason = (entry.get("reason") or "").strip()
-            if not target_raw:
-                problems.append(f"{cid}: decision 'rename' requires a `rename_to:` id")
-                continue
-            if not reason:
-                problems.append(f"{cid}: decision 'rename' requires a `reason:`")
-                continue
-            if target_raw == cid:
-                problems.append(f"{cid}: decision 'rename' cannot target itself")
-                continue
-            try:
-                parsed_target = parse_okf_id(target_raw)
-            except ValueError as exc:
-                problems.append(
-                    f"{cid}: rename_to {target_raw!r} is not a valid OKF-CIS id: {exc}"
-                )
-                continue
-            if not is_valid_domain(parsed_target.pillar, parsed_target.domain):
-                problems.append(
-                    f"{cid}: rename target {target_raw!r} uses domain "
-                    f"{parsed_target.domain!r}, which is not in the closed vocab "
-                    f"for pillar {parsed_target.pillar} either — renaming into "
-                    "another illegal domain does not fix anything"
-                )
-                continue
-            # Flatten: if the target is itself mid-rename (an OLD id in the
-            # existing table), follow to the final id rather than adding a
-            # second hop. `renamed` was loaded from disk and is already
-            # validated (no chains), so this is a single lookup in practice.
-            final_target = target_raw
-            if final_target in renamed:
-                previous = final_target
-                final_target = renamed[final_target]["to"]
-                edits.append(
-                    f"  rename target {previous} is itself renamed -> following "
-                    f"to {final_target}"
-                )
-            if final_target in all_live:
-                problems.append(
-                    f"{cid}: rename target {final_target!r} already exists as a "
-                    "live concept — that is a MERGE, not a rename, and this "
-                    "mechanism does not support merges"
-                )
-                continue
-            renamed[cid] = {"to": final_target, "reason": reason}
-            # Reflatten predecessors: anything already renamed INTO cid must now
-            # point at final_target directly, so the table never grows a second
-            # hop no matter how many times an id is renamed over time.
-            for old_id, old_entry in list(renamed.items()):
-                if old_id != cid and (old_entry or {}).get("to") == cid:
-                    renamed[old_id] = {**old_entry, "to": final_target}
-                    edits.append(
-                        f"  lineage reflatten  {old_id} -> {final_target} (was -> {cid})"
-                    )
-            edits.append(f"  lineage rename  {cid} -> {final_target}")
-            if cid in evidence:
-                to_rename.append((cid, final_target))
+def _apply_keep_decision(cid: str, entry: dict, plan: _ApplyPlan) -> None:
+    if not (entry.get("reason") or "").strip():
+        plan.problems.append(f"{cid}: decision 'keep' requires a reason")
 
-    # Validate the candidate registry BEFORE writing it: the loader's rules (one
-    # hop, no self-parent, no restatement rationale) must hold, and finding out
-    # after the write means a broken registry is already on disk.
-    candidate = {"parents": parents, "retired": retired, "renamed": renamed}
+
+def _apply_document_decision(cid: str, _entry: dict, plan: _ApplyPlan) -> None:
+    # "document" is a classification, not a blocker: the gate keeps an
+    # undocumented concept visible until its design document exists.
+    if not has_design_doc(cid):
+        plan.owed.append(cid)
+
+
+def _apply_parent_decision(cid: str, entry: dict, plan: _ApplyPlan) -> None:
+    parent = (entry.get("parent") or "").strip()
+    if not parent:
+        plan.problems.append(f"{cid}: decision 'parent' requires a `parent:` id")
+        return
+    if not has_design_doc(parent):
+        # Defer this link, rather than blocking unrelated decisions, until the
+        # parent's design document exists.
+        plan.deferred.append(
+            f"{cid} -> {parent} (waiting on the parent's design document)"
+        )
+        return
+    plan.parents[cid] = {
+        "parent": parent,
+        "rationale": (entry.get("rationale") or "").strip(),
+    }
+    plan.edits.append(f"  lineage parent  {cid} -> {parent}")
+
+
+def _apply_retire_decision(cid: str, entry: dict, plan: _ApplyPlan) -> None:
+    reason = (entry.get("reason") or "").strip()
+    if not reason:
+        plan.problems.append(f"{cid}: decision 'retire' requires a `reason:`")
+        return
+    plan.retired[cid] = {"reason": reason}
+    plan.edits.append(f"  lineage retire  {cid}")
+    # Retirements are still recorded when an earlier run already removed all
+    # markers; only live evidence needs a source edit this run.
+    if cid in plan.evidence:
+        plan.to_retire.append(cid)
+
+
+def _rename_fields(cid: str, entry: dict, plan: _ApplyPlan) -> tuple[str, str] | None:
+    """Validate fields unique to a ``rename`` disposition."""
+    target_raw = (entry.get("rename_to") or "").strip()
+    reason = (entry.get("reason") or "").strip()
+    if not target_raw:
+        plan.problems.append(f"{cid}: decision 'rename' requires a `rename_to:` id")
+        return None
+    if not reason:
+        plan.problems.append(f"{cid}: decision 'rename' requires a `reason:`")
+        return None
+    if target_raw == cid:
+        plan.problems.append(f"{cid}: decision 'rename' cannot target itself")
+        return None
     try:
-        parse_lineage(candidate)
+        parsed_target = parse_okf_id(target_raw)
+    except ValueError as exc:
+        plan.problems.append(
+            f"{cid}: rename_to {target_raw!r} is not a valid OKF-CIS id: {exc}"
+        )
+        return None
+    if not is_valid_domain(parsed_target.pillar, parsed_target.domain):
+        plan.problems.append(
+            f"{cid}: rename target {target_raw!r} uses domain "
+            f"{parsed_target.domain!r}, which is not in the closed vocab "
+            f"for pillar {parsed_target.pillar} either — renaming into "
+            "another illegal domain does not fix anything"
+        )
+        return None
+    return target_raw, reason
+
+
+def _resolve_rename_target(target: str, plan: _ApplyPlan) -> str:
+    """Follow one existing rename entry so a new mapping stays flattened."""
+    if target not in plan.renamed:
+        return target
+    final_target = plan.renamed[target]["to"]
+    plan.edits.append(
+        f"  rename target {target} is itself renamed -> following to {final_target}"
+    )
+    return final_target
+
+
+def _apply_rename_decision(cid: str, entry: dict, plan: _ApplyPlan) -> None:
+    fields = _rename_fields(cid, entry, plan)
+    if fields is None:
+        return
+    target_raw, reason = fields
+    final_target = _resolve_rename_target(target_raw, plan)
+    if final_target in plan.all_live:
+        plan.problems.append(
+            f"{cid}: rename target {final_target!r} already exists as a "
+            "live concept — that is a MERGE, not a rename, and this "
+            "mechanism does not support merges"
+        )
+        return
+    plan.renamed[cid] = {"to": final_target, "reason": reason}
+    # Reflatten predecessors so the registry never grows a second hop.
+    for old_id, old_entry in list(plan.renamed.items()):
+        if old_id != cid and (old_entry or {}).get("to") == cid:
+            plan.renamed[old_id] = {**old_entry, "to": final_target}
+            plan.edits.append(
+                f"  lineage reflatten  {old_id} -> {final_target} (was -> {cid})"
+            )
+    plan.edits.append(f"  lineage rename  {cid} -> {final_target}")
+    if cid in plan.evidence:
+        plan.to_rename.append((cid, final_target))
+
+
+_APPLY_DECISION_HANDLERS = {
+    "keep": _apply_keep_decision,
+    "document": _apply_document_decision,
+    "parent": _apply_parent_decision,
+    "retire": _apply_retire_decision,
+    "rename": _apply_rename_decision,
+}
+
+
+def _record_apply_decision(cid: str, entry: dict, plan: _ApplyPlan) -> None:
+    decision = (entry or {}).get("decision", "PENDING")
+    plan.counts[decision] = plan.counts.get(decision, 0) + 1
+    if decision == "PENDING":
+        return
+    handler = _APPLY_DECISION_HANDLERS.get(decision)
+    if handler is None:
+        plan.problems.append(
+            f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})"
+        )
+        return
+    handler(cid, entry, plan)
+
+
+def _validate_apply_lineage(plan: _ApplyPlan) -> None:
+    """Reject an invalid candidate registry before touching source files."""
+    try:
+        parse_lineage(
+            {"parents": plan.parents, "retired": plan.retired, "renamed": plan.renamed}
+        )
     except LineageError as exc:
         raise SystemExit(
             f"the resulting lineage registry would be invalid: {exc}"
         ) from exc
 
-    # Only NOW touch the tree. `apply` is all-or-nothing on purpose: a run that
-    # is going to refuse to write the registry must not have already deleted
-    # markers from source, or the tree ends up with retired markers gone and no
-    # record that they were retired — a state the ratchet cannot detect.
-    for cid in to_retire:
-        edits.extend(
-            _apply_retirement(cid, evidence[cid].sites, write=write and not problems)
+
+def _apply_plan_edits(plan: _ApplyPlan, *, write: bool) -> None:
+    """Collect marker edits after validation, writing only on a clean plan."""
+    can_write = write and not plan.problems
+    for cid in plan.to_retire:
+        plan.edits.extend(
+            _apply_retirement(cid, plan.evidence[cid].sites, write=can_write)
         )
-    for cid, target in to_rename:
-        edits.extend(
-            _apply_rename(
-                cid, target, evidence[cid].sites, write=write and not problems
-            )
+    for cid, target in plan.to_rename:
+        plan.edits.extend(
+            _apply_rename(cid, target, plan.evidence[cid].sites, write=can_write)
         )
 
+
+def _print_apply_items(title: str, items: list[str]) -> None:
+    print(f"\n{title}:")
+    for item in items:
+        print(f"  - {item}")
+
+
+def _print_apply_report(domain_prefix: str, plan: _ApplyPlan, *, write: bool) -> None:
     print(
-        f"{domain_prefix}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        f"{domain_prefix}: "
+        + ", ".join(f"{k}={v}" for k, v in sorted(plan.counts.items()))
     )
-    if owed:
-        print(
-            f"\n{len(owed)} concept(s) are classified 'document' but nobody has "
+    if plan.owed:
+        _print_apply_items(
+            f"{len(plan.owed)} concept(s) are classified 'document' but nobody has "
             "written it yet — they stay visible in the undocumented census "
-            "(--audit-merged) until someone does:"
+            "(--audit-merged) until someone does",
+            plan.owed,
         )
-        for cid in owed:
-            print(f"  - {cid}")
-    if deferred:
+    if plan.deferred:
+        _print_apply_items(
+            f"{len(plan.deferred)} parent link(s) DEFERRED — the decision is recorded, "
+            "the link lands once the parent's design document exists",
+            plan.deferred,
+        )
+    if plan.problems:
+        _print_apply_items("BLOCKED — fix these in the proposal first", plan.problems)
+    if plan.edits:
         print(
-            f"\n{len(deferred)} parent link(s) DEFERRED — the decision is recorded, "
-            "the link lands once the parent's design document exists:"
+            f"\n{'APPLYING' if write else 'DRY RUN — would apply'} "
+            f"{len(plan.edits)} edit(s):"
         )
-        for msg in deferred:
-            print(f"  - {msg}")
-    if problems:
-        print("\nBLOCKED — fix these in the proposal first:")
-        for msg in problems:
-            print(f"  - {msg}")
-    if edits:
-        print(
-            f"\n{'APPLYING' if write else 'DRY RUN — would apply'} {len(edits)} edit(s):"
-        )
-        for msg in edits:
+        for msg in plan.edits:
             print(msg)
-    if problems:
+
+
+def _finish_apply(domain_prefix: str, plan: _ApplyPlan, *, write: bool) -> int:
+    if plan.problems:
         return 1
     if write:
-        _write_lineage(parents, retired, renamed)
+        _write_lineage(plan.parents, plan.retired, plan.renamed)
         print(f"\nWrote {LINEAGE_PATH.relative_to(ROOT)}.")
         print(
             "Next: `python3 scripts/check_concept_governance.py --audit-merged` to "
             "confirm the gate honours the links and see the undocumented count drop "
             "(no baseline to shrink any more — D-WD5-RAT-03)."
         )
-    elif edits:
+    elif plan.edits:
         print("\nRe-run with --write to apply.")
     return 0
+
+
+def cmd_apply(domain_prefix: str, *, write: bool) -> int:
+    plan = _load_apply_plan(domain_prefix)
+    for cid, entry in sorted(plan.concepts.items()):
+        _record_apply_decision(cid, entry, plan)
+    _validate_apply_lineage(plan)
+    # Only now touch the tree. Invalid proposals collect edits for review but
+    # cannot write markers or the lineage registry.
+    _apply_plan_edits(plan, write=write)
+    _print_apply_report(domain_prefix, plan, write=write)
+    return _finish_apply(domain_prefix, plan, write=write)
 
 
 def _write_lineage(parents: dict, retired: dict, renamed: dict | None = None) -> None:
