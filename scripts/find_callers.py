@@ -122,6 +122,289 @@ def _resolve(dotted: str, fi: _FileImports) -> str | None:
     return None
 
 
+def _python_files(roots: tuple[str, ...], repo_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for root_name in roots:
+        root_dir = repo_root / root_name
+        if root_dir.exists():
+            files.extend(root_dir.rglob("*.py"))
+    return files
+
+
+def _parse_candidate(path: Path, simple_name: str) -> ast.AST | None:
+    if "/.venv/" in str(path) or "/target-isolated/" in str(path):
+        return None
+    try:
+        src = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None
+    if simple_name not in src:
+        return None
+    try:
+        return ast.parse(src, filename=str(path))
+    except SyntaxError:
+        return None
+
+
+def _first_alias(aliases: dict[str, str], target: str) -> str | None:
+    return next(
+        (local for local, imported in aliases.items() if imported == target), None
+    )
+
+
+def _call_hit(
+    node: ast.AST,
+    direct_alias: str | None,
+    module_alias: str | None,
+    symbol: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+) -> Hit | None:
+    if not isinstance(node, ast.Call):
+        return None
+    if isinstance(node.func, ast.Name):
+        if direct_alias and node.func.id == direct_alias:
+            return Hit(rel, node.lineno, "call", f"{node.func.id}(...)")
+        return None
+    if not isinstance(node.func, ast.Attribute):
+        return None
+    dotted = _dotted_from_attribute(node.func)
+    if dotted is None:
+        return None
+    if _resolve(dotted, fi) == symbol:
+        return Hit(rel, node.lineno, "call", dotted + "(...)")
+    if module_alias and dotted == f"{module_alias}.{simple_name}":
+        return Hit(rel, node.lineno, "call", dotted + "(...)")
+    return None
+
+
+def _call_hits(
+    tree: ast.AST,
+    direct_alias: str | None,
+    module_alias: str | None,
+    symbol: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+) -> list[Hit]:
+    hits: list[Hit] = []
+    for node in ast.walk(tree):
+        hit = _call_hit(
+            node, direct_alias, module_alias, symbol, simple_name, fi, rel
+        )
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def _name_reference_hit(
+    node: ast.Name,
+    direct_alias: str | None,
+    rel: str,
+    call_lines: set[int],
+) -> Hit | None:
+    if direct_alias and node.id == direct_alias and node.lineno not in call_lines:
+        return Hit(rel, node.lineno, "reference", node.id)
+    return None
+
+
+def _attribute_reference_hit(
+    node: ast.Attribute,
+    module_alias: str | None,
+    symbol: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+    call_lines: set[int],
+) -> Hit | None:
+    dotted = _dotted_from_attribute(node)
+    if dotted is None:
+        return None
+    is_match = _resolve(dotted, fi) == symbol or (
+        module_alias and dotted == f"{module_alias}.{simple_name}"
+    )
+    if is_match and node.lineno not in call_lines:
+        return Hit(rel, node.lineno, "reference", dotted)
+    return None
+
+
+def _reference_hit(
+    node: ast.AST,
+    direct_alias: str | None,
+    module_alias: str | None,
+    symbol: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+    call_lines: set[int],
+) -> Hit | None:
+    if isinstance(node, ast.Name):
+        return _name_reference_hit(node, direct_alias, rel, call_lines)
+    if not isinstance(node, ast.Attribute):
+        return None
+    return _attribute_reference_hit(
+        node,
+        module_alias,
+        symbol,
+        simple_name,
+        fi,
+        rel,
+        call_lines,
+    )
+
+
+def _reference_hits(
+    tree: ast.AST,
+    direct_alias: str | None,
+    module_alias: str | None,
+    symbol: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+    call_lines: set[int],
+) -> list[Hit]:
+    hits: list[Hit] = []
+    for node in ast.walk(tree):
+        hit = _reference_hit(
+            node,
+            direct_alias,
+            module_alias,
+            symbol,
+            simple_name,
+            fi,
+            rel,
+            call_lines,
+        )
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def _target_dotted(node: ast.AST) -> str | None:
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return _dotted_from_attribute(node)
+    return None
+
+
+def _monkeypatch_hit(
+    node: ast.AST,
+    module_alias: str | None,
+    module_path: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+) -> Hit | None:
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    if node.func.attr != "setattr" or len(node.args) < 2:
+        return None
+    name_arg = node.args[1]
+    if not isinstance(name_arg, ast.Constant) or name_arg.value != simple_name:
+        return None
+    target_dotted = _target_dotted(node.args[0])
+    target_resolved = _resolve(target_dotted, fi) if target_dotted else None
+    if target_resolved != module_path and target_dotted != module_alias:
+        return None
+    return Hit(
+        rel,
+        node.lineno,
+        "monkeypatch",
+        f"setattr({target_dotted}, {simple_name!r}, ...)",
+    )
+
+
+def _getattr_hit(
+    node: ast.AST,
+    module_alias: str | None,
+    module_path: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+) -> Hit | None:
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Name)
+        or node.func.id != "getattr"
+    ):
+        return None
+    if len(node.args) < 2:
+        return None
+    name_arg = node.args[1]
+    if not isinstance(name_arg, ast.Constant) or name_arg.value != simple_name:
+        return None
+    target_dotted = _target_dotted(node.args[0])
+    target_resolved = _resolve(target_dotted, fi) if target_dotted else None
+    if target_resolved != module_path and target_dotted != module_alias:
+        return None
+    return Hit(
+        rel,
+        node.lineno,
+        "getattr",
+        f"getattr({target_dotted}, {simple_name!r})",
+    )
+
+
+def _dynamic_hits(
+    tree: ast.AST,
+    module_alias: str | None,
+    module_path: str,
+    simple_name: str,
+    fi: _FileImports,
+    rel: str,
+) -> list[Hit]:
+    hits: list[Hit] = []
+    for node in ast.walk(tree):
+        hit = _monkeypatch_hit(
+            node, module_alias, module_path, simple_name, fi, rel
+        )
+        if hit is not None:
+            hits.append(hit)
+    for node in ast.walk(tree):
+        hit = _getattr_hit(node, module_alias, module_path, simple_name, fi, rel)
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def _file_hits(
+    path: Path,
+    simple_name: str,
+    module_path: str,
+    symbol: str,
+    repo_root: Path,
+    existing_hits: list[Hit],
+) -> list[Hit]:
+    tree = _parse_candidate(path, simple_name)
+    if tree is None:
+        return []
+    fi = _collect_imports(tree)
+    rel = str(path.relative_to(repo_root))
+    direct_alias = _first_alias(fi.aliases, symbol)
+    module_alias = _first_alias(fi.module_aliases, module_path)
+    hits = _call_hits(
+        tree, direct_alias, module_alias, symbol, simple_name, fi, rel
+    )
+    call_lines = {h.line for h in existing_hits if h.file == rel}
+    call_lines.update(h.line for h in hits if h.file == rel)
+    hits.extend(
+        _reference_hits(
+            tree,
+            direct_alias,
+            module_alias,
+            symbol,
+            simple_name,
+            fi,
+            rel,
+            call_lines,
+        )
+    )
+    hits.extend(
+        _dynamic_hits(tree, module_alias, module_path, simple_name, fi, rel)
+    )
+    return hits
+
+
 def find_callers(
     symbol: str,
     roots: tuple[str, ...] = DEFAULT_ROOTS,
@@ -134,151 +417,10 @@ def find_callers(
     simple_name = symbol.rsplit(".", 1)[-1]
     module_path = symbol.rsplit(".", 1)[0] if "." in symbol else symbol
     hits: list[Hit] = []
-
-    files: list[Path] = []
-    for root_name in roots:
-        root_dir = repo_root / root_name
-        if not root_dir.exists():
-            continue
-        files.extend(root_dir.rglob("*.py"))
-
-    for path in files:
-        if "/.venv/" in str(path) or "/target-isolated/" in str(path):
-            continue
-        try:
-            src = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        if simple_name not in src:
-            continue  # cheap pre-filter; the AST walk below is the real check
-        try:
-            tree = ast.parse(src, filename=str(path))
-        except SyntaxError:
-            continue
-
-        fi = _collect_imports(tree)
-        rel = str(path.relative_to(repo_root))
-
-        # Does this file import the symbol itself, or the module it lives in,
-        # under some (possibly aliased) local name?
-        direct_alias = None
-        for local, target in fi.aliases.items():
-            if target == symbol:
-                direct_alias = local
-                break
-        module_alias = None
-        for local, target in fi.module_aliases.items():
-            if target == module_path:
-                module_alias = local
-                break
-
-        for node in ast.walk(tree):
-            # Name(...) call where Name was bound via `from mod import symbol [as x]`
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if direct_alias and node.func.id == direct_alias:
-                    hits.append(Hit(rel, node.lineno, "call", f"{node.func.id}(...)"))
-                continue
-            # attribute call: alias.symbol(...) where alias resolves to module_path
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                dotted = _dotted_from_attribute(node.func)
-                if dotted is None:
-                    continue
-                resolved = _resolve(dotted, fi)
-                if resolved == symbol:
-                    hits.append(Hit(rel, node.lineno, "call", dotted + "(...)"))
-                    continue
-                # module_alias.symbol(...)
-                if module_alias and dotted == f"{module_alias}.{simple_name}":
-                    hits.append(Hit(rel, node.lineno, "call", dotted + "(...)"))
-                continue
-
-        # Bare references (subclassing, decorator, type annotation, passed as
-        # a value) -- any Name/Attribute node that resolves to the symbol but
-        # wasn't already caught as a Call.
-        call_lines = {h.line for h in hits if h.file == rel}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and direct_alias and node.id == direct_alias:
-                if node.lineno in call_lines:
-                    continue
-                hits.append(Hit(rel, node.lineno, "reference", node.id))
-            elif isinstance(node, ast.Attribute):
-                dotted = _dotted_from_attribute(node)
-                if dotted is None:
-                    continue
-                resolved = _resolve(dotted, fi)
-                is_match = resolved == symbol or (
-                    module_alias and dotted == f"{module_alias}.{simple_name}"
-                )
-                if is_match and node.lineno not in call_lines:
-                    hits.append(Hit(rel, node.lineno, "reference", dotted))
-
-        # Dynamic-dispatch heuristics: monkeypatch.setattr(target, "name", ...)
-        # and getattr(target, "name") where target resolves to this symbol's
-        # module/class and "name" == simple_name. These are string-literal
-        # matches, not import-resolved, by necessity -- flagged separately so
-        # a human can eyeball them rather than trusting them silently.
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            ):
-                continue
-            func_attr = node.func.attr
-            if func_attr not in ("setattr",):
-                continue
-            if len(node.args) < 2:
-                continue
-            name_arg = node.args[1]
-            if not (
-                isinstance(name_arg, ast.Constant) and name_arg.value == simple_name
-            ):
-                continue
-            target_dotted = None
-            target_node = node.args[0]
-            if isinstance(target_node, (ast.Name, ast.Attribute)):
-                target_dotted = _dotted_from_attribute(target_node)
-            target_resolved = _resolve(target_dotted, fi) if target_dotted else None
-            if (
-                target_resolved == module_path
-                or target_dotted == module_alias
-                or (module_alias and target_dotted == module_alias)
-            ):
-                hits.append(
-                    Hit(
-                        rel,
-                        node.lineno,
-                        "monkeypatch",
-                        f"setattr({target_dotted}, {simple_name!r}, ...)",
-                    )
-                )
-
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "getattr"
-            ):
-                if len(node.args) < 2:
-                    continue
-                name_arg = node.args[1]
-                if isinstance(name_arg, ast.Constant) and name_arg.value == simple_name:
-                    target_node = node.args[0]
-                    target_dotted = (
-                        _dotted_from_attribute(target_node)
-                        if isinstance(target_node, (ast.Name, ast.Attribute))
-                        else None
-                    )
-                    target_resolved = (
-                        _resolve(target_dotted, fi) if target_dotted else None
-                    )
-                    if target_resolved == module_path or target_dotted == module_alias:
-                        hits.append(
-                            Hit(
-                                rel,
-                                node.lineno,
-                                "getattr",
-                                f"getattr({target_dotted}, {simple_name!r})",
-                            )
-                        )
+    for path in _python_files(roots, repo_root):
+        hits.extend(
+            _file_hits(path, simple_name, module_path, symbol, repo_root, hits)
+        )
 
     hits.sort(key=lambda h: (h.file, h.line))
     return hits
