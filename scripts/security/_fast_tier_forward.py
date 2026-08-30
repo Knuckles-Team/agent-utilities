@@ -45,12 +45,98 @@ import json
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 
 class ForwardError(RuntimeError):
     """The forwarder could not even launch the canonical target script."""
+
+
+@dataclass(frozen=True)
+class GateSpec:
+    """The immutable forwarding contract for one security gate wrapper."""
+
+    prog: str
+    target_relative: str
+    extra_args: tuple[str, ...] = ()
+
+
+_GATE_SPECS: dict[str, GateSpec] = {
+    "check_compatibility_matrix_gate.py": GateSpec(
+        prog="check-compatibility-matrix-gate",
+        target_relative="scripts/release/check_compatibility.py",
+        extra_args=("--matrix-only",),
+    ),
+    "check_connector_live_certification_gate.py": GateSpec(
+        prog="check-connector-live-certification-gate",
+        target_relative="scripts/check_connector_live_certification.py",
+        extra_args=("--self-check",),
+    ),
+    "check_context_compiler_boundary_gate.py": GateSpec(
+        prog="check-context-compiler-boundary-gate",
+        target_relative="scripts/check_context_compiler_boundary.py",
+    ),
+    "check_current_only_contract_gate.py": GateSpec(
+        prog="check-current-only-contract-gate",
+        target_relative="scripts/check_current_only_contract.py",
+        extra_args=("--new-only",),
+    ),
+    "check_exact_artifact_closure_gate.py": GateSpec(
+        prog="check-exact-artifact-closure-gate",
+        target_relative="scripts/check_exact_artifact_closure.py",
+    ),
+    "check_exact_local_gates_harness_gate.py": GateSpec(
+        prog="check-exact-local-gates-harness-gate",
+        target_relative="scripts/check_exact_local_gates_harness.py",
+    ),
+    "check_external_graph_contract_gate.py": GateSpec(
+        prog="check-external-graph-contract-gate",
+        target_relative="scripts/check_external_graph_contract.py",
+    ),
+    "check_http_egress_boundary_gate.py": GateSpec(
+        prog="check-http-egress-boundary-gate",
+        target_relative="scripts/check_http_egress_boundary.py",
+    ),
+    "check_native_change_envelope_boundary_gate.py": GateSpec(
+        prog="check-native-change-envelope-boundary-gate",
+        target_relative="scripts/check_native_change_envelope_boundary.py",
+    ),
+    "check_native_work_item_boundary_gate.py": GateSpec(
+        prog="check-native-work-item-boundary-gate",
+        target_relative="scripts/check_native_work_item_boundary.py",
+    ),
+    "check_no_legacy_markers_gate.py": GateSpec(
+        prog="check-no-legacy-markers-gate",
+        target_relative="scripts/check_no_legacy_markers.py",
+    ),
+    "check_production_cell_gate.py": GateSpec(
+        prog="check-production-cell-gate",
+        target_relative="scripts/deployment/check_production_assets.py",
+    ),
+    "check_public_graph_boundary_gate.py": GateSpec(
+        prog="check-public-graph-boundary-gate",
+        target_relative="scripts/check_public_graph_boundary.py",
+    ),
+    "check_skill_validation_certification_gate.py": GateSpec(
+        prog="check-skill-validation-certification-gate",
+        target_relative="scripts/check_skill_validation_certification.py",
+    ),
+    "check_swallowed_errors_gate.py": GateSpec(
+        prog="check-swallowed-errors-gate",
+        target_relative="scripts/check_swallowed_errors.py",
+    ),
+    "check_swarm_assets_gate.py": GateSpec(
+        prog="check-swarm-assets-gate",
+        target_relative="scripts/deployment/check_swarm_assets.py",
+        extra_args=("--self-check",),
+    ),
+    "check_tool_refs_gate.py": GateSpec(
+        prog="check-tool-refs-gate",
+        target_relative="scripts/check_tool_refs.py",
+    ),
+}
 
 
 def forward(
@@ -202,3 +288,34 @@ def run_gate(
         )
     )
     return 0
+
+
+def bind_gate(
+    module_path: str | Path,
+    module_name: str,
+) -> Callable[[Sequence[str] | None], int]:
+    """Bind a wrapper module to its shared CLI entrypoint.
+
+    The returned callable preserves the wrapper's import-time ``main`` API.
+    When a wrapper is executed directly, this function invokes that callable
+    and exits with its result; importing a wrapper only binds ``main`` and does
+    not run a subprocess.
+    """
+    try:
+        spec = _GATE_SPECS[Path(module_path).name]
+    except KeyError as exc:
+        raise ValueError(
+            f"no fast-tier gate specification for {Path(module_path).name!r}"
+        ) from exc
+
+    def main(argv: Sequence[str] | None = None) -> int:
+        return run_gate(
+            argv=argv,
+            prog=spec.prog,
+            target_relative=spec.target_relative,
+            extra_args=spec.extra_args,
+        )
+
+    if module_name == "__main__":
+        raise SystemExit(main())
+    return main
