@@ -12,47 +12,32 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackContext,
+    WritebackInvocation,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_client(ops: dict[str, Any], module: str) -> Any | None:
-    client = ops.get("client")
-    if client is not None:
-        return client
-    try:
-        mod = __import__(f"{module}.auth", fromlist=["get_client"])
-        return mod.get_client()
-    except Exception:  # noqa: BLE001
-        logger.debug("%s write client unavailable", module, exc_info=True)
-        return None
 
 
 def _title(c: dict[str, Any]) -> str | None:
     return c.get("title") or c.get("name")
 
 
-class _IssueSinkBase(ABC):
+class _IssueSinkBase(WritebackClientMixin, ABC):
     domain = ""
     enable_flag = ""
-    module = ""
-
-    def _client(self, ops: dict[str, Any]) -> Any | None:
-        return _resolve_client(ops, self.module)
+    client_module = ""
 
     @abstractmethod
     def _create(self, client: Any, title: str, body: str, c: dict[str, Any]) -> None:
         """File one issue/ticket on the tracker via the resolved client."""
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        _, ops, client, result, dry_run = invocation.unpack()
         for c in ops.get("creations") or []:
             title = _title(c)
             if not title:
@@ -73,7 +58,7 @@ class _IssueSinkBase(ABC):
 class GitLabIssueSink(_IssueSinkBase):
     domain = "gitlab"
     enable_flag = "GITLAB_ENABLE_WRITE"
-    module = "gitlab_api"
+    client_module = "gitlab_api"
 
     def _create(self, client, title, body, c):
         client.create_issue(
@@ -86,7 +71,7 @@ class GitLabIssueSink(_IssueSinkBase):
 class GitHubIssueSink(_IssueSinkBase):
     domain = "github"
     enable_flag = "GITHUB_ENABLE_WRITE"
-    module = "github_agent"
+    client_module = "github_agent"
 
     def _create(self, client, title, body, c):
         client.create_issue(c.get("owner"), c.get("repo"), title, body=body)
@@ -95,7 +80,7 @@ class GitHubIssueSink(_IssueSinkBase):
 class PlaneIssueSink(_IssueSinkBase):
     domain = "plane"
     enable_flag = "PLANE_ENABLE_WRITE"
-    module = "plane_agent"
+    client_module = "plane_agent"
 
     def _create(self, client, title, body, c):
         client.create_work_item(
@@ -107,7 +92,7 @@ class PlaneIssueSink(_IssueSinkBase):
 class JiraIssueSink(_IssueSinkBase):
     domain = "jira"
     enable_flag = "JIRA_ENABLE_WRITE"
-    module = "atlassian_agent"
+    client_module = "atlassian_agent"
 
     def _client(self, ops):
         if ops.get("client") is not None:

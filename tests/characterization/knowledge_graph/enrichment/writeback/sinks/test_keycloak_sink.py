@@ -5,7 +5,7 @@ defaults to "user" when absent), the silent drop of a creation missing
 ``name``, the ``application`` vs default (user) client-method dispatch, realm
 default/override, and live success/exception counting. No behaviour changed.
 
-"No client" scenarios monkeypatch the module-level ``_resolve_client`` --
+"No client" scenarios monkeypatch the sink's ``_client`` method --
 OBSERVED: ``keycloak_agent`` IS installed in this --all-extras venv and
 ``get_client()`` returns a live (unconfigured) object, so an empty ``ops``
 alone does not exercise the ``client is None`` branch here.
@@ -18,8 +18,9 @@ from typing import Any
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.writeback.core import WritebackContext
-from agent_utilities.knowledge_graph.enrichment.writeback.sinks import identity as identity_mod
-from agent_utilities.knowledge_graph.enrichment.writeback.sinks.identity import KeycloakSink
+from agent_utilities.knowledge_graph.enrichment.writeback.sinks.identity import (
+    KeycloakSink,
+)
 
 
 class _FakeClient:
@@ -44,7 +45,7 @@ def _fields(result: Any) -> tuple:
 
 
 def _no_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(identity_mod, "_resolve_client", lambda ops, module: None)
+    monkeypatch.setattr(KeycloakSink, "_client", lambda self, ops: None)
 
 
 def test_no_client_live_mode_marks_skipped(monkeypatch: pytest.MonkeyPatch) -> None:

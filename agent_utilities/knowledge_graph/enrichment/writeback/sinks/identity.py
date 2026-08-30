@@ -11,28 +11,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..core import WritebackContext, WritebackResult, register_sink
+from ..core import (
+    WritebackClientMixin,
+    WritebackInvocation,
+    WritebackResult,
+    register_sink,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_client(ops: dict[str, Any], module: str) -> Any | None:
-    client = ops.get("client")
-    if client is not None:
-        return client
-    try:
-        mod = __import__(f"{module}.auth", fromlist=["get_client"])
-        return mod.get_client()
-    except Exception:  # noqa: BLE001 - connector absent / unconfigured
-        logger.debug("%s write client unavailable", module, exc_info=True)
-        return None
-
-
-class OktaSink:
+class OktaSink(WritebackClientMixin):
     """Write-back sink for Okta (provision / assign-app / deprovision)."""
 
     domain = "okta"
     enable_flag = "OKTA_ENABLE_WRITE"
+    client_module = "okta_agent"
 
     def _apply_creation(
         self, client: Any, c: dict[str, Any], dry_run: bool, result: WritebackResult
@@ -97,14 +91,8 @@ class OktaSink:
             logger.debug("okta deactivate_user failed", exc_info=True)
             result.errors += 1
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = _resolve_client(ops, "okta_agent")
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        ctx, ops, client, result, dry_run = invocation.unpack()
         resolve = ctx.resolver("okta")
 
         for c in ops.get("creations") or []:
@@ -120,11 +108,12 @@ class OktaSink:
         return result
 
 
-class KeycloakSink:
+class KeycloakSink(WritebackClientMixin):
     """Write-back sink for Keycloak (provision users/clients in a realm)."""
 
     domain = "keycloak"
     enable_flag = "KEYCLOAK_ENABLE_WRITE"
+    client_module = "keycloak_agent"
 
     def _create_one(
         self,
@@ -155,14 +144,8 @@ class KeycloakSink:
             logger.debug("keycloak create failed", exc_info=True)
             result.errors += 1
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = _resolve_client(ops, "keycloak_agent")
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        _, ops, client, result, dry_run = invocation.unpack()
         realm = ops.get("realm", "master")
 
         for c in ops.get("creations") or []:

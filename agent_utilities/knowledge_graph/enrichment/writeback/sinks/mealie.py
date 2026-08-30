@@ -12,7 +12,7 @@ from typing import Any
 
 from ..core import (
     WritebackClientMixin,
-    WritebackContext,
+    WritebackInvocation,
     WritebackResult,
     register_sink,
 )
@@ -64,14 +64,8 @@ class MealieSink(WritebackClientMixin):
             client.post_households_shopping_items(data=data)  # type: ignore[union-attr]  # client None-checked above
             result.created += 1
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        _, ops, client, result, dry_run = invocation.unpack()
 
         handlers = {
             "mealplan": self._apply_mealplan,
