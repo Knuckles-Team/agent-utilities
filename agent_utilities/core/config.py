@@ -1379,6 +1379,27 @@ def _validate_oauth2_block(oauth2: dict[str, Any], owner_label: str) -> dict[str
         raise ValueError(f"{owner_label}: invalid oauth2 block: {exc}") from exc
 
 
+def _validate_model_auth_mode(model: Any, model_type: str) -> Any:
+    """Validate and normalize authentication shared by configured model types."""
+    owner_label = f"{model_type} {model.id!r}"
+    if model.api_key_ref and model.oauth2:
+        raise ValueError(
+            f"{owner_label}: 'api_key_ref' and 'oauth2' are mutually exclusive — "
+            "configure exactly one authentication mode."
+        )
+    for attribute in ("api_key_ref", "headers_ref"):
+        reference = getattr(model, attribute)
+        if reference is not None and not _RUNTIME_SECRET_REF_RE.fullmatch(
+            reference.strip()
+        ):
+            raise ValueError("model runtime material must use a secret reference")
+        if reference is not None:
+            setattr(model, attribute, reference.strip())
+    if model.oauth2:
+        model.oauth2 = _validate_oauth2_block(model.oauth2, owner_label)
+    return model
+
+
 class ChatModelConfig(BaseModel):
     id: str
     provider: str
@@ -1448,25 +1469,7 @@ class ChatModelConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_auth_mode(self) -> "ChatModelConfig":
-        """Reference-backed API keys and OAuth2 are mutually exclusive."""
-        if self.api_key_ref and self.oauth2:
-            raise ValueError(
-                f"ChatModelConfig {self.id!r}: 'api_key_ref' and 'oauth2' are mutually exclusive — "
-                "configure exactly one authentication mode."
-            )
-        for attribute in ("api_key_ref", "headers_ref"):
-            reference = getattr(self, attribute)
-            if reference is not None and not _RUNTIME_SECRET_REF_RE.fullmatch(
-                reference.strip()
-            ):
-                raise ValueError("model runtime material must use a secret reference")
-            if reference is not None:
-                setattr(self, attribute, reference.strip())
-        if self.oauth2:
-            self.oauth2 = _validate_oauth2_block(
-                self.oauth2, f"ChatModelConfig {self.id!r}"
-            )
-        return self
+        return _validate_model_auth_mode(self, "ChatModelConfig")
 
     @property
     def total_capacity(self) -> int:
@@ -1531,25 +1534,7 @@ class EmbeddingModelConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_auth_mode(self) -> "EmbeddingModelConfig":
-        """Reference-backed API keys and OAuth2 are mutually exclusive."""
-        if self.api_key_ref and self.oauth2:
-            raise ValueError(
-                f"EmbeddingModelConfig {self.id!r}: 'api_key_ref' and 'oauth2' are mutually "
-                "exclusive — configure exactly one authentication mode."
-            )
-        for attribute in ("api_key_ref", "headers_ref"):
-            reference = getattr(self, attribute)
-            if reference is not None and not _RUNTIME_SECRET_REF_RE.fullmatch(
-                reference.strip()
-            ):
-                raise ValueError("model runtime material must use a secret reference")
-            if reference is not None:
-                setattr(self, attribute, reference.strip())
-        if self.oauth2:
-            self.oauth2 = _validate_oauth2_block(
-                self.oauth2, f"EmbeddingModelConfig {self.id!r}"
-            )
-        return self
+        return _validate_model_auth_mode(self, "EmbeddingModelConfig")
 
     @property
     def total_capacity(self) -> int:
