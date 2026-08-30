@@ -199,6 +199,53 @@ def _validate_reference(value: str, field_name: str) -> str:
     return value
 
 
+def _normalize_summary_key(raw_key: object) -> str:
+    if not isinstance(raw_key, str):
+        raise ValueError("summary_key_must_be_text")
+    key = raw_key.strip()
+    if key != raw_key or not _SUMMARY_KEY_RE.fullmatch(key):
+        raise ValueError("summary_key_not_canonical")
+    if key not in _ALLOWED_SUMMARY_KEYS:
+        raise ValueError("summary_key_not_allowlisted")
+    return key
+
+
+def _normalize_summary_integer(value: int) -> int:
+    if abs(value) > MAX_SUMMARY_INTEGER:
+        raise ValueError("summary_integer_bound_exceeded")
+    return value
+
+
+def _normalize_summary_float(value: float) -> float:
+    if not math.isfinite(value) or abs(value) > MAX_SUMMARY_FLOAT:
+        raise ValueError("summary_float_bound_invalid")
+    return value
+
+
+def _normalize_summary_text(key: str, value: str) -> str:
+    if not value or len(value) > MAX_SUMMARY_VALUE_LENGTH:
+        raise ValueError("summary_text_length_invalid")
+    if any(ord(char) < 32 and char not in "\t" for char in value):
+        raise ValueError("summary_text_contains_control_character")
+    if _FORBIDDEN_TEXT_RE.search(value):
+        raise ValueError("summary_text_contains_sensitive_marker")
+    if key.endswith("_ref"):
+        _validate_reference(value, key)
+    return value
+
+
+def _normalize_summary_value(key: str, value: object) -> SummaryValue:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return _normalize_summary_integer(value)
+    if isinstance(value, float):
+        return _normalize_summary_float(value)
+    if isinstance(value, str):
+        return _normalize_summary_text(key, value)
+    raise ValueError("summary_value_must_be_scalar")
+
+
 def _normalize_summary(value: object) -> dict[str, SummaryValue]:
     if not isinstance(value, Mapping):
         raise ValueError("summary_must_be_a_mapping")
@@ -206,36 +253,8 @@ def _normalize_summary(value: object) -> dict[str, SummaryValue]:
         raise ValueError("summary_field_limit_exceeded")
     normalized: dict[str, SummaryValue] = {}
     for raw_key, raw_item in value.items():
-        if not isinstance(raw_key, str):
-            raise ValueError("summary_key_must_be_text")
-        key = raw_key.strip()
-        if key != raw_key or not _SUMMARY_KEY_RE.fullmatch(key):
-            raise ValueError("summary_key_not_canonical")
-        if key not in _ALLOWED_SUMMARY_KEYS:
-            raise ValueError("summary_key_not_allowlisted")
-        if isinstance(raw_item, bool):
-            item: SummaryValue = raw_item
-        elif isinstance(raw_item, int) and not isinstance(raw_item, bool):
-            if abs(raw_item) > MAX_SUMMARY_INTEGER:
-                raise ValueError("summary_integer_bound_exceeded")
-            item = raw_item
-        elif isinstance(raw_item, float):
-            if not math.isfinite(raw_item) or abs(raw_item) > MAX_SUMMARY_FLOAT:
-                raise ValueError("summary_float_bound_invalid")
-            item = raw_item
-        elif isinstance(raw_item, str):
-            if not raw_item or len(raw_item) > MAX_SUMMARY_VALUE_LENGTH:
-                raise ValueError("summary_text_length_invalid")
-            if any(ord(char) < 32 and char not in "\t" for char in raw_item):
-                raise ValueError("summary_text_contains_control_character")
-            if _FORBIDDEN_TEXT_RE.search(raw_item):
-                raise ValueError("summary_text_contains_sensitive_marker")
-            if key.endswith("_ref"):
-                _validate_reference(raw_item, key)
-            item = raw_item
-        else:
-            raise ValueError("summary_value_must_be_scalar")
-        normalized[key] = item
+        key = _normalize_summary_key(raw_key)
+        normalized[key] = _normalize_summary_value(key, raw_item)
     # Dict order is part of the public projection and therefore normalized at
     # construction time, even when an adapter received an unordered mapping.
     return {key: normalized[key] for key in sorted(normalized)}
