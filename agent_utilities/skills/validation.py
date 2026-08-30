@@ -483,8 +483,7 @@ def _validate_expert_prompt() -> list[str]:
     return errors
 
 
-def validate() -> list[str]:
-    """Return deterministic validation errors for the retained suite."""
+def _validate_skill_inventory() -> tuple[set[str], list[str]]:
     actual = {
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
@@ -497,6 +496,11 @@ def validate() -> list[str]:
             f"missing={sorted(EXPECTED_SKILLS - actual)} "
             f"unexpected={sorted(actual - EXPECTED_SKILLS)}"
         )
+    return actual, errors
+
+
+def _validate_skill_tree(actual: set[str]) -> list[str]:
+    errors: list[str] = []
     # Scoped to the canonical 13-skill subtree only: a SKILL.md nested under one
     # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
     # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
@@ -517,6 +521,13 @@ def validate() -> list[str]:
         )
     for name in sorted(actual):
         errors.extend(_validate_skill(SKILLS_ROOT / name))
+    return errors
+
+
+def validate() -> list[str]:
+    """Return deterministic validation errors for the retained suite."""
+    actual, errors = _validate_skill_inventory()
+    errors.extend(_validate_skill_tree(actual))
     errors.extend(_validate_forward_matrix())
     errors.extend(_validate_expert_prompt())
     return errors
