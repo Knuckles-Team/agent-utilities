@@ -755,53 +755,81 @@ class AuthorityDerivedEligibility:
         label = compose_source_labels(request.sources)
         checks: list[EligibilityCheck] = []
 
-        def deny(name: str, detail: str) -> EligibilityDecision:
-            checks.append(EligibilityCheck(name=name, passed=False, detail=detail))
-            return EligibilityDecision(
-                permitted=False,
-                gate=self.name,
-                reason=f"disk persistence denied ({name}): {detail}",
-                derivation=PersistenceDerivation(
-                    authority=authority,
-                    label=label,
-                    checks=tuple(checks),
-                    target_region=request.target_region,
-                ),
-            )
+        for checker in (
+            self._check_verified_authority,
+            self._check_tenancy,
+            self._check_durable_write_scope,
+            self._check_source_provenance,
+            self._check_labels_present,
+            self._check_classification,
+            self._check_mandatory_markings,
+            self._check_residency,
+            self._check_retention,
+        ):
+            check = checker(request, authority, label)
+            checks.append(check)
+            if not check.passed:
+                return self._deny(request, authority, label, checks)
+        return self._permit(request, authority, label, checks)
 
-        def ok(name: str, detail: str) -> None:
-            checks.append(EligibilityCheck(name=name, passed=True, detail=detail))
-
-        # 1. Verified authority. No session, an expired credential, an unresolvable
-        #    delegation ceiling, or an unreadable clearance all land here.
+    @staticmethod
+    def _check_verified_authority(
+        _request: PersistenceRequest,
+        authority: CallerAuthority,
+        _label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the request carries current, verified caller authority."""
         if not authority.verified:
-            return deny(
-                "verified_authority",
-                authority.unverified_reason or "the caller has no verified authority",
+            return EligibilityCheck(
+                name="verified_authority",
+                passed=False,
+                detail=authority.unverified_reason
+                or "the caller has no verified authority",
             )
-        ok(
-            "verified_authority",
-            f"actor={authority.actor_id!r} tenant={authority.tenant!r} "
-            f"clearance={authority.clearance_label}"
-            + (
-                f" (delegated: {' -> '.join(authority.delegation_chain)})"
-                if authority.delegated
-                else ""
+        return EligibilityCheck(
+            name="verified_authority",
+            passed=True,
+            detail=(
+                f"actor={authority.actor_id!r} tenant={authority.tenant!r} "
+                f"clearance={authority.clearance_label}"
+                + (
+                    f" (delegated: {' -> '.join(authority.delegation_chain)})"
+                    if authority.delegated
+                    else ""
+                )
             ),
         )
 
-        # 2. Tenancy. A checkpoint may only be persisted into the tenancy of the
-        #    session that produced it.
+    @staticmethod
+    def _check_tenancy(
+        request: PersistenceRequest,
+        authority: CallerAuthority,
+        _label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the checkpoint stays in the verified session tenant."""
         if request.tenant != authority.tenant:
-            return deny(
-                "tenancy",
-                f"checkpoint tenant {request.tenant!r} is not the verified session "
-                f"tenant {authority.tenant!r}; a checkpoint may only be persisted into "
-                "the tenancy that produced it",
+            return EligibilityCheck(
+                name="tenancy",
+                passed=False,
+                detail=(
+                    f"checkpoint tenant {request.tenant!r} is not the verified session "
+                    f"tenant {authority.tenant!r}; a checkpoint may only be persisted into "
+                    "the tenancy that produced it"
+                ),
             )
-        ok("tenancy", f"checkpoint and session both in tenant {request.tenant!r}")
+        return EligibilityCheck(
+            name="tenancy",
+            passed=True,
+            detail=f"checkpoint and session both in tenant {request.tenant!r}",
+        )
 
-        # 3. Scope. Durable persistence is a graph write.
+    @staticmethod
+    def _check_durable_write_scope(
+        _request: PersistenceRequest,
+        authority: CallerAuthority,
+        _label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the caller can perform the graph write behind persistence."""
         if DURABLE_WRITE_SCOPE not in authority.scopes:
             detail = (
                 f"the session does not hold {DURABLE_WRITE_SCOPE!r} (scopes="
@@ -812,130 +840,227 @@ class AuthorityDerivedEligibility:
                     "; note the delegator's ceiling removed "
                     f"{sorted(authority.narrowed_away)}"
                 )
-            return deny("durable_write_scope", detail)
-        ok("durable_write_scope", f"session holds {DURABLE_WRITE_SCOPE!r}")
-
-        # 4. Provenance. No declared sources means no basis to reason at all.
-        if label.no_sources:
-            return deny(
-                "source_provenance",
-                "no contributing source was declared for this checkpoint; an "
-                "unprovenanced context cannot be shown to permit data-at-rest (an "
-                "empty source set is never read as 'nothing restricts it')",
+            return EligibilityCheck(
+                name="durable_write_scope", passed=False, detail=detail
             )
-        ok(
-            "source_provenance",
-            f"{len(label.contributions)} contributing source(s): "
-            + ", ".join(c.source_id for c in label.contributions[:8]),
+        return EligibilityCheck(
+            name="durable_write_scope",
+            passed=True,
+            detail=f"session holds {DURABLE_WRITE_SCOPE!r}",
         )
 
-        # 5. Every label present. Absence denies, and names itself.
+    @staticmethod
+    def _check_source_provenance(
+        _request: PersistenceRequest,
+        _authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that at least one source is recorded for the checkpoint."""
+        if label.no_sources:
+            return EligibilityCheck(
+                name="source_provenance",
+                passed=False,
+                detail=(
+                    "no contributing source was declared for this checkpoint; an "
+                    "unprovenanced context cannot be shown to permit data-at-rest (an "
+                    "empty source set is never read as 'nothing restricts it')"
+                ),
+            )
+        return EligibilityCheck(
+            name="source_provenance",
+            passed=True,
+            detail=(
+                f"{len(label.contributions)} contributing source(s): "
+                + ", ".join(c.source_id for c in label.contributions[:8])
+            ),
+        )
+
+    @staticmethod
+    def _check_labels_present(
+        _request: PersistenceRequest,
+        _authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that every contributing source declares all required label axes."""
         if label.unlabelled:
-            return deny(
-                "labels_present",
-                "these contributing source labels are undeclared, and an absent label "
-                f"denies: {', '.join(label.unlabelled)}",
+            return EligibilityCheck(
+                name="labels_present",
+                passed=False,
+                detail=(
+                    "these contributing source labels are undeclared, and an absent label "
+                    f"denies: {', '.join(label.unlabelled)}"
+                ),
             )
         derived = [
             f"{c.source_id}:{axis}"
             for c in label.contributions
             for axis in c.derived_axes
         ]
-        ok(
-            "labels_present",
-            "every contributing source declares classification, residency and retention"
-            + (
-                f" (derived from a PUBLIC classification: {', '.join(derived)})"
-                if derived
-                else ""
+        return EligibilityCheck(
+            name="labels_present",
+            passed=True,
+            detail=(
+                "every contributing source declares classification, residency and retention"
+                + (
+                    f" (derived from a PUBLIC classification: {', '.join(derived)})"
+                    if derived
+                    else ""
+                )
             ),
         )
 
-        # 6. Clearance dominates the composed (most restrictive) classification.
+    @staticmethod
+    def _check_classification(
+        _request: PersistenceRequest,
+        authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the caller clears the composed source classification."""
         if authority.clearance < label.classification_level:
             offenders = [
                 c.source_id
                 for c in label.contributions
                 if _CLASS_ORDER.get(c.classification, 0) == label.classification_level
             ]
-            return deny(
-                "classification",
+            detail = (
                 f"the composed classification is {label.classification!r} (raised by "
                 f"{', '.join(offenders)}) but the caller clears only "
                 f"{authority.clearance_label!r}"
-                + (
+            )
+            if authority.ceiling_applied:
+                detail += (
                     "; the delegator's ceiling narrowed this authority (principal="
                     f"{authority.delegation_principal!r}, dropped "
                     f"{sorted(authority.narrowed_away)})"
-                    if authority.ceiling_applied
-                    else ""
-                ),
-            )
-        ok(
-            "classification",
-            f"caller clears {authority.clearance_label!r} >= composed "
-            f"{label.classification!r}",
-        )
-
-        # 7. Mandatory markings — the union across contributors. Graph administration
-        #    clears markings, matching the permissioning read gate.
-        if label.markings and not authority.unrestricted:
-            missing = label.markings - authority.markings_held
-            if missing:
-                carriers = {
-                    m: [c.source_id for c in label.contributions if m in c.markings]
-                    for m in sorted(missing)
-                }
-                return deny(
-                    "mandatory_markings",
-                    "the caller does not hold every mandatory marking carried by the "
-                    "contributing sources: "
-                    + "; ".join(
-                        f"{m} (from {', '.join(srcs)})" for m, srcs in carriers.items()
-                    ),
                 )
-        ok(
-            "mandatory_markings",
-            f"caller clears {sorted(label.markings) or 'no'} mandatory marking(s)",
+            return EligibilityCheck(name="classification", passed=False, detail=detail)
+        return EligibilityCheck(
+            name="classification",
+            passed=True,
+            detail=(
+                f"caller clears {authority.clearance_label!r} >= composed "
+                f"{label.classification!r}"
+            ),
         )
 
-        # 8. Residency. Only consulted when a contributor actually restricts it.
-        if ANY_REGION not in label.residency_regions:
-            if not label.residency_regions:
-                return deny(
-                    "residency",
+    @staticmethod
+    def _check_mandatory_markings(
+        _request: PersistenceRequest,
+        authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the caller holds every mandatory source marking."""
+        if not label.markings or authority.unrestricted:
+            return AuthorityDerivedEligibility._markings_pass(label)
+        missing = label.markings - authority.markings_held
+        if not missing:
+            return AuthorityDerivedEligibility._markings_pass(label)
+        return AuthorityDerivedEligibility._markings_denied(label, missing)
+
+    @staticmethod
+    def _markings_pass(label: ComposedLabel) -> EligibilityCheck:
+        """Build the successful mandatory-markings check."""
+        return EligibilityCheck(
+            name="mandatory_markings",
+            passed=True,
+            detail=f"caller clears {sorted(label.markings) or 'no'} mandatory marking(s)",
+        )
+
+    @staticmethod
+    def _markings_denied(
+        label: ComposedLabel, missing: frozenset[str]
+    ) -> EligibilityCheck:
+        """Build the mandatory-markings refusal with every source carrier."""
+        carriers = {
+            m: [c.source_id for c in label.contributions if m in c.markings]
+            for m in sorted(missing)
+        }
+        return EligibilityCheck(
+            name="mandatory_markings",
+            passed=False,
+            detail=(
+                "the caller does not hold every mandatory marking carried by the "
+                "contributing sources: "
+                + "; ".join(
+                    f"{m} (from {', '.join(srcs)})" for m, srcs in carriers.items()
+                )
+            ),
+        )
+
+    @staticmethod
+    def _check_residency(
+        request: PersistenceRequest,
+        _authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that the durable store's region satisfies every source."""
+        if ANY_REGION in label.residency_regions:
+            return AuthorityDerivedEligibility._residency_pass(request)
+        if not label.residency_regions:
+            return EligibilityCheck(
+                name="residency",
+                passed=False,
+                detail=(
                     "no region satisfies every contributing source — their permitted "
                     "regions intersect to the empty set, so this context may not come "
-                    "to rest anywhere",
-                )
-            if not request.target_region:
-                return deny(
-                    "residency",
+                    "to rest anywhere"
+                ),
+            )
+        if not request.target_region:
+            return EligibilityCheck(
+                name="residency",
+                passed=False,
+                detail=(
                     "contributing sources restrict residency to "
                     f"{sorted(label.residency_regions)} but the region the durable "
-                    "store writes into is unknown; an unknown target region denies",
-                )
-            if request.target_region not in label.residency_regions:
-                offenders = [
-                    c.source_id
-                    for c in label.contributions
-                    if c.residency_regions
-                    and ANY_REGION not in c.residency_regions
-                    and request.target_region not in c.residency_regions
-                ]
-                return deny(
-                    "residency",
-                    f"the durable store writes into {request.target_region!r}, which "
-                    f"{', '.join(offenders) or 'a contributing source'} does not permit "
-                    f"(permitted: {sorted(label.residency_regions)})",
-                )
-        ok(
-            "residency",
-            f"target region {request.target_region or '(unconstrained)'} is permitted "
-            "by every contributing source",
+                    "store writes into is unknown; an unknown target region denies"
+                ),
+            )
+        if request.target_region not in label.residency_regions:
+            return AuthorityDerivedEligibility._residency_denied(request, label)
+        return AuthorityDerivedEligibility._residency_pass(request)
+
+    @staticmethod
+    def _residency_pass(request: PersistenceRequest) -> EligibilityCheck:
+        """Build the successful residency check."""
+        return EligibilityCheck(
+            name="residency",
+            passed=True,
+            detail=(
+                f"target region {request.target_region or '(unconstrained)'} is permitted "
+                "by every contributing source"
+            ),
         )
 
-        # 9. Retention. A contributor that permits no durable retention vetoes.
+    @staticmethod
+    def _residency_denied(
+        request: PersistenceRequest, label: ComposedLabel
+    ) -> EligibilityCheck:
+        """Build the residency refusal naming sources that forbid the target."""
+        offenders = [
+            c.source_id
+            for c in label.contributions
+            if c.residency_regions
+            and ANY_REGION not in c.residency_regions
+            and request.target_region not in c.residency_regions
+        ]
+        return EligibilityCheck(
+            name="residency",
+            passed=False,
+            detail=(
+                f"the durable store writes into {request.target_region!r}, which "
+                f"{', '.join(offenders) or 'a contributing source'} does not permit "
+                f"(permitted: {sorted(label.residency_regions)})"
+            ),
+        )
+
+    @staticmethod
+    def _check_retention(
+        _request: PersistenceRequest,
+        _authority: CallerAuthority,
+        label: ComposedLabel,
+    ) -> EligibilityCheck:
+        """Check that source retention permits durable storage."""
         if (
             label.retention_days != UNLIMITED_RETENTION_DAYS
             and label.retention_days <= 0
@@ -945,22 +1070,57 @@ class AuthorityDerivedEligibility:
                 for c in label.contributions
                 if c.retention_days is not None and c.retention_days == 0
             ]
-            return deny(
-                "retention",
-                f"{', '.join(offenders) or 'a contributing source'} permits no durable "
-                "retention of its material, so this checkpoint may not be written at "
-                "rest",
+            return EligibilityCheck(
+                name="retention",
+                passed=False,
+                detail=(
+                    f"{', '.join(offenders) or 'a contributing source'} permits no durable "
+                    "retention of its material, so this checkpoint may not be written at "
+                    "rest"
+                ),
             )
-        ok(
-            "retention",
-            "composed retention limit is "
-            + (
-                "unlimited"
-                if label.retention_days == UNLIMITED_RETENTION_DAYS
-                else f"{label.retention_days} day(s)"
+        return EligibilityCheck(
+            name="retention",
+            passed=True,
+            detail=(
+                "composed retention limit is "
+                + (
+                    "unlimited"
+                    if label.retention_days == UNLIMITED_RETENTION_DAYS
+                    else f"{label.retention_days} day(s)"
+                )
             ),
         )
 
+    def _deny(
+        self,
+        request: PersistenceRequest,
+        authority: CallerAuthority,
+        label: ComposedLabel,
+        checks: list[EligibilityCheck],
+    ) -> EligibilityDecision:
+        """Build the denial from the failed check already appended by evaluate."""
+        failed = checks[-1]
+        return EligibilityDecision(
+            permitted=False,
+            gate=self.name,
+            reason=f"disk persistence denied ({failed.name}): {failed.detail}",
+            derivation=PersistenceDerivation(
+                authority=authority,
+                label=label,
+                checks=tuple(checks),
+                target_region=request.target_region,
+            ),
+        )
+
+    def _permit(
+        self,
+        request: PersistenceRequest,
+        authority: CallerAuthority,
+        label: ComposedLabel,
+        checks: list[EligibilityCheck],
+    ) -> EligibilityDecision:
+        """Build the permit after all ordered checks passed."""
         return EligibilityDecision(
             permitted=True,
             gate=self.name,
