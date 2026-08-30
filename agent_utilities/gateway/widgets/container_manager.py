@@ -24,15 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "CONTAINER_MANAGER"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="containers", label="Containers", format="number"),
-            WidgetField(
-                key="running", label="Running", format="number", highlight=True
-            ),
-            WidgetField(key="images", label="Images", format="number"),
-            WidgetField(key="volumes", label="Volumes", format="number"),
-            WidgetField(key="networks", label="Networks", format="number"),
-        ]
+        return self.get_widget_fields("container_manager")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # No `container_manager_mcp.api_client` module exists — the package's

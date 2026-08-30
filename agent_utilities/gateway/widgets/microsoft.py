@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "MICROSOFT"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="unread_emails", label="Unread", format="number", highlight=True
-            ),
-            WidgetField(key="events_today", label="Events", format="number"),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("microsoft")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from microsoft_agent.api_client import MicrosoftGraphApi as MicrosoftApi

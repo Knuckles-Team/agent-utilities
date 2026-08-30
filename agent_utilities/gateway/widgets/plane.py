@@ -25,14 +25,7 @@ class Widget(BaseWidget):
     env_prefix = "PLANE"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(
-                key="open_issues", label="Open", format="number", highlight=True
-            ),
-            WidgetField(key="in_progress", label="In Progress", format="number"),
-            WidgetField(key="completed", label="Done", format="number"),
-        ]
+        return self.get_widget_fields("plane")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from plane_agent.api_client import Api as PlaneApi

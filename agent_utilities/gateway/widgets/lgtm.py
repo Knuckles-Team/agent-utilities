@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "LGTM"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="dashboards", label="Dashboards", format="number"),
-            WidgetField(
-                key="alerts_firing", label="Firing", format="number", highlight=True
-            ),
-            WidgetField(key="datasources", label="Sources", format="number"),
-        ]
+        return self.get_widget_fields("lgtm")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         url = self._resolve_url(config)

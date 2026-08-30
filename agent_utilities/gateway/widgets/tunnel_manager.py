@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "TUNNEL_MANAGER"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="hosts", label="Hosts", format="number"),
-            WidgetField(
-                key="sessions", label="Sessions", format="number", highlight=True
-            ),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("tunnel_manager")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # No `tunnel_manager.api_client` module exists. The package's real

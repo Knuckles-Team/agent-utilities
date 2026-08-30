@@ -28,17 +28,7 @@ class Widget(BaseWidget):
     supports_websocket = False
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(
-                key="open_mrs", label="Open MRs", format="number", highlight=True
-            ),
-            WidgetField(key="pipelines_running", label="Running", format="number"),
-            WidgetField(
-                key="pipelines_failed", label="Failed", format="number", highlight=True
-            ),
-            WidgetField(key="runners_online", label="Runners", format="number"),
-        ]
+        return self.get_widget_fields("gitlab")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from gitlab_api.api_client import Api as GitLabApi

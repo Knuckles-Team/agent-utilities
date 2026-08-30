@@ -30,6 +30,156 @@ from agent_utilities.security.error_surface import (
 logger = logging.getLogger(__name__)
 
 
+_WIDGET_FIELD_SPECS: dict[str, tuple[dict[str, Any], ...]] = {
+    "ansible_tower": (
+        {"key": "templates", "label": "Templates"},
+        {"key": "running_jobs", "label": "Running", "highlight": True},
+        {"key": "failed_jobs", "label": "Failed", "highlight": True},
+        {"key": "hosts", "label": "Hosts"},
+    ),
+    "arr": (
+        {"key": "monitored", "label": "Monitored"},
+        {"key": "missing", "label": "Missing", "highlight": True},
+        {"key": "queued", "label": "Queued"},
+        {"key": "indexers", "label": "Indexers"},
+    ),
+    "atlassian": (
+        {"key": "open_issues", "label": "Open Issues", "highlight": True},
+        {"key": "in_progress", "label": "In Progress"},
+        {"key": "wiki_pages", "label": "Wiki Pages"},
+    ),
+    "container_manager": (
+        {"key": "containers", "label": "Containers"},
+        {"key": "running", "label": "Running", "highlight": True},
+        {"key": "images", "label": "Images"},
+        {"key": "volumes", "label": "Volumes"},
+        {"key": "networks", "label": "Networks"},
+    ),
+    "github": (
+        {"key": "repos", "label": "Repos"},
+        {"key": "open_prs", "label": "Open PRs", "highlight": True},
+        {"key": "open_issues", "label": "Issues"},
+    ),
+    "gitlab": (
+        {"key": "projects", "label": "Projects"},
+        {"key": "open_mrs", "label": "Open MRs", "highlight": True},
+        {"key": "pipelines_running", "label": "Running"},
+        {"key": "pipelines_failed", "label": "Failed", "highlight": True},
+        {"key": "runners_online", "label": "Runners"},
+    ),
+    "google_workspace": (
+        {"key": "unread_emails", "label": "Unread", "highlight": True},
+        {"key": "events_today", "label": "Events"},
+        {"key": "drive_files", "label": "Files"},
+    ),
+    "home_assistant": (
+        {"key": "entities", "label": "Entities"},
+        {"key": "lights_on", "label": "Lights On", "highlight": True},
+        {"key": "automations", "label": "Automations"},
+        {"key": "switches_on", "label": "Switches"},
+    ),
+    "legal_peripherals": (
+        {"key": "entities", "label": "Entities"},
+        {"key": "pending", "label": "Pending", "highlight": True},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "lgtm": (
+        {"key": "dashboards", "label": "Dashboards"},
+        {"key": "alerts_firing", "label": "Firing", "highlight": True},
+        {"key": "datasources", "label": "Sources"},
+    ),
+    "microsoft": (
+        {"key": "unread_emails", "label": "Unread", "highlight": True},
+        {"key": "events_today", "label": "Events"},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "ollama": (
+        {"key": "models", "label": "Models"},
+        {"key": "running", "label": "Running", "highlight": True},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "openbao": (
+        {"key": "sealed", "label": "Sealed", "format": "text", "highlight": True},
+        {"key": "mounts", "label": "Mounts"},
+        {"key": "version", "label": "Version", "format": "text"},
+    ),
+    "owncast": (
+        {"key": "live", "label": "Live", "format": "text", "highlight": True},
+        {"key": "viewers", "label": "Viewers"},
+        {"key": "peak", "label": "Peak"},
+    ),
+    "plane": (
+        {"key": "projects", "label": "Projects"},
+        {"key": "open_issues", "label": "Open", "highlight": True},
+        {"key": "in_progress", "label": "In Progress"},
+        {"key": "completed", "label": "Done"},
+    ),
+    "portainer": (
+        {"key": "running", "label": "Running", "highlight": True},
+        {"key": "stopped", "label": "Stopped", "highlight": True},
+        {"key": "stacks", "label": "Stacks"},
+        {"key": "volumes", "label": "Volumes"},
+        {"key": "images", "label": "Images"},
+        {"key": "environments", "label": "Environments"},
+    ),
+    "qbittorrent": (
+        {"key": "downloading", "label": "Downloading", "highlight": True},
+        {"key": "seeding", "label": "Seeding"},
+        {"key": "paused", "label": "Paused"},
+        {"key": "dl_speed", "label": "↓ Speed", "format": "bytes", "suffix": "/s"},
+        {"key": "ul_speed", "label": "↑ Speed", "format": "bytes", "suffix": "/s"},
+    ),
+    "repository_manager": (
+        {"key": "projects", "label": "Projects"},
+        {"key": "valid", "label": "Valid", "highlight": True},
+        {"key": "errors", "label": "Errors", "highlight": True},
+    ),
+    "sentry": (
+        {"key": "unresolved", "label": "Unresolved", "highlight": True},
+        {"key": "projects", "label": "Projects"},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "servicenow": (
+        {"key": "open_incidents", "label": "Incidents", "highlight": True},
+        {"key": "open_changes", "label": "Changes"},
+        {"key": "open_requests", "label": "Requests"},
+    ),
+    "technitium": (
+        {"key": "total_queries", "label": "Queries"},
+        {"key": "blocked", "label": "Blocked", "highlight": True},
+        {"key": "zones", "label": "Zones"},
+        {"key": "cached", "label": "Cached"},
+        {
+            "key": "block_rate",
+            "label": "Block Rate",
+            "format": "percent",
+            "suffix": "%",
+        },
+    ),
+    "teleport": (
+        {"key": "nodes", "label": "Nodes"},
+        {"key": "sessions", "label": "Sessions", "highlight": True},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "tunnel_manager": (
+        {"key": "hosts", "label": "Hosts"},
+        {"key": "sessions", "label": "Sessions", "highlight": True},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+    "uptime_kuma": (
+        {"key": "up", "label": "Up", "highlight": True},
+        {"key": "down", "label": "Down", "highlight": True},
+        {"key": "pending", "label": "Pending"},
+        {"key": "maintenance", "label": "Maintenance"},
+        {"key": "total", "label": "Total"},
+    ),
+    "zulip": (
+        {"key": "streams", "label": "Streams"},
+        {"key": "unread", "label": "Unread", "highlight": True},
+        {"key": "status", "label": "Status", "format": "text"},
+    ),
+}
+
 class BaseWidget(ABC):
     """Abstract base class for all dashboard service widgets.
 
@@ -51,6 +201,15 @@ class BaseWidget(ABC):
     description: str = ""
     env_prefix: str = ""
     supports_websocket: bool = False
+
+    @staticmethod
+    def get_widget_fields(service_type: str) -> list[WidgetField]:
+        """Build fresh field metadata for a widget service type."""
+
+        return [
+            WidgetField.model_validate(spec)
+            for spec in _WIDGET_FIELD_SPECS[service_type]
+        ]
 
     @abstractmethod
     def get_fields(self) -> list[WidgetField]:

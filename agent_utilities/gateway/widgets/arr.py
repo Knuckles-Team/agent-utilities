@@ -24,14 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "ARR"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="monitored", label="Monitored", format="number"),
-            WidgetField(
-                key="missing", label="Missing", format="number", highlight=True
-            ),
-            WidgetField(key="queued", label="Queued", format="number"),
-            WidgetField(key="indexers", label="Indexers", format="number"),
-        ]
+        return self.get_widget_fields("arr")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # No `arr_mcp.api_client` module exists. The real clients are the

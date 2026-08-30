@@ -29,13 +29,7 @@ class Widget(BaseWidget):
     supports_websocket = True
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="up", label="Up", format="number", highlight=True),
-            WidgetField(key="down", label="Down", format="number", highlight=True),
-            WidgetField(key="pending", label="Pending", format="number"),
-            WidgetField(key="maintenance", label="Maintenance", format="number"),
-            WidgetField(key="total", label="Total", format="number"),
-        ]
+        return self.get_widget_fields("uptime_kuma")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from uptime_kuma_agent.auth import get_client

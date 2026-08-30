@@ -24,11 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "OWNCAST"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="live", label="Live", format="text", highlight=True),
-            WidgetField(key="viewers", label="Viewers", format="number"),
-            WidgetField(key="peak", label="Peak", format="number"),
-        ]
+        return self.get_widget_fields("owncast")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from owncast_agent.api_client import OwncastApi

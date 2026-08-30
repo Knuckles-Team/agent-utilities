@@ -20,13 +20,7 @@ class Widget(BaseWidget):
     env_prefix = "GOOGLE"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="unread_emails", label="Unread", format="number", highlight=True
-            ),
-            WidgetField(key="events_today", label="Events", format="number"),
-            WidgetField(key="drive_files", label="Files", format="number"),
-        ]
+        return self.get_widget_fields("google_workspace")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         return WidgetData(

@@ -20,13 +20,7 @@ class Widget(BaseWidget):
     env_prefix = "TELEPORT"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="nodes", label="Nodes", format="number"),
-            WidgetField(
-                key="sessions", label="Sessions", format="number", highlight=True
-            ),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("teleport")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         return WidgetData(

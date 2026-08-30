@@ -22,13 +22,7 @@ class Widget(BaseWidget):
     env_prefix = "LEGAL_PERIPHERALS"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="entities", label="Entities", format="number"),
-            WidgetField(
-                key="pending", label="Pending", format="number", highlight=True
-            ),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("legal_peripherals")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         return WidgetData(

@@ -24,11 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "OPENBAO"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="sealed", label="Sealed", format="text", highlight=True),
-            WidgetField(key="mounts", label="Mounts", format="number"),
-            WidgetField(key="version", label="Version", format="text"),
-        ]
+        return self.get_widget_fields("openbao")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from openbao_mcp.api_client import Api as OpenBaoApi

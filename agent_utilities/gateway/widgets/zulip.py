@@ -24,11 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "ZULIP"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(key="streams", label="Streams", format="number"),
-            WidgetField(key="unread", label="Unread", format="number", highlight=True),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("zulip")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # zulip_agent does not exist as a distribution — not locally, not on

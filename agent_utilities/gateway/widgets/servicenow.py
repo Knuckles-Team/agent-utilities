@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "SERVICENOW"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="open_incidents", label="Incidents", format="number", highlight=True
-            ),
-            WidgetField(key="open_changes", label="Changes", format="number"),
-            WidgetField(key="open_requests", label="Requests", format="number"),
-        ]
+        return self.get_widget_fields("servicenow")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from servicenow_api.api_client import Api as ServiceNowApi

@@ -24,13 +24,7 @@ class Widget(BaseWidget):
     env_prefix = "SENTRY"
 
     def get_fields(self) -> list[WidgetField]:
-        return [
-            WidgetField(
-                key="unresolved", label="Unresolved", format="number", highlight=True
-            ),
-            WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(key="status", label="Status", format="text"),
-        ]
+        return self.get_widget_fields("sentry")
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         # sentry_mcp does not exist as a distribution — not locally, not on
