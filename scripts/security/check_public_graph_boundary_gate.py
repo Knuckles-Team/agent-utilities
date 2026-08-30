@@ -12,30 +12,12 @@ Usage:
   python3 scripts/security/check_public_graph_boundary_gate.py --repository-root DIR
   python3 scripts/security/check_public_graph_boundary_gate.py --self-check
 
-Exit 0 = target passed, 1 = target failed, could not be found, or the
-forwarder's own self-check failed.
+Exit semantics follow the shared forwarder.
 """
 
-from __future__ import annotations
+try:
+    from ._fast_tier_forward import bind_gate
+except ImportError:
+    from _fast_tier_forward import bind_gate
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _fast_tier_forward import run_gate  # noqa: E402
-
-TARGET = "scripts/check_public_graph_boundary.py"
-EXTRA_ARGS: list[str] = []
-
-
-def main(argv: list[str] | None = None) -> int:
-    return run_gate(
-        argv=argv,
-        prog="check-public-graph-boundary-gate",
-        target_relative=TARGET,
-        extra_args=EXTRA_ARGS,
-    )
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+main = bind_gate(__file__, __name__)
