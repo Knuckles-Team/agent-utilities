@@ -12,7 +12,7 @@ from typing import Any
 
 from ..core import (
     WritebackClientMixin,
-    WritebackContext,
+    WritebackInvocation,
     WritebackResult,
     register_sink,
 )
@@ -50,14 +50,9 @@ class TwentySink(WritebackClientMixin):
     client_module = "twenty_mcp"
     client_label = "twenty"
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        ctx, ops, client, result, dry_run = invocation.unpack()
+
         resolve = ctx.resolver("twenty")
 
         for c in ops.get("creations") or []:

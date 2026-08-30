@@ -17,7 +17,7 @@ from typing import Any
 
 from ..core import (
     WritebackClientMixin,
-    WritebackContext,
+    WritebackInvocation,
     WritebackResult,
     register_sink,
 )
@@ -64,14 +64,9 @@ class ErpNextSink(WritebackClientMixin):
     client_module = "erpnext_agent"
     client_label = "erpnext"
 
-    def run(
-        self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        result = WritebackResult(target=self.domain)
-        client = self._client(ops)
-        if client is None and not dry_run:
-            result.skipped += 1
-            return result
+    def _run(self, invocation: WritebackInvocation) -> WritebackResult:
+        ctx, ops, client, result, dry_run = invocation.unpack()
+
         resolve = ctx.resolver("erpnext")
 
         # creations — new Items / Assets.
