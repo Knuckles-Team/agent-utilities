@@ -82,55 +82,66 @@ def _is_loopback_listener(host: str | None) -> bool:
         return False
 
 
-def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
-    """Validate the REST listener boundary and return CORS/Host allowlists.
+def _validate_remote_tls_boundary() -> None:
+    """Require complete, usable TLS protection for remote listeners."""
+    direct_tls = bool(config.server_tls_certfile and config.server_tls_keyfile)
+    if bool(config.server_tls_certfile) != bool(config.server_tls_keyfile):
+        raise RuntimeError("SERVER_TLS_CERTFILE and SERVER_TLS_KEYFILE are a pair")
+    if direct_tls and not _server_tls_material_available():
+        raise RuntimeError("Server TLS material is unavailable")
+    if config.server_tls_terminated and not config.server_trusted_proxy_cidrs:
+        raise RuntimeError("SERVER_TLS_TERMINATED requires SERVER_TRUSTED_PROXY_CIDRS")
+    if not direct_tls and not config.server_tls_terminated:
+        raise RuntimeError(
+            "A non-loopback REST listener requires direct TLS or a trusted "
+            "TLS-terminating ingress"
+        )
 
-    This validation deliberately runs while the app is constructed so a remote,
-    unauthenticated or Host-header-wildcard deployment fails before it listens.
-    """
-    jwt_auth = bool(config.auth_jwt_jwks_uri)
 
-    loopback = _is_loopback_listener(host)
+def _server_tls_material_available() -> bool:
+    """Return whether both configured direct-TLS files are present."""
+    return (
+        Path(str(config.server_tls_certfile)).is_file()
+        and Path(str(config.server_tls_keyfile)).is_file()
+    )
+
+
+def _validate_http_listener_security(loopback: bool, jwt_auth: bool) -> None:
+    """Validate authentication, transport, and JWT claim binding."""
     if not loopback and not jwt_auth:
         raise RuntimeError("A non-loopback REST listener requires JWT authentication")
     if not loopback:
-        direct_tls = bool(config.server_tls_certfile and config.server_tls_keyfile)
-        if bool(config.server_tls_certfile) != bool(config.server_tls_keyfile):
-            raise RuntimeError("SERVER_TLS_CERTFILE and SERVER_TLS_KEYFILE are a pair")
-        if direct_tls and not (
-            Path(str(config.server_tls_certfile)).is_file()
-            and Path(str(config.server_tls_keyfile)).is_file()
-        ):
-            raise RuntimeError("Server TLS material is unavailable")
-        if config.server_tls_terminated and not config.server_trusted_proxy_cidrs:
-            raise RuntimeError(
-                "SERVER_TLS_TERMINATED requires SERVER_TRUSTED_PROXY_CIDRS"
-            )
-        if not direct_tls and not config.server_tls_terminated:
-            raise RuntimeError(
-                "A non-loopback REST listener requires direct TLS or a trusted "
-                "TLS-terminating ingress"
-            )
+        _validate_remote_tls_boundary()
     if jwt_auth and not (config.auth_jwt_issuer and config.auth_jwt_audience):
         raise RuntimeError(
             "JWT authentication requires explicit AUTH_JWT_ISSUER and AUTH_JWT_AUDIENCE"
         )
 
-    origins = _csv_values(config.allowed_origins)
+
+def _validate_cors_boundary(origins: list[str]) -> None:
+    """Require explicit origins when credentialed CORS is enabled."""
     if config.cors_allow_credentials and (not origins or "*" in origins):
         raise RuntimeError(
             "CORS_ALLOW_CREDENTIALS requires explicit ALLOWED_ORIGINS without '*'"
         )
 
+
+def _resolve_http_hosts(loopback: bool) -> list[str]:
+    """Resolve the configured host allowlist and safe loopback defaults."""
     hosts = _csv_values(config.allowed_hosts)
-    if not hosts:
-        if not loopback:
-            raise RuntimeError(
-                "A non-loopback REST listener requires an explicit ALLOWED_HOSTS allowlist"
-            )
-        # ``testserver`` is Starlette's in-process test authority; it does not
-        # broaden the network bind, which remains loopback-only here.
-        hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+    if hosts:
+        return hosts
+    if not loopback:
+        raise RuntimeError(
+            "A non-loopback REST listener requires an explicit ALLOWED_HOSTS allowlist"
+        )
+    # ``testserver`` is Starlette's in-process test authority; it does not
+    # broaden the network bind, which remains loopback-only here.
+    return ["localhost", "127.0.0.1", "[::1]", "testserver"]
+
+
+def _validate_http_hosts(hosts: list[str]) -> None:
+    """Reject wildcard or malformed authorities in the trusted-host list."""
     if any(
         "*" in value
         or len(value) > 253
@@ -138,6 +149,21 @@ def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
         for value in hosts
     ):
         raise RuntimeError("Host-header trust requires exact authorities")
+
+
+def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
+    """Validate the REST listener boundary and return CORS/Host allowlists.
+
+    This validation deliberately runs while the app is constructed so a remote,
+    unauthenticated or Host-header-wildcard deployment fails before it listens.
+    """
+    jwt_auth = bool(config.auth_jwt_jwks_uri)
+    loopback = _is_loopback_listener(host)
+    _validate_http_listener_security(loopback, jwt_auth)
+    origins = _csv_values(config.allowed_origins)
+    _validate_cors_boundary(origins)
+    hosts = _resolve_http_hosts(loopback)
+    _validate_http_hosts(hosts)
     return origins, hosts
 
 
