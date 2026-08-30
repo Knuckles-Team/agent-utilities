@@ -52,7 +52,7 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1647,6 +1647,109 @@ DEEP_MINING_ACTIONS = (
 )
 
 
+async def _read_json_body(request: Request) -> Any:
+    """Read a REST body using the gateway's permissive JSON fallback."""
+
+    try:
+        return await request.json()
+    except Exception:
+        return {}
+
+
+async def _run_json_endpoint(
+    request: Request,
+    tool_name: str,
+    kwargs_factory: Callable[[Any], dict[str, Any]],
+    *,
+    require_object: bool = False,
+) -> JSONResponse:
+    """Dispatch a JSON REST adapter through the shared tool/error boundary."""
+
+    body = await _read_json_body(request)
+    if require_object and not isinstance(body, dict):
+        return JSONResponse(
+            {"status": "error", "message": "body must be a JSON object"},
+            status_code=400,
+        )
+    try:
+        res = await _execute_tool(tool_name, **kwargs_factory(body))
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as exc:
+        return _external_error_response(exc)
+
+
+def _action_body_kwargs(body: dict[str, Any], action: str) -> dict[str, Any]:
+    """Build the natural-body payload used by action-routed REST adapters."""
+
+    graph = body.pop("graph", "") or ""
+    return {"action": action, "params_json": json.dumps(body), "graph": graph}
+
+
+def _query_top_k_kwargs(body: Any, action: str) -> dict[str, Any]:
+    return {
+        "action": action,
+        "query": body.get("query", ""),
+        "top_k": int(body.get("top_k", 10)),
+    }
+
+
+def _change_coupling_kwargs(body: Any) -> dict[str, Any]:
+    return {
+        "action": "change_coupling",
+        "target": body.get("repo", ""),
+        "depth": int(body.get("min_support", 3)),
+    }
+
+
+def _target_query_kwargs(
+    body: Any,
+    *,
+    action: str,
+    target_field: str,
+    query_field: str,
+    target_default: str = "",
+    query_default: str = "",
+    top_k_default: int = 10,
+) -> dict[str, Any]:
+    return {
+        "action": action,
+        "target": body.get(target_field, target_default),
+        "query": body.get(query_field, query_default),
+        "top_k": int(body.get("top_k", top_k_default)),
+    }
+
+
+def _code_evolution_kwargs(body: Any) -> dict[str, Any]:
+    return _target_query_kwargs(
+        body,
+        action="code_evolution",
+        target_field="mode",
+        query_field="target",
+        target_default="file",
+        top_k_default=20,
+    )
+
+
+def _context_kwargs(body: Any) -> dict[str, Any]:
+    return _target_query_kwargs(
+        body, action="context", target_field="target", query_field="query"
+    )
+
+
+def _make_action_body_endpoint(tool_name: str, action: str):
+    """Build a JSON-object action endpoint for a tool with natural parameters."""
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        return await _run_json_endpoint(
+            request,
+            tool_name,
+            lambda body: _action_body_kwargs(body, action),
+            require_object=True,
+        )
+
+    return _endpoint
+
+
 def _make_mining_deep_endpoint(action: str):
     """Build the REST twin for one ``graph_mine_deep`` action (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
 
@@ -1656,30 +1759,7 @@ def _make_mining_deep_endpoint(action: str):
     core the MCP verb uses — the delegated call to data-science-mcp and the KG
     foldback happen once, in that one core.
     """
-
-    async def _endpoint(request: Request) -> JSONResponse:
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"status": "error", "message": "body must be a JSON object"},
-                status_code=400,
-            )
-        graph = body.pop("graph", "") or ""
-        try:
-            res = await _execute_tool(
-                "graph_mine_deep",
-                action=action,
-                params_json=json.dumps(body),
-                graph=graph,
-            )
-            return JSONResponse({"status": "success", "result": safe_json_load(res)})
-        except Exception as e:
-            return _external_error_response(e)
-
-    return _endpoint
+    return _make_action_body_endpoint("graph_mine_deep", action)
 
 
 def _make_graphlearn_endpoint(action: str):
@@ -1691,30 +1771,7 @@ def _make_graphlearn_endpoint(action: str):
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_learn", action=<action>, ...)`` core as the MCP verb.
     """
-
-    async def _endpoint(request: Request) -> JSONResponse:
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"status": "error", "message": "body must be a JSON object"},
-                status_code=400,
-            )
-        graph = body.pop("graph", "") or ""
-        try:
-            res = await _execute_tool(
-                "graph_learn",
-                action=action,
-                params_json=json.dumps(body),
-                graph=graph,
-            )
-            return JSONResponse({"status": "success", "result": safe_json_load(res)})
-        except Exception as exc:  # noqa: BLE001 — canonical safe error surface
-            return _external_error_response(exc)
-
-    return _endpoint
+    return _make_action_body_endpoint("graph_learn", action)
 
 
 def _make_mining_endpoint(action: str):
@@ -1740,30 +1797,7 @@ def _make_mining_endpoint(action: str):
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
-
-    async def _endpoint(request: Request) -> JSONResponse:
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        if not isinstance(body, dict):
-            return JSONResponse(
-                {"status": "error", "message": "body must be a JSON object"},
-                status_code=400,
-            )
-        graph = body.pop("graph", "") or ""
-        try:
-            res = await _execute_tool(
-                "graph_mine",
-                action=action,
-                params_json=json.dumps(body),
-                graph=graph,
-            )
-            return JSONResponse({"status": "success", "result": safe_json_load(res)})
-        except Exception as e:
-            return _external_error_response(e)
-
-    return _endpoint
+    return _make_action_body_endpoint("graph_mine", action)
 
 
 def _make_action_endpoint(tool_name: str):
@@ -2313,20 +2347,15 @@ async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_write_external_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="register_external_graph",
-            endpoint_url=body.get("endpoint_url", ""),
-            graph_type=body.get("graph_type", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_write",
+        lambda body: {
+            "action": "register_external_graph",
+            "endpoint_url": body.get("endpoint_url", ""),
+            "graph_type": body.get("graph_type", ""),
+        },
+    )
 
 
 async def graph_write_memory_endpoint(request: Request) -> JSONResponse:
@@ -2349,20 +2378,15 @@ async def graph_write_memory_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="recall_memory",
-            properties=body.get("query", ""),
-            node_type=body.get("memory_type", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_write",
+        lambda body: {
+            "action": "recall_memory",
+            "properties": body.get("query", ""),
+            "node_type": body.get("memory_type", ""),
+        },
+    )
 
 
 async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONResponse:
@@ -2425,20 +2449,15 @@ async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONRespon
 
 
 async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="submit_sdd",
-            agent_id=body.get("agent_id", ""),
-            properties=body.get("content", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_write",
+        lambda body: {
+            "action": "submit_sdd",
+            "agent_id": body.get("agent_id", ""),
+            "properties": body.get("content", ""),
+        },
+    )
 
 
 # 4. Granular Graph Ingest endpoints
@@ -2461,21 +2480,16 @@ async def graph_ingest_submit_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_ingest_corpus_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ingest",
-            action="corpus",
-            corpus_name=body.get("corpus_name", ""),
-            base_path=body.get("base_path", ""),
-            description=body.get("description", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_ingest",
+        lambda body: {
+            "action": "corpus",
+            "corpus_name": body.get("corpus_name", ""),
+            "base_path": body.get("base_path", ""),
+            "description": body.get("description", ""),
+        },
+    )
 
 
 async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
@@ -2534,20 +2548,15 @@ async def graph_ingest_rebuild_indexes_endpoint(request: Request) -> JSONRespons
 
 
 async def graph_ingest_observe_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ingest",
-            action="observe",
-            target_path=body.get("target_path", ""),
-            agent_id=body.get("agent_id", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_ingest",
+        lambda body: {
+            "action": "observe",
+            "target_path": body.get("target_path", ""),
+            "agent_id": body.get("agent_id", ""),
+        },
+    )
 
 
 async def graph_ingest_materialize_endpoint(request: Request) -> JSONResponse:
@@ -2613,37 +2622,21 @@ async def graph_ingest_agent_toolkit_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_ingest_knowledge_pack_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ingest",
-            action="ingest_knowledge_pack",
-            target_path=body.get("target_path", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_ingest",
+        lambda body: {
+            "action": "ingest_knowledge_pack",
+            "target_path": body.get("target_path", ""),
+        },
+    )
 
 
 # 5. Granular Graph Analyze endpoints
 async def graph_analyze_synthesize_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_research",
-            action="synthesize",
-            query=body.get("query", ""),
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request, "graph_research", lambda body: _query_top_k_kwargs(body, "synthesize")
+    )
 
 
 async def graph_analyze_process_writeback_endpoint(request: Request) -> JSONResponse:
@@ -2653,71 +2646,39 @@ async def graph_analyze_process_writeback_endpoint(request: Request) -> JSONResp
     ``target`` is the writeback scope (default ``both``); ``query`` is an
     optional comma-separated list of BusinessProcess node ids to limit to.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_analyze",
-            action="process_writeback",
-            target=body.get("target", "both"),
-            query=body.get("query", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_analyze",
+        lambda body: {
+            "action": "process_writeback",
+            "target": body.get("target", "both"),
+            "query": body.get("query", ""),
+        },
+    )
 
 
 async def graph_analyze_deep_extract_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_research",
-            action="deep_extract",
-            query=body.get("query", ""),
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_research",
+        lambda body: _query_top_k_kwargs(body, "deep_extract"),
+    )
 
 
 async def graph_analyze_background_research_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_research",
-            action="background_research",
-            query=body.get("query", ""),
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_research",
+        lambda body: _query_top_k_kwargs(body, "background_research"),
+    )
 
 
 async def graph_analyze_relevance_sweep_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_research",
-            action="relevance_sweep",
-            query=body.get("query", ""),
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_research",
+        lambda body: _query_top_k_kwargs(body, "relevance_sweep"),
+    )
 
 
 async def graph_analyze_blast_radius_endpoint(request: Request) -> JSONResponse:
@@ -2786,20 +2747,7 @@ async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
 async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=change_coupling (CONCEPT:AU-KG.ingest.mine-git-history-files): mine a
     repo's git history into FILE_CHANGES_WITH edges. Body: ``{repo, min_support?}``."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_code",
-            action="change_coupling",
-            target=body.get("repo", ""),
-            depth=int(body.get("min_support", 3)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(request, "graph_code", _change_coupling_kwargs)
 
 
 async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONResponse:
@@ -2807,41 +2755,22 @@ async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONRespons
     ingested commit-history graph for codebase evolution. Body:
     ``{mode?, target?, top_k?}`` — mode = file|owners|hotspots|coupled,
     target = file path / subsystem path substring."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_code",
-            action="code_evolution",
-            target=body.get("mode", "file"),
-            query=body.get("target", ""),
-            top_k=int(body.get("top_k", 20)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(request, "graph_code", _code_evolution_kwargs)
 
 
 async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=adr (CONCEPT:AU-KG.compute.adr-crud): ADR CRUD. Body:
     ``{title?, status?, decision?}`` — title creates, empty lists."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_code",
-            action="adr",
-            query=body.get("title", ""),
-            target=body.get("status", ""),
-            node_id=body.get("decision", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_code",
+        lambda body: {
+            "action": "adr",
+            "query": body.get("title", ""),
+            "target": body.get("status", ""),
+            "node_id": body.get("decision", ""),
+        },
+    )
 
 
 async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
@@ -2968,21 +2897,7 @@ async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_explain",
-            action="context",
-            target=body.get("target", ""),
-            query=body.get("query", ""),
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(request, "graph_explain", _context_kwargs)
 
 
 async def graph_analyze_evaluate_alpha_endpoint(request: Request) -> JSONResponse:
@@ -3061,38 +2976,28 @@ async def graph_analyze_security_scan_endpoint(request: Request) -> JSONResponse
 
 # 7. Granular Graph Configure endpoints
 async def graph_configure_secret_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_configure",
-            action="set_secret",
-            config_key=body.get("config_key", ""),
-            config_value=body.get("config_value", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_configure",
+        lambda body: {
+            "action": "set_secret",
+            "config_key": body.get("config_key", ""),
+            "config_value": body.get("config_value", ""),
+        },
+    )
 
 
 async def graph_configure_vault_sync_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_configure action=vault_sync (CONCEPT:AU-OS.deployment.vault-first-routine-genesis)."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_configure",
-            action="vault_sync",
-            config_key=body.get("config_key", ""),
-            config_value=body.get("config_value", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_configure",
+        lambda body: {
+            "action": "vault_sync",
+            "config_key": body.get("config_key", ""),
+            "config_value": body.get("config_value", ""),
+        },
+    )
 
 
 async def graph_configure_register_mcp_endpoint(request: Request) -> JSONResponse:
@@ -3113,35 +3018,25 @@ async def graph_configure_register_mcp_endpoint(request: Request) -> JSONRespons
 
 
 async def graph_configure_install_hooks_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_configure",
-            action="install_hooks",
-            config_value=body.get("config_value", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_configure",
+        lambda body: {
+            "action": "install_hooks",
+            "config_value": body.get("config_value", ""),
+        },
+    )
 
 
 async def graph_configure_uninstall_hooks_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_configure",
-            action="uninstall_hooks",
-            config_value=body.get("config_value", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
+    return await _run_json_endpoint(
+        request,
+        "graph_configure",
+        lambda body: {
+            "action": "uninstall_hooks",
+            "config_value": body.get("config_value", ""),
+        },
+    )
 
 
 async def graph_configure_doctor_endpoint(request: Request) -> JSONResponse:
