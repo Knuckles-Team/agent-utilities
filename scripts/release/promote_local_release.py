@@ -200,6 +200,27 @@ class WheelArtifact:
 
 
 @dataclass(frozen=True)
+class _WheelArchive:
+    """Validated archive data retained after the wheel is closed."""
+
+    metadata: Any
+    record_entries: dict[str, tuple[str, int]]
+    member_count: int
+    uncompressed_bytes: int
+    generated_scripts: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _ValidatedWheelMembers:
+    """Validated member metadata needed by the remaining archive checks."""
+
+    names: tuple[str, ...]
+    info_by_name: dict[str, zipfile.ZipInfo]
+    member_count: int
+    uncompressed_bytes: int
+
+
+@dataclass(frozen=True)
 class BoundExecutable:
     """An executable held open so later execution cannot follow a replaced path."""
 
@@ -682,6 +703,122 @@ def _wheel_generated_scripts(
     return frozenset(scripts)
 
 
+def _expanded_wheel_member_count(names: tuple[str, ...]) -> int:
+    """Count archived files plus implicit parent directories."""
+
+    expanded_names = set(names)
+    for name in names:
+        parts = PurePosixPath(name).parts
+        for index in range(1, len(parts)):
+            expanded_names.add("/".join(parts[:index]) + "/")
+            if len(expanded_names) > _MAX_RELEASE_FILES:
+                raise ReleaseError("release-file-count-limit")
+    return len(expanded_names)
+
+
+def _validated_wheel_member(info: zipfile.ZipInfo, total: int) -> int:
+    """Validate one member and return the updated uncompressed-byte total."""
+
+    if not _wheel_member_is_safe(info) or info.flag_bits & 0x1:
+        raise ReleaseError("unsafe-wheel-member")
+    if info.file_size > _MAX_WHEEL_MEMBER_BYTES:
+        raise ReleaseError("oversized-wheel-member")
+    total += info.file_size
+    if total > _MAX_WHEEL_TOTAL_BYTES:
+        raise ReleaseError("oversized-wheel")
+    if info.compress_size and info.file_size > info.compress_size * 1000:
+        raise ReleaseError("wheel-compression-ratio")
+    return total
+
+
+def _validated_wheel_members(
+    infos: list[zipfile.ZipInfo],
+) -> _ValidatedWheelMembers:
+    """Validate names, paths, sizes, and archive-wide member budgets."""
+
+    names = tuple(info.filename for info in infos)
+    if len(names) != len(set(names)) or len(names) != len(
+        set(map(str.casefold, names))
+    ):
+        raise ReleaseError("duplicate-wheel-member")
+    member_count = _expanded_wheel_member_count(names)
+    total = 0
+    for info in infos:
+        total = _validated_wheel_member(info, total)
+    if any(
+        PurePosixPath(name).name.casefold() == "direct_url.json" for name in names
+    ):
+        raise ReleaseError("wheel-direct-url-record")
+    return _ValidatedWheelMembers(
+        names=names,
+        info_by_name={info.filename: info for info in infos},
+        member_count=member_count,
+        uncompressed_bytes=total,
+    )
+
+
+def _wheel_metadata_members(names: tuple[str, ...]) -> tuple[str, str, str]:
+    """Return the sole top-level METADATA, RECORD, and WHEEL members."""
+
+    metadata_names = [
+        name for name in names if _is_top_level_dist_info_member(name, "METADATA")
+    ]
+    record_names = [
+        name for name in names if _is_top_level_dist_info_member(name, "RECORD")
+    ]
+    wheel_names = [
+        name for name in names if _is_top_level_dist_info_member(name, "WHEEL")
+    ]
+    if not (
+        len(metadata_names) == 1
+        and len(record_names) == 1
+        and len(wheel_names) == 1
+    ):
+        raise ReleaseError("incomplete-wheel-metadata")
+    return metadata_names[0], record_names[0], wheel_names[0]
+
+
+def _read_wheel_archive(path: Path) -> _WheelArchive:
+    """Read and validate a closed wheel while its archive is open."""
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            infos = archive.infolist()
+            if not infos or len(infos) > _MAX_WHEEL_MEMBERS:
+                raise ReleaseError("wheel-member-count")
+            members = _validated_wheel_members(infos)
+            metadata_name, record_name, _wheel_name = _wheel_metadata_members(
+                members.names
+            )
+            if any(
+                members.info_by_name[name].file_size > _MAX_LOCK_BYTES
+                for name in (metadata_name, record_name, _wheel_name)
+            ):
+                raise ReleaseError("oversized-wheel-metadata")
+            metadata = BytesParser(policy=email_policy).parsebytes(
+                archive.read(metadata_name)
+            )
+            record_entries = _wheel_record_entries(
+                archive,
+                record_name=record_name,
+                info_by_name=members.info_by_name,
+            )
+            generated_scripts = _wheel_generated_scripts(
+                archive, members.info_by_name
+            )
+            return _WheelArchive(
+                metadata=metadata,
+                record_entries=record_entries,
+                member_count=members.member_count,
+                uncompressed_bytes=members.uncompressed_bytes,
+                generated_scripts=generated_scripts,
+            )
+    except ReleaseError:
+        raise
+    except (OSError, zipfile.BadZipFile, KeyError) as exc:
+        raise ReleaseError("unreadable-wheel") from exc
+
+
 def _inspect_wheel(
     path: Path, *, digest: str
 ) -> tuple[str, str, dict[str, tuple[str, int]], int, int, frozenset[str]]:
@@ -691,78 +828,10 @@ def _inspect_wheel(
         filename_name, filename_version, _build, _tags = parse_wheel_filename(path.name)
     except InvalidWheelFilename as exc:
         raise ReleaseError("invalid-wheel-filename") from exc
-    try:
-        with zipfile.ZipFile(path) as archive:
-            infos = archive.infolist()
-            if not infos or len(infos) > _MAX_WHEEL_MEMBERS:
-                raise ReleaseError("wheel-member-count")
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)) or len(names) != len(
-                set(map(str.casefold, names))
-            ):
-                raise ReleaseError("duplicate-wheel-member")
-            expanded_names = set(names)
-            for name in names:
-                parts = PurePosixPath(name).parts
-                for index in range(1, len(parts)):
-                    expanded_names.add("/".join(parts[:index]) + "/")
-                    if len(expanded_names) > _MAX_RELEASE_FILES:
-                        raise ReleaseError("release-file-count-limit")
-            total = 0
-            for info in infos:
-                if not _wheel_member_is_safe(info) or info.flag_bits & 0x1:
-                    raise ReleaseError("unsafe-wheel-member")
-                if info.file_size > _MAX_WHEEL_MEMBER_BYTES:
-                    raise ReleaseError("oversized-wheel-member")
-                total += info.file_size
-                if total > _MAX_WHEEL_TOTAL_BYTES:
-                    raise ReleaseError("oversized-wheel")
-                if info.compress_size and info.file_size > info.compress_size * 1000:
-                    raise ReleaseError("wheel-compression-ratio")
-            if any(
-                PurePosixPath(name).name.casefold() == "direct_url.json"
-                for name in names
-            ):
-                raise ReleaseError("wheel-direct-url-record")
-            metadata_names = [
-                name
-                for name in names
-                if _is_top_level_dist_info_member(name, "METADATA")
-            ]
-            record_names = [
-                name for name in names if _is_top_level_dist_info_member(name, "RECORD")
-            ]
-            wheel_names = [
-                name for name in names if _is_top_level_dist_info_member(name, "WHEEL")
-            ]
-            if not (
-                len(metadata_names) == 1
-                and len(record_names) == 1
-                and len(wheel_names) == 1
-            ):
-                raise ReleaseError("incomplete-wheel-metadata")
-            info_by_name = {info.filename: info for info in infos}
-            if any(
-                info_by_name[name].file_size > _MAX_LOCK_BYTES
-                for name in (*metadata_names, *record_names, *wheel_names)
-            ):
-                raise ReleaseError("oversized-wheel-metadata")
-            metadata = BytesParser(policy=email_policy).parsebytes(
-                archive.read(metadata_names[0])
-            )
-            record_entries = _wheel_record_entries(
-                archive,
-                record_name=record_names[0],
-                info_by_name=info_by_name,
-            )
-            generated_scripts = _wheel_generated_scripts(archive, info_by_name)
-    except ReleaseError:
-        raise
-    except (OSError, zipfile.BadZipFile, KeyError) as exc:
-        raise ReleaseError("unreadable-wheel") from exc
-    metadata_name = canonicalize_name(str(metadata.get("Name") or ""))
+    archive = _read_wheel_archive(path)
+    metadata_name = canonicalize_name(str(archive.metadata.get("Name") or ""))
     metadata_version = _version_value(
-        metadata.get("Version"), "invalid-wheel-metadata-version"
+        archive.metadata.get("Version"), "invalid-wheel-metadata-version"
     )
     if (
         metadata_name != canonicalize_name(filename_name)
@@ -777,10 +846,10 @@ def _inspect_wheel(
     return (
         metadata_name,
         metadata_version,
-        record_entries,
-        len(expanded_names),
-        total,
-        generated_scripts,
+        archive.record_entries,
+        archive.member_count,
+        archive.uncompressed_bytes,
+        archive.generated_scripts,
     )
 
 
