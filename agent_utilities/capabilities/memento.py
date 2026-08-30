@@ -68,6 +68,88 @@ def _message_to_dict(msg: ModelMessage) -> dict[str, Any]:
     return {"role": role, "content": "\n".join(texts)}
 
 
+def _tool_pair_safe_groups(
+    messages: list[ModelMessage], evicted_groups: list[list[int]]
+) -> list[list[int]]:
+    """Keep only eviction groups that do not orphan a tool call or return."""
+    planned_idx = {i for grp in evicted_groups for i in grp}
+    safe_idx = enforce_tool_pair_safety(messages, planned_idx)
+    if safe_idx == planned_idx:
+        return evicted_groups
+
+    safe_groups: list[list[int]] = []
+    for group in evicted_groups:
+        safe_group = [i for i in group if i in safe_idx]
+        if safe_group:
+            safe_groups.append(safe_group)
+    return safe_groups
+
+
+def _memento_message(
+    block_dicts: list[dict[str, Any]],
+    *,
+    engine: Any,
+    source: str,
+    compress_to_memento: Any,
+) -> ModelRequest:
+    """Compress one block and wrap its text in the outgoing memento message."""
+    memento = (
+        compress_to_memento(
+            engine,
+            block_dicts,
+            source=source,
+            dry_run=engine is None,
+        )
+        or "[block evicted to fit context budget]"
+    )
+    return ModelRequest(
+        parts=[
+            SystemPromptPart(
+                content=(
+                    "PRIOR CONTEXT MEMENTO (compressed; reason forward from "
+                    f"this, recoverable on demand):\n{memento}"
+                )
+            )
+        ]
+    )
+
+
+def _rewrite_evicted_messages(
+    messages: list[ModelMessage],
+    dicts: list[dict[str, Any]],
+    evicted_groups: list[list[int]],
+    *,
+    engine: Any,
+    source: str,
+    compress_to_memento: Any,
+) -> tuple[list[ModelMessage], int]:
+    """Replace each evicted block in place while retaining all other messages."""
+    group_of = {i: gi for gi, grp in enumerate(evicted_groups) for i in grp}
+    evicted_idx = set(group_of)
+    new_messages: list[ModelMessage] = []
+    inserted: set[int] = set()
+    n_evicted = 0
+    for i, msg in enumerate(messages):
+        if i not in evicted_idx:
+            new_messages.append(msg)
+            continue
+        gi = group_of[i]
+        if gi in inserted:
+            continue
+        inserted.add(gi)
+        block_dicts = [dicts[j] for j in evicted_groups[gi]]
+        new_messages.append(
+            _memento_message(
+                block_dicts,
+                engine=engine,
+                source=source,
+                compress_to_memento=compress_to_memento,
+            )
+        )
+        n_evicted += len(evicted_groups[gi])
+    return new_messages, n_evicted
+
+
 @dataclass
 class MementoCompaction(AbstractCapability[Any]):
     """Evicts old completed blocks from the live context, replacing them with dense mementos.
@@ -145,52 +227,18 @@ class MementoCompaction(AbstractCapability[Any]):
         # pair leaves an orphaned tool-call/return in the outgoing history → provider
         # HTTP 400 mid-run. Restrict the eviction to a tool-pair-safe set (both halves
         # evicted, or neither) before rewriting the message list.
-        planned_idx = {i for grp in evicted_groups for i in grp}
-        safe_idx = enforce_tool_pair_safety(messages, planned_idx)
-        if safe_idx != planned_idx:
-            evicted_groups = [
-                [i for i in grp if i in safe_idx] for grp in evicted_groups
-            ]
-            evicted_groups = [grp for grp in evicted_groups if grp]
-            if not evicted_groups:
-                return messages, 0
+        evicted_groups = _tool_pair_safe_groups(messages, evicted_groups)
+        if not evicted_groups:
+            return messages, 0
 
-        group_of = {i: gi for gi, grp in enumerate(evicted_groups) for i in grp}
-        evicted_idx = set(group_of)
-        new_messages: list[ModelMessage] = []
-        inserted: set[int] = set()
-        n_evicted = 0
-        for i, msg in enumerate(messages):
-            if i in evicted_idx:
-                gi = group_of[i]
-                if gi not in inserted:
-                    inserted.add(gi)
-                    block_dicts = [dicts[j] for j in evicted_groups[gi]]
-                    memento = (
-                        compress_to_memento(
-                            engine,
-                            block_dicts,
-                            source=self.source,
-                            dry_run=engine is None,
-                        )
-                        or "[block evicted to fit context budget]"
-                    )
-                    new_messages.append(
-                        ModelRequest(
-                            parts=[
-                                SystemPromptPart(
-                                    content=(
-                                        "PRIOR CONTEXT MEMENTO (compressed; reason forward from "
-                                        f"this, recoverable on demand):\n{memento}"
-                                    )
-                                )
-                            ]
-                        )
-                    )
-                    n_evicted += len(evicted_groups[gi])
-            else:
-                new_messages.append(msg)
-        return new_messages, n_evicted
+        return _rewrite_evicted_messages(
+            messages,
+            dicts,
+            evicted_groups,
+            engine=engine,
+            source=self.source,
+            compress_to_memento=compress_to_memento,
+        )
 
     async def before_model_request(
         self, ctx: RunContext[Any], request_context: Any
