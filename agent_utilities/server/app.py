@@ -78,18 +78,13 @@ def _build_agent_app_kwargs(
     hand-written forwarding list in the launcher.
     """
     factory_parameters = inspect.signature(build_agent_app).parameters
-    supplied_defaults = defaults or {}
+    available_values = {**(defaults or {}), **values}
     kwargs = {
-        name: values[name]
-        if name in values
-        else supplied_defaults[name]
-        if name in supplied_defaults
-        else parameter.default
+        name: available_values.get(name, parameter.default)
         for name, parameter in factory_parameters.items()
         if name not in exclude
         and (
-            name in values
-            or name in supplied_defaults
+            name in available_values
             or parameter.default is not inspect.Parameter.empty
         )
     }
