@@ -330,8 +330,8 @@ def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
 
     Statement-shape gate (WD10-A-BACKEND security review) lives in this thin
     wrapper, in FRONT of the original implementation
-    (:func:`_run_graph_query_sql_engine`, unchanged) — kept as a separate
-    function rather than added inline so this pre-existing name's own
+    (:func:`_run_graph_query_sql_engine`) — kept as a separate function rather
+    than added inline so this pre-existing name's own
     complexity does not regress (`verify_both.py`'s per-function, no-
     pre-existing-function-may-get-worse rule): the gate's rejection routes
     through :func:`public_error_json` on a synthetic ``ValueError`` to match
@@ -347,7 +347,19 @@ def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
     return _run_graph_query_sql_engine(cypher, connection, graph)
 
 
-def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str:
+def _run_graph_query_engine(
+    cypher: str,
+    connection: str,
+    graph: str,
+    *,
+    run_query: Callable[[Any, str], Any],
+) -> str:
+    """Run one dialect-specific query across resolved graph targets.
+
+    The caller supplies only the engine method that executes its dialect; target
+    resolution, graph selection, authenticated graph binding, fan-out handling,
+    error conversion, and response serialization are shared by SQL and SPARQL.
+    """
     try:
         entries, errors, fanout = kg_server._resolve_target_engines(connection)
         entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
@@ -361,7 +373,7 @@ def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str
         name, engine = entries[0]
         try:
             with kg_server.bound_to_graph(graph):
-                rows = engine.sql(cypher)
+                rows = run_query(engine, cypher)
             return json.dumps(
                 {"rows": rows, "connection": name, "graph": graph},
                 default=str,
@@ -373,7 +385,7 @@ def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str
         except Exception as e:
             return public_error_json(e)
     results, fan_errors = kg_server.fanout_execute(
-        entries, lambda name, engine: engine.sql(cypher)
+        entries, lambda _name, engine: run_query(engine, cypher)
     )
     return json.dumps(
         {
@@ -383,46 +395,25 @@ def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str
             "graph": graph,
         },
         default=str,
+    )
+
+
+def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str:
+    return _run_graph_query_engine(
+        cypher,
+        connection,
+        graph,
+        run_query=lambda engine, query: engine.sql(query),
     )
 
 
 def _run_graph_query_sparql(cypher: str, connection: str, graph: str) -> str:
     """``scope=='sparql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.ingest.mirror-inbound)."""
-    try:
-        entries, errors, fanout = kg_server._resolve_target_engines(connection)
-        entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
-    except kg_server.GraphNotFoundError as e:
-        return public_error_json(e, code="graph_not_found")
-    except kg_server.GraphSelectionConflictError as e:
-        return public_error_json(e, code="graph_selection_conflict")
-    except Exception as e:
-        return public_error_json(e)
-    if not fanout:
-        name, engine = entries[0]
-        try:
-            with kg_server.bound_to_graph(graph):
-                rows = engine.sparql(cypher)
-            return json.dumps(
-                {"rows": rows, "connection": name, "graph": graph},
-                default=str,
-            )
-        except PermissionError as e:
-            return public_error_json(
-                e, code="permission_denied" if graph else "operation_failed"
-            )
-        except Exception as e:
-            return public_error_json(e)
-    results, fan_errors = kg_server.fanout_execute(
-        entries, lambda name, engine: engine.sparql(cypher)
-    )
-    return json.dumps(
-        {
-            "targets": results,
-            "errors": {**errors, **fan_errors},
-            "connection": connection,
-            "graph": graph,
-        },
-        default=str,
+    return _run_graph_query_engine(
+        cypher,
+        connection,
+        graph,
+        run_query=lambda engine, query: engine.sparql(query),
     )
 
 
