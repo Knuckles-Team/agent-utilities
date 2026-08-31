@@ -859,8 +859,8 @@ requires-dist = [
     { name = "twenty-mcp", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "twilio", marker = "extra == 'messaging-voicecall'", specifier = ">=9.10.9" },
     { name = "twitchio", marker = "extra == 'messaging-twitch'", specifier = ">=3.2.2" },
-    { name = "universal-skills", marker = "extra == 'agent-headless'", specifier = ">=1.2.1" },
-    { name = "universal-skills", marker = "extra == 'agent-runtime'", specifier = ">=1.2.1" },
+    { name = "universal-skills", marker = "extra == 'agent-headless'", specifier = ">=1.3.1" },
+    { name = "universal-skills", marker = "extra == 'agent-runtime'", specifier = ">=1.3.1" },
     { name = "uptime-kuma-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "urllib3", specifier = ">=2.7.0" },
     { name = "vector-mcp", marker = "extra == 'gateway-widgets'", specifier = ">=2.1.2" },
@@ -8650,11 +8650,11 @@ wheels = [
 
 [[package]]
 name = "universal-skills"
-version = "1.2.1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/67/28/3301cbbb75e3137c954905aaa3dad2552a833c104ea4b741da141ec21359/universal_skills-1.2.1.tar.gz", hash = "sha256:201b52a7e98802d056de56674c570253659cb411bb0ddd13b981af38f8a538c2", size = 633274, upload-time = "2026-07-13T14:17:33.056Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/c0/9fe06aed8175a25aea7491c84d9e33ac6165d616670c20888e1a730538a5/universal_skills-1.3.1.tar.gz", hash = "sha256:3306cc960c58a836fdb0b138c77eefe4b62ab2474558efde287685b0857b62f4", size = 3014138, upload-time = "2026-08-31T14:38:27.935Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/d4/fa7f69e557e0b6983b65503a09575bdfc3a648abbda8d97986b2335d8ee2/universal_skills-1.2.1-py3-none-any.whl", hash = "sha256:1d16d693b1a49e07b40d639c6698fa1ffc2a7cd7fc65a42d470d746e0483ed17", size = 806513, upload-time = "2026-07-13T14:17:31.126Z" },
+    { url = "https://files.pythonhosted.org/packages/16/0f/550fd9286ecbe0195f3aab1dde4f42f9ff724772f74e711d9750a4b4351e/universal_skills-1.3.1-py3-none-any.whl", hash = "sha256:853a18551dcd3674a20bbbb54dcfe085f1d89eb8524d4137a0eb32f40d4f8a90", size = 3807302, upload-time = "2026-08-31T14:38:24.916Z" },
 ]
 
 [[package]]

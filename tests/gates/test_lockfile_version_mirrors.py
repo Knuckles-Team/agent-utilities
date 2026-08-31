@@ -36,6 +36,15 @@ _UV_LOCK_STALE = textwrap.dedent(
     """
 )
 
+_UV_LOCK_EDITABLE_NO_VERSION = textwrap.dedent(
+    """\
+    version = 1
+    [[package]]
+    name = "widget-agent"
+    source = { editable = "." }
+    """
+)
+
 _REQUIREMENTS_OK = "agent-utilities[mcp]>=2.0.0,<3.0.0\n"
 _REQUIREMENTS_STALE_PIN = (
     "agent-utilities==1.0.0\n    # via widget-agent (pyproject.toml)\n"
@@ -74,6 +83,14 @@ def test_matching_mirrors_pass(tmp_path: Path) -> None:
 def test_absent_lock_artifacts_do_not_false_positive(tmp_path: Path) -> None:
     gate = _gate_module()
     _write(tmp_path, _PYPROJECT, uv_lock=None, requirements=None)
+
+    assert gate.validate(tmp_path) == []
+
+
+def test_editable_self_package_without_literal_version_passes(tmp_path: Path) -> None:
+    """Current uv derives editable self-package metadata without a version field."""
+    gate = _gate_module()
+    _write(tmp_path, _PYPROJECT, _UV_LOCK_EDITABLE_NO_VERSION, requirements=None)
 
     assert gate.validate(tmp_path) == []
 

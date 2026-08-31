@@ -1059,6 +1059,37 @@ def _write_fleet_nodes(
     }
 
 
+def write_fleet_catalog_snapshot(
+    engine: Any,
+    catalog: dict[str, dict],
+    *,
+    configs: dict[str, dict] | None = None,
+    discovery_bindings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Write a live fleet snapshot through the canonical governed seam.
+
+    This is the composition boundary used both by the full ``fleet`` source
+    sync and by a governed single-child runtime refresh.  Keeping preflight,
+    fresh write authority, relational projection, skill/prompt promotion, and
+    KG capability-node materialization behind this one function prevents the
+    refresh surface from growing an ad-hoc second graph writer.
+    """
+    _apply_with_preflight(engine, "fleet", [])
+    with _fresh_write_authority():
+        counts = _write_fleet_nodes(
+            engine,
+            catalog,
+            configs=configs,
+            discovery_bindings=discovery_bindings,
+        )
+    return {
+        "status": "ok",
+        "source": "fleet",
+        "servers_seen": len(catalog or {}),
+        **counts,
+    }
+
+
 _REJECTED_ROW_CACHE_FILE = "fleet_sync_rejected_rows.json"
 
 
@@ -1484,12 +1515,6 @@ def _sync_fleet(
     ``declared_total``/``declared_uncovered`` (:func:`_reconcile_declared_fleet`)
     so the declared universe is visible alongside what was actually probed.
     """
-    # CA-22/P11: document-shaped delegated pipeline (commits Tool capability nodes
-    # via its own write path below, not a ChangeEnvelope built here) -- AST-
-    # reachability call to the preflight chokepoint; batch=[] checks nothing
-    # per-record until a manifest declares conflict_policy for "fleet".
-    _apply_with_preflight(engine, "fleet", [])
-
     probe = (
         SimpleNamespace(
             skip=None, catalog=client, configs=None, discovery_bindings=None
@@ -1501,13 +1526,12 @@ def _sync_fleet(
         return probe.skip
     catalog = probe.catalog
 
-    with _fresh_write_authority():
-        counts = _write_fleet_nodes(
-            engine,
-            catalog,
-            configs=probe.configs,
-            discovery_bindings=probe.discovery_bindings,
-        )
+    counts = write_fleet_catalog_snapshot(
+        engine,
+        catalog,
+        configs=probe.configs,
+        discovery_bindings=probe.discovery_bindings,
+    )
     return {
         "status": "ok",
         "source": "fleet",

@@ -96,8 +96,8 @@ Design mirrors three already-reviewed precedents exactly
 * :mod:`~agent_utilities.security.tenant_rbac_admission` — the
   ``TenantPrincipal``/Protocol/Fixture/Live client split, and the
   "``RegisterIdentity`` is a full-identity upsert, so the caller always
-  supplies the FULL desired shape, never a read-then-merge" convention (the
-  engine exposes no ``GetIdentity``/``ListIdentities`` RPC).
+  supplies the FULL desired shape" convention. This module additionally
+  uses the engine's ``GetIdentity`` read-back before its boot-time merge.
 * :mod:`~agent_utilities.security.engine_rbac_admission` — the
   ``add_role``/``add_grant`` pair for minting a **narrow, named** role
   (never bare ``System``) and granting it directly, rather than only
@@ -107,9 +107,8 @@ Design mirrors three already-reviewed precedents exactly
   backoff-on-failure** admission call:  a positive outcome is cached
   forever for this process's lifetime; a negative one is cached for
   :data:`_FAILURE_BACKOFF_SECONDS` so a still-broken precondition (e.g. the
-  missing provisioner credential — see NE-021 below) is not re-attempted on
-  every single call, while still self-healing without a restart once an
-  operator fixes it; concurrent callers for the same key collapse onto one
+  missing signer credential — see NE-021 below) is not re-attempted on
+  every single call; concurrent callers for the same key collapse onto one
   attempt via a per-key lock.
 
 Mirror-image defect (fixed alongside ``tenant_rbac_admission``'s own incident)
@@ -128,66 +127,57 @@ grant, each an upsert that replaces rather than merges — they clobber each
 other regardless of which runs first or second. Fixed the same way: the
 ``existing_roles`` default is ``None`` (unknown), never an implicit empty
 tuple, and :func:`provision_system_principal_access` refuses to write when it
-is ``None`` rather than guess. ``kg_server.py`` has no more reliable a source
-for this principal's already-granted engine RBAC roles than
-``ensure_tenant_admission`` did (the JWT-derived ``ActorContext.roles`` AU
-authenticates it with is a *different*, AU-side ACL concept, not the engine's
-own RBAC identity registry, and trusting it here would risk exactly the wrong
-kind of guess) — so, absent a caller that can supply the real prior set,
-:func:`ensure_system_principal_access` now fails loudly and degrades exactly
-like the NE-021 missing-credential case already does, instead of silently
-bricking the OTHER admission module's grant.
+is ``None`` rather than guess. The boot path resolves that unknown state
+through the engine's admin-gated ``GetIdentity`` read-back and verifies its
+complete identity shape before it calls the replacing ``RegisterIdentity``
+upsert. A confirmed absent identity is the only read result treated as an
+empty prior role set; a failed or malformed read fails closed before any
+role, grant, or identity write. Existing identities retain their full
+``role`` (including the Manager mapping shape), ``teams``, and ``roles``.
+Crucially, that read is gated by ``security:admin``: an under-admitted
+ordinary Agent cannot use it to bootstrap itself. A successful read therefore
+proves the caller is already System or holds an explicit Admin grant; an
+``ACCESS_DENIED`` result remains a hard pre-write failure.
 
-Auto-admission at boot, not operator-gated — the explicit choice, and why
------------------------------------------------------------------------------
+Boot verification and operator-authorized remediation
+------------------------------------------------------
 Unlike a WebUI end-user principal (minted dynamically, one per signed-in
 human, no static roster), au's own scheduler identity is static and known
-at deploy time — which is an argument FOR operator-gating this the same way
-Tier-2 admission is (``tier2_admission_cli.py``, a deliberate manual/CI
-deploy step, never automatic).
+at deploy time. ``kg_server.py`` calls
+:func:`ensure_system_principal_access` at daemon boot, but this is not an
+authority-escalation mechanism:
 
-This module chooses **auto-admission at process boot** instead
-(:func:`ensure_system_principal_access`, called once from
-``kg_server.py``'s daemon-role bootstrap path — see that module's call
-site), for three reasons specific to this defect:
+* An identity already registered as ``System`` is recognized as authorized
+  and returns a no-write success; replacing it with a narrower role would be
+  destructive and unnecessary.
+* An ordinary Agent can be merged only when the calling context already has
+  engine Admin capability, which is exactly what the successful admin-gated
+  identity read proves. Its complete identity shape is then preserved while
+  the narrow ``control:system`` role is appended.
+* An under-admitted Agent, an empty RBAC store, a failed read, or malformed
+  identity data fails closed before ``add_role``, ``add_grant``, or
+  ``RegisterIdentity``. Boot logs the actionable denial and continues
+  degraded; it never turns the outage into privilege escalation.
 
-1. **This *is* the outage.** BUG-295 is a P0 precisely because nothing ever
-   performs this admission. An operator-gated-only design would mean fixing
-   NE-021 (seeding the missing provisioner credential) is not sufficient by
-   itself to end the outage — an operator would *also* have to remember to
-   run the CLI and restart every graph-os daemon pod. Auto-admission
-   collapses that to: seed the credential, and the next daemon boot
-   (already a routine rollout event) self-heals.
-2. **The blast radius is already bounded to the narrow, reviewed role**
-   this module grants — never ``System``, never a wider selector than
-   ``Graph("__control__")``. Auto-provisioning a *narrow, purpose-named*
-   role is a materially different risk than auto-provisioning admin
-   capability (which is why Tier-2 stays operator-gated) or than the
-   engine auto-assigning roles on its own (rejected above).
-3. **It degrades honestly, so "auto" never means "silently pretend it
-   worked."** See NE-021 below — a missing credential or an unreachable
-   engine is a caught, logged, actionable, non-secret-leaking condition,
-   never a crash and never a false success. A subsequent scheduler tick
-   failing remains visibly attributable to the same root cause.
-
-The operator-gated path stays reachable for the cases auto-admission does
-not cover: pre-provisioning before a rollout, an environment that
-deliberately wants a manual step, or re-running by hand without waiting
-for the next boot — ship
+The normal recovery path is therefore an already-admin deployment/operator
+context invoking this same composition before rollout, either through
 :mod:`agent_utilities.security.system_admission_cli`, mirroring
 ``tenant_admission_cli.py``/``tier2_admission_cli.py`` exactly (manifest
-JSON, dry-run unless ``--apply``). Both paths call the SAME
+JSON, dry-run unless ``--apply``), or by calling this function for a target
+principal while that operator context is bound. Both paths call the SAME
 :func:`provision_system_principal_access` composition, so they always
 produce identical provisioning for the same principal.
 
 Credential resolution is
 :func:`~agent_utilities.security.admission_authority.resolve_admission_authority`:
-the caller's own verified principal, signing as itself. There is no separate
-provisioner credential to seed, because the engine's
+the caller's own verified principal, signing as itself. An already-admin
+operator may target another ordinary identity only when its signer-registry
+allowance permits the complete role set being written; there is no unbound
+credential that can sign independently of the verified caller. The engine's
 ``verify_register_identity_signature`` requires ``signer ==
 context.principal()`` and answers ``SIGNER_TRUST_DENIED`` to anything else —
-a delegated provisioner identity is not a thing the engine accepts. A process
-that holds no signer key for its own principal raises
+the operator is always the authenticated signer, never an impersonated target.
+A process that holds no signer key for its own principal raises
 :class:`~agent_utilities.security.admission_authority.AdmissionAuthorityError`
 naming that principal and the registry to provision it into (never a key
 value — this module never mints, prints, logs, or persists one, matching
@@ -206,10 +196,12 @@ instead of a bare ``CypherEngineError`` repeating forever.
 import logging
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from ..knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
+from .tenant_rbac_admission import _identity_store_scope
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +241,57 @@ CONTROL_ROLE_NAME = "control:system"
 _FAILURE_BACKOFF_SECONDS = 30.0
 
 
+IdentityRole = str | dict[str, Any]
+
+
+def _exact_mapping(value: object, key: str, message: str) -> Mapping[str, Any]:
+    """Return a one-key mapping or reject an incomplete wire shape."""
+
+    if not isinstance(value, Mapping) or set(value) != {key}:
+        raise ValueError(message)
+    return value
+
+
+def _copy_manager_subordinates(value: object) -> list[str]:
+    """Validate and detach a Manager role's subordinate identifiers."""
+
+    subordinates = value
+    if not isinstance(subordinates, list):
+        raise ValueError("Manager.subordinates must be an explicit string list")
+    detached: list[str] = []
+    seen: set[str] = set()
+    for subordinate in subordinates:
+        if not isinstance(subordinate, str) or not subordinate.strip():
+            raise ValueError("Manager.subordinates entries must be non-empty strings")
+        if subordinate in seen:
+            raise ValueError("Manager.subordinates contains a duplicate entry")
+        seen.add(subordinate)
+        detached.append(subordinate)
+    return detached
+
+
+def _copy_identity_role(role: object) -> IdentityRole:
+    """Validate and detach the engine's complete ``AgentRole`` wire shape."""
+
+    if isinstance(role, str):
+        if role not in {"Agent", "System"}:
+            raise ValueError("role must be System, Agent, or a Manager value")
+        return role
+    manager_role = _exact_mapping(
+        role,
+        "Manager",
+        "role must be System, Agent, or a Manager value",
+    )
+    manager = _exact_mapping(
+        manager_role["Manager"],
+        "subordinates",
+        "Manager role must contain only subordinates",
+    )
+    return {
+        "Manager": {"subordinates": _copy_manager_subordinates(manager["subordinates"])}
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class SystemPrincipal:
     """One au system principal to admit into the control-graph role.
@@ -261,8 +304,8 @@ class SystemPrincipal:
     :class:`~agent_utilities.security.engine_rbac_admission.ServiceAdmissionEntry`
     document. ``role``/``teams``/``existing_roles`` are this principal's
     current full identity shape, sent in full on every
-    ``RegisterIdentity`` upsert (the engine exposes no identity read-back
-    RPC — see the module docstring).
+    ``RegisterIdentity`` upsert. The boot path obtains that shape from the
+    engine's ``GetIdentity`` read-back before it attempts a replacing upsert.
 
     ``existing_roles`` carries one of two meanings, and they are NOT
     interchangeable — mirrors
@@ -274,19 +317,21 @@ class SystemPrincipal:
     merges the former and refuses the latter."""
 
     agent_id: str
-    role: str = "Agent"
+    role: IdentityRole = "Agent"
     teams: tuple[str, ...] = ()
     existing_roles: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.agent_id.strip():
             raise ValueError("agent_id must be a non-empty opaque identifier")
-        if self.role == "System":
+        role = _copy_identity_role(self.role)
+        if role == "System":
             raise ValueError(
                 "SystemPrincipal.role must never be 'System' — System bypasses "
                 "RBAC entirely; this module grants a narrow named role instead "
                 "(see the module docstring, 'Two designs rejected')"
             )
+        object.__setattr__(self, "role", role)
 
 
 class SystemAdmissionError(RuntimeError):
@@ -329,7 +374,7 @@ class SystemAccessResult:
 @runtime_checkable
 class SystemAdmissionClient(Protocol):
     """The minimal engine surface system-principal admission needs —
-    ``register_identity`` (from
+    ``get_identity``/``register_identity`` (from
     :class:`~agent_utilities.security.tenant_rbac_admission.EngineIdentityClient`)
     plus ``add_role``/``add_grant`` (from
     :class:`~agent_utilities.security.engine_rbac_admission.EngineAdmissionClient`),
@@ -341,12 +386,14 @@ class SystemAdmissionClient(Protocol):
         self,
         *,
         agent_id: str,
-        role: str,
+        role: IdentityRole,
         teams: list[str],
         roles: list[str],
         signer_id: str,
         signer_key: str,
     ) -> str: ...
+
+    def get_identity(self, agent_id: str) -> Mapping[str, Any] | None: ...
 
     def add_role(self, role: str) -> str: ...
 
@@ -369,19 +416,20 @@ class FixtureSystemAdmissionClient:
     own dry-run preview path — never a socket.
     """
 
-    def __init__(self) -> None:
-        #: agent_id -> {"role": str, "teams": list[str], "roles": list[str]}
+    def __init__(self, *, identity_read_authorized: bool = True) -> None:
+        #: agent_id -> {"role": IdentityRole, "teams": list[str], "roles": list[str]}
         self.identities: dict[str, dict[str, Any]] = {}
         self.roles: set[str] = set()
         #: (role, resource_repr, action, effect)
         self.grants: set[tuple[str, str, str, str]] = set()
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.identity_read_authorized = identity_read_authorized
 
     def register_identity(
         self,
         *,
         agent_id: str,
-        role: str,
+        role: IdentityRole,
         teams: list[str],
         roles: list[str],
         signer_id: str,
@@ -396,6 +444,25 @@ class FixtureSystemAdmissionClient:
             "roles": list(roles),
         }
         return "registered"
+
+    def get_identity(self, agent_id: str) -> Mapping[str, Any] | None:
+        """Return the same complete shape as the engine's read-only RPC."""
+
+        self.calls.append(("get_identity", (agent_id,)))
+        if not self.identity_read_authorized:
+            raise SystemAdmissionError(
+                "ACCESS_DENIED: verified principal lacks admin capability "
+                "required for 'security:admin'"
+            )
+        identity = self.identities.get(agent_id)
+        if identity is None:
+            return None
+        return {
+            "agent_id": agent_id,
+            "role": identity["role"],
+            "teams": list(identity["teams"]),
+            "roles": list(identity["roles"]),
+        }
 
     def add_role(self, role: str) -> str:
         self.calls.append(("add_role", (role,)))
@@ -436,7 +503,7 @@ class FixtureSystemAdmissionClient:
 
 
 class LiveSystemAdmissionClient:
-    """Mutating adapter over the real engine's ``ConsensusClient``/
+    """Identity read/write adapter over the real engine's ``ConsensusClient``/
     ``RbacClient``, via the SAME process-authority path
     :class:`~agent_utilities.security.tenant_rbac_admission.LiveEngineIdentityClient`
     /
@@ -455,27 +522,53 @@ class LiveSystemAdmissionClient:
 
         return GraphComputeEngine.get_or_create().client
 
+    def get_identity(self, agent_id: str) -> Mapping[str, Any] | None:
+        """Delegate the read-only identity lookup to EG, failing closed."""
+
+        try:
+            with _identity_store_scope():
+                reader = getattr(self._client().consensus, "get_identity", None)
+                if not callable(reader):
+                    raise SystemAdmissionError(
+                        "engine client lacks required consensus.get_identity capability"
+                    )
+                identity = reader(agent_id)
+        except SystemAdmissionError:
+            raise
+        except Exception as exc:
+            raise SystemAdmissionError(
+                f"engine get_identity({agent_id!r}) failed"
+            ) from exc
+        if identity is None:
+            return None
+        if not isinstance(identity, Mapping):
+            raise SystemAdmissionError(
+                f"engine get_identity({agent_id!r}) returned a non-mapping identity"
+            )
+        return dict(identity)
+
     def register_identity(
         self,
         *,
         agent_id: str,
-        role: str,
+        role: IdentityRole,
         teams: list[str],
         roles: list[str],
         signer_id: str,
         signer_key: str,
     ) -> str:
         try:
-            return str(
-                self._client().consensus.register_identity(
-                    agent_id,
-                    role,
-                    teams,
-                    roles,
-                    signer_id=signer_id,
-                    signer_key=signer_key,
+            with _identity_store_scope():
+                return str(
+                    self._client().consensus.register_identity(
+                        agent_id,
+                        role,
+                        teams,
+                        roles,
+                        signer_id=signer_id,
+                        signer_key=signer_key,
+                    )
                 )
-            )
         except Exception as exc:
             raise SystemAdmissionError(
                 f"engine register_identity({agent_id!r}, roles={roles!r}) failed"
@@ -507,6 +600,122 @@ def resolve_system_admission_client(config: Any = None) -> SystemAdmissionClient
     return LiveSystemAdmissionClient(config=config)
 
 
+_IDENTITY_FIELDS = frozenset({"agent_id", "role", "teams", "roles"})
+
+
+def _identity_string_list(
+    agent_id: str, identity: Mapping[str, Any], field: str
+) -> tuple[str, ...]:
+    values = identity[field]
+    if not isinstance(values, list):
+        raise SystemAdmissionError(
+            f"cannot admit {agent_id!r}: GetIdentity returned invalid {field}"
+        )
+    detached: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value.strip() or value in seen:
+            raise SystemAdmissionError(
+                f"cannot admit {agent_id!r}: GetIdentity returned invalid {field}"
+            )
+        seen.add(value)
+        detached.append(value)
+    return tuple(detached)
+
+
+def _principal_from_identity(
+    agent_id: str, identity: Mapping[str, Any] | None
+) -> SystemPrincipal | None:
+    """Build a complete replacing-upsert input from one confirmed EG read."""
+
+    if identity is None:
+        return SystemPrincipal(agent_id=agent_id, existing_roles=())
+    if set(identity) != _IDENTITY_FIELDS:
+        raise SystemAdmissionError(
+            f"cannot admit {agent_id!r}: GetIdentity returned an incomplete "
+            "identity; expected agent_id, role, teams, and roles"
+        )
+    if identity["agent_id"] != agent_id:
+        raise SystemAdmissionError(
+            f"cannot admit {agent_id!r}: GetIdentity returned a mismatched agent_id"
+        )
+    try:
+        role = _copy_identity_role(identity["role"])
+        teams = _identity_string_list(agent_id, identity, "teams")
+        existing_roles = _identity_string_list(agent_id, identity, "roles")
+        if role == "System":
+            return None
+        return SystemPrincipal(
+            agent_id=agent_id,
+            role=role,
+            teams=teams,
+            existing_roles=existing_roles,
+        )
+    except ValueError as exc:
+        raise SystemAdmissionError(
+            f"cannot admit {agent_id!r}: GetIdentity returned an invalid identity role"
+        ) from exc
+
+
+def _principal_for_admission(
+    client: SystemAdmissionClient,
+    agent_id: str,
+) -> SystemPrincipal | None:
+    """Read the complete identity under EG's admin authorization contract."""
+
+    return _principal_from_identity(agent_id, client.get_identity(agent_id))
+
+
+def _complete_principal_roles(principal: SystemPrincipal, role: str) -> tuple[str, ...]:
+    """Return a confirmed complete role set before any policy mutation."""
+
+    if principal.existing_roles is None:
+        raise SystemAdmissionError(
+            f"cannot admit {principal.agent_id!r} into {role!r}: "
+            "existing_roles is unknown (None). RegisterIdentity REPLACES "
+            "a principal's whole role set, so direct provisioning requires "
+            "the complete current roles or an explicit empty tuple ()."
+        )
+    return principal.existing_roles
+
+
+def _admit_principal(
+    client: SystemAdmissionClient,
+    principal: SystemPrincipal,
+    existing_roles: tuple[str, ...],
+    admin_authority: AdmissionAuthority,
+    role: str,
+) -> SystemAccessOutcome:
+    """Return a no-op or perform one complete replacing identity upsert."""
+
+    if role in existing_roles:
+        return SystemAccessOutcome(
+            agent_id=principal.agent_id,
+            role=role,
+            already_held=True,
+            detail=f"{principal.agent_id!r} already carries {role!r}",
+        )
+    merged_roles = sorted({*existing_roles, role})
+    client.register_identity(
+        agent_id=principal.agent_id,
+        role=principal.role,
+        teams=list(principal.teams),
+        roles=merged_roles,
+        signer_id=admin_authority.signer_id,
+        signer_key=admin_authority.signer_key,
+    )
+    return SystemAccessOutcome(
+        agent_id=principal.agent_id,
+        role=role,
+        already_held=False,
+        detail=(
+            f"granted {role!r} (Read+Write on "
+            f"Graph({CONTROL_GRAPH_NAME!r})) to {principal.agent_id!r} "
+            f"(roles now {merged_roles!r})"
+        ),
+    )
+
+
 def provision_system_principal_access(
     client: SystemAdmissionClient,
     principals: list[SystemPrincipal],
@@ -533,8 +742,8 @@ def provision_system_principal_access(
        ``role``/``teams`` plus ``role`` appended to ``existing_roles`` —
        never dropping a role/team the caller did not ask to change
        (``RegisterIdentity`` replaces the whole identity, so this always
-       sends the FULL desired shape — see the module docstring for why no
-       read-back is attempted).
+       sends the FULL desired shape. The boot wrapper obtains that shape from
+       ``GetIdentity`` before calling this direct provisioning composition).
 
     Refuses ``role="System"`` outright with a :class:`ValueError` (see
     module docstring, "Two designs rejected") — a caller programming error,
@@ -554,56 +763,19 @@ def provision_system_principal_access(
     if not principals:
         raise ValueError("principals must be non-empty")
 
+    known_principals = [
+        (principal, _complete_principal_roles(principal, role))
+        for principal in principals
+    ]
+
     client.add_role(role)
     client.add_grant(role, {"Graph": CONTROL_GRAPH_NAME}, "Read", "Allow")
     client.add_grant(role, {"Graph": CONTROL_GRAPH_NAME}, "Write", "Allow")
 
-    outcomes: list[SystemAccessOutcome] = []
-    for principal in principals:
-        if principal.existing_roles is None:
-            raise SystemAdmissionError(
-                f"cannot admit {principal.agent_id!r} into {role!r}: "
-                "existing_roles is unknown (None). RegisterIdentity REPLACES "
-                "a principal's whole role set and this module has no "
-                "identity read-back RPC, so writing an unknown role set risks "
-                "silently dropping roles another admission pass already "
-                "granted (e.g. tenant_rbac_admission's tenant role) — see "
-                "the module docstring, 'Mirror-image defect'. The caller "
-                "MUST supply SystemPrincipal.existing_roles as the "
-                "principal's full, currently-known role set, or an explicit "
-                "empty tuple () to affirmatively confirm it holds none."
-            )
-        if role in principal.existing_roles:
-            outcomes.append(
-                SystemAccessOutcome(
-                    agent_id=principal.agent_id,
-                    role=role,
-                    already_held=True,
-                    detail=f"{principal.agent_id!r} already carries {role!r}",
-                )
-            )
-            continue
-        merged_roles = sorted({*principal.existing_roles, role})
-        client.register_identity(
-            agent_id=principal.agent_id,
-            role=principal.role,
-            teams=list(principal.teams),
-            roles=merged_roles,
-            signer_id=admin_authority.signer_id,
-            signer_key=admin_authority.signer_key,
-        )
-        outcomes.append(
-            SystemAccessOutcome(
-                agent_id=principal.agent_id,
-                role=role,
-                already_held=False,
-                detail=(
-                    f"granted {role!r} (Read+Write on "
-                    f"Graph({CONTROL_GRAPH_NAME!r})) to {principal.agent_id!r} "
-                    f"(roles now {merged_roles!r})"
-                ),
-            )
-        )
+    outcomes = [
+        _admit_principal(client, principal, existing_roles, admin_authority, role)
+        for principal, existing_roles in known_principals
+    ]
 
     return SystemAccessResult(role=role, outcomes=tuple(outcomes))
 
@@ -638,22 +810,66 @@ def _reset_admission_cache_for_tests() -> None:
         _KEY_LOCKS.clear()
 
 
+def _validated_admission_key(agent_id: str, role: str) -> tuple[str, tuple[str, str]]:
+    """Validate public request fields and return the process-cache key."""
+
+    normalized_agent_id = str(agent_id or "").strip()
+    if not normalized_agent_id:
+        raise ValueError("agent_id must be a non-empty opaque identifier")
+    if role == "System":
+        raise ValueError(
+            "ensure_system_principal_access: role must never be 'System' — "
+            "System bypasses RBAC entirely"
+        )
+    return normalized_agent_id, (role, normalized_agent_id)
+
+
+def _attempt_system_principal_access(
+    client: SystemAdmissionClient,
+    agent_id: str,
+    role: str,
+) -> SystemAccessOutcome:
+    """Perform the admin-gated read and any required narrow admission."""
+
+    principal = _principal_for_admission(client, agent_id)
+    if principal is None:
+        return SystemAccessOutcome(
+            agent_id=agent_id,
+            role=role,
+            already_held=True,
+            detail=(
+                f"{agent_id!r} already has engine System authority; "
+                "no narrower role or identity write was made"
+            ),
+        )
+
+    from .admission_authority import resolve_admission_authority
+
+    authority = resolve_admission_authority()
+    result = provision_system_principal_access(
+        client,
+        [principal],
+        admin_authority=authority,
+        role=role,
+    )
+    return result.outcomes[0]
+
+
 def ensure_system_principal_access(
     agent_id: str,
     *,
     role: str = CONTROL_ROLE_NAME,
     client: SystemAdmissionClient | None = None,
-    existing_roles: tuple[str, ...] | None = None,
 ) -> SystemAccessOutcome:
-    """Ensure au's own process principal ``agent_id`` is admitted into the
-    control-graph role, idempotently — the boot-time auto-admission
-    entrypoint (see module docstring, "Auto-admission at boot").
+    """Verify or, under existing Admin authority, admit au's own process
+    principal ``agent_id`` into the control-graph role idempotently (see the
+    module docstring, "Boot verification and operator-authorized remediation").
 
     * **Positive outcome** — cached in-process, forever (this process's
       lifetime). A returning call for the same ``(role, agent_id)`` is a
       dict lookup, never a round trip.
     * **Negative outcome** (missing provisioner credential — NE-021 today
-      — an engine RPC failure — or ``existing_roles`` unknown, see below)
+      — an engine RPC/read-back failure, or a malformed identity shape)
       — cached for :data:`_FAILURE_BACKOFF_SECONDS`, so a still-broken
       precondition is not retried on every call, while the next call after
       the backoff window retries automatically — an operator fixing NE-021
@@ -662,16 +878,14 @@ def ensure_system_principal_access(
       per-key lock (double-checked against the cache once the lock is
       held).
 
-    ``existing_roles`` is threaded straight to
-    :class:`SystemPrincipal` — this principal's full, currently-known
-    engine-RBAC role set, or an explicit ``()`` to confirm it holds none.
-    Defaults to ``None`` (unknown): today's one caller (``kg_server.py``'s
-    daemon bootstrap path) has no reliable source for it either (see the
-    module docstring, "Mirror-image defect" — the JWT-derived
-    ``ActorContext.roles`` this principal authenticated with is a
-    different, AU-side concept, not the engine's own RBAC registry), so a
-    default call fails loud rather than risk clobbering a role another
-    admission pass already granted this same principal.
+    The function always reads ``GetIdentity`` first; there is no partial
+    ``existing_roles`` override because roles without the current role/teams
+    shape would make the replacing upsert destructive. A confirmed absent
+    identity becomes the sole empty-role case. A System identity returns an
+    authorized no-op. An ordinary identity proceeds only after the
+    ``security:admin``-gated read succeeds, preserving its complete
+    ``role``/``teams``/``roles`` shape. Any denial, failed read, or malformed
+    response stops before a write.
 
     Raises :class:`SystemAdmissionError` on a negative outcome — never
     silently proceeds and never returns a value that looks like success.
@@ -681,11 +895,7 @@ def ensure_system_principal_access(
     admission succeeded (see module docstring, NE-021).
     """
 
-    agent_id = str(agent_id or "").strip()
-    if not agent_id:
-        raise ValueError("agent_id must be a non-empty opaque identifier")
-
-    key = (role, agent_id)
+    agent_id, key = _validated_admission_key(agent_id, role)
     with _STATE_LOCK:
         if key in _ADMITTED:
             return SystemAccessOutcome(
@@ -712,18 +922,10 @@ def ensure_system_principal_access(
                 raise cached_exc
 
         try:
-            from .admission_authority import resolve_admission_authority
-
-            authority = resolve_admission_authority()
             live_client = (
                 client if client is not None else resolve_system_admission_client()
             )
-            result = provision_system_principal_access(
-                live_client,
-                [SystemPrincipal(agent_id=agent_id, existing_roles=existing_roles)],
-                admin_authority=authority,
-                role=role,
-            )
+            outcome = _attempt_system_principal_access(live_client, agent_id, role)
         except SystemAdmissionError as exc:
             with _STATE_LOCK:
                 _FAILURES[key] = (time.monotonic(), exc)
@@ -736,7 +938,6 @@ def ensure_system_principal_access(
                 _FAILURES[key] = (time.monotonic(), wrapped)
             raise wrapped from exc
 
-        outcome = result.outcomes[0]
         with _STATE_LOCK:
             _ADMITTED[key] = time.monotonic()
             _FAILURES.pop(key, None)
@@ -744,8 +945,9 @@ def ensure_system_principal_access(
         from .persistence_privacy import persistence_reference
 
         logger.info(
-            "system-principal admission: %s admitted into %s",
+            "system-principal access verified: %s role=%s already-held=%s",
             persistence_reference("agent", agent_id, namespace="rbac-admission"),
             role,
+            outcome.already_held,
         )
         return outcome

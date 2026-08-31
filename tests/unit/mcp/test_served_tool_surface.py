@@ -5,22 +5,23 @@ CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
 Existing coverage stops at :func:`kg_server._build_server`, which registers only
 the *mode-selected* tools. But what a client actually sees over ``tools/list`` is
 ``_build_server`` **plus** :func:`~agent_utilities.mcp.multiplexer.attach_fleet_loader`
-(the five fleet meta-tools + the per-session visibility middleware), and that
+(the six fleet meta-tools + the per-session visibility middleware), and that
 attach happens later, in :func:`kg_server.mcp_server`. A regression that broke the
-attach therefore changed the served surface from ~11 tools to 118 without a single
+attach therefore changed the served surface from ~14 tools to 118 without a single
 one of the ~9.9k existing tests noticing.
 
 Two invariants are pinned here:
 
-1. **The five fleet meta-tools are mode-independent infrastructure.**
+1. **The six fleet meta-tools are mode-independent infrastructure.**
    ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
    ``multiplexer_status`` are the ONLY way to reach anything the active mode holds
    back, so they must be served under ``intent``, ``condensed``, ``verbose`` AND
    ``both``. They are registered outside the mode switch on purpose — this test
    exists so no future change can quietly fold them into one mode's branch.
-2. **``intent`` serves exactly the six verbs plus those five meta-tools** — the
-   granular ``graph_*`` surface stays *registered* (REST/``REGISTERED_TOOLS`` are
-   unaffected) but hidden, reachable only through ``load_tools``.
+2. **``intent`` serves exactly the six verbs, six meta-tools, and two MCP Apps
+   entry points** — the remaining granular ``graph_*`` surface stays
+   *registered* (REST/``REGISTERED_TOOLS`` are unaffected) but hidden,
+   reachable only through ``load_tools``.
 
 ``bootstrap=False`` skips engine/daemon startup, so no live engine is needed —
 this exercises tool *registration + visibility*, never execution.
@@ -45,7 +46,7 @@ from agent_utilities.mcp.verbose_tools import VALID_TOOL_MODES, _provider_tools
 #: including ``intent``, on purpose: each one is the only way to launch its app,
 #: so gating it would leave a fully built UI unreachable — the Wire-First failure
 #: this repo keeps re-learning. They are listed explicitly rather than relaxing
-#: the assertion to a superset, so a genuine surface leak (the 118-vs-11
+#: the assertion to a superset, so a genuine surface leak (the 118-vs-14
 #: regression this test exists for) still fails.
 MCP_APP_TOOLS = frozenset({"graph_task_progress_app", "graph_trace_waterfall_app"})
 
@@ -55,6 +56,7 @@ FLEET_META_TOOLS = frozenset(
         "list_catalog",
         "load_tools",
         "unload_tools",
+        "refresh_mcp_server",
         "multiplexer_status",
     }
 )
@@ -84,7 +86,7 @@ def _served_surface(monkeypatch, tmp_path, mode: str) -> tuple[Any, Any, set[str
 
 @pytest.mark.parametrize("mode", sorted(VALID_TOOL_MODES))
 def test_fleet_meta_tools_are_served_in_every_tool_mode(monkeypatch, tmp_path, mode):
-    """The five meta-tools survive EVERY mode — they sit outside the mode switch.
+    """The six meta-tools survive EVERY mode — they sit outside the mode switch.
 
     Parameterised over ``VALID_TOOL_MODES`` itself so a newly added mode is forced
     to honour the invariant rather than silently skipping it.
@@ -99,7 +101,7 @@ def test_fleet_meta_tools_are_served_in_every_tool_mode(monkeypatch, tmp_path, m
 
 
 def test_intent_mode_serves_exactly_the_verbs_and_the_meta_tools(monkeypatch, tmp_path):
-    """The whole point of ``intent``: ~11 tool schemas, not ~118.
+    """The whole point of ``intent``: ~14 tool schemas, not ~118.
 
     An exact-set assertion (not a superset one) — the regression this pins leaked
     107 granular ``graph_*`` tools into the default view, which a superset check

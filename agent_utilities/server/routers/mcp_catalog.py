@@ -17,9 +17,10 @@ AND MCP). This module is that REST route, dispatching into the SAME
 call (via the process-wide standalone instance in
 ``agent_utilities.mcp.shared_multiplexer``) — never re-deriving the logic.
 
-Authorization mirrors the MCP-tool-side gate
-(``multiplexer._require_fleet_capability("discover")``) so the two surfaces
-require the same capability, not merely serve the same payload shape.
+Authorization mirrors the MCP-tool-side gates: catalog/status require discover
+authority and the single-child refresh requires administrative authority. The
+REST refresh dispatches into the same async multiplexer lifecycle as the MCP
+meta-tool; it does not use the legacy synchronous catalog invalidator.
 
 A multiplexer/catalog failure is surfaced as a typed 503 payload with
 ``status: "DEGRADED"``, never silently downgraded to an empty list or a
@@ -32,6 +33,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,13 @@ __all__ = ["router"]
 _DISCOVER_SCOPES = frozenset(
     {"mcp:discover", "mcp:delegate", "mcp:admin", "kg:admin", "admin"}
 )
+_MANAGE_SCOPES = frozenset({"mcp:admin", "kg:admin", "admin"})
+
+
+class MCPRefreshRequest(BaseModel):
+    """Bounded selector for a governed single-child refresh."""
+
+    server_name: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
 
 
 def _mcp_capabilities(request: Request) -> set[str] | None:
@@ -79,6 +88,14 @@ async def _require_mcp_discover(request: Request) -> None:
     if capabilities is not None and not capabilities.intersection(_DISCOVER_SCOPES):
         raise HTTPException(
             status_code=403, detail="MCP fleet discover capability required"
+        )
+
+
+async def _require_mcp_manage(request: Request) -> None:
+    capabilities = _mcp_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(_MANAGE_SCOPES):
+        raise HTTPException(
+            status_code=403, detail="MCP fleet manage capability required"
         )
 
 
@@ -155,3 +172,25 @@ async def get_mcp_status() -> dict[str, Any]:
         return mux.status_snapshot()
     except Exception as exc:  # noqa: BLE001 - surfaced as a typed 503 below, cause preserved via `from exc`
         raise _degraded("status_snapshot_failed", exc) from exc
+
+
+@router.post(
+    "/refresh",
+    summary="Refresh one MCP child runtime and its governed catalog snapshot",
+    dependencies=[Depends(_require_mcp_manage)],
+)
+async def refresh_mcp_server(request: MCPRefreshRequest) -> dict[str, Any]:
+    """REST twin of the always-on ``refresh_mcp_server`` MCP meta-tool."""
+    mux = await _get_multiplexer_or_503()
+    try:
+        return await mux.refresh_child(request.server_name)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail="MCP child is not refreshable"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="Invalid MCP child selector"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - typed degraded refresh response
+        raise _degraded("mcp_child_refresh_failed", exc) from exc

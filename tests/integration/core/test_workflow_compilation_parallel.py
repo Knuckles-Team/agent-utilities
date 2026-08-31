@@ -51,26 +51,20 @@ def _installed_universal_skills_version() -> str:
 def _require_installed_skill(skills_root: Path, category: str, skill_name: str) -> Path:
     """Resolve a category/skill dir, failing LOUDLY and BY NAME if it is absent.
 
-    CONCEPT B2 (REMAINING-ISSUES-DESIGNS.md): the latest published
-    ``universal-skills`` PyPI release (currently 1.2.1) does not yet ship
-    every category this test suite expects — ``infrastructure-workflows``,
-    ``finance-workflows``, and most of ``development-workflows`` are missing
-    from the installed package. That is an upstream PUBLISHING gap, not a bug
-    in this repo, and not a test bug either — the fix is a real
-    ``universal-skills`` release containing those categories. Until that
-    ships, this must keep failing (never silently skip/xfail/assert-away) so
-    the gap stays visible, but the failure names EXACTLY what is missing from
-    which installed version instead of surfacing as an opaque
+    ``universal-skills`` 1.3.1 publishes every workflow category this suite
+    expects, closing the former CONCEPT B2 publishing gap. If an installed
+    artifact is stale or a future catalog regresses, this must fail loudly
+    (never silently skip/xfail/assert-away) and name exactly what is missing
+    from which installed version instead of surfacing as an opaque
     ``assert None is not None`` deep inside ``SkillCompiler``.
     """
     skill_dir = skills_root / category / skill_name
     if not skill_dir.is_dir():
         raise AssertionError(
             f"universal-skills=={_installed_universal_skills_version()} (installed) "
-            f"does not publish {category}/{skill_name} — upstream publishing gap "
-            "(CONCEPT B2), not a defect in agent-utilities. Regenerate/publish a "
-            "universal-skills release containing this category, then this test "
-            "will resolve the real path and exercise it."
+            f"does not publish {category}/{skill_name}; universal-skills>=1.3.1 "
+            "must contain every required workflow category. Install the current "
+            "artifact or repair the catalog regression, then rerun this test."
         )
     return skill_dir
 
@@ -164,7 +158,7 @@ def test_alpha_factor_mining_compilation():
 def test_sdd_full_lifecycle_compilation():
     """Verify that sdd-full-lifecycle workflow compiles into the correct sequential DAG.
 
-    The skill was redesigned (now v1.2.1) since this test was written: it's a
+    The skill was redesigned before v1.3.1: it is a
     strictly sequential intake->spec->verify->plan->implement->test chain, not
     the old fan-out/fan-in shape (spec-generator -> 3 parallel builders ->
     verification-gate -> kg-persistence). Step ids and depends_on below match
@@ -309,19 +303,18 @@ def test_all_library_workflows_compilation():
             if p.is_dir() and (p / "SKILL.md").exists():
                 workflow_paths.append(p)
 
-    # Verified current catalog size: 166 team.yaml-backed multi-agent workflows
-    # across the 10 "*-workflows" categories (see the D-RG2-1-era investigation
-    # that replaced the stale 8-folder/~240 expectation above). Keep a small
-    # buffer below that so a handful of workflows moving around doesn't flake
-    # this test, while still catching a real catalog regression.
-    assert len(workflow_paths) >= 160, (
-        f"Expected at least 160 multi-agent workflows, found {len(workflow_paths)} in "
+    # The universal-skills 1.3.1 source, wheel, and sdist each publish exactly
+    # 143 immediate workflow SKILL.md entries across the 10 "*-workflows"
+    # categories. The former 166 count included 23 ignored, hollow build/lib
+    # directories that were intentionally deleted. Keep a narrow buffer below
+    # the real artifact count while named tests above guard required workflows.
+    assert len(workflow_paths) >= 140, (
+        f"Expected at least 140 multi-agent workflows, found {len(workflow_paths)} in "
         f"universal-skills=={_installed_universal_skills_version()} (installed). If "
-        "this is below 160 because whole *-workflows categories are missing "
+        "this is below 140 because whole *-workflows categories are missing "
         "(infrastructure-workflows, finance-workflows, most of "
-        "development-workflows) that is the known CONCEPT B2 upstream "
-        "publishing gap, not a defect here — see "
-        "_require_installed_skill's docstring above."
+        "development-workflows), the installed artifact is stale or the "
+        "catalog regressed — see _require_installed_skill's docstring above."
     )
 
     for skill_dir in workflow_paths:

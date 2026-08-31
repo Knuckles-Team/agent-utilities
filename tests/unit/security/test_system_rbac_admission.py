@@ -18,15 +18,20 @@ Covers (Definition of Done):
 - The CLI (`system_admission_cli.py`) produces the same provisioning as the
   boot path (`ensure_system_principal_access`) for the same principal.
 - A principal whose `existing_roles` is unknown (`None`, the default) is
-  refused outright, and nothing is written — the mirror image of
-  `tenant_rbac_admission`'s own incident: this module's boot path used to
-  default to an implicit empty role set too, and could silently clobber a
-  role `tenant_rbac_admission` had already granted the same principal.
+  read from the engine before any write. A confirmed absent identity is the
+  only implicit empty-role case; an existing identity's complete role/team/
+  roles shape is preserved through the replacing upsert.
+- The engine's `security:admin` read contract is not treated as bootstrap:
+  an under-admitted Agent is denied before every write, while an already-
+  System identity returns a truthful no-write success.
 """
 
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -225,6 +230,57 @@ def test_admitting_a_principal_with_unknown_existing_roles_fails_loudly() -> Non
         "an unknown prior role set must never reach register_identity — "
         "fail closed, never write a possibly-reduced set"
     )
+    assert client.calls == [], "validation must precede role and grant writes"
+
+
+def test_ensure_entrypoint_reads_live_identity_from_eg_consensus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class _Consensus:
+        def get_identity(self, agent_id: str):
+            calls.append(agent_id)
+            return {
+                "agent_id": agent_id,
+                "role": "System",
+                "teams": ["platform"],
+                "roles": ["tenant:homelab"],
+            }
+
+    client = sra.LiveSystemAdmissionClient()
+    monkeypatch.setattr(sra, "_identity_store_scope", nullcontext)
+    monkeypatch.setattr(
+        client, "_client", lambda: SimpleNamespace(consensus=_Consensus())
+    )
+
+    outcome = sra.ensure_system_principal_access(
+        "graph-os-scheduler", client=client
+    )
+
+    assert outcome.already_held is True
+    assert "System authority" in outcome.detail
+    assert calls == ["graph-os-scheduler"]
+
+
+def test_get_identity_engine_contract_is_read_only_and_admin_gated() -> None:
+    """Pin AU's assumption to EG's generated method-policy contract.
+
+    EG's dispatch tests drive GetIdentity through the real authorization
+    entrypoint for ordinary-Agent refusal and System success. The same module
+    separately proves that an explicit Admin grant satisfies the shared
+    security:admin guard. This assertion prevents AU from silently treating
+    GetIdentity as a public bootstrap read if that contract changes.
+    """
+
+    ledger_path = (
+        Path(__file__).resolve().parents[3]
+        / "docs/_vendor_eg_capability_ledger.json"
+    )
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    contract = ledger["rows"]["GetIdentity"]
+    assert contract["authz_action"] == "security:admin"
+    assert contract["mutates"] == "false"
 
 
 ADMITTING_PRINCIPAL = "graph-os:process"
@@ -291,15 +347,16 @@ def test_ensure_admission_is_idempotent_across_repeated_calls(
 ) -> None:
     _hold_signer_key(monkeypatch)
     client = sra.FixtureSystemAdmissionClient()
+    client.identities["graph-os-scheduler"] = {
+        "role": "Agent",
+        "teams": [],
+        "roles": [],
+    }
 
-    first = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client, existing_roles=()
-    )
+    first = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert first.already_held is False
 
-    second = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client, existing_roles=()
-    )
+    second = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert second.already_held is True
 
     # The second call must be a cache hit: no additional register_identity.
@@ -307,26 +364,145 @@ def test_ensure_admission_is_idempotent_across_repeated_calls(
     assert len(register_calls) == 1
 
 
-def test_ensure_admission_fails_loudly_without_existing_roles(
+def test_under_admitted_agent_is_denied_before_every_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The mirror-image fix's actual point of enforcement: `kg_server.py`'s
-    boot path calls `ensure_system_principal_access(actor_id)` with no
-    `existing_roles` (it has no reliable source for the principal's real
-    engine-RBAC roles either — see the module docstring). That must now
-    degrade honestly (typed error, cached backoff, nothing written) instead
-    of silently registering `roles=['control:system']` alone and clobbering
-    whatever `tenant_rbac_admission` already granted this same principal."""
+    _hold_signer_key(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient(identity_read_authorized=False)
+    client.identities["graph-os-scheduler"] = {
+        "role": "Agent",
+        "teams": ["platform"],
+        "roles": [],
+    }
+
+    with pytest.raises(sra.SystemAdmissionError, match="ACCESS_DENIED"):
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+
+    assert client.calls == [("get_identity", ("graph-os-scheduler",))]
+    assert client.roles == set()
+    assert client.grants == set()
+    assert client.identities["graph-os-scheduler"]["roles"] == []
+
+
+def test_already_system_identity_is_authorized_noop_without_signer_key() -> None:
+    client = sra.FixtureSystemAdmissionClient()
+    client.identities["graph-os-scheduler"] = {
+        "role": "System",
+        "teams": ["platform"],
+        "roles": [],
+    }
+
+    outcome = sra.ensure_system_principal_access(
+        "graph-os-scheduler", client=client
+    )
+
+    assert outcome.already_held is True
+    assert "System authority" in outcome.detail
+    assert client.calls == [("get_identity", ("graph-os-scheduler",))]
+    assert client.roles == set()
+    assert client.grants == set()
+    assert client.identities["graph-os-scheduler"] == {
+        "role": "System",
+        "teams": ["platform"],
+        "roles": [],
+    }
+
+
+def test_ensure_admission_uses_empty_roles_for_confirmed_absent_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``None`` from EG confirms absence; it is not a degraded read."""
 
     _hold_signer_key(monkeypatch)
     client = sra.FixtureSystemAdmissionClient()
 
-    with pytest.raises(sra.SystemAdmissionError, match="existing_roles is unknown"):
+    result = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+
+    assert result.already_held is False
+    assert client.calls[0] == ("get_identity", ("graph-os-scheduler",))
+    assert client.identities["graph-os-scheduler"] == {
+        "role": "Agent",
+        "teams": [],
+        "roles": [sra.CONTROL_ROLE_NAME],
+    }
+
+
+def test_admin_authorized_read_preserves_complete_identity_before_upsert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient()
+    client.identities["graph-os-scheduler"] = {
+        "role": {"Manager": {"subordinates": ["worker-a", "worker-b"]}},
+        "teams": ["platform", "sre"],
+        "roles": ["tenant:homelab", "work:operator"],
+    }
+
+    sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+
+    assert client.calls[0] == ("get_identity", ("graph-os-scheduler",))
+    assert client.identities["graph-os-scheduler"] == {
+        "role": {"Manager": {"subordinates": ["worker-a", "worker-b"]}},
+        "teams": ["platform", "sre"],
+        "roles": ["control:system", "tenant:homelab", "work:operator"],
+    }
+
+
+def test_ensure_read_failure_fails_closed_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
+
+    class _FailingReadClient(sra.FixtureSystemAdmissionClient):
+        def get_identity(self, agent_id: str):
+            self.calls.append(("get_identity", (agent_id,)))
+            raise ConnectionError("engine unavailable")
+
+    client = _FailingReadClient()
+    with pytest.raises(sra.SystemAdmissionError, match="engine unavailable"):
         sra.ensure_system_principal_access("graph-os-scheduler", client=client)
 
-    assert "register_identity" not in [call for call, _args in client.calls], (
-        "must never reach register_identity when the prior role set is unknown"
-    )
+    assert client.calls == [("get_identity", ("graph-os-scheduler",))]
+    assert client.roles == set()
+    assert client.grants == set()
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {
+            "agent_id": "graph-os-scheduler",
+            "role": "Unknown",
+            "teams": [],
+            "roles": [],
+        },
+        {
+            "agent_id": "graph-os-scheduler",
+            "role": {"Manager": {}},
+            "teams": [],
+            "roles": [],
+        },
+        {"agent_id": "graph-os-scheduler", "role": "Agent", "teams": []},
+    ],
+)
+def test_ensure_rejects_unknown_or_incomplete_identity_before_policy_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    identity: dict[str, object],
+) -> None:
+    _hold_signer_key(monkeypatch)
+
+    class _IdentityClient(sra.FixtureSystemAdmissionClient):
+        def get_identity(self, agent_id: str):
+            self.calls.append(("get_identity", (agent_id,)))
+            return identity
+
+    client = _IdentityClient()
+    with pytest.raises(sra.SystemAdmissionError):
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+
+    assert client.calls == [("get_identity", ("graph-os-scheduler",))]
+    assert client.roles == set()
+    assert client.grants == set()
 
 
 def test_ensure_admission_degrades_honestly_on_missing_credential() -> None:
@@ -336,8 +512,9 @@ def test_ensure_admission_degrades_honestly_on_missing_credential() -> None:
     value that looks like success."""
 
 
+    client = sra.FixtureSystemAdmissionClient()
     with pytest.raises(sra.SystemAdmissionError) as exc_info:
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
 
     message = str(exc_info.value)
     assert admission_authority.SIGNER_REGISTRY_ENV in message
@@ -349,23 +526,25 @@ def test_ensure_admission_backs_off_rather_than_hammering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = _count_resolutions(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient()
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert calls[0] == 1
 
     # Immediately retrying within the backoff window must NOT re-resolve the
     # credential (would "hammer" a broken precondition on every call).
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert calls[0] == 1
 
 
 def test_ensure_admission_retries_after_backoff_window_elapses(monkeypatch) -> None:
     calls = _count_resolutions(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient()
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert calls[0] == 1
 
     # Simulate the backoff window having elapsed.
@@ -374,7 +553,7 @@ def test_ensure_admission_retries_after_backoff_window_elapses(monkeypatch) -> N
     sra._FAILURES[key] = (attempted_at - sra._FAILURE_BACKOFF_SECONDS - 1, cached_exc)
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert calls[0] == 2
 
 
@@ -385,8 +564,9 @@ def test_ensure_admission_never_crashes_the_process_it_only_raises_a_typed_error
     function's contract is a typed, catchable error, never a bare/opaque
     exception a caller cannot reason about."""
 
+    client = sra.FixtureSystemAdmissionClient(identity_read_authorized=False)
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler")
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
 
 
 def test_ensure_admission_rejects_empty_agent_id() -> None:
@@ -481,9 +661,12 @@ def test_cli_apply_produces_the_same_provisioning_as_the_boot_path(
 
     _hold_signer_key(monkeypatch)
     boot_client = sra.FixtureSystemAdmissionClient()
-    sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=boot_client, existing_roles=()
-    )
+    boot_client.identities["graph-os-scheduler"] = {
+        "role": "Agent",
+        "teams": [],
+        "roles": [],
+    }
+    sra.ensure_system_principal_access("graph-os-scheduler", client=boot_client)
 
     cli_client = sra.FixtureSystemAdmissionClient()
     cli.run_system_admission(

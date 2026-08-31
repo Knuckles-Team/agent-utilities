@@ -157,14 +157,16 @@ GraphOS aggregates the whole `*-mcp` fleet through its embedded gateway, and eve
 
 ### GraphOS model-facing MCP surface
 
-The current default (`MCP_TOOL_MODE=intent`) starts with exactly **11 visible
-tools**: **six intent verbs and five control tools**. This is progressive
-disclosure, not a compatibility alias over the former granular startup table.
+The current default (`MCP_TOOL_MODE=intent`) starts with exactly **14 visible
+tools**: **six intent verbs, six control tools, and two MCP Apps entry points**.
+This is progressive disclosure, not a compatibility alias over the former
+granular startup table.
 
 | Surface | Always-visible tools | Purpose |
 |---|---|---|
 | Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent to the exact current capability; mutating verbs preview before execution. |
-| Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `multiplexer_status` | Discover, expose, retract, and inspect exact tools without permanently filling model context. |
+| Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `refresh_mcp_server`, `multiplexer_status` | Discover, expose, retract, administratively refresh one child, and inspect exact tools without permanently filling model context. |
+| MCP Apps | `graph_task_progress_app`, `graph_trace_waterfall_app` | Launch the two always-available interactive GraphOS views. |
 
 The generated Capability Power Descriptor catalog currently contains **132
 public capabilities**. Their granular MCP and REST actions remain current and
