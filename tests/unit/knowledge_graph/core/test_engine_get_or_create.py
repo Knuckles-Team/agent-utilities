@@ -23,8 +23,11 @@ any of that heavy setup runs.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import logging
 
+from agent_utilities.knowledge_graph.core import engine as engine_module
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 _LOGGER_NAME = "agent_utilities.knowledge_graph.core.engine"
@@ -109,3 +112,19 @@ def test_get_or_create_only_warns_on_the_winning_construction(caplog):
         assert len(warnings) == 1
     finally:
         _NoOpEngine._ACTIVE_ENGINE = None
+
+
+def test_engine_has_no_optional_mcp_data_prep_import():
+    tree = ast.parse(inspect.getsource(engine_module))
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    imported_modules.update(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+    assert "agent_utilities.mcp.tools.data_prep_tools" not in imported_modules

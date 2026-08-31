@@ -167,13 +167,6 @@ class IntelligenceGraphEngine(
         # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Auto-register service registry
         self._services_registered = False
 
-        # Compose the governed data-prep provider at the same process-owned
-        # lifecycle boundary as the graph engine.  The provider binds to the
-        # native AssetOccurrence/Blob and process configuration seams; it never
-        # opens a second store.  Missing model/policy configuration remains a
-        # fail-closed dependency diagnostic at the served tool boundary.
-        self._register_data_prep_provider()
-
     def _resolve_backend(
         self, backend: GraphBackend | None, db_path: str | None
     ) -> GraphBackend:
@@ -255,29 +248,6 @@ class IntelligenceGraphEngine(
             self, schema_pack=self.active_schema_pack
         )
         self.inference_engine = InferenceEngine(self)
-
-    def _register_data_prep_provider(self) -> None:
-        try:
-            from agent_utilities.mcp.tools.data_prep_tools import (
-                register_process_data_prep_runtime,
-            )
-
-            if not register_process_data_prep_runtime(self):
-                logger.warning(
-                    "data-prep provider installed with unavailable startup dependencies"
-                )
-        except ImportError:  # pragma: no cover - optional MCP package absent
-            logger.debug("data-prep MCP surface is unavailable during graph startup")
-        except (
-            Exception
-        ):  # pragma: no cover - optional MCP surface must not block engine boot
-            # A graph-engine construction error remains governed by the graph
-            # lifecycle; it must not be hidden as a successful data-prep setup
-            # by silently downgrading it to a routine "deferred" DEBUG line.
-            logger.warning(
-                "data-prep provider composition deferred until MCP startup",
-                exc_info=True,
-            )
 
     def _build_control_backend(self) -> GraphBackend:
         """Return the operational backend that owns native WorkItems.
