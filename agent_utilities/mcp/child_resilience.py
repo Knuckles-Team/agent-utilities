@@ -101,25 +101,37 @@ TRANSPORT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     anyio.ClosedResourceError,
 )
 
+# The MCP SDK translates a closed stdio dispatcher into this protocol-error
+# sentinel before the child runtime sees it. Keep the match exact: an arbitrary
+# MCPError remains an application failure and must not trigger replay.
+_SESSION_DEAD_SIGNATURES = frozenset(
+    {
+        (-32000, "connection closed"),
+        (-32600, "session terminated"),
+        (32600, "session terminated"),
+    }
+)
+
 
 def is_session_dead(exc: BaseException) -> bool:
     """Whether ``exc`` means the child's streamable-http session is gone — e.g.
     the backend redeployed and no longer recognizes the session id.
 
-    The MCP client raises ``MCPError(code=32600, "Session terminated")`` for a
-    server-terminated session; we also match session-not-found wording. Such an
-    error is a *transport* failure (the connection must be rebuilt), not an
-    application error — unlike a tool that simply answered with an error."""
+    The MCP client raises an exact ``Session terminated`` error for a
+    server-terminated session (the legacy adapter used ``32600`` while the
+    current JSON-RPC ``INVALID_REQUEST`` code is ``-32600``). Its stdio
+    dispatcher uses the exact ``MCPError(code=-32000, "Connection closed")``
+    sentinel when the child pipe exits. These verified signatures are
+    *transport* failures (the connection must be rebuilt); arbitrary protocol
+    errors are application failures and remain non-retryable."""
     if not isinstance(exc, MCPError):
         return False
     err = getattr(exc, "error", None)
-    code = getattr(err, "code", None)
-    message = str(getattr(err, "message", "") or exc).lower()
-    return (
-        code == 32600
-        or "session terminated" in message
-        or ("session" in message and "not found" in message)
+    signature = (
+        getattr(err, "code", None),
+        str(getattr(err, "message", "") or exc).lower(),
     )
+    return signature in _SESSION_DEAD_SIGNATURES
 
 
 def _exc_leaves(exc: BaseException) -> list[BaseException]:
