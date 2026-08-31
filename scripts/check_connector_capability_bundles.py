@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
 import sys
@@ -213,9 +214,11 @@ def _provider_owned_names(agents_root: Path) -> tuple[str, ...]:
     return tuple(sorted(providers))
 
 
-def _default_workspace() -> Path:
-    for parent in (ROOT, *ROOT.parents):
-        canonical = parent / "workspace.yml"
+def _workspace_fallback() -> Path:
+    configured_root = os.environ.get("AGENT_UTILITIES_WORKSPACE_ROOT")
+    if configured_root:
+        configured = Path(os.path.expandvars(configured_root)).expanduser()
+        canonical = configured / "workspace.yml"
         if canonical.is_file():
             return canonical
     xdg_workspace = get_workspace_yml_path()
@@ -230,11 +233,19 @@ def _default_workspace() -> Path:
     )
 
 
+def _default_workspace() -> Path:
+    for parent in (ROOT, *ROOT.parents):
+        canonical = parent / "workspace.yml"
+        if canonical.is_file():
+            return canonical
+    return _workspace_fallback()
+
+
 def _default_agents_root() -> Path:
     workspace_path = _default_workspace()
     try:
         workspace = yaml.safe_load(workspace_path.read_text(encoding="utf-8")) or {}
-        workspace_root = Path(str(workspace["path"])).expanduser()
+        workspace_root = Path(os.path.expandvars(str(workspace["path"]))).expanduser()
     except (KeyError, OSError, TypeError, yaml.YAMLError):
         return ROOT.parent / "agents"
     return workspace_root / "agent-packages" / "agents"

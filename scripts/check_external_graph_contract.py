@@ -174,7 +174,7 @@ def violations() -> list[str]:
             "External graph mapping policy drift requires a new proposal",
             '"material-version"',
             "payload,",
-            "ingest_envelope(authority_engine, envelope)",
+        "ingest_envelopes(authority_engine, envelopes)",
             "ChangeEnvelope(",
             'precheck_source("external_graph")',
             "runtime profiles cannot embed identity key material",

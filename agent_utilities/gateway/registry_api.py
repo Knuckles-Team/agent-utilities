@@ -809,7 +809,7 @@ def _catalog_service_session() -> Any:
     (``src/server/sql_tables.rs::user_table_store`` /
     ``owner_filename`` — "every owner receives a distinct redb database").
     There is no catalog shared across actors on this path — that sharing
-    (``src/server/sql_catalog_acl.rs``, CONCEPT:NE-003) exists only for the
+    (``src/server/sql_catalog_acl.rs``, legacy engine work item ``NE-003``) exists only for the
     wire-protocol adapters (pgwire/mysql/sqlite) that delegate through
     ``WireSession``; the native RPC AU's Python client uses never opts into
     it. ``fleet_catalog_tables.py`` writes the ``mcp_servers``/``mcp_tools``/

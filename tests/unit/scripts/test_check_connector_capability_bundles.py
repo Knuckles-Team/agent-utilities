@@ -237,6 +237,37 @@ def test_current_provider_membership_has_one_owned_manifest_per_provider():
     assert configured <= provider_owned
 
 
+def test_default_agents_root_expands_workspace_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace.yml"
+    workspace.write_text(
+        'path: "${AGENT_UTILITIES_WORKSPACE_ROOT}"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("AGENT_UTILITIES_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr(gate, "_default_workspace", lambda: workspace)
+
+    assert gate._default_agents_root() == tmp_path / "agent-packages" / "agents"
+
+
+def test_default_workspace_prefers_configured_canonical_over_xdg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canonical_root = tmp_path / "canonical"
+    canonical_root.mkdir()
+    canonical = canonical_root / "workspace.yml"
+    canonical.write_text("path: /canonical\n", encoding="utf-8")
+    stale_xdg = tmp_path / "xdg" / "workspace.yml"
+    stale_xdg.parent.mkdir()
+    stale_xdg.write_text("path: /stale\n", encoding="utf-8")
+    isolated_root = tmp_path / "isolated" / "agent-utilities"
+    monkeypatch.setattr(gate, "ROOT", isolated_root)
+    monkeypatch.setattr(gate, "get_workspace_yml_path", lambda: stale_xdg)
+    monkeypatch.setenv("AGENT_UTILITIES_WORKSPACE_ROOT", str(canonical_root))
+
+    assert gate._default_workspace() == canonical
+
+
 def test_current_leanix_provider_bundle_content_passes(tmp_path, monkeypatch):
     bundle = _copy_current_bundle(tmp_path, monkeypatch)
     _resign_and_pin(bundle)

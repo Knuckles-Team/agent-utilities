@@ -121,8 +121,8 @@ def run_web_ui(
     from agent_webui.api_extensions import _get_engine_bounded
     from agent_webui.orchestrator_model import build_orchestrator_model
     from agent_webui.server import create_agent_web_app
-    from pydantic_ai import Agent
 
+    from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.server.webui_mcp_delegation import (
         webui_mcp_delegation_helpers,
     )
@@ -140,7 +140,7 @@ def run_web_ui(
     # dashboard is a frontend facade over routers that are already served; it
     # needs the orchestrator-model agent and the delegation helpers, nothing
     # more. Same measurement, this path: 11 seconds to a built app.
-    agent = Agent(build_orchestrator_model(_get_engine_bounded))
+    agent = create_context_agent(model=build_orchestrator_model(_get_engine_bounded))
     helpers = {
         **webui_mcp_delegation_helpers(),
         **webui_voice_delegation_helpers(),
