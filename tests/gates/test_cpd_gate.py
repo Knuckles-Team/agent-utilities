@@ -291,6 +291,61 @@ def test_generation_timestamp_honors_source_date_epoch(monkeypatch) -> None:
 
 
 @_needs_server_stack
+def test_generation_uses_one_timestamp_deterministically(
+    tmp_path, monkeypatch
+) -> None:
+    sys.path.insert(0, str(SCRIPTS))
+    import gen_capability_power as generator
+
+    generated_at = "2000-01-01T00:00:00Z"
+    first_cpds, first_generated_at = generator.generate(
+        None,
+        refresh_cache=False,
+        prefer_cache=True,
+        generated_at=generated_at,
+    )
+    second_cpds, second_generated_at = generator.generate(
+        None,
+        refresh_cache=False,
+        prefer_cache=True,
+        generated_at=generated_at,
+    )
+
+    def _render_with_cli(output_dir, cpds):
+        monkeypatch.setattr(
+            generator,
+            "generate",
+            lambda *_args, **_kwargs: (cpds, generated_at),
+        )
+        monkeypatch.setattr(sys, "argv", ["gen_capability_power.py", "--write"])
+        monkeypatch.setattr(generator, "MD_PATH", output_dir / "capabilities.md")
+        monkeypatch.setattr(generator, "JSON_PATH", output_dir / "capabilities.json")
+        monkeypatch.setattr(
+            generator,
+            "PACKAGE_JSON_PATH",
+            output_dir / "package-capabilities.json",
+        )
+        assert generator.main() == 0
+        return (
+            generator.MD_PATH.read_bytes(),
+            generator.JSON_PATH.read_bytes(),
+            generator.PACKAGE_JSON_PATH.read_bytes(),
+        )
+
+    first_markdown, first_json, first_package_json = _render_with_cli(
+        tmp_path / "first", first_cpds
+    )
+    second_markdown, second_json, second_package_json = _render_with_cli(
+        tmp_path / "second", second_cpds
+    )
+
+    assert first_markdown == second_markdown
+    assert first_json == second_json == first_package_json == second_package_json
+    assert first_generated_at == second_generated_at == generated_at
+    assert {cpd.provenance.generated_at for cpd in first_cpds} == {generated_at}
+
+
+@_needs_server_stack
 def test_generation_restores_environment_and_runtime_registries(monkeypatch):
     sys.path.insert(0, str(SCRIPTS))
     import gen_capability_power as generator

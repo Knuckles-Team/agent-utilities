@@ -116,6 +116,10 @@ def generation_timestamp() -> str:
     return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _resolve_generated_at(generated_at: str | None) -> str:
+    return generated_at or generation_timestamp()
+
+
 def locate_eg_ledger(explicit: str | None) -> Path | None:
     if explicit:
         p = Path(explicit).expanduser()
@@ -133,7 +137,11 @@ def locate_eg_ledger(explicit: str | None) -> Path | None:
 
 
 def load_ledger(
-    explicit: str | None, *, refresh_cache: bool = True, prefer_cache: bool = False
+    explicit: str | None,
+    *,
+    refresh_cache: bool = True,
+    prefer_cache: bool = False,
+    generated_at: str | None = None,
 ) -> tuple[dict[str, LedgerRow], str | None, bool]:
     """Return ``(ledger, path_used, was_live)``.
 
@@ -164,7 +172,7 @@ def load_ledger(
         text = live_path.read_text(encoding="utf-8")
         ledger = parse_eg_ledger_markdown(text)
         if refresh_cache:
-            _write_cache(ledger, _LEDGER_SOURCE_LABEL)
+            _write_cache(ledger, _LEDGER_SOURCE_LABEL, generated_at=generated_at)
         return ledger, _LEDGER_SOURCE_LABEL, True
 
     if CACHE_PATH.exists():
@@ -177,10 +185,16 @@ def load_ledger(
     return {}, None, False
 
 
-def _write_cache(ledger: dict[str, LedgerRow], source_path: str) -> None:
+def _write_cache(
+    ledger: dict[str, LedgerRow],
+    source_path: str,
+    *,
+    generated_at: str | None = None,
+) -> None:
+    generated_at = _resolve_generated_at(generated_at)
     payload = {
         "source_path": source_path,
-        "cached_at": generation_timestamp(),
+        "cached_at": generated_at,
         "row_count": len(ledger),
         "rows": {method: row.to_dict() for method, row in ledger.items()},
     }
@@ -433,6 +447,7 @@ def build_cpd(
     mining_actions: tuple[str, ...],
     graphlearn_actions: tuple[str, ...],
     deep_mining_actions: tuple[str, ...],
+    generated_at: str,
 ) -> CapabilityPowerDescriptor:
     name = tool.name
     tags = set(tool.tags or [])
@@ -508,6 +523,7 @@ def build_cpd(
             ),
             eg_ledger_path=ledger_path,
             eg_ledger_available=ledger_live or bool(ledger),
+            generated_at=generated_at,
         ),
     )
 
@@ -518,6 +534,8 @@ async def _list_tools(mcp: Any) -> list[Any]:
 
 def _fallback_cpds_for_missing_optional_tools(
     live_names: set[str],
+    *,
+    generated_at: str,
 ) -> list[CapabilityPowerDescriptor]:
     """Recover a CPD for a declared optional tool that failed to live-register.
 
@@ -560,7 +578,9 @@ def _fallback_cpds_for_missing_optional_tools(
     for name in missing:
         entry = by_id.get(name)
         if entry is not None:
-            recovered.append(CapabilityPowerDescriptor.from_dict(entry))
+            cpd = CapabilityPowerDescriptor.from_dict(entry)
+            cpd.provenance.generated_at = generated_at
+            recovered.append(cpd)
     return recovered
 
 
@@ -569,6 +589,7 @@ def generate(
     *,
     refresh_cache: bool = True,
     prefer_cache: bool = False,
+    generated_at: str | None = None,
 ) -> tuple[list[CapabilityPowerDescriptor], str]:
     from agent_utilities.mcp import kg_server
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
@@ -582,8 +603,12 @@ def generate(
     graphlearn_actions = getattr(kg_server, "GRAPHLEARN_ACTIONS", ())
     deep_mining_actions = getattr(kg_server, "DEEP_MINING_ACTIONS", ())
 
+    generated_at = _resolve_generated_at(generated_at)
     ledger, ledger_path, ledger_live = load_ledger(
-        eg_ledger_arg, refresh_cache=refresh_cache, prefer_cache=prefer_cache
+        eg_ledger_arg,
+        refresh_cache=refresh_cache,
+        prefer_cache=prefer_cache,
+        generated_at=generated_at,
     )
     # Canonicalize ledger order so the AU-action→EG-Method matcher is
     # order-INVARIANT. A live EG clone yields the ledger in document order; the
@@ -656,6 +681,7 @@ def generate(
             mining_actions,
             graphlearn_actions,
             deep_mining_actions,
+            generated_at,
         )
         for t in sorted(tools, key=lambda t: t.name)
     ]
@@ -663,9 +689,12 @@ def generate(
     # whose heavy extra isn't installed in THIS interpreter never reaches
     # ``mcp.list_tools()`` above — recover its CPD from the checked-in
     # catalog rather than silently dropping a real, shipped capability.
-    cpds.extend(_fallback_cpds_for_missing_optional_tools({t.name for t in tools}))
+    cpds.extend(
+        _fallback_cpds_for_missing_optional_tools(
+            {t.name for t in tools}, generated_at=generated_at
+        )
+    )
     cpds.sort(key=lambda c: c.id)
-    generated_at = generation_timestamp()
     return cpds, generated_at
 
 
