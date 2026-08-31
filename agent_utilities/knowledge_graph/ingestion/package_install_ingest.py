@@ -33,9 +33,9 @@ anything unchanged:
 
 * **prompts**    -> :func:`agent_utilities.agent.registry_builder.ingest_prompts_to_graph`
   (the same base+fleet+overlay prompt-registry reload the CLI/boot path uses).
-* **ontologies** -> :func:`agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies`
-  (the same federation-runtime reload ``graph_ontology action='sync_packages'``
-  and graph-os boot already call).
+* **ontologies** -> the existing ontology package-application capability bound by
+  the graph-os composition root (the same federation-runtime reload
+  ``graph_ontology action='sync_packages'`` and graph-os boot already call).
 * **skills**     -> :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows`
   AND :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills`
   (the corpus-wide workflow-skill leg, plus its atomic-skill sibling -- the
@@ -119,15 +119,20 @@ def _ingest_prompts_leg() -> dict[str, Any]:
 
 def _ingest_ontologies_leg(engine: Any) -> dict[str, Any]:
     """Re-drive the existing ontology-federation reload (`sync_packages`)."""
+    sync_packages = getattr(
+        engine,
+        "_ontology_package_sync",
+        lambda _lifecycle: {
+            "status": "skipped",
+            "reason": "ontology package sync capability is unavailable",
+        },
+    )
     try:
         from agent_utilities.knowledge_graph.ontology.lifecycle import (
             OntologyLifecycle,
         )
-        from agent_utilities.mcp.tools.ontology_tools import (
-            _sync_package_ontologies,
-        )
 
-        report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
+        report = sync_packages(OntologyLifecycle(engine=engine))
         report.setdefault("status", "ok")
         return report
     except Exception as exc:  # noqa: BLE001

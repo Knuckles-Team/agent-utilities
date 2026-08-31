@@ -10,6 +10,8 @@ module's own leg-functions so this test never needs a live engine/backend.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from typing import Any
 
@@ -85,7 +87,7 @@ def test_changed_manifest_runs_all_three_legs(tmp_path, _fake_legs):
     assert res["status"] == "ok"
     assert res["skipped_unchanged"] is False
     assert res["manifest_providers"] == ["demo-pkg"]
-    assert set(_fake_legs) == {"prompts", "ontologies", "skills"}
+    assert _fake_legs == ["prompts", "ontologies", "skills"]
     assert res["failed_legs"] == []
 
 
@@ -154,9 +156,69 @@ def test_ontologies_leg_catches_its_own_exception(monkeypatch):
         "agent_utilities.knowledge_graph.ontology.lifecycle.OntologyLifecycle",
         _BoomLifecycle,
     )
-    result = pii._ingest_ontologies_leg(_FakeEngine())
+    engine = _FakeEngine()
+    engine._ontology_package_sync = lambda _lifecycle: {"status": "ok"}
+    result = pii._ingest_ontologies_leg(engine)
     assert result["status"] == "error"
     assert "ontology backend unavailable" in result["reason"]
+
+
+def test_ontologies_leg_reports_missing_application_capability():
+    result = pii._ingest_ontologies_leg(_FakeEngine())
+    assert result == {
+        "status": "skipped",
+        "reason": "ontology package sync capability is unavailable",
+    }
+
+
+def test_ontologies_leg_uses_the_composed_application_capability():
+    calls: list[Any] = []
+
+    def sync_packages(lifecycle: Any) -> dict[str, Any]:
+        calls.append(lifecycle)
+        return {"action": "sync_packages", "providers_loaded": 2}
+
+    engine = _FakeEngine()
+    engine._ontology_package_sync = sync_packages
+    result = pii._ingest_ontologies_leg(engine)
+
+    assert len(calls) == 1
+    assert type(calls[0]).__name__ == "OntologyLifecycle"
+    assert result == {
+        "status": "ok",
+        "action": "sync_packages",
+        "providers_loaded": 2,
+    }
+
+
+def test_ontologies_leg_reports_application_failure():
+    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
+        raise RuntimeError("ontology package application failed")
+
+    engine = _FakeEngine()
+    engine._ontology_package_sync = sync_packages
+    result = pii._ingest_ontologies_leg(engine)
+
+    assert result == {
+        "status": "error",
+        "reason": "ontology package application failed",
+    }
+
+
+def test_package_ingest_has_no_upward_ontology_tool_import():
+    tree = ast.parse(inspect.getsource(pii))
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    imported_modules.update(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+    assert "agent_utilities.mcp.tools.ontology_tools" not in imported_modules
 
 
 def test_skills_leg_drives_both_the_workflow_and_atomic_skill_corpus(monkeypatch):

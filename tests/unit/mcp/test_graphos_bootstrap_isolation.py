@@ -847,6 +847,198 @@ def test_get_engine_defers_background_work_until_materialization_barrier() -> No
     }
 
 
+def test_get_engine_binds_optional_application_capabilities_after_construction() -> (
+    None
+):
+    from agent_utilities.mcp import kg_server
+
+    events: list[tuple[str, Any]] = []
+
+    class Engine:
+        _active: Any = None
+
+        @classmethod
+        def get_active(cls):
+            return cls._active
+
+        @classmethod
+        def get_or_create(cls, *, factory):
+            if cls._active is None:
+                cls._active = factory()
+            return cls._active
+
+        def __init__(self, *, backend, defer_background_start: bool) -> None:
+            events.append(("construct", self))
+            self.backend = backend
+            self.defer_background_start = defer_background_start
+
+        def __setattr__(self, name: str, value: Any) -> None:
+            if name == "_ontology_package_sync":
+                events.append(("ontology", self))
+            object.__setattr__(self, name, value)
+
+    def register_data_prep(engine: Any) -> bool:
+        events.append(("data_prep", engine))
+        return True
+
+    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
+        return {"action": "sync_packages"}
+
+    backend = object()
+    with (
+        patch("agent_utilities.core.paths.ensure_dirs"),
+        patch(
+            "agent_utilities.knowledge_graph.backends.create_backend",
+            return_value=backend,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+            Engine,
+        ),
+        patch(
+            "agent_utilities.mcp.tools.data_prep_tools.register_process_data_prep_runtime",
+            side_effect=register_data_prep,
+        ),
+        patch(
+            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
+            side_effect=sync_packages,
+        ) as sync,
+    ):
+        resolved = kg_server._get_engine()
+        assert kg_server._get_engine() is resolved
+        assert [name for name, _value in events] == [
+            "construct",
+            "data_prep",
+            "ontology",
+            "data_prep",
+        ]
+        assert [name for name, _value in events].count("ontology") == 1
+        assert events[1][1] is resolved
+        assert resolved._ontology_package_sync is sync
+
+        # A replacement engine starts a fresh composition lifecycle and must
+        # bind its own callback instead of inheriting a process-global marker.
+        Engine._active = None
+        with patch(
+            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
+            side_effect=sync_packages,
+        ) as replacement_sync:
+            replacement = kg_server._get_engine()
+
+        assert replacement is not resolved
+        assert replacement._ontology_package_sync is replacement_sync
+        assert [name for name, _value in events].count("ontology") == 2
+
+
+def test_get_engine_survives_missing_optional_data_prep_capability() -> None:
+    from agent_utilities.mcp import kg_server
+
+    class Engine:
+        @staticmethod
+        def get_active():
+            return None
+
+        @staticmethod
+        def get_or_create(*, factory):
+            return factory()
+
+        def __init__(self, *, backend, defer_background_start: bool) -> None:
+            self.backend = backend
+            self.defer_background_start = defer_background_start
+
+    backend = object()
+    with (
+        patch("agent_utilities.core.paths.ensure_dirs"),
+        patch(
+            "agent_utilities.knowledge_graph.backends.create_backend",
+            return_value=backend,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+            Engine,
+        ),
+        patch(
+            "agent_utilities.mcp.tools.data_prep_tools.register_process_data_prep_runtime",
+            side_effect=ImportError("optional data-prep surface is absent"),
+        ),
+    ):
+        resolved = kg_server._get_engine()
+
+    assert isinstance(resolved, Engine)
+
+
+def test_get_engine_survives_optional_data_prep_registration_error() -> None:
+    from agent_utilities.mcp import kg_server
+
+    class Engine:
+        @staticmethod
+        def get_active():
+            return None
+
+        @staticmethod
+        def get_or_create(*, factory):
+            return factory()
+
+        def __init__(self, *, backend, defer_background_start: bool) -> None:
+            self.backend = backend
+            self.defer_background_start = defer_background_start
+
+    backend = object()
+    with (
+        patch("agent_utilities.core.paths.ensure_dirs"),
+        patch(
+            "agent_utilities.knowledge_graph.backends.create_backend",
+            return_value=backend,
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+            Engine,
+        ),
+        patch(
+            "agent_utilities.mcp.tools.data_prep_tools.register_process_data_prep_runtime",
+            side_effect=RuntimeError("data-prep dependencies are unavailable"),
+        ),
+    ):
+        resolved = kg_server._get_engine()
+
+    assert isinstance(resolved, Engine)
+
+
+def test_boot_ontology_sync_uses_bound_capability_after_activation() -> None:
+    from agent_utilities.mcp import kg_server
+
+    events: list[str] = []
+
+    class Lifecycle:
+        def __init__(self, *, engine: Any) -> None:
+            events.append("lifecycle")
+            self.engine = engine
+
+        def activate_graph(self) -> dict[str, Any]:
+            events.append("activate")
+            return {"activated": True}
+
+    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
+        events.append("sync")
+        return {"providers_loaded": 1}
+
+    engine = SimpleNamespace(_ontology_package_sync=sync_packages)
+    with patch(
+        "agent_utilities.knowledge_graph.ontology.lifecycle.OntologyLifecycle",
+        Lifecycle,
+    ):
+        kg_server._sync_ontologies_at_boot(engine)
+
+    assert events == ["lifecycle", "activate", "sync"]
+
+
+def test_boot_ontology_sync_reports_missing_bound_capability() -> None:
+    from agent_utilities.mcp import kg_server
+
+    with pytest.raises(AttributeError, match="_ontology_package_sync"):
+        kg_server._sync_ontologies_at_boot(SimpleNamespace())
+
+
 def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     from agent_utilities.mcp import kg_server
 

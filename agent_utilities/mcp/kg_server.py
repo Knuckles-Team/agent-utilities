@@ -2991,6 +2991,14 @@ def _get_extraction_manager(engine: Any) -> Any:
     return _EXTRACTION_MANAGER
 
 
+def _bind_ontology_package_sync(value: Any) -> None:
+    """Bind the current ontology adapter once per engine instance."""
+    from agent_utilities.mcp.tools.ontology_tools import _sync_package_ontologies
+
+    if getattr(value, "_ontology_package_sync", None) is not _sync_package_ontologies:
+        value._ontology_package_sync = _sync_package_ontologies
+
+
 def _get_engine():
     """Lazily initialize and return the IntelligenceGraphEngine singleton.
 
@@ -3005,25 +3013,26 @@ def _get_engine():
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     def _register_runtime_authorities(value: Any) -> Any:
-        # Registration is process-owned startup state.  The served data-prep
-        # caller can only resolve this recorded adapter; it cannot select one
-        # through request metadata.  Missing deployment wiring remains a
-        # fail-closed dependency condition at the tool boundary.
+        # Registration is process-owned startup state.  The served callers can
+        # only resolve these recorded adapters, never select one from request
+        # data. Keep the ontology binding in ``finally`` so one optional
+        # registration failure cannot suppress the other capability.
         try:
-            from agent_utilities.mcp.tools.data_prep_tools import (
-                register_process_data_prep_runtime,
-            )
+            try:
+                from agent_utilities.mcp.tools.data_prep_tools import (
+                    register_process_data_prep_runtime,
+                )
 
-            register_process_data_prep_runtime(value)
-        except ImportError as exc:
-            # Best-effort: a deployment profile without the data-prep tools
-            # module simply has nothing to register here. Logged (not
-            # silently dropped) so a genuinely broken import inside an
-            # extra that IS supposed to be installed is still visible.
+                register_process_data_prep_runtime(value)
+            finally:
+                # Keep ontology package application at the composition
+                # boundary. Lower-layer ingestion consumes this bound
+                # capability and never imports the MCP adapter itself.
+                _bind_ontology_package_sync(value)
+        except Exception:  # noqa: BLE001 - optional adapters must not block boot
             logger.warning(
-                "runtime authority registration skipped — data_prep_tools "
-                "unavailable: %s",
-                exc,
+                "runtime optional capability registration deferred",
+                exc_info=True,
             )
         return value
 
@@ -4462,8 +4471,8 @@ def _sync_ontologies_at_boot(engine: Any) -> None:
     to load (which would otherwise never reach the ``load()``/``_load_axioms``
     chokepoint that also performs activation). Idempotent; safe every boot.
     """
+    sync_packages = engine._ontology_package_sync
     from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
-    from agent_utilities.mcp.tools.ontology_tools import _sync_package_ontologies
 
     lc = OntologyLifecycle(engine=engine)
     activation = lc.activate_graph()
@@ -4474,7 +4483,7 @@ def _sync_ontologies_at_boot(engine: Any) -> None:
             "Ontology graph activation failed at boot: %s", activation.get("reason")
         )
 
-    report = _sync_package_ontologies(lc)
+    report = sync_packages(lc)
     if report.get("providers_loaded"):
         logger.info(
             "Ontology federation: loaded %d package ontolog(ies) at boot",
