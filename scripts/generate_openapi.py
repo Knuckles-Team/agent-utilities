@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -110,12 +109,13 @@ def build_app() -> Any:
     machines without changing the route/schema surface being documented.
     """
     from agent_webui.server import create_agent_web_app
-    from pydantic_ai import Agent
     from pydantic_ai.models.test import TestModel
+
+    from agent_utilities.core.contextual_model import create_context_agent
 
     with patch("agent_webui.oidc_session.load_settings", return_value=None):
         return create_agent_web_app(
-            Agent(TestModel()),
+            create_context_agent(TestModel(), default_capabilities=False),
             {"get_path": lambda value: value},
             listener_host="127.0.0.1",
         )

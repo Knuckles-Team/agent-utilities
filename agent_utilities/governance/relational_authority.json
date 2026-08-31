@@ -281,7 +281,7 @@
       "tables": [
         {
           "name": "mcp_servers",
-          "authoritative_fields": ["id", "tenant_id", "name", "transport", "url", "enabled", "revision", "idempotency_key", "updated_at"],
+          "authoritative_fields": ["id", "tenant_id", "name", "transport", "url", "enabled", "revision", "idempotency_key", "updated_at", "acl_classification", "acl_owner_id", "acl_shared_scope"],
           "derived_fields": [],
           "prohibited_dual_write_domains": ["usage_store", "state_store"]
         },
@@ -293,7 +293,7 @@
         },
         {
           "name": "mcp_tools",
-          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "name", "description", "input_schema", "schema_digest", "tool_mode", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "name", "description", "input_schema", "schema_digest", "tool_mode", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at", "kg_node_id", "acl_classification", "acl_owner_id", "acl_shared_scope"],
           "derived_fields": [],
           "prohibited_dual_write_domains": ["usage_store", "state_store"]
         },
@@ -311,7 +311,7 @@
         },
         {
           "name": "skills",
-          "authoritative_fields": ["id", "tenant_id", "name", "description", "uri", "skill_type", "classification", "provider", "mcp_server", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "authoritative_fields": ["id", "tenant_id", "name", "description", "uri", "skill_type", "classification", "provider", "mcp_server", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at", "kg_node_id", "acl_classification", "acl_owner_id", "acl_shared_scope"],
           "derived_fields": [],
           "prohibited_dual_write_domains": ["usage_store", "state_store"]
         }

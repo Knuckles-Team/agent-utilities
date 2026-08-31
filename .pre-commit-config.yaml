@@ -1128,14 +1128,12 @@ repos:
   #     permanently red for an environment reason, in every worktree, forever.
   # Like the queue's own gate, degrades honestly rather than masking: any
   # OTHER forwarder that cannot even launch its target still counts as a
-  # failure. Measured cold on this worktree: ~80s for the full glob (dominated
-  # by check_context_compiler_boundary_gate.py ~14s,
-  # check_swallowed_errors_gate.py ~13s) — too slow for the default commit
-  # stage next to this file's sub-second hygiene hooks, so pre-push, same
-  # bucket as check-secret-history immediately above.
+  # failure. The shared runner bounds the aggregate to four concurrent child
+  # processes and emits complete failures in script-name order. This remains
+  # pre-push because the checks are too expensive for the default commit stage.
   - id: contract-checks
     name: CI/queue parity — scripts/security/check_*.py fast-tier forwarders (D-ML-1)
-    entry: python3 -c "import glob,subprocess,sys; skip={'scripts/security/check_current_only_contract_gate.py','scripts/security/check_sbom_licenses.py'}; fails=[s for s in sorted(glob.glob('scripts/security/check_*.py')) if s not in skip and subprocess.run([sys.executable,s],capture_output=True,text=True).returncode]; print(chr(10).join(fails)); sys.exit(1 if fails else 0)"
+    entry: python3 scripts/security/run_contract_checks.py --exclude check_current_only_contract_gate.py --exclude check_sbom_licenses.py
     language: system
     pass_filenames: false
     always_run: true

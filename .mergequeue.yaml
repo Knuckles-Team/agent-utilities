@@ -29,10 +29,7 @@ gates:
   # pre-existing retired-surface references), and judging by exit code alone
   # would refuse every candidate the moment that debt was folded into discovery.
   - name: contract-checks
-    command: [".venv/bin/python", "-c", "import glob,subprocess,sys;
-      fails=[s for s in sorted(glob.glob('scripts/security/check_*.py'))
-      if subprocess.run([sys.executable,s],capture_output=True,text=True).returncode];
-      print('\\n'.join(fails)); sys.exit(1 if fails else 0)"]
+    command: [".venv/bin/python", "scripts/security/run_contract_checks.py"]
     tier: fast
     timeout: 60
     baseline_timeout: 180
