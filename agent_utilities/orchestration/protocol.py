@@ -59,3 +59,24 @@ class OrchestratorProtocol(Protocol):
             Dict with ``job_id``, ``status``, and optional ``output``.
         """
         ...
+
+
+class WorkflowCompilerProtocol(Protocol):
+    """The narrow compiler capability the orchestration manager consumes.
+
+    The concrete natural-language compiler is a Knowledge Graph concern and is
+    therefore bound by an application composition root.  Keeping this small
+    structural contract in the orchestration protocol module lets
+    :class:`~agent_utilities.orchestration.manager.Orchestrator` consume an
+    already-bound compiler without importing (or constructing) the concrete
+    Knowledge Graph implementation.
+    """
+
+    async def compile_and_store(
+        self,
+        name: str,
+        description: str,
+        domain: str = "general",
+    ) -> str:
+        """Compile and persist one workflow definition."""
+        ...

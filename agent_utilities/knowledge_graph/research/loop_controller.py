@@ -4340,10 +4340,17 @@ def _default_skill_runner(
     try:
         from ...orchestration.manager import Orchestrator
 
-        mgr = Orchestrator(engine)
-        wid = skill_ref
-        if not skill_ref.startswith("workflow:"):
-            wid = _run_coro(mgr.compile_workflow(skill_ref, objective or skill_ref))
+        def _bind_workflow() -> tuple[Any, str]:
+            if skill_ref.startswith("workflow:"):
+                return Orchestrator(engine), skill_ref
+            from ..workflow_compiler import WorkflowCompiler
+
+            mgr = Orchestrator(engine, compiler=WorkflowCompiler(engine))
+            return mgr, _run_coro(
+                mgr.compile_workflow(skill_ref, objective or skill_ref)
+            )
+
+        mgr, wid = _bind_workflow()
         result = _run_coro(mgr.execute_workflow(wid, task=objective))
         return True, str(result)[:2000]
     except Exception as e:  # noqa: BLE001
