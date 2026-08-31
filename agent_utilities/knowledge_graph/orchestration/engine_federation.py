@@ -33,6 +33,11 @@ def _runtime_ref(value: object, label: str) -> str:
     return rendered
 
 
+def _missing_connection_registry(_connection: str) -> Any:
+    """Raise the explicit dependency error used when composition did not bind a registry."""
+    raise RuntimeError("Federated connection registry unavailable")
+
+
 def _pseudonymous_id(kind: str, *parts: object) -> str:
     digest = hashlib.sha256(
         "\x1f".join(str(part) for part in parts).encode("utf-8")
@@ -137,7 +142,12 @@ class FederationMixin:
         return stub_id
 
     def execute_federated_query(
-        self, reference_id: str, query: str, parameters: dict[str, Any] | None = None
+        self,
+        reference_id: str,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+        *,
+        registry: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a query against an external graph reference.
 
@@ -145,6 +155,9 @@ class FederationMixin:
             reference_id: The ID of the ExternalGraphReferenceNode in the local graph.
             query: The SPARQL or Cypher query string.
             parameters: Optional query parameters (mostly for Cypher/LPG).
+            registry: The process-owned connection registry supplied by
+                composition. Required for non-REST references; it is never
+                discovered from a transport module here.
 
         Returns:
             A list of dictionary records.
@@ -160,6 +173,8 @@ class FederationMixin:
                 entrypoint so it covers the REST-virtual-source branch, the
                 local-graph connection-alias lookup, AND the external
                 backend read in one place.
+            RuntimeError: The composition registry was not supplied for a
+                non-REST reference.
         """
         from agent_utilities.knowledge_graph.core.session import resolve_session
 
@@ -208,7 +223,7 @@ class FederationMixin:
 
         connection_alias = _alias(connection, "connection")
         return self._execute_federated_connection(
-            connection_alias, query, parameters=parameters
+            connection_alias, query, parameters=parameters, registry=registry
         )
 
     # ── REST virtualization (query-time, extractor-backed) ───────────────────
@@ -332,6 +347,7 @@ class FederationMixin:
         query: str,
         *,
         parameters: dict[str, Any] | None = None,
+        registry: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Resolve one named connection and use its enforced read primitive.
 
@@ -347,10 +363,18 @@ class FederationMixin:
 
         resolve_session(required_scope="kg:read")
 
-        from agent_utilities.mcp.kg_server import get_connection_registry
+        # Federation resolves one explicit target.  Keep the registry's
+        # fail-loud ``get_engine`` contract here so an unknown alias remains a
+        # distinct KeyError; fan-out callers retain ``safe_get_engine``'s
+        # deliberate partial-success behavior at their own composition seam.
+        # Lookup is intentionally outside the read-contract catch below:
+        # missing registries, unknown aliases, and unavailable targets therefore
+        # retain the registry's distinct explicit errors.
+        engine = getattr(registry, "get_engine", _missing_connection_registry)(
+            connection
+        )
 
         try:
-            engine = get_connection_registry().get_engine(connection)
             backend = getattr(engine, "backend", None) or engine
             execute_read = getattr(backend, "execute_read", None)
             if not callable(execute_read):

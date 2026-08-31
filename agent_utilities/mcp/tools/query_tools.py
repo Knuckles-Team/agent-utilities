@@ -421,11 +421,21 @@ def _run_graph_query_federated(
     cypher: str, reference_id: str, parsed_params: dict[str, Any]
 ) -> str:
     """``scope=='federated'`` branch of ``_run_graph_query``."""
-    engine = kg_server._get_engine()
     if not reference_id:
         return json.dumps({"error": "reference_id required for federated queries"})
     try:
-        results = engine.execute_federated_query(reference_id, cypher, parsed_params)
+        # Resolve the verified carrier before acquiring the process-owned
+        # registry.  Federation repeats this guard at its lower boundary, but
+        # the composition root must not even initialize/read registry state for
+        # an unauthenticated request.
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        resolve_session(required_scope="kg:read")
+        engine = kg_server._get_engine()
+        registry = kg_server.get_connection_registry()
+        results = engine.execute_federated_query(
+            reference_id, cypher, parsed_params, registry=registry
+        )
         return json.dumps(results, default=str)
     except Exception as e:
         return public_error_json(e)
@@ -2114,11 +2124,16 @@ async def _catalog_sources() -> dict[str, Any]:
     ensures one malformed optional profile degrades only the ``sources`` leg.
     """
 
+    from agent_utilities.knowledge_graph.core.session import resolve_session
     from agent_utilities.knowledge_graph.core.source_catalog import (
         build_source_catalog,
     )
 
-    return build_source_catalog()
+    # ``graph_catalog`` verifies this at its public boundary; retain the same
+    # check here for direct in-process calls before touching the registry.
+    resolve_session(required_scope="kg:read")
+    registry = kg_server.get_connection_registry()
+    return build_source_catalog(registry=registry)
 
 
 async def _build_graph_catalog() -> dict[str, Any]:
