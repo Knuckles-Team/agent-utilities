@@ -28,8 +28,10 @@ name: Release
 # separate `Guardrails` workflow with `if: conclusion == 'success'`. Any red
 # guardrail anywhere — including pre-existing debt with zero relationship to
 # packaging — silently skipped the release with no signal ("all skipped").
-# release.yml now triggers directly on `push` to `main`. It is never
-# triggered via `workflow_run`, and nothing here uses that indirection again.
+# release.yml now triggers directly on pushes to `main` and to `v*` release
+# tags. Main pushes and pull requests keep their validation/build semantics;
+# only a valid release-tag push can enter the protected publish jobs. It is
+# never triggered via `workflow_run`, and nothing here uses that indirection.
 #
 # CROSS-REPO ORDERING: epistemic-graph must publish to PyPI before
 # agent-utilities can, because agent-utilities pins a floor on it (see
@@ -43,6 +45,8 @@ on:
   push:
     branches:
       - 'main'
+    tags:
+      - 'v*'
   pull_request:
     paths:
       - 'agent_utilities/**'
@@ -440,12 +444,15 @@ jobs:
 
   # ── STAGE 4: publish to PyPI. Needs: numeric-runtime-gate (which needs:
   # build, which needs: gates) — publishing is unreachable if any earlier
-  # stage failed. Unchanged D-ORC-10 double gate (environment protection +
-  # explicit vX.Y.Z tag on the published commit), except HEAD_SHA now reads
-  # github.sha directly (this job runs off `push`/tag, not a foreign
-  # workflow_run event) instead of github.event.workflow_run.head_sha.
+  # stage failed. D-ORC-10 combines the protected environment with an exact
+  # vX.Y.Z tag/version/commit identity check on the tagged commit.
   publish-pypi:
     needs: numeric-runtime-gate
+    # Main pushes and pull requests still run every validation/build/runtime
+    # gate above. Publishing is reachable only from an explicit release-tag
+    # push; the exact semver/tag/commit checks below remain the fail-closed
+    # boundary before the protected environment is used.
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     # D-ORC-10: publishing is irreversible (PyPI versions can be yanked but never
     # reused) so it must never be a side effect of an ordinary green push to main.
@@ -455,31 +462,139 @@ jobs:
     # alone does not block anything, which is why gate 2 exists.
     # Gate 2 (structural, no external config needed): refuse to publish unless
     # the exact commit that passed the gates+build+numeric-runtime-gate chain
-    # is also pointed at by an annotated `vX.Y.Z` tag, so publishing requires a
-    # deliberate tag push, not merely a merge to main.
+    # is also pointed at by the exact `vX.Y.Z` tag whose wheel version matches.
     environment: pypi-publish
     steps:
-      - name: Require an explicit vX.Y.Z release tag on the published commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # `gh api --jq` takes ONE jq expression and does not accept jq's own
-          # --arg flag; passing it made gh see 4 positional args and abort with
-          # "accepts 1 arg(s), received 4" -- which failed this gate closed and
-          # would have blocked every release. Pipe to real jq so --arg works.
-          tags="$(gh api "repos/${{ github.repository }}/tags?per_page=100" \
-            | jq -r --arg sha "$HEAD_SHA" '.[] | select(.commit.sha == $sha) | .name')"
-          if ! grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$tags"; then
-            echo "::error::D-ORC-10 release gate: no vX.Y.Z tag points at $HEAD_SHA -- refusing to publish. Push an annotated release tag (e.g. 'git tag -a vX.Y.Z -m ... && git push origin vX.Y.Z') to authorize this publish."
-            exit 1
-          fi
-          echo "release tag verified: $tags"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Download the sole publish candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: agent-utilities-wheel
           path: dist
+
+      - name: Require exact release tag, source version, and wheel version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          TAG_NAME: ${{ github.ref_name }}
+          HEAD_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          semver_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ "$EVENT_NAME" != "push" || "$REF_TYPE" != "tag" \
+            || "$REF" != refs/tags/* || ! "$TAG_NAME" =~ $semver_re ]]; then
+            echo "::error::D-ORC-10 release gate: publish requires a push of an exact vX.Y.Z tag; got event=$EVENT_NAME ref_type=$REF_TYPE ref=$REF"
+            exit 1
+          fi
+
+          tag_ref_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${TAG_NAME}")"
+          tag_object_type="$(jq -er '.object.type' <<<"$tag_ref_json")"
+          tag_object_sha="$(jq -er '.object.sha' <<<"$tag_ref_json")"
+          case "$tag_object_type" in
+            commit)
+              tag_commit="$tag_object_sha"
+              ;;
+            tag)
+              tag_commit="$(gh api "repos/${REPOSITORY}/git/tags/${tag_object_sha}" \
+                | jq -er 'select(.object.type == "commit") | .object.sha')"
+              ;;
+            *)
+              echo "::error::D-ORC-10 release gate: tag ref resolved to unsupported object type $tag_object_type"
+              exit 1
+              ;;
+          esac
+          if [[ "$tag_commit" != "$HEAD_SHA" ]]; then
+            echo "::error::D-ORC-10 release gate: tag $TAG_NAME resolves to $tag_commit, but the validated commit is $HEAD_SHA"
+            exit 1
+          fi
+          checkout_commit="$(git rev-parse --verify "${TAG_NAME}^{commit}")"
+          if [[ "$checkout_commit" != "$HEAD_SHA" ]]; then
+            echo "::error::D-ORC-10 release gate: checkout tag $TAG_NAME resolves to $checkout_commit, not $HEAD_SHA"
+            exit 1
+          fi
+
+          source_version="$(python3 - <<'PY'
+          import ast
+          from pathlib import Path
+
+          module = ast.parse(
+              Path("agent_utilities/_version.py").read_text(encoding="utf-8")
+          )
+          for node in module.body:
+              if not isinstance(node, ast.Assign):
+                  continue
+              if not any(
+                  isinstance(target, ast.Name) and target.id == "__version__"
+                  for target in node.targets
+              ):
+                  continue
+              if isinstance(node.value, ast.Constant) and isinstance(
+                  node.value.value, str
+              ):
+                  print(node.value.value)
+                  break
+          else:
+              raise SystemExit("agent_utilities/_version.py has no string __version__")
+          PY
+          )"
+
+          mapfile -t wheels < <(
+            find dist -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print | sort
+          )
+          if (( ${#wheels[@]} != 1 )); then
+            echo "::error::release identity gate: expected exactly one wheel, found ${#wheels[@]}"
+            exit 1
+          fi
+          wheel_path="${wheels[0]}"
+          wheel_version="$(python3 - "$wheel_path" <<'PY'
+          import sys
+          from email.parser import Parser
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = Path(sys.argv[1])
+          with ZipFile(wheel) as archive:
+              metadata_files = [
+                  name for name in archive.namelist()
+                  if name.endswith(".dist-info/METADATA")
+              ]
+              if len(metadata_files) != 1:
+                  raise SystemExit(
+                      f"expected one wheel METADATA file, found {metadata_files!r}"
+                  )
+              metadata = Parser().parsestr(
+                  archive.read(metadata_files[0]).decode("utf-8")
+              )
+          if metadata.get("Name") != "agent-utilities":
+              raise SystemExit(f"wheel name is not agent-utilities: {metadata.get('Name')!r}")
+          version = metadata.get("Version")
+          if not version:
+              raise SystemExit("wheel metadata has no Version")
+          print(version)
+          PY
+          )"
+
+          tag_version="${TAG_NAME#v}"
+          if [[ "$tag_version" != "$source_version" \
+            || "$tag_version" != "$wheel_version" ]]; then
+            echo "::error::release identity gate: tag=$TAG_NAME source=$source_version wheel=$wheel_version"
+            exit 1
+          fi
+          echo "release identity verified: tag=$TAG_NAME version=$tag_version commit=$HEAD_SHA wheel=$(basename "$wheel_path")"
+
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
@@ -487,6 +602,77 @@ jobs:
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
+
+      - name: Verify exact version and wheel on PyPI
+        env:
+          EXPECTED_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_version="${EXPECTED_TAG#v}"
+          mapfile -t wheels < <(
+            find dist -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print | sort
+          )
+          if (( ${#wheels[@]} != 1 )); then
+            echo "::error::PyPI verification: expected exactly one wheel, found ${#wheels[@]}"
+            exit 1
+          fi
+          expected_wheel_name="$(basename "${wheels[0]}")"
+          for attempt in $(seq 1 12); do
+            if EXPECTED_WHEEL_NAME="$expected_wheel_name" python3 - "$expected_version" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          version = sys.argv[1]
+          expected_wheel = os.environ["EXPECTED_WHEEL_NAME"]
+          url = f"https://pypi.org/pypi/agent-utilities/{version}/json"
+          try:
+              with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
+                  payload = json.load(response)
+          except (
+              urllib.error.HTTPError,
+              urllib.error.URLError,
+              TimeoutError,
+              json.JSONDecodeError,
+          ) as exc:
+              print(f"PyPI exact-version check not ready: {exc}", file=sys.stderr)
+              raise SystemExit(1) from exc
+
+          info = payload.get("info") or {}
+          if info.get("name") != "agent-utilities" or info.get("version") != version:
+              print(
+                  "PyPI returned a mismatched project/version: "
+                  f"name={info.get('name')!r} version={info.get('version')!r}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          releases = payload.get("releases") or {}
+          if version not in releases:
+              print(f"PyPI has no exact release key for {version}", file=sys.stderr)
+              raise SystemExit(1)
+          if not any(
+              item.get("filename") == expected_wheel
+              for item in (payload.get("urls") or [])
+          ):
+              print(
+                  f"PyPI {version} has no published wheel named {expected_wheel}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          print(f"PyPI exact release verified: agent-utilities=={version}")
+          PY
+            then
+              exit 0
+            fi
+            if (( attempt < 12 )); then
+              sleep 10
+            fi
+          done
+          echo "::error::PyPI exact-version verification failed after publication for agent-utilities==$expected_version"
+          exit 1
 
   # BUG-072: the docker publish needs its OWN approval gate, not an inherited one.
   #
