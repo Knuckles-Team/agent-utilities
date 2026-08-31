@@ -622,6 +622,7 @@ def _sync_support(
 def _base_match(definition: _ProviderDefinition) -> dict[str, Any]:
     return {
         "configured": False,
+        "unavailable_reason": "no governed profile or named connection is configured",
         "enabled": True,
         "connected": False,
         "probe_required": False,
@@ -684,7 +685,7 @@ def _availability(
         return (
             "unavailable",
             False,
-            "no governed profile or named connection is configured",
+            str(match["unavailable_reason"]),
         )
     if not match.get("enabled"):
         return "configured", False, "governed provider profile is disabled"
@@ -701,17 +702,6 @@ def _availability(
         False,
         "governed profile is configured; provider probe has not been recorded",
     )
-
-
-def _resolve_registry(registry: Any) -> Any | None:
-    if registry is not None:
-        return registry
-    try:
-        from agent_utilities.mcp import kg_server
-
-        return kg_server.get_connection_registry()
-    except Exception:  # noqa: BLE001 - static catalogue remains useful
-        return None
 
 
 def _merge_registry_matches(
@@ -803,11 +793,31 @@ def _merge_profile_matches(
             _merge_match(matches[provider], value)
 
 
+def _mask_unbound_registry(
+    matches: Mapping[str, dict[str, Any]], registry_available: bool
+) -> dict[str, dict[str, Any]]:
+    """Keep config declarations non-executable until composition binds a registry."""
+    return {
+        provider: {
+            **match,
+            "configured": bool(registry_available and match["configured"]),
+            "unavailable_reason": (
+                "no governed profile or named connection is configured"
+                if registry_available
+                else "connection registry was not supplied by composition"
+            ),
+        }
+        for provider, match in matches.items()
+    }
+
+
 def _catalog_matches(
     statuses: Sequence[Mapping[str, Any]],
     specs: Sequence[Mapping[str, Any]],
     external: Sequence[Any],
     profiles: Mapping[str, Any],
+    *,
+    registry_available: bool = True,
 ) -> dict[str, dict[str, Any]]:
     matches = {
         definition.provider: _base_match(definition) for definition in _DEFINITIONS
@@ -815,7 +825,7 @@ def _catalog_matches(
     _merge_registry_matches(matches, statuses, specs)
     _merge_external_matches(matches, external)
     _merge_profile_matches(matches, profiles)
-    return matches
+    return _mask_unbound_registry(matches, registry_available)
 
 
 def _descriptor(
@@ -867,20 +877,23 @@ def build_source_catalog(*, config: Any = None, registry: Any = None) -> dict[st
     """Build the bounded Atlas source catalogue without opening a provider.
 
     ``config`` and ``registry`` are injectable for tests and for callers that
-    already resolved the process-owned registries.  Production callers pass
-    neither; both are resolved lazily so importing this module cannot create a
-    connection or an engine.
+    already resolved the process-owned registries.  Composition must pass the
+    process-owned ``ConnectionRegistry`` explicitly; this lower layer never
+    imports an MCP module to discover one.  Omitting ``registry`` therefore
+    produces an explicitly unavailable catalog state rather than a fabricated
+    empty-registry success.
     """
 
-    resolved_registry = _resolve_registry(registry)
-    statuses, specs = (
-        _registry_values(resolved_registry)
-        if resolved_registry is not None
-        else ([], [])
-    )
+    statuses, specs = _registry_values(registry) if registry is not None else ([], [])
     external, profiles = _config_values(config)
     connector_types = _source_connector_types()
-    matches = _catalog_matches(statuses, specs, external, profiles)
+    matches = _catalog_matches(
+        statuses,
+        specs,
+        external,
+        profiles,
+        registry_available=registry is not None,
+    )
     descriptors = tuple(
         _descriptor(definition, matches[definition.provider], connector_types)
         for definition in _DEFINITIONS

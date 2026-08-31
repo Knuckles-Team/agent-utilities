@@ -4,7 +4,7 @@
 CONCEPT:AU-KG.memory.tiered-memory-caching — External Graph Federation
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import networkx as nx
 import pytest
@@ -174,30 +174,57 @@ def test_query_rest_union_dedups_local_wins(graph_engine):
     assert merged[0]["state"] == "local-edit"  # local precedence
 
 
-@patch("agent_utilities.mcp.kg_server.get_connection_registry")
-def test_execute_federated_sparql_uses_registered_read_contract(
-    mock_registry, graph_engine
-):
+def test_execute_federated_sparql_uses_registered_read_contract(graph_engine):
     query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
     mock_backend = MagicMock()
     mock_backend.execute_read.return_value = [{"s": "subject-1"}]
-    mock_registry.return_value.get_engine.return_value.backend = mock_backend
+    registry = MagicMock()
+    registry.get_engine.return_value.backend = mock_backend
 
-    results = graph_engine._execute_federated_connection("ontology-source", query)
+    results = graph_engine._execute_federated_connection(
+        "ontology-source", query, registry=registry
+    )
 
     assert results == [{"s": "subject-1"}]
-    mock_registry.return_value.get_engine.assert_called_once_with("ontology-source")
+    registry.get_engine.assert_called_once_with("ontology-source")
     mock_backend.execute_read.assert_called_once_with(query, {})
 
 
-@patch("agent_utilities.mcp.kg_server.get_connection_registry")
-def test_federated_connection_never_uses_ambiguous_execute(mock_registry, graph_engine):
+def test_federated_connection_never_uses_ambiguous_execute(graph_engine):
     mock_backend = MagicMock(spec=["execute"])
-    mock_registry.return_value.get_engine.return_value.backend = mock_backend
+    registry = MagicMock()
+    registry.get_engine.return_value.backend = mock_backend
 
     with pytest.raises(RuntimeError, match="Federated graph execution failed"):
+        graph_engine._execute_federated_connection(
+            "external-source", "MATCH (n) RETURN n", registry=registry
+        )
+
+    mock_backend.execute.assert_not_called()
+
+
+def test_federated_connection_distinguishes_missing_registry(graph_engine):
+    with pytest.raises(RuntimeError, match="registry unavailable"):
         graph_engine._execute_federated_connection(
             "external-source", "MATCH (n) RETURN n"
         )
 
-    mock_backend.execute.assert_not_called()
+
+def test_federated_connection_preserves_unknown_alias_error(graph_engine):
+    registry = MagicMock()
+    registry.get_engine.side_effect = KeyError("unknown")
+
+    with pytest.raises(KeyError):
+        graph_engine._execute_federated_connection(
+            "external-source", "MATCH (n) RETURN n", registry=registry
+        )
+
+
+def test_federated_connection_reports_unavailable_target(graph_engine):
+    registry = MagicMock()
+    registry.get_engine.side_effect = ConnectionError("backend unavailable")
+
+    with pytest.raises(ConnectionError, match="backend unavailable"):
+        graph_engine._execute_federated_connection(
+            "external-source", "MATCH (n) RETURN n", registry=registry
+        )
