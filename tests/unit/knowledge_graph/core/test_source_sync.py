@@ -1506,20 +1506,23 @@ def test_jira_typed_owl_entities(monkeypatch):
     monkeypatch.setattr(
         ss,
         "_drain_incremental",
-        lambda conn, since, **kw: [
-            _Rec(
-                "PROJ-1",
-                {
-                    "fields": {
-                        "summary": "Fix bug",
-                        "status": {"name": "Open"},
-                        "assignee": {"accountId": "u1", "displayName": "Ada"},
-                        "customfield_10014": "EPIC-1",
-                        "updated": "2026-06-01",
-                    }
-                },
-            )
-        ],
+        lambda conn, since, **kw: (
+            [
+                _Rec(
+                    "PROJ-1",
+                    {
+                        "fields": {
+                            "summary": "Fix bug",
+                            "status": {"name": "Open"},
+                            "assignee": {"accountId": "u1", "displayName": "Ada"},
+                            "customfield_10014": "EPIC-1",
+                            "updated": "2026-06-01",
+                        }
+                    },
+                )
+            ],
+            True,
+        ),
     )
     eng = FakeEngine(FakeBackend())
     out = ss._sync_jira(eng, mode="full", ids=None, client=None)
@@ -1529,6 +1532,76 @@ def test_jira_typed_owl_entities(monkeypatch):
     rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
     assert any(r["type"] == "has_role" for r in rels)  # issue → assignee
     assert any(r["type"] == "part_of" for r in rels)  # issue → epic
+
+
+def test_jira_reconcile_propagates_instance_to_shared_marker(monkeypatch):
+    """Each configured Jira instance must reconcile only its own marker scope."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_tracker_instances",
+        lambda *a, **kw: [
+            {"name": "alpha", "server": "jira-alpha"},
+            {"name": "beta", "server": "jira-beta"},
+        ],
+    )
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **kw: None)
+    monkeypatch.setattr(ss, "_build_preset_conn", lambda _p, server, _params: server)
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, _since, **kw: ([_Rec(f"{conn}-issue", {})], True),
+    )
+    calls: list[tuple[str, set[str], str, bool]] = []
+
+    def capture_reconcile(_engine, source, live, *, source_instance="", fetch_ok=True):
+        calls.append((source, set(live), source_instance, fetch_ok))
+        return {"status": "completed", "tombstoned": 0}
+
+    monkeypatch.setattr(ss, "_reconcile", capture_reconcile)
+
+    out = ss._sync_jira(
+        FakeEngine(FakeBackend()), mode="reconcile", ids=None, client=None
+    )
+
+    assert out["status"] == "ok"
+    assert calls == [
+        ("jira", {"jira-alpha-issue"}, "alpha", True),
+        ("jira", {"jira-beta-issue"}, "beta", True),
+    ]
+
+
+def test_jira_reconcile_partial_drain_never_tombstones(monkeypatch):
+    """A partial Jira drain must be marked failed before snapshot reconcile."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_tracker_instances",
+        lambda *a, **kw: [{"name": "alpha", "server": "jira-alpha"}],
+    )
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **kw: None)
+    monkeypatch.setattr(ss, "_build_preset_conn", lambda _p, _s, _params: object())
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, _since, **kw: ([_Rec("jira-reported", {})], False),
+    )
+
+    backend = FakeBackend(
+        leanix_nodes=[
+            {"id": "jira-alpha-omitted", "guid": "jira-omitted"},
+            {"id": "jira-alpha-reported", "guid": "jira-reported"},
+        ]
+    )
+    out = ss._sync_jira(
+        FakeEngine(backend), mode="reconcile", ids=None, client=None
+    )
+
+    assert out["status"] == "ok"
+    assert out["instances"][0]["tombstoned"] == 0
+    assert backend.archived == []
 
 
 def test_plane_typed_owl_entities(monkeypatch):
@@ -1548,9 +1621,10 @@ def test_plane_typed_owl_entities(monkeypatch):
     monkeypatch.setattr(
         ss,
         "_drain_incremental",
-        lambda conn, since, **kw: [
-            _Rec("i1", {"name": "Do thing", "updated_at": "2026-06-01"})
-        ],
+        lambda conn, since, **kw: (
+            [_Rec("i1", {"name": "Do thing", "updated_at": "2026-06-01"})],
+            True,
+        ),
     )
     eng = FakeEngine(FakeBackend())
     out = ss._sync_plane(eng, mode="full", ids=None, client=None)
@@ -1588,7 +1662,9 @@ def test_ard_typed_owl_entities(monkeypatch):
             "ard_media_type": "application/mcp-server",
         },
     )
-    monkeypatch.setattr(ss, "_drain_incremental", lambda conn, since, **kw: [doc])
+    monkeypatch.setattr(
+        ss, "_drain_incremental", lambda conn, since, **kw: ([doc], True)
+    )
     eng = FakeEngine(FakeBackend())
     out = ss._sync_ard(eng, mode="full", ids=None, client=None)
     assert out["status"] == "ok"
@@ -1597,6 +1673,82 @@ def test_ard_typed_owl_entities(monkeypatch):
     rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
     assert any(r["type"] == "registeredIn" for r in rels)
     assert any(r["type"] == "providesCapability" for r in rels)
+
+
+def test_ard_reconcile_propagates_registry_to_shared_marker(monkeypatch):
+    """Each configured ARD registry must reconcile only its own marker scope."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_ard_registries",
+        lambda: [
+            {"name": "alpha", "preset": "ard-alpha"},
+            {"name": "beta", "preset": "ard-beta"},
+        ],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        lambda _kind, conf: conf["preset"],
+    )
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, _since, **kw: ([_Rec(f"{conn}-resource", {})], True),
+    )
+    calls: list[tuple[str, set[str], str, bool]] = []
+
+    def capture_reconcile(_engine, source, live, *, source_instance="", fetch_ok=True):
+        calls.append((source, set(live), source_instance, fetch_ok))
+        return {"status": "completed", "tombstoned": 0}
+
+    monkeypatch.setattr(ss, "_reconcile", capture_reconcile)
+
+    out = ss._sync_ard(
+        FakeEngine(FakeBackend()), mode="reconcile", ids=None, client=None
+    )
+
+    assert out["status"] == "ok"
+    assert calls == [
+        ("ard", {"ard-alpha-resource"}, "alpha", True),
+        ("ard", {"ard-beta-resource"}, "beta", True),
+    ]
+
+
+def test_ard_reconcile_partial_drain_never_tombstones(monkeypatch):
+    """A partial ARD drain must be marked failed before snapshot reconcile."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        ss,
+        "_resolve_ard_registries",
+        lambda: [{"name": "alpha", "preset": "ard-alpha"}],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        lambda _kind, conf: conf["preset"],
+    )
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        ss,
+        "_drain_incremental",
+        lambda conn, _since, **kw: ([_Rec("ard-reported", {})], False),
+    )
+
+    backend = FakeBackend(
+        leanix_nodes=[
+            {"id": "ard-alpha-omitted", "guid": "ard-omitted"},
+            {"id": "ard-alpha-reported", "guid": "ard-reported"},
+        ]
+    )
+    out = ss._sync_ard(
+        FakeEngine(backend), mode="reconcile", ids=None, client=None
+    )
+
+    assert out["status"] == "ok"
+    assert out["registries"][0]["tombstoned"] == 0
+    assert backend.archived == []
 
 
 # ── L27: live sync_source call sites for mandatory-manifest ops connectors ──

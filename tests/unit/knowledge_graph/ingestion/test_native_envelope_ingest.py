@@ -1189,6 +1189,76 @@ def test_snapshot_reconciliation_is_source_scoped_and_empty_requires_approval() 
     assert "archived" not in compute.client.nodes.values["beta-kept"]
 
 
+def test_source_sync_reconcile_scopes_same_connector_instances_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The generic source-sync marker must carry its instance scope to ingest."""
+    from agent_utilities.knowledge_graph.core.source_sync import _reconcile
+
+    monkeypatch.setenv("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", "same-connector")
+    compute = _Compute("graph-source-sync-reconcile")
+    compute.client.nodes.values.update(
+        {
+            "alpha-gone": {
+                "domain": "same-connector",
+                "source_instance": "alpha",
+                "externalToolId": "alpha-gone",
+            },
+            "beta-kept": {
+                "domain": "same-connector",
+                "source_instance": "beta",
+                "externalToolId": "beta-kept",
+            },
+        }
+    )
+
+    result = _reconcile(
+        compute,
+        "same-connector",
+        set(),
+        source_instance="alpha",
+        fetch_ok=True,
+    )
+
+    assert result["tombstoned"] == 1
+    assert compute.client.nodes.values["alpha-gone"]["archived"] is True
+    assert "archived" not in compute.client.nodes.values["beta-kept"]
+
+    failed_compute = _Compute("graph-source-sync-failed")
+    failed_compute.client.nodes.values.update(
+        {
+            "alpha-omitted": {
+                "domain": "same-connector",
+                "source_instance": "alpha",
+                "externalToolId": "alpha-omitted",
+            },
+            "alpha-reported": {
+                "domain": "same-connector",
+                "source_instance": "alpha",
+                "externalToolId": "alpha-reported",
+            },
+            "beta-kept": {
+                "domain": "same-connector",
+                "source_instance": "beta",
+                "externalToolId": "beta-kept",
+            },
+        }
+    )
+
+    failed = _reconcile(
+        failed_compute,
+        "same-connector",
+        {"alpha-reported"},
+        source_instance="alpha",
+        fetch_ok=False,
+    )
+
+    assert failed["tombstoned"] == 0
+    assert "archived" not in failed_compute.client.nodes.values["alpha-omitted"]
+    assert "archived" not in failed_compute.client.nodes.values["alpha-reported"]
+    assert "archived" not in failed_compute.client.nodes.values["beta-kept"]
+
+
 def test_missing_native_capability_fails_closed_without_write() -> None:
     compute = _Compute("graph-old", supported=False)
 
