@@ -414,6 +414,7 @@ def _reconcile(
     source: str,
     live_ids: set[str],
     *,
+    source_instance: str = "",
     fetch_ok: bool = True,
 ) -> dict[str, Any]:
     """Commit an authoritative snapshot decision through ApplyChangeEnvelope.
@@ -430,7 +431,9 @@ def _reconcile(
     :func:`_reconcile_allowed_empty_sources` (``SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE``)
     — an explicit per-source opt-in. Default is conservative: skip. The engine
     enforces this policy server-side inside ``ChangeEnvelope.snapshot_complete``
-    before it commits any tombstone.
+    before it commits any tombstone. ``source_instance`` identifies the configured
+    instance whose rows the marker is allowed to inspect; leaving it empty preserves
+    the single-instance connector behavior.
     """
     from ..ingestion.change_envelope import ChangeEnvelope
     from ..ingestion.envelope_ingest import ingest_envelope
@@ -440,6 +443,7 @@ def _reconcile(
     ).hexdigest()
     marker = ChangeEnvelope.snapshot_complete(
         connector=source,
+        source_instance=source_instance,
         live_ids=live_ids,
         fetch_ok=fetch_ok,
         source_version=snapshot_digest,
@@ -1937,7 +1941,8 @@ def _fleet_connector_sync(
         )
     )
     conn = build_connector("mcp", {"package": package})
-    docs = _ordered_documents(_drain_incremental(conn, since))
+    drained, _ = _drain_incremental(conn, since)
+    docs = _ordered_documents(drained)
     ingested = _fleet_connector_ingest(
         state, package, docs, str(preset.get("doc_type") or "document")
     )
@@ -2177,7 +2182,8 @@ def _ops_drain(conn_config: dict[str, Any], mode: str, since: str | None) -> lis
     conn = build_connector("mcp_tool", conn_config)
     if mode == "reconcile":
         return list(conn.load())  # type: ignore[attr-defined]
-    return _ordered_documents(_drain_incremental(conn, since))
+    drained, _ = _drain_incremental(conn, since)
+    return _ordered_documents(drained)
 
 
 def _ops_live_ids(docs: list[Any], package: str) -> set[str]:
@@ -2961,10 +2967,12 @@ def _build_preset_conn(preset: str, server: str, params: dict[str, Any]) -> Any:
 
 def _drain_incremental(
     conn: Any, since: str | None, *, max_batches: int = 25
-) -> list[Any]:
+) -> tuple[list[Any], bool]:
     """Drain a connector incrementally via ``poll()`` — binds the ``since`` watermark
     (client-side ``updated_field`` filter), resumes the cursor across batches, and is
-    bounded so a cold first run can't run unbounded."""
+    bounded so a cold first run can't run unbounded. Returns ``(documents, fetch_ok)``;
+    a drain that reaches the batch bound with more pages pending is explicitly
+    incomplete so callers must not treat its IDs as an authoritative snapshot."""
     from ...protocols.source_connectors.base import ConnectorCheckpoint
 
     docs: list[Any] = []
@@ -2974,8 +2982,8 @@ def _drain_incremental(
         docs.extend(batch.documents)
         cp = batch.checkpoint
         if not getattr(cp, "has_more", False):
-            break
-    return docs
+            return docs, True
+    return docs, False
 
 
 def _record_of(doc: Any) -> dict[str, Any]:
@@ -3224,11 +3232,21 @@ def _sync_jira(
             conn = _build_preset_conn(
                 "jira", server, {"jql": _jira_jql(inst, None, None)}
             )
-            live = {str(getattr(d, "id", "")) for d in _drain_incremental(conn, None)}
-            results.append(_reconcile(engine, "jira", live) | {"instance": name})
+            drained, fetch_ok = _drain_incremental(conn, None)
+            live = {str(getattr(d, "id", "")) for d in drained}
+            results.append(
+                _reconcile(
+                    engine,
+                    "jira",
+                    live,
+                    source_instance=name,
+                    fetch_ok=fetch_ok,
+                )
+                | {"instance": name}
+            )
             continue
         conn = _build_preset_conn("jira", server, {"jql": _jira_jql(inst, since, ids)})
-        docs = _drain_incremental(conn, since)
+        docs, _ = _drain_incremental(conn, since)
         entities = _jira_entities(docs, name)
         ok, failed = _ingest_entities_via_envelope(
             engine, "jira", entities, source_instance=name
@@ -3327,7 +3345,7 @@ def _plane_project_slice(
     if ids:
         params["filters"] = {"id": ids}
     conn = _build_preset_conn("plane", server, params)
-    docs = _drain_incremental(conn, since)
+    docs, _ = _drain_incremental(conn, since)
     entities = _plane_entities(docs, name, pid)
     _ok, failed = _ingest_entities_via_envelope(
         engine,
@@ -3494,7 +3512,8 @@ def _confluence_space_pages(
         )
     )
     conn = _build_preset_conn("confluence", server, _confluence_page_params(space, ids))
-    docs = _ordered_documents(_drain_incremental(conn, since))
+    drained, _ = _drain_incremental(conn, since)
+    docs = _ordered_documents(drained)
     pages = 0
     for doc in docs:
         if not _confluence_ingest_page(
@@ -5710,10 +5729,22 @@ def _ard_registry_result(
             source_instance=name,
         )
     )
-    docs = _drain_incremental(conn, since)
+    docs, fetch_ok = _drain_incremental(conn, since)
     live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
     if mode == "reconcile":
-        return _reconcile(engine, "ard", live) | {"registry": name}, 0, 0, live
+        return (
+            _reconcile(
+                engine,
+                "ard",
+                live,
+                source_instance=name,
+                fetch_ok=fetch_ok,
+            )
+            | {"registry": name},
+            0,
+            0,
+            live,
+        )
     entities = _ard_entities(docs, name)
     ok, failed = _ingest_entities_via_envelope(
         engine, "ard", entities, source_instance=name

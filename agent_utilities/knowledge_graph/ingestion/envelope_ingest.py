@@ -1256,36 +1256,54 @@ def _stamp_ambient_valid_until(row: dict[str, Any], envelope: ChangeEnvelope) ->
     )
 
 
+def _current_snapshot_ids(
+    current_rows: list[tuple[str, dict[str, Any]]],
+) -> set[str]:
+    """Return stored external IDs that must survive a fail-closed reconcile."""
+    current_ids = {
+        str(properties.get("externalToolId"))
+        for _, properties in current_rows
+        if properties.get("externalToolId")
+    }
+    return current_ids
+
+
+def _authoritative_empty_snapshot_allowed(envelope: ChangeEnvelope) -> bool:
+    """Whether an empty successful snapshot is authorized to tombstone rows."""
+    from ..core.source_sync import _reconcile_allowed_empty_sources
+
+    return (
+        envelope.provenance.get("authoritative_empty_approved") is True
+        or envelope.connector.lower() in _reconcile_allowed_empty_sources()
+    )
+
+
 def _verified_live_ids(
     envelope: ChangeEnvelope, current_rows: list[tuple[str, dict[str, Any]]]
 ) -> set[str]:
     """Live-id set for a snapshot reconcile — FAIL CLOSED on a degraded read.
 
-    An EMPTY live-id set is honoured (i.e. allowed to tombstone everything the
-    connector omitted) only when the connector both reported a successful fetch
-    AND is approved to declare an authoritative empty source. Otherwise every
-    currently-stored id is treated as still live, so the verified snapshot
-    decision is committed WITHOUT tombstoning: a failed live-id fetch must
-    never be read as "the source is genuinely empty".
+    A live-id set is evidence for tombstoning only when the connector reported a
+    successful fetch. A failed/partial fetch must never use its incomplete IDs to
+    archive omitted rows. An EMPTY successful set is additionally allowed to
+    tombstone everything only when the connector is approved to declare an
+    authoritative empty source. Otherwise every currently-stored id is treated
+    as still live, so the verified snapshot decision is committed WITHOUT
+    tombstoning.
     """
+    current_ids = _current_snapshot_ids(current_rows)
+    if not bool(envelope.provenance.get("fetch_ok", True)):
+        # A failed fetch can contain a partial page/set. Preserve every current
+        # id as live regardless of what that incomplete response happened to
+        # return; otherwise omitted rows would be archived.
+        return current_ids
     live_ids = set(envelope.live_ids)
     if live_ids:
         return live_ids
-    from ..core.source_sync import _reconcile_allowed_empty_sources
-
-    fetch_ok = bool(envelope.provenance.get("fetch_ok", True))
-    allowed = (
-        envelope.provenance.get("authoritative_empty_approved") is True
-        or envelope.connector.lower() in _reconcile_allowed_empty_sources()
-    )
-    if fetch_ok and allowed:
+    if _authoritative_empty_snapshot_allowed(envelope):
         return live_ids
     # Commit the verified snapshot decision without tombstoning.
-    return {
-        str(properties.get("externalToolId"))
-        for _, properties in current_rows
-        if properties.get("externalToolId")
-    }
+    return current_ids
 
 
 def _archived_snapshot_row(
