@@ -6073,6 +6073,21 @@ def _preflight_mcp_sdk_floor() -> None:
     raise RuntimeError(message)
 
 
+async def _write_refreshed_fleet_catalog(catalog, configs, bindings):
+    """Bridge the served GraphOS mux into source-sync's canonical writer."""
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        write_fleet_catalog_snapshot,
+    )
+
+    return await asyncio.to_thread(
+        write_fleet_catalog_snapshot,
+        _get_engine(),
+        catalog,
+        configs=configs,
+        discovery_bindings=bindings,
+    )
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -6102,8 +6117,9 @@ def mcp_server() -> None:
     # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
     # so per-session tool visibility runs with identity/auth already applied. Only for a
     # directly-served process — the embedded API-gateway build owns no serving loop.
-    # The five meta-tools this attaches (find_tools/list_catalog/load_tools/
-    # unload_tools/multiplexer_status) plus the session-visibility middleware are
+    # The six meta-tools this attaches (find_tools/list_catalog/load_tools/
+    # unload_tools/refresh_mcp_server/multiplexer_status) plus the
+    # session-visibility middleware are
     # MODE-INDEPENDENT infrastructure — they are the only way to reach anything
     # the active MCP_TOOL_MODE holds back, so they must be present under intent,
     # condensed, verbose AND both. A failure here is therefore NOT survivable:
@@ -6121,11 +6137,13 @@ def mcp_server() -> None:
             mcp,
             embed_fn=_fleet_embed_fn(),
             authority_scope=verified_tool_session_scope,
+            catalog_writer=_write_refreshed_fleet_catalog,
         )
     except Exception as exc:
         raise RuntimeError(
             "graph-os fleet loader attach failed: the fleet meta-tools "
-            "(find_tools/list_catalog/load_tools/unload_tools/multiplexer_status) "
+            "(find_tools/list_catalog/load_tools/unload_tools/"
+            "refresh_mcp_server/multiplexer_status) "
             "and the session-visibility middleware could not be registered, so the "
             "served tool surface would be wrong under every MCP_TOOL_MODE."
         ) from exc

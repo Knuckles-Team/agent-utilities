@@ -37,7 +37,7 @@ import tempfile
 import threading
 import time
 import weakref
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
@@ -1296,17 +1296,23 @@ def _request_capabilities() -> frozenset[str] | None:
     return frozenset(capabilities)
 
 
+def _fleet_required_capabilities(kind: str) -> set[str]:
+    """Capability alternatives for one bounded fleet operation kind."""
+    administrative = {"admin", "kg:admin", "mcp:admin"}
+    return {
+        "discover": {"mcp:discover", "mcp:delegate", *administrative},
+        "manage": administrative,
+        "delegate": {"mcp:delegate", *administrative},
+    }.get(kind, {"mcp:delegate", *administrative})
+
+
 def _require_fleet_capability(kind: str, extra_scopes: list[str] | None = None) -> None:
     """Authorize remote fleet discovery/delegation; local stdio is trusted."""
     capabilities = _request_capabilities()
     if capabilities is None:
         return
     administrative = {"admin", "kg:admin", "mcp:admin"}
-    required = (
-        {"mcp:discover", "mcp:delegate", *administrative}
-        if kind == "discover"
-        else {"mcp:delegate", *administrative}
-    )
+    required = _fleet_required_capabilities(kind)
     if not capabilities.intersection(required):
         raise ToolError(f"MCP fleet {kind} capability required")
     if (
@@ -2076,6 +2082,11 @@ class MCPMultiplexer:
         # in parallel; only concurrent first-loads of the SAME server share
         # one attempt.
         self._mount_inflight: dict[str, asyncio.Future[list[MCPTool]]] = {}
+        # Explicit operator refreshes are independent per child but singleflight
+        # for the same child.  ``mount_child`` joins this owned task too, preventing
+        # a lazy load from racing the retirement/remount window.
+        self._refresh_inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._closing = False
         self._child_runtime_policies: dict[str, Any] = {}
         self._child_policy_admitted_tools: dict[str, frozenset[str]] = {}
         self._child_catalog_fingerprints: dict[str, str] = {}
@@ -2204,6 +2215,11 @@ class MCPMultiplexer:
         self._auto_unload: dict[str, set[str]] = {}
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
+        # Optional process-owned bridge into source_sync's ONE fleet-catalog
+        # writer.  Serving GraphOS and the REST process inject it at composition
+        # time; a standalone/probe-only multiplexer reports ingestion unavailable
+        # instead of constructing a second engine or writer.
+        self._fleet_catalog_writer: Any = None
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the ONE bounded eager posture.
         # Catalog server names (``MCP_ALWAYS_LOAD``) and server-qualified or
         # prefixed tool names (``MCP_ALWAYS_LOAD_TOOLS``) that are mounted on a
@@ -3888,10 +3904,14 @@ class MCPMultiplexer:
             for session_key, loaded in self._session_loaded.items()
             if changed_names & loaded
         ]
-        if not affected_sessions:
+        self._queue_tool_list_change_for_sessions(affected_sessions)
+
+    def _queue_tool_list_change_for_sessions(self, session_keys: list[str]) -> None:
+        """Queue one list revision for explicitly identified live sessions."""
+        if not session_keys:
             return
         self._tool_list_change_revision += 1
-        for session_key in affected_sessions:
+        for session_key in session_keys:
             self._pending_tool_list_changes[session_key] = (
                 self._tool_list_change_revision
             )
@@ -4138,6 +4158,12 @@ class MCPMultiplexer:
         if self._mount_inflight.get(server_name) is leader_future:
             del self._mount_inflight[server_name]
 
+    async def _join_refresh_before_mount(self, server_name: str) -> None:
+        """Wait for an owned refresh before evaluating ordinary mount state."""
+        refresh_pending = self._refresh_inflight.get(server_name)
+        if refresh_pending is not None:
+            await asyncio.shield(refresh_pending)
+
     async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -4162,6 +4188,7 @@ class MCPMultiplexer:
         attempt. Different servers mount fully in parallel — the singleflight
         is keyed per-server, never global.
         """
+        await self._join_refresh_before_mount(server_name)
         catalog = self.load_catalog()
         if server_name in self.children:
             return self.prefixed_tools_for_server(server_name)
@@ -4237,6 +4264,300 @@ class MCPMultiplexer:
                 await payload.aclose()
             return []
         return self._register_child_result(s_name, payload, tools, r_cfg)
+
+    def _retire_child_forwarders(self, names: set[str]) -> None:
+        """Atomically remove one child's executable host forwarders."""
+        exposed = names & self._exposed
+        if not exposed:
+            return
+        if self._host_mcp is None:
+            self._exposed.difference_update(exposed)
+            return
+        provider, components = _local_provider_component_snapshot(self._host_mcp)
+        staged = _stage_forwarder_components(components, {}, exposed)
+        _swap_local_provider_components(provider, staged)
+        self._exposed.difference_update(exposed)
+
+    async def _retire_child_for_refresh(self, server_name: str) -> dict[str, Any]:
+        """Retire exactly one child and return the exposure state to restore."""
+        old_tools = {
+            tool.name: tool for tool in self.prefixed_tools_for_server(server_name)
+        }
+        old_names = set(old_tools)
+        exposed = old_names & self._exposed
+        loaded = {
+            key: names & old_names
+            for key, names in self._session_loaded.items()
+            if names & old_names
+        }
+        auto_unload = {
+            key: names & old_names
+            for key, names in self._auto_unload.items()
+            if names & old_names
+        }
+        old_probe = self._probe_cache.get(server_name)
+
+        self._retire_child_forwarders(old_names)
+        stale_names = self._rebind_server_tool_maps(server_name, [], {})
+        self._retract_removed_from_sessions(stale_names)
+        self.sessions.pop(server_name, None)
+        runtime = self.children.pop(server_name, None)
+        policy = self._child_runtime_policies.pop(server_name, None)
+        self._child_policy_admitted_tools.pop(server_name, None)
+        self._child_catalog_fingerprints.pop(server_name, None)
+        self._child_tool_digests.pop(server_name, None)
+        self._child_schema_refresh_errors.pop(server_name, None)
+        self._drop_stale_child_caches(server_name)
+
+        try:
+            if runtime is not None:
+                await runtime.aclose()
+        finally:
+            if policy is not None:
+                _close_runtime_child_policy(policy)
+        return {
+            "tools": old_tools,
+            "exposed": exposed,
+            "loaded": loaded,
+            "auto_unload": auto_unload,
+            "probe": old_probe,
+        }
+
+    def _atomically_restore_refresh_forwarders(
+        self,
+        surviving_exposed: set[str],
+        new_tools: dict[str, MCPTool],
+    ) -> None:
+        """Validate and swap the complete refreshed executable set."""
+        if not surviving_exposed:
+            return
+        host = self._host_mcp
+        if host is None:
+            raise RuntimeError(
+                "MCP refresh cannot restore tool exposure without a host"
+            )
+        provider, previous_components = _local_provider_component_snapshot(host)
+        forwarders = {
+            name: _forwarder_component(self, new_tools[name])
+            for name in sorted(surviving_exposed)
+        }
+        staged_components = _stage_forwarder_components(
+            previous_components, forwarders, set()
+        )
+        try:
+            for forwarder in forwarders.values():
+                host.add_tool(forwarder)
+            _swap_local_provider_components(provider, staged_components)
+        except Exception:
+            _swap_local_provider_components(provider, previous_components)
+            raise
+        self._exposed.update(surviving_exposed)
+
+    def _restore_refresh_session_visibility(
+        self, snapshot: dict[str, Any], new_names: set[str]
+    ) -> None:
+        """Restore only session and auto-unload names the child still serves."""
+        for session_key, names in snapshot["loaded"].items():
+            self.session_loaded(session_key).update(names & new_names)
+        for session_key, names in snapshot["auto_unload"].items():
+            surviving = names & new_names
+            if surviving:
+                self._auto_unload.setdefault(session_key, set()).update(surviving)
+
+    @staticmethod
+    def _changed_refreshed_schemas(
+        old_tools: dict[str, MCPTool],
+        new_tools: dict[str, MCPTool],
+        old_exposed: set[str],
+    ) -> set[str]:
+        """Return prior exposed names whose refreshed schemas differ or vanished."""
+        return {
+            name
+            for name in old_exposed
+            if name not in new_tools
+            or _tool_catalog_digest([old_tools[name]])
+            != _tool_catalog_digest([new_tools[name]])
+        }
+
+    @staticmethod
+    def _sessions_affected_by_refresh(
+        snapshot: dict[str, Any], changed: set[str]
+    ) -> list[str]:
+        """Session keys whose prior visible set intersects changed schemas."""
+        return [key for key, names in snapshot["loaded"].items() if names & changed]
+
+    def _restore_refreshed_exposure(
+        self, snapshot: dict[str, Any], refreshed: list[MCPTool]
+    ) -> set[str]:
+        """Atomically restore surviving exposure and return changed schemas."""
+        old_tools = cast("dict[str, MCPTool]", snapshot["tools"])
+        new_tools = {tool.name: tool for tool in refreshed}
+        old_exposed = cast("set[str]", snapshot["exposed"])
+        surviving_exposed = old_exposed & set(new_tools)
+        self._atomically_restore_refresh_forwarders(surviving_exposed, new_tools)
+        self._restore_refresh_session_visibility(snapshot, set(new_tools))
+        changed = self._changed_refreshed_schemas(old_tools, new_tools, old_exposed)
+        affected_sessions = self._sessions_affected_by_refresh(snapshot, changed)
+        self._queue_tool_list_change_for_sessions(affected_sessions)
+        return changed
+
+    async def _reingest_refreshed_child(
+        self, server_name: str, info: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Write one live child snapshot through source_sync's injected writer."""
+        writer = self._fleet_catalog_writer
+        if writer is None:
+            return {
+                "status": "unavailable",
+                "reason": "fleet_catalog_writer_unavailable",
+            }
+        catalog = {server_name: info}
+        configs = {server_name: self.load_catalog()[server_name]}
+        try:
+            self._bind_local_discovery_bindings(catalog)
+            bindings = self._take_discovery_bindings(catalog)
+            result = await writer(catalog, configs, bindings)
+        except Exception as exc:
+            logger.error(
+                "MCP child refresh catalog write failed "
+                "(server=%s, exception_type=%s): %s",
+                server_name,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return {"status": "error", "reason": "fleet_catalog_write_failed"}
+        if not isinstance(result, dict):
+            return {"status": "error", "reason": "fleet_catalog_write_invalid"}
+        return result
+
+    def _settle_refresh_task(
+        self,
+        server_name: str,
+        task: asyncio.Future[dict[str, Any]],
+    ) -> None:
+        """Release one owned refresh task and retrieve an unobserved failure."""
+        if self._refresh_inflight.get(server_name) is task:
+            del self._refresh_inflight[server_name]
+        if not task.cancelled():
+            task.exception()
+
+    def _refresh_task_settler(
+        self, server_name: str
+    ) -> Callable[[asyncio.Future[dict[str, Any]]], None]:
+        """Build the explicitly typed done callback for one refresh owner."""
+
+        def _settle(task: asyncio.Future[dict[str, Any]]) -> None:
+            self._settle_refresh_task(server_name, task)
+
+        return _settle
+
+    async def _join_initial_mount_for_refresh(self, server_name: str) -> None:
+        """Let an already-owned initial mount settle before retiring the child."""
+        mounting = self._mount_inflight.get(server_name)
+        if mounting is not None:
+            await asyncio.shield(mounting)
+
+    async def _remount_refreshed_child(self, server_name: str) -> list[MCPTool]:
+        """Mount a fresh generation and fail truthfully when none registered."""
+        refreshed = await self._mount_child_first_load(
+            server_name, self.load_catalog()[server_name]
+        )
+        if server_name not in self.children:
+            raise RuntimeError("MCP child refresh could not remount the server")
+        return refreshed
+
+    async def _finish_child_refresh(
+        self,
+        server_name: str,
+        snapshot: dict[str, Any],
+        changed_tools: set[str],
+    ) -> dict[str, Any]:
+        """Harvest, canonically write, and describe one replaced generation."""
+        info = await self._live_child_probe(server_name)
+        reingest = await self._reingest_refreshed_child(server_name, info)
+        prior_probe = snapshot.get("probe")
+        if isinstance(prior_probe, dict):
+            catalog_changed = any(
+                prior_probe.get(key) != info.get(key)
+                for key in ("tools", "skills", "prompts")
+            )
+        else:
+            catalog_changed = True
+        return {
+            "status": "refreshed",
+            "server": server_name,
+            "state": self.children[server_name].state,
+            "catalog_revision": self._child_schema_revisions.get(server_name, 0),
+            "catalog_changed": catalog_changed,
+            "changed_tools": sorted(changed_tools),
+            "tool_count": len(info.get("tools") or []),
+            "skill_count": len(info.get("skills") or []),
+            "prompt_count": len(info.get("prompts") or []),
+            "kg_reingest": reingest,
+        }
+
+    def _queue_interrupted_refresh(
+        self, snapshot: dict[str, Any] | None, exposure_restored: bool
+    ) -> None:
+        """Notify prior sessions when retirement did not regain exposure."""
+        if snapshot is not None and not exposure_restored:
+            self._queue_tool_list_change_for_sessions(list(snapshot["loaded"]))
+
+    async def _refresh_child_once(self, server_name: str) -> dict[str, Any]:
+        """Execute one independently-owned retire/remount/harvest/write cycle."""
+        snapshot: dict[str, Any] | None = None
+        exposure_restored = False
+        try:
+            await self._join_initial_mount_for_refresh(server_name)
+            snapshot = await self._retire_child_for_refresh(server_name)
+            refreshed = await self._remount_refreshed_child(server_name)
+            changed_tools = self._restore_refreshed_exposure(snapshot, refreshed)
+            exposure_restored = True
+            return await self._finish_child_refresh(
+                server_name, snapshot, changed_tools
+            )
+        except BaseException:
+            # Once retirement happened, a failed/cancelled remount or an
+            # atomic exposure-restore refusal has materially changed what the
+            # affected sessions can call.  Queue the truthful list revision;
+            # never put the closed generation back into routing state.
+            self._queue_interrupted_refresh(snapshot, exposure_restored)
+            raise
+
+    async def refresh_child(self, server_name: str) -> dict[str, Any]:
+        """Retire, remount, re-harvest, and re-ingest one MCP child.
+
+        CONCEPT:AU-ECO.mcp.profile-differences-from-client.  The operation is
+        per-server singleflight: concurrent requests for the same server share
+        one exact result, while unrelated children remain mounted and callable.
+        A stale failed runtime, breaker, session pool, forwarding schema, and
+        derived discovery caches are discarded before a fresh declaration is
+        mounted.  The new live session is then forced through tool/resource
+        discovery, including skill and prompt bodies, and the resulting one-
+        server snapshot is handed to source_sync's injected canonical writer.
+        """
+        if (
+            not isinstance(server_name, str)
+            or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", server_name) is None
+        ):
+            raise ValueError("MCP child selector is outside the safety boundary")
+        if server_name not in self.load_catalog():
+            raise KeyError(server_name)
+        if self._closing:
+            raise RuntimeError("MCP multiplexer is shutting down")
+
+        pending = self._refresh_inflight.get(server_name)
+        if pending is None:
+            pending = asyncio.create_task(
+                self._refresh_child_once(server_name),
+                name=f"mcp-refresh:{server_name}",
+            )
+            self._refresh_inflight[server_name] = pending
+            pending.add_done_callback(self._refresh_task_settler(server_name))
+        # Every caller, including the creator, is a shielded waiter.  Caller
+        # cancellation therefore cannot strand a child between retirement and
+        # replacement; only multiplexer shutdown owns task cancellation.
+        return await asyncio.shield(pending)
 
     def prefixed_tools_for_server(self, server_name: str) -> list[MCPTool]:
         """All aggregated prefixed tools currently owned by ``server_name``."""
@@ -6014,8 +6335,18 @@ class MCPMultiplexer:
             )
         return snapshot
 
+    async def _cancel_owned_refreshes(self) -> None:
+        """Cancel and await every multiplexer-owned refresh during shutdown."""
+        refresh_tasks = tuple(self._refresh_inflight.values())
+        for task in refresh_tasks:
+            task.cancel()
+        if refresh_tasks:
+            await asyncio.gather(*refresh_tasks, return_exceptions=True)
+        self._refresh_inflight.clear()
+
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""
+        self._closing = True
         # Background catalog probes (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) are
         # deliberately left running past an interactive call's own budget so a
         # later call can benefit from their result — but they must not outlive
@@ -6041,6 +6372,7 @@ class MCPMultiplexer:
         # during/after shutdown from joining a future that will never
         # resolve to a live mount.
         self._mount_inflight.clear()
+        await self._cancel_owned_refreshes()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():
@@ -7093,6 +7425,21 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             structured_content=payload,
         )
 
+    async def _refresh_mcp_server(server_name: str) -> ToolResult:
+        _require_fleet_capability("manage")
+        try:
+            payload = await mux.refresh_child(server_name)
+        except (KeyError, ValueError) as exc:
+            raise ToolError("MCP child is not refreshable") from exc
+        except RuntimeError as exc:
+            raise ToolError("MCP child refresh failed") from exc
+        return ToolResult(
+            content=[
+                mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
+            ],
+            structured_content=payload,
+        )
+
     mcp.add_tool(
         FunctionTool(
             name="find_tools",
@@ -7267,6 +7614,31 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             fn=_unload_tools,
         )
     )
+    mcp.add_tool(
+        FunctionTool(
+            name="refresh_mcp_server",
+            description=(
+                "Administratively refresh exactly one configured MCP child. "
+                "Retires that child's stale runtime and forwarding schemas, "
+                "remounts it, force-harvests its current tools, skills, and "
+                "prompts, then re-ingests the snapshot through the governed "
+                "fleet source-sync writer. Concurrent refreshes of the same "
+                "server share one operation; sibling servers are unaffected."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "server_name": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]{1,128}$",
+                        "description": "Exact configured MCP child server name.",
+                    }
+                },
+                "required": ["server_name"],
+            },
+            fn=_refresh_mcp_server,
+        )
+    )
     _register_status_tool(mcp, mux)
 
 
@@ -7354,6 +7726,7 @@ def attach_fleet_loader(
     self_server: str = "graph-os",
     embed_fn=None,
     authority_scope=None,
+    catalog_writer=None,
 ) -> MCPMultiplexer:
     """Attach on-demand MCP fleet-loading to an EXISTING FastMCP server (graph-os).
 
@@ -7361,7 +7734,8 @@ def attach_fleet_loader(
     fleet-aggregation engine on top so the SAME server can also reach the rest of the
     MCP fleet (declared in ``mcp_config.json``) on demand — it registers the meta-tools
     ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
-    ``multiplexer_status`` plus a per-session progressive-disclosure middleware. Child
+    ``refresh_mcp_server`` / ``multiplexer_status`` plus a per-session
+    progressive-disclosure middleware. Child
     servers are mounted LAZILY (each as an isolated subprocess/HTTP session via
     :class:`~agent_utilities.mcp.child_resilience.ChildRuntime`, with its own breaker +
     concurrency limit) only when a tool is actually loaded, so the base context stays
@@ -7391,6 +7765,7 @@ def attach_fleet_loader(
     # deliberately leave this unset.
     mux._host_mcp = mcp
     mux._authority_scope = authority_scope
+    mux._fleet_catalog_writer = catalog_writer
     # graph-os is the HOST server — never mount it (or the retired standalone
     # multiplexer name) as a child of itself.
     mux._skip_servers = {"mcp-multiplexer", self_server}
@@ -7445,7 +7820,7 @@ def attach_fleet_loader(
     # (the intent verbs, the MCP Apps entry points, and — outside intent/
     # has-own-verbose mode — the condensed/verbose surface itself) that is
     # NOT held back by the intent gate. "graph-os's own tools ... are always
-    # on" (see below) previously only listed the five meta-tool names
+    # on" (see below) previously only listed the fleet meta-tool names
     # literally, so every OTHER natively-registered, ungated tool fell
     # through to tool_dispatchable()'s final "unknown to our bookkeeping"
     # branch — which itself refuses everything whenever is_serving() is

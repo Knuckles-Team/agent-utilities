@@ -26,9 +26,9 @@ SAME catalog / probe-cache / session-visibility state instead of drifting
 against each other — which is the whole point of "the REST payload equals the
 MCP tool payload for the same session" (GOC-60-W03 acceptance evidence).
 
-``multiplexer.py`` is READ-ONLY from this lane's perspective (GOC-60 worker
-instructions) — this module only ever *consumes* its public
-:class:`MCPMultiplexer` constructor and methods.
+The singleton uses the same public :class:`MCPMultiplexer` lifecycle methods as
+the served GraphOS instance and injects source-sync's canonical fleet writer for
+governed REST refresh parity.
 """
 
 from __future__ import annotations
@@ -64,8 +64,30 @@ def _default_config_path() -> Path:
 
 def _new_multiplexer() -> MCPMultiplexer:
     mux = MCPMultiplexer(_default_config_path())
+    mux._fleet_catalog_writer = _write_refreshed_fleet_catalog
     mux.load_catalog()  # parse config into the mountable-server catalog; spawns nothing
     return mux
+
+
+async def _write_refreshed_fleet_catalog(
+    catalog: dict, configs: dict, discovery_bindings: dict
+) -> dict:
+    """Bridge REST-owned refreshes into source_sync's canonical fleet writer."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        write_fleet_catalog_snapshot,
+    )
+
+    engine = IntelligenceGraphEngine.get_active()
+    if engine is None:
+        raise RuntimeError("IntelligenceGraphEngine not active")
+    return await asyncio.to_thread(
+        write_fleet_catalog_snapshot,
+        engine,
+        catalog,
+        configs=configs,
+        discovery_bindings=discovery_bindings,
+    )
 
 
 async def get_shared_multiplexer() -> MCPMultiplexer:

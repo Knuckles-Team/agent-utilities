@@ -12,9 +12,13 @@ flowchart LR
     Client[MCP client] --> GraphOS[GraphOS]
     GraphOS --> Catalog[find_tools / list_catalog]
     GraphOS --> Loader[load_tools / unload_tools]
+    GraphOS --> Refresh[refresh_mcp_server]
     Loader --> Probe[Canonical child client boundary]
+    Refresh --> Probe
     Toolkit[KG toolkit ingestion] --> Probe
     Probe --> Fleet[*-mcp connector fleet]
+    Refresh --> Writer[Canonical fleet source-sync writer]
+    Writer --> KG[Knowledge Graph]
 ```
 
 At startup GraphOS exposes its focused graph tools and a bounded fleet catalog.
@@ -48,6 +52,35 @@ equivalent reconnect does not probe the provider again or churn host
 registrations. A hot catalog reload removes mux-owned forwarders and per-session
 eager-load results before mounting the revised catalog, so same-named tools
 cannot retain obsolete schemas.
+
+An administrator can explicitly refresh one configured child through the
+always-on `refresh_mcp_server` meta-tool or its exact REST twin,
+`POST /api/mcp/refresh`. The operation is singleflight per server: concurrent
+requests for the same child share one result, while sibling children and their
+sessions remain untouched. The singleflight owner is an independent asyncio
+task and every request, including its creator, awaits it through cancellation
+shielding; disconnecting one caller cannot strand a child after retirement.
+Multiplexer shutdown is the sole cancellation owner and cancels then awaits all
+owned refresh tasks before closing the remaining runtimes. It retires the
+selected child's failed/stale runtime, breaker, session pool, forwarding
+schemas, and derived caches; mounts a fresh declaration; restores surviving
+session visibility; and queues a tool list revision when an exposed schema
+changed. If remount or atomic forwarder restoration fails, the closed
+generation stays retired and every affected session receives a truthful
+tool-list revision. The new live session is then
+forced through tool, skill-body, and prompt-body harvest. That snapshot enters
+the KG through the existing governed fleet source-sync writer (including its
+preflight, relational projection, and skill/prompt promotion), never an ad-hoc
+second writer. The MCP and REST surfaces require an administrative capability
+(`mcp:admin`, `kg:admin`, or `admin`).
+
+This single-child lifecycle is intentionally isolated from the older
+synchronous `graph_config reload` catalog invalidator. That fleet-wide path is
+currently dispatched in a worker thread, where it cannot await runtime
+retirement or live resource harvest. A follow-on must move the fleet reload
+onto the serving event loop, classify it as a managed mutation, and compose
+the awaited child-refresh lifecycle across the affected declarations; a
+synchronous clear-only invalidation is not an equivalent refresh.
 
 KG live metadata discovery does not construct a second MCP client. It calls the
 same bounded one-shot probe used by the fleet gateway. Consequently every

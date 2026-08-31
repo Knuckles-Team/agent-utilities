@@ -109,7 +109,7 @@ fi
 # Published bootstraps are exact at the project boundary. Release automation
 # updates these defaults; controlled mirrors may inject another exact version.
 AU_VERSION="${AGENT_UTILITIES_VERSION:-2.5.0}"
-SKILLS_VERSION="${UNIVERSAL_SKILLS_VERSION:-1.2.1}"
+SKILLS_VERSION="${UNIVERSAL_SKILLS_VERSION:-1.3.1}"
 VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+([a-zA-Z0-9.+-]*)$'
 [[ "$AU_VERSION" =~ $VERSION_RE ]] || { c_err "invalid agent-utilities version"; exit 2; }
 [[ "$SKILLS_VERSION" =~ $VERSION_RE ]] || { c_err "invalid universal-skills version"; exit 2; }

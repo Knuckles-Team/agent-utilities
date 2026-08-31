@@ -203,10 +203,11 @@ def check_graphos_surface_contract(
         capability_count = _capability_metrics()[0]
     normalized = " ".join(content.split())
     required = (
-        "exactly **11 visible tools**",
-        "**six intent verbs and five control tools**",
+        "exactly **14 visible tools**",
+        "**six intent verbs, six control tools, and two MCP Apps entry points**",
         "`ask`, `find`, `write`, `act`, `manage`, `why`",
-        "`find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `multiplexer_status`",
+        "`find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `refresh_mcp_server`, `multiplexer_status`",
+        "`graph_task_progress_app`, `graph_trace_waterfall_app`",
         f"**{capability_count} public capabilities**",
         "progressive disclosure, not a compatibility alias",
     )

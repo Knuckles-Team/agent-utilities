@@ -258,7 +258,7 @@ mcp = [
 ]
 agent-runtime = [
     "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
-    "universal-skills>=1.2.1",
+    "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
@@ -283,7 +283,7 @@ agent-runtime = [
 # `[serving]`. See AGENTS.md "Dependency discipline".
 agent-headless = [
     "agent-utilities[mcp,sandbox]>=1.0.0",
-    "universal-skills>=1.2.1",
+    "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other

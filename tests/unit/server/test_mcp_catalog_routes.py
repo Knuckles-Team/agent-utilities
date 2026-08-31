@@ -59,15 +59,28 @@ _NO_SCOPE_CLAIMS = {
     "sub": "mcp-catalog-test-unauth",
     "scope": "chat:read",
 }
+_ADMIN_CLAIMS = {
+    "auth_type": "jwt",
+    "sub": "mcp-catalog-test-admin",
+    "scope": "mcp:admin",
+}
 
 
 class _StubMultiplexer:
     """Deterministic stand-in with the same public surface the REST route
     calls (``list_catalog``, ``status_snapshot``)."""
 
-    def __init__(self, *, fail_catalog: bool = False, fail_status: bool = False):
+    def __init__(
+        self,
+        *,
+        fail_catalog: bool = False,
+        fail_status: bool = False,
+        fail_refresh: bool = False,
+    ):
         self._fail_catalog = fail_catalog
         self._fail_status = fail_status
+        self._fail_refresh = fail_refresh
+        self.refreshed: list[str] = []
 
     async def list_catalog(self, server: str = "", include_tools: bool = True) -> dict:
         if self._fail_catalog:
@@ -115,6 +128,18 @@ class _StubMultiplexer:
         if self._fail_status:
             raise RuntimeError("status snapshot exploded")
         return {"children": {}, "catalog_size": 1}
+
+    async def refresh_child(self, server_name: str) -> dict:
+        if self._fail_refresh:
+            raise RuntimeError("refresh exploded")
+        if server_name != "github-api":
+            raise KeyError(server_name)
+        self.refreshed.append(server_name)
+        return {
+            "status": "refreshed",
+            "server": server_name,
+            "catalog_revision": 2,
+        }
 
 
 @pytest.fixture(autouse=True)
@@ -177,6 +202,22 @@ def test_status_route_returns_the_multiplexer_snapshot_when_authorized(monkeypat
     assert response.json() == {"children": {}, "catalog_size": 1}
 
 
+def test_refresh_route_returns_exact_mux_payload_for_admin(monkeypatch):
+    stub = _StubMultiplexer()
+    _install_stub(monkeypatch, stub)
+    client = _client(_ADMIN_CLAIMS)
+
+    response = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "refreshed",
+        "server": "github-api",
+        "catalog_revision": 2,
+    }
+    assert stub.refreshed == ["github-api"]
+
+
 # ── unauthorized ────────────────────────────────────────────────────────────
 
 
@@ -194,6 +235,15 @@ def test_status_route_refuses_a_caller_with_no_discover_scope(monkeypatch):
     client = _client(_NO_SCOPE_CLAIMS)
 
     response = client.get("/api/mcp/status")
+
+    assert response.status_code == 403
+
+
+def test_refresh_route_refuses_discover_without_admin_scope(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(_DISCOVER_CLAIMS)
+
+    response = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
 
     assert response.status_code == 403
 
@@ -226,6 +276,18 @@ def test_status_route_surfaces_a_typed_degraded_state_on_snapshot_failure(monkey
     detail = response.json()["detail"]
     assert detail["status"] == "DEGRADED"
     assert detail["reason"] == "status_snapshot_failed"
+
+
+def test_refresh_route_surfaces_unknown_child_and_runtime_failure(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(_ADMIN_CLAIMS)
+    unknown = client.post("/api/mcp/refresh", json={"server_name": "does-not-exist"})
+    assert unknown.status_code == 404
+
+    _install_stub(monkeypatch, _StubMultiplexer(fail_refresh=True))
+    degraded = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
+    assert degraded.status_code == 503
+    assert degraded.json()["detail"]["reason"] == "mcp_child_refresh_failed"
 
 
 def test_catalog_route_surfaces_degraded_when_the_shared_multiplexer_cannot_construct(
