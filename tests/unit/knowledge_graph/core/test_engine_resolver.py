@@ -268,6 +268,7 @@ def _autostart_config(**overrides):
         "epistemic_graph_max_resident_graphs": 1024,
         "epistemic_graph_lazy_open_page_size": 4096,
         "epistemic_graph_max_nodes_per_graph": 250_000,
+        "epistemic_graph_startup_timeout_secs": 300.0,
         "app_profile": "dev",
         "deployment_profile": "tiny",
     }
@@ -503,6 +504,7 @@ def test_autostart_resolves_private_feature_roots_at_runtime(monkeypatch):
             epistemic_graph_max_resident_graphs=256,
             epistemic_graph_lazy_open_page_size=4096,
             epistemic_graph_max_nodes_per_graph=250_000,
+            epistemic_graph_startup_timeout_secs=300.0,
             epistemic_graph_sqlite_transfer_root_ref="secret://sqlite-root",
             epistemic_graph_backup_root_ref="secret://backup-root",
         ),
@@ -559,6 +561,7 @@ def test_autostart_polls_until_delayed_engine_is_ready(monkeypatch):
             epistemic_graph_max_resident_graphs=256,
             epistemic_graph_lazy_open_page_size=4096,
             epistemic_graph_max_nodes_per_graph=250_000,
+            epistemic_graph_startup_timeout_secs=300.0,
         ),
         fake_subprocess,
         sys,
@@ -570,6 +573,55 @@ def test_autostart_polls_until_delayed_engine_is_ready(monkeypatch):
 
     assert result == "connected"
     assert attempts == 4
+
+
+def test_autostart_uses_configured_bounded_readiness_timeout(monkeypatch):
+    """The live spawn path honors the typed timeout instead of a hidden 30s cap."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    monkeypatch.setattr(
+        SyncEpistemicGraphClient,
+        "connect",
+        staticmethod(
+            lambda **_kwargs: (_ for _ in ()).throw(
+                ConnectionRefusedError("listener not ready")
+            )
+        ),
+    )
+    ticks = iter((0.0, 599.9, 600.0))
+    child = SimpleNamespace(poll=lambda: None)
+    engine = object.__new__(gc.GraphComputeEngine)
+
+    with pytest.raises(ConnectionError, match=r"within 600 seconds"):
+        engine._autostart_engine(
+            {
+                "tcp_addr": "127.0.0.1:8765",
+                "graph_name": "__commons__",
+                "verified_context": gc._transport_only_verified_context(),
+            },
+            None,
+            "test-secret",
+            _autostart_config(epistemic_graph_startup_timeout_secs=600.0),
+            SimpleNamespace(DEVNULL=-1, Popen=lambda _cmd, **_kwargs: child),
+            sys,
+            SimpleNamespace(
+                sleep=lambda _seconds: None,
+                monotonic=lambda: next(ticks),
+            ),
+            Path,
+            coupled=False,
+            idle_shutdown_secs=0,
+        )
+
+
+@pytest.mark.parametrize("value", (0, 4.9, 1800.1, "not-a-number"))
+def test_engine_startup_timeout_configuration_fails_closed(value):
+    with pytest.raises(ValueError):
+        AgentConfig(EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS=value)
+
+
+def test_engine_startup_timeout_has_slow_first_boot_default():
+    assert AgentConfig().epistemic_graph_startup_timeout_secs == 300.0
 
 
 def test_autostart_rejects_signer_registry_without_verified_subject(monkeypatch):
@@ -624,6 +676,7 @@ def test_autostart_rejects_signer_registry_without_verified_subject(monkeypatch)
                 epistemic_graph_max_resident_graphs=256,
                 epistemic_graph_lazy_open_page_size=4096,
                 epistemic_graph_max_nodes_per_graph=250_000,
+                epistemic_graph_startup_timeout_secs=300.0,
             ),
             SimpleNamespace(DEVNULL=-1, Popen=_popen),
             sys,
@@ -973,6 +1026,7 @@ def test_autostart_surfaces_early_child_exit_without_sensitive_details(monkeypat
                 epistemic_graph_max_resident_graphs=256,
                 epistemic_graph_lazy_open_page_size=4096,
                 epistemic_graph_max_nodes_per_graph=250_000,
+                epistemic_graph_startup_timeout_secs=300.0,
             ),
             fake_subprocess,
             sys,
@@ -1476,6 +1530,7 @@ def _spawn_and_capture_argv(monkeypatch, client_class, *, interpreter: str):
             epistemic_graph_max_resident_graphs=256,
             epistemic_graph_lazy_open_page_size=4096,
             epistemic_graph_max_nodes_per_graph=250_000,
+            epistemic_graph_startup_timeout_secs=300.0,
         ),
         fake_subprocess,
         SimpleNamespace(executable=interpreter),
@@ -1525,6 +1580,7 @@ def test_autostart_surfaces_a_failed_child_startup_output(monkeypatch, caplog):
                     epistemic_graph_max_resident_graphs=256,
                     epistemic_graph_lazy_open_page_size=4096,
                     epistemic_graph_max_nodes_per_graph=250_000,
+                    epistemic_graph_startup_timeout_secs=300.0,
                 ),
                 SimpleNamespace(DEVNULL=-1, Popen=_popen),
                 sys,

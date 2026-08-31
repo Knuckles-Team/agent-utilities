@@ -107,8 +107,10 @@ WHAT THE GATE DOES NOW
 
 Reuse, not reimplementation: the per-file detectors are IMPORTED from the same
 vendored ``analyze_liveness.py`` the census shells out to (one capability, one
-entrypoint). If any of them is missing the gate exits 2 — a gate that could not
-run has not found nothing.
+entrypoint). If a required detector surface is missing the gate exits 2 — a
+gate that could not run has not found nothing. The private stable-ID helper is
+the one optional surface, with an exact content-hash compatibility adapter for
+older universal-skills releases.
 
 AMBIENT GIT ENVIRONMENT
 -----------------------
@@ -277,7 +279,6 @@ _REQUIRED_ANALYZER_NAMES = (
     "_does_real_work",
     "_returns_canned_payload",
     "_decorator_names",
-    "_stable_finding_id",
     "_is_test",
     "_SURFACE_PARTS",
     "_SURFACE_DECORATORS",
@@ -289,8 +290,10 @@ _REQUIRED_ANALYZER_NAMES = (
 def _import_analyzer(path: Path):
     """Import the vendored detector as a module so its per-file passes can be
     reused verbatim. Duplicating them here would be a second copy of the
-    detector; a missing name means the vendored analyzer changed shape and this
-    gate must say so rather than quietly enforce less."""
+    detector; a missing required name means the vendored analyzer changed shape
+    and this gate must say so rather than quietly enforce less. The private
+    stable-ID helper is the one compatibility-adapted optional surface because
+    universal-skills 1.2.x does not expose it."""
     spec = importlib.util.spec_from_file_location("_analyze_liveness_for_gate", path)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
         _fail_env(f"could not load the detector at {path}")
@@ -316,6 +319,33 @@ def _hash(kind: str, text: str) -> str:
     produced 11 phantom regressions under the old ``symbol@ordinal`` identity."""
     digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:16]
     return f"{kind}:{digest}"
+
+
+def _fallback_stable_finding_id(text: str) -> str:
+    """Mirror universal-skills' content-stable placeholder ID contract.
+
+    universal-skills 1.2.x has the placeholder detector but not its private
+    ``_stable_finding_id`` helper. Keep the gate's identity scheme identical to
+    the newer analyzer so upgrading or downgrading that dependency does not
+    turn an unchanged marker into a diff-scoped regression.
+    """
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:8]
+
+
+def _stable_analyzer_id(an, text: str) -> str:
+    """Use the analyzer's stable-ID helper, with a strict compatibility shim."""
+    if not hasattr(an, "_stable_finding_id"):
+        return _fallback_stable_finding_id(text)
+    helper = an._stable_finding_id
+    if not callable(helper):
+        _fail_env("the detector's optional _stable_finding_id is not callable")
+    try:
+        value = helper(text)
+    except Exception as exc:  # pragma: no cover - defensive
+        _fail_env(f"the detector's _stable_finding_id failed: {exc!r}")
+    if not isinstance(value, str) or not value:
+        _fail_env("the detector's _stable_finding_id returned an invalid ID")
+    return value
 
 
 def _substantive_constants(node) -> frozenset:
@@ -390,7 +420,7 @@ def _placeholder_ids(an, src: str):
     moves is the same finding."""
     for line in src.splitlines():
         if an._PLACEHOLDER_RE.search(line):
-            yield _hash("placeholder", an._stable_finding_id(line.strip()))
+            yield _hash("placeholder", _stable_analyzer_id(an, line.strip()))
 
 
 def _surface_functions(an, tree, path: Path):

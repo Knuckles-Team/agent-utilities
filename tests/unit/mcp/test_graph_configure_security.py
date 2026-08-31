@@ -418,6 +418,33 @@ def test_bug065_set_config_reports_process_scoped_field_not_fleet_wide_applied_l
     assert payload["restart_required"] is False
 
 
+def test_engine_startup_timeout_set_config_reports_restart_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The served configuration path must not claim a cached timeout is live."""
+    from agent_utilities.core import config
+
+    persisted: list[tuple[str, object]] = []
+    fake = _FakeMCP()
+    analysis_tools.register_analysis_tools(fake)
+    monkeypatch.setattr(
+        config,
+        "save_config_item",
+        lambda key, value: persisted.append((key, value)),
+    )
+
+    result = fake.tools["graph_configure"](
+        action="set_config",
+        config_key="EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS",
+        config_value="600",
+    )
+    payload = json.loads(result)
+
+    assert persisted == [("EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS", "600")]
+    assert payload["applied_in_this_process"] is False
+    assert payload["restart_required"] is True
+
+
 def test_set_config_rejects_inline_sensitive_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

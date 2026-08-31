@@ -123,6 +123,7 @@ def test_restart_required_classifier():
 
     assert is_restart_required("GRAPH_MIRROR_TARGETS") is True
     assert is_restart_required("GRAPH_DB_CONNECTION_PROFILE_REF") is True
+    assert is_restart_required("EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS") is True
     assert is_restart_required("AUTH_JWT_ISSUER") is True  # AUTH_ prefix
     assert is_restart_required("KG_LLM_CONCURRENCY") is False
 
