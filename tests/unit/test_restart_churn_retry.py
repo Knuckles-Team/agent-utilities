@@ -18,6 +18,7 @@ from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     is_transient_child_death,
 )
+from agent_utilities.mcp.protocol_compat import mcp_protocol_exception
 
 
 def test_is_transient_child_death_classifies_transport_and_groups() -> None:
@@ -32,6 +33,27 @@ def test_is_transient_child_death_classifies_transport_and_groups() -> None:
     # A live child answering with an application error is NOT a transient death.
     assert not is_transient_child_death(ValueError("tool said no"))
     assert not is_transient_child_death(BaseExceptionGroup("g", [ValueError("x")]))
+
+
+def test_is_transient_child_death_classifies_only_sdk_connection_closed() -> None:
+    assert is_transient_child_death(mcp_protocol_exception(-32000, "Connection closed"))
+    # The SDK code alone is not enough: an application MCP error must stay
+    # non-retryable, as must a different protocol code with the same wording.
+    assert not is_transient_child_death(
+        mcp_protocol_exception(32600, "application failure")
+    )
+    assert not is_transient_child_death(
+        mcp_protocol_exception(-32603, "session not found")
+    )
+    assert not is_transient_child_death(
+        mcp_protocol_exception(-32000, "application failure: session terminated")
+    )
+    assert not is_transient_child_death(
+        mcp_protocol_exception(-32000, "application failure")
+    )
+    assert not is_transient_child_death(
+        mcp_protocol_exception(-32603, "Connection closed")
+    )
 
 
 def _runtime() -> ChildRuntime:
@@ -66,6 +88,28 @@ async def test_call_tool_retries_once_on_midcall_crash() -> None:
     assert out == "ok"  # self-healed on the fresh generation
     assert state["calls"] == 2  # original + one retry
     assert state["restarts"] == 1  # reconnect was requested
+
+
+@pytest.mark.asyncio
+async def test_call_tool_retries_once_on_sdk_connection_closed() -> None:
+    state = {"calls": 0, "restarts": 0}
+    rt = _runtime()
+    rt.request_restart = lambda reason="": state.__setitem__(
+        "restarts", state["restarts"] + 1
+    )  # type: ignore[method-assign]
+
+    async def fake_call_once(_name: str, _args: dict[str, Any]) -> str:
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise mcp_protocol_exception(-32000, "Connection closed")
+        return "ok"
+
+    rt._call_once = fake_call_once  # type: ignore[method-assign]
+
+    out = await rt.call_tool("some_tool", {})
+    assert out == "ok"
+    assert state["calls"] == 2
+    assert state["restarts"] == 1
 
 
 @pytest.mark.asyncio
