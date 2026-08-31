@@ -58,6 +58,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:AU-KG.backend.declared-columns-so-schema) |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Postgres schema |
 | `AGENT_UTILITIES_{CONFIG,DATA,CACHE,LOG,MEMORY,RUNTIME}_DIR` | XDG | Path overrides (resolved in `core/paths.py`) |
+| `AGENT_UTILITIES_HOST_INVENTORY` | unset | JSON object mapping exact canonical host identities to abstract capability roles for host-scoped resource admission; malformed, missing, or unknown identities fail closed. Read live via `setting()` in `governance/lanes.py`. |
 | `AGENT_UTILITIES_TOKEN_SECRET` | — | Run-scoped tool-token secret |
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
 | `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:AU-OS.state.unified-durable-state-externalization) |

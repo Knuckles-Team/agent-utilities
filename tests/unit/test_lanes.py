@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os
 import subprocess
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,7 @@ def _init_repo(root: Path) -> Path:
     """A canonical checkout on `main` carrying an empty concept ledger."""
     root.mkdir(parents=True, exist_ok=True)
     _run(["git", "init", "-b", "main"], root)
-    _run(["git", "config", "user.email", "lane@test"], root)
+    _run(["git", "config", "user.email", "test@example.invalid"], root)
     _run(["git", "config", "user.name", "Lane Test"], root)
     (root / "agent_utilities").mkdir(exist_ok=True)
     (root / "docs").mkdir(exist_ok=True)
@@ -85,6 +86,11 @@ def _isolate_workspace_arbitration_dir(
     real lease file, since they all pass through the same un-isolated function.
     """
     workspace_dir = tmp_path / "workspace-arbitration"
+    monkeypatch.setenv(
+        lanes.HOST_INVENTORY_ENV,
+        '{"host-primary":["heavy"],"host-secondary":["heavy"],'
+        '"host-light":["light-only"],"host-gpu":["gpu-guarded"]}',
+    )
 
     def _fake_workspace_arbitration_dir() -> Path:
         workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -345,12 +351,14 @@ def test_guarded_tree_mutation_refuses_and_releases(canonical: Path) -> None:
     assert lanes.lease_status("canonical-mutation", lane) is None
 
 
-def test_lease_reclaims_a_dead_holder(canonical: Path) -> None:
+def test_lease_reclaims_a_dead_holder(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A crashed lane must not wedge the workspace forever."""
-    lease_dir = lanes.lane_scope(canonical).arbitration_dir / "leases"
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "host-primary")
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
     lease_dir.mkdir(parents=True, exist_ok=True)
     import json
-    import socket
 
     (lease_dir / "dependency-lock.lease").write_text(
         json.dumps(
@@ -359,7 +367,7 @@ def test_lease_reclaims_a_dead_holder(canonical: Path) -> None:
                 "lane": "ghost",
                 "operation": "crashed",
                 "pid": 2**22,  # above any live pid on Linux
-                "host": socket.gethostname(),
+                "host": "host-primary",
                 "expires_at": "2999-01-01T00:00:00+00:00",
             }
         ),
@@ -370,17 +378,143 @@ def test_lease_reclaims_a_dead_holder(canonical: Path) -> None:
         pass
 
 
-def test_expired_lease_is_reclaimed(canonical: Path) -> None:
+def test_expired_lease_is_reclaimed(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "host-primary")
     with pytest.raises(lanes.LeaseUnavailable):
         with lanes.hold_lease("dependency-lock", operation="a", path=canonical):
             with lanes.hold_lease("dependency-lock", operation="b", path=canonical):
                 pass
+    import json
+
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    (lease_dir / "dependency-lock.lease").write_text(
+        json.dumps(
+            {
+                "name": "dependency-lock",
+                "lane": "expired",
+                "operation": "expired holder",
+                "pid": os.getpid(),
+                "host": "host-primary",
+                "expires_at": "2000-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Expired evidence is reclaimable; new leases themselves must use a valid TTL.
+    with lanes.hold_lease("dependency-lock", operation="b", path=canonical):
+        pass
+
+
+def test_lease_ttl_is_positive_and_bounded(canonical: Path) -> None:
+    for ttl_seconds in (0, -1, lanes.MAX_LEASE_TTL_SECONDS + 1, True):
+        with pytest.raises(lanes.LaneArbitrationError, match="ttl_seconds"):
+            with lanes.hold_lease(
+                "dependency-lock",
+                operation="invalid ttl",
+                ttl_seconds=ttl_seconds,
+                path=canonical,
+            ):
+                pass
+
+
+def test_verification_receipts_require_exact_booleans(
+    canonical: Path, tmp_path: Path
+) -> None:
+    for api in (lanes.hold_lease, lanes.hold_resource_lease):
+        for field in ("reboot_verified", "nvml_verified"):
+            output = tmp_path / f"{field}-{api.__name__}.log"
+            kwargs: dict[str, object] = {
+                field: "true",
+                "host_id": "host-primary",
+                "output_path": output,
+                "path": canonical,
+            }
+            with pytest.raises(lanes.LaneArbitrationError, match="exact boolean"):
+                with api("cpu-heavy", operation="string receipt", **kwargs):
+                    pytest.fail("a truthy string receipt was admitted")
+            assert not output.exists()
+
+
+def test_legacy_lease_does_not_require_host_inventory(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(lanes.HOST_INVENTORY_ENV, raising=False)
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "legacy-host")
     with lanes.hold_lease(
-        "dependency-lock", operation="a", ttl_seconds=-1, path=canonical
-    ):
-        # Already expired, so a second lane may proceed rather than wedge.
-        with lanes.hold_lease("dependency-lock", operation="b", path=canonical):
+        "dependency-lock", operation="legacy path", path=canonical
+    ) as record:
+        assert record["host"] == "legacy-host"
+
+
+def test_malformed_host_is_not_reclaimed_even_when_expired(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "host-primary")
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    lease_file = lease_dir / "dependency-lock.lease"
+    lease_file.write_text(
+        json.dumps(
+            {
+                "name": "dependency-lock",
+                "lane": "malformed-host",
+                "operation": "must remain visible",
+                "pid": os.getpid(),
+                "host": "host-primary.example",
+                "expires_at": "2000-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    holder = lanes.lease_status("dependency-lock", canonical)
+    assert holder is not None
+    assert holder["host"] == "host-primary.example"
+    with pytest.raises(lanes.LeaseUnavailable):
+        with lanes.hold_lease(
+            "dependency-lock", operation="must defer", path=canonical
+        ):
             pass
+    lease_file.unlink()
+
+
+def test_cross_host_expiry_is_not_reclaimed_locally(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "host-primary")
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    lease_file = lease_dir / "dependency-lock.lease"
+    lease_file.write_text(
+        json.dumps(
+            {
+                "name": "dependency-lock",
+                "lane": "remote-expired",
+                "operation": "remote holder must remain visible",
+                "pid": os.getpid(),
+                "host": "host-secondary",
+                "host_identity": "host-secondary",
+                "expires_at": "2000-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    holder = lanes.lease_status("dependency-lock", canonical)
+    assert holder is not None
+    assert holder["host_identity"] == "host-secondary"
+    with pytest.raises(lanes.LeaseUnavailable):
+        with lanes.hold_lease(
+            "dependency-lock", operation="must defer", path=canonical
+        ):
+            pass
+    assert lease_file.exists()
+    lease_file.unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -774,6 +908,553 @@ def test_every_known_collision_resource_is_classified() -> None:
     assert all(r.evidence.strip() for r in lanes.resource_rules())
 
 
+def test_host_resource_policy_preserves_light_capacity_and_fails_closed(
+    canonical: Path, tmp_path: Path
+) -> None:
+    assert lanes.resource_class("light-check") is lanes.ArbitrationClass.LEASE
+    light_rule = next(r for r in lanes.resource_rules() if r.name == "light-check")
+    assert light_rule.capacity == lanes.LIGHT_LANE_COUNT == 32
+    with lanes.hold_lease(
+        "cpu-heavy",
+        operation="primary heavy",
+        host_id="host-primary",
+        output_path=tmp_path / "primary.log",
+        path=canonical,
+    ):
+        secondary_output = tmp_path / "secondary.log"
+        secondary_output.write_bytes(b"active evidence")
+        with pytest.raises(lanes.LeaseUnavailable):
+            with lanes.hold_lease(
+                "cpu-heavy",
+                operation="second heavy",
+                host_id="host-secondary",
+                output_path=secondary_output,
+                path=canonical,
+            ):
+                pytest.fail("host-heavy admission ignored the active slot")
+        assert secondary_output.read_bytes() == b"active evidence"
+    with pytest.raises(lanes.LaneArbitrationError, match="light-only"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="light host heavy",
+            host_id="host-light",
+            output_path=tmp_path / "light.log",
+            path=canonical,
+        ):
+            pass
+    with pytest.raises(lanes.LaneArbitrationError, match="light-only"):
+        with lanes.hold_lease(
+            "gpu-heavy",
+            operation="unverified gpu host",
+            host_id="host-gpu",
+            host_health="healthy",
+            output_path=tmp_path / "gpu-unverified.log",
+            path=canonical,
+        ):
+            pass
+    with lanes.hold_lease(
+        "gpu-heavy",
+        operation="verified gpu host",
+        host_id="host-gpu",
+        host_health="healthy",
+        reboot_verified=True,
+        nvml_verified=True,
+        output_path=tmp_path / "gpu-verified.log",
+        path=canonical,
+    ):
+        pass
+    assert lanes.resolve_host_identity("HOST-PRIMARY").casefold() == "host-primary"
+    for invalid_host in ("unknown", "host-primary.example", "host-unknown"):
+        with pytest.raises(lanes.HostIdentityUnavailable):
+            lanes.resolve_host_identity(invalid_host)
+
+
+def _admit_host_resource(
+    canonical: Path,
+    tmp_path: Path,
+    resource: str,
+    *,
+    host_id: str,
+    host_health: str | None,
+    reboot_verified: bool,
+    nvml_verified: bool,
+) -> bool:
+    try:
+        with lanes.hold_lease(
+            resource,
+            operation="matrix admission",
+            host_id=host_id,
+            host_health=host_health,
+            reboot_verified=reboot_verified,
+            nvml_verified=nvml_verified,
+            output_path=tmp_path / f"{resource}.log",
+            path=canonical,
+        ):
+            pass
+    except lanes.LaneArbitrationError:
+        return False
+    return True
+
+
+def test_gpu_guarded_admission_matrix_is_fail_closed(
+    canonical: Path, tmp_path: Path
+) -> None:
+    heavy_resources = (
+        "cpu-heavy",
+        "memory-heavy",
+        "global-scanner-build",
+    )
+    verification = ((False, False), (False, True), (True, False), (True, True))
+    for host_health in (None, "unhealthy", "healthy"):
+        for reboot_verified, nvml_verified in verification:
+            verified = reboot_verified and nvml_verified
+            for resource in heavy_resources:
+                assert (
+                    _admit_host_resource(
+                        canonical,
+                        tmp_path,
+                        resource,
+                        host_id="host-gpu",
+                        host_health=host_health,
+                        reboot_verified=reboot_verified,
+                        nvml_verified=nvml_verified,
+                    )
+                    == verified
+                )
+            assert _admit_host_resource(
+                canonical,
+                tmp_path,
+                "gpu-heavy",
+                host_id="host-gpu",
+                host_health=host_health,
+                reboot_verified=reboot_verified,
+                nvml_verified=nvml_verified,
+            ) == (verified and host_health == "healthy")
+
+
+def test_light_lease_admits_32_and_defers_the_33rd(canonical: Path) -> None:
+    with ExitStack() as held:
+        for index in range(lanes.LIGHT_LANE_COUNT):
+            held.enter_context(
+                lanes.hold_lease(
+                    "light-check",
+                    operation=f"light-{index}",
+                    host_id="host-primary",
+                    path=canonical,
+                )
+            )
+        assert len(lanes.lease_status("light-check", canonical)) == 32
+        with pytest.raises(lanes.LeaseUnavailable):
+            with lanes.hold_lease(
+                "light-check",
+                operation="light-33",
+                host_id="host-primary",
+                path=canonical,
+            ):
+                pytest.fail("the 33rd light lane acquired a slot")
+    assert lanes.lease_status("light-check", canonical) == []
+
+
+def test_host_heavy_lease_requires_output_serializes_and_logs(
+    canonical: Path, tmp_path: Path
+) -> None:
+    cpu_output = tmp_path / "cpu-heavy.log"
+    global_output = tmp_path / "global-scanner-build.log"
+    with lanes.hold_lease(
+        "cpu-heavy",
+        operation="rust build",
+        host_id="host-primary",
+        output_path=cpu_output,
+        path=canonical,
+    ):
+        assert cpu_output.is_file()
+        assert (
+            lanes.workspace_arbitration_dir() / "leases" / "cpu-heavy.lease"
+        ).exists()
+        with pytest.raises(lanes.LeaseUnavailable):
+            with lanes.hold_lease(
+                "global-scanner-build",
+                operation="global scan",
+                host_id="host-primary",
+                output_path=global_output,
+                path=canonical,
+            ):
+                pytest.fail("a second host-heavy lane acquired the shared gate")
+        log = lanes.resource_log_path().read_text(encoding="utf-8")
+        assert '"event": "acquired"' in log
+        assert '"output_file": "' in log
+    assert '"event": "released"' in lanes.resource_log_path().read_text(
+        encoding="utf-8"
+    )
+
+
+def test_host_heavy_coordination_crash_order_fails_closed(
+    canonical: Path, tmp_path: Path
+) -> None:
+    """A coordinator-only record from a crash must block every heavy class."""
+    import json
+
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    coordination = lease_dir / "host-heavy.lease"
+    coordination.write_text(
+        json.dumps(
+            {
+                "name": "cpu-heavy",
+                "resource": "cpu-heavy",
+                "slot": 0,
+                "capacity": 1,
+                "lane": "crashed-heavy",
+                "operation": "crashed after coordination",
+                "pid": os.getpid(),
+                "host": "host-primary",
+                "host_identity": "host-primary",
+                "acquired_at": "2026-08-30T00:00:00+00:00",
+                "expires_at": "2999-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(lanes.LeaseUnavailable):
+        with lanes.hold_lease(
+            "global-scanner-build",
+            operation="must defer",
+            host_id="host-primary",
+            output_path=tmp_path / "deferred.log",
+            path=canonical,
+        ):
+            pytest.fail("a heavy lane ignored the host-wide coordination lease")
+    holders = lanes.resource_lease_status("global-scanner-build", canonical)
+    assert len(holders) == 1
+    assert holders[0]["resource"] == "cpu-heavy"
+    assert holders[0]["lease_state"] == "coordinator"
+    status = lanes.lease_status("global-scanner-build", canonical)
+    assert status is not None
+    assert status["lease_state"] == "coordinator"
+    assert not (lease_dir / "global-scanner-build.lease").exists()
+    coordination.unlink()
+
+
+def test_host_heavy_slot_write_rolls_back_coordination(
+    canonical: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_publish = lanes._write_exclusive_lease_file
+
+    def fail_slot_write(target: Path, data: str) -> tuple[int, int]:
+        if target.name == "cpu-heavy.lease":
+            raise lanes.LaneArbitrationError("simulated slot write failure")
+        return original_publish(target, data)
+
+    monkeypatch.setattr(lanes, "_write_exclusive_lease_file", fail_slot_write)
+    with pytest.raises(lanes.LaneArbitrationError, match="transaction"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="rollback",
+            host_id="host-primary",
+            output_path=tmp_path / "rollback.log",
+            path=canonical,
+        ):
+            pass
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    assert not (lease_dir / "host-heavy.lease").exists()
+    assert not (lease_dir / "cpu-heavy.lease").exists()
+
+
+def test_lease_publication_rejects_symlink_without_touching_target(
+    tmp_path: Path,
+) -> None:
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    candidate = lease_dir / "cpu-heavy.lease"
+    candidate.symlink_to(tmp_path / "missing-lease-target")
+    with pytest.raises(lanes.LaneArbitrationError, match="without following links"):
+        lanes._write_exclusive_lease_file(candidate, "{}\n")
+    assert candidate.is_symlink()
+    assert not (lease_dir / "host-heavy.lease").exists()
+
+
+def test_lease_publication_rollback_preserves_replacement(
+    canonical: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_publish = lanes._write_exclusive_lease_file
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    candidate = lease_dir / "cpu-heavy.lease"
+    replacement_target = tmp_path / "replacement-lease"
+    replacement_target.write_bytes(b"replacement")
+
+    def replace_slot_after_coordination(target: Path, data: str) -> tuple[int, int]:
+        identity = original_publish(target, data)
+        if target.name == "host-heavy.lease":
+            candidate.symlink_to(replacement_target)
+        return identity
+
+    monkeypatch.setattr(
+        lanes, "_write_exclusive_lease_file", replace_slot_after_coordination
+    )
+    with pytest.raises(lanes.LaneArbitrationError, match="transaction"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="replacement during publication",
+            host_id="host-primary",
+            output_path=tmp_path / "replacement-output.log",
+            path=canonical,
+        ):
+            pytest.fail("replacement race was admitted")
+    assert candidate.is_symlink()
+    assert replacement_target.read_bytes() == b"replacement"
+    assert not (lease_dir / "host-heavy.lease").exists()
+
+
+def test_output_open_failure_rolls_back_published_lease(
+    canonical: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_output_open(_target: Path, _truncate: bool) -> int:
+        raise OSError("simulated output open failure")
+
+    monkeypatch.setattr(lanes, "_open_output_target", fail_output_open)
+    output = tmp_path / "late-output.log"
+    with pytest.raises(lanes.LaneArbitrationError, match="cannot open"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="output failure after admission",
+            host_id="host-primary",
+            output_path=output,
+            path=canonical,
+        ):
+            pytest.fail("output failure did not roll back admission")
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    assert not (lease_dir / "host-heavy.lease").exists()
+    assert not (lease_dir / "cpu-heavy.lease").exists()
+    assert not output.exists()
+
+
+def test_heavy_output_boundary_rejects_links_and_caps_writes(
+    canonical: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "target.log"
+    target.write_bytes(b"target")
+    symlink = tmp_path / "symlink.log"
+    symlink.symlink_to(target)
+    with pytest.raises(lanes.LaneArbitrationError, match="symlink"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="symlink output",
+            host_id="host-primary",
+            output_path=symlink,
+            path=canonical,
+        ):
+            pass
+
+    hardlink = tmp_path / "hardlink.log"
+    os.link(target, hardlink)
+    with pytest.raises(lanes.LaneArbitrationError, match="hard links"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="hardlink output",
+            host_id="host-primary",
+            output_path=hardlink,
+            path=canonical,
+        ):
+            pass
+
+    with pytest.raises(lanes.LaneArbitrationError, match="regular file"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="directory output",
+            host_id="host-primary",
+            output_path=tmp_path,
+            path=canonical,
+        ):
+            pass
+
+    fifo = tmp_path / "output.fifo"
+    os.mkfifo(fifo)
+    with pytest.raises(lanes.LaneArbitrationError, match="regular file"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="fifo output",
+            host_id="host-primary",
+            output_path=fifo,
+            path=canonical,
+        ):
+            pass
+
+    with pytest.raises(lanes.LaneArbitrationError, match="regular file"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="device output",
+            host_id="host-primary",
+            output_path=Path("/dev/null"),
+            path=canonical,
+        ):
+            pass
+
+    bounded = tmp_path / "bounded.log"
+    with lanes.open_resource_output(bounded, max_bytes=32, truncate=False) as sink:
+        with pytest.raises(lanes.LaneArbitrationError, match="exceeds"):
+            sink.write(b"x" * 64)
+    assert bounded.read_bytes() == b""
+
+    short = tmp_path / "short.log"
+    with lanes.open_resource_output(short, max_bytes=32, truncate=True) as sink:
+        sink.write(b"short")
+    assert short.read_bytes() == b"short"
+
+    refused = tmp_path / "refused.log"
+    with lanes.open_resource_output(refused, max_bytes=8, truncate=False) as sink:
+        sink.write(b"1234")
+        with pytest.raises(lanes.LaneArbitrationError, match="exceeds"):
+            sink.write(b"56789")
+    assert refused.read_bytes() == b"1234"
+
+    streamed = tmp_path / "streamed.log"
+    with lanes.open_resource_output(streamed, max_bytes=8, truncate=True) as sink:
+        sink.write(b"1234")
+        assert streamed.read_bytes() == b"1234"
+        sink.write(b"56789")
+        assert streamed.read_bytes() == b"12345678"
+    assert streamed.read_bytes() == b"12345678"
+
+    with pytest.raises(lanes.LaneArbitrationError, match="not stdout"):
+        with lanes.hold_lease(
+            "cpu-heavy",
+            operation="stdout output",
+            host_id="host-primary",
+            output_path="-",
+            path=canonical,
+        ):
+            pass
+
+
+def test_cli_bounded_streaming_honors_truncate_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+    from contextlib import contextmanager
+
+    opened: dict[str, object] = {}
+
+    @contextmanager
+    def fake_output(
+        output_path: Path | str,
+        *,
+        max_bytes: int,
+        truncate: bool,
+    ):
+        opened["path"] = output_path
+        opened["max_bytes"] = max_bytes
+        opened["truncate"] = truncate
+        yield object()
+
+    @contextmanager
+    def fake_hold(*_args: object, **_kwargs: object):
+        yield {
+            "lane": "cli-test",
+            "output_max_bytes": 8,
+            "output_truncate": False,
+        }
+
+    monkeypatch.setattr(lanes, "hold_lease", fake_hold)
+    monkeypatch.setattr(lanes, "open_resource_output", fake_output)
+    monkeypatch.setattr(au_cli, "_run_bounded_command", lambda command, sink: 0)
+    args = argparse.Namespace(
+        resource="cpu-heavy",
+        operation="configured output",
+        lease_ttl=60,
+        command_args=[sys.executable, "-c", "pass"],
+        output_file=str(tmp_path / "configured.log"),
+        host_id="host-primary",
+        host_health="",
+        reboot_verified=False,
+        nvml_verified=False,
+    )
+    result = au_cli._lane_lease(lanes, args, None)
+    assert result["exit_code"] == 0
+    assert opened["max_bytes"] == 8
+    assert opened["truncate"] is False
+
+
+def test_cli_bounded_streaming_writes_content_during_execution(tmp_path: Path) -> None:
+    import sys
+
+    output = tmp_path / "streamed-cli.log"
+    with lanes.open_resource_output(output, max_bytes=8, truncate=True) as sink:
+        assert (
+            au_cli._run_bounded_command(
+                [sys.executable, "-c", "import sys; sys.stdout.write('0123456789')"],
+                sink,
+            )
+            == 0
+        )
+        assert output.read_bytes() == b"01234567"
+    assert output.read_bytes() == b"01234567"
+
+
+def test_heavy_candidate_orphan_surfaces_in_normal_and_cli_status(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    monkeypatch.setattr(lanes.socket, "gethostname", lambda: "host-primary")
+    lease_dir = lanes.workspace_arbitration_dir() / "leases"
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    candidate = lease_dir / "cpu-heavy.lease"
+    candidate.write_text(
+        json.dumps(
+            {
+                "name": "cpu-heavy",
+                "resource": "cpu-heavy",
+                "slot": 0,
+                "capacity": 1,
+                "lane": "orphaned-heavy",
+                "operation": "candidate only",
+                "pid": os.getpid(),
+                "host": "host-primary",
+                "host_identity": "host-primary",
+                "acquired_at": "2026-08-30T00:00:00+00:00",
+                "expires_at": "2999-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = lanes.lane_report(canonical)
+    assert report["leases"]["global-scanner-build"]["resource"] == "cpu-heavy"
+    assert report["leases"]["global-scanner-build"]["lease_state"] == "orphan"
+    exit_code = au_cli.main(
+        [
+            "lane",
+            "lease",
+            "--path",
+            str(canonical),
+            "--resource",
+            "global-scanner-build",
+        ]
+    )
+    assert exit_code == 0
+    import json as json_module
+
+    cli_status = json_module.loads(capsys.readouterr().out)
+    assert cli_status["holder"]["resource"] == "cpu-heavy"
+    assert cli_status["holder"]["lease_state"] == "orphan"
+    candidate.unlink()
+
+
+def test_lane_cli_dispatches_lease_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_lease(lanes_module: object, args: argparse.Namespace, path: str | None):
+        seen["module"] = lanes_module
+        seen["args"] = args
+        seen["path"] = path
+        return {"dispatched": True}
+
+    monkeypatch.setattr(au_cli, "_lane_lease", fake_lease)
+    args = argparse.Namespace(lane_action="lease", path="")
+    assert au_cli._lane(args) == {"dispatched": True}
+    assert seen["path"] is None
+
+
 def test_an_unclassified_resource_is_a_hard_error() -> None:
     with pytest.raises(
         lanes.LaneArbitrationError, match="unclassified shared resource"
@@ -869,7 +1550,7 @@ def _init_foreign_repo(root: Path, *, with_cargo: bool = False) -> Path:
     """A repo wholly unrelated to agent-utilities — the reach proof needs one."""
     root.mkdir(parents=True, exist_ok=True)
     _run(["git", "init", "-b", "main"], root)
-    _run(["git", "config", "user.email", "foreign@test"], root)
+    _run(["git", "config", "user.email", "foreign@example.invalid"], root)
     _run(["git", "config", "user.name", "Foreign Test"], root)
     if with_cargo:
         (root / "Cargo.toml").write_text(

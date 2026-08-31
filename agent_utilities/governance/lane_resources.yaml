@@ -10,6 +10,13 @@
 #   read-only    forbid the mutation entirely    -> require_mutable_tree() /
 #                                                   require_resettable_tree()
 #
+# Host-scoped lease rows may add `capacity`, `host_scoped`,
+# `requires_output_file`, `requires_healthy_host`, and a bounded output policy
+# (`output_max_bytes`, `output_truncate`); they remain leases, not a scheduler or
+# a second native reservation ledger. Runtime configuration supplies the exact
+# canonical host keys and abstract capability roles through
+# `AGENT_UTILITIES_HOST_INVENTORY`; tracked policy never embeds host labels.
+#
 # `evidence` is the real collision this row exists to prevent — every one of
 # these was observed, not hypothesised. Adding a resource is a row here, never a
 # new mechanism.
@@ -254,3 +261,78 @@ resources:
       share-running-local/autostart-shared-supervised) — splitting it per lane
       would defeat the sharing it exists for, unlike the cargo target dir, which
       should never have been shared at all.
+
+  # Interim host-scoped admission (R26). These are bounded lease slots, not a
+  # second scheduler or a replacement for native resource reservations. The
+  # external gate deliberately starts with one active heavy lane per host until
+  # the durable reservation authority has verified capacity.
+  - name: light-check
+    class: lease
+    scope: workspace
+    host_scoped: true
+    capacity: 32
+    mechanism: hold_resource_lease("light-check")
+    evidence: >-
+      The fleet preserves 32 logical light lanes; a light check must have a
+      bounded slot so heavy CPU, memory, GPU, and global scanner/build work
+      cannot silently consume the light lane budget.
+
+  - name: cpu-heavy
+    class: lease
+    scope: workspace
+    host_scoped: true
+    capacity: 1
+    requires_output_file: true
+    output_max_bytes: 16777216
+    output_truncate: true
+    mechanism: hold_resource_lease("cpu-heavy")
+    evidence: >-
+      Native capacity evidence is incomplete, so the interim host gate admits
+      one CPU-heavy lane at a time. Runtime inventory may carry a measured
+      upper bound for a compute-capable role, but the higher bound is not
+      enabled here until durable reservations and preflight evidence are
+      authoritative.
+
+  - name: memory-heavy
+    class: lease
+    scope: workspace
+    host_scoped: true
+    capacity: 1
+    requires_output_file: true
+    output_max_bytes: 16777216
+    output_truncate: true
+    mechanism: hold_resource_lease("memory-heavy")
+    evidence: >-
+      Memory pressure is not safely represented by the stale duplicate profile;
+      the interim policy therefore admits one memory-heavy lane and records its
+      output in a file until native reservations provide current accounting.
+
+  - name: gpu-heavy
+    class: lease
+    scope: workspace
+    host_scoped: true
+    capacity: 1
+    requires_output_file: true
+    requires_healthy_host: true
+    output_max_bytes: 16777216
+    output_truncate: true
+    mechanism: hold_resource_lease("gpu-heavy")
+    evidence: >-
+      GPU work is exclusive and fail-closed on health. A runtime inventory entry
+      with the gpu-guarded role remains disabled for GPU/heavy admission until
+      a reboot and NVML verification are supplied; an unhealthy or unknown
+      host never receives this lease.
+
+  - name: global-scanner-build
+    class: lease
+    scope: workspace
+    host_scoped: true
+    capacity: 1
+    requires_output_file: true
+    output_max_bytes: 16777216
+    output_truncate: true
+    mechanism: hold_resource_lease("global-scanner-build")
+    evidence: >-
+      Global scanner/build jobs touch host-wide state and must serialize with
+      one lease. Their stdout/stderr is required to land in an explicit regular
+      output file so a deferred or failed run leaves file-backed evidence.

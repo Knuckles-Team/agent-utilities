@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
-from agent_utilities.governance.lanes import is_pid_alive
+from agent_utilities.governance.lanes import LaneArbitrationError, is_pid_alive
 from agent_utilities.security.run_token import mint_token
 
 COMPONENTS = ("daemon", "mcp", "gateway")
@@ -249,7 +250,38 @@ def build_parser() -> argparse.ArgumentParser:
     lease_p.add_argument("--resource", default="", help="LEASE-class resource name")
     lease_p.add_argument("--operation", default="", help="why the lease is being taken")
     lease_p.add_argument(
-        "--ttl", dest="lease_ttl", type=int, default=1_800, help="lease TTL seconds"
+        "--ttl",
+        dest="lease_ttl",
+        type=int,
+        default=1_800,
+        help="positive lease TTL seconds (maximum 86400)",
+    )
+    lease_p.add_argument(
+        "--host-id",
+        default="",
+        help="host identity for host-scoped admission (blank uses the local hostname)",
+    )
+    lease_p.add_argument(
+        "--host-health",
+        default="",
+        help="host health evidence; GPU admission requires exactly healthy",
+    )
+    lease_p.add_argument(
+        "--reboot-verified",
+        action="store_true",
+        help="assert the required post-reboot host verification",
+    )
+    lease_p.add_argument(
+        "--nvml-verified",
+        action="store_true",
+        help="assert that NVML has verified the GPU",
+    )
+    lease_p.add_argument(
+        "--output-file",
+        "--output",
+        dest="output_file",
+        default="",
+        help="required file-backed stdout/stderr sink for heavy resources",
     )
     lease_p.add_argument(
         "command_args",
@@ -641,31 +673,45 @@ def _lane_bind_cargo(lanes: Any, path: str | None, force: bool) -> dict[str, Any
         return {"written": False, "refused": str(exc), "exit_code": 1}
 
 
+def _lane_rule_summary(rule: Any, *, include_evidence: bool) -> dict[str, Any]:
+    summary = {
+        "name": rule.name,
+        "class": rule.arbitration.value,
+        "scope": getattr(rule, "scope", "repo"),
+        "capacity": getattr(rule, "capacity", 1),
+        "host_scoped": getattr(rule, "host_scoped", False),
+        "requires_output_file": getattr(rule, "requires_output_file", False),
+        "requires_healthy_host": getattr(rule, "requires_healthy_host", False),
+        "output_max_bytes": getattr(rule, "output_max_bytes", None),
+        "output_truncate": getattr(rule, "output_truncate", None),
+    }
+    if include_evidence:
+        summary["mechanism"] = rule.mechanism
+        summary["evidence"] = rule.evidence
+    return summary
+
+
+def _lane_classify_one(lanes: Any, rules: list[Any], resource: str) -> dict[str, Any]:
+    rule = next((item for item in rules if item.name == resource), None)
+    if rule is None:
+        # Preserve the hard-error vocabulary from the governance module.
+        lanes.resource_class(resource)
+        raise AssertionError("resource_class unexpectedly returned")
+    summary = _lane_rule_summary(rule, include_evidence=False)
+    summary["resource"] = summary.pop("name")
+    return summary
+
+
 def _lane_classify(lanes: Any, resource: str | None) -> dict[str, Any]:
     rules = lanes.resource_rules()
     if resource:
-        return {
-            "resource": resource,
-            "class": lanes.resource_class(resource).value,
-        }
-    return {
-        "resources": [
-            {
-                "name": r.name,
-                "class": r.arbitration.value,
-                "mechanism": r.mechanism,
-                "evidence": r.evidence,
-            }
-            for r in rules
-        ]
-    }
+        return _lane_classify_one(lanes, rules, resource)
+    return {"resources": [_lane_rule_summary(r, include_evidence=True) for r in rules]}
 
 
 def _lane_guard(
     lanes: Any, args: argparse.Namespace, path: str | None
 ) -> dict[str, Any]:
-    import subprocess
-
     command = [a for a in getattr(args, "command_args", []) if a != "--"]
     try:
         if args.reset:
@@ -681,7 +727,9 @@ def _lane_guard(
             with lanes.guarded_tree_mutation(
                 args.reset, operation=args.operation, owner=owner
             ) as scope:
-                completed = subprocess.run(command, check=False)  # noqa: S603
+                completed: subprocess.CompletedProcess[Any] = subprocess.run(
+                    command, check=False
+                )  # noqa: S603
             return {
                 "allowed": True,
                 "target": str(scope.tree),
@@ -694,11 +742,100 @@ def _lane_guard(
         return {"allowed": False, "refused": str(exc), "exit_code": 1}
 
 
-def _lane_lease(
-    lanes: Any, args: argparse.Namespace, path: str | None
-) -> dict[str, Any]:
-    import subprocess
+def _run_bounded_command(command: list[str], sink: Any) -> int:
+    """Stream combined child output through the bounded writer while it runs."""
+    process = subprocess.Popen(  # noqa: S603
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+    )
+    output = process.stdout
+    try:
+        if output is None:  # pragma: no cover - Popen(PIPE) always supplies it
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            raise RuntimeError("bounded command has no stdout pipe")
+        try:
+            for chunk in iter(lambda: output.read(64 * 1024), b""):
+                sink.write(chunk)
+        except (LaneArbitrationError, OSError):
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            raise
+        return process.wait()
+    finally:
+        if output is not None:
+            output.close()
 
+
+def _lane_command(args: argparse.Namespace) -> list[str]:
+    return [a for a in getattr(args, "command_args", []) if a != "--"]
+
+
+def _lease_output_settings(lanes: Any, held: dict[str, Any]) -> tuple[int, bool]:
+    configured_max: object = held.get("output_max_bytes")
+    max_bytes: object = (
+        configured_max
+        if configured_max is not None
+        else getattr(lanes, "RESOURCE_OUTPUT_MAX_BYTES", 16 * 1024 * 1024)
+    )
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+        raise LaneArbitrationError("invalid bounded output byte cap")
+    truncate: object = held.get("output_truncate")
+    if not isinstance(truncate, bool):
+        truncate = getattr(lanes, "RESOURCE_OUTPUT_TRUNCATE", True)
+    if not isinstance(truncate, bool):
+        raise LaneArbitrationError("invalid bounded output truncate policy")
+    return max_bytes, truncate
+
+
+def _run_lease_process(
+    lanes: Any,
+    command: list[str],
+    output_file: str | None,
+    held: dict[str, Any],
+) -> subprocess.CompletedProcess[Any]:
+    completed: subprocess.CompletedProcess[Any]
+    if output_file:
+        max_bytes, truncate = _lease_output_settings(lanes, held)
+        with lanes.open_resource_output(
+            output_file, max_bytes=max_bytes, truncate=truncate
+        ) as sink:
+            exit_code = _run_bounded_command(command, sink)
+            completed = subprocess.CompletedProcess(command, exit_code)
+    else:
+        completed = subprocess.run(command, check=False)  # noqa: S603
+    return completed
+
+
+def _hold_lease_command(
+    lanes: Any,
+    args: argparse.Namespace,
+    path: str | None,
+    command: list[str],
+    output_file: str | None,
+) -> tuple[dict[str, Any], subprocess.CompletedProcess[Any]]:
+    with lanes.hold_lease(
+        args.resource,
+        operation=args.operation,
+        ttl_seconds=args.lease_ttl,
+        path=path,
+        host_id=getattr(args, "host_id", "") or None,
+        host_health=getattr(args, "host_health", "") or None,
+        reboot_verified=getattr(args, "reboot_verified", False),
+        nvml_verified=getattr(args, "nvml_verified", False),
+        output_path=output_file,
+    ) as held:
+        completed = _run_lease_process(lanes, command, output_file, held)
+    return held, completed
+
+
+def _lane_lease_validation(
+    lanes: Any, args: argparse.Namespace
+) -> dict[str, Any] | None:
     if not args.resource:
         return {"exit_code": 2, "error": "lease requires --resource"}
     if lanes.resource_class(args.resource) is not lanes.ArbitrationClass.LEASE:
@@ -706,28 +843,56 @@ def _lane_lease(
             "exit_code": 2,
             "error": f"{args.resource} is not a LEASE-class resource",
         }
-    command = [a for a in getattr(args, "command_args", []) if a != "--"]
+    return None
+
+
+def _lane_lease_status(
+    lanes: Any,
+    args: argparse.Namespace,
+    path: str | None,
+    command: list[str],
+) -> dict[str, Any] | None:
     if not command:
         return {
             "resource": args.resource,
             "holder": lanes.lease_status(args.resource, path),
         }
+    return None
+
+
+def _run_lane_lease(
+    lanes: Any,
+    args: argparse.Namespace,
+    path: str | None,
+    command: list[str],
+) -> dict[str, Any]:
+    output_file = getattr(args, "output_file", "") or None
     try:
-        with lanes.hold_lease(
-            args.resource,
-            operation=args.operation,
-            ttl_seconds=args.lease_ttl,
-            path=path,
-        ) as held:
-            completed = subprocess.run(command, check=False)  # noqa: S603
+        held, completed = _hold_lease_command(lanes, args, path, command, output_file)
         return {
             "resource": args.resource,
             "held_by": held["lane"],
             "command": command,
+            "output_file": str(output_file) if output_file else None,
             "exit_code": completed.returncode,
         }
     except lanes.LeaseUnavailable as exc:
         return {"deferred": True, "holder": exc.holder, "exit_code": 75}
+    except lanes.LaneArbitrationError as exc:
+        return {"deferred": False, "refused": str(exc), "exit_code": 1}
+
+
+def _lane_lease(
+    lanes: Any, args: argparse.Namespace, path: str | None
+) -> dict[str, Any]:
+    validation = _lane_lease_validation(lanes, args)
+    if validation is not None:
+        return validation
+    command = _lane_command(args)
+    status = _lane_lease_status(lanes, args, path, command)
+    if status is not None:
+        return status
+    return _run_lane_lease(lanes, args, path, command)
 
 
 def _lane(args: argparse.Namespace) -> dict[str, Any]:
@@ -741,22 +906,20 @@ def _lane(args: argparse.Namespace) -> dict[str, Any]:
 
     path = args.path or None
     action = args.lane_action
-    if action == "status":
-        return lanes.lane_report(path)
-    if action == "env":
-        return _lane_env(lanes, path)
-    if action == "park":
-        return lanes.park_worktree(path)
-    if action == "unpark":
-        return lanes.unpark_worktree(path)
-    if action == "bind-cargo":
-        return _lane_bind_cargo(lanes, path, args.force)
-    if action == "classify":
-        return _lane_classify(lanes, args.resource)
-    if action == "guard":
-        return _lane_guard(lanes, args, path)
-    # lease
-    return _lane_lease(lanes, args, path)
+    handlers: dict[str, Callable[[], dict[str, Any]]] = {
+        "status": lambda: lanes.lane_report(path),
+        "env": lambda: _lane_env(lanes, path),
+        "park": lambda: lanes.park_worktree(path),
+        "unpark": lambda: lanes.unpark_worktree(path),
+        "bind-cargo": lambda: _lane_bind_cargo(lanes, path, args.force),
+        "classify": lambda: _lane_classify(lanes, args.resource),
+        "guard": lambda: _lane_guard(lanes, args, path),
+        "lease": lambda: _lane_lease(lanes, args, path),
+    }
+    handler = handlers.get(action)
+    if handler is None:
+        return {"exit_code": 2, "error": f"unknown lane action: {action}"}
+    return handler()
 
 
 def _merge_queue(args: argparse.Namespace) -> dict[str, Any]:

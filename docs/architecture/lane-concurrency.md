@@ -13,7 +13,7 @@ rules. It classifies each shared resource into one of four classes and gives eac
 class one mechanism that makes the dangerous path **fail loudly** instead of
 silently succeeding.
 
-Implementation: [`agent_utilities/governance/lanes.py`](https://github.com/knuckles-team/agent-utilities)
+Implementation: [`agent_utilities/governance/lanes.py`](../../agent_utilities/governance/lanes.py)
 (CONCEPT:AU-OS.governance.lane-arbitration-classes). Classification data:
 `agent_utilities/governance/lane_resources.yaml`. Enforcement:
 `scripts/check_lane_guard.py`, wired as the `lane-guard` pre-commit hook.
@@ -66,10 +66,95 @@ fail to exclude the actor that collides with you.
 | reconciliation merge | LEASE | repo | 26 commits stranded on a detached HEAD with no ref |
 | canonical mutation | LEASE | repo | `git checkout` on a dirty canonical tree, no guard at all |
 | epistemic-graph daemon | LEASE | **workspace** | 1,234 `ConnectionRefusedError`s in one lane's log while 3 other runs hammered the same shared engine |
+| `light-check` | LEASE | **workspace/host** | Preserve 32 logical light lanes while heavy work is admitted separately |
+| `cpu-heavy` | LEASE | **workspace/host** | Unknown native capacity could let concurrent CPU-heavy builds overcommit a host |
+| `memory-heavy` | LEASE | **workspace/host** | Stale memory evidence could let concurrent jobs push a host into pressure/OOM |
+| `gpu-heavy` | LEASE | **workspace/host** | GPU work must be exclusive and disabled while health is unknown/unhealthy |
+| `global-scanner-build` | LEASE | **workspace/host** | A host-wide scanner/build must not race another global scanner/build |
 | canonical checkout | READ-ONLY | repo | A background actor reset one mid-pre-commit; ~20 minutes lost |
 
 Read it live with `agent-utilities lane classify`. An unregistered resource is a
 hard error, not a default — you must classify a resource before contending for it.
+
+### R26 host-scoped admission — bounded leases, not a scheduler
+
+The five host-scoped rows above are a deliberately small interim admission gate.
+`light-check` has **32 logical slots**. `cpu-heavy`, `memory-heavy`,
+`gpu-heavy`, and `global-scanner-build` each start with one active slot per host;
+they are exclusive until native reservations provide current, durable capacity
+evidence. This gate does not replace the native reservation authority and does
+not schedule, queue, or preempt work.
+
+The interim hardware policy is conservative and explicit: a compute-capable
+runtime role may carry a measured upper bound, but only one heavy lane is
+enabled initially; a preflight may authorize a higher bound only after durable
+reservations and current PSI/disk evidence exist. A `light-only` role never
+receives heavy admission. A `gpu-guarded` role keeps every heavy class disabled
+until both reboot and NVML verification are supplied. The GPU class additionally
+requires host health exactly `healthy`, so an unhealthy or unknown health report
+fails closed. No stale or invented disk capacity is used.
+
+Host identity is resolved from the local hostname only when it is an exact key in
+the operator's runtime inventory. The `AGENT_UTILITIES_HOST_INVENTORY`
+environment setting is a JSON object mapping canonical identity keys to abstract
+roles (`heavy`, `light-only`, or `gpu-guarded`), for example
+`{"compute-primary":["heavy"],"gpu-node":["gpu-guarded"]}`. An
+operator-supplied `host_id` must use that same exact allowlist; unknown labels
+and suffixed names fail closed instead of sharing an `unknown` bucket. New
+leases require a positive TTL no larger than 86,400 seconds. Missing or
+malformed expiry/host evidence is also fail-closed when checking an existing
+lease, and an expired record for another canonical host is never reclaimed
+locally. Lease files live in the host state directory and admission/release
+events append to `logs/resource-leases.jsonl` under that directory.
+
+The inventory is runtime configuration, not a tracked host list. For a local
+operator, set it before invoking host-scoped admission, for example:
+
+```bash
+export AGENT_UTILITIES_HOST_INVENTORY='{"compute-primary":["heavy"],"gpu-node":["gpu-guarded"]}'
+```
+
+An unset, malformed, duplicate, or otherwise invalid inventory denies host
+identity resolution; the process never falls back to a guessed or suffixed
+machine label.
+
+The host-heavy coordination lease is published first, in the same locked
+read-modify-write transaction as the specific resource slot. If the second file
+cannot be written, both files are rolled back; if a process crashes between the
+two writes, the coordination file remains a bounded, fail-closed lease until
+its TTL expires rather than exposing a free slot. Normal `lane status` and
+`lane lease --resource ...` report a capacity-1 heavy holder with
+`lease_state: coordinator`, `slot`, or `orphan`, so a coordinator-only or
+candidate-only crash cannot appear free.
+
+Heavy and global scanner/build commands have an output-to-file rule. Callers
+must provide an explicit regular `output_path` (or CLI `--output-file`); the CLI
+redirects both stdout and stderr there. The default YAML policy caps each output
+at 16 MiB and bounds each write while the command is running; a resource may
+declare a different positive cap. `output_truncate: true` writes the prefix
+that fits and discards the rest, while `false` refuses the overflowing write
+and the CLI reports the refusal. Closing never pads a short file. Symlinks,
+hardlinks, devices, FIFOs, directories, and other non-regular files are
+rejected, and the final open uses no-follow flags. `-`, stdout, and stderr are
+not valid sinks. The JSONL log stores the resource, slot, host identity,
+operation, and output path, never command output or a command body:
+
+```mermaid
+flowchart LR
+    job["heavy / global job"] --> identity["validated host identity"]
+    identity --> slot["bounded lease slot"]
+    slot --> output["explicit output file\nstdout + stderr"]
+    slot --> events["resource-leases.jsonl\nappend-only events"]
+```
+
+For example:
+
+```bash
+agent-utilities lane lease \
+  --resource global-scanner-build \
+  --operation "scanner/build" \
+  --output-file "$TMPDIR/scanner-build.log" -- <command>
+```
 
 ### D-OB-12 — why `pre-commit --all-files` needs a wrapper as well as a lease
 
