@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 378 runtime-only call-site inputs.
+573 typed fields · 378 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -504,6 +504,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENGINE_TLS_SERVER_NAME` | `Union` | `unset` |
 | `ENGINE_LIFECYCLE` | `str` | `refcounted` |
 | `ENGINE_IDLE_SHUTDOWN_SECS` | `int` | `60` |
+| `EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS` | `float` | `300.0` |
 | `PLACEMENT_CATALOG_ENABLED` | `bool` | `True` |
 | `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` | `int` | `256` |
 | `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` | `int` | `4096` |

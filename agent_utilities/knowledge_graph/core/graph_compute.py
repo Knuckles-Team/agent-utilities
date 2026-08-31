@@ -43,11 +43,6 @@ logger = logging.getLogger(__name__)
 # parent dies — used to lifecycle-couple an embedded engine to its spawner.
 _PR_SET_PDEATHSIG = 1
 
-# A full-feature engine may need more than one second to open its durable store
-# and bind its listener on a constrained host. Keep the spawn guard held while
-# polling so another process cannot mistake a healthy cold start for a dead
-# daemon and launch a competing writer.
-_ENGINE_STARTUP_TIMEOUT_SECS = 30.0
 _ENGINE_STARTUP_POLL_SECS = 0.1
 # Bound on how much of a spawned engine's own startup diagnostics is surfaced
 # when it fails to come up (BUG-PE-052).  Only the child's STDERR is captured;
@@ -2878,7 +2873,12 @@ class GraphComputeEngine:
             cmd, child_env, startup_capture, subprocess, coupled=coupled
         )
         return self._await_engine_ready(
-            child, startup_capture, connect_kwargs, time, coupled=coupled
+            child,
+            startup_capture,
+            connect_kwargs,
+            time,
+            startup_timeout_secs=config.epistemic_graph_startup_timeout_secs,
+            coupled=coupled,
         )
 
     def _project_local_bootstrap_identity(self, child_env: dict[str, str]) -> None:
@@ -2907,6 +2907,7 @@ class GraphComputeEngine:
         connect_kwargs: dict[str, Any],
         time: Any,
         *,
+        startup_timeout_secs: float,
         coupled: bool,
     ) -> Any:
         """Poll the freshly spawned engine until it accepts a connection.
@@ -2919,7 +2920,7 @@ class GraphComputeEngine:
         """
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        deadline = time.monotonic() + _ENGINE_STARTUP_TIMEOUT_SECS
+        deadline = time.monotonic() + startup_timeout_secs
         last_error: Exception | None = None
         while True:
             status = child.poll()
@@ -2947,7 +2948,7 @@ class GraphComputeEngine:
                 startup_capture.close()
                 raise ConnectionError(
                     "The local epistemic-graph process did not become ready "
-                    f"within {_ENGINE_STARTUP_TIMEOUT_SECS:g} seconds."
+                    f"within {startup_timeout_secs:g} seconds."
                 ) from last_error
             time.sleep(_ENGINE_STARTUP_POLL_SECS)
 

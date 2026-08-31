@@ -5213,6 +5213,18 @@ class AgentConfig(BaseSettings):
     its last client disconnects. ``<= 0`` (or ``engine_lifecycle=persistent``) →
     NO flag is passed and the engine is long-living (never auto-stops). Default
     60s. The current packaged engine provides this launch contract."""
+
+    epistemic_graph_startup_timeout_secs: float = Field(
+        default=300.0,
+        ge=5.0,
+        le=1800.0,
+        alias="EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS",
+    )
+    """Maximum readiness wait for a locally autostarted engine. Large durable
+    stores and one-time format migrations can legitimately delay listener bind;
+    AgentConfig rejects non-numeric and out-of-range values before any child is
+    spawned. Remote engines are connect-only and do not use this timeout."""
+
     placement_catalog_enabled: bool = Field(
         default=True, alias="PLACEMENT_CATALOG_ENABLED"
     )
