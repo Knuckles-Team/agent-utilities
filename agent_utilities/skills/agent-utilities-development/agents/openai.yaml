@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Utilities Development"
-  short_description: "Develop AU through the registry and isolated lanes"
-  default_prompt: "Use $agent-utilities-development to query the architecture component registry before reviewing or implementing a concrete change in an isolated lane, then prove live wiring and relevant gates."
+  short_description: "RF-021 registry-driven AU development"
+  default_prompt: "Use $agent-utilities-development to apply the RF-021 registry workflow with graph_query, graph_search, and graph_code before a bounded isolated change, then prove live wiring and relevant gates."

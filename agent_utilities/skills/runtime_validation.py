@@ -64,6 +64,76 @@ _MAX_TOOL_ITEMS = 4_096
 _MAX_TOOL_DEPTH = 24
 # Sentinel for "this decoder produced no value", distinct from any JSON value.
 _UNDECODED = object()
+_ARCHITECTURE_SKILL = "agent-utilities-development"
+_ARCHITECTURE_OPERATION_TIMEOUT_SECONDS = 15.0
+# RF-021 keeps the proposal registry, owner manifests, and generated projection
+# as one contract.  These are scenario labels in the synthetic matrix, not a
+# second persisted registry schema.
+_ARCHITECTURE_WORKFLOW_SCENARIOS = (
+    "registry_unavailable",
+    "registry_outdated",
+    "owner_manifest_identity_disagreement",
+    "regeneration_reingestion",
+    "finite_exception_metadata",
+    "caller_deletion_evidence",
+    "concept_discovery_only",
+    "plans_cutover",
+)
+_ARCHITECTURE_LAYOUT_REQUIREMENTS = (
+    "layer_boundary_vs_component",
+    "parent_layer_no_signature_match",
+    "component_owned_roots",
+    "luna_shared_file_exception",
+)
+# Conceptual phases deliberately map to the existing Graph-OS operation names.
+# Local generation, tests, and deletion remain RF-021 evidence obligations; no
+# unsupported Graph-OS verb is invented for them.
+_ARCHITECTURE_PHASE_OPERATIONS = (
+    ("registry_lookup", "graph_query"),
+    ("discovery", "graph_search"),
+    ("caller_impact", "graph_code"),
+)
+_ARCHITECTURE_OPERATION_ARGUMENTS = (
+    (
+        "registry_lookup",
+        "graph_query",
+        (
+            (
+                "cypher",
+                "MATCH (n:ArchitectureComponent) RETURN "
+                "n.component_id AS component_id, "
+                "n.source_workspace_manifest AS source_workspace_manifest, "
+                "n.source_repository_id AS source_repository_id, "
+                "n.source_repository_path AS source_repository_path, "
+                "n.source_manifest_path AS source_manifest_path, "
+                "n.source_revision AS source_revision, "
+                "n.source_digest AS source_digest, "
+                "n.status AS status LIMIT 32",
+            ),
+            ("params", "{}"),
+            ("scope", "local"),
+        ),
+    ),
+    (
+        "discovery",
+        "graph_search",
+        (
+            ("query", "RF-021 architecture component registry"),
+            ("mode", "hybrid"),
+            ("top_k", 8),
+        ),
+    ),
+    (
+        "caller_impact",
+        "graph_code",
+        (
+            ("action", "code_context"),
+            ("query", "architecture component registry live callers"),
+            ("target", "usage"),
+            ("top_k", 8),
+        ),
+    ),
+)
 _TRACE_PAGE_LIMIT = 20
 _TRACE_MAX_PAGES = 10
 _TRACE_TOOL_ERROR_RETRIES = 2
@@ -151,6 +221,15 @@ class ValidationChildToolError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class GraphOperationObservation:
+    """Metadata-only result for one real Graph-OS operation invocation."""
+
+    phase: str
+    operation: str
+    status: str
+
+
+@dataclass(frozen=True)
 class ValidationCase:
     """One synthetic case loaded from the checked-in matrix."""
 
@@ -189,6 +268,7 @@ class CaseResult:
     model_ref: str = ""
     skill_ref: str = ""
     skill_body_ref: str = ""
+    operation_evidence: tuple[GraphOperationObservation, ...] = ()
     error_codes: list[str] = field(default_factory=list)
 
     @property
@@ -861,6 +941,138 @@ async def _call_tool(
     ):
         raise ValidationChildToolError("mcp_tool_error")
     return _decode_tool_result(result)
+
+
+def architecture_phase_operations() -> tuple[tuple[str, str], ...]:
+    """Return RF-021's conceptual phase to Graph-OS operation map."""
+
+    return _ARCHITECTURE_PHASE_OPERATIONS
+
+
+def architecture_workflow_scenarios() -> tuple[str, ...]:
+    """Return the deterministic RF-021 scenario labels in matrix order."""
+
+    return _ARCHITECTURE_WORKFLOW_SCENARIOS + _ARCHITECTURE_LAYOUT_REQUIREMENTS
+
+
+def _architecture_operation_specs() -> tuple[tuple[str, str, dict[str, Any]], ...]:
+    """Build fresh bounded requests for the three real Graph-OS operations."""
+
+    return tuple(
+        (phase, operation, dict(arguments))
+        for phase, operation, arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
+    )
+
+
+def _architecture_response_status(_phase: str, payload: Any) -> str:
+    """Classify a decoded operation response without retaining its contents."""
+
+    if isinstance(payload, dict):
+        nested = payload.get("result")
+        if len(payload) == 1 and isinstance(nested, dict | list | tuple | str):
+            return _architecture_response_status(_phase, nested)
+        if payload.get("isError") or payload.get("is_error"):
+            return "blocked"
+        raw_status = str(payload.get("status") or "").strip().casefold()
+        if raw_status in {
+            "error",
+            "failed",
+            "unavailable",
+            "degraded",
+            "denied",
+            "rejected",
+            "stale",
+            "outdated",
+            "identity_disagreement",
+        } or payload.get("error"):
+            return "blocked"
+        error_code = str(payload.get("error_code") or "").strip().casefold()
+        if error_code in {
+            "registry_unavailable",
+            "registry_outdated",
+            "owner_manifest_identity_disagreement",
+        }:
+            return "blocked"
+        evidence_keys = ("rows", "results", "claims", "anchors", "sections", "data")
+        observed_evidence = False
+        for key in evidence_keys:
+            if key not in payload:
+                continue
+            observed_evidence = True
+            value = payload[key]
+            if value:
+                return "returned"
+        if observed_evidence:
+            return "empty"
+        return "returned" if payload else "empty"
+    if isinstance(payload, list | tuple):
+        return "returned" if payload else "empty"
+    if isinstance(payload, str):
+        normalized = payload.strip().casefold()
+        if not normalized:
+            return "empty"
+        if normalized in {"[]", "{}", "null", "none"}:
+            return "empty"
+        if normalized.startswith(("error:", "unavailable:", "degraded:")):
+            return "blocked"
+        return "returned"
+    return "invalid"
+
+
+async def _capture_architecture_operations(
+    case: ValidationCase,
+    result: CaseResult,
+    *,
+    client: Any,
+    timeout: float,
+) -> tuple[GraphOperationObservation, ...]:
+    """Invoke and capture every RF-021 Graph-OS operation for the dev skill.
+
+    The response body is intentionally reduced to a status and never reaches
+    ``CaseResult`` or any persisted report.  All three calls are attempted so a
+    missing operation cannot be hidden by an earlier failure.
+    """
+
+    if case.skill != _ARCHITECTURE_SKILL:
+        return ()
+
+    required_operations = {
+        operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
+    }
+    if not required_operations.issubset(set(case.expected_routes)):
+        result.add_error("architecture_operation_contract_invalid")
+        result.operation_evidence = ()
+        return ()
+
+    budget = min(_ARCHITECTURE_OPERATION_TIMEOUT_SECONDS, max(1.0, timeout))
+    deadline = time.monotonic() + budget
+    observations: list[GraphOperationObservation] = []
+    for phase, operation, arguments in _architecture_operation_specs():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            observations.append(GraphOperationObservation(phase, operation, "timeout"))
+            continue
+        try:
+            payload = await _call_tool(client, operation, arguments, remaining)
+        except TimeoutError:
+            status = "timeout"
+        except Exception:  # noqa: BLE001 - retain only typed status evidence
+            status = "error"
+        else:
+            status = _architecture_response_status(phase, payload)
+        observations.append(GraphOperationObservation(phase, operation, status))
+
+    captured = tuple(observations)
+    result.operation_evidence = captured
+    if len(captured) != len(_ARCHITECTURE_OPERATION_ARGUMENTS) or any(
+        observation.status != "returned" for observation in captured
+    ):
+        # Missing, stale, empty, or degraded registry evidence is not an
+        # ownership negative.  Keep the case failed until RF-021 regeneration
+        # and re-ingestion restore a positive read.
+        result.add_error("architecture_operation_unavailable")
+        result.add_error("architecture_registry_regenerate_reingest_required")
+    return captured
 
 
 async def _verified_validation_session(
@@ -1775,6 +1987,18 @@ async def _run_direct_case(
     validation_run_id = new_run_id()
     expected_trace_name = _expected_trace_name(validation_run_id, tenant_id)
     try:
+        await _capture_architecture_operations(
+            case,
+            result,
+            client=client,
+            timeout=case_timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 - retain only controlled diagnostics
+        result.add_error(f"architecture_probe_{type(exc).__name__}")
+        return result
+    if result.error_codes:
+        return result
+    try:
         existing = await _trace_snapshot(
             client,
             langfuse_tool,
@@ -1946,6 +2170,14 @@ async def _run_delegated_case(
     expected_trace_name = ""
     expected_trace_evidence: dict[str, str] = {}
     try:
+        await _capture_architecture_operations(
+            case,
+            result,
+            client=client,
+            timeout=case_timeout,
+        )
+        if result.error_codes:
+            return result
         response = await _call_tool(
             client,
             "graph_orchestrate",
@@ -2721,6 +2953,9 @@ async def _prepare_validation_tools(
 
     await _ensure_tool(client, "graph_orchestrate", 30.0)
     await _ensure_tool(client, "graph_query", 30.0)
+    if any(case.skill == _ARCHITECTURE_SKILL for case in cases):
+        await _ensure_tool(client, "graph_search", 30.0)
+        await _ensure_tool(client, "graph_code", 30.0)
     if any(case.mode == "delegated" for case in cases):
         await _ensure_tool(client, "graph_jobs", 30.0)
     langfuse_tool = await _load_langfuse_tool(client, 30.0)

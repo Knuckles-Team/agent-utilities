@@ -28,13 +28,23 @@ pruning; this skill owns what to build and how to prove it.
 ## Architecture component registry — mandatory pre-change workflow
 
 Before adding or changing a capability, query the generated `ArchitectureComponent` /
-`ArchitectureCapability` projection with `graph_query` and `graph_search`, then use
-`graph_code action=code_context` (`target=usage` or `impact`) to find live callers.
-Verify the projected owner-repository source-manifest identity and digest against its
-source. Match candidates by stable component/capability ID **and** their behavioral,
-authority, and dependency signatures; a shared name, concept label, or nearby
-implementation is not identity evidence. The Plans refactor program's RF-021
-architecture-component-registry contract governs this cross-repository projection.
+`ArchitectureCapability` projection with the real Graph-OS operations `graph_query`
+and `graph_search`, then use `graph_code(action=code_context)`
+(`target=usage` or `impact`) to find live callers. These are the operation names the
+runtime validation harness invokes; `code_context` is an action of `graph_code`, not
+a second route. Verify the projected owner-repository source-manifest identity and
+digest against its source. Match candidates by stable component/capability ID **and**
+their behavioral, authority, and dependency signatures; a shared name, concept
+label, or nearby implementation is not identity evidence. The Plans refactor
+program's RF-021 architecture-component-registry contract governs this
+cross-repository projection.
+
+The conceptual phases have one real operation map: registry lookup → `graph_query`,
+discovery → `graph_search`, and caller/impact evidence →
+`graph_code(action=code_context)`. Regeneration and re-ingestion are a governed
+RF-021 handoff after a read detects missing or stale data; they are not invented
+Graph-OS mutation tools. Keep the read bounded, retain only typed/metadata evidence,
+and stop when any required operation is unavailable or degraded.
 
 1. **Resolve before creating.** Find the existing authority and its callers. Extend,
    merge into, or replace it; otherwise obtain a reviewed, finite exception with a
@@ -56,6 +66,27 @@ architecture-component-registry contract governs this cross-repository projectio
 The existing Plans `target_inventory` proposal remains the authority for reference-to-
 target disposition, fresh target population, review/synthesis, cutover, and closure.
 Link registry declarations to that lifecycle; do not create a second target inventory.
+
+### Repository layout and Luna lane ownership
+
+RF-021 distinguishes a layer boundary/root seam from a cohesive implementation
+component. A `layer_boundary_root_seam` is a navigation and coverage root, not a
+monolithic implementation authority. Create an `implementation_component` only
+under its declared `parent_layer` (and `parent_component_id`) after proving that no
+current capability or behavioral, authority, or dependency signature matches. If a
+signature matches, extend, merge, or replace the existing authority instead.
+Every component records finite ownership for `owned_source_roots`,
+`public_contract_roots`, `test_roots`, and isolated `generated_roots`; tests mirror
+the component identity and generated artifacts stay out of handwritten roots.
+
+For Luna lanes, resolve those component-owned roots from the owner manifest before
+editing. Shared roots or shared files are exceptional and limited: each exception
+must use RF-021's finite metadata (`path`, `kind`, `owner_component_ids`,
+`review_policy`, and `exception_id`) with explicit owner review. Do not create a
+component for file count, team shape, a generic concept tag, or convenience, and
+do not let a concept tag confer ownership. The Plans proposal-to-owner-manifest
+cutover is the only authority transition; a missing, outdated, or disagreeing
+manifest remains fail-closed until regeneration and re-ingestion are complete.
 
 ## Workflow
 

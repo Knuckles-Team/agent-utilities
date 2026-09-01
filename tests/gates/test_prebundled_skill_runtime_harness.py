@@ -21,6 +21,10 @@ from pydantic import BaseModel, ValidationError
 import agent_utilities.skills.runtime_validation as runtime_harness
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.skills.runtime_validation import (
+    _ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    _ARCHITECTURE_OPERATION_ARGUMENTS,
+    _ARCHITECTURE_PHASE_OPERATIONS,
+    _ARCHITECTURE_WORKFLOW_SCENARIOS,
     _CASE_COUNT,
     _SKILL_COUNT,
     CaseResult,
@@ -28,6 +32,7 @@ from agent_utilities.skills.runtime_validation import (
     TraceRecord,
     ValidationCase,
     ValidationChildToolError,
+    _capture_architecture_operations,
     _contract_instruction,
     _direct_case_minimum_authority_ttl,
     _direct_execution_prompt,
@@ -1070,6 +1075,135 @@ def test_runtime_matrix_has_two_read_only_cases_per_skill() -> None:
         for case in cases
         if case.mode == "delegated"
     )
+
+
+def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
+    _defaults, cases = load_matrix()
+    development = [case for case in cases if case.skill == "agent-utilities-development"]
+
+    assert {case.mode for case in development} == {"direct", "delegated"}
+    for case in development:
+        task = case.task.casefold()
+        assert set(_ARCHITECTURE_WORKFLOW_SCENARIOS).issubset(
+            {marker for marker in _ARCHITECTURE_WORKFLOW_SCENARIOS if marker in task}
+        )
+        assert set(_ARCHITECTURE_LAYOUT_REQUIREMENTS).issubset(
+            {marker for marker in _ARCHITECTURE_LAYOUT_REQUIREMENTS if marker in task}
+        )
+        assert set(operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS) <= set(
+            case.expected_routes
+        )
+        if case.mode == "direct":
+            assert not case.allowed_tools
+        else:
+            assert case.allowed_tools == ("graph_code", "graph_query", "graph_search")
+
+    assert _ARCHITECTURE_PHASE_OPERATIONS == (
+        ("registry_lookup", "graph_query"),
+        ("discovery", "graph_search"),
+        ("caller_impact", "graph_code"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_architecture_operations_are_loaded_captured_and_fail_closed(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_call(_client, name, arguments, _timeout):
+        calls.append((name, arguments))
+        return {"rows": [{"id": "synthetic"}]}
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", fake_call)
+
+    observations = await _capture_architecture_operations(
+        case,
+        result,
+        client=object(),
+        timeout=1.0,
+    )
+
+    assert [item.operation for item in observations] == [
+        operation for _phase, operation, _arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
+    ]
+    assert all(item.status == "returned" for item in observations)
+    assert result.operation_evidence == observations
+    assert [name for name, _arguments in calls] == [
+        operation for _phase, operation, _arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
+    ]
+    code_call = next(arguments for name, arguments in calls if name == "graph_code")
+    assert code_call["action"] == "code_context"
+    assert code_call["target"] == "usage"
+    assert result.error_codes == []
+
+    async def unavailable_call(_client, name, _arguments, _timeout):
+        if name == "graph_query":
+            return {"rows": []}
+        if name == "graph_search":
+            return []
+        return {"status": "degraded", "error": {"code": "synthetic"}}
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", unavailable_call)
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+    observations = await _capture_architecture_operations(
+        case,
+        result,
+        client=object(),
+        timeout=1.0,
+    )
+
+    assert [item.status for item in observations] == ["empty", "empty", "blocked"]
+    assert result.error_codes == [
+        "architecture_operation_unavailable",
+        "architecture_registry_regenerate_reingest_required",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_validation_tool_preparation_loads_architecture_operations(monkeypatch) -> None:
+    case = _matrix_case("development-direct")
+    ensured: list[str] = []
+
+    async def fake_ensure(_client, tool, _timeout):
+        ensured.append(tool)
+
+    async def fake_langfuse(_client, _timeout):
+        return "langfuse_observability"
+
+    async def fake_verify(_client, _tool, _timeout):
+        return None
+
+    async def fake_snapshot(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(runtime_harness, "_ensure_tool", fake_ensure)
+    monkeypatch.setattr(runtime_harness, "_load_langfuse_tool", fake_langfuse)
+    monkeypatch.setattr(runtime_harness, "_verify_langfuse_posture", fake_verify)
+    monkeypatch.setattr(runtime_harness, "_trace_snapshot", fake_snapshot)
+
+    assert (
+        await runtime_harness._prepare_validation_tools(object(), [case], _TENANT_ID)
+        == "langfuse_observability"
+    )
+    assert ensured[:4] == [
+        "graph_orchestrate",
+        "graph_query",
+        "graph_search",
+        "graph_code",
+    ]
 
 
 def test_economy_validation_omits_nonportable_reasoning_none() -> None:
