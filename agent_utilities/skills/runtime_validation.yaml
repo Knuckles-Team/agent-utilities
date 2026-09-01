@@ -121,17 +121,34 @@ cases:
     skill: agent-utilities-development
     mode: direct
     model_class: standard
-    task: Use $agent-utilities-development at skill://agent-utilities-development to perform a read-only impact review of a synthetic contract rename, tracing its live path and consumers without creating a branch, worktree, edit, or commit.
-    expected_routes: [repository_search, live_path_trace]
+    task: >-
+      Use $agent-utilities-development at skill://agent-utilities-development to
+      perform a read-only review of a proposed synthetic capability: query the
+      generated ArchitectureComponent/ArchitectureCapability projection, verify
+      its owner source-manifest digest, compare stable identity plus behavioral,
+      authority, and dependency signatures, and trace the existing authority,
+      live caller, consumers, and replacement/deletion obligation. Fail closed
+      on stale projection evidence; do not create a branch, worktree, edit, or
+      commit, and never auto-merge by concept label.
+    expected_routes: [graph_query, graph_search, code_context, repository_search, live_path_trace]
     allowed_tools: []
     read_only: true
   - id: development-delegated
     skill: agent-utilities-development
     mode: delegated
     model_class: standard
-    task: Use $agent-utilities-development at skill://agent-utilities-development to produce a review-only split of a synthetic cross-surface change into consumer audit, implementation, and independent test review.
-    expected_routes: [graph_orchestrate, parallel_worktrees, focused_tests, pre_commit]
-    allowed_tools: [graph_query, graph_search]
+    task: >-
+      Use $agent-utilities-development at skill://agent-utilities-development to
+      produce a review-only split of a synthetic cross-surface change into
+      graph_query/graph_search lookup of the generated architecture projection,
+      owner-manifest digest verification, graph_code code_context live-caller
+      tracing, governed RF-021 regeneration/re-ingestion when stale, source-owned
+      declaration and consolidated-view generation, target_inventory lifecycle
+      linkage, consumer audit, same-change redundant-path deletion,
+      implementation, and independent test review. Reject parallel authorities,
+      missing real callers/tests, stale declarations, and concept-label matches.
+    expected_routes: [graph_orchestrate, graph_query, graph_search, graph_code, parallel_worktrees, focused_tests, pre_commit]
+    allowed_tools: [graph_code, graph_query, graph_search]
     read_only: true
   - id: deployment-direct
     skill: agent-utilities-deployment

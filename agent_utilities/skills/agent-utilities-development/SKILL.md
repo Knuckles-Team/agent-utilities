@@ -25,6 +25,38 @@ pruning; this skill owns what to build and how to prove it.
 - Landing, gates, conflicts → `repository-manager-merge-and-reconcile`
 - Waves across many repos, concurrency sizing → `repository-manager-fleet-scale-operations`
 
+## Architecture component registry — mandatory pre-change workflow
+
+Before adding or changing a capability, query the generated `ArchitectureComponent` /
+`ArchitectureCapability` projection with `graph_query` and `graph_search`, then use
+`graph_code action=code_context` (`target=usage` or `impact`) to find live callers.
+Verify the projected owner-repository source-manifest identity and digest against its
+source. Match candidates by stable component/capability ID **and** their behavioral,
+authority, and dependency signatures; a shared name, concept label, or nearby
+implementation is not identity evidence. The Plans refactor program's RF-021
+architecture-component-registry contract governs this cross-repository projection.
+
+1. **Resolve before creating.** Find the existing authority and its callers. Extend,
+   merge into, or replace it; otherwise obtain a reviewed, finite exception with a
+   bounded scope, owner, and expiry or review trigger.
+2. **Update the source-owned declaration.** Declare the stable ID, component
+   contract version and status, owner, layer, boundary, interfaces, stores, policy
+   and identity authorities, dependencies, consumers, entrypoints, tests, gates,
+   acceptance evidence, concept tags, and `merged_from`/`replaces` history. Then
+   generate the consolidated registry view; never hand-edit that projection.
+3. **Prove consolidation in the same change.** Exercise a real caller through the
+   declared entrypoint and delete the redundant implementation, facade, registry,
+   declaration, or route that the new authority replaces.
+4. **Fail closed.** A missing/stale projection or source-digest mismatch does not mean
+   "no owner": stop and regenerate/re-ingest through the governed RF-021 path. Reject
+   concept-only ownership, parallel facades or registries, missing consumers or tests,
+   and stale source declarations. Concepts are many-to-many discovery tags, not
+   component identities, and MUST NEVER trigger automatic merging.
+
+The existing Plans `target_inventory` proposal remains the authority for reference-to-
+target disposition, fresh target population, review/synthesis, cutover, and closure.
+Link registry declarations to that lifecycle; do not create a second target inventory.
+
 ## Workflow
 
 ### 1. Read the governing context

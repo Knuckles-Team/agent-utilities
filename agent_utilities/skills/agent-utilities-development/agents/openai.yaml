@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Utilities Development"
-  short_description: "Review or implement approved agent-utilities changes"
-  default_prompt: "Use $agent-utilities-development to review this concrete change or implement it in isolation once authorized, then prove live wiring and relevant gates."
+  short_description: "Develop AU through the registry and isolated lanes"
+  default_prompt: "Use $agent-utilities-development to query the architecture component registry before reviewing or implementing a concrete change in an isolated lane, then prove live wiring and relevant gates."
