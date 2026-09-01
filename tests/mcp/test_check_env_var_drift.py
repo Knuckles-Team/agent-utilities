@@ -671,3 +671,71 @@ def test_passthrough_helper_call_literals_direct() -> None:
         "B_TOKEN",
     ]
     assert drift._passthrough_helper_call_literals(other_call, {"_any_setting"}) == []
+
+
+def test_direct_setting_forwarder_reads_only_its_name_parameter(tmp_path: Path) -> None:
+    """A typed ``from_env(mapping)`` helper still reads process configuration
+    when no mapping is supplied. Credit its env-name argument without treating an
+    unrelated uppercase default as another environment variable."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nMICROSOFT_TENANT_ID=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n\n"
+            "def _configured_value(env, name, default=None):\n"
+            "    if env is not None:\n"
+            "        return env.get(name, default)\n"
+            "    return setting(name, default)\n\n"
+            '_configured_value(None, "DEMO_BASE_URL", "NOT_AN_ENV_VAR")\n'
+            '_configured_value(None, name="MICROSOFT_TENANT_ID")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    dead = _types(report, "DEAD")
+    assert "DEMO_BASE_URL" not in dead
+    assert "MICROSOFT_TENANT_ID" not in dead
+    assert "NOT_AN_ENV_VAR" not in _types(report, "UNDOCUMENTED")
+
+
+def test_direct_setting_forwarder_still_reports_undocumented_read(
+    tmp_path: Path,
+) -> None:
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n\n"
+            "def _configured_value(env, name, default=None):\n"
+            "    if env is not None:\n"
+            "        return env.get(name, default)\n"
+            "    return setting(name, default)\n\n"
+            '_configured_value(None, "DEMO_BASE_URL")\n'
+            '_configured_value(None, "NEW_PROVIDER_TOKEN")\n'
+        ),
+    )
+    assert "NEW_PROVIDER_TOKEN" in _types(drift.analyze(root), "UNDOCUMENTED")
+
+
+def test_collect_direct_setting_forwarder_and_resolve_call_literal() -> None:
+    tree = ast.parse(
+        "def _configured_value(env, name, default=None):\n"
+        "    return setting(name, default)\n\n"
+        "def _configured_bool(env, name, default=False):\n"
+        "    return bool(_configured_value(env, name, default))\n\n"
+        '_configured_bool(None, "A_TOKEN", "B_TOKEN")\n'
+    )
+    forwarders = drift._collect_direct_setting_forwarders(tree)
+    assert forwarders == {
+        "_configured_bool": ("name", 1),
+        "_configured_value": ("name", 1),
+    }
+    call = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_configured_bool"
+    )
+    assert drift._direct_forwarder_call_literal(call, forwarders) == "A_TOKEN"

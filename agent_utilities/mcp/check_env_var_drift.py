@@ -425,6 +425,151 @@ def _passthrough_helper_call_literals(node: ast.Call, helpers: set[str]) -> list
     return [literal for arg in node.args if (literal := _literal_env_name(arg))]
 
 
+_DirectSettingForwarder = tuple[str, int | None]
+
+
+def _forwarded_call_argument(
+    call: ast.Call, forwarders: dict[str, _DirectSettingForwarder]
+) -> ast.expr | None:
+    """Return the expression a reader/helper receives as its env-name argument."""
+    if _is_env_reader_call(call):
+        return call.args[0] if call.args else None
+    if not isinstance(call.func, ast.Name):
+        return None
+    callee = forwarders.get(call.func.id)
+    if callee is None:
+        return None
+    parameter, position = callee
+    keyword_value = next(
+        (keyword.value for keyword in call.keywords if keyword.arg == parameter), None
+    )
+    if keyword_value is not None:
+        return keyword_value
+    if position is None or len(call.args) <= position:
+        return None
+    return call.args[position]
+
+
+def _function_parameters(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[list[ast.arg], set[str]]:
+    """Return ordered positional arguments and every named parameter."""
+    positional = [*node.args.posonlyargs, *node.args.args]
+    parameters = {argument.arg for argument in positional}
+    parameters.update(argument.arg for argument in node.args.kwonlyargs)
+    return positional, parameters
+
+
+def _forwarded_parameter_name(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    forwarders: dict[str, _DirectSettingForwarder],
+) -> str | None:
+    """Find the function parameter forwarded to a known configuration reader."""
+    _, parameters = _function_parameters(node)
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Call):
+            continue
+        argument = _forwarded_call_argument(inner, forwarders)
+        if isinstance(argument, ast.Name) and argument.id in parameters:
+            return argument.id
+    return None
+
+
+def _forwarder_signature(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, parameter: str
+) -> _DirectSettingForwarder:
+    """Describe how a caller supplies ``parameter`` to ``node``."""
+    positional, _ = _function_parameters(node)
+    position = next(
+        (
+            index
+            for index, argument in enumerate(positional)
+            if argument.arg == parameter
+        ),
+        None,
+    )
+    return parameter, position
+
+
+def _discover_forwarder_pass(
+    functions: list[ast.FunctionDef | ast.AsyncFunctionDef],
+    forwarders: dict[str, _DirectSettingForwarder],
+) -> bool:
+    """Discover one dependency layer of direct setting forwarders."""
+    discovered: dict[str, _DirectSettingForwarder] = {}
+    for node in functions:
+        if node.name in forwarders:
+            continue
+        parameter = _forwarded_parameter_name(node, forwarders)
+        if parameter is not None:
+            discovered[node.name] = _forwarder_signature(node, parameter)
+    forwarders.update(discovered)
+    return bool(discovered)
+
+
+def _collect_direct_setting_forwarders(
+    tree: ast.AST,
+) -> dict[str, _DirectSettingForwarder]:
+    """Find local helpers that pass one parameter directly to ``setting()``.
+
+    Typed configuration loaders commonly accept an explicit mapping for tests and
+    fall back to the process configuration otherwise::
+
+        def _configured_value(env, name, default=None):
+            if env is not None:
+                return env.get(name, default)
+            return setting(name, default)
+
+    The literal environment name therefore lives at the helper's call site, not at
+    the eventual reader. Record the forwarded parameter and its positional index so
+    only that argument is credited as a read; unrelated uppercase literals passed to
+    the same helper remain ignored.
+    """
+    functions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    forwarders: dict[str, _DirectSettingForwarder] = {}
+    # At most one new forwarding layer can be discovered per pass. Repeating once
+    # per function reaches the fixpoint without embedding the analysis in a deeply
+    # branched while-loop.
+    for _ in functions:
+        if not _discover_forwarder_pass(functions, forwarders):
+            break
+    return forwarders
+
+
+def _direct_forwarder_call_literal(
+    node: ast.Call, forwarders: dict[str, _DirectSettingForwarder]
+) -> str | None:
+    """Resolve the env-name literal passed to one direct forwarding helper."""
+    if not isinstance(node.func, ast.Name):
+        return None
+    forwarder = forwarders.get(node.func.id)
+    if forwarder is None:
+        return None
+    parameter, position = forwarder
+    for keyword in node.keywords:
+        if keyword.arg == parameter:
+            return _literal_env_name(keyword.value)
+    if position is not None and len(node.args) > position:
+        return _literal_env_name(node.args[position])
+    return None
+
+
+def _direct_forwarder_literals(
+    tree: ast.AST, forwarders: dict[str, _DirectSettingForwarder]
+) -> set[str]:
+    """Collect env-name literals from calls to known forwarding helpers."""
+    return {
+        literal
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        if (literal := _direct_forwarder_call_literal(node, forwarders))
+    }
+
+
 def _collect_alias_literals(tree: ast.AST) -> dict[str, str]:
     """Same-module one-level indirection: ``_LOG_LEVEL_ENV = "MCP_V2_GATEWAY_LOG_LEVEL"``
     followed by ``os.environ.get(_LOG_LEVEL_ENV)``. The var name never appears
@@ -563,6 +708,7 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
     """
     alias_literals = _collect_alias_literals(tree)
     passthrough_helpers = _collect_setting_passthrough_helpers(tree)
+    direct_forwarders = _collect_direct_setting_forwarders(tree)
 
     def _env_name_arg(node: ast.AST | None) -> str | None:
         """Resolve a reader argument: a literal, or a same-module alias to one."""
@@ -575,7 +721,9 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
             return alias_literals.get(node.attr)
         return None
 
-    return _scan_env_reads_and_flags(tree, _env_name_arg, passthrough_helpers)
+    found = _scan_env_reads_and_flags(tree, _env_name_arg, passthrough_helpers)
+    found.update(_direct_forwarder_literals(tree, direct_forwarders))
+    return found
 
 
 def _scan_setting_calls(root: Path) -> set[str]:
