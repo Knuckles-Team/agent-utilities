@@ -1105,6 +1105,24 @@ def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
     )
 
 
+def test_development_runtime_artifacts_keep_lane_labels_model_agnostic() -> None:
+    skill_root = Path(runtime_harness.SKILLS_ROOT)
+    project_root = Path(runtime_harness.__file__).resolve().parents[2]
+    artifacts = (
+        skill_root / "agent-utilities-development" / "SKILL.md",
+        skill_root / "agent-utilities-development" / "agents" / "openai.yaml",
+        skill_root / "agent-utilities-development" / "agents" / "graph-os.yaml",
+        skill_root / "runtime_validation.py",
+        skill_root / "runtime_validation.yaml",
+        project_root / "deploy" / "release" / "prebundled-skills.catalog.json",
+    )
+    forbidden_terms = ("lu" + "na", "son" + "net")
+
+    for artifact in artifacts:
+        content = artifact.read_text(encoding="utf-8").casefold()
+        assert not any(term in content for term in forbidden_terms), artifact
+
+
 @pytest.mark.asyncio
 async def test_architecture_operations_are_loaded_captured_and_fail_closed(
     monkeypatch,

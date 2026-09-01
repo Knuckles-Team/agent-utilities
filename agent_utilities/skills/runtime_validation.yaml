@@ -135,10 +135,10 @@ cases:
       Plans proposal-to-owner-manifest cutover. Distinguish a layer boundary from
       a cohesive implementation component, require parent layer plus no current
       signature match before creating one, and resolve component-owned
-      source/test/generated roots plus limited shared-file ownership for Luna
+      source/test/generated roots plus limited shared-file ownership for worker
       lanes (layout=layer_boundary_vs_component,
       layout=parent_layer_no_signature_match, layout=component_owned_roots,
-      layout=luna_shared_file_exception). Map registry lookup to graph_query, discovery to graph_search, and
+      layout=worker_lane_shared_file_exception). Map registry lookup to graph_query, discovery to graph_search, and
       caller/impact evidence to graph_code(action=code_context); these are the
       actual bounded Graph-OS operations. Do not create a branch, worktree, edit,
       or commit, and never auto-merge by concept label.
@@ -164,10 +164,10 @@ cases:
       proposal-to-owner-manifest cutover. Distinguish a layer boundary from a
       cohesive implementation component, require parent layer plus no current
       signature match before creating one, and resolve component-owned
-      source/test/generated roots plus limited shared-file ownership for Luna
+      source/test/generated roots plus limited shared-file ownership for worker
       lanes (layout=layer_boundary_vs_component,
       layout=parent_layer_no_signature_match, layout=component_owned_roots,
-      layout=luna_shared_file_exception). Use graph_query for registry lookup, graph_search for discovery, and
+      layout=worker_lane_shared_file_exception). Use graph_query for registry lookup, graph_search for discovery, and
       graph_code(action=code_context) for caller/impact evidence. Then review the
       source-owned declaration, consolidated-view generation, target_inventory
       lifecycle linkage, consumer audit, same-change redundant-path deletion,

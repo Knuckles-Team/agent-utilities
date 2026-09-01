@@ -67,7 +67,7 @@ The existing Plans `target_inventory` proposal remains the authority for referen
 target disposition, fresh target population, review/synthesis, cutover, and closure.
 Link registry declarations to that lifecycle; do not create a second target inventory.
 
-### Repository layout and Luna lane ownership
+### Repository layout and worker lane ownership
 
 RF-021 distinguishes a layer boundary/root seam from a cohesive implementation
 component. A `layer_boundary_root_seam` is a navigation and coverage root, not a
@@ -79,7 +79,7 @@ Every component records finite ownership for `owned_source_roots`,
 `public_contract_roots`, `test_roots`, and isolated `generated_roots`; tests mirror
 the component identity and generated artifacts stay out of handwritten roots.
 
-For Luna lanes, resolve those component-owned roots from the owner manifest before
+For worker lanes, resolve those component-owned roots from the owner manifest before
 editing. Shared roots or shared files are exceptional and limited: each exception
 must use RF-021's finite metadata (`path`, `kind`, `owner_component_ids`,
 `review_policy`, and `exception_id`) with explicit owner review. Do not create a

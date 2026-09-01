@@ -83,7 +83,7 @@ _ARCHITECTURE_LAYOUT_REQUIREMENTS = (
     "layer_boundary_vs_component",
     "parent_layer_no_signature_match",
     "component_owned_roots",
-    "luna_shared_file_exception",
+    "worker_lane_shared_file_exception",
 )
 # Conceptual phases deliberately map to the existing Graph-OS operation names.
 # Local generation, tests, and deletion remain RF-021 evidence obligations; no
