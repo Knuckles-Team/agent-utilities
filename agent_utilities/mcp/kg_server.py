@@ -5100,8 +5100,33 @@ def _wait_for_engine_materialization(
             )
 
 
+def _engine_bootstrap_is_client(engine: Any, fallback_role: str) -> bool:
+    """Return whether either the requested or elected engine role is client."""
+    requested_role = (
+        (getattr(engine, "_daemon_role", None) or fallback_role).strip().lower()
+    )
+    effective_role = (
+        (getattr(engine, "_effective_role", None) or requested_role).strip().lower()
+    )
+    return "client" in {requested_role, effective_role}
+
+
+def _run_enabled_boot_hydration(
+    engine: Any,
+    *,
+    client_role: bool,
+    background_sync_enabled: bool,
+    skip_skill_names: frozenset[str],
+) -> None:
+    """Hydrate only on the elected background-sync host."""
+    if client_role or not background_sync_enabled:
+        return
+    _run_boot_hydration_plan(engine, skip_skill_names=skip_skill_names)
+
+
 def _start_engine_bootstrap(session: Any) -> None:
     """Establish engine/skill readiness, then start noncritical services."""
+    from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph.core.engine_tasks import (
         _authorized_background_thread,
         _require_verified_background_session,
@@ -5178,10 +5203,7 @@ def _start_engine_bootstrap(session: Any) -> None:
     # stale KG_LOOP/maintenance settings must not turn a network-facing GraphOS
     # process into an autonomous scheduler or queue worker. The requested role
     # captured on the engine wins over any later process-environment mutation.
-    requested_role = (
-        (getattr(engine, "_daemon_role", None) or daemon_role()).strip().lower()
-    )
-    client_role = requested_role == "client"
+    client_role = _engine_bootstrap_is_client(engine, daemon_role())
     if not client_role:
         # BUG-295 (NE-009/NE-020): the daemon role is the one that runs the
         # unified scheduler (start_daemons() below), whose every tick reads
@@ -5226,7 +5248,12 @@ def _start_engine_bootstrap(session: Any) -> None:
             # The listener barrier already reconciled bundled skills.  Continue
             # broader discovery via the durable, fixed-priority plan without
             # blocking serving.
-            _run_boot_hydration_plan(engine, skip_skill_names=frozenset(BUNDLED_SKILLS))
+            _run_enabled_boot_hydration(
+                engine,
+                client_role=client_role,
+                background_sync_enabled=config.knowledge_graph_sync_background,
+                skip_skill_names=frozenset(BUNDLED_SKILLS),
+            )
         except Exception as exc:
             logger.error("KG engine background bootstrap failed: %s", exc)
 

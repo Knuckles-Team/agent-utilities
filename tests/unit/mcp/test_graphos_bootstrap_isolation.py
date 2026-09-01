@@ -1105,20 +1105,25 @@ def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
     ]
 
 
-def test_client_role_with_loop_enabled_never_starts_daemons_or_workers(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("requested_role", "effective_role"),
+    (("client", "host"), ("auto", "client")),
+)
+def test_client_role_never_starts_daemons_workers_or_hydration(
+    monkeypatch, requested_role: str, effective_role: str
 ) -> None:
     """A served client remains a serving plane even with stale loop settings."""
     from agent_utilities.mcp import kg_server
 
-    monkeypatch.setenv("KG_DAEMON_ROLE", "client")
+    monkeypatch.setenv("KG_DAEMON_ROLE", requested_role)
     monkeypatch.setenv("KG_LOOP", "1")
     session = _verified_session()
     calls: list[str] = []
 
     class Engine:
         backend = object()
-        _daemon_role = "client"
+        _daemon_role = requested_role
+        _effective_role = effective_role
 
         def start_background_daemons(self) -> None:
             calls.append("daemons")
@@ -1156,13 +1161,68 @@ def test_client_role_with_loop_enabled_never_starts_daemons_or_workers(
             side_effect=lambda *_args, **_kwargs: calls.append("hydration"),
         ),
         patch(
+            "agent_utilities.core.config.config",
+            SimpleNamespace(knowledge_graph_sync_background=True),
+        ),
+        patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=_background_thread,
         ),
     ):
         kg_server._start_engine_bootstrap(session)
 
-    assert calls == ["background", "hydration"]
+    assert calls == ["background"]
+
+
+def test_background_sync_disabled_skips_boot_hydration() -> None:
+    """Serving readiness remains, but disabled background sync does no hydration."""
+    from agent_utilities.mcp import kg_server
+
+    session = _verified_session()
+    plan = MagicMock()
+
+    class Engine:
+        backend = object()
+        _daemon_role = "host"
+        _effective_role = "host"
+        start_task_workers = MagicMock()
+
+    class ImmediateAuthorizedBackground:
+        def __init__(self, target) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            with use_actor(session.actor), use_session(session):
+                self.target()
+
+    with (
+        patch.object(kg_server, "_get_engine", return_value=Engine()),
+        patch.object(kg_server, "_wait_for_engine_materialization"),
+        patch.object(
+            kg_server,
+            "_ensure_bundled_skills_ready",
+            return_value={
+                "required": 10,
+                "already_ready": 10,
+                "ingested": 0,
+                "ready": 10,
+            },
+        ),
+        patch.object(kg_server, "_run_boot_hydration_plan", plan),
+        patch(
+            "agent_utilities.core.config.config",
+            SimpleNamespace(knowledge_graph_sync_background=False),
+        ),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
+            side_effect=lambda _session, target, **_kwargs: (
+                ImmediateAuthorizedBackground(target)
+            ),
+        ),
+    ):
+        kg_server._start_engine_bootstrap(session)
+
+    plan.assert_not_called()
 
 
 def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
@@ -1270,7 +1330,7 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
     )
 
 
-def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
+def test_host_with_background_sync_runs_boot_hydration_once() -> None:
     """Phase F (ingestion-hydration-program.md §3): the background bootstrap
     thread drives the prompt (C) and self-tool-surface (E) boot-hydration legs,
     in addition to the pre-existing capability ingest, on every boot."""
@@ -1281,6 +1341,8 @@ def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
 
     class Engine:
         backend = object()
+        _daemon_role = "host"
+        _effective_role = "host"
         start_task_workers = MagicMock()
 
     class ImmediateAuthorizedBackground:
@@ -1309,6 +1371,10 @@ def test_noncritical_bootstrap_runs_phase_f_hydration_legs() -> None:
             },
         ),
         patch.object(kg_server, "_run_boot_hydration_plan", plan),
+        patch(
+            "agent_utilities.core.config.config",
+            SimpleNamespace(knowledge_graph_sync_background=True),
+        ),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
