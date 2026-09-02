@@ -21,7 +21,7 @@ second, parallel job system this codebase's one ``WorkItem`` state machine
 add). This module only reuses the extension's *registration* mechanism
 (``fastmcp.server.extensions.ServerExtension``/``MethodBinding``) -- never
 its execution engine -- and backs every method with
-``agent_utilities.orchestration.work_item`` directly, the exact same
+``agent_utilities.knowledge_graph.core.work_durability`` directly, the exact same
 authority ``graph_jobs`` (``agent_utilities/mcp/tools/job_tools.py``) uses.
 The wire model field names below follow ``fastmcp_tasks.models`` (the
 current SEP-2663 draft: flat task fields, ``inputRequests`` for
@@ -1297,7 +1297,7 @@ class WorkItemTasksExtension(ServerExtension):
         if self._repository_task_id(params.task_id):
             return self._cancel_repository(params.task_id, session=session, route=route)
 
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item_id = _wi.orchestrator_work_item_id(params.task_id)
         item = _wi.get_work_item(self._engine(), item_id)
@@ -1331,7 +1331,7 @@ class WorkItemTasksExtension(ServerExtension):
                 route=route,
             )
 
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item_id = _wi.orchestrator_work_item_id(params.task_id)
         item = _wi.get_work_item(self._engine(), item_id)
@@ -1365,7 +1365,7 @@ class WorkItemTasksExtension(ServerExtension):
                 )
             return self._project_repository(task_id, session=session, route=route)
 
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item_id = _wi.orchestrator_work_item_id(task_id)
         item = _wi.get_work_item(self._engine(), item_id)
@@ -1476,7 +1476,7 @@ class WorkItemTasksExtension(ServerExtension):
 
     @staticmethod
     def _repository_raw_item(engine: Any, view: Any) -> Mapping[str, Any]:
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item = _wi.get_work_item(engine, view.work_item_id)
         if item is None:
@@ -1688,7 +1688,7 @@ class WorkItemTasksExtension(ServerExtension):
         session: Any,
         route: Mapping[str, Any] | None,
     ) -> _AckResult:
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         view = self._repository_view(task_id, session)
         updated = _wi.submit_work_item_input(

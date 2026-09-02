@@ -10,12 +10,12 @@ from unittest.mock import patch
 import pytest
 
 from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     _TASK_WORK_ITEM_LEASE_SEC,
     TaskManagerMixin,
     _retryable_partial_materialization,
 )
-from agent_utilities.orchestration import work_item as wi
 
 
 class Harness:
@@ -92,16 +92,24 @@ def test_claim_next_uses_native_claim_and_keeps_fence_only_in_memory() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "outcome"),
-    [("completed", "succeeded"), ("failed", "failed"), ("cancelled", "cancelled")],
+    ("status", "outcome", "result_ref", "error_ref"),
+    [
+        ("completed", "succeeded", "outcome:ingest_task:job-1", None),
+        ("failed", "failed", None, "ingest_task:job-1:failed"),
+        ("cancelled", "cancelled", None, "ingest_task:job-1:cancelled"),
+    ],
 )
-def test_terminal_status_commits_active_native_claim(status: str, outcome: str) -> None:
+def test_terminal_status_commits_active_native_claim(
+    status: str, outcome: str, result_ref: str | None, error_ref: str | None
+) -> None:
     harness = Harness()
     harness._remember_work_item_claim("job-1", _claim())
     with patch.object(wi, "commit_result", return_value="committed") as commit:
         harness._update_task_status("job-1", status, {"ignored": "result body"})
     assert harness._active_work_item_claim("job-1") is None
     assert commit.call_args.kwargs["outcome"] == outcome
+    assert commit.call_args.kwargs["result_ref"] == result_ref
+    assert commit.call_args.kwargs["error_ref"] == error_ref
     assert commit.call_args.args[:3] == (
         harness._work_item_engine,
         "workitem:ingest_task:job-1",
@@ -115,6 +123,7 @@ def test_retry_uses_native_commit_and_drops_local_claim() -> None:
     with patch.object(wi, "commit_result", return_value="retry_scheduled") as commit:
         harness._fail_or_retry_task("job-1", "failure")
     assert commit.call_args.kwargs["retryable"] is True
+    assert commit.call_args.kwargs["error_ref"] == "ingest_task:job-1:failure"
     assert harness._active_work_item_claim("job-1") is None
 
 
@@ -294,6 +303,7 @@ def test_worker_waits_for_retryable_materialization_before_claiming() -> None:
 
         def __init__(self) -> None:
             self.failed = False
+            self._claim_gate = threading.Lock()
 
         def _claim_next_task(
             self, *, worker_id: str | None = None, hydration_reserved: bool = False
@@ -333,6 +343,7 @@ def test_worker_never_routes_partial_materialization_to_failure_attempt() -> Non
             self.claims = 0
             self.failed = False
             self.deferred = False
+            self._claim_gate = threading.Lock()
 
         def _claim_next_task(
             self, *, worker_id: str | None = None, hydration_reserved: bool = False
@@ -381,6 +392,7 @@ def test_worker_generic_error_path_is_unchanged() -> None:
 
         def __init__(self) -> None:
             self.failed_with: tuple[str, str] | None = None
+            self._claim_gate = threading.Lock()
 
         def _claim_next_task(
             self, *, worker_id: str | None = None, hydration_reserved: bool = False

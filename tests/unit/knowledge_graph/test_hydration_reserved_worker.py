@@ -54,7 +54,7 @@ def test_hydration_reserved_worker_claims_capability_hydration_over_saturating_l
     an unfiltered claim (what an ordinary worker would issue) would instead
     have surfaced the legacy job.
     """
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     attempts: list[dict] = []
 
@@ -101,7 +101,7 @@ def test_non_reserved_worker_is_unaffected_and_gets_the_unfiltered_claim(monkeyp
     """A normal (non-reserved) worker still does the plain unfiltered claim —
     proving the guarantee comes from the reservation, not a change to how
     ordinary claiming behaves."""
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     attempts: list[dict] = []
 
@@ -140,7 +140,7 @@ def test_hydration_reserved_worker_falls_back_to_ordinary_work_when_idle(monkeyp
     work instead of idling: capacity is never wasted, only ever prioritized
     (dynamic scaling, never starved to zero — mirrors the shared-LLM priority
     gate's same principle, CONCEPT:AU-ORCH.scheduling.also-fold-vllm-scheduler)."""
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     def claim_next(_engine, **kwargs):
         if kwargs.get("fairness_group"):

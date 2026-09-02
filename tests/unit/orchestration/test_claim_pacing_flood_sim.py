@@ -37,8 +37,8 @@ import time
 import pytest
 
 from agent_utilities.core.resource_priority import PriorityClass, priority_scope
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import claim_pacing
-from agent_utilities.orchestration import work_item as wi
 
 
 class _TokenBucketEngine:

@@ -176,7 +176,7 @@ class RegistryNodeType(StrEnum):
     AGENT_POLICY_DECISION = "agent_policy_decision"
     # Unified engine-native work-item state machine (AU-P1-1) — the ONE
     # authoritative queue-of-record Goal/Task/AgentTask/Loop/dispatch converge
-    # on; see agent_utilities.orchestration.work_item.
+    # on; see agent_utilities.knowledge_graph.core.work_durability.
     WORK_ITEM = "work_item"
     # Agent Digital Twin + deterministic replay (Codex X-8) — a durable,
     # queryable PROJECTION over the run's own WorkItem/ToolCall/RunTrace/
@@ -4075,7 +4075,7 @@ class TeamComposition(BaseModel):
             return f"{dag_id}:task:{step_id}"
 
         for step in plan.steps:
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 execution_work_item_id,
                 submit_work_item,
             )
@@ -4264,7 +4264,8 @@ def classify_work_item_consent(
 
     CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3). The single source of
     truth for the consent state machine, shared by :meth:`WorkItemNode.consent_state`
-    (typed model callers) and ``orchestration.work_item``'s claim/renew gate (raw KG
+    (typed model callers) and ``knowledge_graph.core.work_durability``'s claim/renew
+    gate (raw KG
     row callers) so the classification is never duplicated or allowed to drift.
 
     Returns one of:
@@ -4322,7 +4323,7 @@ class WorkItemNode(RegistryNode):
     Selection, tenant quota, renewable lease, fencing, dependency release, and
     terminal commit therefore execute in the engine's durable transaction;
     no Python lifecycle writer is available as a fallback. See
-    :mod:`agent_utilities.orchestration.work_item` for the full state-machine
+    :mod:`agent_utilities.knowledge_graph.core.work_durability` for the full state-machine
     implementation (submission, claim, heartbeat, commit, dependency release,
     lease-expiry reaping, DLQ).
     """
@@ -4453,7 +4454,7 @@ class WorkItemNode(RegistryNode):
     # had any, or (b) halt the entire live queue on deploy. A producer that DOES
     # bind a WorkItem to subject-consented work sets ``consent_required=True`` at
     # submission; see :func:`classify_work_item_consent` for the resulting state
-    # machine and ``orchestration.work_item``'s claim/renew gate for enforcement.
+    # machine and ``knowledge_graph.core.work_durability``'s claim/renew gate.
     #
     # MIGRATION for pre-existing WorkItems (neither field previously existed):
     # they deserialize with ``consent_required=False`` (the Pydantic default),

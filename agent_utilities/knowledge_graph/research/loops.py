@@ -485,7 +485,7 @@ def ensure_loop_statechart_instance(engine: Any, loop_id: str) -> str | None:
     ``instance_id`` proposal. Returns ``None`` if the backing WorkItem doesn't
     exist yet or the instantiate call didn't return an id.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     item_id = _wi.loop_work_item_id(loop_id)
     item = _wi.get_work_item(engine, item_id)
@@ -591,7 +591,9 @@ def submit_loop(
         props["validation_cmd"] = validation_cmd
     if skill_ref:
         props["skill_ref"] = skill_ref
-    from agent_utilities.orchestration.work_item import ensure_loop_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        ensure_loop_work_item,
+    )
 
     ensure_loop_work_item(
         engine,
@@ -649,7 +651,9 @@ def mark_loop_status(
     ``graph_loops(action="cancel")`` entrypoint all call this. Definition nodes
     are never mutated with lifecycle state.
     """
-    from agent_utilities.orchestration.work_item import transition_loop_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        transition_loop_work_item,
+    )
 
     # Stamp the PRECISE terminal reason onto the WorkItem's result/error ref so
     # each harness-enforced exit is durably diagnosable (not collapsed to a bare
@@ -694,7 +698,7 @@ def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
     bucket 0/1 advances it ahead of background loops on the next cycle.
     Best-effort: a failed persist returns ``False``, never raises.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     item_id = _wi.loop_work_item_id(loop_id)
     item = _wi.get_work_item(engine, item_id)
@@ -713,7 +717,9 @@ def claim_loop(engine: Any, loop_id: str) -> bool:
     if the instance is already past ``submitted``/``orphaned`` (e.g. a
     resumed driver re-claiming an already-``running`` instance).
     """
-    from agent_utilities.orchestration.work_item import claim_loop_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        claim_loop_work_item,
+    )
 
     won = claim_loop_work_item(engine, loop_id) is not None
     if won:
@@ -762,7 +768,7 @@ def _loop_identity(row: Any) -> tuple[Any, str] | None:
 
 def _loop_work_item_status(engine: Any, cid: Any) -> str | None:
     """Return a claimable loop WorkItem status, or ``None`` when unavailable."""
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         TERMINAL_WORK_ITEM_STATUSES,
         get_work_item,
         loop_work_item_id,
@@ -784,7 +790,7 @@ def _loop_in_flight(kind: str, status: str) -> bool:
 
 def _settle_addressed_loop(engine: Any, cid: Any) -> None:
     """Settle a research loop once its ADDRESSED_BY evidence is present."""
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         claim_loop_work_item,
         transition_loop_work_item,
     )

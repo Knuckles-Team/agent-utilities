@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import agent_dispatch_worker as worker
-from agent_utilities.orchestration import work_item as wi
 
 
 class _BridgeEngine:
@@ -377,7 +377,7 @@ def test_engine_claim_routes_through_the_work_item_bridge(
     """``engine_claim.claim_agent_task`` — now a single-backend resolver
     (No-Legacy: the ``kg``/``engine`` backends are deleted, not shimmed; see
     ``engine_claim.py``'s module docstring) — claims through the SAME WorkItem
-    bridge :func:`~agent_utilities.orchestration.work_item.
+    bridge :func:`~agent_utilities.knowledge_graph.core.work_durability.
     claim_agent_task_via_work_item` this file's other tests exercise directly."""
     from agent_utilities.orchestration import engine_claim
 

@@ -11,7 +11,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 PROTOCOL_NAME = "epistemic-operations"
 PROTOCOL_VERSION = "1"
-CATALOG_SHA256 = "bd6b8e3152be72cd5a0adb04bd0d2b0b4991bc610ee72d971b9813c9a7a2a6f0"
+CATALOG_SHA256 = "ddeadbecc613d0e9c05e0b9e496a5ec9c6a0b743444131babdea60e788cfffe9"
 SCHEMA_VERSION = {
     "request_context": "2",
     "mutation_batch": "1",
@@ -34,7 +34,7 @@ SCHEMA_SHA256 = {
     "request_context": "310b69c8113fd441c99285053e307e84a12e373c32cf56182c5f25273133cd14",
     "mutation_batch": "90f32151cbc2df050dbb031c998e6a08468b87fdf4cbd0612c39551db25ed3ce",
     "change_envelope": "7b12ee69be0d716499c5f5819af12f9f8db9565a0a820bf6d9fd45aa40fdb3fe",
-    "work_item": "b664fd408c035faefb6602c380a9f56e4e49baa76d1cc2accb763353761e2ffa",
+    "work_item": "1755feef2adba794137637aa1d122d4d92e3475f9f0bba2d20cdf718cab427e0",
     "artifact": "519c760a226ae93ebf346e29e30aeb03f4f6ce4e632bffeb9bf8302b392b6b80",
     "knowledge_batch": "ec2cf5afc5b7fa3ae0469ed394258f2e4176a310095196db993cf4cea11a9e6f",
     "analytics_job": "d109b74f0fa3013f4cc5b3c6e4df9c82b6fa6e6ce4c32af25b9a4ac0f7ee609c",

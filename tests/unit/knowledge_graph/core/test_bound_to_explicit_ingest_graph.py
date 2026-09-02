@@ -20,7 +20,9 @@ from agent_utilities.knowledge_graph.core.session import (
     suspend_session,
     use_session,
 )
-from agent_utilities.orchestration.work_item import WorkItemBackendUnavailable
+from agent_utilities.knowledge_graph.core.work_durability import (
+    WorkItemBackendUnavailable,
+)
 from agent_utilities.security.brain_context import ActorContext, ActorType
 
 

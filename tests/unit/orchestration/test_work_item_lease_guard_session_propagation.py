@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
     SessionRequiredError,
@@ -26,7 +27,6 @@ from agent_utilities.knowledge_graph.core.session import (
 )
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration import agent_dispatch_worker as worker
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security.brain_context import ActorContext
 
 

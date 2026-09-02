@@ -764,7 +764,7 @@ def test_background_job_branch_ingests_corpus(corpus):
     # inverse (mocking OUT ``_run_background_task`` to test claiming).
     from unittest.mock import patch
 
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     job_id = "job-skilltest"
     fake_claim = {

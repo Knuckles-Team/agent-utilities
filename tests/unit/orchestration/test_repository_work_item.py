@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import repository_work_item as rwi
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.orchestration.operation_payload import (
     RepositoryBuildExecutionPayloadV1,
     cache_key_digest_from_components,

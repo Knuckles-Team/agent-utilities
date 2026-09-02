@@ -262,7 +262,10 @@ class RLMEnvironment:
             raise TopologyAdmissionError(
                 "live RLM retirement requires an immutable admission"
             )
-        from ..orchestration.work_item import cancel_work_item, get_work_item
+        from ..knowledge_graph.core.work_durability import (
+            cancel_work_item,
+            get_work_item,
+        )
 
         item = get_work_item(engine, self.work_item_id)
         self.admission.require_work_item(item)

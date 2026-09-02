@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Enforce one engine-native ``WorkItem`` lifecycle authority.
 
-``agent_utilities/orchestration/work_item.py`` is the only module allowed to
-define or persist WorkItem lifecycle transitions.  The AgentBus inbox may
-construct its initial WorkItem inside the same transaction as the inbox, but it
-may not implement a transition.  Passive schemas, protocol objects, and
-read-only label references remain valid.
+``agent_utilities/knowledge_graph/core/work_durability.py`` is the only module
+allowed to define or persist WorkItem lifecycle transitions.  The AgentBus
+inbox may construct its initial WorkItem inside the same transaction as the
+inbox, but it may not implement a transition.  Passive schemas, protocol
+objects, and read-only label references remain valid.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ import sys
 from pathlib import Path, PurePosixPath
 
 _PACKAGE = PurePosixPath("agent_utilities")
-_AUTHORITY = PurePosixPath("agent_utilities/orchestration/work_item.py")
+_AUTHORITY = PurePosixPath("agent_utilities/knowledge_graph/core/work_durability.py")
+_LEGACY_AUTHORITY = "agent_utilities.orchestration.work_item"
+_LEGACY_AUTHORITY_PATH = PurePosixPath("agent_utilities/orchestration/work_item.py")
 _BUS_INBOX = PurePosixPath("agent_utilities/messaging/bus_inbox.py")
 _PASSIVE_PARTS = frozenset({"models", "protocols", "schemas"})
 
@@ -147,6 +149,28 @@ def _is_orchestration_module(relative: PurePosixPath) -> bool:
     return relative.parts[:2] == ("agent_utilities", "orchestration")
 
 
+def _is_legacy_import_parent(node: ast.ImportFrom, relative: PurePosixPath) -> bool:
+    """Return whether an imported ``work_item`` name resolves to the old package."""
+    module = node.module or ""
+    return (
+        module == "agent_utilities.orchestration"
+        or (node.level > 0 and module == "orchestration")
+        or (node.level == 1 and _is_orchestration_module(relative))
+    )
+
+
+def _imports_legacy_work_item(node: ast.ImportFrom, relative: PurePosixPath) -> bool:
+    """Recognize absolute and package-relative imports of the retired module."""
+    module = node.module or ""
+    if module == _LEGACY_AUTHORITY:
+        return True
+    if node.level > 0 and module.endswith("orchestration.work_item"):
+        return True
+    if not any(alias.name == "work_item" for alias in node.names):
+        return False
+    return _is_legacy_import_parent(node, relative)
+
+
 class _BoundaryVisitor(ast.NodeVisitor):
     def __init__(self, relative: PurePosixPath) -> None:
         self.relative = relative
@@ -170,6 +194,25 @@ class _BoundaryVisitor(ast.NodeVisitor):
                 node,
                 f"parallel WorkItem lifecycle class {node.name!r}; use "
                 "orchestration.work_item",
+            )
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.name == _LEGACY_AUTHORITY:
+                self._add(
+                    node,
+                    "legacy orchestration WorkItem authority import; use "
+                    "knowledge_graph.core.work_durability",
+                )
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if _imports_legacy_work_item(node, self.relative):
+            self._add(
+                node,
+                "legacy orchestration WorkItem authority import; use "
+                "knowledge_graph.core.work_durability",
             )
         self.generic_visit(node)
 
@@ -266,12 +309,22 @@ def violations(path: Path, *, root: Path) -> list[str]:
     return visitor.findings
 
 
+def _legacy_authority_finding(root: Path) -> list[str]:
+    """Reject even an import-free legacy facade module."""
+    if not (root / _LEGACY_AUTHORITY_PATH).exists():
+        return []
+    return [
+        f"{_LEGACY_AUTHORITY_PATH}: legacy WorkItem authority/facade must be "
+        "deleted; import knowledge_graph.core.work_durability directly"
+    ]
+
+
 def check(root: Path) -> list[str]:
     """Scan production modules and return every WorkItem authority violation."""
     package = root / _PACKAGE
     if not package.is_dir():
         return ["agent_utilities: package root is missing"]
-    findings: list[str] = []
+    findings = _legacy_authority_finding(root)
     for path in sorted(package.rglob("*.py")):
         findings.extend(violations(path, root=root))
     return findings

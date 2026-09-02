@@ -28,8 +28,8 @@ from unittest import mock
 
 import pytest
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import agent_activation as aa
-from agent_utilities.orchestration import work_item as wi
 from tests.unit.orchestration.test_agent_activation import ActivationEngine
 
 

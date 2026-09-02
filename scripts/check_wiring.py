@@ -1286,6 +1286,50 @@ def _materialize_head_snapshot(root: str, dest: Path) -> bool:
     return True
 
 
+def _current_to_head_renames(root: str) -> dict[str, str] | None:
+    """Map a current path to its exact prior path for Git-classified renames.
+
+    The differential key includes the defining path, so a real ``git mv``
+    would otherwise manufacture one new finding per unchanged public symbol.
+    Copies deliberately do not enter this map: keeping the original while
+    adding the same unwired symbol elsewhere is new backlog.
+    """
+    result = _git(
+        "diff",
+        "--name-status",
+        "-z",
+        "--find-renames",
+        "HEAD",
+        "--",
+        "agent_utilities",
+        "tests",
+        cwd=root,
+    )
+    if result.returncode != 0:
+        return None
+    fields = result.stdout.split("\0")
+    renames: dict[str, str] = {}
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index]
+        index += 1
+        path_count = 2 if status[:1] in {"R", "C"} else 1
+        if index + path_count > len(fields):
+            return None
+        paths = fields[index : index + path_count]
+        index += path_count
+        if status.startswith("R"):
+            renames[paths[1]] = paths[0]
+    return renames
+
+
+def _finding_key_at_head(entry: dict, renames: dict[str, str]) -> str:
+    """Key ``entry`` using its prior path when Git proved an exact rename."""
+    prior = dict(entry)
+    prior["file"] = renames.get(entry["file"], entry["file"])
+    return _finding_key(prior)
+
+
 _AMBIENT_GIT_IDENTITY_VARS = ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE")
 
 
@@ -1325,6 +1369,21 @@ def _scan_snapshot_for_test_only_symbols(dest: Path) -> list[dict]:
         os.environ.update(ambient)
 
 
+def _head_symbol_context(
+    root: str,
+) -> tuple[set[str], dict[str, str]] | None:
+    """Return immutable HEAD finding keys plus proven current-path renames."""
+    renames = _current_to_head_renames(root)
+    if renames is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix="au-wire-first-head-") as tmp:
+        dest = Path(tmp)
+        if not _materialize_head_snapshot(root, dest):
+            return None
+        head_symbols = _scan_snapshot_for_test_only_symbols(dest)
+    return {_finding_key(entry) for entry in head_symbols}, renames
+
+
 def _new_symbol_findings_vs_head(
     root: str, current_symbols: list[dict]
 ) -> list[dict] | None:
@@ -1335,13 +1394,15 @@ def _new_symbol_findings_vs_head(
     nothing this gate's findings could depend on has changed since HEAD."""
     if not _relevant_wire_first_files_changed(root):
         return []
-    with tempfile.TemporaryDirectory(prefix="au-wire-first-head-") as tmp:
-        dest = Path(tmp)
-        if not _materialize_head_snapshot(root, dest):
-            return None
-        head_symbols = _scan_snapshot_for_test_only_symbols(dest)
-    head_keys = {_finding_key(e) for e in head_symbols}
-    return [e for e in current_symbols if _finding_key(e) not in head_keys]
+    context = _head_symbol_context(root)
+    if context is None:
+        return None
+    head_keys, renames = context
+    return [
+        entry
+        for entry in current_symbols
+        if _finding_key_at_head(entry, renames) not in head_keys
+    ]
 
 
 def _report_orphan_zero(orphans: list[str]) -> bool:

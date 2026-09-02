@@ -18,7 +18,7 @@ Three capabilities, each concept-anchored:
 * **Engine-native work-item DAG** (CONCEPT:AU-ORCH.org.work-item-dag).
   :class:`OrgRuntime` derives immutable :class:`OrgPlanItem` definitions, then
   submits, claims, renews, and commits the executable DAG through the sole
-  native ``orchestration.work_item`` authority. Manager modes
+  native ``knowledge_graph.core.work_durability`` authority. Manager modes
   (execute/delegate/review/integrate/rework) are turn-local execution context,
   never a second durable lifecycle.
 * **Self-Grown** (CONCEPT:AU-AHE.org.role-experience). Each item's outcome is
@@ -44,7 +44,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
-from agent_utilities.orchestration.work_item import (
+from agent_utilities.knowledge_graph.core.work_durability import (
     cancel_work_item,
     claim_specific,
     commit_result,

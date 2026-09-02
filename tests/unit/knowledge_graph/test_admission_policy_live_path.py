@@ -8,7 +8,7 @@ lane/pending-by-lane inputs :class:`AdmissionPolicy` needs (``_pending_by_lane``
 — but never actually constructed an ``AdmissionPolicy`` or called
 ``.decide()``/``.admit()`` anywhere outside its own unit tests
 (``tests/unit/knowledge_graph/test_worker_scheduler.py``). Every native
-``work_item.claim_next`` win was executed unconditionally: the fair-admission
+``work_durability.claim_next`` win was executed unconditionally: the fair-admission
 rules (hot spare, heavy-type cap, per-lane min coverage, interactive floor)
 were fully implemented and unit-tested dead code on the live claim path.
 
@@ -81,7 +81,7 @@ class _AdmissionClaimHarness:
 
 
 def _patch_claim(monkeypatch, *, job_id: str, work_item_id: str):
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(
         work_item,
@@ -96,7 +96,7 @@ def test_claim_next_task_admission_denied_defers_claim_live_path(monkeypatch):
     lane has zero coverage, is denied admission ("steer to uncovered lane")
     — and the real claim path defers the native lease instead of starting
     the worker."""
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     deferred_calls: list[dict] = []
 
@@ -146,7 +146,7 @@ def test_claim_next_task_admission_denied_defers_claim_live_path(monkeypatch):
 def test_claim_next_task_admission_allowed_starts_worker_live_path(monkeypatch):
     """An uncontested candidate (empty pool, only its own lane pending) is
     admitted — the real claim path starts the worker in the live registry."""
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(
         work_item,
@@ -202,7 +202,7 @@ def test_admission_denied_retry_delay_is_jittered_not_fixed_one_second(monkeypat
     retry somewhere in a bounded 5-15s jittered window instead."""
     import time as time_mod
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     captured: list[float] = []
 

@@ -379,7 +379,7 @@ class IntelligenceGraphEngine(
 
         Callers across the Loop/agent-lifecycle durability surface
         (``research.loops``, ``orchestration.agent_activation``,
-        ``orchestration.work_item``) call ``engine.statechart.X(...)``
+        ``knowledge_graph.core.work_durability``) call ``engine.statechart.X(...)``
         directly on whatever ``engine`` they were handed — this is what makes
         that contract hold for a plain ``IntelligenceGraphEngine`` (e.g. the
         one ``core.sessions.run_goal_loop`` acquires via

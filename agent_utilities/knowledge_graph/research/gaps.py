@@ -158,7 +158,9 @@ def submit_gap(
     # (not a transient dict) — the same lease authority a Loop gets.
     if lease:
         try:
-            from agent_utilities.orchestration.work_item import ensure_loop_work_item
+            from agent_utilities.knowledge_graph.core.work_durability import (
+                ensure_loop_work_item,
+            )
 
             ensure_loop_work_item(engine, gap_id, priority=bucket, max_attempts=20)
         except Exception as e:  # noqa: BLE001 — lease is best-effort

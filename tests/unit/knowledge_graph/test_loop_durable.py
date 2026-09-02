@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import asyncio
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 from agent_utilities.knowledge_graph.research.loops import claim_loop, submit_loop
-from agent_utilities.orchestration import work_item as wi
 from tests.unit.knowledge_graph.test_loops import LoopEngine, _authority
 
 

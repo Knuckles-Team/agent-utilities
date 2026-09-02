@@ -443,7 +443,7 @@ def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
 
 def _goal_work_item_status(engine: Any, goal_id: str) -> str | None:
     """Return the goal's exact authoritative WorkItem state."""
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     item = _wi.get_work_item(engine, _wi.loop_work_item_id(goal_id))
     if item is None:
@@ -517,7 +517,9 @@ def _rehydrate_one_goal_entry(engine: Any, entry: dict[str, Any]) -> bool:
         return False  # live in this process
     if status not in _NON_TERMINAL_GOAL_STATUSES:
         return False  # already terminal — nothing to rehydrate
-    from agent_utilities.orchestration.work_item import work_item_view_of_loop
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        work_item_view_of_loop,
+    )
 
     work_item = work_item_view_of_loop(engine, str(gid)) or {}
     lease_expires_at = float(work_item.get("lease_expires_at") or 0.0)
@@ -1023,11 +1025,11 @@ def _settle_goal_loop_failure(engine: Any, goal_id: str) -> None:
     if engine is None:
         return
     try:
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
         from agent_utilities.knowledge_graph.research.loops import (
             claim_loop,
             mark_loop_status,
         )
-        from agent_utilities.orchestration import work_item as _wi
 
         item = _wi.get_work_item(engine, _wi.loop_work_item_id(goal_id))
         if (item or {}).get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:

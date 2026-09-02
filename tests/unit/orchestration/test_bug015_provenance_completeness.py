@@ -245,6 +245,7 @@ async def test_main_path_done_event_is_consistent_with_checkpoint_event() -> Non
 
 def _policy_decision() -> SimpleNamespace:
     return SimpleNamespace(
+        id="policy-decision:fixture-1",
         kind="work_item.execute",
         target="workitem:fixture-1",
         decision="allow",
@@ -278,7 +279,7 @@ class _RaisingOutcomeEngine:
 def test_finalize_work_item_surfaces_outcome_evaluation_write_failure(monkeypatch):
     engine = _RaisingOutcomeEngine()
     monkeypatch.setattr(
-        "agent_utilities.orchestration.work_item.commit_execution_work_item",
+        "agent_utilities.knowledge_graph.core.work_durability.commit_execution_work_item",
         lambda *_a, **_k: "committed",
     )
 
@@ -314,7 +315,7 @@ def test_finalize_work_item_reports_committed_when_outcome_evaluation_lands(
 
     engine = _SucceedingOutcomeEngine()
     monkeypatch.setattr(
-        "agent_utilities.orchestration.work_item.commit_execution_work_item",
+        "agent_utilities.knowledge_graph.core.work_durability.commit_execution_work_item",
         lambda *_a, **_k: "committed",
     )
 

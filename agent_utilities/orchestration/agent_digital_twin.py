@@ -12,7 +12,7 @@ incident investigation, counterfactual policy evaluation, and safe-evolution pro
 This module is deliberately thin. Every piece of provenance it touches already exists
 elsewhere in this codebase and is REUSED, never duplicated:
 
-* **The run graph** — the ``orchestration/work_item.py`` WorkItem-status vocabulary
+* **The run graph** — the ``knowledge_graph/core/work_durability.py`` WorkItem-status vocabulary
   ids: the ``WorkItem`` DAG (``depends_on``/
   ``downstream_ids``) a run executed as. A twin stores the ids, not a second copy of
   the DAG.

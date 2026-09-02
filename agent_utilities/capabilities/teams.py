@@ -39,10 +39,10 @@ class SharedTodoItem:
 
 class _GraphComputeWorkItemView:
     """Adapts the owning graph engine (``ctx.deps.graph_engine``) to the
-    ``add_node``/``query_cypher``/``compare_and_set_node_fields`` protocol
-    :mod:`agent_utilities.orchestration.work_item` expects. Team assignments
-    are stored directly as WorkItems; there is no parallel task node or status
-    projection.
+    ``add_node``/``query_cypher``/``compare_and_set_node_fields`` protocol that
+    :mod:`agent_utilities.knowledge_graph.core.work_durability` expects. Team
+    assignments are stored directly as WorkItems; there is no parallel task
+    node or status projection.
 
     Two adaptations are required because ``GraphComputeEngine``'s own
     ``add_node``/``query_cypher`` signatures differ from the protocol:
@@ -150,7 +150,7 @@ def _team_work_item_claim_for_commit(
     tenant atomically, so a stale reconstructed tuple is fenced rather than
     treated as authority.
     """
-    from ..orchestration import work_item as _wi
+    from ..knowledge_graph.core import work_durability as _wi
 
     item_id = _wi.team_work_item_id(task_id)
     item = _wi.get_work_item(view, item_id)
@@ -227,7 +227,7 @@ class TeamCapability(AbstractCapability[Any]):
 
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
-            from ..orchestration import work_item as _wi
+            from ..knowledge_graph.core import work_durability as _wi
 
             view = _GraphComputeWorkItemView(engine)
             work_item_id = _wi.submit_team_work_item(
@@ -259,7 +259,7 @@ class TeamCapability(AbstractCapability[Any]):
             # legacy TaskNode — best-effort, and independent of the legacy
             # write above so a WorkItem hiccup never blocks task creation.
             with contextlib.suppress(Exception):
-                from ..orchestration import work_item as _wi
+                from ..knowledge_graph.core import work_durability as _wi
 
                 _wi.ensure_team_task_work_item(
                     _GraphComputeWorkItemView(engine),
@@ -333,7 +333,8 @@ class TeamCapability(AbstractCapability[Any]):
         """Transition a team assignment through its sole WorkItem authority.
 
         AU-P1-CL: drives the REAL transition through the WorkItem state
-        machine first (:func:`~agent_utilities.orchestration.work_item.start_team_task_work_item` /
+        machine first
+        (:func:`~agent_utilities.knowledge_graph.core.work_durability.start_team_task_work_item` /
         ``commit_result``/``cancel_work_item``) — best-effort, so a WorkItem
         plumbing hiccup never blocks the legacy mirror write below, which is
         what ``list_team_tasks``/existing callers read. The legacy field
@@ -360,7 +361,7 @@ class TeamCapability(AbstractCapability[Any]):
             raise ValueError(
                 f"Unsupported team task transition {status!r}; WorkItem owns the state vocabulary"
             )
-        from ..orchestration import work_item as _wi
+        from ..knowledge_graph.core import work_durability as _wi
 
         view = _GraphComputeWorkItemView(engine)
         tenant = self.team_id or ""

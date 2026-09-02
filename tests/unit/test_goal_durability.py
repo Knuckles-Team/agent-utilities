@@ -16,7 +16,7 @@ import time
 import pytest
 
 from agent_utilities.core import sessions as _sessions
-from agent_utilities.orchestration.work_item import loop_work_item_id
+from agent_utilities.knowledge_graph.core.work_durability import loop_work_item_id
 from tests.unit.orchestration.test_work_item import NativeEngine
 
 

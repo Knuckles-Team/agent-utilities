@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from agent_utilities.orchestration import work_item as wi
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration.org_runtime import (
     ManagerMode,
     OrgChart,

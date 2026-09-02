@@ -94,10 +94,10 @@ def test_sweep_all_sources_enqueues_laned_connector_tasks():
 # AU-P1-CL / ORCH-1.8x WorkItem-queue migration (see
 # `tests/unit/knowledge_graph/test_task_claim_cas.py`'s module docstring):
 # `_claim_next_task` now claims exclusively through the native
-# `agent_utilities.orchestration.work_item.claim_next` queue
+# `agent_utilities.knowledge_graph.core.work_durability.claim_next` queue
 # (`engine_tasks.py::_claim_next_task`), whose own docstring states "native
 # selection owns ordering, quota, dependency release, and lease recovery"
-# (`work_item.py::claim_next`). There is no Python-level rotation cursor left
+# (`work_durability.py::claim_next`). There is no Python-level rotation cursor left
 # to unit test the way these two tests did — `TaskManagerMixin` has no
 # `_select_pending_task` attribute at all (confirmed via
 # `hasattr(TaskManagerMixin, "_select_pending_task") is False`) — and the

@@ -1980,7 +1980,7 @@ def fire_ready_agent_tasks(
 
     Routed through WorkItem (AU-P1-1, report §9 #4): the readiness event first
     shadow-creates/advances this task's ``WorkItem`` via
-    :func:`~agent_utilities.orchestration.work_item.ensure_agent_task_work_item`
+    :func:`~agent_utilities.knowledge_graph.core.work_durability.ensure_agent_task_work_item`
     (so the engine-native dependency graph reflects readiness immediately,
     rather than lazily at claim time) — WorkItem is the write authority. The
     legacy ``:AgentTask.status`` flip stays as a best-effort MIRROR (same
@@ -2007,7 +2007,9 @@ def fire_ready_agent_tasks(
         logger.debug("fleet_reconciler: agent-task dependency sweep failed: %s", e)
         return []
 
-    from agent_utilities.orchestration.work_item import ensure_agent_task_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        ensure_agent_task_work_item,
+    )
 
     fired: list[str] = []
     for row in rows:

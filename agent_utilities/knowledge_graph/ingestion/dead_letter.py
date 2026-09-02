@@ -6,7 +6,7 @@ from __future__ import annotations
 The universal-ingestion program's Track B "dead-letter must be loud and
 drainable, never a silent drop" requirement.
 
-**What already existed.** A ``WorkItem`` (:mod:`~agent_utilities.orchestration.work_item`)
+**What already existed.** A ``WorkItem`` (:mod:`~agent_utilities.knowledge_graph.core.work_durability`)
 already reaches a durable ``dead_letter`` terminal status once its native
 retry/backoff budget is exhausted (``commit_result``), and
 ``knowledge_graph.retrieval.ops_context.diagnose_ops`` already surfaces a
@@ -14,7 +14,7 @@ dead-letter *count* for operational health answers. What did NOT exist: an
 actual ``list``/``drain`` API — a dead-lettered item was queryable only as an
 aggregate count, with no way to see WHICH items and no way to requeue one.
 This module is that gap, built directly over the existing ``WorkItem``
-label/read pattern (:func:`~agent_utilities.orchestration.work_item.get_work_item`) —
+label/read pattern (:func:`~agent_utilities.knowledge_graph.core.work_durability.get_work_item`) —
 not a second queue or a parallel DLQ store.
 
 **Draining is a deliberate, operator-initiated action — never an automatic
@@ -35,7 +35,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["list_dead_letter_items", "drain_dead_letter_item"]
+__all__ = [
+    "DeadLetterReadUnavailable",
+    "list_dead_letter_items",
+    "drain_dead_letter_item",
+]
 
 _NODE_LABEL = "WorkItem"
 
@@ -53,16 +57,20 @@ _LIST_FIELDS = (
 )
 
 
+class DeadLetterReadUnavailable(RuntimeError):
+    """The durable dead-letter backlog could not be read authoritatively."""
+
+
 def list_dead_letter_items(
     engine: Any, *, kind: str = "", limit: int = 50
 ) -> list[dict[str, Any]]:
     """Enumerate dead-lettered WorkItems — the "loud" half of this module.
 
-    Best-effort read (never raises): an engine that cannot run the query
-    returns an empty list rather than crashing a health/ops surface, exactly
-    like every other read in this program's ``ops_context``/``ClaimFlywheel``
-    style. ``kind`` optionally narrows to one WorkItem kind (e.g.
-    ``"ingest_task"``); omit to see every dead-lettered item.
+    Fail-closed read: an engine that cannot run the query raises
+    :class:`DeadLetterReadUnavailable`; an unavailable backlog must never be
+    reported as an authoritative empty queue. ``kind`` optionally narrows to
+    one WorkItem kind (e.g. ``"ingest_task"``); omit to see every dead-lettered
+    item.
     """
     limit = max(1, min(200, int(limit)))
     return_clause = ", ".join(f"w.{f} AS {f}" for f in _LIST_FIELDS)
@@ -77,9 +85,10 @@ def list_dead_letter_items(
             )
             or []
         )
-    except Exception as exc:  # noqa: BLE001 — a broken read must not hide the backlog as empty
-        logger.warning("dead_letter: list query failed: %s", exc)
-        return []
+    except Exception as exc:  # noqa: BLE001 — normalize backend-specific read errors
+        raise DeadLetterReadUnavailable(
+            "the durable dead-letter backlog is unavailable"
+        ) from exc
     return [dict(row) for row in rows if isinstance(row, dict) and row.get("id")]
 
 
@@ -100,7 +109,7 @@ def drain_dead_letter_item(
     id (draining is only ever defined for a genuinely dead-lettered item —
     it is not a generic resubmit).
     """
-    from ...orchestration.work_item import get_work_item, submit_work_item
+    from ..core.work_durability import get_work_item, submit_work_item
 
     item = get_work_item(engine, item_id)
     if item is None or item.get("status") != "dead_letter":

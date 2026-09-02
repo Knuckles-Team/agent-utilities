@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 from agent_utilities.knowledge_graph.research.loops import (
     LoopStatus,
@@ -19,7 +20,6 @@ from agent_utilities.knowledge_graph.research.loops import (
     submit_loop,
     to_status,
 )
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.orchestration.loop_guards import GoalEvaluation
 from tests.unit.knowledge_graph.test_loops import LoopEngine, _authority
 

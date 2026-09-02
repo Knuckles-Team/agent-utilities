@@ -92,7 +92,7 @@ submitted -> ready -> leased(fencing_token) -> running(heartbeat, attempt)
     -> succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter
 ```
 
-**Code anchor.** `orchestration/work_item.py::WorkItemStatus` (the `StrEnum`),
+**Code anchor.** `knowledge_graph/core/work_durability.py::WORK_ITEM_STATES`,
 `TERMINAL_WORK_ITEM_STATUSES`, `submit_work_item`/`claim_next`/`commit_result`/
 `reap_expired_leases`. Every transition is a single
 `backend.compare_and_set_node_fields(...)` CAS call — the *same* primitive

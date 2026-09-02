@@ -3,11 +3,48 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 from agent_utilities.knowledge_graph.research.loops import claim_loop, submit_loop
-from agent_utilities.orchestration import work_item as wi
-from tests.unit.knowledge_graph.test_loops import LoopEngine, _authority
+from agent_utilities.security.brain_context import ActorContext, ActorType
+from tests.unit.orchestration.test_work_item import NativeEngine
+
+
+class LoopEngine(NativeEngine):
+    """Native WorkItem double plus the bounded Concept queries used here."""
+
+    def query_cypher(self, cypher, params=None):
+        query = " ".join(cypher.split())
+        if "ADDRESSED_BY" in query:
+            return []
+        if query.startswith("MATCH (c:Concept) RETURN"):
+            rows = [
+                {"id": node_id, **node}
+                for node_id, node in self.nodes.items()
+                if node.get("label") == "Concept"
+            ]
+            return rows[: int((params or {}).get("limit", len(rows)))]
+        return super().query_cypher(cypher, params)
+
+
+@contextmanager
+def _authority():
+    session = GraphSession(
+        actor=ActorContext(
+            actor_id="opaque-subject",
+            actor_type=ActorType.AUTOMATED_SERVICE,
+            tenant_id="tenant-a",
+            authenticated=True,
+        ),
+        tenant="tenant-a",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph="tenant-a",
+    )
+    with use_session(session):
+        yield
 
 
 def _submit(engine: LoopEngine, *, loop_id: str, kind: str = "develop") -> dict:

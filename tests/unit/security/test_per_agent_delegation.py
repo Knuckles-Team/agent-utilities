@@ -496,7 +496,9 @@ def test_heartbeat_denied_on_expiry_in_on_mode(
     monkeypatch: pytest.MonkeyPatch, _secret: None
 ) -> None:
     """ACCEPTANCE: expired-token spawn dies at next renewal — on mode fails the renewal."""
-    from agent_utilities.orchestration.work_item import _delegation_still_live
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        _delegation_still_live,
+    )
 
     _mode(monkeypatch, "on")
     d = deleg.build_spawn_delegation(
@@ -513,7 +515,9 @@ def test_heartbeat_denied_on_expiry_in_on_mode(
 def test_heartbeat_renews_in_warn_mode_despite_expiry(
     monkeypatch: pytest.MonkeyPatch, _secret: None
 ) -> None:
-    from agent_utilities.orchestration.work_item import _delegation_still_live
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        _delegation_still_live,
+    )
 
     _mode(monkeypatch, "warn")
     d = deleg.build_spawn_delegation(
@@ -528,7 +532,9 @@ def test_heartbeat_renews_in_warn_mode_despite_expiry(
 
 
 def test_heartbeat_live_without_delegation() -> None:
-    from agent_utilities.orchestration.work_item import _delegation_still_live
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        _delegation_still_live,
+    )
 
     assert _delegation_still_live() is True
 

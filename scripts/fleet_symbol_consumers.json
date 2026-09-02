@@ -13900,14 +13900,14 @@
         "line": 30
       }
     ],
-    "agent_utilities.orchestration.work_item.claim_specific": [
+    "agent_utilities.knowledge_graph.core.work_durability.claim_specific": [
       {
         "repo": "repository-manager",
         "file": "repository_manager/native_lane_authority.py",
         "line": 170
       }
     ],
-    "agent_utilities.orchestration.work_item.submit_work_item_atomic": [
+    "agent_utilities.knowledge_graph.core.work_durability.submit_work_item_atomic": [
       {
         "repo": "repository-manager",
         "file": "repository_manager/native_lane_authority.py",

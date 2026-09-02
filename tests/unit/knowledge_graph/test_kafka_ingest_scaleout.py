@@ -512,7 +512,7 @@ class _FakeEngine:
         node = self.nodes.get((params or {}).get("id"))
         if not node:
             return []
-        from agent_utilities.orchestration import work_item as wi
+        from agent_utilities.knowledge_graph.core import work_durability as wi
 
         return [
             {

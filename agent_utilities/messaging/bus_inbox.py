@@ -200,7 +200,8 @@ def _properties(
         # populated from the already-privacy-sanitized `clean_meta`, same pattern
         # as `deadline_unix`/`budget` above. This module only MATERIALIZES the
         # WorkItem (the native-work-item-boundary gate forbids it from claiming/
-        # transitioning one) — enforcement lives solely in `orchestration.work_item`.
+        # transitioning one) — enforcement lives solely in
+        # `knowledge_graph.core.work_durability`.
         consent_required=bool(clean_meta.get("consent_required") or False),
         consent_scope=str(clean_meta.get("consent_scope") or ""),
         consent_subject=str(clean_meta.get("consent_subject") or ""),
@@ -247,7 +248,7 @@ def _properties(
 
 
 def _already_committed(engine: Any, work_item_id: str) -> bool:
-    from agent_utilities.orchestration.work_item import get_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import get_work_item
 
     try:
         return get_work_item(engine, work_item_id) is not None

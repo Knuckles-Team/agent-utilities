@@ -8,7 +8,7 @@ breaker (:class:`agent_utilities.knowledge_graph.core.engine_breaker.CircuitBrea
 a per-server breaker on the live specialist-execution path
 (``ctx.deps.server_health`` in ``agent_utilities/graph/executor.py``),
 and engine-native WorkItem leases/checkpoints
-(:mod:`agent_utilities.orchestration.work_item`),
+(:mod:`agent_utilities.knowledge_graph.core.work_durability`),
 but there was no *declarative* policy describing how an individual unit of work
 should retry, back off, fall back, or time out.
 

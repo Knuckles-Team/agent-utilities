@@ -32,7 +32,7 @@ class _TaskQueryHost(Protocol):
     ``TaskQueryMixin`` checked in isolation has no way for mypy to know those
     attributes exist. This Protocol names exactly the three it uses, typed
     the same way their own definitions and every other caller already type
-    them (``_work_item_engine`` is opaque — ``orchestration.work_item``'s own
+    them (``_work_item_engine`` is opaque — ``core.work_durability``'s own
     functions accept it as ``Any``, e.g. ``get_work_item(engine: Any, ...)``).
     """
 
@@ -145,7 +145,7 @@ class TaskQueryMixin:
 
     def get_task_status(self: _TaskQueryHost, job_id: str) -> dict | None:
         """Render one ingestion WorkItem using the public job vocabulary."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item = _wi.get_work_item(
             self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
@@ -202,7 +202,7 @@ class TaskQueryMixin:
         if not job_id:
             return {"status": "error", "error": "job_id required"}
         try:
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             item_id = _wi.ingest_task_work_item_id(job_id)
             prior = _wi.get_work_item(self._work_item_engine, item_id)
@@ -268,7 +268,7 @@ class TaskQueryMixin:
                 "status": "error",
                 "error": "priority must be an integer bucket from 0 through 3",
             }
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item_id = _wi.ingest_task_work_item_id(job_id)
         if _wi.get_work_item(self._work_item_engine, item_id) is None:

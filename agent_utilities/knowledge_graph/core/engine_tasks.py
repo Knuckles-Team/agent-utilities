@@ -693,7 +693,7 @@ _TASK_MAX_ATTEMPTS = 3
 # outcome committed through the active native claim. All
 # calls through ``_update_task_status`` are treated as non-retryable (the
 # APP-LEVEL retry/backoff/DLQ decision lives in ``_fail_or_retry_task``,
-# which commits through ``work_item.commit_result`` itself with
+# which commits through ``work_durability.commit_result`` itself with
 # ``retryable=True`` and only calls back into ``_update_task_status`` once
 # IT has already decided the outcome is terminal — see that method).
 _INGEST_TERMINAL_STATUS_TO_WORK_ITEM: dict[str, str] = {
@@ -1047,7 +1047,7 @@ def _existing_ingest_job(work_index: dict[str, Any], durable_target: str) -> str
     live item whose ``payload_ref`` is unset) and is returned as-is, exactly as the
     inline dedupe scan did.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     for item in work_index.values():
         meta = item.get("metadata") or {}
@@ -1564,8 +1564,8 @@ def _claim_hydration_first(host: Any, token: Any) -> dict[str, Any] | None:
     never picks up an ordinary ``connector_sync`` sharing the same lane.
     """
     from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
     from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
-    from agent_utilities.orchestration import work_item as _wi
 
     for hydration_type in sorted(HYDRATION_TASK_TYPES):
         claim = _wi.claim_next(
@@ -1585,7 +1585,7 @@ def _claim_ingest_work_item(
     host: Any, hydration_reserved: bool
 ) -> dict[str, Any] | None:
     """Claim the next runnable ingest WorkItem, hydration-first when reserved."""
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     token = host._get_host_token()
     claim = _claim_hydration_first(host, token) if hydration_reserved else None
@@ -1601,7 +1601,7 @@ def _claim_ingest_work_item(
 
 def _claimed_job_id(claim: dict[str, Any]) -> str:
     """The ingest job id a claim refers to."""
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     job_id = str(
         claim.get("payload_ref")
@@ -1646,7 +1646,7 @@ def _recover_claim_metadata_failure(
     attempt); ``False`` when the caller must re-raise, the local bookkeeping having
     been dropped first.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     materialization = _retryable_partial_materialization(exc)
     if materialization is not None:
@@ -2160,7 +2160,9 @@ def _bound_to_explicit_ingest_graph(graph: str):
         current_session,
         use_session,
     )
-    from agent_utilities.orchestration.work_item import WorkItemBackendUnavailable
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        WorkItemBackendUnavailable,
+    )
 
     session = current_session()
     if session is None:
@@ -2173,7 +2175,7 @@ def _bound_to_explicit_ingest_graph(graph: str):
 
 class _ControlPlaneWorkItemEngine:
     """Adapts a ``TaskManagerMixin`` host to the ``engine`` protocol
-    :mod:`agent_utilities.orchestration.work_item` expects (``add_node``/
+    :mod:`agent_utilities.knowledge_graph.core.work_durability` expects (``add_node``/
     ``query_cypher``/``link_nodes``/``compare_and_set_node_fields``), bound
     ENTIRELY to the host's configured control authority
     (CONCEPT:AU-KG.backend.schedule-on-control-graph).
@@ -2183,7 +2185,7 @@ class _ControlPlaneWorkItemEngine:
     ``__commons__`` and reintroduce exactly the
     content-ingestion write-lock contention the control/commons split exists
     to avoid. This adapter is the ONLY thing that changes: every state-
-    machine transition in ``work_item.py`` is reused unmodified.
+    machine transition in ``work_durability.py`` is reused unmodified.
 
     BUG-059 disposition — JUSTIFIED BYPASS, evaluated and confirmed standing.
     ``add_node``/``link_nodes`` below write directly through ``self._host._control``
@@ -2272,7 +2274,7 @@ class _ControlPlaneWorkItemEngine:
         backend = self._host._control
         add = getattr(backend, "add_node", None)
         if not callable(add):
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -2284,7 +2286,7 @@ class _ControlPlaneWorkItemEngine:
         # is this call's single source of truth for the node's class identity,
         # matching
         # ``IntelligenceGraphEngine.add_node``'s own ``props["node_type"] =
-        # node_type`` stamp one layer up. ``work_item.py``'s callers build
+        # node_type`` stamp one layer up. ``work_durability.py``'s callers build
         # ``properties`` from ``RegistryNode.to_graph_properties()``, which
         # ALSO writes a ``node_type`` key — the lowercase snake_case
         # ``RegistryNodeType`` enum value (e.g. ``"work_item"``), not the
@@ -2350,7 +2352,7 @@ class _ControlPlaneWorkItemEngine:
         backend = self._host._control
         fn = getattr(backend, "compare_and_set_node_fields", None)
         if not callable(fn):
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -2366,7 +2368,7 @@ class _ControlPlaneWorkItemEngine:
         """Return the host's one process-owned native WorkItem client."""
         backend_graph = getattr(self._host._control, "graph", None)
         if backend_graph is None:
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -2380,7 +2382,7 @@ class _ControlPlaneWorkItemEngine:
         target = self._native_work_items()
         method = getattr(target, name, None)
         if not callable(method):
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -2600,7 +2602,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         """
         control = getattr(self, "control_backend", None)
         if control is None:
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -2647,7 +2649,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         ctrl = self._control
         execute_read = getattr(ctrl, "execute_read", None)
         if not callable(execute_read):
-            from agent_utilities.orchestration.work_item import (
+            from agent_utilities.knowledge_graph.core.work_durability import (
                 WorkItemBackendUnavailable,
             )
 
@@ -3454,7 +3456,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         """Read dependency state exclusively from their WorkItems."""
         if not deps:
             return "ready"
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         broken = {
             "failed",
@@ -4667,8 +4669,8 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         into the async execution otherwise. Empty (default) preserves the
         unchanged behavior: content lands on the worker's own ambient graph.
         """
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
         from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
-        from agent_utilities.orchestration import work_item as _wi
 
         durable_target = _portable_task_target(target_path)
         # WorkItem owns both the immutable execution definition and lifecycle.
@@ -5132,7 +5134,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         A per-lane PENDING count needs only ``resource_class`` grouped under a
         ``status``/``next_retry_at`` predicate, not the full row set — this
         mirrors the aggregate-count convention already established by
-        :func:`agent_utilities.orchestration.work_item.machine_state_distribution`
+        :func:`agent_utilities.knowledge_graph.core.work_durability.machine_state_distribution`
         (``RETURN <col>, count(w)`` instead of materializing every row in
         Python). Only ``ingest_task`` WorkItems feed lane admission, matching
         :meth:`_ingest_work_item_index`'s existing filter; the native "ready and
@@ -5226,7 +5228,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             self._work_item_lease_heartbeats[job_id] = (stop, lost)
 
         def _heartbeat_loop() -> None:
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             while not stop.wait(_TASK_WORK_ITEM_HEARTBEAT_SEC):
                 if cancellation_event is not None and cancellation_event.is_set():
@@ -5269,7 +5271,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
 
     def _require_live_work_item_lease(self, job_id: str, claim: dict[str, Any]) -> None:
         """Fence terminal state changes on a lease renewed immediately before commit."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         with self._work_item_lease_heartbeats_lock:
             heartbeat = self._work_item_lease_heartbeats.get(job_id)
@@ -5294,7 +5296,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
 
     def _ingest_task_metadata(self, job_id: str) -> dict[str, Any]:
         """Read an ingestion definition from its sole WorkItem."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item = _wi.get_work_item(
             self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
@@ -5334,7 +5336,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         it cannot be starved by however many concurrent legacy connector syncs
         are occupying the rest of the pool.
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         claim = _claim_ingest_work_item(self, hydration_reserved)
         if claim is None:
@@ -6501,7 +6503,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             eta = time.time() + 60.0
             cmeta["eta_unix"] = eta
             cmeta["member_status"] = member_st
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             work_item_id = str(cmeta.get("work_item_id") or "")
             if not work_item_id:
@@ -7269,7 +7271,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         outcome = _INGEST_TERMINAL_STATUS_TO_WORK_ITEM.get(status)
         if outcome is None:
             raise ValueError(f"unsupported terminal ingestion status: {status!r}")
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         claim = self._active_work_item_claim(job_id)
         if claim is None:
@@ -7304,7 +7306,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         self, job_id: str, error: str, details: dict[str, Any] | None = None
     ) -> None:
         """Commit an application failure through native retry policy."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         claim = self._active_work_item_claim(job_id)
         if claim is None:
@@ -7343,7 +7345,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         transition means this worker no longer owns the lease and is never
         converted into an application failure.
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         claim = self._active_work_item_claim(job_id)
         if claim is None:
@@ -7392,7 +7394,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         ``_record_workitem_admission_deferral`` immediately after invoking
         this method; recording it here too would double-count every denial.
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         claim = self._active_work_item_claim(job_id)
         if claim is None:

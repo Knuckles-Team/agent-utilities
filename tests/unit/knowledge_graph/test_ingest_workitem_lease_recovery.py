@@ -68,7 +68,7 @@ def test_active_ingestion_task_renews_short_fenced_lease(monkeypatch):
         renewed.set()
         return True
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
     monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)
@@ -93,7 +93,7 @@ def test_ingestion_claim_uses_short_crash_recovery_lease(monkeypatch):
         observed["lease_ttl_s"] = kwargs["lease_ttl_s"]
         return {"work_item_id": "workitem:ingest_task:job-1", "payload_ref": "job-1"}
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(work_item, "claim_next", claim_next)
     monkeypatch.setattr(work_item, "mark_running", lambda *_args: True)
@@ -119,7 +119,7 @@ def test_lost_or_stopped_heartbeat_fences_terminal_commit(monkeypatch):
         called.set()
         return False
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
     monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)
@@ -162,7 +162,7 @@ def test_soft_timeout_cancellation_stops_lease_renewal(monkeypatch):
         heartbeat_calls.append({"item_id": item_id})
         return True
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
     monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)
@@ -207,7 +207,7 @@ def test_lease_heartbeat_without_cancellation_event_is_unaffected(monkeypatch):
         renewed.set()
         return True
 
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(engine_tasks, "_authorized_background_thread", _thread)
     monkeypatch.setattr(engine_tasks, "_TASK_WORK_ITEM_HEARTBEAT_SEC", 0.01)

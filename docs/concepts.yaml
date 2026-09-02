@@ -1688,7 +1688,7 @@ concepts:
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/mcp/tasks_extension.py
   - agent_utilities/mcp/tools/mcp_apps.py
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   doc: mount the native WorkItem-backed
 - id: AU-ECO.mcp.tool-mode-standardization
   name: MCP tool-mode standardization
@@ -7393,7 +7393,7 @@ concepts:
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   doc: Queue-driven agent dispatch with session-keyed partitions
 - id: AU-ORCH.dispatch.seeded-agent-template
   name: a built-in/seeded AgentTemplate
@@ -7433,14 +7433,14 @@ concepts:
   code_paths:
   - agent_utilities/messaging/bus_inbox.py
   - agent_utilities/models/knowledge_graph.py
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   doc: a WorkItem is bound only to
 - id: AU-ORCH.dispatch.workitem-idempotency-key-dedup
   name: AU-ORCH.dispatch.workitem-idempotency-key-dedup
   pillar: AU-ORCH
   status: live
   code_paths:
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   doc: AU-ORCH.dispatch.workitem-idempotency-key-dedup
 - id: AU-ORCH.execution.active-subagent-lifecycle
   name: Subagent Lifecycle Patterns
@@ -8861,7 +8861,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/orchestration/claim_pacing.py
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   doc: AU-ORCH.scheduling.claim-pacing-backpressure
 - id: AU-ORCH.scheduling.connector-sync-lane
   name: external connector delta syncs
@@ -9938,7 +9938,7 @@ concepts:
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
-  - agent_utilities/orchestration/work_item.py
+  - agent_utilities/knowledge_graph/core/work_durability.py
   - agent_utilities/security/delegation.py
   doc: the *exchange* leg of the per-agent
 - id: AU-OS.identity.permissions-kernel

@@ -1,7 +1,7 @@
 """Worker loss + at-least-once delivery chaos — SCALE-P2-1 soak scenarios 2-3.
 
 Built directly against the engine-native WorkItem CAS state machine
-(:mod:`agent_utilities.orchestration.work_item`) and a fresh
+(:mod:`agent_utilities.knowledge_graph.core.work_durability`) and a fresh
 :class:`FakeScaleEngine`, not through the rate-based load generator — these
 scenarios need to construct an EXACT state ("this item's lease just expired
 mid-execution", "the queue redelivered this exact claim") that a Poisson-rate
@@ -56,7 +56,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
     )
     assert claim_a is not None
     # "leased" and "running" are one engine-native ownership decision (see
-    # work_item.py's mark_running docstring) — precedent:
+    # work_durability.py's mark_running docstring) — precedent:
     # tests/unit/orchestration/test_work_item.py:610.
     assert wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
     assert claim_a["fence_token"] == 1

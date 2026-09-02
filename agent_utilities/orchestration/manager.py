@@ -274,7 +274,7 @@ class Orchestrator:
         task = self._redact_task(task)
         job_id = f"orch-{uuid.uuid4().hex}"
         from agent_utilities.knowledge_graph.core.session import resolve_session
-        from agent_utilities.orchestration.work_item import (
+        from agent_utilities.knowledge_graph.core.work_durability import (
             submit_orchestrator_work_item,
         )
 
@@ -291,7 +291,7 @@ class Orchestrator:
 
     def get_task_status(self, job_id: str) -> dict[str, Any]:
         """Read the authoritative WorkItem for a dispatched assignment."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         view = getattr(self.engine, "_work_item_engine", self.engine)
         item = _wi.get_work_item(view, _wi.orchestrator_work_item_id(job_id))

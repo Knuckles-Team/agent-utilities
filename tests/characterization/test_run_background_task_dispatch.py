@@ -805,7 +805,8 @@ async def test_cohort_synthesize_defers_when_not_ready():
             return_value=(False, {"total": 2, "terminal": 1}),
         ),
         patch(
-            "agent_utilities.orchestration.work_item.defer_work_item", return_value=True
+            "agent_utilities.knowledge_graph.core.work_durability.defer_work_item",
+            return_value=True,
         ) as defer_mock,
     ):
         await engine._run_background_task(

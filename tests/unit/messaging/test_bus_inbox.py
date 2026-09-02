@@ -112,7 +112,8 @@ def test_idempotency_authority_read_failure_fails_closed(monkeypatch):
         raise ConnectionError("endpoint details must not escape")
 
     monkeypatch.setattr(
-        "agent_utilities.orchestration.work_item.get_work_item", _failed_read
+        "agent_utilities.knowledge_graph.core.work_durability.get_work_item",
+        _failed_read,
     )
     with pytest.raises(RuntimeError, match="idempotency read failed") as exc_info:
         bus_inbox.commit_message_to_work_item(

@@ -3171,7 +3171,7 @@ class LoopController:
         Returns the yield result to return immediately, else None (claim won,
         with ``run.it``/``item_id``/``claim`` populated).
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         from .loops import claim_loop
 
@@ -3248,7 +3248,7 @@ class LoopController:
         Returns a terminal ``_loop_finish(...)`` result to return immediately, or
         None to continue the iteration.
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         from .loops import (
             LoopStatus,
@@ -3360,7 +3360,7 @@ class LoopController:
 
         A crash resumes after the last committed step (one WorkItem authority).
         """
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         if not _wi.checkpoint_work_item(
             self.engine,
@@ -3480,7 +3480,7 @@ class LoopController:
         self, run: _LoopRun, decided: Any, heartbeat: Any, retryable: bool
     ) -> None:
         """Hand this iteration's signals to the Loop's eg-statechart ``posttick``."""
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
         from agent_utilities.orchestration.loop_guards import deadline_passed
 
         from .loops import (
@@ -3634,7 +3634,7 @@ class LoopController:
     def _resume_iteration(engine: Any, loop_id: str) -> int:
         """Read the last fenced iteration from the Loop WorkItem."""
 
-        from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.knowledge_graph.core import work_durability as _wi
 
         item = _wi.get_work_item(engine, _wi.loop_work_item_id(loop_id))
         checkpoint = str((item or {}).get("checkpoint_id") or "")

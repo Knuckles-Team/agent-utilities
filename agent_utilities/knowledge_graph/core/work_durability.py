@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""The sole engine-native ``WorkItem`` state machine (AU-P1-1).
+"""The canonical engine-native ``WorkItem`` durability boundary (AU-P1-1).
 
 CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — unifies Goal/Task/AgentTask/Loop/dispatch
 
@@ -14,6 +14,14 @@ Every durable unit of work uses this one versioned lifecycle::
 may live in immutable domain records, but no other node owns status, claim,
 lease, retry, dependency, priority, or terminal outcome. Producers submit a
 WorkItem at intake; consumers never adopt or infer state from another label.
+
+This boundary intentionally does not extend :mod:`.queue_backend`.  That
+contract owns transport delivery (``put/get/ack`` across SQLite, PostgreSQL, or
+Kafka); it cannot perform epistemic-graph's tenant-scoped lifecycle
+transactions, lease fencing, metadata CAS, retry scheduling, cancellation, or
+atomic terminal commit.  Making a delivery backend durable WorkItem authority
+would conflate message redelivery with control-plane truth and recreate the
+parallel persistence this module removes.
 
 Legacy status vocabularies (the ingestion ``:Task`` queue, ``:AgentTask``
 dispatch, the team-collaboration ``:TaskNode``, Loop/Goal, the dispatch
@@ -46,7 +54,7 @@ import re
 import time
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Protocol, cast
 
 from agent_utilities.protocols.epistemic_operations import (
     ClaimWorkItemRequest,
@@ -63,6 +71,7 @@ __all__ = [
     "WorkItemBackendUnavailable",
     "NativeWorkItemRequired",
     "TenantQuotaExceeded",
+    "WorkDurabilityPort",
     "new_work_item_id",
     "submit_work_item",
     "submit_work_item_atomic",
@@ -214,6 +223,49 @@ _FIELDS: tuple[str, ...] = (
 )
 
 
+class WorkDurabilityPort(Protocol):
+    """The one AU boundary to epistemic-graph's native WorkItem authority.
+
+    Delivery queues deliberately do not implement this protocol: they may notify
+    a worker that work exists, but they cannot admit, lease, fence, checkpoint,
+    retry, cancel, or commit a WorkItem.  The concrete control adapter remains
+    composed by ``TaskManagerMixin``; this leaf only owns the contract.
+    """
+
+    def query_cypher(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
+    ) -> Any: ...
+
+    def create_node_if_absent(
+        self, node_id: str, *, properties: dict[str, Any]
+    ) -> bool: ...
+
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool: ...
+
+    def claim_work_item(
+        self, request: ClaimWorkItemRequest | dict[str, Any]
+    ) -> ClaimWorkItemResult | dict[str, Any]: ...
+
+    def renew_work_item_lease(self, request: dict[str, Any]) -> Any: ...
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> Any: ...
+
+    def cancel_work_item(self, request: dict[str, Any]) -> Any: ...
+
+    def defer_work_item(self, request: dict[str, Any]) -> Any: ...
+
+    def cas_work_item_metadata(self, request: dict[str, Any]) -> Any: ...
+
+
 class WorkItemBackendUnavailable(RuntimeError):
     """Raised when the connected engine has no atomic ``compare_and_set_node_fields``.
 
@@ -241,7 +293,7 @@ def _work_tenant(value: str | None = None) -> str:
     return tenant
 
 
-def _authority(engine: Any) -> Any:
+def _authority(engine: Any) -> WorkDurabilityPort:
     """Resolve exactly one WorkItem authority.
 
     Host engines expose their native control view as ``_work_item_engine``.
@@ -249,7 +301,7 @@ def _authority(engine: Any) -> Any:
     No content backend or alternate client is searched.
     """
     view = getattr(engine, "_work_item_engine", None)
-    return view if view is not None else engine
+    return cast(WorkDurabilityPort, view if view is not None else engine)
 
 
 def _native_method(engine: Any, name: str) -> Any | None:
@@ -496,12 +548,7 @@ def _default_correlation_id() -> str:
 
 
 def _default_token() -> str:
-    try:
-        from agent_utilities.orchestration.agent_dispatch_worker import worker_token
-
-        return worker_token()
-    except Exception:  # noqa: BLE001 — standalone fallback
-        return _PROCESS_WORKER_TOKEN
+    return _PROCESS_WORKER_TOKEN
 
 
 def _cas(

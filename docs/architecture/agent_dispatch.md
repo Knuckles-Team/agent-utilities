@@ -96,7 +96,7 @@ its tenant/group has no remaining queued work.
 - Enqueue implementation: `agent_utilities/orchestration/agent_dispatch.py`
 - Claim/execute/commit implementation:
   `agent_utilities/orchestration/agent_dispatch_worker.py`
-- Work authority: `agent_utilities/orchestration/work_item.py`
+- Work authority: `agent_utilities/knowledge_graph/core/work_durability.py`
 - Job projection/cancellation: `graph_jobs(action=status|cancel)` and
   `/api/graph/jobs` over the same WorkItem authority
 - Queue controls: `TASK_QUEUE_BACKEND`, `AGENT_TURNS_PARTITIONS`,
