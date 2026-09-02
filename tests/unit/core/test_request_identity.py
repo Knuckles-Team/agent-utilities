@@ -203,6 +203,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:write unrelated:claim",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -214,6 +215,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:admin unrelated:claim",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -225,6 +227,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "roles": ["admin"],
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -240,19 +243,30 @@ class TestActorFromClaims:
                     "sub": "principal:verified",
                     "groups": ["platform-operators"],
                     "tenant_id": "tenant-a",
+                    "exp": int(time.time()) + 300,
                 }
             )
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
     def test_authenticated_actor_without_tenant_cannot_mint_session(self):
-        actor = actor_from_claims({"sub": "principal:verified", "scope": "kg:read"})
-        with pytest.raises(PermissionError, match="verified tenant"):
+        actor = actor_from_claims(
+            {
+                "sub": "principal:verified",
+                "scope": "kg:read",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        with pytest.raises(PermissionError, match="invalid tenant"):
             _mint(actor)
 
     def test_missing_audience_or_policy_cannot_mint_session(self):
         actor = actor_from_claims(
-            {"sub": "principal:verified", "tenant_id": "tenant-a"}
+            {
+                "sub": "principal:verified",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
         )
         for config in (
             _make_config(auth_jwt_audience=None),
@@ -287,6 +301,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:admin",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         with (
@@ -331,6 +346,7 @@ class TestActorFromClaims:
                 "sub": "principal:agent-webui",
                 "scope": "kg:read",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -863,7 +879,7 @@ class TestStdioProcessIdentity:
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
-        assert session.actor.credential_expires_at is None
+        assert session.actor.credential_expires_at is not None
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),
