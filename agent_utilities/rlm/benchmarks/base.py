@@ -63,7 +63,7 @@ class BenchResult(BaseModel):
     scale: int
     accuracy: float
     n: int
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     total_tokens: int = 0
     wall_s: float = 0.0
     max_depth: int = 0

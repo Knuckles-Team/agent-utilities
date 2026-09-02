@@ -774,7 +774,7 @@ def _waterfall_trace_header(trace: Any, trace_id: str) -> dict[str, Any]:
         "name": getattr(trace, "name", ""),
         "status": getattr(trace, "status", "ok"),
         "latencyMs": getattr(trace, "latency_ms", None),
-        "costUsd": getattr(trace, "total_cost_usd", 0.0),
+        "costUsd": getattr(trace, "total_cost_usd", None),
         "inputTokens": getattr(trace, "input_tokens", 0),
         "outputTokens": getattr(trace, "output_tokens", 0),
         "toolCalls": getattr(trace, "tool_calls", 0),
@@ -1055,6 +1055,13 @@ def _invoke(
         # query), but the two-part dotted shape is otherwise indistinguishable
         # from a schema-qualified table/label composition at the AST level.
         return _degraded(surface, action, [".".join((a, m)) for a, m in candidates])
+    return _invoke_callable(fn, surface=surface, action=action, params=params)
+
+
+def _invoke_callable(
+    fn: Any, *, surface: str, action: str, params: dict[str, Any]
+) -> str:
+    """Invoke one resolved engine method and render the shared surface envelope."""
     try:
         result = fn(**params)
     except TypeError as exc:
@@ -1095,18 +1102,7 @@ def _invoke_promql(
         )
     fn = _resolve(client, candidates)
     if fn is not None:
-        try:
-            result = fn(**params)
-        except TypeError as exc:
-            return _surface_error(
-                exc, surface=surface, action=action, code="invalid_request"
-            )
-        except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-            return _surface_error(exc, surface=surface, action=action)
-        return json.dumps(
-            {"surface": surface, "action": action, "result": result},
-            default=_json_default,
-        )
+        return _invoke_callable(fn, surface=surface, action=action, params=params)
     series = _prometheus_http_query(action, params)
     if series is not None:
         return json.dumps(
@@ -2340,10 +2336,8 @@ def _ocel_import_and_dispatch(
 def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str | None:
     """graph_mine's 'process' action, OCEL JSON import path (mine/validate/derive).
 
-    Returns ``None`` when this branch's guard condition does not match -- the
-    caller must then try the next special case / fall through to the generic
-    ``_invoke`` dispatch, exactly like the original's sequential
-    ``if action == "process" and ...:`` chain.
+    A non-OCEL request returns ``None`` so ``graph_mine`` can continue through
+    its other process-input variants before generic engine dispatch.
     """
     if not (action == "process" and "ocel_json" in params):
         return None
@@ -2359,33 +2353,15 @@ def _graph_mine_process_ocel_json(action: str, params: dict, graph: str) -> str 
     try:
         outcome = _ocel_import_and_dispatch(action, params)
     except (PermissionError, TypeError, ValueError) as exc:
-        return _surface_error(
-            exc,
-            surface="mining",
-            action=action,
-            code="invalid_request",
-        )
+        return _mining_request_error(exc, action)
     except RuntimeError as exc:
-        return _surface_error(
-            exc,
-            surface="mining",
-            action=action,
-            code="commit_failed",
-        )
+        return _mining_request_error(exc, action)
     if isinstance(outcome, str):
         return outcome
     projection, exported, evidence = outcome
-    params["traces"] = projection.engine_traces()
-    response = json.loads(
-        _invoke(
-            surface="mining",
-            action=action,
-            graph=graph,
-            candidates=(("mining", action),),
-            params=params,
-        )
+    response = _invoke_mining_projection(
+        action, params=params, graph=graph, projection=projection
     )
-    response["projection"] = projection.public_metadata()
     response["ocel"] = exported
     response["tekg"] = evidence
     return json.dumps(response, default=_json_default)
@@ -2500,15 +2476,37 @@ def _conformance_commit(
     return {"applied": applied, "entities": entities, "links": links}
 
 
+def _mining_request_error(exc: Exception, action: str) -> str:
+    """Map governed mining validation and commit failures onto public codes."""
+    code = "commit_failed" if isinstance(exc, RuntimeError) else "invalid_request"
+    return _surface_error(exc, surface="mining", action=action, code=code)
+
+
+def _invoke_mining_projection(
+    action: str, *, params: dict, graph: str, projection: Any
+) -> dict[str, Any]:
+    """Dispatch projected traces through the native mining surface."""
+    params["traces"] = projection.engine_traces()
+    response = json.loads(
+        _invoke(
+            surface="mining",
+            action=action,
+            graph=graph,
+            candidates=(("mining", action),),
+            params=params,
+        )
+    )
+    response["projection"] = projection.public_metadata()
+    return response
+
+
 def _graph_mine_process_conformance(
     action: str, params: dict, graph: str
 ) -> str | None:
     """graph_mine's 'process' action, conformance-checking path (allowed_edges given).
 
-    Returns ``None`` when this branch's guard condition does not match -- the
-    caller must then try the next special case / fall through to the generic
-    ``_invoke`` dispatch, exactly like the original's sequential
-    ``if action == "process" and ...:`` chain.
+    Requests without an allowed-edge model return ``None``; the owning dispatcher
+    then evaluates the remaining process input shapes.
     """
     if not (action == "process" and "allowed_edges" in params):
         return None
@@ -2548,19 +2546,9 @@ def _graph_mine_process_conformance(
         )
         committed = _conformance_commit(inputs, run, deviations)
     except (PermissionError, TypeError, ValueError) as exc:
-        return _surface_error(
-            exc,
-            surface="mining",
-            action=action,
-            code="invalid_request",
-        )
+        return _mining_request_error(exc, action)
     except RuntimeError as exc:
-        return _surface_error(
-            exc,
-            surface="mining",
-            action=action,
-            code="commit_failed",
-        )
+        return _mining_request_error(exc, action)
     return json.dumps(
         {
             "surface": "mining",
@@ -2632,17 +2620,9 @@ def _graph_mine_process_events(action: str, params: dict, graph: str) -> str | N
             action=action,
             code="invalid_request",
         )
-    params["traces"] = projection.engine_traces()
-    response = json.loads(
-        _invoke(
-            surface="mining",
-            action=action,
-            graph=graph,
-            candidates=(("mining", action),),
-            params=params,
-        )
+    response = _invoke_mining_projection(
+        action, params=params, graph=graph, projection=projection
     )
-    response["projection"] = projection.public_metadata()
     return json.dumps(response, default=_json_default)
 
 

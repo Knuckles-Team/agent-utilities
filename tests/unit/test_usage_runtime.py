@@ -4,13 +4,30 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.pricing import PricingCatalog
+from agent_utilities.pricing.catalog import ModelPricing
 from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
 from agent_utilities.usage.models import ORIGIN_RUNTIME
 from agent_utilities.usage.recorder import UsageRecorder
 
 
 @pytest.fixture()
-def backend(tmp_path):
+def backend(tmp_path, monkeypatch):
+    from agent_utilities.pricing import catalog as catalog_module
+
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog(
+            [
+                ModelPricing(
+                    model_pattern="operator/model-v7",
+                    input_per_mtok=5,
+                    output_per_mtok=25,
+                )
+            ]
+        ),
+    )
     b = SqliteUsageBackend(tmp_path / "u.db")
     b.ensure_schema()
     return b
@@ -23,7 +40,7 @@ def test_record_run_creates_runtime_session(backend):
         query="do a thing",
         status="success",
         duration_ms=1234.0,
-        model="claude-opus-4-8",
+        model="operator/model-v7",
         token_usage={
             "input_tokens": 1000,
             "output_tokens": 200,
@@ -56,7 +73,7 @@ def test_tool_call_metrics_and_rows(backend):
     rec = UsageRecorder(backend)
     rec.record_run(
         run_id="run-1",
-        model="claude-opus-4-8",
+        model="operator/model-v7",
         token_usage={"input_tokens": 10, "output_tokens": 5},
     )
     rec.record_tool_call(

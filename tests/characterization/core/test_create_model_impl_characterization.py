@@ -11,7 +11,7 @@ not touched again in the refactor commit.
 Complements the substantial existing coverage in
 ``tests/unit/test_model_factory_auth_tls_routing.py`` (default routing, TLS,
 per-model headers/reasoning-effort, unsupported-provider) and
-``tests/unit/core/test_model_factory_custom_provider.py`` (custom/proxy
+``tests/unit/core/test_model_factory_custom_provider.py`` (custom
 egress) by pinning the branches those files do not: each of the 9 provider
 dispatch branches, oauth2 mutual exclusivity / attachment, and role
 resolution end to end.
@@ -85,14 +85,14 @@ def test_ollama_provider_requires_base_url(monkeypatch):
         )
 
 
-def test_ollama_provider_defaults_api_key_to_literal_ollama(monkeypatch):
+def test_local_provider_uses_operator_configured_api_key(monkeypatch):
     monkeypatch.setattr(model_factory, "config", _base_config())
     model = model_factory._create_model_impl(
         provider="ollama", model_id="llama3", base_url="http://ollama.invalid:11434/v1"
     )
     assert type(model).__name__ == "OpenAIChatModel"
     client = _client(model)
-    assert client.api_key == "ollama"
+    assert client.api_key == "openai-key"
     assert str(client.base_url).rstrip("/") == "http://ollama.invalid:11434/v1"
 
 
@@ -159,32 +159,24 @@ def test_huggingface_provider_builds_a_model_instead_of_raising(monkeypatch):
     assert model.model_name == "hf-x"
 
 
-def test_custom_and_proxy_provider_names_both_reach_the_same_branch(monkeypatch):
+def test_custom_provider_reaches_compatible_endpoint_adapter(monkeypatch):
     monkeypatch.setattr(
         model_factory,
         "config",
         _base_config(model_http_allowed_private_hosts=["proxy.invalid"]),
     )
-    model_custom = model_factory._create_model_impl(
+    model = model_factory._create_model_impl(
         provider="custom",
         model_id="byok",
         base_url="http://proxy.invalid/v1",
         api_key="k",
     )
-    model_proxy = model_factory._create_model_impl(
-        provider="proxy",
-        model_id="byok",
-        base_url="http://proxy.invalid/v1",
-        api_key="k",
-    )
-    assert (
-        type(model_custom).__name__ == type(model_proxy).__name__ == "OpenAIChatModel"
-    )
+    assert type(model).__name__ == "OpenAIChatModel"
 
 
 def test_unsupported_provider_rejected_before_client_construction(monkeypatch):
     monkeypatch.setattr(model_factory, "config", _base_config())
-    with pytest.raises(ValueError, match="unsupported model provider"):
+    with pytest.raises(ValueError, match="no registered adapter factory"):
         model_factory._create_model_impl(provider="not-a-real-provider", model_id="m")
 
 
@@ -268,6 +260,7 @@ def test_role_resolution_is_skipped_when_model_id_is_explicit(monkeypatch):
 
     model = model_factory._create_model_impl(
         role="planner",
+        provider="openai",
         model_id="explicit-model",
         base_url="https://explicit.invalid/v1",
     )

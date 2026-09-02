@@ -87,8 +87,8 @@ def profile_version_hash(definition: ModelDefinition) -> str:
             definition.provider,
             definition.model_id,
             definition.tier,
-            f"{definition.cost.input:.6f}",
-            f"{definition.cost.output:.6f}",
+            str(definition.cost.input),
+            str(definition.cost.output),
             str(definition.context_window),
             str(definition.max_output_tokens),
         ]

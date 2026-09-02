@@ -58,11 +58,17 @@ the universal path. Four smaller decisions live entirely inside this
 fallback:
 
 - **`model-routed-inbound-responder`** (`router.py:1596`) — `_select_responder`
-  defaults to the local LLM; an explicit `/claude` address (configurable via
-  `MESSAGING_CLAUDE_TRIGGER`) routes to Claude, falling back to local with a
-  visible note when no Anthropic key is configured — the fallback path still
-  respects the same model-choice UX as the primary path, rather than always
-  hard-coding one model.
+  resolves both the default and addressed selectors through the existing
+  `ModelRegistry`. `MESSAGING_MODEL_TRIGGER` is optional and matches only as a
+  complete token (alone or followed by space, colon, comma, or hyphen), so a
+  longer command sharing its prefix remains ordinary message content.
+  `MESSAGING_ADDRESSED_MODEL` and `MESSAGING_DEFAULT_MODEL` contain registry
+  ids or uniquely configured external model ids; an empty registry delegates
+  to the ordinary model factory without inventing a provider or model default.
+  Persisted retired selectors are renamed only after the complete staged XDG
+  document passes schema validation, then written atomically. A conflict or
+  invalid sibling field leaves the original bytes unchanged. Runtime aliases
+  are rejected with migration guidance rather than retained.
 - **`inbound-router`** (`router.py:1627`) — `_messaging_system_prompt` loads a
   dedicated messaging-assistant system prompt file
   (`prompts/messaging_assistant.json`) for this fallback specifically, with a

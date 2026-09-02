@@ -14,7 +14,7 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 from urllib.parse import urlsplit
 
 import platformdirs
@@ -184,6 +184,16 @@ _RETIRED_CERTIFICATION_FAULT_KEYS = frozenset(
 # collapse) puts both in the same process. Do not re-add this literal name
 # here without first confirming it is not also a live ``setting()`` read
 # elsewhere (``grep -rn` for the exact spelling across ``agent_utilities/``).
+_MESSAGING_MIGRATION_TARGETS = frozenset(
+    {
+        "MESSAGING_MODEL_TRIGGER",
+        "MESSAGING_ADDRESSED_MODEL",
+        "MESSAGING_DEFAULT_MODEL",
+    }
+)
+_RETIRED_CONFIGURATION_CATALOG_BYTES = 64 * 1024
+
+
 _RETIRED_CONFIGURATION_KEYS = (
     frozenset(
         {
@@ -220,6 +230,76 @@ _RETIRED_DURABLE_OUTBOUND_SECRET_KEYS = frozenset(
 )
 
 
+def _require_current_messaging_configuration(supplied: set[str]) -> None:
+    """Reject runtime aliases for selectors that only support persisted migration."""
+    replacements = _messaging_migration_destinations(supplied)
+    if replacements:
+        raise ValueError(
+            "retired messaging configuration key(s) are not accepted from the "
+            "process environment; migrate to the neutral registry selectors "
+            f"{', '.join(replacements)}"
+        )
+
+
+def _messaging_migration_destinations(supplied: set[str]) -> list[str]:
+    inventory = _retired_messaging_key_map()
+    destinations = {
+        destination
+        for key in supplied
+        if (destination := inventory.get(key)) is not None
+    }
+    return sorted(destinations)
+
+
+def _retired_messaging_key_map() -> dict[str, str]:
+    """Load the bounded operator-owned exact migration inventory, if present."""
+    policy_path = (
+        _xdg_config_file().parent / "governance" / "retired-configuration-keys.json"
+    )
+    if not policy_path.exists():
+        return {}
+    try:
+        return _validated_retired_messaging_key_map(
+            _load_retired_configuration_catalog(policy_path)
+        )
+    except Exception as exc:
+        raise ConfigurationSourceError(
+            "governance", "RetiredConfigurationCatalogError"
+        ) from exc
+
+
+def _load_retired_configuration_catalog(policy_path: pathlib.Path) -> Any:
+    with policy_path.open("rb") as stream:
+        payload = stream.read(_RETIRED_CONFIGURATION_CATALOG_BYTES + 1)
+    if len(payload) > _RETIRED_CONFIGURATION_CATALOG_BYTES:
+        raise ValueError("retired configuration catalog exceeds its size limit")
+    return json.loads(payload)
+
+
+def _validated_retired_messaging_key_map(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict) or set(raw) != {"version", "renames"}:
+        raise ValueError("retired configuration catalog has an invalid shape")
+    if not isinstance(raw["version"], str) or not raw["version"].strip():
+        raise ValueError("retired configuration catalog version must be non-empty")
+    renames = raw["renames"]
+    if not isinstance(renames, dict):
+        raise ValueError("retired configuration renames must be an object")
+    return dict(
+        _validated_retired_configuration_rename(source, target)
+        for source, target in renames.items()
+    )
+
+
+def _validated_retired_configuration_rename(
+    source: Any, target: Any
+) -> tuple[str, str]:
+    if not isinstance(source, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]+", source):
+        raise ValueError("retired configuration source key is invalid")
+    if target not in _MESSAGING_MIGRATION_TARGETS or source == target:
+        raise ValueError("retired configuration destination is invalid")
+    return source, target
+
+
 def _require_current_configuration_keys(keys: Any, *, durable: bool = True) -> None:
     """Reject removed durable configuration keys without inspecting values."""
     retired_keys = _RETIRED_CONFIGURATION_KEYS
@@ -229,13 +309,9 @@ def _require_current_configuration_keys(keys: Any, *, durable: bool = True) -> N
             | _RETIRED_DURABLE_OTLP_CONFIGURATION_KEYS
             | _RETIRED_DURABLE_OUTBOUND_SECRET_KEYS
         )
-    retired = sorted(
-        {
-            str(key).strip().upper()
-            for key in keys
-            if str(key).strip().upper() in retired_keys
-        }
-    )
+    supplied = set(map(lambda key: str(key).strip().upper(), keys))
+    _require_current_messaging_configuration(supplied)
+    retired = sorted({key for key in supplied if key in retired_keys})
     if retired:
         raise ValueError(
             "retired durable configuration key(s) are not accepted: "
@@ -279,6 +355,61 @@ def strip_retired_configuration_keys(
         else:
             cleaned[key] = value
     return cleaned, sorted(removed)
+
+
+def _migrate_messaging_configuration_mapping(
+    mapping: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    """Rename retired messaging selectors without retaining runtime aliases.
+
+    This is a one-time persisted-data migration. Runtime environment input is
+    intentionally rejected by :func:`_require_current_configuration_keys`.
+    """
+    normalized: dict[str, str] = {}
+    for key in mapping:
+        rendered = str(key)
+        canonical = rendered.strip().upper()
+        if canonical in normalized:
+            raise ConfigurationSourceError("xdg", "AmbiguousKeyError")
+        normalized[canonical] = rendered
+
+    inventory = _retired_messaging_key_map()
+    staged = dict(mapping)
+    renamed: list[tuple[str, str]] = []
+    for retired, source_key in tuple(normalized.items()):
+        current = inventory.get(retired)
+        if current is None:
+            continue
+        if current in normalized:
+            raise ConfigurationSourceError(
+                "xdg", "MessagingModelMigrationConflictError"
+            )
+        staged[current] = staged.pop(source_key)
+        renamed.append((source_key, current))
+        normalized[current] = current
+    return staged, renamed
+
+
+def _validated_messaging_configuration_mapping(
+    mapping: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    """Return a fully validated renamed document without persisting it."""
+    staged, renamed = _migrate_messaging_configuration_mapping(mapping)
+    if renamed:
+        _require_current_configuration_keys(staged)
+        canonical = _canonicalize_xdg_configuration(staged)
+        _validate_xdg_configuration_schema(canonical)
+    return staged, renamed
+
+
+def _migrate_persisted_messaging_configuration(
+    cfg_file: Any, mapping: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Validate then atomically migrate retired persisted messaging keys."""
+    staged, renamed = _validated_messaging_configuration_mapping(mapping)
+    if renamed:
+        _write_private_configuration_mapping(cfg_file, staged)
+    return staged
 
 
 class ConfigurationSourceError(RuntimeError):
@@ -708,16 +839,18 @@ def load_config(*, reload: bool = False) -> None:
             raise
 
 
-def _capture_projection_state_locked() -> tuple[
-    bool,
-    dict[str, str],
-    dict[str, bytes],
-    dict[str, Any],
-    dict[str, str | None],
-]:
+class _ProjectionState(NamedTuple):
+    loaded: bool
+    config_ledger: dict[str, str]
+    secret_ledger: dict[str, bytes]
+    status: dict[str, Any]
+    values: dict[str, str | None]
+
+
+def _capture_projection_state_locked() -> _ProjectionState:
     """Capture only loader-owned state for scoped reload rollback."""
     owned_keys = set(_xdg_injected_environment).union(_xdg_injected_runtime_secrets)
-    return (
+    return _ProjectionState(
         _env_loaded,
         dict(_xdg_injected_environment),
         dict(_xdg_injected_runtime_secrets),
@@ -726,29 +859,20 @@ def _capture_projection_state_locked() -> tuple[
     )
 
 
-def _restore_projection_state_locked(
-    snapshot: tuple[
-        bool,
-        dict[str, str],
-        dict[str, bytes],
-        dict[str, Any],
-        dict[str, str | None],
-    ],
-) -> None:
+def _restore_projection_state_locked(snapshot: _ProjectionState) -> None:
     """Restore the previous loader-owned generation after a failed reload."""
     global _env_loaded
-    loaded, config_ledger, secret_ledger, status, values = snapshot
     _commit_xdg_environment_projection({}, {})
-    for key, value in values.items():
+    for key, value in snapshot.values.items():
         if value is None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
-    _xdg_injected_environment.update(config_ledger)
-    _xdg_injected_runtime_secrets.update(secret_ledger)
+    _xdg_injected_environment.update(snapshot.config_ledger)
+    _xdg_injected_runtime_secrets.update(snapshot.secret_ledger)
     _runtime_secret_source_state.clear()
-    _runtime_secret_source_state.update(status)
-    _env_loaded = loaded
+    _runtime_secret_source_state.update(snapshot.status)
+    _env_loaded = snapshot.loaded
 
 
 def _reload_typed_singleton_locked() -> None:
@@ -1065,6 +1189,7 @@ def _staged_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
             raise ConfigurationSourceError("xdg", "FileNotFoundError")
     else:
         data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=strict)
+        data = _migrate_persisted_messaging_configuration(cfg_file, data)
     _require_current_configuration_keys(data)
     return _canonicalize_xdg_configuration(data)
 
@@ -1285,8 +1410,31 @@ def _commit_saved_configuration(
         raise
 
 
+def _reset_pricing_configuration() -> None:
+    from agent_utilities.pricing import reset_pricing_catalog
+
+    reset_pricing_catalog()
+
+
+def _reset_model_registry_configuration() -> None:
+    from agent_utilities.models.model_registry import reset_active_registry
+
+    reset_active_registry()
+
+
+def _noop_configuration_save_reset() -> None:
+    return None
+
+
+_CONFIGURATION_SAVE_RESETS = {
+    "PRICING_CATALOG_PATH": _reset_pricing_configuration,
+    "MODEL_REGISTRY_PATH": _reset_model_registry_configuration,
+}
+
+
 def _refresh_after_configuration_save(env_key: str) -> None:
     """Drop the in-process caches whose contents depend on the saved setting."""
+    _CONFIGURATION_SAVE_RESETS.get(env_key, _noop_configuration_save_reset)()
     if env_key.startswith(("LANGFUSE_", "TRACE_EXPORT_", "TLS_")):
         from agent_utilities.observability.langfuse_exporter import (
             reset_langfuse_exporter,
@@ -1377,6 +1525,24 @@ def _validate_oauth2_block(oauth2: dict[str, Any], owner_label: str) -> dict[str
         Exception
     ) as exc:  # re-raise with the owning model/id for a diagnosable error
         raise ValueError(f"{owner_label}: invalid oauth2 block: {exc}") from exc
+
+
+def _validated_oauth2_configuration(
+    value: Any, owner_label: str
+) -> dict[str, Any] | None:
+    """Parse and validate one optional top-level OAuth2 configuration block."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        import json
+
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{owner_label} must be a JSON object") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{owner_label} must be an object")
+    return _validate_oauth2_block(value, owner_label)
 
 
 def _validate_model_auth_mode(model: Any, model_type: str) -> Any:
@@ -1643,6 +1809,18 @@ def _validated_runtime_http_url(
     _assert_runtime_http_authority(parsed, scheme, hostname)
     _assert_runtime_http_locator(parsed, port)
     return f"{scheme}{rendered[len(parsed.scheme) :]}".rstrip("/")
+
+
+def _validated_runtime_path(value: Any, owner_label: str) -> str | None:
+    """Normalize one bounded runtime-only path without resolving it."""
+    if value in (None, ""):
+        return None
+    rendered = str(value).strip()
+    if not rendered:
+        return None
+    if len(rendered) > 4_096 or any(char in rendered for char in "\x00\r\n"):
+        raise ValueError(f"{owner_label} is malformed")
+    return rendered
 
 
 def _validated_langfuse_host(value: Any) -> str:
@@ -2141,6 +2319,24 @@ def _coerce_mirror_targets_text(text: str) -> Any:
     return parsed if isinstance(parsed, list) else None
 
 
+def _coerce_optional_json_list(value: Any) -> list[Any] | None:
+    """Accept an optional parsed list or its JSON string representation."""
+    if value is None or isinstance(value, list):
+        return value
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    import json
+
+    try:
+        parsed = json.loads(stripped)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
 def _parse_mcp_fleet_secret_refs(value: str) -> Any:
     """Decode the JSON string form of ``MCP_FLEET_SECRET_REFS``."""
     import json as _json
@@ -2245,6 +2441,12 @@ _EMBEDDING_FALLBACK_KEYS = frozenset(
 )
 
 
+def _is_retired_runtime_configuration_key(
+    key: str, retired_messaging: Mapping[str, str]
+) -> bool:
+    return key in _RETIRED_CONFIGURATION_KEYS or key in retired_messaging
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -2285,10 +2487,11 @@ class AgentConfig(BaseSettings):
             os.environ.get("PERMISSIONS_SIGNING_KEY_REF", "").strip()
             == "env://PERMISSIONS_SIGNING_KEY"
         )
+        retired_messaging = _retired_messaging_key_map()
         environment = (
             key
             for key in os.environ
-            if key in _RETIRED_CONFIGURATION_KEYS
+            if _is_retired_runtime_configuration_key(key, retired_messaging)
             and not (key == "PERMISSIONS_SIGNING_KEY" and permission_target)
         )
         _require_current_configuration_keys(supplied)
@@ -2824,13 +3027,11 @@ class AgentConfig(BaseSettings):
     # dedicated "messaging-assistant" identity in code; set to route a chat turn to a
     # different named agent. Unresolved names still go through the full orchestration graph.
     messaging_agent: str = Field(default="", alias="MESSAGING_AGENT")
-    messaging_claude_trigger: str = Field(
-        default="/claude", alias="MESSAGING_CLAUDE_TRIGGER"
+    messaging_model_trigger: str = Field(default="", alias="MESSAGING_MODEL_TRIGGER")
+    messaging_addressed_model: str = Field(
+        default="", alias="MESSAGING_ADDRESSED_MODEL"
     )
-    messaging_claude_model: str = Field(
-        default="claude-sonnet-4-6", alias="MESSAGING_CLAUDE_MODEL"
-    )
-    messaging_local_model: str = Field(default="", alias="MESSAGING_LOCAL_MODEL")
+    messaging_default_model: str = Field(default="", alias="MESSAGING_DEFAULT_MODEL")
     reactions: str = Field(default="1", alias="REACTIONS")
     # Burst coalescing (CONCEPT:AU-ECO.messaging.burst-mode-coalescing): collapse a rapid run of messages into ONE reply.
     messaging_burst_window_s: str = Field(
@@ -2850,7 +3051,7 @@ class AgentConfig(BaseSettings):
     messaging_webhook_secret: str = Field(default="", alias="MESSAGING_WEBHOOK_SECRET")
     # Voice input (CONCEPT:AU-ECO.messaging.telegram-voice-note): transcribe voice notes to text via Whisper (opt-out).
     messaging_voice: str = Field(default="1", alias="MESSAGING_VOICE")
-    messaging_voice_model: str = Field(default="base", alias="MESSAGING_VOICE_MODEL")
+    messaging_voice_model: str = Field(default="", alias="MESSAGING_VOICE_MODEL")
     # KG as a first-class default tool layer for every agent (opt-out).
     agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
 
@@ -2871,19 +3072,7 @@ class AgentConfig(BaseSettings):
     @field_validator("infra_inventory_path", mode="before")
     @classmethod
     def _validate_infra_inventory_path(cls, value: Any) -> str | None:
-        if value in (None, ""):
-            return None
-        rendered = str(value).strip()
-        if not rendered:
-            return None
-        if (
-            len(rendered) > 4_096
-            or "\x00" in rendered
-            or "\n" in rendered
-            or "\r" in rendered
-        ):
-            raise ValueError("INFRA_INVENTORY_PATH is malformed")
-        return rendered
+        return _validated_runtime_path(value, "INFRA_INVENTORY_PATH")
 
     # --- Media service endpoints ---
     # These are runtime-only base URLs for interchangeable self-hosted or
@@ -2963,13 +3152,12 @@ class AgentConfig(BaseSettings):
     usage_content_retention: str = Field(
         default="metadata", alias="USAGE_CONTENT_RETENTION"
     )
-    # LiteLLM pricing source. Empty keeps the bundled offline fallback only
-    # (fully functional with no network); the daemon refreshes from this URL.
+    # Operator-owned, versioned local pricing authority. Empty leaves monetary
+    # cost unknown until the daemon discovers rates from the configured source.
+    pricing_catalog_path: str = Field(default="", alias="PRICING_CATALOG_PATH")
+    # Optional network pricing source refreshed by the daemon.
     pricing_litellm_url: str = Field(
-        default=(
-            "https://raw.githubusercontent.com/BerriAI/litellm/main/"
-            "model_prices_and_context_window.json"
-        ),
+        default="",
         alias="PRICING_LITELLM_URL",
     )
 
@@ -3169,19 +3357,7 @@ class AgentConfig(BaseSettings):
     @field_validator("evolution_staging_root", mode="before")
     @classmethod
     def _validate_evolution_staging_root(cls, value: Any) -> str | None:
-        if value in (None, ""):
-            return None
-        rendered = str(value).strip()
-        if not rendered:
-            return None
-        if (
-            len(rendered) > 4_096
-            or "\x00" in rendered
-            or "\n" in rendered
-            or "\r" in rendered
-        ):
-            raise ValueError("EVOLUTION_STAGING_ROOT is malformed")
-        return rendered
+        return _validated_runtime_path(value, "EVOLUTION_STAGING_ROOT")
 
     host: str = Field(default="127.0.0.1", alias="HOST")
     port: int = Field(default=9000, alias="PORT")
@@ -4643,20 +4819,7 @@ class AgentConfig(BaseSettings):
     def _coerce_instance_list(cls, v: Any) -> Any:
         """Accept a JSON-encoded string or an already-parsed list for the
         ``*_INSTANCES`` multi-instance connector configs (CONCEPT:AU-KG.backend.declared-columns-so-schema/2.123-2.125)."""
-        if v is None or isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            import json
-
-            s = v.strip()
-            if not s:
-                return None
-            try:
-                parsed = json.loads(s)
-            except Exception:
-                return None
-            return parsed if isinstance(parsed, list) else None
-        return None
+        return _coerce_optional_json_list(v)
 
     @field_validator("graph_mirror_targets", mode="before")
     @classmethod
@@ -4674,20 +4837,7 @@ class AgentConfig(BaseSettings):
     def _coerce_kg_connections(cls, v: Any) -> Any:
         """Accept a JSON-encoded string or an already-parsed list for
         KG_CONNECTIONS (CONCEPT:AU-KG.backend.multi-connection-registry)."""
-        if v is None or isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            import json
-
-            s = v.strip()
-            if not s:
-                return None
-            try:
-                parsed = json.loads(s)
-            except Exception:
-                return None
-            return parsed if isinstance(parsed, list) else None
-        return None
+        return _coerce_optional_json_list(v)
 
     @field_validator("kg_connections")
     @classmethod
@@ -4785,36 +4935,12 @@ class AgentConfig(BaseSettings):
     @field_validator("kg_identity_oauth2", mode="before")
     @classmethod
     def _validate_kg_identity_oauth2(cls, value: Any) -> dict[str, Any] | None:
-        if value in (None, ""):
-            return None
-        if isinstance(value, str):
-            import json
-
-            try:
-                value = json.loads(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("KG_IDENTITY_OAUTH2 must be a JSON object") from exc
-        if not isinstance(value, dict):
-            raise ValueError("KG_IDENTITY_OAUTH2 must be an object")
-        return _validate_oauth2_block(value, "KG_IDENTITY_OAUTH2")
+        return _validated_oauth2_configuration(value, "KG_IDENTITY_OAUTH2")
 
     @field_validator("kg_admin_broker_oauth2", mode="before")
     @classmethod
     def _validate_kg_admin_broker_oauth2(cls, value: Any) -> dict[str, Any] | None:
-        if value in (None, ""):
-            return None
-        if isinstance(value, str):
-            import json
-
-            try:
-                value = json.loads(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "KG_ADMIN_BROKER_OAUTH2 must be a JSON object"
-                ) from exc
-        if not isinstance(value, dict):
-            raise ValueError("KG_ADMIN_BROKER_OAUTH2 must be an object")
-        return _validate_oauth2_block(value, "KG_ADMIN_BROKER_OAUTH2")
+        return _validated_oauth2_configuration(value, "KG_ADMIN_BROKER_OAUTH2")
 
     @field_validator(
         "source_http_allowed_private_hosts",
@@ -6444,12 +6570,8 @@ def _resolve_lazy_config_source(
 
 def _populate_default_llm_defaults(chat_model: Any) -> None:
     """Project the primary chat model into the ``DEFAULT_LLM_*`` entries."""
-    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
-        _model_attr(chat_model, "provider") or os.getenv("PROVIDER") or "openai"
-    )
-    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
-        _model_attr(chat_model, "id") or os.getenv("MODEL_ID") or "qwen/qwen3.6-27b"
-    )
+    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = _model_attr(chat_model, "provider")
+    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = _model_attr(chat_model, "id")
     _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = _model_attr(chat_model, "base_url")
     _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = _model_attr(chat_model, "api_key_ref")
 
@@ -6467,9 +6589,7 @@ def _populate_embedding_defaults(model: Any) -> None:
     _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
         _model_attr(model, "provider") or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
     )
-    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
-        _model_attr(model, "id") or "text-embedding-nomic-embed-text-v2-moe"
-    )
+    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = _model_attr(model, "id")
     _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
         _model_attr(model, "base_url") or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
     )

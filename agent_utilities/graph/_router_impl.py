@@ -1344,17 +1344,31 @@ def _check_transitions_calls_tokens_budgets(ctx: StepContext) -> str | None:
     return None
 
 
+def _cost_budget_exceeded(ctx: StepContext) -> bool:
+    budget = ctx.state.execution_budget
+    estimated_cost = ctx.state.session_usage.estimated_cost_usd
+    if budget.max_cost_usd is None:
+        return False
+    if ctx.state.session_usage.total_tokens > 0 and estimated_cost is None:
+        return True
+    return estimated_cost is not None and estimated_cost > budget.max_cost_usd
+
+
+def _render_budget_cost(cost: float | None) -> str:
+    return "unpriced" if cost is None else f"${cost}"
+
+
 def _check_cost_and_duration_budgets(ctx: StepContext) -> str | None:
     import time
 
     budget = ctx.state.execution_budget
 
-    if (
-        budget.max_cost_usd
-        and ctx.state.session_usage.estimated_cost_usd > budget.max_cost_usd
-    ):
+    estimated_cost = ctx.state.session_usage.estimated_cost_usd
+    if _cost_budget_exceeded(ctx):
+        rendered_cost = _render_budget_cost(estimated_cost)
         logger.error(
-            f"Dispatcher: Execution budget exceeded for cost (${ctx.state.session_usage.estimated_cost_usd} > ${budget.max_cost_usd})"
+            "Dispatcher: Execution budget exceeded for cost "
+            f"({rendered_cost} > ${budget.max_cost_usd})"
         )
         ctx.state.error = "Execution budget exceeded: max cost USD."
         return "error_recovery"

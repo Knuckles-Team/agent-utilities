@@ -87,11 +87,13 @@ jobs:
           build-mode: none
           queries: security-extended
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - &setup-python-312
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - &setup-uv-locked
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
           enable-cache: true
@@ -259,7 +261,13 @@ jobs:
 
       - name: Tracked artifact privacy gate
         continue-on-error: true
-        run: python3 scripts/check_tracked_privacy.py
+        env:
+          PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
+        run: |
+          test -n "$PROHIBITED_IDENTITY_CATALOG"
+          policy="$RUNNER_TEMP/prohibited-identities.json"
+          printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
+          python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
 
       - name: Software supply-chain source contract
         continue-on-error: true
@@ -426,9 +434,14 @@ jobs:
       - name: Build Docs
         if: steps.install.outcome == 'success'
         continue-on-error: true
+        env:
+          PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
           python3 scripts/docs_contract.py --check
-          python3 scripts/check_tracked_privacy.py
+          test -n "$PROHIBITED_IDENTITY_CATALOG"
+          policy="$RUNNER_TEMP/prohibited-identities.json"
+          printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
+          python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
           mkdocs build --strict
 
       - name: Setup Pages
@@ -505,15 +518,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
+      - *setup-python-312
 
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
-        with:
-          version: '0.11.7'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
+      - *setup-uv-locked
 
       # Same pattern release.yml's `gates` job uses for its static/test-suite
       # lane: no native engine (Linux-built binary; not what this job is
@@ -604,15 +611,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
+      - *setup-python-312
 
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
-        with:
-          version: '0.11.7'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
+      - *setup-uv-locked
 
       - name: Sync environment (owl extra for manifest compile)
         run: |

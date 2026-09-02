@@ -4,8 +4,8 @@ CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
 Fetches LiteLLM rates and overlays them onto the process-wide catalog,
 optionally persisting the resolved rows into a usage backend's
-``model_pricing`` table. Network failure is non-fatal: the offline fallback
-remains in effect. Invoked by the consolidated KG daemon (see
+``model_pricing`` table. Network failure is non-fatal: the configured local
+catalog remains in effect. Invoked by the consolidated KG daemon (see
 ``gateway/daemon.py``) on a daily cadence and once at startup.
 """
 
@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .catalog import PricingCatalog, get_pricing_catalog
-from .litellm import LITELLM_URL, fetch_litellm_pricing
+from .catalog import ModelPricing, PricingCatalog, get_pricing_catalog
+from .litellm import fetch_litellm_pricing
 
 if TYPE_CHECKING:  # avoid a hard import cycle with the usage package
     from agent_utilities.usage.backend import UsageBackend
@@ -23,23 +23,36 @@ if TYPE_CHECKING:  # avoid a hard import cycle with the usage package
 logger = logging.getLogger(__name__)
 
 
+def _fetch_configured_pricing(url: str | None) -> list[ModelPricing]:
+    if url is None:
+        from agent_utilities.core.config import config
+
+        url = config.pricing_litellm_url
+    if not url:
+        logger.debug("pricing refresh skipped: no remote source is configured")
+        return []
+    return fetch_litellm_pricing(url)
+
+
 def refresh_catalog(
     *,
-    url: str = LITELLM_URL,
+    url: str | None = None,
     catalog: PricingCatalog | None = None,
     backend: UsageBackend | None = None,
 ) -> int:
     """Refresh the catalog from LiteLLM. Returns the number of models merged.
 
-    Best-effort: on any fetch/parse error the offline fallback stays in place
+    Best-effort: on any fetch/parse error the current catalog stays in place
     and 0 is returned. When ``backend`` is supplied the merged rows are also
     persisted so other processes (and SQL aggregation) see current rates.
     """
     catalog = catalog or get_pricing_catalog()
     try:
-        entries = fetch_litellm_pricing(url)
+        entries = _fetch_configured_pricing(url)
     except Exception as exc:  # noqa: BLE001 — refresh must never be fatal
-        logger.warning("LiteLLM pricing refresh failed, using fallback: %s", exc)
+        logger.warning(
+            "LiteLLM pricing refresh failed, keeping current catalog: %s", exc
+        )
         return 0
     catalog.merge(entries)
     if backend is not None:

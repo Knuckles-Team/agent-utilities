@@ -1182,7 +1182,11 @@ class KGTraceBackend(TraceBackend):
             )
             node.total_cost_usd = self._cost_usd(model, input_tokens, output_tokens)
             entry["generations"].append(node)
-            trace.total_cost_usd += node.total_cost_usd
+            from agent_utilities.pricing import total_known_cost
+
+            trace.total_cost_usd = total_known_cost(
+                (trace.total_cost_usd, node.total_cost_usd)
+            )
             trace.input_tokens += input_tokens
             trace.output_tokens += output_tokens
             # CONCEPT:AU-ORCH.optimization.provider-prompt-cache — rollup mirrors
@@ -1466,24 +1470,26 @@ class KGTraceBackend(TraceBackend):
         return d
 
     @staticmethod
-    def _cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
+    def _cost_usd(
+        model: str | None, input_tokens: int, output_tokens: int
+    ) -> float | None:
         """Resolve $ cost from the shared pricing catalog (no vendored table)."""
         if not model:
-            return 0.0
+            return None
         try:
             from agent_utilities.pricing import get_pricing_catalog
 
             cost, priced = get_pricing_catalog().cost_for(
                 model, input_tokens=input_tokens, output_tokens=output_tokens
             )
-            return float(cost) if priced and cost is not None else 0.0
+            return float(cost) if priced and cost is not None else None
         except Exception:  # pragma: no cover - pricing is best-effort
-            return 0.0
+            return None
 
     def _fill_missing_generation_costs(self, generations: list[Any]) -> None:
         """Fill in $ cost for any generation that didn't carry one."""
         for g in generations:
-            if getattr(g, "total_cost_usd", 0.0) in (0.0, None):
+            if getattr(g, "total_cost_usd", None) is None:
                 g.total_cost_usd = self._cost_usd(
                     getattr(g, "model", None),
                     getattr(g, "input_tokens", 0),
@@ -1495,8 +1501,10 @@ class KGTraceBackend(TraceBackend):
         trace: Any, spans: list[Any], generations: list[Any]
     ) -> None:
         """Roll up trace-level cost/tokens/tool_calls from its spans/generations."""
-        trace.total_cost_usd = sum(
-            getattr(g, "total_cost_usd", 0.0) for g in generations
+        from agent_utilities.pricing import total_known_cost
+
+        trace.total_cost_usd = total_known_cost(
+            getattr(g, "total_cost_usd", None) for g in generations
         )
         trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
         trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
@@ -1573,7 +1581,7 @@ class KGTraceBackend(TraceBackend):
             "duration_ms": getattr(t, "latency_ms", None),
             "input_tokens": getattr(t, "input_tokens", 0),
             "output_tokens": getattr(t, "output_tokens", 0),
-            "total_cost_usd": getattr(t, "total_cost_usd", 0.0),
+            "total_cost_usd": getattr(t, "total_cost_usd", None),
             "score": getattr(t, "metadata", {}).get("score", 0.0)
             if isinstance(getattr(t, "metadata", {}), dict)
             else 0.0,

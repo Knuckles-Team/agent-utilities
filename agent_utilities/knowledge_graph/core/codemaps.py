@@ -114,9 +114,9 @@ class CodemapGenerator:
 
     def __init__(self, kg: IntelligenceGraphEngine):
         self.kg = kg
-        # Use existing model factory to create models for pydantic-ai
-        self.fast_model = create_model(model_id="gpt-3.5-turbo")  # Fast model
-        self.smart_model = create_model()  # Default/Smart model (usually gpt-4o)
+        # Resolve functional roles through the operator-owned model registry.
+        self.fast_model = create_model(role="planner")
+        self.smart_model = create_model(role="generator")
 
     async def create(
         self,

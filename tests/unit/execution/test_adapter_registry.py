@@ -34,16 +34,11 @@ pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.multi-cli-adapter-dispatch"
 # ── declarative contract ────────────────────────────────────────────
 
 
-def test_resolve_model_precedence(monkeypatch):
-    d = AdapterDefinition(
-        id="x", bin="true", fallback_models=("fb-1",), model_override_env_var="X_MODEL"
-    )
-    assert d.resolve_model("explicit") == "explicit"  # explicit wins
-    monkeypatch.setenv("X_MODEL", "from-env")
-    assert d.resolve_model(None) == "from-env"  # env override next
-    monkeypatch.delenv("X_MODEL", raising=False)
-    assert d.resolve_model(None) == "fb-1"  # fallback last
-    assert AdapterDefinition(id="y", bin="true").resolve_model(None) == ""
+def test_resolve_model_preserves_operator_selection_without_default():
+    adapter = AdapterDefinition(id="configured", bin="true")
+
+    assert adapter.resolve_model("operator/external-v7") == "operator/external-v7"
+    assert adapter.resolve_model(None) == ""
 
 
 # ── non-blocking detection (graceful degradation) ───────────────────
@@ -77,10 +72,42 @@ def test_detect_is_cached_until_ttl():
     assert first.keys() == again.keys()
 
 
+def test_operator_registry_model_is_resolved_by_dynamic_adapter_discovery():
+    from agent_utilities.models.model_registry import ModelDefinition, ModelRegistry
+
+    external_id = "provider-z/external-model-v99"
+    models = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id="operator-model",
+                name="Operator Model",
+                provider="provider-z",
+                model_id=external_id,
+            )
+        ]
+    )
+    adapters = AdapterRegistry(load_builtins=False)
+    adapters.register(
+        AdapterDefinition(
+            id="operator-adapter",
+            bin="true",
+            list_models=lambda: [external_id],
+        )
+    )
+
+    selected = models.get_by_id("operator-model")
+    detected = adapters.detect(force=True)
+    adapter = adapters.get("operator-adapter")
+
+    assert selected is not None
+    assert adapter is not None
+    assert detected["operator-adapter"].models == (external_id,)
+    assert adapter.resolve_model(selected.model_id) == external_id
+
+
 def test_builtins_load_without_error():
     reg = AdapterRegistry()
-    assert "claude-code" in reg.ids()
-    assert "ollama" in reg.ids()
+    assert reg.ids() == ["generic-cmd"]
 
 
 # ── stream-format dispatch → canonical events ───────────────────────

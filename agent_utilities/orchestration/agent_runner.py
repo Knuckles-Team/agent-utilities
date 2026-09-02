@@ -4857,9 +4857,9 @@ async def _run_direct_completion(
     # ModelSettings.thinking (True -> reasoning on, False -> off) AND the raw vLLM
     # extra_body directive (``reasoning_wire_directives``). ``thinking`` ALONE
     # regressed silently: pydantic-ai only forwards it into the request when the
-    # model's profile is recognized as reasoning-capable (OpenAI's o-series/gpt-5
-    # naming only), which qwen/qwen3.6-27b served through the generic ``openai``
-    # provider is NOT — so a bare ``thinking=False`` here was dropped on the floor
+    # model's profile is recognized as reasoning-capable. A custom model served
+    # through a compatible provider may not be, so a bare ``thinking=False`` here
+    # was dropped on the floor
     # and the model's own default (thinking ON) won on every direct-complete turn,
     # costing ~22s instead of sub-second (this is the shape most routine short
     # replies — e.g. the Telegram messaging path — take). The raw directive is
@@ -6043,14 +6043,17 @@ def _persist_execution_provenance_batch(
     if commit is not None:
         return commit
 
-    _run_optional_provenance_links_bounded(
-        engine,
-        batch_write=batch_write,
-        trace_id=trace_id,
-        server_id=server_id,
-        skill_node_id=skill_node_id,
-        tool_target_edges=tool_target_edges,
-    )
+    def write_optional_links() -> None:
+        _persist_optional_execution_provenance_links(
+            engine,
+            batch_write=batch_write,
+            trace_id=trace_id,
+            server_id=server_id,
+            skill_node_id=skill_node_id,
+            tool_target_edges=tool_target_edges,
+        )
+
+    _run_optional_provenance_links_bounded(write_optional_links, trace_id=trace_id)
 
     _record_tool_call_feedback(engine, prepared_tool_calls)
     logger.info(
@@ -6082,13 +6085,9 @@ _OPTIONAL_PROVENANCE_GRACE_S = 2.0
 
 
 def _run_optional_provenance_links_bounded(
-    engine: IntelligenceGraphEngine,
+    write_links: Callable[[], None],
     *,
-    batch_write: Callable[[list[dict[str, Any]]], Any],
     trace_id: str,
-    server_id: str,
-    skill_node_id: str,
-    tool_target_edges: list[tuple[str, str]],
 ) -> None:
     """Run :func:`_persist_optional_execution_provenance_links` isolated and
     bounded by :data:`_OPTIONAL_PROVENANCE_GRACE_S` (D-CDX-33).
@@ -6104,14 +6103,7 @@ def _run_optional_provenance_links_bounded(
 
     def _target() -> None:
         try:
-            _persist_optional_execution_provenance_links(
-                engine,
-                batch_write=batch_write,
-                trace_id=trace_id,
-                server_id=server_id,
-                skill_node_id=skill_node_id,
-                tool_target_edges=tool_target_edges,
-            )
+            write_links()
         except Exception as exc:  # noqa: BLE001 — the wrapped function is already best-effort internally; this is belt-and-suspenders so a stray exception on the isolated thread is logged, not silently lost
             logger.debug(
                 "[D-CDX-33] optional provenance links (isolated) failed "

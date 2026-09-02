@@ -83,8 +83,8 @@ INHERITED_ENV: dict[str, tuple[str, str]] = {
         "http://localhost:8000/mcp",
         "URL of the MCP server the agent connects to",
     ),
-    "PROVIDER": ("openai", "LLM provider for the agent"),
-    "MODEL_ID": ("gpt-4o", "Model id for the agent"),
+    "PROVIDER": ("", "Operator-configured LLM provider for the agent"),
+    "MODEL_ID": ("", "Operator-configured model id for the agent"),
     "ENABLE_WEB_UI": ("True", "Serve the AG-UI web interface"),
 }
 

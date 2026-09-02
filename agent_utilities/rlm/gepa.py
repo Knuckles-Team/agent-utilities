@@ -3,6 +3,7 @@
 CONCEPT:AU-ORCH.optimization.optimize-skill-prompt-gepa — GEPA Reflective Prompt Optimizer
 """
 
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -17,6 +18,16 @@ from .config import RLMConfig
 from .predict_rlm import PredictRLM
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_candidate_proposal(output: str) -> dict[str, Any]:
+    """Decode a candidate proposal, accepting the JSON fence agents may emit."""
+    proposal = output.strip()
+    if proposal.startswith("```json"):
+        proposal = proposal[7:]
+    if proposal.endswith("```"):
+        proposal = proposal[:-3]
+    return json.loads(proposal.strip())
 
 
 class Candidate(BaseModel):
@@ -240,7 +251,7 @@ class ParetoCandidatePool:
 class ReflectiveMutator:
     """Uses natural language execution traces and feedback to propose prompt updates."""
 
-    def __init__(self, model: Any = "openai:gpt-4o-mini"):
+    def __init__(self, model: Any):
         self.model = model
         self.agent = create_context_agent(
             model=model,
@@ -302,17 +313,7 @@ class ReflectiveMutator:
         )
 
         res = await self.agent.run(prompt)
-        import json
-
-        # Clean JSON markdown blocks if any
-        res_text = res.output.strip()
-        if res_text.startswith("```json"):
-            res_text = res_text[7:]
-        if res_text.endswith("```"):
-            res_text = res_text[:-3]
-        res_text = res_text.strip()
-
-        data = json.loads(res_text)
+        data = _parse_candidate_proposal(res.output)
 
         cand_id = f"cand_gen{generation}_{int(time.time())}"
         return Candidate(
@@ -347,16 +348,7 @@ class ReflectiveMutator:
         )
 
         res = await self.agent.run(prompt)
-        import json
-
-        res_text = res.output.strip()
-        if res_text.startswith("```json"):
-            res_text = res_text[7:]
-        if res_text.endswith("```"):
-            res_text = res_text[:-3]
-        res_text = res_text.strip()
-
-        data = json.loads(res_text)
+        data = _parse_candidate_proposal(res.output)
 
         cand_id = f"crossover_{parent1.id}_{parent2.id}_{int(time.time())}"
         return Candidate(

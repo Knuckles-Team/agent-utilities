@@ -4,7 +4,7 @@ A thin, paper-shaped client so RLM can replace a plain ``llm.completion(prompt)`
 learning the structured ``run_rlm(task, input_text=...)`` signature:
 
     from agent_utilities.rlm import RLM
-    rlm = RLM(backend="openai", backend_kwargs={"model_name": "gpt-4o-mini"})
+    rlm = RLM(backend="configured-provider", backend_kwargs={"model_name": "chat-model"})
     print(rlm.completion("...very long prompt...").response)
 
 The long prompt is handed to the RLM as its external ``context`` variable (the whole point of the

@@ -27,22 +27,22 @@ The primary configuration file is located at `~/.config/agent-utilities/config.j
 {
   "chat_models": [
     {
-      "id": "gpt-4o",
-      "provider": "openai",
+      "id": "balanced-model",
+      "provider": "provider-a",
       "intelligence_level": "normal",
       "supports_json": true,
       "vision": true
     },
     {
-      "id": "gpt-4o-mini",
-      "provider": "openai",
+      "id": "fast-model",
+      "provider": "provider-a",
       "intelligence_level": "light",
       "supports_json": true,
       "vision": true
     },
     {
-      "id": "claude-3-5-sonnet-latest",
-      "provider": "anthropic",
+      "id": "reasoning-model",
+      "provider": "provider-b",
       "intelligence_level": "super",
       "supports_json": true,
       "vision": true
@@ -51,7 +51,7 @@ The primary configuration file is located at `~/.config/agent-utilities/config.j
   "embedding_models": [
     {
       "id": "embedding-model",
-      "provider": "openai",
+      "provider": "provider-a",
       "base_url": "https://embedding-api.example.test/v1"
     }
   ]
@@ -296,7 +296,7 @@ To prevent runaway API costs and infinite loops, the system implements a **React
 ### Key Capabilities
 
 1. **Preemption Thresholds**: The execution manager continuously monitors active agent session costs. When usage reaches a pre-configured preemption threshold (e.g., 90% of the maximum allotted budget), a reactive event is dispatched.
-2. **Homeostatic Model Downgrades**: Instead of outright killing the agent mid-task, the scheduler triggers a homeostatic model downgrade. For example, routing shifts from a high-cost model (like Claude 3.5 Sonnet) to a low-cost model (like GPT-4o-mini) to complete the final steps of execution within budget.
+2. **Homeostatic Model Downgrades**: Instead of outright killing the agent mid-task, the scheduler triggers a homeostatic model downgrade. For example, routing shifts from a configured high-cost registry tier to a configured low-cost tier to complete the final steps of execution within budget.
 3. **Structured Preemption**: If the budget is completely exhausted, the system halts execution, captures a serialized state checkpoint (`CONCEPT:AU-ORCH.execution.execution-budget-caps`), and yields control back to the orchestrator with a structured `BudgetExceededError`, ensuring no progress is lost.
 
 *   **Source Code Paths**:

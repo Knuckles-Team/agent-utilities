@@ -45,6 +45,10 @@ expects installed), `tools`, and the composition fields `extends`
 - **One validator** — `agent_utilities.prompting.structured.validate_canonical()`
   backs the prompt-builder, the CI gate `scripts/check_prompt_schema.py`, and
   per-package `test_prompt_parity`, so "valid here" == "valid in CI".
+- **Locally owned snapshots** — `base_agent.json` and `memory_selection.json`
+  are deterministically rendered by `scripts/generate_local_prompts.py`. Their
+  provenance binds the generator authority, generator version, and canonical
+  source digest; `check_prompt_schema.py` rejects hand-edited or stale output.
 - **Body resolution** — `resolve_body()` is the single reader used by the prompt
   builder, the workspace builder, and KG ingestion (this fixed a bug where
   decomposed prompts were read as empty).

@@ -5,7 +5,7 @@ CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 Port of agentsview ``internal/pricing/litellm.go``. Downloads the BerriAI
 LiteLLM pricing JSON and converts per-token costs to per-million-token
 ``ModelPricing`` entries. Entries missing both input and output cost are
-skipped. Network is optional: callers fall back to the embedded table.
+skipped. Network is optional: callers retain their configured local catalog.
 """
 
 from __future__ import annotations
@@ -54,11 +54,11 @@ def fetch_litellm_pricing(
     """Download and parse the LiteLLM pricing JSON.
 
     Raises on network/HTTP/parse errors — callers should catch and keep the
-    offline fallback so a refresh failure is never fatal.
+    current configured catalog so a refresh failure is never fatal.
 
     GOC-73: the governed HTTP factory is imported here, not at module scope. This module's own
-    docstring already says "Network is optional: callers fall back to the
-    embedded table" — before the GOC-73 split, `httpx` reached every base
+    docstring already says network access is optional. Before the GOC-73 split,
+    `httpx` reached every base
     install transitively through `epistemic-graph[full]`'s own HTTP accelerator
     component, masking that httpx is not actually a base `agent-utilities`
     dependency (it lives only in optional extras like `[mcp]`). A module-level

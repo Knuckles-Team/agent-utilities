@@ -24,6 +24,8 @@ moment it is committed (self-referentially proven while writing it).
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -52,6 +54,104 @@ def _flags_internal_endpoint(gate: ModuleType, line: str) -> bool:
 def _non_reserved_host(*labels: str, suffix: str) -> str:
     """Build a real-shaped, non-reserved hostname without a matchable literal."""
     return ".".join(labels) + "." + suffix
+
+
+def _synthetic_identity(term: str) -> tuple[bytes, ...]:
+    return (term.casefold().encode("ascii"),)
+
+
+def test_model_specific_identity_catalog_is_external_and_versioned(
+    tmp_path: Path,
+) -> None:
+    gate = _gate_module()
+    catalog = tmp_path / "identity-policy.json"
+    catalog.write_text(
+        json.dumps({"version": "fixture-v1", "identities": ["deny"]}),
+        encoding="utf-8",
+    )
+
+    assert gate.load_identity_catalog(catalog) == (b"deny",)
+
+
+def test_model_specific_identity_rejects_embedded_case_variants(
+    tmp_path: Path,
+) -> None:
+    gate = _gate_module()
+    source = tmp_path / "arbitrary.data"
+    variants = (
+        "deny",
+        "DENY",
+        "dEnY",
+        "denys",
+        "predeny",
+        "denypost",
+        "pre_deny_post",
+        "pre-deny-post",
+        "de-ny",
+        "de_ny",
+        "9deny2",
+        "myDenyAgent",
+    )
+    source.write_text("\n".join(variants), encoding="utf-8")
+
+    findings = [
+        finding
+        for finding in gate._prohibited_identity_violations(
+            tmp_path, {}, _synthetic_identity("deny")
+        )
+        if finding.category == "model-specific identity in tracked artifact"
+    ]
+
+    assert [(finding.path, finding.line) for finding in findings] == [
+        ("arbitrary.data", line) for line in range(1, len(variants) + 1)
+    ]
+
+
+def test_model_specific_identity_allows_cross_camel_boundary_coincidence(
+    tmp_path: Path,
+) -> None:
+    gate = _gate_module()
+    source = tmp_path / "arbitrary.data"
+    source.write_text("ModeNylon\nMode_Nylon\n", encoding="utf-8")
+
+    findings = gate._prohibited_identity_violations(
+        tmp_path, {}, _synthetic_identity("deny")
+    )
+
+    assert findings == []
+
+
+def test_model_specific_identity_rejects_tracked_path(tmp_path: Path) -> None:
+    gate = _gate_module()
+    source = tmp_path / "role-deny-worker.data"
+    source.write_text("neutral content\n", encoding="utf-8")
+
+    findings = gate._prohibited_identity_violations(
+        tmp_path, {}, _synthetic_identity("deny")
+    )
+
+    assert [(finding.path, finding.line) for finding in findings] == [
+        ("role-deny-worker.data", 0)
+    ]
+
+
+def test_model_specific_identity_scan_uses_bounded_stream_reads() -> None:
+    gate = _gate_module()
+    scanner = sys.modules[gate.scan_prohibited_identities.__module__]
+
+    class GuardedStream(io.BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            assert 0 < size <= scanner.READ_SIZE
+            return super().read(size)
+
+    prefix = b" " * (scanner.READ_SIZE - 2)
+    findings = list(
+        scanner._matching_stream_groups(
+            GuardedStream(prefix + b"de-ny"), _synthetic_identity("deny")
+        )
+    )
+
+    assert findings == [(1, b"de-ny")]
 
 
 # --------------------------------------------------------------------------- #

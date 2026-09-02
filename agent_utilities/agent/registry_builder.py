@@ -242,7 +242,8 @@ def _prompt_content_hash(pfile: Path) -> str | None:
 # and the model preference so ``graph_orchestrate``
 # resolves it (``orchestration/agent_runner._resolve_agent_from_kg``). The
 # ``agent-utilities-expert`` is the resident ecosystem expert: it is bound to its
-# base prompt, the platform's own management toolsets, and the local qwen model.
+# base prompt and the platform's own management toolsets. Model selection remains
+# an operator-owned registry decision.
 _BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "at:agent-utilities-expert",
@@ -261,8 +262,7 @@ _BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
             "data-science-mcp",
             "scholarx-mcp",
         ],
-        # Default to the LOCAL fleet model (the model router gets final say).
-        "model_preference": "qwen/qwen3.6-27b",
+        "model_preference": "",
         "execution_tier": "standard",
     },
 ]

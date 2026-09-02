@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -486,6 +487,69 @@ def unknown_configuration_keys(mapping: Mapping[str, Any]) -> list[str]:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _LoadedConfigMigration:
+    raw: dict[str, Any] | None = None
+    cleaned: dict[str, Any] | None = None
+    renamed: tuple[tuple[str, str], ...] = ()
+    error: dict[str, Any] | None = None
+
+
+def _load_and_migrate_config_mapping(path: Path) -> _LoadedConfigMigration:
+    """Read and stage one config mapping, returning a value-free error report."""
+    from agent_utilities.core.config import (
+        ConfigurationSourceError,
+        _validated_messaging_configuration_mapping,
+    )
+
+    if not path.exists():
+        return _LoadedConfigMigration(
+            error={
+                "status": "skip",
+                "reason": "no_config_file",
+                "path": str(path),
+            }
+        )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return _LoadedConfigMigration(
+            error={
+                "status": "error",
+                "error": "config_unreadable",
+                "path": str(path),
+            }
+        )
+    if not isinstance(raw, dict):
+        return _LoadedConfigMigration(
+            error={
+                "status": "error",
+                "error": "config_not_object",
+                "path": str(path),
+            }
+        )
+    try:
+        cleaned, renamed = _validated_messaging_configuration_mapping(raw)
+    except ConfigurationSourceError as exc:
+        error_kind = {
+            "MessagingModelMigrationConflictError": "messaging_model_migration_conflict"
+        }.get(exc.error_class, "messaging_model_migration_invalid")
+        return _LoadedConfigMigration(
+            error={
+                "status": "error",
+                "error": error_kind,
+                "path": str(path),
+            }
+        )
+    return _LoadedConfigMigration(raw, cleaned, tuple(renamed))
+
+
+def _configuration_changed(
+    renamed: list[tuple[str, str]], removed: list[str], unknown_removed: list[str]
+) -> bool:
+    return any((renamed, removed, unknown_removed))
+
+
 def migrate_config_file(
     config_path: str | Path, *, backup: bool = True, strip_unknown: bool = False
 ) -> dict[str, Any]:
@@ -504,21 +568,18 @@ def migrate_config_file(
     Writes a one-time backup and returns a value-free report (key *names* only).
     """
     from agent_utilities.core.config import (
+        _write_private_configuration_mapping,
         plaintext_secret_keys,
         strip_retired_configuration_keys,
     )
 
     path = Path(config_path)
-    if not path.exists():
-        return {"status": "skip", "reason": "no_config_file", "path": str(path)}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return {"status": "error", "error": "config_unreadable", "path": str(path)}
-    if not isinstance(raw, dict):
-        return {"status": "error", "error": "config_not_object", "path": str(path)}
-
-    cleaned, removed = strip_retired_configuration_keys(raw)
+    loaded = _load_and_migrate_config_mapping(path)
+    if loaded.error is not None:
+        return loaded.error
+    assert loaded.raw is not None and loaded.cleaned is not None
+    raw, cleaned, renamed = loaded.raw, loaded.cleaned, list(loaded.renamed)
+    cleaned, removed = strip_retired_configuration_keys(cleaned)
     unknown = unknown_configuration_keys(cleaned)
     # Plaintext secrets are reported (names only), never stripped or moved — the
     # value must be relocated to the secret store by a human-gated step, and
@@ -530,9 +591,10 @@ def migrate_config_file(
         unknown_removed = unknown
         unknown = []
 
-    if not removed and not unknown_removed:
+    if not _configuration_changed(renamed, removed, unknown_removed):
         return {
             "status": "ok",
+            "renamed": [],
             "removed": [],
             "unknown_present": unknown,
             "plaintext_secrets": plaintext_secrets,
@@ -541,10 +603,11 @@ def migrate_config_file(
     backup_path: Path | None = None
     if backup:
         backup_path = path.with_name(path.name + ".pre-migrate.bak")
-        backup_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
-    path.write_text(json.dumps(cleaned, indent=2) + "\n", encoding="utf-8")
+        _write_private_configuration_mapping(backup_path, raw)
+    _write_private_configuration_mapping(path, cleaned)
     return {
         "status": "migrated",
+        "renamed": [list(pair) for pair in renamed],
         "removed": removed,
         "unknown_removed": unknown_removed,
         "unknown_present": unknown,
@@ -655,9 +718,17 @@ def _config_doctor_plaintext_secrets_check(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class _DoctorConfigContext:
+    config: Any
+    deployment_profile: str | None
+    app_profile: str
+    profile_source: str
+
+
 def _config_doctor_load_from_path(
     profile: str | None, config_path: str | Path
-) -> tuple[Any, str | None, str, str] | dict[str, Any]:
+) -> _DoctorConfigContext | dict[str, Any]:
     try:
         from agent_utilities.core.config import (
             _canonicalize_xdg_configuration,
@@ -706,12 +777,12 @@ def _config_doctor_load_from_path(
         if profile
         else ("configuration" if raw.get("DEPLOYMENT_PROFILE") else "default")
     )
-    return cfg, prof, app_profile, profile_source
+    return _DoctorConfigContext(cfg, prof, app_profile, profile_source)
 
 
 def _config_doctor_load_live(
     profile: str | None,
-) -> tuple[Any, str | None, str, str] | dict[str, Any]:
+) -> _DoctorConfigContext | dict[str, Any]:
     from agent_utilities.core.config import AgentConfig
 
     try:
@@ -734,7 +805,7 @@ def _config_doctor_load_live(
         if profile
         else ("configuration" if configured_profile else "default")
     )
-    return cfg, prof, app_profile, profile_source
+    return _DoctorConfigContext(cfg, prof, app_profile, profile_source)
 
 
 def _config_doctor_profile_check(
@@ -972,9 +1043,11 @@ def config_doctor(
     )
     if isinstance(loaded, dict):
         return loaded
-    cfg, prof, app_profile, profile_source = loaded
+    cfg = loaded.config
 
-    norm_or_error = _config_doctor_profile_check(prof, app_profile)
+    norm_or_error = _config_doctor_profile_check(
+        loaded.deployment_profile, loaded.app_profile
+    )
     if isinstance(norm_or_error, dict):
         return norm_or_error
     norm = norm_or_error
@@ -983,7 +1056,7 @@ def config_doctor(
         {
             "check": "deployment_profile",
             "profile": norm,
-            "source": profile_source,
+            "source": loaded.profile_source,
             "ok": True,
         },
         _config_doctor_check_required_keys(cfg, norm),

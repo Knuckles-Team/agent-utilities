@@ -11,6 +11,8 @@ import sqlite3
 
 import pytest
 
+from agent_utilities.pricing import PricingCatalog
+from agent_utilities.pricing.catalog import ModelPricing
 from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
 from agent_utilities.usage.models import (
     ORIGIN_RUNTIME,
@@ -26,7 +28,23 @@ from agent_utilities.usage.schema import sqlite_ddl
 
 @pytest.fixture()
 def backend(tmp_path, monkeypatch):
+    from agent_utilities.pricing import catalog as catalog_module
+
     monkeypatch.setenv("USAGE_CONTENT_RETENTION", "sanitized")
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog(
+            [
+                ModelPricing(
+                    model_pattern="operator/model-v7",
+                    input_per_mtok=5,
+                    output_per_mtok=25,
+                    cache_read_per_mtok=0.5,
+                )
+            ]
+        ),
+    )
     b = SqliteUsageBackend(tmp_path / "usage.db")
     b.ensure_schema()
     return b
@@ -35,8 +53,8 @@ def backend(tmp_path, monkeypatch):
 def _bundle(
     sid="s1",
     project="proj-a",
-    agent="claude",
-    model="claude-opus-4-8",
+    agent="operator-agent",
+    model="operator/model-v7",
     tenant_id="",
 ):
     return ParsedSessionBundle(
@@ -130,10 +148,10 @@ def test_idempotent_reingest(backend):
 
 
 def test_breakdowns(backend):
-    backend.write_bundle(_bundle(sid="s1", project="proj-a", model="claude-opus-4-8"))
-    backend.write_bundle(_bundle(sid="s2", project="proj-b", model="gpt-5.5"))
+    backend.write_bundle(_bundle(sid="s1", project="proj-a", model="operator/model-v7"))
+    backend.write_bundle(_bundle(sid="s2", project="proj-b", model="operator/model-v8"))
     by_model = {b.key: b for b in backend.breakdown("model")}
-    assert set(by_model) == {"claude-opus-4-8", "gpt-5.5"}
+    assert set(by_model) == {"operator/model-v7", "operator/model-v8"}
     by_project = {b.key: b for b in backend.breakdown("project")}
     assert set(by_project) == {"proj-a", "proj-b"}
 
@@ -178,7 +196,7 @@ def test_filters_by_project_and_origin(backend):
     rec = UsageRecorder(backend)
     rec.record_run(
         run_id="run-1",
-        model="claude-opus-4-8",
+        model="operator/model-v7",
         token_usage={"input_tokens": 10, "output_tokens": 20},
     )
     assert backend.summary(origin=ORIGIN_RUNTIME).session_count == 1
@@ -189,7 +207,7 @@ def test_record_tool_call_runtime(backend):
     rec = UsageRecorder(backend)
     rec.record_run(
         run_id="run-1",
-        model="claude-opus-4-8",
+        model="operator/model-v7",
         token_usage={"input_tokens": 10, "output_tokens": 20},
     )
     rec.record_tool_call(

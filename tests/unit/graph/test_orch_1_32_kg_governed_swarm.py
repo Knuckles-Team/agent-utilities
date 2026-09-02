@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from agent_utilities.graph.parallel_engine import (
     ParallelEngine,
     enforce_structured_output,
@@ -42,6 +44,11 @@ def test_resolve_model_role_returns_str():
     # unresolvable role -> "" (caller falls back); never raises
     assert isinstance(resolve_model_role("definitely-not-a-role"), str)
     assert resolve_model_role("") == ""
+
+
+def test_agent_model_resolution_fails_closed_without_registry_or_inheritance():
+    with pytest.raises(ValueError, match="agent model is not configured"):
+        ParallelEngine._resolve_agent_model_id(AgentSpec(agent_id="unconfigured"), None)
 
 
 # ── SWARM-3: critical-path scheduling ────────────────────────────────────────────

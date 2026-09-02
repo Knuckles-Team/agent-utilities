@@ -2,46 +2,70 @@
 
 CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
-Replaces the scattered hard-coded dicts (``models/usage.py`` defaults, the
-agent-terminal-ui ``DEFAULT_PRICING`` table). Prices are stored per-million
-tokens. The catalog seeds from the embedded offline ``fallback`` table (works
-with no network) and is refreshed from LiteLLM by the daemon (see ``litellm``
-and ``store``). Resolution uses the load-bearing ``normalize.resolve``.
+Replaces scattered embedded price dicts. Prices are stored per-million
+tokens. The process-wide catalog loads an operator-owned, versioned local
+document when configured and may be refreshed from LiteLLM by the daemon (see
+``litellm`` and ``store``). Resolution uses ``normalize.resolve``.
 """
 
 from __future__ import annotations
 
-from .fallback import FALLBACK_VERSION, fallback_pricing
+import json
+from collections.abc import Iterable
+from pathlib import Path
 
-# ``ModelPricing`` lives in the leaf module ``.model`` so ``fallback`` can build
-# rows without importing back into this module (BUG-CX-004 / WD10-B-004). It is
-# re-exported here because every existing caller imports it from ``.catalog``.
+# ``ModelPricing`` lives in the leaf module ``.model`` to keep the schema free
+# of singleton-composition imports. It is re-exported here for callers.
 from .model import ModelPricing
 from .normalize import resolve
 
-__all__ = ["ModelPricing", "PricingCatalog", "get_pricing_catalog"]
+__all__ = [
+    "ModelPricing",
+    "PricingCatalog",
+    "get_pricing_catalog",
+    "reset_pricing_catalog",
+]
 
 
 class PricingCatalog:
     """In-memory catalog of ``ModelPricing`` keyed by model pattern.
 
-    Process-wide singleton via :func:`get_pricing_catalog`. Seeds from the
-    offline fallback so it is always usable with zero configuration; the daemon
-    overlays LiteLLM rates on top (exact patterns win on later merge).
+    Process-wide singleton via :func:`get_pricing_catalog`. An absent local
+    catalog is an explicitly empty authority; the daemon can overlay discovered
+    rates later (exact patterns win on later merge).
     """
 
-    def __init__(self, entries: list[ModelPricing] | None = None) -> None:
+    def __init__(
+        self,
+        entries: Iterable[ModelPricing] = (),
+    ) -> None:
         self._by_pattern: dict[str, ModelPricing] = {}
-        self.version: str = FALLBACK_VERSION
-        self.seed_fallback()
-        if entries:
-            self.merge(entries)
+        self.version: str = "unconfigured"
+        self.merge(entries)
 
-    def seed_fallback(self) -> None:
-        for entry in fallback_pricing():
-            self._by_pattern[entry.model_pattern] = entry
+    @classmethod
+    def load_from_file(cls, path: str | Path) -> PricingCatalog:
+        """Load a versioned operator catalog for offline or historical pricing."""
+        catalog_path = Path(path)
+        with catalog_path.open("rb") as stream:
+            payload = stream.read(1_000_001)
+        if len(payload) > 1_000_000:
+            raise ValueError("pricing catalog exceeds the size limit")
+        raw = json.loads(payload)
+        if not isinstance(raw, dict) or set(raw) != {"version", "models"}:
+            raise ValueError("pricing catalog must contain version and models")
+        version = raw["version"]
+        models = raw["models"]
+        if not isinstance(version, str) or not version.strip():
+            raise ValueError("pricing catalog version must be non-empty")
+        if not isinstance(models, list):
+            raise ValueError("pricing catalog models must be a list")
+        entries = [ModelPricing.model_validate(item) for item in models]
+        catalog = cls(entries)
+        catalog.version = version
+        return catalog
 
-    def merge(self, entries: list[ModelPricing]) -> None:
+    def merge(self, entries: Iterable[ModelPricing]) -> None:
         """Overlay ``entries`` (e.g. from LiteLLM) onto the catalog."""
         for entry in entries:
             self._by_pattern[entry.model_pattern] = entry
@@ -84,8 +108,22 @@ _CATALOG: PricingCatalog | None = None
 
 
 def get_pricing_catalog() -> PricingCatalog:
-    """Process-wide pricing catalog (seeded from the offline fallback)."""
+    """Process-wide pricing catalog composed from operator configuration."""
     global _CATALOG
     if _CATALOG is None:
-        _CATALOG = PricingCatalog()
+        _CATALOG = _configured_pricing_catalog()
     return _CATALOG
+
+
+def reset_pricing_catalog() -> None:
+    """Invalidate the singleton after an operator configuration transition."""
+    global _CATALOG
+    _CATALOG = None
+
+
+def _configured_pricing_catalog() -> PricingCatalog:
+    from agent_utilities.core.config import config
+
+    if config.pricing_catalog_path:
+        return PricingCatalog.load_from_file(config.pricing_catalog_path)
+    return PricingCatalog()

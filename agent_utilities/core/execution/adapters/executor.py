@@ -42,7 +42,7 @@ async def run_adapter(
             f"adapter {definition.id!r}: {definition.bin!r} not on PATH"
         )
 
-    eff_model = definition.resolve_model(model, env)
+    eff_model = definition.resolve_model(model)
     deliver_via_args = definition.prompt_delivery is PromptDelivery.ARGS
     arg_prompt = prompt if deliver_via_args else ""
     argv = [path, *definition.build_args(eff_model, arg_prompt)]

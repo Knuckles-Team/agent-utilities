@@ -19,7 +19,7 @@ from agent_utilities.rlm.benchmarks.baselines import (
     chunk_text,
     head_tail_truncate,
 )
-from agent_utilities.rlm.benchmarks.cost import estimate_cost_usd, normalize_model
+from agent_utilities.rlm.benchmarks.cost import estimate_cost_usd
 
 ALL_TASKS = ["s_niah", "oolong", "oolong_pairs", "browsecomp_plus", "longbench_codeqa"]
 
@@ -68,11 +68,18 @@ def test_truncate_and_chunk():
     assert chunk_text("", 10) == [""]
 
 
-def test_cost_model():
-    assert normalize_model("openai:gpt-4o-mini") == "gpt-4o-mini"
-    assert estimate_cost_usd(1000, "openai:gpt-4o-mini") == pytest.approx(0.0004)
-    # unknown model falls back to a non-zero default
-    assert estimate_cost_usd(1000, "mystery:model-x") > 0
+def test_cost_model(monkeypatch):
+    from agent_utilities.pricing import ModelPricing, PricingCatalog
+    from agent_utilities.pricing import catalog as catalog_module
+
+    model_id = "vendor-a/model-v7"
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog([ModelPricing(model_pattern=model_id, input_per_mtok=4.0)]),
+    )
+    assert estimate_cost_usd(1000, model_id) == pytest.approx(0.004)
+    assert estimate_cost_usd(1000, "vendor-a/unpriced") is None
 
 
 class _CheatCompleter:
@@ -89,10 +96,10 @@ class _CheatCompleter:
 
 async def test_vanilla_system_plumbing():
     case = get_task("s_niah").build(8_000, seed=0)
-    sys = VanillaSystem("openai:gpt-4o-mini", completer=_CheatCompleter(case.answer))
+    sys = VanillaSystem("vendor-a/model-v7", completer=_CheatCompleter(case.answer))
     out = await sys.answer(case)
     assert case.grade(out.prediction) == 1.0
-    assert out.tokens == 120 and out.cost_usd > 0
+    assert out.tokens == 120 and out.cost_usd is None
 
 
 async def test_compaction_system_summarizes_then_answers():
@@ -102,7 +109,7 @@ async def test_compaction_system_summarizes_then_answers():
     out = await sys.answer(case)
     # one summarize call per chunk + one final answer call
     assert completer.calls >= 2
-    assert out.cost_usd > 0
+    assert out.cost_usd is None
 
 
 class _FakeSystem(System):
@@ -140,6 +147,32 @@ async def test_run_benchmark_survives_system_errors():
         "s_niah", scales=[5_000], systems=[_BoomSystem()], cases_per_scale=2
     )
     assert results[0].accuracy == 0.0 and "error" in results[0].notes
+    assert results[0].cost_usd is None
+
+
+async def test_run_benchmark_partial_pricing_stays_unknown():
+    class _PartialCostSystem(System):
+        name = "partial"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def answer(self, case):
+            self.calls += 1
+            cost = 0.02 if self.calls == 1 else None
+            return SystemOutput(
+                system=self.name,
+                prediction=case.answer,
+                tokens=50,
+                cost_usd=cost,
+            )
+
+    results = await run_benchmark(
+        "s_niah", scales=[5_000], systems=[_PartialCostSystem()], cases_per_scale=2
+    )
+
+    assert results[0].accuracy == 1.0
+    assert results[0].cost_usd is None
 
 
 def test_scoreboard_renders_paper_comparison():

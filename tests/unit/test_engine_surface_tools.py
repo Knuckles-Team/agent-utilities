@@ -81,6 +81,36 @@ def _recording_method(recorder: list, name: str):
     return _call
 
 
+def _promql_call(tools, **overrides) -> dict:
+    params = {
+        "query": "up",
+        "action": "instant",
+        "time": "",
+        "start": "",
+        "end": "",
+        "step": "",
+        "params_json": "{}",
+        "graph": "",
+    }
+    params.update(overrides)
+    return json.loads(tools["graph_promql"](**params))
+
+
+def _logs_call(tools, **overrides) -> dict:
+    params = {
+        "action": "query",
+        "stream": "",
+        "query": "",
+        "start": "",
+        "end": "",
+        "limit": 200,
+        "params_json": "{}",
+        "graph": "",
+    }
+    params.update(overrides)
+    return json.loads(tools["graph_logs"](**params))
+
+
 # ── registration / parity ────────────────────────────────────────────────────
 _EXPECTED_ROUTES = {
     "graph_broker": "/graph/broker",
@@ -382,27 +412,30 @@ def _kv_checkpoint_call(tools, **overrides):
     return json.loads(tools["graph_kv_checkpoint"](**defaults))
 
 
+def _create_checkpoint(tools, **overrides) -> str:
+    params = {
+        "action": "create",
+        "data_b64": base64.b64encode(b"kv-bytes").decode(),
+        "model_identity": "m",
+        "quantization": "q",
+        "serving_engine": "vllm",
+        "engine_version": "1",
+        "prefix_digest": "d",
+        "tenant": "tenant-a",
+        "run_id": "run-1",
+        "point": "checkpoint-a",
+    }
+    params.update(overrides)
+    return _kv_checkpoint_call(tools, **params)["result"]["checkpoint_id"]
+
+
 def test_kg_2_310_kv_checkpoint_create_then_instantiate_and_restore(monkeypatch, tools):
     """CONCEPT:AU-KG.memory.kv-checkpoint-resource — end-to-end through the MCP tool:
     create → instantiate_agent (lineage edge) → restore_conversation (bytes back)."""
     store = _fake_checkpoint_store()
     monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
 
-    created = _kv_checkpoint_call(
-        tools,
-        action="create",
-        data_b64=base64.b64encode(b"kv-bytes").decode(),
-        model_identity="m",
-        quantization="q",
-        serving_engine="vllm",
-        engine_version="1",
-        prefix_digest="d",
-        tenant="tenant-a",
-        policy_version="p1",
-        run_id="run-1",
-        point="checkpoint-a",
-    )
-    checkpoint_id = created["result"]["checkpoint_id"]
+    checkpoint_id = _create_checkpoint(tools, policy_version="p1")
     assert checkpoint_id
 
     instantiated = _kv_checkpoint_call(
@@ -434,20 +467,7 @@ def test_kg_2_310_kv_checkpoint_cross_tenant_refused(monkeypatch, tools):
     store = _fake_checkpoint_store()
     monkeypatch.setattr(engine_surface_tools, "_checkpoint_store", lambda graph: store)
 
-    created = _kv_checkpoint_call(
-        tools,
-        action="create",
-        data_b64=base64.b64encode(b"kv-bytes").decode(),
-        model_identity="m",
-        quantization="q",
-        serving_engine="vllm",
-        engine_version="1",
-        prefix_digest="d",
-        tenant="tenant-a",
-        run_id="run-1",
-        point="checkpoint-a",
-    )
-    checkpoint_id = created["result"]["checkpoint_id"]
+    checkpoint_id = _create_checkpoint(tools)
 
     denied = _kv_checkpoint_call(
         tools,
@@ -520,31 +540,9 @@ def test_kg_2_310_promql_instant_and_range(monkeypatch, tools):
     monkeypatch.setattr(
         engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
     )
-    inst = json.loads(
-        tools["graph_promql"](
-            query="up",
-            action="instant",
-            time="",
-            start="",
-            end="",
-            step="",
-            params_json="{}",
-            graph="",
-        )
-    )
+    inst = _promql_call(tools)
     assert inst["action"] == "instant"
-    rng = json.loads(
-        tools["graph_promql"](
-            query="up",
-            action="range",
-            time="",
-            start="0",
-            end="10",
-            step="30s",
-            params_json="{}",
-            graph="",
-        )
-    )
+    rng = _promql_call(tools, action="range", start="0", end="10", step="30s")
     assert rng["action"] == "range"
     assert [c[0] for c in calls] == ["promql", "promql_range"]
     assert calls[1][1] == {"query": "up", "start": "0", "end": "10", "step": "30s"}
@@ -553,18 +551,7 @@ def test_kg_2_310_promql_instant_and_range(monkeypatch, tools):
 def test_kg_2_310_promql_degrades(monkeypatch, tools):
     """CONCEPT:AU-KG.coordination.engine-message-broker — graph_promql degrades when no metrics surface."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
-    out = json.loads(
-        tools["graph_promql"](
-            query="up",
-            action="instant",
-            time="",
-            start="",
-            end="",
-            step="",
-            params_json="{}",
-            graph="",
-        )
-    )
+    out = _promql_call(tools)
     assert out["degraded"] is True
 
 
@@ -680,6 +667,14 @@ def test_traces_waterfall_flattens_kg_native_subgraph(monkeypatch, tools):
     assert gen_node["model"] == "gpt-4o"
 
 
+def test_traces_waterfall_does_not_render_missing_cost_as_free():
+    trace = SimpleNamespace(id="trace:unpriced", name="run", status="ok")
+
+    header = engine_surface_tools._waterfall_trace_header(trace, trace.id)
+
+    assert header["costUsd"] is None
+
+
 def test_traces_waterfall_requires_trace_id(tools):
     out = json.loads(
         tools["graph_traces"](
@@ -761,18 +756,7 @@ def test_kg_2_310_logs_query_dispatches(monkeypatch, tools):
     monkeypatch.setattr(
         engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
     )
-    out = json.loads(
-        tools["graph_logs"](
-            action="query",
-            stream="agent-webui",
-            query="error",
-            start="0",
-            end="10",
-            limit=200,
-            params_json="{}",
-            graph="",
-        )
-    )
+    out = _logs_call(tools, stream="agent-webui", query="error", start="0", end="10")
     assert out["action"] == "query"
     assert calls == [
         (
@@ -793,34 +777,12 @@ def test_kg_2_310_logs_degrades_without_raising(monkeypatch, tools):
     log-query surface -- this is the fix for POST /graph/logs' HTTP 405: the
     route now exists and always answers, it just may answer 'degraded'."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
-    out = json.loads(
-        tools["graph_logs"](
-            action="query",
-            stream="",
-            query="",
-            start="",
-            end="",
-            limit=200,
-            params_json="{}",
-            graph="",
-        )
-    )
+    out = _logs_call(tools)
     assert out["degraded"] is True
 
 
 def test_kg_2_310_logs_unknown_action_is_a_clean_error(tools):
-    out = json.loads(
-        tools["graph_logs"](
-            action="bogus",
-            stream="",
-            query="",
-            start="",
-            end="",
-            limit=200,
-            params_json="{}",
-            graph="",
-        )
-    )
+    out = _logs_call(tools, action="bogus")
     assert "error" in out
 
 
@@ -988,10 +950,7 @@ def test_graph_mine_dispatches_a_newly_exposed_family(monkeypatch, tools):
     ]
 
 
-def test_graph_mine_alias_entity_resolution_hits_entity_resolve(monkeypatch, tools):
-    """The guessable name 'entity_resolution' used to silently degrade (a
-    MiningClient miss on a name that isn't its real 'entity_resolve' attr) —
-    it must now resolve and dispatch for real."""
+def _call_entity_resolution(monkeypatch, tools, *, action: str, params: dict):
     calls: list = []
     mining = SimpleNamespace(entity_resolve=_recording_method(calls, "entity_resolve"))
     monkeypatch.setattr(
@@ -999,15 +958,26 @@ def test_graph_mine_alias_entity_resolution_hits_entity_resolve(monkeypatch, too
     )
     out = json.loads(
         tools["graph_mine"](
-            action="entity_resolution",
-            params_json=json.dumps({"records": [["a"], ["a"]], "threshold": 0.5}),
+            action=action,
+            params_json=json.dumps(params),
             graph="",
         )
+    )
+    return out, calls
+
+
+def test_graph_mine_alias_entity_resolution_hits_entity_resolve(monkeypatch, tools):
+    """The guessable name 'entity_resolution' used to silently degrade (a
+    MiningClient miss on a name that isn't its real 'entity_resolve' attr) —
+    it must now resolve and dispatch for real."""
+    params = {"records": [["a"], ["a"]], "threshold": 0.5}
+    out, calls = _call_entity_resolution(
+        monkeypatch, tools, action="entity_resolution", params=params
     )
     assert out.get("degraded") is not True
     assert out["surface"] == "mining"
     assert out["action"] == "entity_resolve"
-    assert calls == [("entity_resolve", {"records": [["a"], ["a"]], "threshold": 0.5})]
+    assert calls == [("entity_resolve", params)]
 
 
 def test_graph_mine_alias_process_mining_hits_process(monkeypatch, tools):
@@ -1112,51 +1082,45 @@ def test_graph_mine_event_projection_writeback_fails_closed(tools):
     assert "writeback is disabled" in out["error"]
 
 
-def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(tools):
-    """The existing MCP/REST process surface reaches the governed OCEL seam."""
-    ocel = {
-        "eventTypes": [{"name": "create", "attributes": []}],
-        "objectTypes": [{"name": "Order", "attributes": []}],
-        "events": [
-            {
-                "id": "e1",
-                "type": "create",
-                "time": "2026-01-01T00:00:00Z",
-                "attributes": [],
-                "relationships": [{"objectId": "order-1", "qualifier": "order"}],
-            }
-        ],
-        "objects": [
-            {
-                "id": "order-1",
-                "type": "Order",
-                "attributes": [],
-                "relationships": [],
-            }
-        ],
-    }
-
+def _ocel_process_call(tools, payload: dict, *, actor_id: str = "ocel-test") -> dict:
+    """Run one governed OCEL request through the registered process tool."""
     with use_actor(
         ActorContext(
-            actor_id="ocel-test",
+            actor_id=actor_id,
             actor_type=ActorType.SYSTEM,
             tenant_id="tenant-a",
             authenticated=True,
         )
     ):
-        out = json.loads(
+        return json.loads(
             tools["graph_mine"](
                 action="process",
-                params_json=json.dumps(
-                    {
-                        "ocel_json": ocel,
-                        "tenant": "tenant-a",
-                        "ocel_mode": "validate",
-                    }
-                ),
+                params_json=json.dumps(payload),
                 graph="",
             )
         )
+
+
+def _record_process_dispatch(monkeypatch) -> list:
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+    return calls
+
+
+def test_graph_mine_ocel_validate_live_path_uses_the_registered_process_tool(tools):
+    """The existing MCP/REST process surface reaches the governed OCEL seam."""
+    out = _ocel_process_call(
+        tools,
+        {
+            "ocel_json": _OCEL_MINE_FIXTURE,
+            "tenant": "tenant-a",
+            "ocel_mode": "validate",
+        },
+    )
 
     assert set(out["ocel"]) == {"eventTypes", "objectTypes", "events", "objects"}
     assert out["tekg"]["tenant"] == "tenant-a"
@@ -1191,23 +1155,9 @@ def test_graph_mine_ocel_mine_mode_requires_a_declared_perspective(tools) -> Non
     """CONCEPT:AU-KG.mining.governed-perspective-flattening — 'mine' mode
     always derives traces, so it always requires the same disclosed
     perspective triple 'events' mode does; there is no separate silent path."""
-    with use_actor(
-        ActorContext(
-            actor_id="ocel-test",
-            actor_type=ActorType.SYSTEM,
-            tenant_id="tenant-a",
-            authenticated=True,
-        )
-    ):
-        out = json.loads(
-            tools["graph_mine"](
-                action="process",
-                params_json=json.dumps(
-                    {"ocel_json": _OCEL_MINE_FIXTURE, "tenant": "tenant-a"}
-                ),
-                graph="",
-            )
-        )
+    out = _ocel_process_call(
+        tools, {"ocel_json": _OCEL_MINE_FIXTURE, "tenant": "tenant-a"}
+    )
     assert out["error"]["code"] == "invalid_request"
 
 
@@ -1224,12 +1174,7 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
     ``{"entities": [...], "relationships": [...]}`` typed_payload onto one
     untyped node; see ``tests/integration/knowledge_graph/test_ocel_live_commit.py``.)
     """
-    calls: list = []
-    mining = SimpleNamespace(process=_recording_method(calls, "process"))
-    monkeypatch.setattr(
-        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
-    )
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+    calls = _record_process_dispatch(monkeypatch)
 
     committed: list = []
 
@@ -1251,29 +1196,16 @@ def test_graph_mine_ocel_mine_mode_commits_a_real_change_envelope(
         envelope_ingest_module, "ingest_graph_slice", _fake_ingest_graph_slice
     )
 
-    with use_actor(
-        ActorContext(
-            actor_id="ocel-test",
-            actor_type=ActorType.SYSTEM,
-            tenant_id="tenant-a",
-            authenticated=True,
-        )
-    ):
-        out = json.loads(
-            tools["graph_mine"](
-                action="process",
-                params_json=json.dumps(
-                    {
-                        "ocel_json": _OCEL_MINE_FIXTURE,
-                        "tenant": "tenant-a",
-                        "object_type": "Order",
-                        "perspective_id": "case:order-view",
-                        "derivation_version": "v1",
-                    }
-                ),
-                graph="",
-            )
-        )
+    out = _ocel_process_call(
+        tools,
+        {
+            "ocel_json": _OCEL_MINE_FIXTURE,
+            "tenant": "tenant-a",
+            "object_type": "Order",
+            "perspective_id": "case:order-view",
+            "derivation_version": "v1",
+        },
+    )
 
     assert len(committed) == 1
     commit = committed[0]
@@ -1303,12 +1235,7 @@ def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) 
     pinning one error code, which is exactly what let the writer change out from
     under the previous assertion.
     """
-    calls: list = []
-    mining = SimpleNamespace(process=_recording_method(calls, "process"))
-    monkeypatch.setattr(
-        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
-    )
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: "fake-engine")
+    calls = _record_process_dispatch(monkeypatch)
 
     def _boom(*_args, **_kwargs):
         raise RuntimeError("synthetic rejection")
@@ -1317,29 +1244,17 @@ def test_graph_mine_ocel_mine_mode_surfaces_a_failed_commit(monkeypatch, tools) 
 
     monkeypatch.setattr(envelope_ingest_module, "ingest_graph_slice", _boom)
 
-    with use_actor(
-        ActorContext(
-            actor_id="ocel-reject-test",
-            actor_type=ActorType.SYSTEM,
-            tenant_id="tenant-a",
-            authenticated=True,
-        )
-    ):
-        out = json.loads(
-            tools["graph_mine"](
-                action="process",
-                params_json=json.dumps(
-                    {
-                        "ocel_json": _OCEL_MINE_FIXTURE,
-                        "tenant": "tenant-a",
-                        "object_type": "Order",
-                        "perspective_id": "case:order-view",
-                        "derivation_version": "v1",
-                    }
-                ),
-                graph="",
-            )
-        )
+    out = _ocel_process_call(
+        tools,
+        {
+            "ocel_json": _OCEL_MINE_FIXTURE,
+            "tenant": "tenant-a",
+            "object_type": "Order",
+            "perspective_id": "case:order-view",
+            "derivation_version": "v1",
+        },
+        actor_id="ocel-reject-test",
+    )
 
     # Reported, never silently discarded.
     error = out.get("error", out)
@@ -1353,13 +1268,8 @@ def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
     """'entity-resolution' normalizes to 'entity_resolution' (the existing
     hyphen->underscore fold) THEN resolves via the alias map to
     'entity_resolve'."""
-    calls: list = []
-    mining = SimpleNamespace(entity_resolve=_recording_method(calls, "entity_resolve"))
-    monkeypatch.setattr(
-        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
-    )
-    out = json.loads(
-        tools["graph_mine"](action="entity-resolution", params_json="{}", graph="")
+    out, calls = _call_entity_resolution(
+        monkeypatch, tools, action="entity-resolution", params={}
     )
     assert out["action"] == "entity_resolve"
     assert calls == [("entity_resolve", {})]
@@ -1473,20 +1383,15 @@ def test_graph_mine_deep_dispatches_raw_rows_to_data_science_mcp(monkeypatch, to
     assert out["written_node_ids"] == []
 
 
-def test_graph_mine_deep_gathers_source_rows_and_writes_back(monkeypatch, tools):
-    """A 'source' spec is gathered via graph_query, and writeback=true folds one
-    :Classification node per row back, linked DEEP_RESULT_OF its source node."""
-    written_nodes: list[dict] = []
-    written_edges: list[dict] = []
-
+def _writeback_execute_tool(
+    written_nodes: list[dict],
+    written_edges: list[dict],
+    *,
+    query_rows: list[dict] | None = None,
+):
     async def _fake_execute_tool(tool_name, **kwargs):
-        if tool_name == "graph_query":
-            return json.dumps(
-                [
-                    {"id": "doc:1", "f0": 1.0},
-                    {"id": "doc:2", "f0": 2.0},
-                ]
-            )
+        if tool_name == "graph_query" and query_rows is not None:
+            return json.dumps(query_rows)
         if tool_name == "graph_write" and kwargs.get("action") == "add_node":
             written_nodes.append(kwargs)
             return json.dumps({"status": "ok"})
@@ -1494,6 +1399,15 @@ def test_graph_mine_deep_gathers_source_rows_and_writes_back(monkeypatch, tools)
             written_edges.append(kwargs)
             return json.dumps({"status": "ok"})
         raise AssertionError(f"unexpected _execute_tool call: {tool_name} {kwargs}")
+
+    return _fake_execute_tool
+
+
+def test_graph_mine_deep_gathers_source_rows_and_writes_back(monkeypatch, tools):
+    """A 'source' spec is gathered via graph_query, and writeback=true folds one
+    :Classification node per row back, linked DEEP_RESULT_OF its source node."""
+    written_nodes: list[dict] = []
+    written_edges: list[dict] = []
 
     async def _fake_call_tool_once(**kwargs):
         return {
@@ -1508,7 +1422,12 @@ def test_graph_mine_deep_gathers_source_rows_and_writes_back(monkeypatch, tools)
             },
         }
 
-    monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
+    query_rows = [{"id": "doc:1", "f0": 1.0}, {"id": "doc:2", "f0": 2.0}]
+    monkeypatch.setattr(
+        kg_server,
+        "_execute_tool",
+        _writeback_execute_tool(written_nodes, written_edges, query_rows=query_rows),
+    )
     monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
 
     out = json.loads(
@@ -1543,15 +1462,6 @@ def test_graph_mine_deep_forecast_writeback_links_series(monkeypatch, tools):
     written_nodes: list[dict] = []
     written_edges: list[dict] = []
 
-    async def _fake_execute_tool(tool_name, **kwargs):
-        if tool_name == "graph_write" and kwargs.get("action") == "add_node":
-            written_nodes.append(kwargs)
-            return json.dumps({"status": "ok"})
-        if tool_name == "graph_write" and kwargs.get("action") == "add_edge":
-            written_edges.append(kwargs)
-            return json.dumps({"status": "ok"})
-        raise AssertionError(f"unexpected _execute_tool call: {tool_name} {kwargs}")
-
     async def _fake_call_tool_once(**kwargs):
         return {
             "algo": "lstm_forecast",
@@ -1564,7 +1474,11 @@ def test_graph_mine_deep_forecast_writeback_links_series(monkeypatch, tools):
             },
         }
 
-    monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
+    monkeypatch.setattr(
+        kg_server,
+        "_execute_tool",
+        _writeback_execute_tool(written_nodes, written_edges),
+    )
     monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
 
     out = json.loads(
@@ -1822,18 +1736,7 @@ def test_kg_2_310_promql_degrades_cleanly_without_a_configured_prometheus(
     (never an invented hostname)."""
     monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
     monkeypatch.setattr(engine_surface_tools, "_prometheus_base_url", lambda: None)
-    out = json.loads(
-        tools["graph_promql"](
-            query="up",
-            action="instant",
-            time="",
-            start="",
-            end="",
-            step="",
-            params_json="{}",
-            graph="",
-        )
-    )
+    out = _promql_call(tools)
     assert out["degraded"] is True
 
 
@@ -2131,44 +2034,6 @@ def test_kg_2_310_traces_search_falls_back_to_external_probe_without_a_kg_sink(
     }
 
 
-# ── graph_logs ───────────────────────────────────────────────────────────────
-
-
-def test_kg_2_310_logs_degrades_without_a_configured_backend(monkeypatch, tools):
-    """No engine log-query surface and no log backend (e.g. Loki) configured
-    anywhere in this repo today ⇒ a clean degrade, never fabricated log lines."""
-    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
-    out = json.loads(
-        tools["graph_logs"](
-            action="query",
-            stream="",
-            query="",
-            start="",
-            end="",
-            limit=200,
-            params_json="{}",
-            graph="",
-        )
-    )
-    assert out["degraded"] is True
-
-
-def test_kg_2_310_logs_unknown_action_is_reported(tools):
-    out = json.loads(
-        tools["graph_logs"](
-            action="tail",
-            stream="",
-            query="",
-            start="",
-            end="",
-            limit=200,
-            params_json="{}",
-            graph="",
-        )
-    )
-    assert out["error"] == "unknown action 'tail'"
-
-
 # ── graph_gis ────────────────────────────────────────────────────────────────
 
 
@@ -2221,6 +2086,27 @@ def _fake_render(calls: list):
         }
 
     return _render
+
+
+def _plot_rows(monkeypatch, tools, rows: list[dict], **overrides) -> tuple[dict, list]:
+    render_calls: list = []
+    viz = SimpleNamespace(render=_fake_render(render_calls))
+    query_client = SimpleNamespace(sql=lambda _query: rows)
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_client",
+        lambda graph: _fake_client(viz=viz, query=query_client),
+    )
+    params = {
+        "action": "plot_from_query",
+        "query": "SELECT a, b FROM nodes",
+        "mark": "scatter",
+        "x_field": "a",
+        "y_field": "b",
+    }
+    params.update(overrides)
+    out = json.loads(tools["graph_viz"](**_viz_args(**params)))
+    return out, render_calls
 
 
 def test_graph_viz_capability_matrix_dispatches(monkeypatch, tools):
@@ -2288,26 +2174,8 @@ def test_graph_viz_export_chart_requires_both_spec_and_dataset(tools):
 
 def test_graph_viz_plot_from_query_renders_real_query_rows(monkeypatch, tools):
     """plot_from_query: real query rows -> InlineColumns -> render; rows_returned/rendered reported honestly."""
-    render_calls: list = []
-    viz = SimpleNamespace(render=_fake_render(render_calls))
     rows = [{"a": 1.0, "b": 10.0}, {"a": 2.0, "b": 20.0}, {"a": 3.0, "b": 30.0}]
-    query_client = SimpleNamespace(sql=lambda q: rows)
-    monkeypatch.setattr(
-        engine_surface_tools,
-        "_client",
-        lambda graph: _fake_client(viz=viz, query=query_client),
-    )
-    out = json.loads(
-        tools["graph_viz"](
-            **_viz_args(
-                action="plot_from_query",
-                query="SELECT a, b FROM nodes",
-                mark="scatter",
-                x_field="a",
-                y_field="b",
-            )
-        )
-    )
+    out, render_calls = _plot_rows(monkeypatch, tools, rows)
     assert out["rows_returned"] == 3
     assert out["rows_rendered"] == 3
     assert render_calls[0][1] == {
@@ -2322,80 +2190,31 @@ def test_graph_viz_plot_from_query_missing_data_is_unavailable_not_a_fabricated_
     monkeypatch, tools
 ):
     """A query with 0 usable rows answers 'unavailable' -- render is NEVER called, so nothing is fabricated."""
-    render_calls: list = []
-    viz = SimpleNamespace(render=_fake_render(render_calls))
     # Every row is missing 'b' -- 0 rows survive the required-fields filter.
     rows = [{"a": 1.0, "b": None}, {"a": 2.0}]
-    query_client = SimpleNamespace(sql=lambda q: rows)
-    monkeypatch.setattr(
-        engine_surface_tools,
-        "_client",
-        lambda graph: _fake_client(viz=viz, query=query_client),
-    )
-    out = json.loads(
-        tools["graph_viz"](
-            **_viz_args(
-                action="plot_from_query",
-                query="SELECT a, b FROM nodes",
-                mark="scatter",
-                x_field="a",
-                y_field="b",
-            )
-        )
-    )
+    out, render_calls = _plot_rows(monkeypatch, tools, rows)
     assert out["unavailable"] is True
     assert render_calls == []  # never fabricated a chart from partial/missing data
 
 
 def test_graph_viz_plot_from_query_empty_result_set_is_unavailable(monkeypatch, tools):
-    viz = SimpleNamespace(
-        render=lambda *a, **k: pytest.fail("render should not be called")
-    )
-    query_client = SimpleNamespace(sql=lambda q: [])
-    monkeypatch.setattr(
-        engine_surface_tools,
-        "_client",
-        lambda graph: _fake_client(viz=viz, query=query_client),
-    )
-    out = json.loads(
-        tools["graph_viz"](
-            **_viz_args(
-                action="plot_from_query",
-                query="SELECT * FROM nodes WHERE 0=1",
-                mark="line",
-                x_field="a",
-                y_field="b",
-            )
-        )
+    out, render_calls = _plot_rows(
+        monkeypatch,
+        tools,
+        [],
+        query="SELECT * FROM nodes WHERE 0=1",
+        mark="line",
     )
     assert out["unavailable"] is True
+    assert render_calls == []
 
 
 def test_graph_viz_plot_from_query_bounded_by_row_limit_not_result_size(
     monkeypatch, tools
 ):
     """The wire payload is bounded by row_limit regardless of how many rows the query returned."""
-    render_calls: list = []
-    viz = SimpleNamespace(render=_fake_render(render_calls))
     rows = [{"a": float(i), "b": float(i)} for i in range(10_000)]
-    query_client = SimpleNamespace(sql=lambda q: rows)
-    monkeypatch.setattr(
-        engine_surface_tools,
-        "_client",
-        lambda graph: _fake_client(viz=viz, query=query_client),
-    )
-    out = json.loads(
-        tools["graph_viz"](
-            **_viz_args(
-                action="plot_from_query",
-                query="SELECT a, b FROM nodes",
-                mark="scatter",
-                x_field="a",
-                y_field="b",
-                row_limit=100,
-            )
-        )
-    )
+    out, render_calls = _plot_rows(monkeypatch, tools, rows, row_limit=100)
     assert out["rows_returned"] == 10_000
     assert out["rows_rendered"] == 100
     assert len(render_calls[0][1]["InlineColumns"]["columns"]["a"]["F64"]) == 100
@@ -2405,26 +2224,9 @@ def test_graph_viz_plot_from_query_row_limit_is_clamped_to_a_hard_max(
     monkeypatch, tools
 ):
     """A caller-requested row_limit above the hard safety cap is clamped, never honored verbatim."""
-    render_calls: list = []
-    viz = SimpleNamespace(render=_fake_render(render_calls))
     rows = [{"a": float(i), "b": float(i)} for i in range(5)]
-    query_client = SimpleNamespace(sql=lambda q: rows)
-    monkeypatch.setattr(
-        engine_surface_tools,
-        "_client",
-        lambda graph: _fake_client(viz=viz, query=query_client),
-    )
-    out = json.loads(
-        tools["graph_viz"](
-            **_viz_args(
-                action="plot_from_query",
-                query="q",
-                mark="scatter",
-                x_field="a",
-                y_field="b",
-                row_limit=999_999_999,
-            )
-        )
+    out, _render_calls = _plot_rows(
+        monkeypatch, tools, rows, query="q", row_limit=999_999_999
     )
     assert out["rows_returned"] == 5
     assert (
@@ -2432,8 +2234,13 @@ def test_graph_viz_plot_from_query_row_limit_is_clamped_to_a_hard_max(
     )  # the fixture has only 5 rows -- the clamp just didn't blow up
 
 
-def test_graph_viz_plot_from_query_rejects_graph_mark(tools):
+def test_graph_viz_plot_from_query_rejects_graph_mark(monkeypatch, tools):
     """'graph' (node-link) needs a node/edge dataset a flat query result can't shape -- refused, not silently misrendered."""
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_client",
+        lambda graph: _fake_client(viz=SimpleNamespace()),
+    )
     out = json.loads(
         tools["graph_viz"](
             **_viz_args(

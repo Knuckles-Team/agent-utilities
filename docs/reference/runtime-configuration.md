@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-573 typed fields · 378 runtime-only call-site inputs.
+574 typed fields · 376 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -152,9 +152,9 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MESSAGING_ALERT_INTAKE_TOKEN_REF` | `Union` | `unset` |
 | `MESSAGING_ALERT_INTAKE_ALLOW_REMOTE` | `bool` | `False` |
 | `MESSAGING_AGENT` | `str` | `` |
-| `MESSAGING_CLAUDE_TRIGGER` | `str` | `/claude` |
-| `MESSAGING_CLAUDE_MODEL` | `str` | `claude-sonnet-4-6` |
-| `MESSAGING_LOCAL_MODEL` | `str` | `` |
+| `MESSAGING_MODEL_TRIGGER` | `str` | `` |
+| `MESSAGING_ADDRESSED_MODEL` | `str` | `` |
+| `MESSAGING_DEFAULT_MODEL` | `str` | `` |
 | `REACTIONS` | `str` | `1` |
 | `MESSAGING_BURST_WINDOW_S` | `str` | `2.5` |
 | `MESSAGING_BURST_MAX_S` | `str` | `12` |
@@ -164,7 +164,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MESSAGING_WEBHOOK_PORT` | `str` | `8443` |
 | `MESSAGING_WEBHOOK_SECRET` | `str` | `explicit runtime process value only` |
 | `MESSAGING_VOICE` | `str` | `1` |
-| `MESSAGING_VOICE_MODEL` | `str` | `base` |
+| `MESSAGING_VOICE_MODEL` | `str` | `` |
 | `AGENT_KG_TOOLS` | `str` | `True` |
 
 ## Ingestion sources (CONCEPT:AU-KG.query.vendor-agnostic-traversal web-fetch)
@@ -207,7 +207,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `USAGE_DB_URI` | `Union` | `unset` |
 | `USAGE_TRACKING_ENABLED` | `bool` | `True` |
 | `USAGE_CONTENT_RETENTION` | `str` | `metadata` |
-| `PRICING_LITELLM_URL` | `str` | `https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` |
+| `PRICING_CATALOG_PATH` | `str` | `` |
+| `PRICING_LITELLM_URL` | `str` | `` |
 
 ## Parallel-call capacity resolution (CONCEPT:AU-KG.compute.concurrency-controller-sizing)
 
@@ -984,7 +985,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_CONTEXT_ORDERING_VERSION` | 1 |
 | `MODEL_CONTEXT_REDACTION_VERSION` | 1 |
 | `MODEL_CONTEXT_TOKEN_BUDGET` | 1 |
-| `MODEL_ID` | 2 |
 | `MODEL_LATENCY_GRADIENT_TARGET` | 1 |
 | `MODEL_MAX_CONCURRENCY` | 1 |
 | `MODEL_MAX_CONCURRENT_REQUESTS` | 1 |
@@ -1026,7 +1026,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
 | `PROMETHEUS_MULTIPROC_DIR` | 1 |
-| `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `PYTHONPATH` | 1 |
 | `QWEN_IMAGE_URL` | 1 |

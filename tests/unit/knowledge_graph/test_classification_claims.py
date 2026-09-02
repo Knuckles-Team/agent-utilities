@@ -194,7 +194,7 @@ class TestMultiCategorySimultaneousClaims:
             source_snapshot="sha:v1",
             method="generated",
             policy_approved=True,
-            model_profile_version="claude-sonnet-5",
+            model_profile_version="model-profile-v5",
             prompt_digest="sha256:" + "d" * 64,
         )
         for claim in (code, language, security, architecture):
@@ -484,7 +484,7 @@ class TestCandidateClaimContract:
                 status="candidate",
                 evidence_refs=("frag:a",),
                 source_snapshot="sha:v1",
-                model_profile_version="claude-sonnet-5",
+                model_profile_version="model-profile-v5",
                 # prompt_digest intentionally omitted
             )
 
@@ -497,11 +497,11 @@ class TestCandidateClaimContract:
             source_snapshot="sha:v1",
             method="generated",
             policy_approved=True,
-            model_profile_version="claude-sonnet-5",
+            model_profile_version="model-profile-v5",
             prompt_digest="sha256:" + "e" * 64,
         )
         assert claim.status == "candidate"
-        assert claim.model_profile_version == "claude-sonnet-5"
+        assert claim.model_profile_version == "model-profile-v5"
         assert claim.prompt_digest.startswith("sha256:")
 
 

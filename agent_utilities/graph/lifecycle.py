@@ -62,6 +62,19 @@ def _emit_node_lifecycle(eq, node_name: str, event: str, **kwargs):
     emit_graph_event(eq, event, id=node_name, **kwargs)
 
 
+def _usage_safety_cost_text(
+    usage: Any, cost_limit: float, token_limit: int
+) -> str | None:
+    cost = usage.estimated_cost_usd
+    if usage.total_tokens > token_limit:
+        return "unpriced" if cost is None else f"${cost:.2f}"
+    if usage.total_tokens > 0 and not usage.estimated_cost_priced:
+        return "unpriced"
+    if cost is not None and cost > cost_limit:
+        return f"${cost:.2f}"
+    return None
+
+
 async def usage_guard_step(
     ctx: StepContext,
 ) -> str | None:
@@ -89,14 +102,17 @@ async def usage_guard_step(
     cost_limit = 5.0
     token_limit = 500000
 
-    if usage.estimated_cost_usd > cost_limit or usage.total_tokens > token_limit:
+    cost_text = _usage_safety_cost_text(usage, cost_limit, token_limit)
+    if cost_text is not None:
         logger.warning(
-            f"UsageGuard: Safety limits reached! Cost: ${usage.estimated_cost_usd:.2f}, Tokens: {usage.total_tokens}"
+            "UsageGuard: Safety limits reached! Cost: %s, Tokens: %s",
+            cost_text,
+            usage.total_tokens,
         )
         emit_graph_event(
             cast(GraphDeps, ctx.deps).event_queue,
             event_type="safety_warning",
-            message=f"Session usage has exceeded safety limits. Current cost: ${usage.estimated_cost_usd:.2f}",
+            message=f"Session usage has exceeded safety limits. Current cost: {cost_text}",
             usage=usage.model_dump(),
         )
 

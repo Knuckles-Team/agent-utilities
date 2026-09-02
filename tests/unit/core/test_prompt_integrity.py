@@ -183,6 +183,31 @@ class TestPromptIntegrity:
         missing = [c for c in critical if c not in existing]
         assert not missing, f"Critical prompt files missing: {missing}"
 
+    def test_locally_owned_prompts_match_deterministic_generator(self):
+        import sys
+
+        scripts_dir = Path(__file__).parents[3] / "scripts"
+        sys.path.insert(0, str(scripts_dir))
+        try:
+            from generate_local_prompts import (
+                GENERATOR_AUTHORITY,
+                GENERATOR_VERSION,
+                generated_prompts,
+                stale_generated_prompts,
+            )
+        finally:
+            sys.path.remove(str(scripts_dir))
+
+        assert stale_generated_prompts() == []
+        for filename, rendered in generated_prompts().items():
+            document = json.loads(rendered)
+            provenance = document["metadata"]["provenance"]
+            assert provenance["generator_authority"] == GENERATOR_AUTHORITY
+            assert provenance["generator_version"] == GENERATOR_VERSION
+            assert provenance["source_digest"].startswith("sha256:")
+            assert len(provenance["source_digest"]) == 71
+            assert (PROMPTS_DIR / filename).read_text(encoding="utf-8") == rendered
+
     @pytest.mark.parametrize(
         "prompt_file",
         _discover_prompt_files(),

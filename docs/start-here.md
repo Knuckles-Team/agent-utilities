@@ -73,30 +73,21 @@ expiry.
 
 ### 1. As a library (standalone agent)
 
-```python
-from agent_utilities import create_agent
-
-# Skills + universal tools + the supervised knowledge graph, ready to run.
-agent, toolsets = create_agent(name="assistant", skill_types=["universal", "graphs"])
-print(agent.run_sync("What can you do?").output)
-```
+In Python, import `create_agent` from `agent_utilities`, call it with the desired name and
+skill types, then invoke the returned agent with `run_sync`.
 
 ### 2. As an MCP server (give any agent the KG + tools)
 
-```bash
-graph-os                       # stdio — for Claude Code / Cursor / IDEs
-graph-os --transport streamable-http --host 127.0.0.1 --port 8004 # local HTTP
-```
+Run `graph-os` for stdio. For local HTTP, run
+`graph-os --transport streamable-http --host 127.0.0.1 --port 8004`.
 
 For a remote bind, configure JWT/OIDC authentication and trusted TLS
 termination. An unauthenticated non-loopback MCP listener is rejected.
 
 Register it in Codex through the native MCP command:
 
-```bash
-setup-config codex
-# Equivalent: codex mcp add graph-os -- graph-os --transport stdio
-```
+Run `setup-config codex`; the equivalent native command is
+`codex mcp add graph-os -- graph-os --transport stdio`.
 
 The launcher remains machine-neutral. Engine topology, identity, TLS, and secret
 references belong in AgentConfig, not Codex's `config.toml`. Use each other MCP
@@ -107,10 +98,8 @@ The agent now has `graph_query`, `graph_search`, `graph_ingest`, `graph_orchestr
 
 ### 3. As a REST gateway (one backend, many clients)
 
-```bash
-python -m agent_utilities             # REST gateway, default :9000
-curl -s localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN n LIMIT 5"}'
-```
+Start the default REST gateway with `python -m agent_utilities`, then send graph queries
+to `localhost:9000/api/graph/query`.
 
 ## The knowledge graph is free and native
 

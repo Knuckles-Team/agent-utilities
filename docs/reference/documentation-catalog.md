@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-416 publishable pages · 96 direct nav targets · 132 public capabilities · 880 action rows · 573 typed configuration fields · 378 runtime-only call-site inputs.
+416 publishable pages · 96 direct nav targets · 132 public capabilities · 880 action rows · 574 typed configuration fields · 376 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -242,7 +242,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — catalog
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
 - [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — catalog
-- [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — catalog
+- [Messaging reach — agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — catalog
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — catalog
 - [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — catalog
 - [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — catalog

@@ -48,13 +48,13 @@ class RLMConfig(BaseModel):
     )
 
     sub_llm_model_small: str = Field(
-        default="openai:gpt-4o-mini",
-        description="Default small model for cheap recursive sub-calls (used at depth > 0 and AHE sub-calls).",
+        default="",
+        description="Operator-selected model for recursive sub-calls.",
     )
 
     sub_llm_model_large: str = Field(
-        default="google:gemini-1.5-flash",
-        description="Default large model for dense reasoning at root depth (depth 0).",
+        default="",
+        description="Operator-selected model for root-level reasoning.",
     )
 
     max_depth: int = Field(
@@ -147,13 +147,12 @@ class RLMConfig(BaseModel):
         description="Enable parallel asynchronous sub-calls in RLM.",
     )
 
-    prompt_family: Literal["auto", "openai", "anthropic", "qwen"] = Field(
+    prompt_family: Literal["auto", "concise", "code-first"] = Field(
         default="auto",
         description=(
             "CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — model family the RLM REPL system prompt is tuned for. The RLM "
             "paper flags that one fixed system prompt fails across model families; 'auto' infers "
-            "the family from the root model id and applies a family-specific addendum (terser for "
-            "qwen which can exhaust output tokens; code-first for anthropic which tends to narrate). "
+            "the family from operator metadata and applies a family-specific addendum. "
             "Pin a value to override the inference."
         ),
     )

@@ -1,16 +1,15 @@
-"""Model-family-aware RLM REPL system prompt (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client).
+"""Profile-aware RLM REPL system prompt (CONCEPT:AU-ORCH.execution.drop-rlm-completion-client).
 
 Zhang et al. (2025) report that a single fixed RLM system prompt fails to transfer across model
 families (a documented failure mode). This module keeps the shared REPL contract in one place and
-appends a small family-specific addendum so the same RLM runtime works on OpenAI, Anthropic, and
-Qwen-class models without per-call rewrites.
+appends a small operator-selected behavioral addendum without binding model identities.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-Family = Literal["openai", "anthropic", "qwen"]
+Profile = Literal["concise", "code-first"]
 
 # The shared helper contract (identical across families) — what the REPL exposes.
 _BASE = (
@@ -43,12 +42,11 @@ _BASE = (
 
 # Per-family addenda targeting each family's characteristic RLM failure mode.
 _ADDENDA: dict[str, str] = {
-    "openai": "",
-    "anthropic": (
+    "code-first": (
         "\n\nSTYLE: Do not narrate your plan in prose. Respond with a ```python block first; "
         "keep any explanation to a single short line. Always finish by calling `FINAL_VAR`."
     ),
-    "qwen": (
+    "concise": (
         "\n\nSTYLE: Be terse to conserve output tokens — emit a ```python block immediately, "
         "no long reasoning. Use exactly one code block per turn. You MUST end by calling "
         "`FINAL_VAR('result', value)`; a turn without it is wasted."
@@ -56,21 +54,16 @@ _ADDENDA: dict[str, str] = {
 }
 
 
-def infer_family(model_id: str) -> Family:
-    """Infer the prompt family from a (possibly ``provider:``-prefixed) model id."""
-    mid = (model_id or "").lower()
-    if "claude" in mid or "anthropic" in mid:
-        return "anthropic"
-    if "qwen" in mid:
-        return "qwen"
-    # OpenAI, Google/Gemini, and unknowns share the neutral default prompt.
-    return "openai"
+def infer_profile(model_id: str) -> Profile:
+    """Return the neutral default profile; identities do not imply behavior."""
+    del model_id
+    return "concise"
 
 
 def build_system_prompt(prompt_family: str, model_id: str) -> str:
     """Build the RLM REPL system prompt for ``model_id`` under the configured ``prompt_family``.
 
-    ``prompt_family='auto'`` infers the family from ``model_id``; any other value pins it.
+    ``prompt_family='auto'`` selects the neutral concise profile; any other value pins it.
     """
-    family: str = infer_family(model_id) if prompt_family == "auto" else prompt_family
-    return _BASE + _ADDENDA.get(family, "")
+    profile: str = infer_profile(model_id) if prompt_family == "auto" else prompt_family
+    return _BASE + _ADDENDA.get(profile, "")

@@ -37,8 +37,8 @@ def _make_registry() -> ModelRegistry:
             ModelDefinition(
                 id="power",
                 name="Power Model",
-                provider="anthropic",
-                model_id="claude-3-5-sonnet",
+                provider="provider-b",
+                model_id="model-heavy",
                 tier="heavy",
                 tags=["code"],
                 cost=ModelCostRate(input=3.00, output=15.00),

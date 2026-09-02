@@ -327,8 +327,9 @@ class ParallelEngine:
             from ..graph.state import GraphDeps, GraphState
 
             m_state = cast(GraphState, MockGraphState(resolved.query))
+            inherited_model = getattr(graph_deps, "agent_model", None)
             model_id = resolved.synthesis.model_id or (
-                str(graph_deps.agent_model) if graph_deps else "openai:gpt-4o-mini"
+                str(inherited_model) if inherited_model else ""
             )
             m_deps = cast(
                 GraphDeps,
@@ -938,10 +939,13 @@ class ParallelEngine:
         model_id = agent.model_id
         if not model_id and agent.model_role:
             model_id = resolve_model_role(agent.model_role)
-        if not model_id and graph_deps:
-            model_id = str(graph_deps.agent_model)
+        inherited_model = getattr(graph_deps, "agent_model", None)
+        if not model_id and inherited_model:
+            model_id = str(inherited_model)
         if not model_id:
-            model_id = "openai:gpt-4o-mini"  # Fallback
+            raise ValueError(
+                "agent model is not configured in the manifest or model registry"
+            )
         return model_id
 
     @staticmethod
@@ -986,7 +990,7 @@ class ParallelEngine:
         """Wire up all 8 capabilities natively using the agent factory for one ``AgentSpec``."""
         from ..agent.factory import create_agent
 
-        provider = "openai"
+        provider = None
         prov_model = model_id
         if ":" in model_id:
             provider, prov_model = model_id.split(":", 1)
@@ -1212,7 +1216,7 @@ class ParallelEngine:
         verification never blocks execution in model-less environments. Factored out so tests can
         monkeypatch it without a live LLM.
         """
-        model: Any = "openai:gpt-4o-mini"
+        model: Any = ""
         if graph_deps and getattr(graph_deps, "agent_model", None):
             model = graph_deps.agent_model
         try:
@@ -1534,7 +1538,7 @@ class ParallelEngine:
 
         CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
-        model: Any = "openai:gpt-4o-mini"
+        model: Any = ""
         if graph_deps and getattr(graph_deps, "agent_model", None):
             model = graph_deps.agent_model
 
@@ -1575,7 +1579,7 @@ class ParallelEngine:
 
         CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
-        model: Any = "openai:gpt-4o-mini"
+        model: Any = ""
         if graph_deps and getattr(graph_deps, "agent_model", None):
             model = graph_deps.agent_model
 

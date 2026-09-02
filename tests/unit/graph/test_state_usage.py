@@ -98,3 +98,43 @@ def test_update_usage_accumulates_across_multiple_specialist_calls():
     assert state.session_usage.cache_creation_input_tokens == 3
     assert state.session_usage.cache_read_input_tokens == 5
     assert state.session_usage.reasoning_tokens == 3
+
+
+def test_update_usage_marks_unknown_model_unpriced():
+    state = _state()
+    state.pinned_model_id = "unregistered-model"
+    state._update_usage(
+        SimpleNamespace(input_tokens=10, output_tokens=5, total_tokens=15)
+    )
+
+    assert state.session_usage.estimated_cost_usd is None
+    assert state.session_usage.estimated_cost_priced is False
+
+
+def test_update_usage_prices_through_shared_catalog(monkeypatch):
+    from agent_utilities.pricing import ModelPricing, PricingCatalog
+    from agent_utilities.pricing import catalog as catalog_module
+
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog(
+            [
+                ModelPricing(
+                    model_pattern="priced-model",
+                    input_per_mtok=2.0,
+                    output_per_mtok=4.0,
+                )
+            ]
+        ),
+    )
+    state = _state()
+    state.pinned_model_id = "priced-model"
+    state._update_usage(
+        SimpleNamespace(
+            input_tokens=1_000_000, output_tokens=500_000, total_tokens=1_500_000
+        )
+    )
+
+    assert state.session_usage.estimated_cost_usd == 4.0
+    assert state.session_usage.estimated_cost_priced is True

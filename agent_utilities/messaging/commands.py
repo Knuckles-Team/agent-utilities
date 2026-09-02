@@ -3,8 +3,8 @@
 ONE command spec, surfaced identically across every messaging service — registered on each
 platform via its native mechanism (Telegram ``setMyCommands``, Slack/Mattermost slash
 commands) and importable by agent-terminal-ui — so the user gets the **same** commands
-everywhere instead of per-platform menus. Built-in commands are answered here; anything
-else (``/claude``, ``/skill``, unknown) falls through to the messaging agent.
+everywhere instead of per-platform menus. Built-in commands are answered here;
+agent-owned and unknown commands fall through to the messaging agent.
 
 CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher — Universal cross-platform messaging command registry
 """
@@ -23,8 +23,8 @@ class MessagingCommand:
     """One command in the universal registry.
 
     ``builtin`` True → handled by :func:`handle_command` (a deterministic reply); False →
-    falls through to the agent/model (e.g. ``/claude`` is a model route, ``/skill`` is
-    interpreted by the agent).
+    falls through to the agent/model (for example, ``/skill`` is interpreted by
+    the agent).
     """
 
     name: str
@@ -42,11 +42,6 @@ COMMANDS: tuple[MessagingCommand, ...] = (
     MessagingCommand("status", "Show messaging + agent status", True),
     MessagingCommand(
         "tools", "Describe the tools, skills, and MCP fleet available", True
-    ),
-    MessagingCommand(
-        "claude",
-        "Reply using Claude instead of the local LLM (needs ANTHROPIC_API_KEY)",
-        False,
     ),
     MessagingCommand("skill", "Run a skill by name: /skill <name> [args]", False),
     # Cross-surface commands (terminal-ui already implements these; the registry is the
@@ -100,7 +95,7 @@ async def handle_command(content: str, *, service: Any) -> str | None:
     name, _args = parsed
     cmd = next((c for c in COMMANDS if c.name == name), None)
     if cmd is None or not cmd.builtin:
-        # Unknown command, or one the agent/model handles (/claude, /skill) → fall through.
+        # Unknown command, or one the agent/model handles, falls through.
         return None
 
     if name == "help":

@@ -22,6 +22,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import platformdirs
+
 # R-07: `pwd` is POSIX-only and raises ImportError at import time on Windows.
 # It only ever supplies one extra candidate identifier (the passwd-db
 # username) alongside several already-portable ones (getpass.getuser(),
@@ -36,6 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _git_subprocess_env import (  # noqa: E402
     sanitized_git_env,
     strip_inherited_git_repository_env,
+)
+from _prohibited_identity_scan import (  # noqa: E402
+    load_identity_catalog,
+    scan_prohibited_identities,
 )
 
 # NE-059 (sibling of BUG-180/D-LGI-1): every ``git`` subprocess this module
@@ -488,8 +494,8 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     every doc/comment/design-note that so much as names the tool became a
     manufactured leak. Unlike the "Guard Test" incident, adding it to
     ``_GENERIC_IDENTIFIERS`` would not fix this class -- the next commit's
-    author could just as easily be "codex", "sonnet", "opus", or any other
-    tool/model name, each requiring its own reactive exclusion. ``git
+    author could just as easily be any ordinary tool/model name, each requiring
+    its own reactive exclusion. ``git
     config``'s two sources remain and already capture the real, stable
     developer identity (proven: this checkout's ``user.name``/``user.email``
     resolve to a real name + email, independent of whatever authored HEAD),
@@ -719,19 +725,30 @@ def _git_file_names(root: Path, command: list[str]) -> list[str] | None:
     return [name for name in result.stdout.splitlines() if name]
 
 
-def _tracked_artifacts(root: Path) -> list[Path]:
+def _repository_candidates(root: Path) -> list[Path]:
+    """Return the bounded Git inventory, with the no-Git snapshot fallback."""
+
     names = _git_file_names(
         root,
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
     )
-    candidates = (
-        _filesystem_files(root) if names is None else [root / name for name in names]
-    )
+    return _filesystem_files(root) if names is None else [root / name for name in names]
+
+
+def _tracked_artifacts(root: Path) -> list[Path]:
     return [
         path
-        for path in candidates
+        for path in _repository_candidates(root)
         if _is_public_artifact(path.relative_to(root).as_posix())
     ]
+
+
+def _all_tracked_files(root: Path) -> list[Path]:
+    """Every tracked/untracked candidate, for repository-wide naming policy."""
+    return sorted(
+        (path for path in _repository_candidates(root) if path.is_file()),
+        key=lambda path: path.as_posix(),
+    )
 
 
 def _runtime_source_artifacts(root: Path) -> list[Path]:
@@ -757,17 +774,10 @@ def _runtime_source_artifacts(root: Path) -> list[Path]:
     "changed in this commit" was never the right boundary for a privacy gate.
     """
 
-    names = _git_file_names(
-        root,
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-    )
-    candidates = (
-        _filesystem_files(root) if names is None else [root / name for name in names]
-    )
     return sorted(
         (
             path
-            for path in candidates
+            for path in _repository_candidates(root)
             if path.suffix.casefold() in _SOURCE_SUFFIXES
             and _is_runtime_source_path(path.relative_to(root))
         ),
@@ -870,7 +880,27 @@ def _next_ordinal(
     return ordinal
 
 
-def scan(root: Path = ROOT) -> list[Violation]:
+def _prohibited_identity_violations(
+    root: Path,
+    ordinals: dict[tuple[str, str, str], int],
+    identities: tuple[bytes, ...],
+) -> list[Violation]:
+    violations: list[Violation] = []
+    category = "model-specific identity in tracked artifact"
+    for finding in scan_prohibited_identities(
+        root, _all_tracked_files(root), identities
+    ):
+        content_hash = _content_hash(finding.evidence)
+        ordinal = _next_ordinal(ordinals, (finding.path, category, content_hash))
+        violations.append(
+            Violation(finding.path, finding.line, category, content_hash, ordinal)
+        )
+    return violations
+
+
+def scan(
+    root: Path = ROOT, *, prohibited_identities: tuple[bytes, ...] = ()
+) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
     violations: list[Violation] = []
     # (path, category, content_hash) -> count so far, i.e. an ordinal
@@ -878,6 +908,9 @@ def scan(root: Path = ROOT) -> list[Violation]:
     # never the line number, which drifts under unrelated edits and would
     # otherwise report a moved (not new) leak as a phantom NEW finding.
     ordinals: dict[tuple[str, str, str], int] = {}
+    violations.extend(
+        _prohibited_identity_violations(root, ordinals, prohibited_identities)
+    )
     for path in _tracked_artifacts(root):
         if not path.is_file():
             continue
@@ -945,11 +978,32 @@ def scan(root: Path = ROOT) -> list[Violation]:
 MAX = 0
 
 
+def _required_identity_catalog(path: Path) -> tuple[bytes, ...]:
+    try:
+        return load_identity_catalog(path)
+    except (OSError, ValueError) as exc:
+        print(
+            "Tracked artifact privacy gate cannot load its external identity "
+            f"policy ({type(exc).__name__}).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from exc
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="check-tracked-privacy")
-    parser.parse_args()
+    parser.add_argument(
+        "--identity-catalog",
+        type=Path,
+        default=platformdirs.user_config_path("agent-utilities", appauthor=False)
+        / "governance"
+        / "prohibited-identities.json",
+        help="operator-owned prohibited-identity policy document",
+    )
+    args = parser.parse_args()
 
-    violations = scan()
+    prohibited_identities = _required_identity_catalog(args.identity_catalog)
+    violations = scan(prohibited_identities=prohibited_identities)
     count = len(violations)
     # Printed unconditionally -- pass or fail -- so the real count is always
     # visible in CI/pre-commit output, never only on failure.

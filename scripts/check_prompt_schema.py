@@ -42,6 +42,18 @@ def _scan() -> dict[str, list[str]]:
     return offenders
 
 
+def _generated_prompt_drift() -> bool:
+    from generate_local_prompts import stale_generated_prompts  # type: ignore
+
+    stale = stale_generated_prompts()
+    if stale:
+        print(
+            "generated local prompt snapshots are stale: " + ", ".join(stale),
+            file=sys.stderr,
+        )
+    return bool(stale)
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
     if arguments:
@@ -49,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     offenders = _scan()
+    generated_prompts_stale = _generated_prompt_drift()
 
     # Schema currency check (regenerate-in-memory and diff).
     from gen_prompt_schema import SCHEMA_PATH, render_schema  # type: ignore
@@ -75,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    fail = schema_stale or offenders
+    fail = any((schema_stale, bool(offenders), generated_prompts_stale))
     if fail:
         print(
             f"\nFAIL: {len(offenders)} non-canonical prompt(s)"

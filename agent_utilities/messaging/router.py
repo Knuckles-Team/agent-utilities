@@ -751,7 +751,7 @@ async def create_planner_handler(
             return
 
         # 3b. Built-in universal command? (CONCEPT:AU-ECO.messaging.single-inbound-command-dispatcher) Answer immediately and stop;
-        #     /claude, /skill, and unknowns fall through to the coalesced agent reply.
+        #     Agent-owned and unknown commands fall through to the coalesced reply.
         if await _try_handle_command(content, svc, backend, event):
             return
 
@@ -1658,7 +1658,7 @@ async def _graph_agent_reply(
     It is wrapped in a hard ``MESSAGING_REPLY_TIMEOUT`` (CONCEPT:AU-ECO.messaging.debounce-timer-cancel): a slow/hung graph
     run must still yield a reply, so on timeout/error we fall through to a plain-chat
     completion. CONCEPT:AU-ECO.messaging.image-attachment-fallback — image attachments are carried on the fallback (vision)
-    path; the responder label / ``/claude`` routing applies there too.
+    path; the configured responder selector applies there too.
 
     CONCEPT:AU-ORCH.routing.chat-budget-routing — the run uses the ``chat`` execution profile, so each LLM round is
     bounded to the chat budget (≈12 s) instead of 300 s: a degraded backend fails fast
@@ -1829,34 +1829,62 @@ async def _varied_ack(content: str, shape: Any) -> str:
         return fallback
 
 
-# CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — Model-routed inbound responder with local LLM default and Claude address
+def _registered_responder(selector: str) -> tuple[str, str, str | None]:
+    """Resolve one neutral selector through the process-wide model registry."""
+    from agent_utilities.models.model_registry import load_active_registry
+
+    registry = load_active_registry()
+    selected = registry.get_by_id(selector) if selector else registry.get_default()
+    if selected is None and selector:
+        matches = [model for model in registry.models if model.model_id == selector]
+        if len(matches) == 1:
+            selected = matches[0]
+    if selected is None:
+        if selector:
+            raise ValueError(
+                "messaging model selector is not present in the active ModelRegistry"
+            )
+        return "default", "", None
+    return selected.name or selected.id, selected.provider, selected.model_id
+
+
+def _addressed_message_task(content: str, trigger: str) -> str | None:
+    """Return a trigger-stripped task only for an exact addressed token."""
+    if not trigger:
+        return None
+    stripped = content.lstrip()
+    if not stripped.lower().startswith(trigger):
+        return None
+    remainder = stripped[len(trigger) :]
+    if remainder and remainder[0] not in " :,-":
+        return None
+    return remainder.lstrip(" :,-").strip() or stripped
+
+
+# CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — registry-routed inbound responder
 def _select_responder(content: str) -> tuple[str, str, str | None, str]:
     """Pick the responder for an inbound message (CONCEPT:AU-ECO.messaging.model-routed-inbound-responder).
 
     Returns ``(label, provider, model_id, task)`` — ``task`` has the trigger stripped.
-    Default is the local LLM; an explicit ``/claude`` (configurable) address routes to
-    Claude, falling back to local with a note when no Anthropic key is configured.
+    The default and explicitly addressed routes are both neutral selectors resolved
+    by the existing :class:`ModelRegistry`; an empty registry delegates selection to
+    the ordinary model factory without inventing a concrete model default.
     """
-    from agent_utilities.core.config import config, setting
+    from agent_utilities.core.config import setting
 
-    trigger = str(setting("MESSAGING_CLAUDE_TRIGGER", "/claude")).strip().lower()
-    stripped = content.lstrip()
-    addressed_claude = trigger and stripped.lower().startswith(trigger)
-    if addressed_claude:
-        task = stripped[len(trigger) :].lstrip(" :,-").strip() or stripped
-        if getattr(config, "anthropic_api_key", None):
-            model_id = str(setting("MESSAGING_CLAUDE_MODEL", "claude-sonnet-4-6"))
-            return "claude", "anthropic", model_id, task
-        # Addressed Claude but no key — answer locally and say so.
-        local_id = str(setting("MESSAGING_LOCAL_MODEL", "")) or None
-        return (
-            "local (no Anthropic key — set ANTHROPIC_API_KEY for Claude)",
-            "",
-            local_id,
-            task,
-        )
-    local_id = str(setting("MESSAGING_LOCAL_MODEL", "")) or None
-    return "local", "", local_id, content
+    trigger = str(setting("MESSAGING_MODEL_TRIGGER", "")).strip().lower()
+    addressed_task = _addressed_message_task(content, trigger)
+    if addressed_task is not None:
+        selector = str(setting("MESSAGING_ADDRESSED_MODEL", "")).strip()
+        if not selector:
+            raise ValueError(
+                "MESSAGING_MODEL_TRIGGER requires MESSAGING_ADDRESSED_MODEL"
+            )
+        label, provider, model_id = _registered_responder(selector)
+        return label, provider, model_id, addressed_task
+    selector = str(setting("MESSAGING_DEFAULT_MODEL", "")).strip()
+    label, provider, model_id = _registered_responder(selector)
+    return label, provider, model_id, content
 
 
 def _messaging_system_prompt() -> str:
@@ -1890,15 +1918,16 @@ async def _plain_chat_reply(
     graph run never leaves a message unanswered). The full tool/skill/MCP/delegation
     capability that the dedicated messaging agent used to carry now lives on the universal
     path (``_graph_agent_reply`` → ``Orchestrator.execute_agent``), so it is not duplicated
-    here. CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — the local-default / ``/claude``-address responder selection and
-    its label are preserved; CONCEPT:AU-ECO.messaging.image-attachment-fallback — image attachments are passed to the (vision)
+    here. CONCEPT:AU-ECO.messaging.model-routed-inbound-responder — both default and
+    explicitly addressed responder selection resolve through ``ModelRegistry``;
+    CONCEPT:AU-ECO.messaging.image-attachment-fallback — image attachments are passed to the (vision)
     model. Works on local models without function-calling.
     """
-    label, provider, model_id, task = _select_responder(content)
     try:
         from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
+        label, provider, model_id, task = _select_responder(content)
         bare = create_context_agent(
             create_model(provider=provider or None, model_id=model_id),
             system_prompt=_messaging_system_prompt(),

@@ -90,8 +90,8 @@ The `model_synergies` field on `MemoryRetrieverNode` (in `models/knowledge_graph
 
 ```python
 model_synergies = {
-    "gpt-4o|claude-sonnet": 0.85,    # Strong combination
-    "gemini-2.5|llama-3": 0.45,       # Weak combination
+    "model-a|model-b": 0.85,    # Strong combination
+    "model-c|model-d": 0.45,    # Weak combination
 }
 ```
 
@@ -107,10 +107,10 @@ Where `α = 0.3` and `session_success ∈ {0.0, 1.0}`.
 
 ```python
 synergies = self_model.get_best_synergies(
-    available_models=["gpt-4o", "claude-sonnet", "gemini-2.5"],
+    available_models=["model-a", "model-b", "model-c"],
     top_k=3,
 )
-# Returns: [("gpt-4o|claude-sonnet", 0.85), ...]
+# Returns: [("model-a|model-b", 0.85), ...]
 ```
 
 ---

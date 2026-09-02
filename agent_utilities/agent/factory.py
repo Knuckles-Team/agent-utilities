@@ -245,9 +245,8 @@ def _resolve_agent_extra_body(model: Any) -> dict[str, Any]:
     Reasoning does NOT travel on ``ModelSettings.thinking`` alone
     (CONCEPT:AU-ORCH.execution.delegation-reasoning-off): that single key DOES survive the
     shallow union on its own, but pydantic-ai only forwards it into the actual request when
-    the model's PROFILE is recognized as reasoning-capable (OpenAI's o-series/gpt-5 naming
-    only — see ``Model.prepare_request``), so it silently no-ops for a custom/local
-    reasoning model like ``qwen/qwen3.6-27b`` regardless of whether it was carried up. The
+    the model's profile is recognized as reasoning-capable, so it silently no-ops for a
+    custom/local reasoning model regardless of whether it was carried up. The
     model's raw ``extra_body`` directive is what actually reaches the wire for that case,
     which is why it MUST be carried up here rather than left to ``thinking`` alone. A caller
     forcing reasoning off/on for this one execution threads it via the ``reasoning_effort``
@@ -827,7 +826,7 @@ def create_agent(
     # None arg, so the key is dropped in that case). ``thinking`` alone is NOT sufficient
     # (CONCEPT:AU-ORCH.execution.delegation-reasoning-off): pydantic-ai only forwards it to
     # the request when the model's profile is recognized as reasoning-capable, which a
-    # custom/local model like ``qwen/qwen3.6-27b`` is not — so the raw wire directive
+    # custom/local model may not be — so the raw wire directive
     # (``reasoning_wire_directives``) is ALSO merged (never replaced — see
     # ``core.model_factory.merge_extra_body``) on top of the model's own default, so an
     # explicit per-execution override actually overrides it (e.g. a "high" opt-in on top of

@@ -15,12 +15,57 @@ Supports:
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...observability.token_tracker import TokenUsageTracker
 from .ledger import EventLedger
 
+if TYPE_CHECKING:
+    from agent_utilities.pricing import PricingCatalog
+
 logger = logging.getLogger(__name__)
+
+
+def _pricing_catalog_or_default(configured: PricingCatalog | None) -> PricingCatalog:
+    if configured is not None:
+        return configured
+    from agent_utilities.pricing import get_pricing_catalog
+
+    return get_pricing_catalog()
+
+
+def _records_cost(records: list[Any], catalog: PricingCatalog) -> tuple[float, bool]:
+    cost = 0.0
+    unpriced = False
+    for record in records:
+        record_cost, priced = catalog.cost_for(
+            record.model_name,
+            input_tokens=record.prompt_tokens + record.tool_use_tokens,
+            output_tokens=record.response_tokens + record.thoughts_tokens,
+        )
+        if record.total_tokens and (not priced or record_cost is None):
+            unpriced = True
+        elif record_cost is not None:
+            cost += record_cost
+    return cost, unpriced
+
+
+def _spend_breach(
+    maximum: float | None, cost: float, unpriced: bool
+) -> tuple[str, float | None] | None:
+    if maximum is None or (not unpriced and cost <= maximum):
+        return None
+    if unpriced:
+        return "Spend limit cannot be evaluated for an unpriced model", None
+    return f"Spend limit exceeded: ${cost:.6f} spent (limit: ${maximum:.6f})", cost
+
+
+def _render_spend(
+    cost: float, unpriced: bool, maximum: float | None
+) -> tuple[str, str]:
+    current = "unpriced" if unpriced else f"${cost:.5f}"
+    limit = "unbounded" if maximum is None else f"${maximum:.5f}"
+    return current, limit
 
 
 class BudgetTrippedException(Exception):
@@ -47,8 +92,7 @@ class BudgetGuard:
         max_tokens: int | None = None,
         max_cost_usd: float | None = None,
         token_tracker: TokenUsageTracker | None = None,
-        prompt_cost_per_token: float = 0.000003,  # Default standard model rates (e.g. GPT-4o / Claude Sonnet)
-        response_cost_per_token: float = 0.000015,
+        pricing_catalog: PricingCatalog | None = None,
     ) -> None:
         """Initialize the Budget Guard.
 
@@ -57,15 +101,14 @@ class BudgetGuard:
             max_tokens: Max total tokens (prompt + response + thoughts + tools).
             max_cost_usd: Max estimated total USD spend.
             token_tracker: Instance of TokenUsageTracker for token analytics.
-            prompt_cost_per_token: Cost rate per input prompt token.
-            response_cost_per_token: Cost rate per output response/thought token.
+            pricing_catalog: Existing model-pricing authority. Defaults to the
+                process-wide :class:`PricingCatalog`.
         """
         self.max_time_seconds = max_time_seconds
         self.max_tokens = max_tokens
         self.max_cost_usd = max_cost_usd
         self._token_tracker = token_tracker
-        self.prompt_cost_per_token = prompt_cost_per_token
-        self.response_cost_per_token = response_cost_per_token
+        self._pricing_catalog = pricing_catalog
 
         self._start_time = time.monotonic()
 
@@ -109,10 +152,6 @@ class BudgetGuard:
         # 2. Token tracker analytics checks
         # Retrieve session records mapped directly under run_id
         session_records = self.token_tracker._by_session.get(run_id, [])
-        total_prompt = sum(r.prompt_tokens for r in session_records)
-        total_response = sum(r.response_tokens for r in session_records)
-        total_thoughts = sum(r.thoughts_tokens for r in session_records)
-        total_tool_use = sum(r.tool_use_tokens for r in session_records)
         total_tokens = sum(r.total_tokens for r in session_records)
 
         # Token limit check
@@ -127,33 +166,31 @@ class BudgetGuard:
                 ledger=ledger,
             )
 
-        # 3. Spend limit check (USD Cost estimation)
-        input_tokens = total_prompt + total_tool_use
-        output_tokens = total_response + total_thoughts
-        cost = (input_tokens * self.prompt_cost_per_token) + (
-            output_tokens * self.response_cost_per_token
-        )
-
-        if self.max_cost_usd is not None and cost > self.max_cost_usd:
-            msg = f"Spend limit exceeded: ${cost:.6f} spent (limit: ${self.max_cost_usd:.6f})"
+        # 3. Spend limit check through the ONE PricingCatalog authority.
+        catalog = _pricing_catalog_or_default(self._pricing_catalog)
+        cost, unpriced = _records_cost(session_records, catalog)
+        breach = _spend_breach(self.max_cost_usd, cost, unpriced)
+        if breach is not None:
+            msg, current_value = breach
             self._log_and_trip(
                 run_id=run_id,
                 limit_type="cost",
                 limit_value=self.max_cost_usd,
-                current_value=cost,
+                current_value=current_value,
                 message=msg,
                 ledger=ledger,
             )
 
+        current_spend, spend_limit = _render_spend(cost, unpriced, self.max_cost_usd)
         logger.debug(
-            "[BudgetGuard] Session %s healthy: time=%.2fs/%.2f tokens=%d/%d cost=$%.5f/$%.5f",
+            "[BudgetGuard] Session %s healthy: time=%.2fs/%.2f tokens=%d/%d cost=%s/%s",
             run_id,
             elapsed,
             self.max_time_seconds or float("inf"),
             total_tokens,
             self.max_tokens or 0,
-            cost,
-            self.max_cost_usd or 0.0,
+            current_spend,
+            spend_limit,
         )
 
     def _log_and_trip(

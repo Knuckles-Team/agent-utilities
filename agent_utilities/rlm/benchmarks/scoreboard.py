@@ -11,7 +11,7 @@ from __future__ import annotations
 from .base import BenchResult
 
 # Headline accuracies (%) and approx cost ($/query) from the paper, for reference rows.
-# Source: arXiv:2512.24601v3, Table 1 + cost discussion. RLM = RLM(GPT-5, depth=1).
+# Source: arXiv:2512.24601v3, Table 1 + cost discussion.
 PAPER_RESULTS: dict[str, dict[str, float]] = {
     "oolong": {"rlm_acc": 56.0, "base_acc": 44.0, "rlm_cost": 0.99},
     "oolong_pairs": {"rlm_acc": 58.0, "base_acc": 0.1, "rlm_cost": 0.99},
@@ -21,7 +21,11 @@ PAPER_RESULTS: dict[str, dict[str, float]] = {
 }
 
 # External scaffolds the paper reports but we do not run in-process.
-EXTERNAL_BASELINES = ("codeact_subcalls", "claude_code")
+EXTERNAL_BASELINES = ("code_action_scaffold", "tool_scaffold")
+
+
+def _render_cost(cost: float | None) -> str:
+    return f"${cost:.4f}" if cost is not None else "—"
 
 
 def render_scoreboard(
@@ -46,7 +50,7 @@ def render_scoreboard(
     for r in sorted(results, key=lambda x: (x.task, x.scale, x.system)):
         lines.append(
             f"| {r.task} | {r.complexity} | {r.mode} | {r.system} | {r.scale:,} | "
-            f"{r.accuracy * 100:.1f}% | ${r.cost_usd:.4f} | {r.total_tokens:,} | "
+            f"{r.accuracy * 100:.1f}% | {_render_cost(r.cost_usd)} | {r.total_tokens:,} | "
             f"{r.wall_s:.2f} | {r.notes} |"
         )
     lines.append("")

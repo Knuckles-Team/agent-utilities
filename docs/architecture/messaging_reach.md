@@ -1,6 +1,6 @@
-# Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)
+# Messaging reach — agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)
 
-The **reach** capability lets Claude (over MCP) and the pydantic-ai graph agents
+The **reach** capability lets MCP callers and pydantic-ai graph agents
 proactively message the operator on whatever channel they last used — Telegram, Slack,
 Discord, and 14 other backends — and route the user's replies back into the graph. It
 finishes the wiring of the pre-existing `CONCEPT:AU-ECO.messaging.native-backend-abstraction` messaging framework
@@ -33,7 +33,7 @@ into KG conversational memory (`kg_ingest`), so history is recallable cross-plat
 ```mermaid
 flowchart TD
     subgraph Outbound
-        Claude([Claude / MCP]) -->|go__graph_reach| Reach[graph_reach tool]
+        Caller([MCP caller]) -->|go__graph_reach| Reach[graph_reach tool]
         Agent([pydantic-ai agent]) -->|reach_user tool| SVC
         Loop([goal-loop / elicitation]) -->|reach_user_and_wait| SVC
         Reach --> SVC[MessagingService]
@@ -86,9 +86,11 @@ everything the router used to hand-roll:
 
 The universal run is wrapped in a hard `MESSAGING_REPLY_TIMEOUT` (default 45s): a slow or
 hung graph run must still answer, so on timeout/error the reply degrades to a **plain-chat
-completion** (`_plain_chat_reply`). That fallback keeps the **local-default / `/claude`**
-responder selection (AU-ECO.messaging.model-routed-inbound-responder) — every fallback reply is tagged with who answered
-(`[local]` / `[claude]`) — and carries image attachments to the vision model (ECO-4.67).
+completion** (`_plain_chat_reply`). Both its default and explicitly addressed responder
+are resolved through the existing `ModelRegistry`; an empty registry delegates to the
+ordinary model factory without inventing a provider or model default. Every fallback
+reply is tagged with the selected registry model name and carries image attachments to
+the vision model (ECO-4.67).
 `MESSAGING_AGENT` names which agent the universal path routes a chat turn to (default the
 `messaging-assistant` identity); an unresolved name still flows through the full
 orchestration graph, which is exactly the dynamic-delegation behaviour we want.
@@ -112,9 +114,10 @@ other surfaces: [`reactions.md`](reactions.md).
 - **Voice (ECO-4.68):** a voice note / audio with no text is transcribed via the
   audio-transcriber Whisper backend (`transcribe_voice`, lazy-loaded, off the event loop)
   and the transcript flows through the normal path — so you can just talk. Opt-out
-  `MESSAGING_VOICE=0`; model via `MESSAGING_VOICE_MODEL` (default `base`).
+  `MESSAGING_VOICE=0`; model via the required operator-selected
+  `MESSAGING_VOICE_MODEL` when voice intake is enabled.
 - **Image (ECO-4.67):** image attachments are downloaded and passed as inline
-  `BinaryContent` to the **vision-capable** model (qwen confirmed), so you can upload a
+  `BinaryContent` to the configured **vision-capable** model, so you can upload a
   picture and ask about it. Images ride the same burst → one multimodal agent turn.
 
 ## Burst coalescing (ECO-4.63)
@@ -151,8 +154,9 @@ backend; each registers the menu where its platform supports a **runtime** comma
 (Slack/Teams/Mattermost) or a separate interaction model (Discord). Regardless of menu
 support, commands also work as **typed `/cmd` text on any backend** — the inbound handler
 parses a leading `/cmd` and `handle_command` answers built-ins (`/help`, `/status`,
-`/tools`); `/claude` and `/skill` fall through to the model/agent. Add a command once and
-it appears everywhere.
+`/tools`); agent-owned commands such as `/skill` fall through to the model/agent.
+Addressed model routing uses the configured neutral trigger and registry selector,
+not a public provider-specific command. Add a command once and it appears everywhere.
 
 ## Multiple services at once
 
@@ -213,13 +217,21 @@ its configured TTL.
 | `MESSAGING_DEFAULT_PLATFORM` | Default platform when no last-active channel (default `telegram`) |
 | `MESSAGING_DEFAULT_CHANNEL` | Default channel id for `reach_user` fallback |
 | `MESSAGING_AGENT` | Named agent the universal path routes a chat turn to (default the `messaging-assistant` identity; unresolved names still flow through the full orchestration graph) |
-| `MESSAGING_CLAUDE_TRIGGER` | Prefix that routes the plain-chat fallback to Claude (default `/claude`) |
-| `MESSAGING_CLAUDE_MODEL` | Anthropic model for the Claude route (default `claude-sonnet-4-6`) |
-| `MESSAGING_LOCAL_MODEL` | Override the local responder model id |
+| `MESSAGING_MODEL_TRIGGER` | Optional prefix that selects the explicitly addressed registry model; empty by default |
+| `MESSAGING_ADDRESSED_MODEL` | `ModelRegistry` id (or an exact configured `model_id`) selected by the trigger; empty by default |
+| `MESSAGING_DEFAULT_MODEL` | `ModelRegistry` id (or an exact configured `model_id`) for ordinary fallback replies; empty uses the registry default |
 | `MESSAGING_REPLY_TIMEOUT` | Seconds to wait for the universal graph run before degrading to the plain-chat fallback (default `45`) |
-| `ANTHROPIC_API_KEY` | Required for the Claude route |
 | `MATTERMOST_URL` / `MATTERMOST_TOKEN` / `MATTERMOST_BOT_USER` | Mattermost (ECO-4.90): server base URL, a Bot Account token, and the bot's username/id (optional — auto-resolved from the token). Inbound runs over the bot WebSocket (`posted` events); outbound posts via the bot REST API |
 | `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET_REF` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — the daemon resolves the referenced secret in memory so spawned agents authenticate to the JWT-protected fleet. Never persist the resolved value (AU-ECO.messaging.make-fleet-credentials-present). |
+
+Persisted `config.json` files are migrated atomically on load: the retired
+provider-addressed trigger/model keys become the neutral trigger/addressed selectors,
+and the retired local-model key becomes the neutral default selector. If a retired and
+current destination key coexist, migration rejects the document without changing it.
+Process-environment aliases are not retained; operators must use the neutral keys above.
+The trigger is an exact addressed token: it may appear alone or before a space,
+colon, comma, or hyphen. A longer command that merely shares the configured prefix
+is ordinary message content and does not select the addressed model.
 
 ### Mattermost as a first-class platform (ECO-4.90)
 

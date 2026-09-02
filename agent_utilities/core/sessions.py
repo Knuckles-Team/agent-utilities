@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from agent_utilities.core.config import setting
+from agent_utilities.core.config import config, setting
 from agent_utilities.models.goal import GoalIteration, GoalSpec
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,16 @@ def _sessions_tenant_predicate() -> tuple[str, tuple]:
     return " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')", (tenant,)
 
 
+def _find_session(cursor: Any, session_id: str, *, columns: str = "*") -> Any:
+    """Fetch one session through the shared tenant-scoped lookup."""
+    tenant_clause, tenant_params = _sessions_tenant_predicate()
+    cursor.execute(
+        f"SELECT {columns} FROM sessions WHERE id = ?{tenant_clause}",
+        (session_id, *tenant_params),
+    )
+    return cursor.fetchone()
+
+
 def _identity_metadata() -> dict:
     """Ambient ``{tenant_id, actor_id}`` for stamping into session metadata.
 
@@ -135,12 +145,14 @@ class StartGoalPayload(BaseModel):
     constraints: list[str] = []
 
 
-_SQLITE_DDL = """
+def _session_store_tables(timestamp_type: str, turns_constraint: str = "") -> str:
+    """Return the shared session tables for one state-store SQL dialect."""
+    return f"""
     CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
         title TEXT DEFAULT '',
-        created_at REAL NOT NULL,
-        updated_at REAL NOT NULL,
+        created_at {timestamp_type} NOT NULL,
+        updated_at {timestamp_type} NOT NULL,
         model TEXT DEFAULT '',
         mode TEXT DEFAULT 'ask',
         workspace TEXT DEFAULT '',
@@ -150,7 +162,7 @@ _SQLITE_DDL = """
         needs_input INTEGER DEFAULT 0,
         last_response_preview TEXT DEFAULT '',
         goal_id TEXT DEFAULT '',
-        metadata_json TEXT DEFAULT '{}',
+        metadata_json TEXT DEFAULT '{{}}',
         tenant_id TEXT DEFAULT ''
     );
 
@@ -160,11 +172,10 @@ _SQLITE_DDL = """
         turn_number INTEGER NOT NULL,
         role TEXT NOT NULL,
         content TEXT DEFAULT '',
-        created_at REAL NOT NULL,
+        created_at {timestamp_type} NOT NULL,
         status TEXT DEFAULT 'completed',
-        usage_json TEXT DEFAULT '{}',
-        duration_ms INTEGER DEFAULT 0,
-        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        usage_json TEXT DEFAULT '{{}}',
+        duration_ms INTEGER DEFAULT 0{turns_constraint}
     );
 
     CREATE TABLE IF NOT EXISTS dispatch_workers (
@@ -173,10 +184,16 @@ _SQLITE_DDL = """
         capacity INTEGER DEFAULT 1,
         active_sessions TEXT DEFAULT '[]',
         queue_backend TEXT DEFAULT '',
-        started_at REAL NOT NULL,
-        last_heartbeat REAL NOT NULL
+        started_at {timestamp_type} NOT NULL,
+        last_heartbeat {timestamp_type} NOT NULL
     );
 """
+
+
+_SQLITE_DDL = _session_store_tables(
+    "REAL",
+    ",\n        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE",
+)
 # NOTE: goal state is NOT a SQLite table — it lives on the KG Loop node (a develop
 # ``Concept``, CONCEPT:AU-KG.research.these-properties-carry). The ``goals`` table was collapsed onto the one Loop
 # model so there is a single durable source of truth; see ``_persist_goal`` /
@@ -185,44 +202,9 @@ _SQLITE_DDL = """
 # Same logical schema on Postgres (CONCEPT:AU-OS.state.unified-durable-state-externalization). REAL epoch timestamps
 # become DOUBLE PRECISION; everything else maps 1:1 so the handlers' SQL works
 # on both backends through the state-store placeholder adapter.
-_PG_DDL = """
-    CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        title TEXT DEFAULT '',
-        created_at DOUBLE PRECISION NOT NULL,
-        updated_at DOUBLE PRECISION NOT NULL,
-        model TEXT DEFAULT '',
-        mode TEXT DEFAULT 'ask',
-        workspace TEXT DEFAULT '',
-        turn_count INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'active',
-        background INTEGER DEFAULT 0,
-        needs_input INTEGER DEFAULT 0,
-        last_response_preview TEXT DEFAULT '',
-        goal_id TEXT DEFAULT '',
-        metadata_json TEXT DEFAULT '{}',
-        tenant_id TEXT DEFAULT ''
-    );
-    CREATE TABLE IF NOT EXISTS turns (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        turn_number INTEGER NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT DEFAULT '',
-        created_at DOUBLE PRECISION NOT NULL,
-        status TEXT DEFAULT 'completed',
-        usage_json TEXT DEFAULT '{}',
-        duration_ms INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS dispatch_workers (
-        worker_id TEXT PRIMARY KEY,
-        host TEXT DEFAULT '',
-        capacity INTEGER DEFAULT 1,
-        active_sessions TEXT DEFAULT '[]',
-        queue_backend TEXT DEFAULT '',
-        started_at DOUBLE PRECISION NOT NULL,
-        last_heartbeat DOUBLE PRECISION NOT NULL
-    );
+_PG_DDL = (
+    _session_store_tables("DOUBLE PRECISION")
+    + """
     -- AU-P0-5: idempotent upgrade path for a store created before tenant_id
     -- existed on ``sessions`` — Postgres supports IF NOT EXISTS on ADD COLUMN
     -- so this is a no-op once the column is there (including on brand-new
@@ -235,6 +217,7 @@ _PG_DDL = """
     CREATE INDEX IF NOT EXISTS idx_dispatch_workers_hb
         ON dispatch_workers (last_heartbeat DESC);
 """
+)
 
 
 def _get_db_path() -> Path:
@@ -648,12 +631,7 @@ async def get_session_details(request: Request) -> JSONResponse:
         conn = _connect_db()
         cursor = conn.cursor()
 
-        tenant_clause, tenant_params = _sessions_tenant_predicate()
-        cursor.execute(
-            f"SELECT * FROM sessions WHERE id = ?{tenant_clause}",
-            (session_id, *tenant_params),
-        )
-        sess_row = cursor.fetchone()
+        sess_row = _find_session(cursor, session_id)
         if not sess_row:
             conn.close()
             return JSONResponse({"error": "Session not found"}, status_code=404)
@@ -689,12 +667,7 @@ async def delete_session(request: Request) -> JSONResponse:
     try:
         conn = _connect_db()
         cursor = conn.cursor()
-        tenant_clause, tenant_params = _sessions_tenant_predicate()
-        cursor.execute(
-            f"SELECT id FROM sessions WHERE id = ?{tenant_clause}",
-            (session_id, *tenant_params),
-        )
-        if not cursor.fetchone():
+        if not _find_session(cursor, session_id, columns="id"):
             conn.close()
             return JSONResponse({"error": "Session not found"}, status_code=404)
         cursor.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
@@ -1199,7 +1172,7 @@ def _insert_goal_session_rows(
                 f"Goal: {spec.objective}",
                 time.time(),
                 time.time(),
-                "gpt-4o",
+                getattr(config.default_chat_model, "id", ""),
                 "ask",
                 "",
                 1,

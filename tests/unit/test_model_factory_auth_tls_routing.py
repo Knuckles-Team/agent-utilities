@@ -3,8 +3,8 @@
 Three regressions on the model construction path:
 
 * **Default routing** — when no ``model_id``/``role`` is supplied, the factory must route
-  to the operator's DEFINED default chat model (``config.default_chat_model``), not a
-  hardcoded ``qwen/qwen3.6-27b`` literal.
+  to the operator's DEFINED default chat model (``config.default_chat_model``), not an
+  invented identity.
 * **Verified TLS** — registered model endpoints use the runtime TLS profile and cannot
   disable certificate verification.
 * **Per-model headers** — a registered model's reference-backed headers must be
@@ -43,7 +43,7 @@ def test_model_transport_rejects_dangerous_headers(headers):
 def test_model_factory_rejects_unknown_provider_before_client_construction(monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     monkeypatch.setattr(model_factory, "get_model_config", lambda mid=None: None)
-    with pytest.raises(ValueError, match="unsupported model provider"):
+    with pytest.raises(ValueError, match="no registered adapter factory"):
         model_factory._create_model_impl(provider="unknown", model_id="model")
 
 
@@ -52,7 +52,22 @@ def _client(model):
     return getattr(prov, "client", None) or getattr(prov, "_client", None)
 
 
-def test_default_routing_uses_defined_default_not_hardcoded_qwen(monkeypatch):
+def _stub_registered_gateway(monkeypatch, header_value: str) -> None:
+    monkeypatch.setenv("TEST_MODEL_HEADERS", f'{{"X-Client-Id":"{header_value}"}}')
+    monkeypatch.setattr(
+        model_factory,
+        "get_model_config",
+        lambda mid=None: {
+            "id": "gw",
+            "provider": "openai",
+            "base_url": "https://gateway.example/v1",
+            "headers_ref": "env://TEST_MODEL_HEADERS",
+        },
+    )
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+
+
+def test_default_routing_uses_defined_default_without_inventing_identity(monkeypatch):
     """No model_id/role → the factory resolves the DEFINED default chat model's id."""
     seen = {}
 
@@ -81,23 +96,12 @@ def test_default_routing_uses_defined_default_not_hardcoded_qwen(monkeypatch):
 
     model_factory.create_model()  # no provider / model_id / role
 
-    assert seen["id"] == "house-model"  # the defined default, NOT "qwen/qwen3.6-27b"
+    assert seen["id"] == "house-model"
 
 
 def test_per_model_reference_backed_headers_sent(monkeypatch):
     """Reference-backed headers land on the client's default headers."""
-    monkeypatch.setenv("TEST_MODEL_HEADERS", '{"X-Client-Id":"synthetic-client"}')
-    monkeypatch.setattr(
-        model_factory,
-        "get_model_config",
-        lambda mid=None: {
-            "id": "gw",
-            "provider": "openai",
-            "base_url": "https://gateway.example/v1",
-            "headers_ref": "env://TEST_MODEL_HEADERS",
-        },
-    )
-    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+    _stub_registered_gateway(monkeypatch, "synthetic-client")
 
     model = model_factory.create_model(provider="openai", model_id="gw")
 
@@ -107,18 +111,7 @@ def test_per_model_reference_backed_headers_sent(monkeypatch):
 
 def test_call_site_header_wins_over_per_model_header(monkeypatch):
     """An explicit custom_headers value overrides the per-model static header."""
-    monkeypatch.setenv("TEST_MODEL_HEADERS", '{"X-Client-Id":"from-reference"}')
-    monkeypatch.setattr(
-        model_factory,
-        "get_model_config",
-        lambda mid=None: {
-            "id": "gw",
-            "provider": "openai",
-            "base_url": "https://gateway.example/v1",
-            "headers_ref": "env://TEST_MODEL_HEADERS",
-        },
-    )
-    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+    _stub_registered_gateway(monkeypatch, "from-reference")
 
     model = model_factory.create_model(
         provider="openai",

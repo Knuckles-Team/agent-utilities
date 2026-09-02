@@ -14,6 +14,9 @@ clients, and SSL verification settings.
 
 import logging
 import math
+from collections.abc import Callable
+from dataclasses import dataclass
+from inspect import signature
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import config, setting
@@ -104,6 +107,54 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class ModelAdapterRequest:
+    """Complete construction input passed to a registry-bound adapter factory."""
+
+    provider: str
+    model_id: str
+    base_url: str | None
+    api_key: str | None
+    http_client: Any
+    headers: dict | None
+    timeout: float
+    reasoning_settings: Any
+
+
+ModelAdapterFactory = Callable[[ModelAdapterRequest], Any]
+
+
+class ModelAdapterConfigurationError(ValueError):
+    """No adapter factory is bound for an operator-configured provider."""
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCreationRequest:
+    """Unresolved public model-construction inputs."""
+
+    provider: str | None = None
+    model_id: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    custom_headers: dict | None = None
+    timeout: float = 300.0
+    role: str | None = None
+    reasoning_effort: str | None = "none"
+    oauth2: dict[str, Any] | None = None
+    adapter_factory: ModelAdapterFactory | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedModelRequest:
+    provider: str
+    model_id: str
+    base_url: str | None
+    api_key: str | None
+    oauth2: dict[str, Any] | None
+    headers: dict[str, str]
+    reasoning_effort: str | None
+
+
 def _single_system_message_profile(base: ModelProfile | None) -> ModelProfile:
     """Make OpenAI-compatible chat requests portable to strict local gateways.
 
@@ -157,6 +208,18 @@ def get_model_config(model_id: str | None = None) -> dict | None:
         if m.id == model_id:
             return m.model_dump()
 
+    return _registered_model_config(model_id)
+
+
+def _registered_model_config(model_id: str | None) -> dict | None:
+    from agent_utilities.models.model_registry import load_active_registry
+
+    registered = load_active_registry().get_by_id(model_id or "")
+    if registered is not None:
+        model_config = registered.model_dump()
+        if registered.api_key_env:
+            model_config["api_key_ref"] = f"env://{registered.api_key_env}"
+        return model_config
     return None
 
 
@@ -169,14 +232,9 @@ def _resolve_role_model(role: str):
     Never raises — role resolution is best-effort and degrades to the caller's defaults.
     """
     try:
-        from pathlib import Path
+        from agent_utilities.models.model_registry import load_active_registry
 
-        from agent_utilities.models.model_registry import ModelRegistry
-
-        cfg_path = getattr(config, "model_registry_path", None)
-        if not cfg_path or not Path(cfg_path).is_file():
-            return None
-        registry = ModelRegistry.load_from_file(cfg_path)
+        registry = load_active_registry()
         if not registry.models:
             return None
         # Merge AgentConfig.role_routing as a fallback when the registry file
@@ -241,14 +299,16 @@ def create_model(
     role: str | None = None,
     reasoning_effort: str | None = "none",
     oauth2: dict[str, Any] | None = None,
+    *,
+    adapter_factory: ModelAdapterFactory | None = None,
 ):
     """Build a model and (when a KG trace sink is installed) wrap it so EVERY LLM call
     persists a GenerationNode with model/tokens/cost/latency — the always-on per-call
     observability chokepoint (CONCEPT:AU-OS.config.model-factory-passthrough). The wrap is a no-op when no sink is wired
     (zero overhead, e.g. unit tests), so default behavior is unchanged.
 
-    ``reasoning_effort`` controls thinking on a reasoning chat model (the standard
-    ``qwen/qwen3.6-27b`` is one): it emits a long ``reasoning`` block and leaves
+    ``reasoning_effort`` controls thinking on a configured reasoning chat model. Such a
+    model may emit a long ``reasoning`` block and leave
     ``content`` null until thinking finishes, so a utility call with a modest ``max_tokens``
     gets EMPTY content (``finish_reason=length``) — and a retry-on-empty path then blocks to
     the 300s router/verifier timeout. It routes through core ``ModelSettings.thinking``
@@ -257,8 +317,8 @@ def create_model(
     ``chat_template_kwargs.enable_thinking``): default ``"none"`` -> ``thinking=False`` +
     the disable directive, turning thinking off so the model returns content directly.
     Both are sent because pydantic-ai only forwards ``thinking`` to the request when the
-    model's PROFILE is recognized as reasoning-capable (OpenAI's o-series/gpt-5 naming
-    only) — a custom/local model like ``qwen/qwen3.6-27b`` is not, so ``thinking`` alone
+    model's profile is recognized as reasoning-capable. A custom/local model may not be,
+    so ``thinking`` alone
     silently no-ops for it and the model's own default (thinking ON) wins regardless of
     what was asked for; the raw directive is the model-profile-independent fallback that
     actually reaches vLLM. Pass an effort level (``"low"``/``"medium"``/``"high"``) or
@@ -269,15 +329,18 @@ def create_model(
     ``api_key``. See ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``
     for the expected shape."""
     model = _create_model_impl(
-        provider=provider,
-        model_id=model_id,
-        base_url=base_url,
-        api_key=api_key,
-        custom_headers=custom_headers,
-        timeout=timeout,
-        role=role,
-        reasoning_effort=reasoning_effort,
-        oauth2=oauth2,
+        ModelCreationRequest(
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            custom_headers=custom_headers,
+            timeout=timeout,
+            role=role,
+            reasoning_effort=reasoning_effort,
+            oauth2=oauth2,
+            adapter_factory=adapter_factory,
+        )
     )
     try:
         from agent_utilities.harness.tracing import wrap_model_for_tracing
@@ -325,10 +388,8 @@ def reasoning_wire_directives(effort: str | None) -> dict[str, Any]:
     unified ``ModelSettings.thinking`` only reaches the outgoing request when the
     model's PROFILE declares ``supports_thinking`` / ``thinking_always_enabled``
     (``pydantic_ai.models.Model.prepare_request``, which silently DROPS the
-    ``thinking`` key otherwise — see ``openai_model_profile()``: it recognizes only
-    OpenAI's own o-series/gpt-5(.1+) naming). A local/custom reasoning model served
-    through the generic ``openai`` provider — e.g. ``qwen/qwen3.6-27b`` behind
-    vLLM — gets ``supports_thinking=False`` from that heuristic, so ``thinking``
+    ``thinking`` key otherwise). A local/custom reasoning model served through a
+    compatible provider may get ``supports_thinking=False`` from that heuristic, so ``thinking``
     (whichever way it was set, on the model OR the agent) never becomes a request
     field: the model's OWN default (thinking ON for a reasoning model) always wins.
     This is why a "reasoning off by default" call still measured ~22s instead of
@@ -390,7 +451,7 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
     (``clamp_thinking_effort``) for providers/models pydantic-ai's profile inference
     recognizes as reasoning-capable, AND the raw ``extra_body`` directive
     (:func:`reasoning_wire_directives`) that vLLM honors regardless — required for
-    a local/custom reasoning model like ``qwen/qwen3.6-27b`` whose profile is NOT
+    a local/custom reasoning model whose profile is not
     recognized (see that function's docstring for why ``thinking`` alone silently
     no-ops there). Returns ``None`` when ``effort`` is ``None`` AND no priority is in
     context (caller keeps the model's own default) or when pydantic-ai's OpenAI
@@ -429,16 +490,8 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
 
 
 def _create_model_impl(
-    provider: str | None = None,
-    model_id: str | None = None,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    custom_headers: dict | None = None,
-    timeout: float = 300.0,
-    role: str | None = None,
-    reasoning_effort: str | None = "none",
-    oauth2: dict[str, Any] | None = None,
-):
+    request: ModelCreationRequest | None = None, **options: Any
+) -> Any:
     """Initialize a pydantic-ai Model instance.
 
     This factory handles the complexity of mapping standardized provider
@@ -447,9 +500,8 @@ def _create_model_impl(
     and base URLs.
 
     Args:
-        provider: The model provider (openai, anthropic, google, groq,
-                  mistral, huggingface, ollama).
-        model_id: The specific model identifier (e.g., 'gpt-4o').
+        provider: The operator-configured provider identifier.
+        model_id: The operator-configured model identifier.
         base_url: Optional API endpoint override.
         api_key: Optional API key.
         custom_headers: Optional dictionary of HTTP headers for the LLM requests.
@@ -459,85 +511,76 @@ def _create_model_impl(
         A configured pydantic_ai.models.Model instance.
 
     """
-    timeout, custom_headers = _validated_http_options(timeout, custom_headers)
+    if request is not None and options:
+        raise TypeError("model creation accepts a request or keyword options, not both")
+    request = request or ModelCreationRequest(**options)
+    timeout, custom_headers = _validated_http_options(
+        request.timeout, request.custom_headers
+    )
     if setting("AGENT_UTILITIES_TESTING") == "true":
         from pydantic_ai.models.test import TestModel
 
         return TestModel()
 
-    # Per-model static headers + TLS accumulate here (registry ModelDefinition and/or
-    # config.chat_models), applied to the client below. Empty/None ⇒ inherit the caller.
-    _model_headers: dict[str, str] = {}
-    # Per-model reasoning-effort: starts as the caller's value; a config/registry override
-    # (anything other than the ``"inherit"`` sentinel) replaces it — including an explicit
-    # ``None`` that opts the model back into its native reasoning.
-    _reasoning_effort = reasoning_effort
-
-    provider, model_id, base_url, _reasoning_effort, _model_headers = (
-        _apply_role_resolution(
-            role, provider, model_id, base_url, _reasoning_effort, _model_headers
-        )
+    resolved = _resolve_model_request(request)
+    adapter_factory = _resolve_model_adapter_factory(
+        resolved.provider, request.adapter_factory
     )
-
-    _model_id = _resolve_default_model_id(model_id)
-    _provider = provider or "openai"
-
-    (
-        _provider,
-        base_url,
-        api_key,
-        oauth2,
-        _model_headers,
-        _reasoning_effort,
-    ) = _apply_model_registry_overrides(
-        _model_id,
-        _provider,
-        base_url,
-        api_key,
-        oauth2,
-        _model_headers,
-        _reasoning_effort,
-    )
-
-    api_key = resolve_model_api_key(value=api_key)
-
-    if _provider not in {
-        "anthropic",
-        "custom",
-        "deepseek",
-        "google",
-        "groq",
-        "huggingface",
-        "mistral",
-        "ollama",
-        "openai",
-        "proxy",
-    }:
-        raise ValueError("unsupported model provider")
-
+    api_key = resolve_model_api_key(value=resolved.api_key)
     tls_context, custom_headers = _resolve_tls_and_headers(
-        _model_headers, custom_headers
+        resolved.headers, custom_headers
     )
+    reasoning_settings = _openai_reasoning_settings(resolved.reasoning_effort)
+    oauth2_auth = _resolve_oauth2_auth(resolved.oauth2, api_key)
+    http_client = _build_model_http_client(tls_context, timeout, oauth2_auth)
+    adapter_request = ModelAdapterRequest(
+        provider=resolved.provider,
+        model_id=resolved.model_id,
+        base_url=resolved.base_url,
+        api_key=api_key,
+        http_client=http_client,
+        headers=custom_headers,
+        timeout=timeout,
+        reasoning_settings=reasoning_settings,
+    )
+    return adapter_factory(adapter_request)
 
-    # Reasoning OFF by default (content-bearing, fast) unless a per-call arg or a per-model
-    # override (a level, or null for native reasoning) says otherwise. See create_model docstring.
-    _rsettings = _openai_reasoning_settings(_reasoning_effort)
 
-    _oauth2_auth = _resolve_oauth2_auth(oauth2, api_key)
-
-    http_client = None
-    if http_client is None:
-        http_client = _build_model_http_client(tls_context, timeout, _oauth2_auth)
-
-    return _dispatch_model_builder(
-        _provider,
+def _resolve_model_request(request: ModelCreationRequest) -> _ResolvedModelRequest:
+    headers: dict[str, str] = {}
+    provider, model_id, base_url, reasoning_effort, headers = _apply_role_resolution(
+        request.role,
+        request.provider,
+        request.model_id,
+        request.base_url,
+        request.reasoning_effort,
+        headers,
+    )
+    resolved_model_id = _resolve_default_model_id(model_id)
+    (
+        provider,
         base_url,
         api_key,
-        _model_id,
-        http_client,
-        custom_headers,
-        timeout,
-        _rsettings,
+        oauth2,
+        headers,
+        reasoning_effort,
+    ) = _apply_model_registry_overrides(
+        resolved_model_id,
+        provider or "",
+        base_url,
+        request.api_key,
+        request.oauth2,
+        headers,
+        reasoning_effort,
+    )
+    return _ResolvedModelRequest(
+        provider=_require_configured_provider(provider),
+        model_id=resolved_model_id,
+        base_url=base_url,
+        api_key=api_key,
+        oauth2=oauth2,
+        headers=headers,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -570,14 +613,26 @@ def _resolve_default_model_id(model_id: str | None) -> str:
     # supplied, route to the operator's DEFINED default chat model (config.chat_models'
     # intelligence_level='normal', else the first), NOT a hardcoded id. Its
     # provider/base_url/api_key/oauth2/tls/headers are then applied by the model_info block
-    # below. Only if NO chat model is configured AT ALL do we fall to a last-resort literal.
+    # below. An absent registry entry is an incomplete composition, not permission
+    # to invent a provider-owned model identity.
     _model_id = model_id
     if _model_id is None:
         _default_model = config.default_chat_model
         if _default_model is not None:
             _model_id = _default_model.id
-    _model_id = _model_id or "qwen/qwen3.6-27b"
+    if not _model_id:
+        raise ValueError(
+            "model is not configured; select a model or configure a default chat model"
+        )
     return _model_id
+
+
+def _require_configured_provider(provider: str) -> str:
+    if not provider:
+        raise ValueError(
+            "model provider is not configured; register the model with its provider"
+        )
+    return provider
 
 
 def _apply_model_registry_overrides(
@@ -591,8 +646,6 @@ def _apply_model_registry_overrides(
 ) -> tuple[
     str, str | None, str | None, dict[str, Any] | None, dict[str, str], str | None
 ]:
-    # Check if this model is defined in models.json, and override settings if so
-    model_info = get_model_config(_model_id)
     # Check if this model is defined in models.json, and override settings if so
     model_info = get_model_config(_model_id)
     if model_info:
@@ -619,12 +672,22 @@ def _apply_model_registry_overrides(
                 **_model_headers,
                 **resolve_model_headers(reference=model_info["headers_ref"]),
             }
+        _model_headers = _merged_registry_headers(_model_headers, model_info)
         # Per-model reasoning-effort override (config.chat_models wins over the registry).
         # "inherit" (the default sentinel) leaves the caller's value; any other value —
         # including an explicit null/None to re-enable native reasoning — replaces it.
         if model_info.get("reasoning_effort", "inherit") != "inherit":
             _reasoning_effort = model_info["reasoning_effort"]
     return _provider, base_url, api_key, oauth2, _model_headers, _reasoning_effort
+
+
+def _merged_registry_headers(
+    existing: dict[str, str], model_info: dict[str, Any]
+) -> dict[str, str]:
+    configured = model_info.get("headers")
+    if not isinstance(configured, dict):
+        return existing
+    return {**existing, **configured}
 
 
 def _resolve_tls_and_headers(
@@ -722,7 +785,7 @@ def _build_openai_model(
         # CONCEPT:AU-ORCH.adapter.openai-catalog-verification — an OpenBao-backed secret reference
         # (env://, vault://, secret://) takes precedence over a plain literal env var when
         # neither an explicit api_key nor the literal OPENAI_API_KEY is configured. Reuses the
-        # SAME three/four-tier CredentialResolver the "custom"/"proxy" provider path below
+        # SAME three/four-tier CredentialResolver as the compatible endpoint path below
         # already calls, so there is one canonical OpenAI credential source, not two.
         from agent_utilities.core.credentials import CredentialResolver
 
@@ -760,7 +823,7 @@ def _build_ollama_model(
     target_base_url = base_url or config.openai_base_url
     if not target_base_url:
         raise ValueError("ollama provider requires a configured base_url")
-    target_api_key = api_key or "ollama"
+    target_api_key = api_key if api_key is not None else config.openai_api_key
 
     if http_client and AsyncOpenAI is not None and OpenAIProvider is not None:
         openai_client = AsyncOpenAI(
@@ -930,22 +993,13 @@ def _build_huggingface_model(
     )
 
 
-def _resolve_custom_proxy_target(
+def _resolve_custom_target(
     base_url: str | None, api_key: str | None
 ) -> tuple[str, str | None]:
-    # Credentials resolve env > file > none; kept in its own helper so the
-    # egress-validation and client-construction steps stay independently
-    # readable (CONCEPT:AU-ORCH.adapter.byok-provider-proxy).
-    from agent_utilities.core.credentials import CredentialResolver
-
-    creds = CredentialResolver().resolve("openai")
-    target_base_url = base_url or creds.base_url or config.openai_base_url
-    target_api_key = (
-        api_key if api_key is not None else creds.api_key
-    ) or config.openai_api_key
-    if not target_base_url:
-        raise ValueError("custom/proxy provider requires a base_url (BYOK endpoint)")
-    return target_base_url, target_api_key
+    """Require the registry/call site to own a compatible endpoint identity."""
+    if not base_url:
+        raise ValueError("custom provider requires a base_url (BYOK endpoint)")
+    return base_url, api_key
 
 
 def _validate_custom_proxy_egress(target_base_url: str) -> None:
@@ -969,96 +1023,68 @@ def _validate_custom_proxy_egress(target_base_url: str) -> None:
         else validate_base_url_resolved(target_base_url, allow_loopback=False)
     )
     if not decision.allowed:
-        raise ValueError("custom/proxy base_url rejected by egress guard")
+        raise ValueError("custom base_url rejected by egress guard")
 
 
-def _build_custom_or_proxy_model(
-    base_url: str | None,
-    api_key: str | None,
-    _model_id: str,
-    http_client: Any,
-    custom_headers: dict | None,
-    timeout: float,
-    _rsettings: Any,
-) -> Any:
-    # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK custom endpoint. The provider proxy emits OpenAI-compatible
-    # canonical streams, so a custom endpoint is reached via an OpenAI-compatible client pointed at
-    # the resolved base_url.
-    target_base_url, target_api_key = _resolve_custom_proxy_target(base_url, api_key)
+def _build_custom_model(request: ModelAdapterRequest) -> Any:
+    # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — a custom endpoint is reached
+    # through a compatible client pointed at the resolved base_url.
+    target_base_url, target_api_key = _resolve_custom_target(
+        request.base_url, request.api_key
+    )
     _validate_custom_proxy_egress(target_base_url)
 
     if AsyncOpenAI is not None and OpenAIProvider is not None:
         custom_client = AsyncOpenAI(
             api_key=target_api_key or "EMPTY",
             base_url=target_base_url,
-            http_client=http_client,
-            default_headers=custom_headers,
-            timeout=timeout,
+            http_client=request.http_client,
+            default_headers=request.headers,
+            timeout=request.timeout,
         )
         return OpenAIChatModel(
-            settings=_rsettings,
-            model_name=_model_id,
+            settings=request.reasoning_settings,
+            model_name=request.model_id,
             provider=OpenAIProvider(openai_client=custom_client),
             profile=_single_system_message_profile,
         )
     raise RuntimeError("Custom provider DNS-pinned client runtime is unavailable")
 
 
-def _dispatch_model_builder(
-    _provider: str,
-    base_url: str | None,
-    api_key: str | None,
-    _model_id: str,
-    http_client: Any,
-    custom_headers: dict | None,
-    timeout: float,
-    _rsettings: Any,
-) -> Any:
-    # One dispatch branch per supported provider name; each builder is the
-    # exact original inline block for that provider, unchanged.
-    if _provider == "openai":
-        return _build_openai_model(
-            base_url,
-            api_key,
-            _model_id,
-            http_client,
-            custom_headers,
-            timeout,
-            _rsettings,
-        )
-    elif _provider == "ollama":
-        return _build_ollama_model(
-            base_url, api_key, _model_id, http_client, custom_headers, _rsettings
-        )
-    elif _provider == "deepseek":
-        return _build_deepseek_model(
-            base_url,
-            api_key,
-            _model_id,
-            http_client,
-            custom_headers,
-            timeout,
-            _rsettings,
-        )
-    elif _provider == "anthropic":
-        return _build_anthropic_model(base_url, api_key, _model_id, http_client)
-    elif _provider == "google":
-        return _build_google_model(base_url, api_key, _model_id, http_client)
-    elif _provider == "groq":
-        return _build_groq_model(base_url, api_key, _model_id, http_client)
-    elif _provider == "mistral":
-        return _build_mistral_model(base_url, api_key, _model_id, http_client)
-    elif _provider == "huggingface":
-        return _build_huggingface_model(base_url, api_key, _model_id, http_client)
-    elif _provider in ("custom", "proxy"):
-        return _build_custom_or_proxy_model(
-            base_url,
-            api_key,
-            _model_id,
-            http_client,
-            custom_headers,
-            timeout,
-            _rsettings,
-        )
+@dataclass(frozen=True, slots=True)
+class _BuiltinAdapterFactory:
+    builder: Callable[..., Any]
 
-    raise ValueError("unsupported model provider")
+    def __call__(self, request: ModelAdapterRequest) -> Any:
+        values = {
+            "request": request,
+            "base_url": request.base_url,
+            "api_key": request.api_key,
+            "_model_id": request.model_id,
+            "http_client": request.http_client,
+            "custom_headers": request.headers,
+            "timeout": request.timeout,
+            "_rsettings": request.reasoning_settings,
+        }
+        parameters = signature(self.builder).parameters
+        return self.builder(*(values[name] for name in parameters))
+
+
+def _resolve_model_adapter_factory(
+    provider: str, injected: ModelAdapterFactory | None = None
+) -> ModelAdapterFactory:
+    from agent_utilities.models.model_registry import load_active_registry
+
+    registry = load_active_registry()
+    if injected is not None:
+        registry.register_adapter_factory(provider, injected)
+    configured = registry.get_adapter_factory(provider)
+    builder = globals().get(f"_build_{provider}_model")
+    factory = configured or (
+        _BuiltinAdapterFactory(builder) if callable(builder) else None
+    )
+    if factory is None:
+        raise ModelAdapterConfigurationError(
+            "model provider has no registered adapter factory"
+        )
+    return factory

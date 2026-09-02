@@ -6,11 +6,13 @@ Ports the agentsview ``internal/pricing/normalize_test.go`` and
 
 from __future__ import annotations
 
+import asyncio
+import json
+
 import pytest
 
 from agent_utilities.pricing import (
     PricingCatalog,
-    fallback_pricing,
     get_pricing_catalog,
     normalize_model_name,
     parse_litellm_pricing,
@@ -21,11 +23,9 @@ from agent_utilities.pricing.catalog import ModelPricing
 
 def test_normalize_model_name():
     cases = {
-        "claude-opus-4.7": "claude-opus-4-7",
-        "claude-sonnet-4.6": "claude-sonnet-4-6",
-        "claude-haiku-4.5": "claude-haiku-4-5",
-        "claude-opus-4-8": "claude-opus-4-8",
-        "gpt-5.5": "gpt-5-5",
+        "vendor/family.x-7.2": "vendor/family-x-7-2",
+        "family-small-4.5": "family-small-4-5",
+        "family-large-4-8": "family-large-4-8",
     }
     for inp, want in cases.items():
         assert normalize_model_name(inp) == want, inp
@@ -33,45 +33,45 @@ def test_normalize_model_name():
 
 def test_resolve_ordering():
     rates = {
-        "claude-opus-4-7": 5,
-        "claude-opus-4.6": 99,
-        "gemini-3.5": 10,
-        "gemini-3.5-flash": 20,
-        "openai/gpt-5.5": 30,
-        "google/gemini-2.5": 40,
+        "family-large-4-7": 5,
+        "family-large-4.6": 99,
+        "family-rapid-3.5": 10,
+        "family-rapid-3.5-plus": 20,
+        "vendor-a/family-x-5.5": 30,
+        "vendor-b/family-y-2.5": 40,
     }
 
     def r(model):
         return resolve(rates, model)
 
-    assert r("claude-opus-4.7") == (5, True)  # dotted -> normalized
-    assert r("claude-opus-4-7") == (5, True)  # exact dashed
-    assert r("claude-opus-4.6") == (99, True)  # exact beats normalized
-    assert r("CLAUDE-OPUS-4-7") == (5, True)  # case-insensitive
-    assert r("Gemini 3.5 Flash (Medium)") == (20, True)  # strip decoration
-    assert r("Gemini 3.5 Flash (Low)") == (20, True)
-    assert r("Gemini 3.5 Flash") == (20, True)  # longer canonical wins
-    assert r("gpt-5.5") == (30, True)  # unqualified -> qualified key
-    assert r("google/gemini-2.5") == (40, True)  # same-provider
-    assert r("gemini-2.5") == (40, True)  # unqualified -> qualified
-    assert r("claude-opus-4.6[1m]") == (99, True)  # bracketed strip
-    assert r("claude-opus-4-7-20260101") == (5, True)  # date strip
+    assert r("family-large-4.7") == (5, True)  # dotted -> normalized
+    assert r("family-large-4-7") == (5, True)  # exact dashed
+    assert r("family-large-4.6") == (99, True)  # exact beats normalized
+    assert r("FAMILY-LARGE-4-7") == (5, True)  # case-insensitive
+    assert r("Family Rapid 3.5 Plus (Medium)") == (20, True)
+    assert r("Family Rapid 3.5 Plus (Low)") == (20, True)
+    assert r("Family Rapid 3.5 Plus") == (20, True)
+    assert r("family-x-5.5") == (30, True)  # unqualified -> qualified key
+    assert r("vendor-b/family-y-2.5") == (40, True)  # same-provider
+    assert r("family-y-2.5") == (40, True)  # unqualified -> qualified
+    assert r("family-large-4.6[1m]") == (99, True)  # bracketed strip
+    assert r("family-large-4-7-20260101") == (5, True)  # date strip
     assert r("unknown-model") == (None, False)
 
 
 def test_resolve_provider_prefixes():
-    rates = {"openrouter/owl-alpha": 7, "gpt-5.5": 30}
-    assert resolve(rates, "other/owl-alpha") == (None, False)
-    assert resolve(rates, "owl-alpha") == (7, True)
-    assert resolve(rates, "openai/gpt-5.5") == (30, True)
+    rates = {"vendor-a/family-alpha": 7, "family-x-5.5": 30}
+    assert resolve(rates, "other/family-alpha") == (None, False)
+    assert resolve(rates, "family-alpha") == (7, True)
+    assert resolve(rates, "vendor-a/family-x-5.5") == (30, True)
 
 
 def test_resolve_canonical_determinism():
-    rates = {"openai/foo": 1, "other/foo": 2}
+    rates = {"vendor-a/foo": 1, "vendor-b/foo": 2}
     assert resolve(rates, "Foo") == (None, False)  # ambiguous
-    assert resolve(rates, "openai/foo[1m]") == (1, True)  # own provider
+    assert resolve(rates, "vendor-a/foo[1m]") == (1, True)  # own provider
 
-    with_base = {"openai/bar": 5, "other/bar": 6, "bar": 7}
+    with_base = {"vendor-a/bar": 5, "vendor-b/bar": 6, "bar": 7}
     assert resolve(with_base, "Bar[1m]") == (7, True)  # unqualified wins
 
     dupes = {"fo.o": 1, "fo-o": 2}
@@ -79,29 +79,15 @@ def test_resolve_canonical_determinism():
 
 
 def test_resolve_rejects_arbitrary_substrings():
-    rates = {"openai/gpt-5.5": 30, "gemini-3.5-flash": 20}
-    assert resolve(rates, "gpt-5.5-codex") == (None, False)
-    assert resolve(rates, "wrapped-gemini-3.5-flash-pro") == (None, False)
+    rates = {"vendor-a/family-x-5.5": 30, "family-rapid-3.5": 20}
+    assert resolve(rates, "family-x-5.5-special") == (None, False)
+    assert resolve(rates, "wrapped-family-rapid-3.5-pro") == (None, False)
 
 
-def test_fallback_is_offline_and_priced():
+def test_unconfigured_catalog_is_explicitly_unpriced():
     catalog = PricingCatalog()
-    assert len(catalog) >= len(fallback_pricing())
-    # Known models price; unknown stays unpriced.
-    cost, priced = catalog.cost_for(
-        "claude-opus-4-8", input_tokens=1_000_000, output_tokens=1_000_000
-    )
-    assert priced is True
-    assert cost == 5.0 + 25.0  # 1M input @ $5 + 1M output @ $25
-    assert catalog.cost_for("totally-made-up-model") == (None, False)
-
-
-def test_dotted_agent_model_resolves_via_catalog():
-    # opencode-style dotted id should price against the dashed fallback key.
-    catalog = get_pricing_catalog()
-    pricing = catalog.resolve("claude-opus-4.8")
-    assert pricing is not None
-    assert pricing.input_per_mtok == 5.0
+    assert len(catalog) == 0
+    assert catalog.cost_for("operator/not-configured") == (None, False)
 
 
 def test_parse_litellm_pricing_converts_per_mtok_and_skips_empty():
@@ -121,10 +107,144 @@ def test_parse_litellm_pricing_converts_per_mtok_and_skips_empty():
     assert m.cache_read_per_mtok == 0.3
 
 
-def test_cost_model_for_model_requires_catalog_pricing():
+def test_cost_model_for_model_requires_catalog_pricing(monkeypatch):
     from agent_utilities.models.usage import CostModel
+    from agent_utilities.pricing import catalog as catalog_module
 
-    known = CostModel.for_model("claude-opus-4-8")
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog(
+            [ModelPricing(model_pattern="operator/model-v7", input_per_mtok=5)]
+        ),
+    )
+    known = CostModel.for_model("operator/model-v7")
     assert known.input_token_price == 5.0 / 1_000_000
     with pytest.raises(LookupError, match="pricing is not configured"):
-        CostModel.for_model("nonexistent-xyz")
+        CostModel.for_model("operator/unconfigured")
+
+
+def test_versioned_operator_catalog_prices_arbitrary_external_id(tmp_path):
+    path = tmp_path / "pricing.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "operator-2026-09-01",
+                "models": [
+                    {
+                        "model_pattern": "provider-z/external-model-v99",
+                        "input_per_mtok": 2.0,
+                        "output_per_mtok": 6.0,
+                    }
+                ],
+            }
+        )
+    )
+
+    catalog = PricingCatalog.load_from_file(path)
+
+    assert catalog.version == "operator-2026-09-01"
+    assert catalog.cost_for(
+        "provider-z/external-model-v99",
+        input_tokens=1_000_000,
+        output_tokens=500_000,
+    ) == (5.0, True)
+    assert catalog.cost_for("provider-z/not-configured") == (None, False)
+
+
+def test_empty_operator_catalog_keeps_unknown_models_unpriced(tmp_path):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({"version": "empty-v1", "models": []}))
+
+    catalog = PricingCatalog.load_from_file(path)
+
+    assert len(catalog) == 0
+    assert catalog.cost_for("provider-z/unconfigured") == (None, False)
+
+
+def test_configured_catalog_changes_live_usage_and_trace_consumers(
+    tmp_path, monkeypatch
+):
+    from agent_utilities.core.config import config
+    from agent_utilities.harness.trace_backend import KGTraceBackend
+    from agent_utilities.pricing import catalog as catalog_module
+    from agent_utilities.usage.cost import price_event
+    from agent_utilities.usage.models import UsageEvent
+
+    path = tmp_path / "pricing.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "operator-v7",
+                "models": [
+                    {
+                        "model_pattern": "operator/external-v7",
+                        "input_per_mtok": 2.0,
+                        "output_per_mtok": 6.0,
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setattr(config, "pricing_catalog_path", str(path))
+    monkeypatch.setattr(catalog_module, "_CATALOG", PricingCatalog())
+    catalog_module.reset_pricing_catalog()
+
+    catalog = get_pricing_catalog()
+    event = price_event(
+        UsageEvent(
+            session_id="session-1",
+            model="operator/external-v7",
+            input_tokens=1_000_000,
+            output_tokens=500_000,
+        )
+    )
+
+    assert catalog.version == "operator-v7"
+    assert event.cost_usd == 5.0
+    assert event.cost_status == "catalog"
+    assert KGTraceBackend._cost_usd("operator/external-v7", 1_000_000, 500_000) == 5.0
+
+
+def test_unknown_pricing_propagates_through_trace_rollups(monkeypatch):
+    from agent_utilities.harness.trace_backend import KGTraceBackend
+    from agent_utilities.models.knowledge_graph import GenerationNode, TraceNode
+    from agent_utilities.pricing import catalog as catalog_module
+
+    monkeypatch.setattr(catalog_module, "_CATALOG", PricingCatalog())
+    backend = KGTraceBackend()
+    trace = TraceNode(id="trace:unknown", name="run")
+    generation = GenerationNode(
+        id="generation:unknown",
+        name="call",
+        trace_id=trace.id,
+        model="operator/unconfigured",
+        input_tokens=100,
+    )
+
+    backend.emit_trace(trace, generations=[generation])
+
+    assert generation.total_cost_usd is None
+    assert trace.total_cost_usd is None
+    summaries = asyncio.run(backend.get_traces(""))
+    assert summaries[0]["total_cost_usd"] is None
+
+
+def test_fresh_trace_has_unknown_cost_until_every_generation_is_priced():
+    from agent_utilities.models.knowledge_graph import TraceNode
+
+    assert TraceNode(id="trace:fresh", name="run").total_cost_usd is None
+
+
+def test_remote_pricing_refresh_requires_operator_source(monkeypatch):
+    from agent_utilities.core.config import config
+    from agent_utilities.pricing import store
+
+    monkeypatch.setattr(config, "pricing_litellm_url", "")
+    monkeypatch.setattr(
+        store,
+        "fetch_litellm_pricing",
+        lambda _url: pytest.fail("unconfigured refresh attempted network access"),
+    )
+
+    assert store.refresh_catalog(catalog=PricingCatalog()) == 0

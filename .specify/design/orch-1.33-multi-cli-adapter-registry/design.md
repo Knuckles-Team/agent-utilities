@@ -3,7 +3,7 @@
 > Assimilates open-design's declarative runtime-adapter pattern: agent CLIs become **data**
 > (`RuntimeAgentDef`) auto-detected on `PATH`, not bespoke per-CLI code. Gives agent-utilities a
 > backend-agnostic execution substrate so the KG-driven planner can dispatch a step to *any* installed
-> coding-agent CLI (claude/codex/gemini/opencode/ollama-backed/etc.), where today it can only build a
+> operator-registered coding-agent CLI, where today it can only build a
 > pydantic-ai model. Part of EPIC 1 (Unified Execution Substrate); pairs with ORCH-1.34.
 
 ## Research Provenance

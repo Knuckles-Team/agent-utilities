@@ -85,15 +85,13 @@ class AdapterRegistry:
             return DetectedAdapter(
                 id=definition.id, available=False, path=path, error=str(exc)
             )
-        models: tuple[str, ...] = definition.fallback_models
+        models: tuple[str, ...] = ()
         if definition.list_models is not None:
             try:
                 live = tuple(definition.list_models())
                 if live:
                     models = live
-            except (
-                Exception
-            ):  # live listing is best-effort; fall back to declared models
+            except Exception:  # live listing is best-effort; no invented fallback
                 logger.debug("list_models failed for %s", definition.id, exc_info=True)
         return DetectedAdapter(
             id=definition.id, available=True, path=path, version=version, models=models

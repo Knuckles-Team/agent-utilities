@@ -386,8 +386,8 @@ def test_context_request_rejects_wrong_typed_top_k() -> None:
 
 
 def test_evaluate_request_accepts_realistic_payload() -> None:
-    parsed = schemas.EvaluateRequest.model_validate({"target": "agent:sonnet-5"})
-    assert parsed.target == "agent:sonnet-5"
+    parsed = schemas.EvaluateRequest.model_validate({"target": "agent:reasoner-5"})
+    assert parsed.target == "agent:reasoner-5"
 
 
 def test_evaluate_request_rejects_wrong_typed_target() -> None:

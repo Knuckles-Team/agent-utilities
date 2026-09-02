@@ -4,6 +4,7 @@ CONCEPT:AU-ORCH.execution.predict-rlm-runtime/31 — RLM GEPA Verification
 """
 
 import unittest.mock
+from contextlib import contextmanager
 
 import pytest
 from pydantic import BaseModel
@@ -24,6 +25,26 @@ class DummySignature(BaseModel):
     report_text: str = InputField(description="Input raw report text")
     sentiment: str = OutputField(description="Calculated sentiment of the report")
     summary: str = OutputField(description="Concise report summary")
+
+
+async def _ignore_graph_persistence(node):
+    return {"status": "merged"}
+
+
+@contextmanager
+def _patched_gepa_runtime(mutator_run, harness_run):
+    """Patch the three external GEPA runtime boundaries for offline tests."""
+    with (
+        unittest.mock.patch("pydantic_ai.Agent.run", new=mutator_run),
+        unittest.mock.patch(
+            "agent_utilities.rlm.predict_rlm.PredictRLM.run", new=harness_run
+        ),
+        unittest.mock.patch(
+            "agent_utilities.rlm.gepa.create_or_merge_node",
+            new=_ignore_graph_persistence,
+        ),
+    ):
+        yield
 
 
 class TestPredictRLM:
@@ -138,7 +159,7 @@ class TestReflectiveMutator:
 
     @pytest.mark.asyncio
     async def test_mutate(self):
-        mutator = ReflectiveMutator()
+        mutator = ReflectiveMutator("vendor-a/model-v7")
 
         class MockResponse:
             output = (
@@ -172,7 +193,7 @@ class TestReflectiveMutator:
 
     @pytest.mark.asyncio
     async def test_crossover(self):
-        mutator = ReflectiveMutator()
+        mutator = ReflectiveMutator("vendor-a/model-v7")
 
         class MockResponse:
             output = (
@@ -254,20 +275,7 @@ class TestGEPAOptimizer:
                 summary="Summary of project",
             )
 
-        # Mock create_or_merge_node to ignore graph persistence in test
-        async def mock_create_or_merge(node):
-            return {"status": "merged"}
-
-        with (
-            unittest.mock.patch("pydantic_ai.Agent.run", new=mock_mutate_run),
-            unittest.mock.patch(
-                "agent_utilities.rlm.predict_rlm.PredictRLM.run", new=mock_harness_run
-            ),
-            unittest.mock.patch(
-                "agent_utilities.rlm.gepa.create_or_merge_node",
-                new=mock_create_or_merge,
-            ),
-        ):
+        with _patched_gepa_runtime(mock_mutate_run, mock_harness_run):
             best = await optimizer.optimize(dataset=dataset, iterations=2, batch_size=2)
 
             assert best is not None
@@ -308,18 +316,8 @@ class TestGEPAOptimizer:
                 summary="Summary",
             )
 
-        async def mock_create_or_merge(node):
-            return {"status": "merged"}
-
         with (
-            unittest.mock.patch("pydantic_ai.Agent.run", new=mock_mutate_run),
-            unittest.mock.patch(
-                "agent_utilities.rlm.predict_rlm.PredictRLM.run", new=mock_harness_run
-            ),
-            unittest.mock.patch(
-                "agent_utilities.rlm.gepa.create_or_merge_node",
-                new=mock_create_or_merge,
-            ),
+            _patched_gepa_runtime(mock_mutate_run, mock_harness_run),
             unittest.mock.patch("random.random", return_value=1.0),
         ):
             await optimizer.optimize(

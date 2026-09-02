@@ -141,49 +141,28 @@ signing job only ever needs `apps/data/agent-utilities`, nothing else in the `ap
 
 ### 2. A Vault Kubernetes-auth role bound to the Job's own ServiceAccount
 
-Kubernetes auth is already enabled at the default `auth/kubernetes/` mount (the existing
-`openbao` `ClusterSecretStore` already uses it — see
-`inventory/k8s-migration/platform/eso-clustersecretstore.yaml`). Add a new role, bound to
-the dedicated ServiceAccount `deploy/release/connector-manifest-signing-job.yaml` creates
-(`connector-manifest-signer` in namespace `release-tooling`) and nothing else:
-
-```bash
-run bao write auth/kubernetes/role/agent-utilities-connector-manifest-signer \
-  bound_service_account_names=connector-manifest-signer \
-  bound_service_account_namespaces=release-tooling \
-  bound_service_account_token_audiences=openbao \
-  policies=agent-utilities-connector-manifest-signer-ro \
-  ttl=10m
-```
-
-The `audience=openbao` above must match the projected ServiceAccount token's `audience` in
-the Job manifest — it already does (`deploy/release/connector-manifest-signing-job.yaml`).
+Kubernetes auth is already enabled at `auth/kubernetes/`; the deployed `openbao`
+`ClusterSecretStore` proves that path. Create the role
+`agent-utilities-connector-manifest-signer` with a ten-minute TTL and only these
+bindings: ServiceAccount `connector-manifest-signer`, namespace `release-tooling`, token
+audience `openbao`, and policy `agent-utilities-connector-manifest-signer-ro`. The Job
+manifest already projects that audience, so the role and workload contract agree.
 
 ### 3. Prepare the digest-attested input and public-output boundaries
 
 The signing Job does not read a live checkout, a mutable host mount, or a floating
 image. Prepare one operator-owned `connector-manifest-signing-input` PVC containing a
-reviewed release input bundle with this shape:
-
-```text
-release-inputs.sha256                         # relative sha256sum entries
-wheels/agent_utilities-<version>-<tag>.whl    # the exact built wheel
-agents/<provider>/...                         # the frozen provider fleet
-agents/repository-manager/repository_manager/workspace.yml
-```
+reviewed release input bundle. It contains `release-inputs.sha256` with relative digest
+entries, the exact built wheel under `wheels/`, the frozen provider fleet under
+`agents/`, and the repository-manager workspace manifest at its normal package path.
 
 The Job verifies the attestation file digest, then verifies every listed input before
 copying the fleet into its bounded disposable `/work` staging volume. The operator
 substitutes the attestation digest and wheel digest in the Job template; the image is
 also required to be pinned as `image@sha256:<digest>`. Create a separate durable
 `connector-manifest-signing-public-output` PVC for reviewed public output. The Job
-writes only these run-scoped directories there:
-
-```text
-connector-bundles/   # bundled public connector manifests
-manifests/           # regenerated fleet manifest projections
-native/              # regenerated native manifest projection
-```
+writes only three run-scoped directories there: `connector-bundles/` for public bundles,
+`manifests/` for fleet projections, and `native/` for the native projection.
 
 Neither PVC contains signing authority material. The input is read-only to the Job;
 all provider writes stay in disposable staging, and a unique run directory prevents a
@@ -191,22 +170,17 @@ later attempt from overwriting an earlier output.
 
 ### 4. Apply the namespace/ServiceAccount and run the Job
 
-```bash
-kubectl apply -f deploy/release/connector-manifest-signing-job.yaml   # reviewed namespace + ServiceAccount setup
-```
+Apply the reviewed namespace and ServiceAccount setup with
+`kubectl apply -f deploy/release/connector-manifest-signing-job.yaml`.
 
 Then, for an actual signing run: take the `frozen_sha` the keyless
 `connector-manifest-diff` GitHub Actions job reports (`workflow_dispatch` it from the
 Actions tab, read the job summary), substitute it plus the frozen commit's built
 image digest, input attestation/wheel digests, release timestamp, and unique output run
 ID into a COPY of the `Job` in `deploy/release/connector-manifest-signing-job.yaml`
-(never re-apply the same Job name twice — give each run a unique name), and:
-
-```bash
-kubectl apply -f my-signing-run.yaml
-kubectl -n release-tooling wait --for=condition=complete job/connector-manifest-sign-<run-id> --timeout=30m
-kubectl -n release-tooling logs job/connector-manifest-sign-<run-id>   # the JSON report; no key material is ever printed
-```
+(never re-apply the same Job name twice — give each run a unique name). Apply that copy,
+wait up to 30 minutes for its `complete` condition in `release-tooling`, then read the
+run-scoped Job logs. Those logs are the JSON report and never contain key material.
 
 The Job's `restartPolicy: Never` / `backoffLimit: 0` mean a failure never silently retries
 with stale state — read the printed JSON report for the exact `[freeze|regenerate|verify]`

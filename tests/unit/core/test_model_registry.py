@@ -30,6 +30,9 @@ from agent_utilities.models.model_registry import (
     ModelCostRate,
     ModelDefinition,
     ModelRegistry,
+    ModelRegistryConfigurationError,
+    ModelTier,
+    load_active_registry,
 )
 
 
@@ -44,6 +47,7 @@ def sample_registry() -> ModelRegistry:
                 model_id="llama-3.2-3b-instruct",
                 base_url="http://localhost:1234/v1",
                 tier="light",
+                cost=ModelCostRate(input=0.0, output=0.0),
                 is_default=True,
             ),
             ModelDefinition(
@@ -80,10 +84,25 @@ def sample_registry() -> ModelRegistry:
     )
 
 
-def test_cost_rate_defaults_to_zero():
+def _routing_registry(*tiers: ModelTier) -> ModelRegistry:
+    return ModelRegistry(
+        models=[
+            ModelDefinition(
+                id=f"m-{tier}",
+                name=tier,
+                provider="provider-a",
+                model_id=f"{tier}-model",
+                tier=tier,
+            )
+            for tier in tiers
+        ]
+    )
+
+
+def test_cost_rate_defaults_to_unpriced():
     rate = ModelCostRate()
-    assert rate.input == 0.0
-    assert rate.output == 0.0
+    assert rate.input is None
+    assert rate.output is None
 
 
 def test_cost_rate_rejects_negative():
@@ -382,31 +401,7 @@ def test_adaptive_provenance_ranks_against_the_effective_tier():
     reading that node back — an auditor, the evolution loop, a "why was model X
     picked" query — would draw the opposite conclusion.
     """
-    registry = ModelRegistry(
-        models=[
-            ModelDefinition(
-                id="m-light",
-                name="light",
-                provider="openai",
-                model_id="light-model",
-                tier="light",
-            ),
-            ModelDefinition(
-                id="m-medium",
-                name="medium",
-                provider="openai",
-                model_id="medium-model",
-                tier="medium",
-            ),
-            ModelDefinition(
-                id="m-heavy",
-                name="heavy",
-                provider="openai",
-                model_id="heavy-model",
-                tier="heavy",
-            ),
-        ]
-    )
+    registry = _routing_registry("light", "medium", "heavy")
 
     decision = registry.explain_pick_for_task(
         complexity="medium", confidence_signal=0.9, routing_percentile=50.0
@@ -427,27 +422,25 @@ def test_adaptive_provenance_ranks_against_the_effective_tier():
 
 
 def test_unshifted_provenance_reason_does_not_claim_a_shift():
-    registry = ModelRegistry(
-        models=[
-            ModelDefinition(
-                id="m-light",
-                name="light",
-                provider="openai",
-                model_id="light-model",
-                tier="light",
-            ),
-            ModelDefinition(
-                id="m-medium",
-                name="medium",
-                provider="openai",
-                model_id="medium-model",
-                tier="medium",
-            ),
-        ]
-    )
+    registry = _routing_registry("light", "medium")
 
     decision = registry.explain_pick_for_task(complexity="medium")
 
     assert decision.chosen_model_id == "m-medium"
     for candidate in decision.candidates:
         assert "confidence-shifted" not in candidate.rejection_reason
+
+
+@pytest.mark.parametrize("payload", ['{"models": [{"id": "incomplete"}]}', None])
+def test_configured_active_registry_error_fails_closed(tmp_path, monkeypatch, payload):
+    from agent_utilities.core.config import config
+    from agent_utilities.models import model_registry as registry_module
+
+    path = tmp_path / "models.json"
+    if payload is not None:
+        path.write_text(payload)
+    monkeypatch.setattr(config, "model_registry_path", str(path))
+    monkeypatch.setattr(registry_module, "_ACTIVE_REGISTRY", None)
+
+    with pytest.raises(ModelRegistryConfigurationError):
+        load_active_registry()

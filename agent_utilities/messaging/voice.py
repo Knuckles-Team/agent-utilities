@@ -86,11 +86,20 @@ class _FasterWhisper:
         }
 
 
+def _configured_voice_model() -> str:
+    model_name = str(setting("MESSAGING_VOICE_MODEL", "")).strip()
+    if not model_name:
+        raise ValueError(
+            "MESSAGING_VOICE_MODEL must select an operator-configured model"
+        )
+    return model_name
+
+
 def _get_backend() -> Any:
     global _backend
     if _backend is not None:
         return _backend
-    model_name = str(setting("MESSAGING_VOICE_MODEL", "base"))
+    model_name = _configured_voice_model()
     try:
         # Prefer the full audio-transcriber backend when the package is present.
         from audio_transcriber.audio_transcriber import FasterWhisperBackend
@@ -119,10 +128,6 @@ def _sync_transcribe_full(path: str) -> dict:
             "segments": list(result.get("segments") or []),
         }
     return {"text": str(result).strip(), "segments": []}
-
-
-def _sync_transcribe(path: str) -> str:
-    return str(_sync_transcribe_full(path).get("text", "")).strip()
 
 
 async def _transcribe_bytes_full(content: bytes, *, suffix: str = ".ogg") -> dict:

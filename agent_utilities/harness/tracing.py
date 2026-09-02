@@ -32,7 +32,7 @@ Usage::
         results = await search(query)
         return await synthesize(results)
 
-    @generation(name="llm_call", model="qwen3.6-27b")
+    @generation(name="llm_call", model="operator/model-id")
     async def call_llm(prompt: str):
         return await model.generate(prompt)
 """

@@ -1604,8 +1604,8 @@ async def _submit_workflow_pr(
         from agent_utilities.agent.factory import create_agent
 
         pr_agent, _ = create_agent(
-            provider="openai",
-            model_id="openai:gpt-4o",
+            provider=DEFAULT_PROVIDER,
+            model_id=DEFAULT_GRAPH_AGENT_MODEL,
             system_prompt="You are an automated PR submission agent. You have access to GitHub, GitLab, and Repository Manager MCP tools.",
             name="pr_submitter",
             enable_universal_tools=True,
@@ -2446,7 +2446,7 @@ class AgentOrchestrationEngine:
                 self.event_queue = None
 
         state = MockGraphState(task)
-        deps = MockGraphDeps("openai:gpt-4o-mini")
+        deps = MockGraphDeps(DEFAULT_GRAPH_AGENT_MODEL)
 
         iteration = 0
         convergence_reached = False

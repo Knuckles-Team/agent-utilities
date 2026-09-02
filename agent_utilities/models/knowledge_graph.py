@@ -1636,7 +1636,7 @@ class TraceNode(RegistryNode):
     agent: str | None = None
     status: str = "ok"  # ok | error
     latency_ms: float | None = None
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     tags: list[str] = Field(default_factory=list)
@@ -1687,7 +1687,7 @@ class GenerationNode(RegistryNode):
     provider: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
     latency_ms: float | None = None
     finish_reason: str | None = None
     error: str | None = None
@@ -3388,7 +3388,7 @@ class MemoryRetrieverNode(RegistryNode):
         description=(
             "CONCEPT:AU-AHE.evaluation.interpretability-tests — Model Synergy Tracker. Tracks success rates "
             "for model combinations used in sessions. Keys are sorted, "
-            "pipe-delimited model IDs (e.g., 'gpt-4o|claude-sonnet'). "
+            "pipe-delimited registry model IDs (e.g., 'model-a|model-b'). "
             "Values are EMA success rates [0.0, 1.0]. Enables intelligent "
             "model recombination when preferred models are unavailable. "
             "Inspired by the RL Conductor's adaptive worker pool selection "

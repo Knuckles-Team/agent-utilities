@@ -73,9 +73,30 @@ def test_token_budget_trips_on_caller_reported_usage():
 
 
 def test_cost_budget_trips_on_caller_reported_usage():
-    tracker = BudgetTracker(Budgets(loop_budget=1_000_000, cost_budget_usd=0.0001))
+    from agent_utilities.graph.reactive.budget import BudgetGuard
+    from agent_utilities.pricing import ModelPricing, PricingCatalog
+
+    guard = BudgetGuard(
+        max_cost_usd=0.0001,
+        pricing_catalog=PricingCatalog(
+            [
+                ModelPricing(
+                    model_pattern="priced-model",
+                    input_per_mtok=1.0,
+                    output_per_mtok=1.0,
+                )
+            ]
+        ),
+    )
+    tracker = BudgetTracker(
+        Budgets(loop_budget=1_000_000, cost_budget_usd=0.0001), guard=guard
+    )
     with pytest.raises(BudgetExhausted) as excinfo:
-        tracker.record_usage(prompt_tokens=10_000, response_tokens=10_000)
+        tracker.record_usage(
+            prompt_tokens=10_000,
+            response_tokens=10_000,
+            model="priced-model",
+        )
     assert excinfo.value.proof.reason is TerminationReason.COST_BUDGET_EXHAUSTED
 
 

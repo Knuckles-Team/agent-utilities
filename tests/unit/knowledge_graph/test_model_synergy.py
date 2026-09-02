@@ -20,7 +20,7 @@ class TestMemoryRetrieverNodeSynergies:
         node = MemoryRetrieverNode(
             id="sm:test",
             name="Test",
-            model_synergies={"gpt-4o|claude-sonnet": 0.85, "gemini-2.5|llama-3": 0.72},
+            model_synergies={"model-a|model-b": 0.85, "model-c|model-d": 0.72},
         )
         assert len(node.model_synergies) == 2
 
@@ -42,9 +42,9 @@ class TestMemoryRetrieverNodeSynergies:
         )
 
     def test_synergy_key_format(self):
-        models = ["claude-sonnet", "gpt-4o", "gemini-2.5"]
+        models = ["model-c", "model-a", "model-b"]
         key = "|".join(sorted(models))
-        assert key == "claude-sonnet|gemini-2.5|gpt-4o"
+        assert key == "model-a|model-b|model-c"
 
     def test_ema_calculation(self):
         old_rate, alpha = 0.5, 0.3
@@ -70,13 +70,17 @@ class TestMemoryRetrieverSynergyTracking:
         s.routing_confidence_log = routing_log or []
         return s
 
-    def test_synergy_recorded_multi_model(self):
+    def _retriever(self):
         from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
             MemoryRetriever,
         )
 
-        sm = MemoryRetriever(self._engine())
-        sm.get_or_create()
+        retriever = MemoryRetriever(self._engine())
+        retriever.get_or_create()
+        return retriever
+
+    def test_synergy_recorded_multi_model(self):
+        sm = self._retriever()
         sm.update_after_session(
             self._session(
                 routing_log=[
@@ -90,12 +94,7 @@ class TestMemoryRetrieverSynergyTracking:
         assert "heavy|light" in updated.model_synergies
 
     def test_no_synergy_single_model(self):
-        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
-            MemoryRetriever,
-        )
-
-        sm = MemoryRetriever(self._engine())
-        sm.get_or_create()
+        sm = self._retriever()
         sm.update_after_session(
             self._session(
                 routing_log=[

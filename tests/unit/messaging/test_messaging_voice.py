@@ -133,6 +133,7 @@ def test_get_backend_falls_back_to_faster_whisper(
     from agent_utilities.messaging import voice
 
     voice._backend = None
+    monkeypatch.setenv("MESSAGING_VOICE_MODEL", "operator/voice-standard")
     # Force `from audio_transcriber.audio_transcriber import ...` to ImportError.
     monkeypatch.setitem(sys.modules, "audio_transcriber", None)
     # Fake faster_whisper.WhisperModel returning two segments.
@@ -153,6 +154,16 @@ def test_get_backend_falls_back_to_faster_whisper(
         assert backend.transcribe("x.ogg")["text"] == "hello world"
     finally:
         voice._backend = None
+
+
+def test_get_backend_requires_operator_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    voice._backend = None
+    monkeypatch.delenv("MESSAGING_VOICE_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="operator-configured model"):
+        voice._get_backend()
 
 
 def test_sniff_image_media_type() -> None:

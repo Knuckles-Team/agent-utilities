@@ -52,6 +52,25 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
+
+def _price_session_usage(
+    model_id: str, usage: UsageStatistics
+) -> tuple[float | None, bool]:
+    from agent_utilities.pricing import get_pricing_catalog
+
+    return get_pricing_catalog().cost_for(
+        model_id,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_creation_tokens=usage.cache_creation_input_tokens,
+        cache_read_tokens=usage.cache_read_input_tokens,
+    )
+
+
+def _render_estimated_cost(cost: float | None) -> str:
+    return "unpriced" if cost is None else f"${cost:.4f}"
+
+
 # Callback type for bridging graph plan state to ACP.
 # Accepts (event_type, plan_entries_as_dicts) and runs async.
 PlanSyncCallback = Callable[
@@ -572,17 +591,17 @@ class GraphState:
         self.session_usage.cache_read_input_tokens += cache_read_tokens
         self.session_usage.reasoning_tokens += reasoning_tokens
 
-        # Simple cost estimation based on Sonnet 3.5 defaults
-        self.session_usage.estimated_cost_usd = (
-            self.session_usage.input_tokens * 0.000003
-        ) + (self.session_usage.output_tokens * 0.000015)
+        cost, priced = _price_session_usage(
+            self.pinned_model_id or "", self.session_usage
+        )
+        self.session_usage.estimated_cost_usd = cost
+        self.session_usage.estimated_cost_priced = priced
 
         cost = self.session_usage.estimated_cost_usd
         total = self.session_usage.total_tokens
 
-        # Safe logging to avoid formatting errors on Mocks (though _to_int should handle it)
-        cost_str = f"{cost:.4f}" if isinstance(cost, int | float) else str(cost)
-        logger.debug(f"Usage Updated: ${cost_str} ({total} tokens)")
+        cost_str = _render_estimated_cost(cost)
+        logger.debug("Usage Updated: %s (%s tokens)", cost_str, total)
 
     def sync_to_disk(self, artifact_prefix: str = ""):
         """Persist key state artifacts to the local workspace for inspection.

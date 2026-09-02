@@ -227,8 +227,8 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `CHAT_MODELS` | `'[{"id":"chat-model","provider":"openai","base_url":"https://chat-model.example.test/v1","api_key_ref":"env://MODEL_API_KEY_1","headers_ref":"env://MODEL_HEADERS_1","intelligence_level":"normal"}]'` | ─────────────────────────────────────────────────────────────────────────────── 1. Primary Model Registry (JSON Overrides) ─────────────────────────────────────────────────────────────────────────────── [OPTIONAL] JSON string array of chat models. Overrides config.json registries. |
-| `EMBEDDING_MODELS` | `'[{"id":"embedding-model","provider":"openai","base_url":"https://embedding-model.example.test/v1","api_key_ref":"env://MODEL_API_KEY_2","headers_ref":"env://MODEL_HEADERS_2","chunk_size":768}]'` | [OPTIONAL] JSON string array of embedding models. Overrides config.json registries. |
+| `CHAT_MODELS` | `'[{"id":"chat-model","provider":"custom","base_url":"https://chat-model.example.test/v1","api_key_ref":"env://MODEL_API_KEY_1","headers_ref":"env://MODEL_HEADERS_1","intelligence_level":"normal"}]'` | ─────────────────────────────────────────────────────────────────────────────── 1. Primary Model Registry (JSON Overrides) ─────────────────────────────────────────────────────────────────────────────── [OPTIONAL] JSON string array of chat models. Overrides config.json registries. |
+| `EMBEDDING_MODELS` | `'[{"id":"embedding-model","provider":"custom","base_url":"https://embedding-model.example.test/v1","api_key_ref":"env://MODEL_API_KEY_2","headers_ref":"env://MODEL_HEADERS_2","chunk_size":768}]'` | [OPTIONAL] JSON string array of embedding models. Overrides config.json registries. |
 | `OPENAI_API_KEY` | secret-injected | ─────────────────────────────────────────────────────────────────────────────── 2. Process-only Provider Overrides ─────────────────────────────────────────────────────────────────────────────── These literal key variables are accepted only from the explicit process environment. Durable AgentConfig must use the provider's dedicated *_REF field. |
 | `OPENAI_API_KEY_REF` | `vault://secret/data/agent-utilities/openai` | api_key |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |  |
@@ -515,8 +515,8 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 | `MESSAGING_ALERT_INTAKE_TOKEN_REF` | — |  |
 | `MESSAGING_BURST_MAX_S` | `12` |  |
 | `MESSAGING_BURST_WINDOW_S` | `2.5` |  |
-| `MESSAGING_CLAUDE_MODEL` | `claude-sonnet-4-6` |  |
-| `MESSAGING_CLAUDE_TRIGGER` | `/claude` |  |
+| `MESSAGING_ADDRESSED_MODEL` | — |  |
+| `MESSAGING_MODEL_TRIGGER` | — |  |
 | `MESSAGING_DEFAULT_CHANNEL` | — |  |
 | `MESSAGING_DEFAULT_PLATFORM` | `telegram` |  |
 | `MESSAGING_INTAKE_ENABLED` | `false` |  |
@@ -537,7 +537,7 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 | `MESSAGING_LISTEN_BACKOFF_BASE_S` | `1` |  |
 | `MESSAGING_LISTEN_BACKOFF_MAX_S` | `60` |  |
 | `MESSAGING_LISTEN_HEALTHY_RESET_S` | `60` |  |
-| `MESSAGING_LOCAL_MODEL` | — |  |
+| `MESSAGING_DEFAULT_MODEL` | — |  |
 | `MESSAGING_LOG_LEVEL` | `INFO` |  |
 | `MESSAGING_MATRIX_HOMESERVER` | — |  |
 | `MESSAGING_MATRIX_TOKEN` | secret-injected |  |
@@ -565,7 +565,7 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 | `MESSAGING_VOICECALL_APP_ID` | — |  |
 | `MESSAGING_VOICECALL_FROM_NUMBER` | — |  |
 | `MESSAGING_VOICECALL_TOKEN` | secret-injected |  |
-| `MESSAGING_VOICE_MODEL` | `base` |  |
+| `MESSAGING_VOICE_MODEL` | — |  |
 | `MESSAGING_WEBHOOK_BASE_URL` | — |  |
 | `MESSAGING_WEBHOOK_PORT` | `8443` |  |
 | `MESSAGING_WEBHOOK_SECRET` | secret-injected |  |
@@ -1090,6 +1090,7 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 | `MODEL_MAX_CONCURRENT_REQUESTS` | — |  |
 | `MODEL_ROLE_ROUTING` | — |  |
 | `POSTGRES_DSN` | — |  |
+| `PRICING_CATALOG_PATH` | — | Versioned operator-owned JSON pricing catalog |
 | `PRICING_LITELLM_URL` | — |  |
 | `REDIS_CONNECTION_PROFILE_REF` | — |  |
 | `REDIS_TLS_PROFILE` | — |  |
@@ -1322,8 +1323,8 @@ This project is licensed under the terms in the [LICENSE](LICENSE) file.
 | `MCP_CLIENT_AUTH` | — | Outbound MCP child auth: `oidc-client-credentials` \| `basic` \| `none` |
 | `MCP_BASIC_AUTH_USERNAME` | — | HTTP Basic username (`MCP_CLIENT_AUTH=basic`) |
 | `PYTHONUNBUFFERED` | `1` | Unbuffered stdout (recommended in containers) |
-| `PROVIDER` | `openai` | LLM provider for the agent |
-| `MODEL_ID` | `gpt-4o` | Model id for the agent |
+| `PROVIDER` | — | Operator-configured LLM provider for the agent |
+| `MODEL_ID` | — | Operator-configured model id for the agent |
 
-_1079 package + 13 inherited variable(s). Auto-generated from `.env.example` + the shared agent-utilities set — do not edit._
+_1080 package + 13 inherited variable(s). Auto-generated from `.env.example` + the shared agent-utilities set — do not edit._
 <!-- ENV-VARS-TABLE:END -->

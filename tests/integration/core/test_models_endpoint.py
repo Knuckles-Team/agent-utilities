@@ -163,22 +163,22 @@ def test_models_endpoint_single_model_bootstrap(mock_agent, monkeypatch):
     client = _build_client(
         monkeypatch,
         _agent=mock_agent,
-        provider="openai",
-        model_id="gpt-4o-mini",
+        provider="vendor-a",
+        model_id="model-v7",
         base_url=None,
     )
     resp = client.get("/models")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["default_id"] == "openai:gpt-4o-mini"
+    assert data["default_id"] == "vendor-a:model-v7"
     assert len(data["models"]) == 1
     only = data["models"][0]
-    assert only["id"] == "openai:gpt-4o-mini"
-    assert only["provider"] == "openai"
-    assert only["model_id"] == "gpt-4o-mini"
+    assert only["id"] == "vendor-a:model-v7"
+    assert only["provider"] == "vendor-a"
+    assert only["model_id"] == "model-v7"
     assert only["tier"] == "medium"
     assert only["is_default"] is True
-    assert only["cost"] == {"input": 0.0, "output": 0.0}
+    assert only["cost"] == {"input": None, "output": None}
 
 
 def test_models_endpoint_multi_model_registry(mock_agent, monkeypatch):
@@ -317,10 +317,10 @@ def test_resolve_model_registry_missing_config_file_logs_and_falls_back(
         str(tmp_path / "nope.json"),
     )
     # File does not exist -> resolver falls through to kwargs/empty.
-    result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
+    result = resolve_model_registry(provider="vendor-a", model_id="model-v7")
     _missing_default = result.get_default()
     assert _missing_default is not None
-    assert _missing_default.id == "openai:gpt-4o-mini"
+    assert _missing_default.id == "vendor-a:model-v7"
 
 
 def test_resolve_model_registry_invalid_yaml_falls_back_to_bootstrap(
@@ -332,10 +332,10 @@ def test_resolve_model_registry_invalid_yaml_falls_back_to_bootstrap(
     monkeypatch.setattr(
         "agent_utilities.server.dependencies.config.model_registry_path", str(cfg)
     )
-    result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
+    result = resolve_model_registry(provider="vendor-a", model_id="model-v7")
     _broken_default = result.get_default()
     assert _broken_default is not None
-    assert _broken_default.id == "openai:gpt-4o-mini"
+    assert _broken_default.id == "vendor-a:model-v7"
 
 
 def test_models_endpoint_app_state_attached(mock_agent, monkeypatch):

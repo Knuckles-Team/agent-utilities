@@ -3,8 +3,7 @@ from __future__ import annotations
 """Model Registry.
 
 Declarative configuration for the multi-model routing layer. A single
-`ModelRegistry` can describe N LLM models (fast local LM Studio, cloud
-frontier models, specialized reasoning models) with per-model cost rates,
+`ModelRegistry` can describe N local, remote, or specialized models with per-model cost rates,
 routing tier, and capability tags.
 
 Consumers:
@@ -21,14 +20,20 @@ Consumers:
 
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from agent_utilities.agent.sampling_profile import DEFAULT_PROFILE, SamplingProfile
 
 ModelTier = Literal["light", "medium", "heavy", "reasoning"]
+
+
+class ModelRegistryConfigurationError(RuntimeError):
+    """A configured registry could not be loaded as an authoritative document."""
+
 
 # Ordered tier list for CONCEPT:AU-ORCH.routing.confidence-gated-routing-log confidence-gated routing helpers.
 _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
@@ -81,9 +86,9 @@ class RoleSpec(BaseModel):
 
 
 # Default role bindings mirroring Quarq's roles, expressed as portable tier+tag queries.
-#   planner   → cheap/fast structured-plan generation (Quarq gpt-4o-mini HyDE planner)
-#   generator → high-capability synthesis (Quarq gpt-4.1 generator)
-#   learner   → high-capability fact extraction / targeted edits (Quarq gpt-4.1 learner)
+#   planner   → cheap/fast structured-plan generation
+#   generator → high-capability synthesis
+#   learner   → high-capability fact extraction / targeted edits
 #   judge     → deepest reasoning for binary evaluation (LongMemEval judge)
 _DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
     "planner": RoleSpec(tier="light", tags=["plan", "json"]),
@@ -179,14 +184,12 @@ class RoutingDecision(BaseModel):
 class ModelCostRate(BaseModel):
     """USD cost per 1 million tokens.
 
-    Zero values are legal and express a local / free-of-charge model
-    (e.g. LM Studio running on localhost). Downstream UIs should render
-    `$0.00` rather than `—` for a configured zero-cost model so users
-    still see that token/tool counts are being tracked.
+    ``None`` is unpriced. Explicit zero values express a free-of-charge model;
+    downstream consumers must not conflate those two states.
     """
 
-    input: float = Field(ge=0.0, default=0.0)
-    output: float = Field(ge=0.0, default=0.0)
+    input: float | None = Field(ge=0.0, default=None)
+    output: float | None = Field(ge=0.0, default=None)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -197,17 +200,10 @@ class ModelDefinition(BaseModel):
     id: str = Field(description="Stable identifier (user-chosen).")
     name: str = Field(description="Human display name.")
     provider: str = Field(
-        description=(
-            "pydantic-ai provider string, e.g. 'openai', 'anthropic', "
-            "'google-gla', 'ollama', or a custom label for local endpoints."
-        ),
+        description="Configured provider or local-endpoint label.",
     )
     model_id: str = Field(
-        description=(
-            "The actual model identifier sent to the provider, e.g. "
-            "'gpt-4o-mini', 'claude-3-5-haiku-20241022', "
-            "'llama-3.2-3b-instruct'."
-        ),
+        description="Operator-supplied model identifier sent to the provider.",
     )
     base_url: str | None = Field(
         default=None,
@@ -224,7 +220,7 @@ class ModelDefinition(BaseModel):
         default=None,
         description=(
             "OAuth2 client_credentials block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle) — "
-            "machine-to-machine auth for enterprise OpenAI-compatible/Azure endpoints requiring a "
+            "machine-to-machine auth for enterprise model endpoints requiring a "
             "short-lived minted bearer instead of a static api_key_env. Mutually exclusive with "
             "api_key_env (validated below). Shape: "
             "agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig."
@@ -324,6 +320,22 @@ class ModelRegistry(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+    _adapter_factories: dict[str, Callable[[Any], Any]] = PrivateAttr(
+        default_factory=dict
+    )
+
+    def register_adapter_factory(
+        self, provider: str, factory: Callable[[Any], Any]
+    ) -> None:
+        """Bind one operator provider identity to its concrete model constructor."""
+        provider_id = provider.strip()
+        if not provider_id or not callable(factory):
+            raise ValueError("adapter factory requires a provider id and callable")
+        self._adapter_factories[provider_id] = factory
+
+    def get_adapter_factory(self, provider: str) -> Callable[[Any], Any] | None:
+        """Return the process-local constructor bound to ``provider``."""
+        return self._adapter_factories.get(provider)
 
     def get_default(self) -> ModelDefinition | None:
         """Return the model marked `is_default`, or fall back to the first.
@@ -789,18 +801,35 @@ def inference_owl_ttl(registry: ModelRegistry | None = None) -> str:
             lines.append(f"    kg:contextWindow {model.context_window} ;")
         if model.max_output_tokens is not None:
             lines.append(f"    kg:maxOutputTokens {model.max_output_tokens} ;")
-        lines.append(f"    kg:inputCostPerMillion {model.cost.input} ;")
-        lines.append(f"    kg:outputCostPerMillion {model.cost.output} ;")
+        lines.extend(_model_cost_ttl(model))
         lines.append(f'    kg:tier "{model.tier}" .')
         lines.append("")
 
     return "\n".join(lines)
 
 
+def _model_cost_ttl(model: ModelDefinition) -> list[str]:
+    rendered: list[str] = []
+    if model.cost.input is not None:
+        rendered.append(f"    kg:inputCostPerMillion {model.cost.input} ;")
+    if model.cost.output is not None:
+        rendered.append(f"    kg:outputCostPerMillion {model.cost.output} ;")
+    return rendered
+
+
 # Process-global active registry. Cached so a profile learned/set at runtime
 # (AHE-3.38 promotion, the ontology_sampling_profile 'set' action) persists across
 # calls and is seen by the router/factory (ORCH-1.58) within the process.
 _ACTIVE_REGISTRY: ModelRegistry | None = None
+
+
+def _load_configured_registry(path: str | Path) -> ModelRegistry:
+    try:
+        return ModelRegistry.load_from_file(path)
+    except Exception as exc:
+        raise ModelRegistryConfigurationError(
+            "configured model registry is unavailable or invalid"
+        ) from exc
 
 
 def load_active_registry() -> ModelRegistry:
@@ -811,20 +840,18 @@ def load_active_registry() -> ModelRegistry:
     so the curated/learned sampling profiles are available even in the zero-infra
     ``tiny`` profile where no registry file exists. The same object is returned on
     every call, so ``set_task_profile``/``evolve_profile`` writes are visible to the
-    router and factory until the process restarts. Never raises.
+    router and factory until the process restarts. A configured registry is
+    authoritative: missing, unreadable, or invalid input raises a typed error.
     """
     global _ACTIVE_REGISTRY
-    if _ACTIVE_REGISTRY is None:
-        try:
-            from agent_utilities.core.config import config
+    if _ACTIVE_REGISTRY is not None:
+        return _ACTIVE_REGISTRY
+    from agent_utilities.core.config import config
 
-            cfg_path = getattr(config, "model_registry_path", None)
-            if cfg_path and Path(cfg_path).is_file():
-                _ACTIVE_REGISTRY = ModelRegistry.load_from_file(cfg_path)
-        except Exception:  # noqa: BLE001 - registry load is best-effort
-            _ACTIVE_REGISTRY = None
-        if _ACTIVE_REGISTRY is None:
-            _ACTIVE_REGISTRY = ModelRegistry()
+    cfg_path = getattr(config, "model_registry_path", None)
+    _ACTIVE_REGISTRY = (
+        _load_configured_registry(cfg_path) if cfg_path else ModelRegistry()
+    )
     return _ACTIVE_REGISTRY
 
 

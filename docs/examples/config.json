@@ -193,9 +193,9 @@
     ],
     "chat_models": [
         {
-            "id": "qwen/qwen3.6-27b",
-            "provider": "openai",
-            "base_url": "http://vllm.arpa/v1",
+            "id": "operator/chat-standard",
+            "provider": "custom",
+            "base_url": "https://model-gateway.example.test/v1",
             "supports_json": false,
             "vision": true,
             "reasoning": true,
@@ -207,9 +207,9 @@
             "can_kg": true
         },
         {
-            "id": "google/gemma-4-e2b",
-            "provider": "openai",
-            "base_url": "http://vllm.arpa/v1",
+            "id": "operator/chat-light",
+            "provider": "custom",
+            "base_url": "https://model-gateway.example.test/v1",
             "supports_json": false,
             "vision": true,
             "reasoning": true,
@@ -221,9 +221,9 @@
             "can_kg": true
         },
         {
-            "id": "liquid/lfm2-1.2b",
-            "provider": "openai",
-            "base_url": "http://vllm.arpa/v1",
+            "id": "operator/chat-fast",
+            "provider": "custom",
+            "base_url": "https://model-gateway.example.test/v1",
             "supports_json": true,
             "vision": false,
             "reasoning": false,
@@ -235,9 +235,9 @@
             "can_kg": false
         },
         {
-            "id": "nvidia/nemotron-3-nano-omni",
-            "provider": "openai",
-            "base_url": "http://vllm.arpa/v1",
+            "id": "operator/chat-advanced",
+            "provider": "custom",
+            "base_url": "https://model-gateway.example.test/v1",
             "supports_json": true,
             "vision": true,
             "reasoning": true,
@@ -251,18 +251,18 @@
     ],
     "embedding_models": [
         {
-            "id": "bge-m3",
-            "provider": "openai",
-            "base_url": "http://gr1080-embed.arpa/v1",
-            "gpu_group": "gr1080",
+            "id": "operator/embedding",
+            "provider": "custom",
+            "base_url": "https://embedding-gateway.example.test/v1",
+            "gpu_group": "primary",
             "parallel_instances": 4,
             "max_concurrent_requests": 16,
             "chunk_size": 768,
             "fallback": {
-                "id": "bge-m3",
-                "provider": "openai",
-                "base_url": "http://vllm-embed.arpa/v1",
-                "gpu_group": "gb10",
+                "id": "operator/embedding-secondary",
+                "provider": "custom",
+                "base_url": "https://embedding-secondary.example.test/v1",
+                "gpu_group": "secondary",
                 "parallel_instances": 2,
                 "max_concurrent_requests": 8,
                 "chunk_size": 768
@@ -274,9 +274,9 @@
     "messaging_default_platform": "telegram",
     "messaging_default_channel": "",
     "messaging_agent": "",
-    "messaging_claude_trigger": "/claude",
-    "messaging_claude_model": "claude-sonnet-4-6",
-    "messaging_local_model": "",
+    "messaging_model_trigger": "",
+    "messaging_addressed_model": "",
+    "messaging_default_model": "",
     "agent_kg_tools": "True",
     "messaging_burst_window_s": "2.5",
     "messaging_burst_max_s": "12",
@@ -284,7 +284,7 @@
     "messaging_webhook_base_url": "",
     "messaging_webhook_port": "8443",
     "messaging_webhook_secret": "",
-    "messaging_voice": "1",
-    "messaging_voice_model": "base",
+    "messaging_voice": "0",
+    "messaging_voice_model": "",
     "messaging_goals": "1"
 }

@@ -23,6 +23,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Protocol
 
+from agent_utilities.pricing import total_known_cost
+
 from .base import TaskCase
 from .cost import estimate_cost_usd
 
@@ -44,7 +46,7 @@ class SystemOutput:
     system: str
     prediction: str
     tokens: int = 0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     max_depth: int = 0
 
 
@@ -116,7 +118,7 @@ class VanillaSystem(System):
 
     def __init__(
         self,
-        model_id: str = "openai:gpt-4o-mini",
+        model_id: str = "",
         *,
         window_chars: int = 100_000,
         completer: Completer | None = None,
@@ -146,8 +148,8 @@ class CompactionSystem(System):
 
     def __init__(
         self,
-        model_large: str = "google:gemini-1.5-flash",
-        model_small: str = "openai:gpt-4o-mini",
+        model_large: str = "",
+        model_small: str = "",
         *,
         chunk_chars: int = 8_000,
         max_chunks: int = 64,
@@ -165,7 +167,7 @@ class CompactionSystem(System):
         chunks = chunks[: self.max_chunks]
         summaries: list[str] = []
         tokens = 0
-        cost = 0.0
+        costs: list[float | None] = []
         for ch in chunks:
             out = await self.completer.complete(
                 "Summarize the text, preserving any detail relevant to the question.",
@@ -174,7 +176,7 @@ class CompactionSystem(System):
             )
             summaries.append(out.text)
             tokens += out.tokens
-            cost += estimate_cost_usd(out.tokens, self.model_small)
+            costs.append(estimate_cost_usd(out.tokens, self.model_small))
         digest = "\n".join(summaries)
         final = await self.completer.complete(
             "You answer using only the compacted notes.",
@@ -182,13 +184,13 @@ class CompactionSystem(System):
             model_id=self.model_large,
         )
         tokens += final.tokens
-        cost += estimate_cost_usd(final.tokens, self.model_large)
+        costs.append(estimate_cost_usd(final.tokens, self.model_large))
         note = "compaction truncated chunk set" if truncated else ""
         return SystemOutput(
             system=self.name + (f" ({note})" if note else ""),
             prediction=final.text,
             tokens=tokens,
-            cost_usd=cost,
+            cost_usd=total_known_cost(costs),
         )
 
 
@@ -212,9 +214,17 @@ class RLMSystem(System):
         prompt_t = int(usage.get("prompt_tokens", 0))
         completion_t = int(usage.get("completion_tokens", 0))
         sub_t = int(usage.get("sub_lm_tokens", 0))
-        cost = estimate_cost_usd(
-            prompt_t + completion_t, getattr(self.config, "sub_llm_model_large", "")
-        ) + estimate_cost_usd(sub_t, getattr(self.config, "sub_llm_model_small", ""))
+        cost = total_known_cost(
+            (
+                estimate_cost_usd(
+                    prompt_t + completion_t,
+                    getattr(self.config, "sub_llm_model_large", ""),
+                ),
+                estimate_cost_usd(
+                    sub_t, getattr(self.config, "sub_llm_model_small", "")
+                ),
+            )
+        )
         return SystemOutput(
             system=self.name,
             prediction=str(result.get("result", "")),

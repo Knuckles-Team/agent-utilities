@@ -74,18 +74,15 @@ class AdapterDefinition:
     """Declarative description of one agent-CLI runtime backend.
 
     Attributes:
-        id: Stable adapter id (e.g. ``"claude-code"``, ``"ollama"``, ``"generic-cmd"``).
+        id: Stable operator-defined adapter id.
         bin: Executable name resolved on ``PATH``.
         version_args: Args that print a version (used for detection / capability probing).
         build_args: ``(model, prompt) -> list[str]`` producing the spawn argv. When prompt is
             delivered via stdin the prompt arg is omitted by the builder.
         stream_format: How stdout is parsed (:class:`StreamFormat`).
         prompt_delivery: How the prompt is delivered (:class:`PromptDelivery`).
-        fallback_models: Model ids surfaced when live model listing is unavailable (graceful
-            degradation — the picker never shows an empty list).
-        model_override_env_var: Operator-level env var that pins the model for headless deploys
-            (open-design ``defaultModelEnvVar``); consulted when no model is requested.
-        list_models: Optional callable returning live model ids; falls back to ``fallback_models``.
+        list_models: Optional callable returning model ids discovered from the
+            installed adapter. Operator registry selection remains authoritative.
         env: Extra environment to inject into the spawned process.
     """
 
@@ -99,24 +96,12 @@ class AdapterDefinition:
     )
     stream_format: StreamFormat = StreamFormat.PLAIN
     prompt_delivery: PromptDelivery = PromptDelivery.ARGS
-    fallback_models: tuple[str, ...] = ()
-    model_override_env_var: str | None = None
     list_models: Callable[[], list[str]] | None = None
     env: dict[str, str] = field(default_factory=dict)
 
-    def resolve_model(
-        self, requested: str | None, env: dict[str, str] | None = None
-    ) -> str:
-        """Resolve the effective model id: explicit request > override env var > first fallback > ""."""
-        import os
-
-        if requested:
-            return requested
-        if self.model_override_env_var:
-            val = (env or os.environ).get(self.model_override_env_var)
-            if val:
-                return val
-        return self.fallback_models[0] if self.fallback_models else ""
+    def resolve_model(self, requested: str | None) -> str:
+        """Return the operator-selected model id without inventing a default."""
+        return requested or ""
 
 
 @dataclass(slots=True)

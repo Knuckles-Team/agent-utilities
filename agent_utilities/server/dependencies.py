@@ -181,13 +181,14 @@ def resolve_model_registry(
                 )
 
     if model_id:
-        _id = f"{provider}:{model_id}" if provider else model_id
+        resolved_provider = _required_registry_provider(provider)
+        _id = f"{resolved_provider}:{model_id}"
         return ModelRegistry(
             models=[
                 ModelDefinition(
                     id=_id,
                     name=model_id,
-                    provider=provider or "openai",
+                    provider=resolved_provider,
                     model_id=model_id,
                     base_url=base_url,
                     api_key_env=api_key_env,
@@ -198,3 +199,11 @@ def resolve_model_registry(
         )
 
     return ModelRegistry()
+
+
+def _required_registry_provider(provider: str | None) -> str:
+    if not provider:
+        raise ValueError(
+            "model provider is required when bootstrapping a registry entry"
+        )
+    return provider

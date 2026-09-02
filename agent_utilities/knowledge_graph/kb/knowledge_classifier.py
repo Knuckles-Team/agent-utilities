@@ -29,8 +29,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from agent_utilities.core.config import setting
-
 from ...core.config import config
 
 logger = logging.getLogger(__name__)
@@ -157,12 +155,14 @@ class UniversalKnowledgeClassifier:
         api_key: str | None = None,
     ) -> None:
         _default_chat = config.default_chat_model
-        self._model_str = model or setting("MODEL_ID", "gpt-4o-mini")
-        self._provider = provider or setting("PROVIDER", "openai")
-        self._base_url = base_url or (_default_chat.base_url if _default_chat else None)
-        self._api_key = (
-            api_key or (_default_chat.api_key_ref if _default_chat else "") or ""
-        )
+        self._model_arguments: dict[str, Any] = {
+            "model_id": model or getattr(_default_chat, "id", ""),
+            "provider": provider or getattr(_default_chat, "provider", ""),
+            "base_url": base_url or (_default_chat.base_url if _default_chat else None),
+            "api_key": api_key
+            or (_default_chat.api_key_ref if _default_chat else "")
+            or "",
+        }
         self._agent: Any = None
 
     def _get_agent(self):
@@ -173,12 +173,7 @@ class UniversalKnowledgeClassifier:
 
                 from ...core.model_factory import create_model
 
-                model = create_model(
-                    provider=self._provider,
-                    model_id=self._model_str,
-                    base_url=self._base_url,
-                    api_key=self._api_key,
-                )
+                model = create_model(**self._model_arguments)
                 self._agent = create_context_agent(
                     model=model,
                     output_type=KnowledgeClassification,

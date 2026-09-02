@@ -5,35 +5,32 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.rlm import RLM, RLMConfig, RLMResponse
-from agent_utilities.rlm.prompts import build_system_prompt, infer_family
+from agent_utilities.rlm.prompts import build_system_prompt, infer_profile
 from agent_utilities.rlm.telemetry import LMUsage
 
 # ── model-family-aware prompt (ORCH-1.54) ──
 
 
-def test_infer_family():
-    assert infer_family("anthropic:claude-sonnet-4-6") == "anthropic"
-    assert infer_family("openai:gpt-4o-mini") == "openai"
-    assert infer_family("qwen:Qwen3-8B") == "qwen"
-    assert infer_family("google:gemini-1.5-flash") == "openai"  # neutral default
+def test_auto_profile_does_not_infer_behavior_from_identity():
+    assert infer_profile("vendor-a/reasoner-large") == "concise"
+    assert infer_profile("vendor-b/chat-small") == "concise"
 
 
 def test_build_system_prompt_addenda():
-    base = build_system_prompt("openai", "openai:gpt-4o-mini")
-    qwen = build_system_prompt("auto", "qwen:Qwen3-8B")
-    anthropic = build_system_prompt("auto", "anthropic:claude-sonnet-4-6")
+    base = build_system_prompt("auto", "vendor-a/chat-small")
+    concise = build_system_prompt("concise", "vendor-b/chat-medium")
+    code_first = build_system_prompt("code-first", "vendor-c/reasoner-large")
     # All share the core helper contract.
-    for p in (base, qwen, anthropic):
+    for p in (base, concise, code_first):
         assert "rlm_query" in p and "FINAL_VAR" in p
     # Family addenda differ and target their failure modes.
-    assert "terse" in qwen.lower()
-    assert "narrate" in anthropic.lower()
-    assert qwen != base and anthropic != base
+    assert "terse" in concise.lower()
+    assert "narrate" in code_first.lower()
+    assert concise == base and code_first != base
 
 
 def test_prompt_family_pin_overrides_inference():
-    # Pinning 'qwen' on an OpenAI model id still yields the qwen addendum.
-    pinned = build_system_prompt("qwen", "openai:gpt-4o-mini")
+    pinned = build_system_prompt("concise", "vendor-a/chat-small")
     assert "terse" in pinned.lower()
 
 
@@ -51,7 +48,7 @@ async def test_rlm_acompletion_maps_result(monkeypatch):
         return {"ok": True, "result": "the answer", "usage": {"total": 42}}
 
     monkeypatch.setattr("agent_utilities.rlm.client.run_rlm", fake_run_rlm)
-    rlm = RLM(backend="openai", backend_kwargs={"model_name": "gpt-4o-mini"})
+    rlm = RLM(backend="vendor-a", backend_kwargs={"model_name": "chat-small"})
     resp = await rlm.acompletion("a very long document")
     assert isinstance(resp, RLMResponse)
     assert resp.response == "the answer" and resp.text == "the answer"
@@ -67,18 +64,18 @@ async def test_rlm_acompletion_question_over_context(monkeypatch):
         return {"ok": True, "result": "ok", "usage": {}}
 
     monkeypatch.setattr("agent_utilities.rlm.client.run_rlm", fake_run_rlm)
-    rlm = RLM(backend="openai", backend_kwargs={"model_name": "gpt-4o-mini"})
+    rlm = RLM(backend="vendor-a", backend_kwargs={"model_name": "chat-small"})
     await rlm.acompletion("what is X?", context="big ctx")
     assert seen["task"] == "what is X?" and seen["input"] == "big ctx"
 
 
 def test_rlm_backend_sets_root_model():
-    rlm = RLM(backend="anthropic", backend_kwargs={"model_name": "claude-sonnet-4-6"})
-    assert rlm.config.sub_llm_model_large == "anthropic:claude-sonnet-4-6"
+    rlm = RLM(backend="vendor-a", backend_kwargs={"model_name": "reasoner-large"})
+    assert rlm.config.sub_llm_model_large == "vendor-a:reasoner-large"
 
 
 async def test_sync_completion_inside_loop_raises():
-    rlm = RLM(backend="openai", backend_kwargs={"model_name": "gpt-4o-mini"})
+    rlm = RLM(backend="vendor-a", backend_kwargs={"model_name": "chat-small"})
     with pytest.raises(RuntimeError, match="event loop"):
         rlm.completion("x")  # we are inside the asyncio test loop
 

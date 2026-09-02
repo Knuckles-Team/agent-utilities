@@ -21,7 +21,7 @@ backend-abstracted analytics store, and a REST + MCP surface.
 
 | Piece | What it does | Concept |
 | --- | --- | --- |
-| Pricing catalog | LiteLLM rates + offline fallback, model-name resolution | ECO-4.40 |
+| Pricing catalog | Operator-owned versioned rates + optional remote refresh | ECO-4.40 |
 | UsageStore | Backend-abstracted fact store (SQLite/Postgres/DuckDB) | AU-OS.observability.usage-analytics-store |
 | Agent-source registry | Auto-detects + parses 36 agents' session logs | AU-ECO.connector.agent-source-ingestion |
 | Runtime instrumentation | Records our own graph runs + tool/skill/db calls | AU-OS.observability.persist-this-graph-run |
@@ -53,27 +53,23 @@ Pricing configuration is retained; subsequent facts use the governed boundary.
    - `usage_log_sync` (every 15 min) — auto-detects installed agents and syncs
      their logs into the store.
    - `usage_pricing_refresh` (daily) — refreshes the LiteLLM pricing catalog.
+
+For offline or historical replay, operators can load a versioned JSON catalog
+through `PricingCatalog.load_from_file(path)`. The document contains exactly a
+non-empty `version` and a `models` list of `ModelPricing` records. Local catalogs
+do not seed built-in prices, so an absent entry stays explicitly unpriced rather
+than inheriting a fabricated rate. Model
+ids are arbitrary operator data and use the same neutral resolver as live rates.
 2. Open any frontend's **Usage & Cost** view.
 
 `graph-os-daemon` can host the queue and background jobs when the REST process is
 not the host, but it serves no HTTP API or frontend. `graph-os` is the MCP server.
 
-To force an immediate sync instead of waiting for the tick:
-
-```bash
-curl -X POST http://localhost:9000/api/observability/sync
-```
-
-or from an agent via MCP: `ingest_sessions(action="collect")`.
-
-Check what was auto-detected:
-
-```python
-from agent_utilities.ingestion.agent_sources import ensure_parsers_loaded, detect_installed
-ensure_parsers_loaded()
-print([s.agent_type for s in detect_installed()])
-# e.g. ['claude', 'gemini', 'opencode', 'antigravity']
-```
+To force an immediate sync instead of waiting for the tick, send `POST
+/api/observability/sync` to the gateway or invoke
+`ingest_sessions(action="collect")` over MCP. To inspect adapter discovery from
+Python, call `ensure_parsers_loaded()` and then list the `agent_type` values from
+`agent_utilities.ingestion.agent_sources.detect_installed()`.
 
 ### What "auto-config" means here
 
@@ -156,16 +152,13 @@ client's filesystem.
 **Client-side trigger for a remote engine (no gateway URL needed).** When the
 engine runs on another host, `collect` runs *engine-side* and can't see this
 client's logs (it fails with `"no gateway url"` if `USAGE_GATEWAY_URL` is unset).
-The direct fix is the client-side upload command — it parses THIS host's logs
-(Claude + Antigravity + every other detected agent) and pushes the bundles to the
-remote graph-os over MCP, reusing the fleet client (server resolved from
-`mcp_config.json`), so no gateway URL or bespoke HTTP client is required:
-
-```bash
-# parse local claude/antigravity/... logs → push to the remote engine via MCP
-agent-utilities ingest-sessions --upload --server graph-os
-agent-utilities ingest-sessions --upload --url "$SESSION_INGEST_URL" --all
-```
+Use the client-side upload command: it parses records visible on the current host,
+bundles every detected adapter's changed sessions, and sends them through the fleet
+client to remote graph-os over MCP. The server is resolved from `mcp_config.json`,
+so this path needs neither a gateway URL nor another HTTP implementation. Run
+`agent-utilities ingest-sessions --upload --server graph-os` for incremental
+collection, or pass `--url "$SESSION_INGEST_URL" --all` to re-parse every file
+against an explicit endpoint.
 
 It calls `upload_local_sessions()` (`agent_utilities/ingestion/collector.py`),
 which drives the remote `ingest_sessions(action="upload", bundles_json=…)` tool in
@@ -257,7 +250,8 @@ read/write integration and proposal workflow.
 | `USAGE_CONTENT_RETENTION` | `metadata` | `metadata` (default/production) \| `sanitized` (governed local opt-in) |
 | `USAGE_DB_URI` | — | Runtime-injected shared-store connection; otherwise XDG discovery selects the local store |
 | `USAGE_DB_PATH` | XDG data location | Optional runtime override; do not commit a machine path |
-| `PRICING_LITELLM_URL` | BerriAI JSON | Pricing source (offline fallback if unreachable) |
+| `PRICING_CATALOG_PATH` | — | Versioned operator-owned local pricing catalog |
+| `PRICING_LITELLM_URL` | — | Optional operator-configured remote refresh source |
 | `USAGE_SYNC_INTERVAL` | `900` | Local-log sync cadence (s) |
 | `USAGE_PRICING_REFRESH_INTERVAL` | `86400` | Pricing refresh cadence (s) |
 | `USAGE_GATEWAY_URL` | — | Central gateway for remote push |

@@ -16,8 +16,10 @@ handling — AFTER the elicitation-bridge check (step 3a: is this message the
 answer to a pending question?) and BEFORE the burst coalescer hands the turn
 to the universal agent (step 4) (`router.py:625-650`). A recognized built-in
 command short-circuits: answered immediately, never coalesced, never sent to
-the LLM. `/claude`, `/skill`, and anything unrecognized return `None` from
-`handle_command` and fall through to the normal agent turn.
+the LLM. Agent-owned commands such as `/skill`, and anything unrecognized,
+return `None` from `handle_command` and fall through to the normal agent turn.
+Addressed model selection is owned separately by the neutral configured trigger
+and `ModelRegistry`; the command registry publishes no provider-specific route.
 
 **The rejected alternative** is per-platform command menus: Telegram's
 `setMyCommands`, a Slack/Mattermost slash-command config, and

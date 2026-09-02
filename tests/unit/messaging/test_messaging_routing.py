@@ -4,8 +4,8 @@ Messaging is thin transport: an inbound chat turn runs the ONE universal graph a
 (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per channel. These tests
 prove the reply routes through that universal path (not a bespoke messaging-only path), that
 continuity + dynamic delegation come from the core, and that a slow/hung graph run still
-yields a reply via the plain-chat fallback. They also cover the preserved local-default /
-Claude-address responder selection used by that fallback, and several concurrent backends.
+yields a reply via the plain-chat fallback. They also cover neutral registry-driven
+responder selection used by that fallback, and several concurrent backends.
 """
 
 from __future__ import annotations
@@ -47,38 +47,93 @@ class _EmptyEvidenceEngine:
         return {}
 
 
-# ── Responder selection (local default / Claude address) ─────────────
+# ── Registry-driven responder selection ──────────────────────────────
 
 
-def test_default_responder_is_local() -> None:
+def test_default_responder_delegates_when_registry_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.models import model_registry
+
+    monkeypatch.delenv("MESSAGING_MODEL_TRIGGER", raising=False)
+    monkeypatch.delenv("MESSAGING_DEFAULT_MODEL", raising=False)
+    monkeypatch.setattr(
+        model_registry, "_ACTIVE_REGISTRY", model_registry.ModelRegistry()
+    )
     label, provider, _model, task = _select_responder("what's the weather?")
-    assert label == "local"
+    assert label == "default"
     assert provider == ""
     assert task == "what's the weather?"
 
 
-def test_claude_address_routes_to_claude_when_key_present(
+def test_addressed_route_resolves_provider_and_model_from_registry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_utilities.core.config import config
+    from agent_utilities.models import model_registry
+    from agent_utilities.models.model_registry import ModelDefinition, ModelRegistry
 
-    monkeypatch.setattr(config, "anthropic_api_key", "sk-test", raising=False)
-    label, provider, model_id, task = _select_responder("/claude summarize this")
-    assert label == "claude"
-    assert provider == "anthropic"
-    assert model_id  # a claude model id
+    registry = ModelRegistry(
+        models=[
+            ModelDefinition(
+                id="addressed",
+                name="Addressed Model",
+                provider="provider-a",
+                model_id="model-a",
+                tier="medium",
+            )
+        ]
+    )
+    monkeypatch.setattr(model_registry, "_ACTIVE_REGISTRY", registry)
+    monkeypatch.setenv("MESSAGING_MODEL_TRIGGER", "/model")
+    monkeypatch.setenv("MESSAGING_ADDRESSED_MODEL", "addressed")
+    label, provider, model_id, task = _select_responder("/model summarize this")
+    assert label == "Addressed Model"
+    assert provider == "provider-a"
+    assert model_id == "model-a"
     assert task == "summarize this"  # trigger stripped
 
 
-def test_claude_address_falls_back_to_local_without_key(
+def test_addressed_route_requires_a_registry_selector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_utilities.core.config import config
+    monkeypatch.setenv("MESSAGING_MODEL_TRIGGER", "/model")
+    monkeypatch.delenv("MESSAGING_ADDRESSED_MODEL", raising=False)
+    with pytest.raises(ValueError, match="MESSAGING_ADDRESSED_MODEL"):
+        _select_responder("/model hi")
 
-    monkeypatch.setattr(config, "anthropic_api_key", None, raising=False)
-    label, provider, _model, _task = _select_responder("/claude hi")
-    assert "no Anthropic key" in label
-    assert provider == ""  # local fallback
+
+def test_addressed_trigger_requires_an_exact_token_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.models import model_registry
+
+    monkeypatch.setattr(
+        model_registry, "_ACTIVE_REGISTRY", model_registry.ModelRegistry()
+    )
+    monkeypatch.setenv("MESSAGING_MODEL_TRIGGER", "/model")
+    monkeypatch.delenv("MESSAGING_ADDRESSED_MODEL", raising=False)
+
+    label, provider, model_id, task = _select_responder("/modeling is unrelated")
+
+    assert (label, provider, model_id, task) == (
+        "default",
+        "",
+        None,
+        "/modeling is unrelated",
+    )
+
+
+@pytest.mark.parametrize(
+    "message", ["/model", "/model task", "/model:task", "/model-task"]
+)
+def test_addressed_trigger_accepts_only_configured_delimiters(
+    monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    monkeypatch.setenv("MESSAGING_MODEL_TRIGGER", "/model")
+    monkeypatch.delenv("MESSAGING_ADDRESSED_MODEL", raising=False)
+
+    with pytest.raises(ValueError, match="MESSAGING_ADDRESSED_MODEL"):
+        _select_responder(message)
 
 
 # ── The reply IS the universal graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent) ─────────
@@ -250,7 +305,7 @@ async def test_reply_error_falls_back_to_plain_chat(
         reply = await _graph_agent_reply(
             object(), "hello there", session="messaging:telegram:42"
         )
-    assert reply.startswith("[local] ")
+    assert reply.startswith("[default] ")
     assert "couldn't draft a reply" not in reply
 
 
@@ -263,7 +318,7 @@ async def test_plain_chat_reply_tags_responder(monkeypatch: pytest.MonkeyPatch) 
 
     with use_context_compiler_engine(_EmptyEvidenceEngine()):
         reply = await _plain_chat_reply("hello there")
-    assert reply.startswith("[local] ")
+    assert reply.startswith("[default] ")
     assert "couldn't draft a reply" not in reply
 
 

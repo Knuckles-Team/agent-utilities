@@ -2,18 +2,8 @@
 
 CONCEPT:AU-ECO.toolkit.model-pricing-catalog — Unified model pricing catalog.
 
-★ WHY THIS MODULE EXISTS (BUG-CX-004 / WD10-B-004)
-``ModelPricing`` used to live in :mod:`agent_utilities.pricing.catalog`, which
-imports :mod:`agent_utilities.pricing.fallback` at module scope to seed itself —
-while ``fallback`` needs ``ModelPricing`` to build its rows. That is a genuine
-circular dependency, and it was previously papered over twice in one 62-line
-file: an ``if TYPE_CHECKING:`` import for the annotation plus a function-local
-import for the constructor.
-
-Holding the shared *type* in a dependency-free leaf that both sides import is
-the honest fix: ``catalog -> model`` and ``fallback -> model`` are both forward
-edges and the cycle is gone. Keep this module free of intra-package imports —
-its whole job is to have no outgoing edges.
+Holding the shared *type* in a dependency-free leaf keeps catalog composition
+free of import cycles. Keep this module free of intra-package imports.
 
 ``catalog`` re-exports ``ModelPricing`` so every existing
 ``from agent_utilities.pricing.catalog import ModelPricing`` keeps working.
@@ -21,7 +11,9 @@ its whole job is to have no outgoing edges.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from collections.abc import Iterable
+
+from pydantic import BaseModel, ConfigDict
 
 
 class ModelPricing(BaseModel):
@@ -32,6 +24,8 @@ class ModelPricing(BaseModel):
     output_per_mtok: float = 0.0
     cache_creation_per_mtok: float = 0.0
     cache_read_per_mtok: float = 0.0
+
+    model_config = ConfigDict(extra="forbid")
 
     def cost_usd(
         self,
@@ -48,3 +42,11 @@ class ModelPricing(BaseModel):
             + cache_creation_tokens / per * self.cache_creation_per_mtok
             + cache_read_tokens / per * self.cache_read_per_mtok
         )
+
+
+def total_known_cost(costs: Iterable[float | None]) -> float | None:
+    """Sum costs only when every monetary value is known."""
+    values = list(costs)
+    if any(value is None for value in values):
+        return None
+    return sum(value for value in values if value is not None)

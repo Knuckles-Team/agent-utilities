@@ -219,6 +219,8 @@ class TestBudgetGuard:
         assert events[0].payload["limit_type"] == "tokens"
 
     def test_spend_limit_breached(self, mock_engine_singleton):
+        from agent_utilities.pricing import ModelPricing, PricingCatalog
+
         ledger = EventLedger(engine=mock_engine_singleton)
         tracker = TokenUsageTracker()
         run_id = "run:budget:3"
@@ -227,13 +229,21 @@ class TestBudgetGuard:
         guard = BudgetGuard(
             max_cost_usd=0.01,
             token_tracker=tracker,
-            prompt_cost_per_token=0.001,  # $1.00 per 1000 tokens
-            response_cost_per_token=0.005,  # $5.00 per 1000 tokens
+            pricing_catalog=PricingCatalog(
+                [
+                    ModelPricing(
+                        model_pattern="priced-model",
+                        input_per_mtok=1000.0,
+                        output_per_mtok=5000.0,
+                    )
+                ]
+            ),
         )
 
         # Record token usage
         rec = TokenUsageRecord(
             agent_name="agent_heavy",
+            model_name="priced-model",
             session_id=run_id,
             prompt_tokens=5,  # Cost = 5 * 0.001 = $0.005
             response_tokens=2,  # Cost = 2 * 0.005 = $0.010 (Total = $0.015 > $0.010 limit)
@@ -251,3 +261,19 @@ class TestBudgetGuard:
         assert len(events) == 1
         assert events[0].event_type == "budget.tripped"
         assert events[0].payload["limit_type"] == "cost"
+
+    def test_spend_limit_fails_closed_for_unpriced_model(self):
+        tracker = TokenUsageTracker()
+        run_id = "run:budget:unpriced"
+        guard = BudgetGuard(max_cost_usd=1.0, token_tracker=tracker)
+        tracker.record(
+            TokenUsageRecord(
+                agent_name="agent",
+                model_name="unregistered-model",
+                session_id=run_id,
+                prompt_tokens=1,
+            )
+        )
+
+        with pytest.raises(BudgetTrippedException, match="unpriced model"):
+            guard.check_limits(run_id=run_id)
