@@ -49,6 +49,7 @@ governance stack.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -202,14 +203,20 @@ def _materialize_root_cause_claims(
                 source="mcp",
                 reason=reason,
                 evidence={"finding_type": cand.finding_type},
+                provenance_receipts=(
+                    "evidence_bundle:"
+                    + hashlib.sha256(
+                        bundle.model_dump_json().encode("utf-8")
+                    ).hexdigest(),
+                ),
             ),
         )
         governance[claim.id] = {
-            "decision": verdict.decision,
+            "decision": verdict.disposition.value,
             "approved": verdict.approved,
             "reason": verdict.reason,
         }
-        if verdict.decision == "deny":
+        if verdict.disposition.value == "deny":
             logger.warning(
                 "ops_causal: governance DENY kind=promote_mined_claim actor=mcp "
                 "claim=%s reason=%s",
@@ -220,7 +227,7 @@ def _materialize_root_cause_claims(
                 flywheel.reject(
                     claim.id,
                     reason=f"action_policy denied: {verdict.reason}",
-                    action_decision=verdict.decision,
+                    action_decision=verdict.disposition.value,
                 )
             except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
                 errors.append(
