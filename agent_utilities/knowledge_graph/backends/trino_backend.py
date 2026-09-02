@@ -29,11 +29,10 @@ does not call that door itself; it hands the caller a ready-to-apply
 ``ChangeEnvelope``.
 
 **Identity (GOC-79/DEC-CA-04).** Every connection authenticates as the calling
-principal via an OIDC bearer token — never a static/shared credential. The
-token is either supplied by the caller (``token_provider``) or resolved from
-the MCP-layer delegated-auth context (RFC 8693 Token Exchange,
-``agent_utilities.mcp.delegated_auth.get_delegated_token``), matching the
-mechanism GOC-79's other external-engine clients already use. The SQLAlchemy
+principal via an OIDC bearer token — never a static/shared credential. Both
+the token and opaque principal reference are required injected ports; this
+adapter has no knowledge of MCP, configuration, or a concrete identity
+provider. The SQLAlchemy
 ``trino`` dialect (``sqlalchemy-trino``, the SAME dialect CA-41's sql-mcp uses —
 agreed connection parameters, disjoint files per the CA-27 lane contract) turns
 an ``access_token`` URL-query value into ``trino.auth.JWTAuthentication``
@@ -45,20 +44,11 @@ ANY request lacking it, auth-enabled or not. Connections are pooled
 per-principal (keyed by the delegated identity reference), so no two
 principals ever share a pooled connection/session.
 
-**Measured gap (2026-08-26 live check against `services/trino`, tag 476,
-its in-cluster ClusterIP): principal-scoped OIDC cannot be proven
-end-to-end against TODAY's deployment.** The coordinator is plain HTTP with
-no auth layer wired yet (the Keycloak-fronted Keycloak-fronted ingress CA-52
-owns still 406s), and the installed ``trino`` python client refuses -- by its
-own design, not a bug here -- to send ``JWTAuthentication`` over a non-TLS
-connection (``TrinoAuthError: TLS/SSL is required for authentication``). The
-default behavior stays fail-closed (a missing/empty token still raises); the
-ONLY escape hatch is ``allow_unauthenticated=True`` together with a
-``token_provider`` that explicitly returns ``None`` (never empty string --
-that stays an error) -- logged loudly every time, and never the default. This
-is how the P4 live proof in the CA-27 lane report was run; production
-call sites must not pass ``allow_unauthenticated=True`` once GOC-79's
-Keycloak-fronted Trino endpoint is live.
+**Transport.** Authenticated Trino connections require TLS. An explicit HTTP
+endpoint is rejected before engine construction; a bare host/port is treated
+as HTTPS. Missing/empty credentials and principal references fail closed.
+Tokens are resolved on every dispatch and are part of the bounded pool key, so
+rotation or revocation cannot silently reuse a stale principal session.
 
 **Never a hard dependency.** ``trino``/``sqlalchemy``/``sqlalchemy-trino`` are
 the optional ``agent-utilities[trino]`` extra; every import of them here is
@@ -66,16 +56,18 @@ function-scoped and raises a clear, extra-naming ``ImportError`` when absent
 (the repo's standing optional-dependency discipline — see ``pyproject.toml``).
 """
 
-import logging
+import hashlib
 import re
+import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
+from urllib.parse import urlsplit
 
 from ...models.company_brain import DataClassification
+from ..core.tabular_query_service import KnowledgeBatch, QueryBackend
 from ..ingestion.change_envelope import ChangeEnvelope, Operation
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "KnowledgeBatch",
@@ -197,102 +189,43 @@ def _validate_qualified_table(table: str) -> str:
     return ".".join(parts)
 
 
-@dataclass(frozen=True)
-class KnowledgeBatch:
-    """One page of a Trino query result -- the tabular, provenance-first
-    currency this backend returns (mirrors ``core/knowledge_stream.py``'s
-    ``KnowledgeStreamBatch`` row currency: rows + explicit provenance, never a
-    bare ``list[dict]`` with the provenance implied or absent).
-
-    Attributes:
-        rows: This page's decoded rows, column name -> value.
-        columns: Column names, in result order.
-        snapshot_id: The Iceberg snapshot id this page was read ``FOR VERSION
-            AS OF`` (``None`` for an unpinned/HEAD read -- never silently
-            filled in).
-        lsn: The eg LSN this page corresponds to. Per the Company Architecture
-            program's invariant I3 ("Iceberg snapshot = eg LSN"), this is the
-            SAME value as ``snapshot_id`` whenever the caller pinned one --
-            carried as a distinct field so a consumer never has to know that
-            equivalence to read provenance correctly.
-        row_count: ``len(rows)`` (cached rather than recomputed by callers
-            that only want the count).
-        page_index: 0-based page counter within this ``query()``/``as_of()``
-            call, for log correlation.
-    """
-
-    rows: list[dict[str, Any]]
-    columns: tuple[str, ...]
-    snapshot_id: str | None
-    lsn: str | None
-    row_count: int
-    page_index: int
-
-    def record_batch(self) -> Any:
-        """Lazily build a ``pyarrow.RecordBatch`` for this page.
-
-        Optional -- mirrors ``knowledge_stream.py``'s "never a hard
-        dependency" pyarrow discipline. Raises ``ImportError`` naming the
-        ``pyarrow`` extra when it is not installed, rather than degrading
-        silently (a caller that asked for Arrow specifically wants Arrow).
-        """
-        try:
-            import pyarrow as pa
-        except (
-            ImportError
-        ) as exc:  # pragma: no cover - exercised only without the extra
-            raise ImportError(
-                "KnowledgeBatch.record_batch() needs pyarrow (install "
-                "agent-utilities[pyarrow])."
-            ) from exc
-        if self.rows:
-            return pa.RecordBatch.from_pylist(self.rows)
-        # No rows: still produce a (zero-row, string-typed) RecordBatch with
-        # the right column names, rather than an empty list a caller has to
-        # special-case.
-        schema = pa.schema([(name, pa.string()) for name in self.columns])
-        return pa.RecordBatch.from_pylist([], schema=schema)
+def _endpoint_text(endpoint: Any) -> str:
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise TrinoQueryError("TrinoQueryBackend requires a non-empty endpoint")
+    return endpoint.strip()
 
 
-@runtime_checkable
-class QueryBackend(Protocol):
-    """Narrow protocol for a read-only, tabular, provenance-carrying compute
-    surface (Trino today; DuckDB/Spark SQL could implement the same shape
-    without subclassing ``GraphBackend``)."""
-
-    def query(
-        self, sql: str, *, snapshot_id: str | None = None
-    ) -> Iterator[KnowledgeBatch]:
-        """Run one read-only SQL statement, yielding paged, provenance-tagged results."""
-        ...
-
-    def close(self) -> None:
-        """Release pooled connections."""
-        ...
+def _validated_endpoint_parts(rendered: str) -> Any:
+    parsed = urlsplit(rendered if "://" in rendered else f"//{rendered}")
+    if parsed.scheme and parsed.scheme.lower() != "https":
+        raise TrinoQueryError("authenticated Trino endpoints require HTTPS")
+    if parsed.username or parsed.password:
+        raise TrinoQueryError("Trino endpoint must not contain credentials")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise TrinoQueryError("Trino endpoint must contain only host and port")
+    if not parsed.hostname:
+        raise TrinoQueryError("Trino endpoint has no valid host")
+    return parsed
 
 
-def _default_token_provider() -> str:
-    """Resolve the calling principal's OIDC bearer token via the fleet's
-    existing RFC 8693 Token Exchange delegated-auth surface.
+def _validated_endpoint(endpoint: Any) -> tuple[str, int]:
+    """Return a TLS-only host/port pair without retaining endpoint credentials."""
 
-    Deliberately the ONLY default -- no static-credential fallback exists in
-    this module. A caller running outside an MCP request context (a batch
-    job, a test) must supply ``token_provider`` explicitly; this function
-    raising is the fail-closed behavior, not a bug to work around by adding a
-    shared secret here.
-    """
-    from ...mcp.delegated_auth import get_delegated_token
-
-    return get_delegated_token(audience="trino")
-
-
-def _default_principal_ref() -> str:
+    parsed = _validated_endpoint_parts(_endpoint_text(endpoint))
     try:
-        from ...mcp.delegated_auth import get_user_identity
+        port = parsed.port
+    except ValueError as exc:
+        raise TrinoQueryError("Trino endpoint has an invalid port") from exc
+    port = {None: 443}.get(port, port)
+    if port < 1:
+        raise TrinoQueryError("Trino endpoint has an invalid port")
+    return parsed.hostname, port
 
-        return str(get_user_identity().get("identity_ref") or "")
-    except Exception:  # noqa: BLE001 - identity resolution is best-effort for pool keying only
-        return ""
+
+def _required_provider(provider: Any, *, name: str) -> Callable[[], str]:
+    if not callable(provider):
+        raise TrinoQueryError(f"TrinoQueryBackend requires an injected {name}")
+    return provider
 
 
 class TrinoQueryBackend:
@@ -307,74 +240,69 @@ class TrinoQueryBackend:
         *,
         catalog: str = "lakehouse",
         schema: str | None = None,
-        token_provider: Callable[[], str] | None = None,
-        principal_ref_provider: Callable[[], str] | None = None,
+        token_provider: Callable[[], str],
+        principal_ref_provider: Callable[[], str],
         page_size: int = DEFAULT_PAGE_SIZE,
         pool_size: int = DEFAULT_POOL_SIZE,
-        http_scheme: str = "http",
         verify: bool = True,
         source: str = "au-trino-query-backend",
-        allow_unauthenticated: bool = False,
     ) -> None:
-        if not endpoint:
-            raise TrinoQueryError("TrinoQueryBackend requires a non-empty endpoint")
-        self._endpoint = endpoint.strip()
+        self._host, self._port = _validated_endpoint(endpoint)
         self._catalog = catalog
         self._schema = schema
-        self._token_provider = token_provider or _default_token_provider
-        self._principal_ref_provider = principal_ref_provider or _default_principal_ref
+        self._token_provider = _required_provider(token_provider, name="token_provider")
+        self._principal_ref_provider = _required_provider(
+            principal_ref_provider, name="principal_ref_provider"
+        )
         self._page_size = max(1, int(page_size))
         self._pool_size = max(1, int(pool_size))
-        self._http_scheme = http_scheme
         self._verify = verify
         self._source = source
-        self._allow_unauthenticated = allow_unauthenticated
-        # principal_ref -> SQLAlchemy Engine. Order is insertion order (dict,
-        # Python 3.7+), used as an LRU-by-eviction-of-oldest for
-        # _MAX_TRACKED_PRINCIPALS.
-        self._engines: dict[str, Any] = {}
+        self._engines: OrderedDict[tuple[str, str], Any] = OrderedDict()
+        self._engines_lock = threading.RLock()
 
     # -- connection management ------------------------------------------------
 
-    def _resolve_token(self) -> str | None:
+    def _resolve_token(self) -> str:
         token = self._token_provider()
-        if token is None:
-            # An EXPLICIT None (never an empty string -- see below) is the
-            # only way to get an unauthenticated connection, and only when
-            # the caller also passed allow_unauthenticated=True at
-            # construction. Models today's measured reality (baseline
-            # 2026-08-26): the deployed Trino coordinator is plain HTTP with
-            # no auth layer wired yet (GOC-79's Keycloak-fronting proxy is
-            # the Keycloak-fronted ingress, still 406 per CA-52's territory) -- and the
-            # `trino` python client's own JWTAuthentication refuses to send a
-            # bearer token over a non-TLS connection (a real client-side
-            # guard, confirmed live this session), so principal-scoped OIDC
-            # cannot be proven end-to-end against the CURRENT deployment.
-            # This is a genuine platform gap, not a bug in this backend --
-            # never silently promoted to the default; a caller must opt in.
-            if not self._allow_unauthenticated:
-                raise TrinoQueryError(
-                    "token_provider returned None (no principal OIDC token) and "
-                    "allow_unauthenticated=False -- refusing a shared/anonymous "
-                    "connection. Pass allow_unauthenticated=True only against a "
-                    "deployment known to have no auth layer (see class docstring)."
-                )
-            logger.warning(
-                "TrinoQueryBackend: connecting to %s WITHOUT a bearer token "
-                "(allow_unauthenticated=True) -- the coordinator has no auth "
-                "layer today; this is not principal-scoped and must not be used "
-                "once GOC-79's Keycloak-fronted endpoint is live",
-                self._endpoint,
-            )
-            return None
-        if not token or not isinstance(token, str):
+        if not isinstance(token, str) or not token.strip():
             raise TrinoQueryError(
                 "no principal OIDC token available for Trino connection -- "
-                "refusing to fall back to a shared/anonymous connection"
+                "refusing an anonymous connection"
             )
         return token
 
-    def _build_engine(self, token: str | None, principal: str) -> Any:
+    def _resolve_principal(self) -> str:
+        principal = self._principal_ref_provider()
+        if not isinstance(principal, str) or not principal.strip():
+            raise TrinoQueryError("verified Trino principal identity is required")
+        return principal.strip()
+
+    @staticmethod
+    def _token_fingerprint(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _pop_principal_engines(self, principal: str) -> list[Any]:
+        return [
+            self._engines.pop(key)
+            for key in tuple(self._engines)
+            if key[0] == principal
+        ]
+
+    def _discard_principal_engines(self, principal: str) -> None:
+        with self._engines_lock:
+            stale = self._pop_principal_engines(principal)
+        for engine in stale:
+            engine.dispose()
+
+    def _resolve_token_for_principal(self, principal: str) -> str:
+        try:
+            return self._resolve_token()
+        except Exception:
+            self._discard_principal_engines(principal)
+            raise
+
+    def _build_engine(self, token: str, principal: str) -> Any:
         try:
             from sqlalchemy import create_engine
             from sqlalchemy.engine import URL
@@ -384,20 +312,13 @@ class TrinoQueryBackend:
                 "(install agent-utilities[trino])."
             ) from exc
 
-        host, _, port_text = self._endpoint.rpartition(":")
-        host = host or self._endpoint
-        try:
-            port = int(port_text) if port_text else 8080
-        except ValueError:
-            host, port = self._endpoint, 8080
-
         database = f"{self._catalog}/{self._schema}" if self._schema else self._catalog
         query: dict[str, str] = {
             "source": self._source,
             "verify": "true" if self._verify else "false",
+            "http_scheme": "https",
+            "access_token": token,
         }
-        if token is not None:
-            query["access_token"] = token
         url = URL.create(
             "trino",
             # `username` becomes Trino's `X-Trino-User` session-identity header
@@ -410,26 +331,42 @@ class TrinoQueryBackend:
             # calling principal's identity ref is always sent for query
             # attribution/audit (`system.runtime.queries.user`), whether or
             # not a bearer token also rides along.
-            username=principal or "au-trino-query-backend",
-            host=host,
-            port=port,
+            username=principal,
+            host=self._host,
+            port=self._port,
             database=database,
             query=query,
         )
-        return create_engine(url, pool_size=self._pool_size, pool_pre_ping=True)
+        return create_engine(
+            url,
+            connect_args={"http_scheme": "https"},
+            pool_size=self._pool_size,
+            pool_pre_ping=True,
+        )
+
+    def _engine_for_cache_key(
+        self, cache_key: tuple[str, str], token: str, principal: str
+    ) -> Any:
+        with self._engines_lock:
+            engine = self._engines.get(cache_key)
+            if engine is not None:
+                self._engines.move_to_end(cache_key)
+                return engine
+            stale = self._pop_principal_engines(principal)
+            for old_engine in stale:
+                old_engine.dispose()
+            engine = self._build_engine(token, principal)
+            self._engines[cache_key] = engine
+            if len(self._engines) > _MAX_TRACKED_PRINCIPALS:
+                _, evicted = self._engines.popitem(last=False)
+                evicted.dispose()
+            return engine
 
     def _engine_for_principal(self) -> Any:
-        principal = self._principal_ref_provider() or "__anonymous__"
-        engine = self._engines.get(principal)
-        if engine is not None:
-            return engine
-        token = self._resolve_token()
-        engine = self._build_engine(token, principal)
-        if len(self._engines) >= _MAX_TRACKED_PRINCIPALS:
-            oldest = next(iter(self._engines))
-            self._engines.pop(oldest).dispose()
-        self._engines[principal] = engine
-        return engine
+        principal = self._resolve_principal()
+        token = self._resolve_token_for_principal(principal)
+        cache_key = (principal, self._token_fingerprint(token))
+        return self._engine_for_cache_key(cache_key, token, principal)
 
     # -- query surface ---------------------------------------------------------
 
@@ -520,9 +457,11 @@ class TrinoQueryBackend:
         return self.query(sql, snapshot_id=safe_snapshot)
 
     def close(self) -> None:
-        for engine in self._engines.values():
+        with self._engines_lock:
+            engines = tuple(self._engines.values())
+            self._engines.clear()
+        for engine in engines:
             engine.dispose()
-        self._engines.clear()
 
 
 # ---------------------------------------------------------------------------

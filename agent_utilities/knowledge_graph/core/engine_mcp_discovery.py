@@ -18,16 +18,10 @@ import math
 import re
 import secrets
 import time
-import typing
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-
-if typing.TYPE_CHECKING:
-    from .._engine_protocol import _EngineProtocol
-
-    _Base = _EngineProtocol
-else:
-    _Base = object
-
 
 logger = logging.getLogger(__name__)
 _MAX_MCP_CONFIG_BYTES = 4 * 1024 * 1024
@@ -41,11 +35,41 @@ _SERVER_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
+@dataclass(frozen=True, slots=True)
+class MCPProbePort:
+    """Canonical MCP adapter seams consumed by KG discovery and source sync.
+
+    This value contains composition-owned callables only. It neither implements
+    another transport nor owns another catalog/source lifecycle.
+    """
+
+    probe_declaration: Callable[..., Awaitable[dict[str, Any]]]
+    resolve_config_path: Callable[[str | None], Path]
+    multiplexer_factory: Callable[[Path], Any]
+    run_async: Callable[..., Any]
+
+
 class MCPDiscoveryError(RuntimeError):
     """Stable live-discovery failure with no child configuration details."""
 
 
-class MCPDiscoveryMixin(_Base):
+def _require_mcp_probe_port(engine: Any) -> MCPProbePort:
+    """Return the process-composed MCP probe or fail closed."""
+    port = getattr(engine, "mcp_probe_port", None)
+    if isinstance(port, MCPProbePort):
+        return port
+    logger.warning("[ECO-4.11] MCP discovery probe is unavailable")
+    raise MCPDiscoveryError("mcp_discovery_unavailable")
+
+
+def _validate_mcp_probe_result(result: Any) -> dict[str, Any]:
+    """Require the canonical probe envelope before reading it."""
+    if not isinstance(result, dict):
+        raise MCPDiscoveryError("mcp_discovery_catalog_invalid")
+    return result
+
+
+class MCPDiscoveryMixin:
     """Live MCP server tool discovery and KG cache management.
 
     CONCEPT:AU-ECO.mcp.live-server-metadata-cache — MCP Server Live Tool Discovery
@@ -56,6 +80,8 @@ class MCPDiscoveryMixin(_Base):
     3. Cache discovered tools as ``CallableResource`` nodes in the KG.
     4. Verify freshness of cached metadata on subsequent loads.
     """
+
+    backend: Any
 
     # ------------------------------------------------------------------
     # Public API
@@ -121,10 +147,9 @@ class MCPDiscoveryMixin(_Base):
         if not _SERVER_NAME.fullmatch(name):
             raise MCPDiscoveryError("mcp_discovery_declaration_invalid")
 
-        from agent_utilities.mcp.multiplexer import MCPMultiplexer
-
+        probe_port = _require_mcp_probe_port(self)
         try:
-            result = await MCPMultiplexer.probe_declaration(
+            result = await probe_port.probe_declaration(
                 name,
                 server_config,
                 timeout=bounded_timeout,
@@ -135,6 +160,7 @@ class MCPDiscoveryMixin(_Base):
                 type(exc).__name__,
             )
             raise MCPDiscoveryError("mcp_discovery_unavailable") from None
+        result = _validate_mcp_probe_result(result)
         if result.get("error") is not None:
             logger.warning("[ECO-4.11] MCP discovery unavailable")
             raise MCPDiscoveryError("mcp_discovery_unavailable")

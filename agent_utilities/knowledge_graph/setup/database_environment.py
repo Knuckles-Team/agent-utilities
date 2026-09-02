@@ -36,8 +36,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from agent_utilities.core.config import setting
 
@@ -45,6 +46,17 @@ logger = logging.getLogger(__name__)
 
 # The three extensions a "full" pg-age tier carries.
 _REQUIRED_EXTENSIONS = ("age", "vector", "pg_search")
+
+
+class ConnectionRegistryPort(Protocol):
+    """Lower contract used to register and persist governed graph mirrors."""
+
+    def register(self, name: str, spec: dict[str, object]) -> str: ...
+
+    def export_specs(self) -> list[dict[str, object]]: ...
+
+
+ConfigWriterPort = Callable[[str, list[dict[str, object]]], str]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -300,6 +312,8 @@ def publish_ontology(
 def register_stardog_mirror(
     name: str = "stardog",
     *,
+    registry: ConnectionRegistryPort,
+    config_writer: ConfigWriterPort,
     endpoint_ref: str = "env://STARDOG_ENDPOINT",
     database_ref: str = "env://STARDOG_DATABASE",
     username_ref: str = "env://STARDOG_USER",
@@ -314,7 +328,7 @@ def register_stardog_mirror(
     ``config.json``. Pair with :func:`backfill_to_age`'s reconcile to backfill the
     existing graph into a freshly added mirror.
     """
-    spec: dict[str, Any] = {
+    spec: dict[str, object] = {
         "backend": "stardog",
         "role": "mirror",
         "endpoint": endpoint_ref,
@@ -323,12 +337,8 @@ def register_stardog_mirror(
         "password": password_ref,
     }
     try:
-        from agent_utilities.core.config import save_config_item
-        from agent_utilities.mcp import kg_server
-
-        registry = kg_server.get_connection_registry()
         registered = registry.register(name, spec)
-        save_config_item("kg_connections", registry.export_specs())
+        config_writer("kg_connections", registry.export_specs())
     except Exception as exc:  # noqa: BLE001 — source-safe diagnostic only
         return {
             "status": "error",
@@ -530,6 +540,8 @@ def verify_sparql(
 def setup_environment(
     profile: str = "dev",
     *,
+    connection_registry: ConnectionRegistryPort,
+    config_writer: ConfigWriterPort,
     postgres_mode: str = "managed_image",
     connection_profile_ref: str | None = None,
     sparql_target: str | None = None,
@@ -541,6 +553,8 @@ def setup_environment(
 
     Args:
         profile: ``"prod"`` (Stardog) or ``"dev"`` (local SPARQL).
+        connection_registry: Process-owned graph connection registry.
+        config_writer: Governed durable configuration writer.
         postgres_mode: ``"managed_image"`` (combined pg-age-full image) or
             ``"existing"`` (connect-only; report missing extensions honestly).
         connection_profile_ref: Runtime secret reference for the Postgres profile.
@@ -588,7 +602,10 @@ def setup_environment(
     if mirror_data_to_stardog is None:
         mirror_data_to_stardog = target == "stardog"
     if mirror_data_to_stardog:
-        report["steps"]["register_stardog_mirror"] = register_stardog_mirror()
+        report["steps"]["register_stardog_mirror"] = register_stardog_mirror(
+            registry=connection_registry,
+            config_writer=config_writer,
+        )
 
     # 4. Durable backfill (also backfills a freshly registered Stardog mirror).
     if do_backfill:

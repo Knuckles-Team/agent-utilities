@@ -1781,8 +1781,10 @@ def current_remote_oauth_grant_bindings(actor: Any) -> tuple[Any, ...]:
     closed when no exact grant remains.
     """
 
-    from agent_utilities.mcp.remote_oauth_broker import (
+    from agent_utilities.knowledge_graph.core.discovery_authority import (
         OAuthGrantBinding,
+    )
+    from agent_utilities.mcp.remote_oauth_broker import (
         OAuthProviderError,
         OAuthScopeError,
         OAuthTokenAbsentError,
@@ -4717,11 +4719,12 @@ class MCPMultiplexer:
         only obtain a binding by completing a verified probe path above.
         Keeping the original object alongside its id makes id reuse harmless.
         """
+        from agent_utilities.knowledge_graph.core.discovery_authority import (
+            OAuthGrantBinding,
+        )
         from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
             TenantLocalDiscoveryBinding,
         )
-
-        from .remote_oauth_broker import OAuthGrantBinding
 
         if not isinstance(info, dict) or not isinstance(
             binding, (OAuthGrantBinding, TenantLocalDiscoveryBinding)

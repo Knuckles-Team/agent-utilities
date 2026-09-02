@@ -1412,6 +1412,52 @@ _GRAPH_QUERY_TOOL_FIELDS = frozenset(
 )
 
 
+@contextlib.contextmanager
+def _rest_trino_delegated_identity(request: Request, kwargs: dict[str, Any]):
+    """Bridge one already-verified REST bearer into the delegation port.
+
+    The gateway's outer ``ActorIdentityMiddleware`` validates the bearer and
+    binds its actor before this route runs. Only the explicit Trino SQL route
+    needs the raw credential for RFC 8693 exchange; all other REST calls remain
+    untouched. Duplicate/malformed headers fail through the canonical parser,
+    and ContextVars are always reset after dispatch.
+    """
+
+    is_trino = (
+        kwargs.get("scope") == "sql"
+        and isinstance(kwargs.get("connection"), str)
+        and kwargs["connection"].strip().lower() == "trino"
+    )
+    if not is_trino:
+        yield
+        return
+
+    from agent_utilities.mcp.delegated_auth import (
+        _reset_delegated_identity,
+        _set_delegated_identity,
+    )
+    from agent_utilities.security.auth import parse_bearer_authorization
+    from agent_utilities.security.brain_context import current_actor
+
+    actor = current_actor()
+    actor.ensure_credential_current()
+    if not actor.authenticated:
+        raise PermissionError("verified Trino caller identity is required")
+    authorization = [
+        value
+        for key, value in request.scope.get("headers", ())
+        if isinstance(key, bytes) and key.lower() == b"authorization"
+    ]
+    token = parse_bearer_authorization(authorization)
+    if token is None:
+        raise PermissionError("verified Trino bearer credential is required")
+    context_tokens = _set_delegated_identity(token, {})
+    try:
+        yield
+    finally:
+        _reset_delegated_identity(context_tokens)
+
+
 async def graph_query_endpoint(request: Request) -> JSONResponse:
     """REST twin of the ``graph_query`` MCP tool.
 
@@ -1461,7 +1507,8 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
     kwargs = result
 
     try:
-        res = await _execute_tool("graph_query", **kwargs)
+        with _rest_trino_delegated_identity(request, kwargs):
+            res = await _execute_tool("graph_query", **kwargs)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except UnsupportedToolFieldError as e:
         # Defense-in-depth: `_GRAPH_QUERY_TOOL_FIELDS` is kept in sync with
@@ -2978,6 +3025,84 @@ _SESSION_ID = setting("SESSION_ID", uuid.uuid4().hex)
 _ENGINE_LOCK = threading.Lock()
 
 
+_TABULAR_QUERY_SERVICE: Any = None
+_TABULAR_QUERY_SERVICE_KEY: tuple[str, str, str] | None = None
+_TABULAR_QUERY_SERVICE_LOCK = threading.Lock()
+
+
+def _trino_principal_ref() -> str:
+    """Resolve the current verified caller's opaque persistence reference."""
+
+    from agent_utilities.security.brain_context import current_actor
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    actor = current_actor()
+    actor.ensure_credential_current()
+    if not actor.authenticated or not str(actor.actor_id or "").strip():
+        raise PermissionError("verified Trino principal identity is unavailable")
+    return persistence_reference("delegated_actor", actor.actor_id)
+
+
+def _trino_composition_settings() -> tuple[str, str, str]:
+    """Read and validate the process-owned Trino composition settings."""
+
+    from agent_utilities.core.config import config as runtime_config
+
+    if not runtime_config.enable_delegation:
+        raise RuntimeError("Trino queries require delegated authentication")
+    endpoint = str(runtime_config.trino_endpoint or "").strip()
+    catalog = str(runtime_config.lakekeeper_warehouse or "").strip()
+    audience = str(runtime_config.delegation_audience or "").strip()
+    if not endpoint:
+        raise RuntimeError("Trino endpoint is not configured (TRINO_ENDPOINT)")
+    if not catalog:
+        raise RuntimeError("Trino catalog is not configured (LAKEKEEPER_WAREHOUSE)")
+    if not audience:
+        raise RuntimeError("Trino delegation audience is not configured (AUDIENCE)")
+    return endpoint, catalog, audience
+
+
+def get_tabular_query_service() -> Any:
+    """Compose the one tabular query application service for MCP/REST callers.
+
+    Process configuration is bound here, above the backend and application
+    layers. Credential providers remain request-scoped callables and are
+    resolved by the backend on every dispatch.
+    """
+
+    from agent_utilities.knowledge_graph.backends.trino_backend import (
+        TrinoQueryBackend,
+    )
+    from agent_utilities.knowledge_graph.core.tabular_query_service import (
+        TabularQueryService,
+    )
+    from agent_utilities.mcp.delegated_auth import get_delegated_token
+
+    key = _trino_composition_settings()
+    global _TABULAR_QUERY_SERVICE, _TABULAR_QUERY_SERVICE_KEY
+    previous: Any = None
+    with _TABULAR_QUERY_SERVICE_LOCK:
+        if _TABULAR_QUERY_SERVICE is not None and _TABULAR_QUERY_SERVICE_KEY == key:
+            return _TABULAR_QUERY_SERVICE
+        endpoint, catalog, audience = key
+        backend = TrinoQueryBackend(
+            endpoint,
+            catalog=catalog,
+            token_provider=lambda: get_delegated_token(audience=audience),
+            principal_ref_provider=_trino_principal_ref,
+        )
+        service = TabularQueryService(backend)
+        previous = _TABULAR_QUERY_SERVICE
+        _TABULAR_QUERY_SERVICE = service
+        _TABULAR_QUERY_SERVICE_KEY = key
+    if previous is not None:
+        try:
+            previous.close()
+        except Exception:  # noqa: BLE001 - replacement is already fail-closed
+            logger.warning("previous tabular query service close failed", exc_info=True)
+    return service
+
+
 _EXTRACTION_MANAGER: Any = None
 
 
@@ -2999,6 +3124,56 @@ def _bind_ontology_package_sync(value: Any) -> None:
         value._ontology_package_sync = _sync_package_ontologies
 
 
+def _bind_mcp_probe_port(value: Any) -> None:
+    """Bind canonical multiplexer/config/async seams for KG MCP consumers."""
+    from agent_utilities.knowledge_graph.core.engine_mcp_discovery import MCPProbePort
+    from agent_utilities.mcp.multiplexer import MCPMultiplexer, _resolve_config_path
+    from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+        _run_async,
+    )
+
+    port = MCPProbePort(
+        probe_declaration=MCPMultiplexer.probe_declaration,
+        resolve_config_path=_resolve_config_path,
+        multiplexer_factory=MCPMultiplexer,
+        run_async=_run_async,
+    )
+    if getattr(value, "mcp_probe_port", None) != port:
+        value.mcp_probe_port = port
+
+
+_RuntimeAuthorityBinder = Callable[[Any], object]
+
+
+def _runtime_authority_binders() -> tuple[_RuntimeAuthorityBinder, ...]:
+    """Return the available process-owned runtime binders."""
+    binders: tuple[_RuntimeAuthorityBinder, ...] = (
+        _bind_ontology_package_sync,
+        _bind_mcp_probe_port,
+    )
+    try:
+        from agent_utilities.mcp.tools.data_prep_tools import (
+            register_process_data_prep_runtime,
+        )
+    except Exception:  # noqa: BLE001 - optional adapters must not block boot
+        logger.warning("data prep runtime registration deferred", exc_info=True)
+    else:
+        return (register_process_data_prep_runtime, *binders)
+    return binders
+
+
+def _bind_runtime_authorities(
+    value: Any, binders: tuple[_RuntimeAuthorityBinder, ...]
+) -> Any:
+    """Bind independent runtime capabilities without suppressing later ones."""
+    for binder in binders:
+        try:
+            binder(value)
+        except Exception:  # noqa: BLE001 - optional adapters must not block boot
+            logger.warning("runtime capability registration deferred", exc_info=True)
+    return value
+
+
 def _get_engine():
     """Lazily initialize and return the IntelligenceGraphEngine singleton.
 
@@ -3015,26 +3190,9 @@ def _get_engine():
     def _register_runtime_authorities(value: Any) -> Any:
         # Registration is process-owned startup state.  The served callers can
         # only resolve these recorded adapters, never select one from request
-        # data. Keep the ontology binding in ``finally`` so one optional
-        # registration failure cannot suppress the other capability.
-        try:
-            try:
-                from agent_utilities.mcp.tools.data_prep_tools import (
-                    register_process_data_prep_runtime,
-                )
-
-                register_process_data_prep_runtime(value)
-            finally:
-                # Keep ontology package application at the composition
-                # boundary. Lower-layer ingestion consumes this bound
-                # capability and never imports the MCP adapter itself.
-                _bind_ontology_package_sync(value)
-        except Exception:  # noqa: BLE001 - optional adapters must not block boot
-            logger.warning(
-                "runtime optional capability registration deferred",
-                exc_info=True,
-            )
-        return value
+        # data. Each optional binder is isolated so one failure cannot suppress
+        # the remaining capabilities.
+        return _bind_runtime_authorities(value, _runtime_authority_binders())
 
     engine = IntelligenceGraphEngine.get_active()
     if engine is not None:

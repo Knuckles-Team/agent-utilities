@@ -4524,9 +4524,9 @@ class AgentConfig(BaseSettings):
     (``services/lakekeeper-db``); resolved only at the runtime boundary, never here."""
 
     trino_endpoint: str = Field(default="", alias="TRINO_ENDPOINT")
-    """Trino coordinator HTTP endpoint (``services/trino``) -- single-node coordinator
-    with the Iceberg REST connector pointed at Lakekeeper. Image is pinned to tag 476;
-    newer tags require an x86-64-v3 CPU baseline the pinned node lacks."""
+    """TLS Trino coordinator endpoint (``services/trino``) with the Iceberg REST
+    connector pointed at Lakekeeper. Authenticated query composition rejects an
+    explicit cleartext HTTP endpoint rather than downgrading transport security."""
 
     spark_runner_endpoint: str = Field(default="", alias="SPARK_RUNNER_ENDPOINT")
     """Spark driver pod's Spark UI endpoint (``services/spark``, Deployment name

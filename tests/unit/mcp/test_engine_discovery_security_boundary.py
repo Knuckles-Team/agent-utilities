@@ -18,6 +18,7 @@ from agent_utilities.knowledge_graph.core.engine_ingestion import IngestionMixin
 from agent_utilities.knowledge_graph.core.engine_mcp_discovery import (
     MCPDiscoveryError,
     MCPDiscoveryMixin,
+    MCPProbePort,
 )
 from agent_utilities.mcp import multiplexer as multiplexer_module
 from agent_utilities.mcp.multiplexer import (
@@ -190,7 +191,6 @@ def test_freshness_identity_is_keyed_and_ignores_resolved_credentials() -> None:
 
 @pytest.mark.asyncio
 async def test_discovery_reuses_canonical_probe_and_normalizes_tools(
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     harness = _DiscoveryHarness()
     entry = harness.parse_mcp_config(_remote_config())[0]
@@ -207,7 +207,12 @@ async def test_discovery_reuses_canonical_probe_and_normalizes_tools(
             "error": None,
         }
     )
-    monkeypatch.setattr(MCPMultiplexer, "probe_declaration", probe)
+    harness.mcp_probe_port = MCPProbePort(
+        probe_declaration=probe,
+        resolve_config_path=lambda _explicit: Path("unused"),
+        multiplexer_factory=lambda _path: None,
+        run_async=lambda _awaitable, **_kwargs: None,
+    )
 
     tools = await harness.discover_mcp_tools(entry, timeout=7.0)
 
@@ -224,20 +229,20 @@ async def test_discovery_reuses_canonical_probe_and_normalizes_tools(
 
 @pytest.mark.asyncio
 async def test_discovery_failure_is_closed_and_redacted(
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     harness = _DiscoveryHarness()
     entry = harness.parse_mcp_config(_remote_config())[0]
-    monkeypatch.setattr(
-        MCPMultiplexer,
-        "probe_declaration",
-        AsyncMock(
+    harness.mcp_probe_port = MCPProbePort(
+        probe_declaration=AsyncMock(
             return_value={
                 "tools": [],
                 "error": "synthetic-secret https://private.example.invalid",
             }
         ),
+        resolve_config_path=lambda _explicit: Path("unused"),
+        multiplexer_factory=lambda _path: None,
+        run_async=lambda _awaitable, **_kwargs: None,
     )
 
     with pytest.raises(MCPDiscoveryError, match="mcp_discovery_unavailable"):

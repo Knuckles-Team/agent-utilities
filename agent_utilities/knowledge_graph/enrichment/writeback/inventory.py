@@ -304,7 +304,7 @@ def run_asset_mirror(
     ``None`` ("now"), so an existing caller is unaffected.
 
     Returns one manifest keyed by sink plus a rollup, so a single scheduled pass
-    (the ``asset-mirror`` CronJob / ``python -m ...writeback.asset_mirror``)
+    (the ``asset-mirror`` CronJob / ``python -m agent_utilities.cli.asset_mirror``)
     reports intended-writes for every projection at once.
     """
     selected = [t.lower() for t in targets] if targets else enabled_mirror_targets()

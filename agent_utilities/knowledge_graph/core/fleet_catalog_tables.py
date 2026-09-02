@@ -247,6 +247,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from .discovery_authority import OAuthGrantBinding
 from .table_ingest import _bounded_columns, _safe_ident, _sql_literal
 
 logger = logging.getLogger(__name__)
@@ -629,8 +630,6 @@ def _binding_scope(binding: Any | None = None) -> tuple[str, str, str, str]:
     OAuth-like digest.
     """
     try:
-        from ...mcp.remote_oauth_broker import OAuthGrantBinding
-
         if isinstance(binding, OAuthGrantBinding):
             tenant = str(binding.tenant_id or "").strip()
             principal = str(binding.principal_id or "").strip()
@@ -2425,7 +2424,7 @@ class _FleetCatalogWriteContext:
 class _DiscoveryAuthority:
     kind: str
     principal: str
-    grant_digest: str
+    fingerprint: str
 
 
 @dataclass
@@ -2550,7 +2549,7 @@ def _build_discovery_row(
         "resource_count": len(skills) + len(prompts),
         "discovery_authority_kind": authority.kind,
         "discovery_principal": authority.principal,
-        "discovery_grant_digest": authority.grant_digest,
+        "discovery_grant_digest": authority.fingerprint,
     }
     discovery_key = ctx.idempotency_key or _content_signature(discovery_content)
     return {
@@ -2581,7 +2580,7 @@ def _append_tool_rows(
             server_name=server_name,
             discovery_authority_kind=authority.kind,
             discovery_principal=authority.principal,
-            discovery_grant_digest=authority.grant_digest,
+            discovery_grant_digest=authority.fingerprint,
             revision=ctx.write_revision,
             idempotency_key=ctx.idempotency_key,
             now=ctx.now,
@@ -2618,7 +2617,7 @@ def _append_skill_and_resource_rows(
                 tenant_id=ctx.tenant_id,
                 discovery_authority_kind=authority.kind,
                 discovery_principal=authority.principal,
-                discovery_grant_digest=authority.grant_digest,
+                discovery_grant_digest=authority.fingerprint,
                 revision=ctx.write_revision,
                 idempotency_key=ctx.idempotency_key,
                 now=ctx.now,
@@ -2633,7 +2632,7 @@ def _append_skill_and_resource_rows(
                 server_name=server_name,
                 discovery_authority_kind=authority.kind,
                 discovery_principal=authority.principal,
-                discovery_grant_digest=authority.grant_digest,
+                discovery_grant_digest=authority.fingerprint,
                 uri=str(entry.get("uri") or ""),
                 name=skill_name,
                 description=entry.get("description", ""),
@@ -2664,7 +2663,7 @@ def _append_prompt_and_resource_rows(
             server_name=server_name,
             discovery_authority_kind=authority.kind,
             discovery_principal=authority.principal,
-            discovery_grant_digest=authority.grant_digest,
+            discovery_grant_digest=authority.fingerprint,
             revision=ctx.write_revision,
             idempotency_key=ctx.idempotency_key,
             now=ctx.now,
@@ -2681,7 +2680,7 @@ def _append_prompt_and_resource_rows(
                 server_name=server_name,
                 discovery_authority_kind=authority.kind,
                 discovery_principal=authority.principal,
-                discovery_grant_digest=authority.grant_digest,
+                discovery_grant_digest=authority.fingerprint,
                 uri=str(entry.get("uri") or ""),
                 name=prompt_name,
                 description=entry.get("description", ""),

@@ -3956,10 +3956,12 @@ def _configure_db_opts_and_ref(config_key, config_value):
 
 def _configure_action_setup_databases(action, config_key, config_value):
     # action(s): 'setup_databases', 'verify_databases'
+    from agent_utilities.core.config import save_config_item
     from agent_utilities.knowledge_graph.setup import (
         setup_environment,
         verify_postgres,
     )
+    from agent_utilities.mcp.kg_server import get_connection_registry
 
     opts, connection_profile_ref, err = _configure_db_opts_and_ref(
         config_key, config_value
@@ -3976,6 +3978,8 @@ def _configure_action_setup_databases(action, config_key, config_value):
     return json.dumps(
         setup_environment(
             profile=profile,
+            connection_registry=get_connection_registry(),
+            config_writer=save_config_item,
             postgres_mode=opts.get("postgres_mode", "managed_image"),
             connection_profile_ref=connection_profile_ref,
             sparql_target=opts.get("sparql_target"),

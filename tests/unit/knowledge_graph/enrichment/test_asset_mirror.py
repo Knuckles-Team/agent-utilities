@@ -8,6 +8,11 @@ default (no live calls); and a guarded/no-engine pass is a clean no-op.
 
 from __future__ import annotations
 
+import ast
+import inspect
+
+from agent_utilities.cli import asset_mirror as asset_mirror_cli
+from agent_utilities.knowledge_graph.enrichment.writeback import asset_mirror as app
 from agent_utilities.knowledge_graph.enrichment.writeback import core, run_writeback
 from agent_utilities.knowledge_graph.enrichment.writeback import inventory as inv
 from agent_utilities.knowledge_graph.enrichment.writeback.core import (
@@ -85,6 +90,82 @@ class RecordingSink:
         for c in creations:
             r.proposals.append({"op": "create", "name": c.get("name")})
         return r
+
+
+def test_asset_mirror_application_uses_injected_live_authority(monkeypatch):
+    backend = FakeBackend([])
+    engine = FakeEngine(backend)
+    captured = {}
+
+    def _run_asset_mirror(**kwargs):
+        captured.update(kwargs)
+        return {"status": "completed", "errors": 0}
+
+    import agent_utilities.knowledge_graph.enrichment.writeback as writeback
+
+    monkeypatch.setattr(writeback, "run_asset_mirror", _run_asset_mirror)
+    out = app.run(
+        engine_provider=lambda: engine,
+        dry_run=False,
+        targets=["servicenow"],
+    )
+
+    assert out["status"] == "completed"
+    assert captured == {
+        "backend": backend,
+        "engine": engine,
+        "targets": ["servicenow"],
+        "dry_run": False,
+    }
+
+
+def test_asset_mirror_application_fails_closed_without_authority():
+    missing = app.run(engine_provider=lambda: None)
+
+    def _unavailable():
+        raise RuntimeError("transport details must not escape")
+
+    failed = app.run(engine_provider=_unavailable)
+    assert missing == {
+        "status": "unavailable",
+        "errors": 1,
+        "error": "asset mirror engine authority unavailable",
+        "error_type": "MissingAuthority",
+    }
+    assert failed["status"] == "unavailable"
+    assert failed["error_type"] == "RuntimeError"
+    assert "transport details" not in str(failed)
+
+
+def test_asset_mirror_cli_composes_process_authority(monkeypatch, capsys):
+    engine = object()
+    seen = {}
+    monkeypatch.setattr(asset_mirror_cli, "_process_engine_authority", lambda: engine)
+
+    def _run(**kwargs):
+        seen.update(kwargs)
+        assert kwargs["engine_provider"]() is engine
+        return {"status": "completed", "errors": 0}
+
+    monkeypatch.setattr(asset_mirror_cli, "run", _run)
+    assert asset_mirror_cli.main(["--live", "--targets", "servicenow,egeria"]) == 0
+    assert seen["dry_run"] is False
+    assert seen["targets"] == ["servicenow", "egeria"]
+    assert '"status": "completed"' in capsys.readouterr().out
+
+
+def test_asset_mirror_lower_module_has_no_mcp_reverse_import():
+    tree = ast.parse(inspect.getsource(app))
+    imports = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imports.update(
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+    )
+    assert not {name for name in imports if name.startswith("agent_utilities.mcp")}
 
 
 # ── 1. widened type filter ────────────────────────────────────────────────────

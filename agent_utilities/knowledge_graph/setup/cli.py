@@ -16,6 +16,14 @@ import sys
 from .database_environment import setup_environment, verify_postgres
 
 
+def _database_setup_dependencies():
+    """Bind the process-owned registry and governed config writer."""
+    from agent_utilities.core.config import save_config_item
+    from agent_utilities.mcp.kg_server import get_connection_registry
+
+    return get_connection_registry(), save_config_item
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="setup-databases",
@@ -73,8 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0 if result.get("status") == "success" else 1
 
+    connection_registry, config_writer = _database_setup_dependencies()
     report = setup_environment(
         profile=args.profile,
+        connection_registry=connection_registry,
+        config_writer=config_writer,
         postgres_mode=args.postgres_mode,
         connection_profile_ref=args.connection_profile_ref,
         sparql_target=args.sparql_target,

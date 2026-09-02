@@ -166,7 +166,7 @@ Step 4). Opt out with `--no-mirror-data` if you only want the ontology.
 
 ```bash
 # Register the mirror by hand (idempotent) + backfill the existing graph:
-python -c "import json; from agent_utilities.knowledge_graph.setup import register_stardog_mirror; print(json.dumps(register_stardog_mirror(), indent=2))"
+setup-databases --profile prod
 ```
 
 **On-demand (explicit push / pull / query)** via `graph_configure`:

@@ -7,6 +7,8 @@ is what the CLI and the ``database-environment-setup`` skill drive.
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +19,22 @@ from agent_utilities.knowledge_graph.backends.fanout_backend import FanOutBacken
 from agent_utilities.knowledge_graph.setup import database_environment as de
 
 _PROFILE_REF = "env://GRAPH_DB_CONNECTION_PROFILE"
+
+
+class _FakeRegistry:
+    def __init__(self):
+        self.specs = {}
+
+    def register(self, name, spec):
+        self.specs[name] = dict(spec)
+        return name
+
+    def export_specs(self):
+        return [{"name": name, **spec} for name, spec in sorted(self.specs.items())]
+
+
+def _dependencies():
+    return _FakeRegistry(), lambda key, value: key.upper()
 
 
 class _MockMCP:
@@ -181,6 +199,45 @@ def test_publish_ontology_stardog_delegates(monkeypatch):
 
 
 # ── backfill_to_age ────────────────────────────────────────────────────────
+def test_register_stardog_mirror_uses_injected_registry_and_writer(monkeypatch):
+    registry = _FakeRegistry()
+    writes = []
+    import agent_utilities.knowledge_graph.backends as backends_mod
+
+    monkeypatch.setattr(backends_mod, "set_active_backend", lambda backend: None)
+    out = de.register_stardog_mirror(
+        registry=registry,
+        config_writer=lambda key, value: writes.append((key, value)) or key.upper(),
+    )
+
+    assert out["status"] == "success"
+    assert registry.specs["stardog"] == {
+        "backend": "stardog",
+        "role": "mirror",
+        "endpoint": "env://STARDOG_ENDPOINT",
+        "database": "env://STARDOG_DATABASE",
+        "user": "env://STARDOG_USER",
+        "password": "env://STARDOG_PASSWORD",
+    }
+    assert writes == [("kg_connections", registry.export_specs())]
+
+
+def test_database_environment_has_no_mcp_or_config_writer_reverse_import():
+    tree = ast.parse(inspect.getsource(de))
+    imports = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imports.update(
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+    )
+    assert not {name for name in imports if name.startswith("agent_utilities.mcp")}
+    assert "save_config_item" not in inspect.getsource(de)
+
+
+# Backfill adapter behavior.
 class _FakeFanOut(FanOutBackend):
     def __init__(self):
         pass
@@ -269,7 +326,13 @@ def test_setup_environment_dev_partial_on_missing(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(de, "verify_sparql", lambda *a, **k: {"status": "success"})
 
-    out = de.setup_environment(profile="dev", postgres_mode="existing")
+    registry, writer = _dependencies()
+    out = de.setup_environment(
+        profile="dev",
+        connection_registry=registry,
+        config_writer=writer,
+        postgres_mode="existing",
+    )
     assert out["sparql_target"] == "builtin"
     assert out["status"] == "partial"  # backfill failed
     assert "warnings" in out  # missing extensions surfaced
@@ -288,9 +351,33 @@ def test_setup_environment_prod_targets_stardog(monkeypatch, tmp_path):
             de, name, lambda *a, **k: {"status": "success", "extensions": {"age": True}}
         )
     monkeypatch.setattr(de, "backfill_to_age", lambda: {"status": "success"})
-    out = de.setup_environment(profile="prod")
+    registry, writer = _dependencies()
+    out = de.setup_environment(
+        profile="prod",
+        connection_registry=registry,
+        config_writer=writer,
+    )
     assert out["sparql_target"] == "stardog"
     assert out["status"] == "success"
+
+
+def test_setup_databases_cli_composes_registry_and_writer(monkeypatch, capsys):
+    from agent_utilities.knowledge_graph.setup import cli
+
+    registry, writer = _dependencies()
+    seen = {}
+    monkeypatch.setattr(cli, "_database_setup_dependencies", lambda: (registry, writer))
+
+    def _setup_environment(**kwargs):
+        seen.update(kwargs)
+        return {"status": "success"}
+
+    monkeypatch.setattr(cli, "setup_environment", _setup_environment)
+    assert cli.main(["--profile", "dev", "--no-backfill"]) == 0
+    assert seen["connection_registry"] is registry
+    assert seen["config_writer"] is writer
+    assert seen["do_backfill"] is False
+    assert '"status": "success"' in capsys.readouterr().out
 
 
 # ── live path: graph_configure MCP action ──────────────────────────────────
@@ -346,3 +433,5 @@ async def test_graph_configure_setup_databases_live_path(monkeypatch, registered
     assert seen["profile"] == "prod"
     assert seen["postgres_mode"] == "existing"
     assert seen["connection_profile_ref"] == _PROFILE_REF
+    assert seen["connection_registry"] is not None
+    assert callable(seen["config_writer"])

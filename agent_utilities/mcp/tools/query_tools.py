@@ -325,7 +325,22 @@ def _annotate_path_hops(engine: Any, path: list[Any]) -> list[dict[str, Any]]:
     return hops
 
 
-def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
+def _public_query_call(operation: Callable[[], str]) -> str:
+    """Return one source-safe public query result."""
+
+    try:
+        return operation()
+    except Exception as exc:  # noqa: BLE001 - public query error boundary
+        return public_error_json(exc)
+
+
+def _run_graph_query_sql(
+    cypher: str,
+    connection: str,
+    graph: str,
+    *,
+    as_of: Any = "",
+) -> str:
     """``scope=='sql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.query.read-only-sql-over).
 
     Statement-shape gate (WD10-A-BACKEND security review) lives in this thin
@@ -344,7 +359,30 @@ def _run_graph_query_sql(cypher: str, connection: str, graph: str) -> str:
     rejection = _reject_unsafe_table_sql(str(cypher or ""))
     if rejection is not None:
         return public_error_json(ValueError(rejection))
-    return _run_graph_query_sql_engine(cypher, connection, graph)
+    from agent_utilities.knowledge_graph.core.tabular_query_service import (
+        TabularQueryRequest,
+    )
+
+    routes = {
+        "trino": lambda: json.dumps(
+            kg_server.get_tabular_query_service()
+            .execute(
+                TabularQueryRequest(
+                    sql=cypher,
+                    graph=graph,
+                    as_of="" if isinstance(as_of, FieldInfo) else as_of,
+                )
+            )
+            .to_payload(),
+            default=_json_default,
+        )
+    }
+    return _public_query_call(
+        routes.get(
+            str(connection).strip().lower(),
+            lambda: _run_graph_query_sql_engine(cypher, connection, graph),
+        )
+    )
 
 
 def _run_graph_query_engine(
@@ -2482,7 +2520,7 @@ def register_query_tools(mcp):
             # (engine.sql refuses non-SELECT). Honors `connection` fan-out like
             # Cypher; `graph` (CONCEPT:AU-KG.backend.explicit-graph-selection) selects a physical engine
             # graph, independent of `connection` — see `resolve_explicit_graph`.
-            return _run_graph_query_sql(cypher, connection, graph)
+            return _run_graph_query_sql(cypher, connection, graph, as_of=as_of)
 
         if scope == "sparql":
             # CONCEPT:AU-KG.ingest.mirror-inbound — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the

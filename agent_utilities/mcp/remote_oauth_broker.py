@@ -116,6 +116,7 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.security.brain_context import ActorContext
 
 logger = logging.getLogger(__name__)
@@ -787,50 +788,6 @@ def _normalize_granted_scopes(value: str) -> tuple[str, ...]:
     """Return the canonical, non-secret representation of granted scopes."""
 
     return tuple(sorted({part for part in str(value or "").split() if part}))
-
-
-@dataclass(frozen=True)
-class OAuthGrantBinding:
-    """Non-secret identity of one broker-resolved OAuth grant.
-
-    This object is minted only after the broker has resolved a stored token for
-    the verified actor.  It intentionally carries no access/refresh token and
-    its fingerprint covers the provider/resource/audience, normalized grant,
-    broker key version, and process-owned grant revision.
-    """
-
-    tenant_id: str
-    principal_id: str
-    provider_id: str
-    resource_url: str
-    audience: str
-    granted_scopes: tuple[str, ...]
-    key_version: int
-    grant_revision: str
-
-    @property
-    def fingerprint(self) -> str:
-        material = {
-            "schema": "au.oauth-grant-binding.v1",
-            "tenant": self.tenant_id,
-            "principal": self.principal_id,
-            "provider": self.provider_id,
-            "resource": self.resource_url,
-            "audience": self.audience,
-            "scopes": list(self.granted_scopes),
-            "key_version": self.key_version,
-            "grant_revision": self.grant_revision,
-        }
-        encoded = json.dumps(
-            material, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
-
-    @property
-    def grant_digest(self) -> str:
-        """Compatibility name for the catalog's stable binding column."""
-
-        return self.fingerprint
 
 
 _TOKEN_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (

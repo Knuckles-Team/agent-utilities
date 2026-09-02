@@ -1,11 +1,11 @@
-"""Multi-SoR asset-mirror pass entry point (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
+"""Multi-SoR asset-mirror application (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 One command that fans the KG's reconciled asset/CI inventory out to every enabled
 CMDB system-of-record (ServiceNow / ERPNext / Egeria / Twenty) as a projection —
-the canonical model stays in the graph. This is the thin runnable behind the
-``asset-mirror`` CronJob:
+the canonical model stays in the graph. The runnable composition adapter behind
+the ``asset-mirror`` CronJob is:
 
-    python -m agent_utilities.knowledge_graph.enrichment.writeback.asset_mirror
+    python -m agent_utilities.cli.asset_mirror
 
 Gating is layered and fail-closed (see :func:`run_asset_mirror`):
 ``ASSET_MIRROR_TARGETS`` selects the sinks, each sink still needs its own
@@ -15,54 +15,60 @@ by default** — pass ``--live`` to actually write (subject to the enable flags)
 
 from __future__ import annotations
 
-import argparse
-import json
 import logging
+from collections.abc import Callable
+from typing import Any, Protocol, cast
 
 logger = logging.getLogger(__name__)
 
 
-def run(*, dry_run: bool = True, targets: list[str] | None = None) -> dict:
-    """Build the live engine/backend and run one mirror pass. Returns the manifest."""
+class AssetMirrorEngine(Protocol):
+    """Minimal live graph authority required by the asset-mirror application."""
+
+    backend: object
+
+
+AssetMirrorEngineProvider = Callable[[], AssetMirrorEngine]
+
+
+def _authority_unavailable(error_type: str) -> dict[str, Any]:
+    return {
+        "status": "unavailable",
+        "errors": 1,
+        "error": "asset mirror engine authority unavailable",
+        "error_type": error_type,
+    }
+
+
+def _resolve_authority(
+    engine_provider: AssetMirrorEngineProvider,
+) -> tuple[AssetMirrorEngine | None, dict[str, Any] | None]:
+    try:
+        engine = engine_provider()
+    except Exception as exc:  # noqa: BLE001 - fail closed with a source-safe result
+        logger.debug("asset-mirror: engine authority unavailable", exc_info=True)
+        return None, _authority_unavailable(type(exc).__name__)
+    if engine is None or getattr(engine, "backend", None) is None:
+        return None, _authority_unavailable("MissingAuthority")
+    return engine, None
+
+
+def run(
+    *,
+    engine_provider: AssetMirrorEngineProvider,
+    dry_run: bool = True,
+    targets: list[str] | None = None,
+) -> dict[str, Any]:
+    """Resolve the injected live authority and run one asset-mirror pass."""
     from agent_utilities.knowledge_graph.enrichment.writeback import run_asset_mirror
 
-    engine = None
-    try:
-        from agent_utilities.mcp import kg_server
-
-        engine = kg_server._get_engine()
-    except Exception:  # noqa: BLE001 - offline → dry-run over an empty backend
-        logger.debug(
-            "asset-mirror: engine unavailable; running with no backend", exc_info=True
-        )
-    backend = getattr(engine, "backend", None) if engine is not None else None
+    engine, unavailable = _resolve_authority(engine_provider)
+    if unavailable is not None:
+        return unavailable
+    live_engine = cast(AssetMirrorEngine, engine)
     return run_asset_mirror(
-        backend=backend, engine=engine, targets=targets, dry_run=dry_run
+        backend=live_engine.backend,
+        engine=live_engine,
+        targets=targets,
+        dry_run=dry_run,
     )
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="asset-mirror",
-        description="Mirror the KG's asset/CI inventory to all enabled CMDB sinks.",
-    )
-    parser.add_argument(
-        "--live",
-        action="store_true",
-        help="Apply writes (subject to each sink's <SINK>_ENABLE_WRITE). "
-        "Default is dry-run / report-only.",
-    )
-    parser.add_argument(
-        "--targets",
-        default="",
-        help="Comma-separated sink override (else ASSET_MIRROR_TARGETS).",
-    )
-    args = parser.parse_args(argv)
-    targets = [t.strip() for t in args.targets.split(",") if t.strip()] or None
-    result = run(dry_run=not args.live, targets=targets)
-    print(json.dumps(result, default=str, indent=2))
-    return 0 if result.get("errors", 0) == 0 else 1
-
-
-if __name__ == "__main__":  # pragma: no cover - CLI entry
-    raise SystemExit(main())

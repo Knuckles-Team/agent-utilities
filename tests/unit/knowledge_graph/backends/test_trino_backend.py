@@ -19,7 +19,6 @@ from agent_utilities.knowledge_graph.backends.trino_backend import (
     UnknownSnapshotError,
 )
 
-
 # ---------------------------------------------------------------------------
 # KnowledgeBatch contract
 # ---------------------------------------------------------------------------
@@ -38,25 +37,6 @@ def test_knowledge_batch_contract_fixture_page():
     assert page.columns == ("id", "name")
     # Company Architecture invariant I3: Iceberg snapshot == eg LSN.
     assert page.snapshot_id == page.lsn == "12345"
-
-
-def test_knowledge_batch_record_batch_needs_pyarrow_or_builds_one():
-    page = KnowledgeBatch(
-        rows=[{"id": 1}],
-        columns=("id",),
-        snapshot_id=None,
-        lsn=None,
-        row_count=1,
-        page_index=0,
-    )
-    try:
-        import pyarrow  # noqa: F401
-    except ImportError:
-        with pytest.raises(ImportError):
-            page.record_batch()
-    else:
-        result = page.record_batch()
-        assert result is not None
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +87,13 @@ class _FakeEngine:
         self.disposed = True
 
 
-def _backend(monkeypatch, *, result: _FakeResult, principal: str = "principal-a", token: str = "tok"):
+def _backend(
+    monkeypatch,
+    *,
+    result: _FakeResult,
+    principal: str = "principal-a",
+    token: str = "tok",
+):
     created = {}
 
     def fake_create_engine(url, **kwargs):
@@ -163,7 +149,10 @@ def test_select_sql_is_not_rejected(monkeypatch):
 
 
 def test_no_token_refuses_shared_connection(monkeypatch):
-    monkeypatch.setattr("sqlalchemy.create_engine", lambda *a, **k: pytest.fail("should not build an engine"))
+    monkeypatch.setattr(
+        "sqlalchemy.create_engine",
+        lambda *a, **k: pytest.fail("should not build an engine"),
+    )
     backend = TrinoQueryBackend(
         "trino.apps.svc:8080",
         token_provider=lambda: "",
@@ -173,36 +162,51 @@ def test_no_token_refuses_shared_connection(monkeypatch):
         list(backend.query("SELECT 1"))
 
 
-def test_none_token_without_opt_in_still_refuses(monkeypatch):
-    monkeypatch.setattr("sqlalchemy.create_engine", lambda *a, **k: pytest.fail("should not build an engine"))
+def test_none_token_refuses_shared_connection(monkeypatch):
+    monkeypatch.setattr(
+        "sqlalchemy.create_engine",
+        lambda *a, **k: pytest.fail("should not build an engine"),
+    )
     backend = TrinoQueryBackend(
         "trino.apps.svc:8080",
         token_provider=lambda: None,
         principal_ref_provider=lambda: "principal-a",
-        # allow_unauthenticated defaults to False -- a provider returning
-        # None must NOT silently degrade to an anonymous connection.
     )
-    with pytest.raises(TrinoQueryError, match="allow_unauthenticated"):
+    with pytest.raises(TrinoQueryError, match="no principal OIDC token"):
         list(backend.query("SELECT 1"))
 
 
-def test_none_token_with_explicit_opt_in_builds_unauthenticated_connection(monkeypatch):
-    captured = {}
+def test_backend_requires_injected_auth_ports():
+    with pytest.raises(TrinoQueryError, match="token_provider"):
+        TrinoQueryBackend(  # type: ignore[arg-type]
+            "trino.apps.svc:8080",
+            token_provider=None,
+            principal_ref_provider=lambda: "principal-a",
+        )
+    with pytest.raises(TrinoQueryError, match="principal_ref_provider"):
+        TrinoQueryBackend(  # type: ignore[arg-type]
+            "trino.apps.svc:8080",
+            token_provider=lambda: "token-a",
+            principal_ref_provider=None,
+        )
 
-    def fake_create_engine(url, **kwargs):
-        captured["url"] = url
-        return _FakeEngine(_FakeResult(("id",), [[(1,)]]))
 
-    monkeypatch.setattr("sqlalchemy.create_engine", fake_create_engine)
-    backend = TrinoQueryBackend(
-        "trino.apps.svc:8080",
-        token_provider=lambda: None,
-        principal_ref_provider=lambda: "principal-a",
-        allow_unauthenticated=True,
-    )
-    list(backend.query("SELECT 1"))
-    assert "access_token" not in captured["url"].query
-    assert captured["url"].username == "principal-a"
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://trino.apps.svc:8080",
+        "   ",
+        "https://user:pass@trino.invalid",
+        "https://trino.apps.svc:0",
+    ],
+)
+def test_backend_rejects_insecure_or_invalid_endpoint(endpoint):
+    with pytest.raises(TrinoQueryError):
+        TrinoQueryBackend(
+            endpoint,
+            token_provider=lambda: "token-a",
+            principal_ref_provider=lambda: "principal-a",
+        )
 
 
 def test_principal_scoped_pool_never_shares_engine(monkeypatch):
@@ -228,6 +232,47 @@ def test_principal_scoped_pool_never_shares_engine(monkeypatch):
     assert engines_built[0][0] == "token-a"
     assert engines_built[1][0] == "token-b"
     assert engines_built[0][1] is not engines_built[1][1]
+
+
+def test_token_rotation_replaces_only_that_principal_pool(monkeypatch):
+    engines = []
+
+    def fake_create_engine(url, **kwargs):
+        engine = _FakeEngine(_FakeResult(("id",), [[(1,)]]))
+        engines.append(engine)
+        return engine
+
+    monkeypatch.setattr("sqlalchemy.create_engine", fake_create_engine)
+    current = {"token": "token-a"}
+    backend = TrinoQueryBackend(
+        "trino.apps.svc:8080",
+        token_provider=lambda: current["token"],
+        principal_ref_provider=lambda: "principal-a",
+    )
+    list(backend.query("SELECT 1"))
+    current["token"] = "token-b"
+    list(backend.query("SELECT 1"))
+
+    assert len(engines) == 2
+    assert engines[0].disposed is True
+    assert engines[1].disposed is False
+
+
+def test_token_refresh_failure_discards_stale_principal_pool(monkeypatch):
+    engine = _FakeEngine(_FakeResult(("id",), [[(1,)]]))
+    monkeypatch.setattr("sqlalchemy.create_engine", lambda *a, **k: engine)
+    current = {"token": "token-a"}
+    backend = TrinoQueryBackend(
+        "trino.apps.svc:8080",
+        token_provider=lambda: current["token"],
+        principal_ref_provider=lambda: "principal-a",
+    )
+    list(backend.query("SELECT 1"))
+    current["token"] = ""
+
+    with pytest.raises(TrinoQueryError, match="no principal OIDC token"):
+        list(backend.query("SELECT 1"))
+    assert engine.disposed is True
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +321,9 @@ def test_as_of_builds_expected_sql(monkeypatch):
         principal_ref_provider=lambda: "principal-a",
     )
     pages = list(backend.as_of("lakehouse.analytics.t", "999"))
-    assert captured["sql"] == "SELECT * FROM lakehouse.analytics.t FOR VERSION AS OF 999"
+    assert (
+        captured["sql"] == "SELECT * FROM lakehouse.analytics.t FOR VERSION AS OF 999"
+    )
     assert pages[0].snapshot_id == "999"
     assert pages[0].lsn == "999"
 
@@ -344,7 +391,10 @@ def test_close_disposes_every_tracked_engine(monkeypatch):
 
 def test_change_envelope_builder_requires_run_id():
     builder = ChangeEnvelopeBuilder(
-        connector="trino-adapter", run_id="", input_snapshot_ids=("1",), code_version="v1"
+        connector="trino-adapter",
+        run_id="",
+        input_snapshot_ids=("1",),
+        code_version="v1",
     )
     with pytest.raises(MissingFenceFieldError, match="run_id"):
         builder.build(source_object_id="t", payload={})
@@ -352,7 +402,10 @@ def test_change_envelope_builder_requires_run_id():
 
 def test_change_envelope_builder_requires_input_snapshot_ids():
     builder = ChangeEnvelopeBuilder(
-        connector="trino-adapter", run_id="run-1", input_snapshot_ids=(), code_version="v1"
+        connector="trino-adapter",
+        run_id="run-1",
+        input_snapshot_ids=(),
+        code_version="v1",
     )
     with pytest.raises(MissingFenceFieldError, match="input_snapshot_id"):
         builder.build(source_object_id="t", payload={})
@@ -360,7 +413,10 @@ def test_change_envelope_builder_requires_input_snapshot_ids():
 
 def test_change_envelope_builder_requires_code_version():
     builder = ChangeEnvelopeBuilder(
-        connector="trino-adapter", run_id="run-1", input_snapshot_ids=("1",), code_version=""
+        connector="trino-adapter",
+        run_id="run-1",
+        input_snapshot_ids=("1",),
+        code_version="",
     )
     with pytest.raises(MissingFenceFieldError, match="code_version"):
         builder.build(source_object_id="t", payload={})

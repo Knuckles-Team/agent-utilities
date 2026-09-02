@@ -438,8 +438,10 @@ async def _offload_catalog_call(
 def _resolve_current_discovery_grants(actor: Any) -> tuple[str, ...]:
     """Resolve current grant fingerprints from the process-owned broker set."""
 
+    from agent_utilities.knowledge_graph.core.discovery_authority import (
+        OAuthGrantBinding,
+    )
     from agent_utilities.mcp.multiplexer import current_remote_oauth_grant_bindings
-    from agent_utilities.mcp.remote_oauth_broker import OAuthGrantBinding
 
     return tuple(
         sorted(

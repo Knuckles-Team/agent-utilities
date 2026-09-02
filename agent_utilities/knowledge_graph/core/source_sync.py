@@ -1302,11 +1302,28 @@ def _promote_fleet_prompts(engine: Any, catalog: dict[str, dict]) -> dict[str, A
     }
 
 
-def _fleet_config_candidates() -> list[Any]:
+def _fleet_config_adapter_candidates(config_resolver: Any) -> list[Any]:
+    """Return the composed fleet config path or the canonical XDG candidate."""
+    from pathlib import Path
+
+    if callable(config_resolver):
+        resolved = config_resolver(None)
+        return [Path(resolved)] if resolved is not None else []
+    if config_resolver is not None:
+        return []
+    try:
+        from ...core.paths import config_dir
+
+        return [config_dir() / "mcp_config.json"]
+    except Exception:  # noqa: BLE001 - an absent XDG path is simply unavailable
+        return []
+
+
+def _fleet_config_candidates(config_resolver: Any = None) -> list[Any]:
     """The ``mcp_config.json`` candidates, in connector-convention order.
 
-    ``MCP_CONFIG`` → ``WORKSPACE_PATH/mcp_config.json`` → the multiplexer's own
-    default search, so resolution stays deployment-agnostic (genesis sets the env).
+    ``MCP_CONFIG`` → ``WORKSPACE_PATH/mcp_config.json`` → the composed
+    deployment resolver. Non-probe catalog readers use the canonical XDG path.
     """
     from pathlib import Path
 
@@ -1319,14 +1336,7 @@ def _fleet_config_candidates() -> list[Any]:
     ws = (setting("WORKSPACE_PATH", default="") or "").strip()
     if ws:
         candidates.append(Path(ws) / "mcp_config.json")
-    try:
-        from ...mcp.multiplexer import _resolve_config_path
-
-        rp = _resolve_config_path(None)
-        if rp is not None:
-            candidates.append(rp)
-    except Exception:  # noqa: BLE001 — multiplexer default search is a fallback
-        pass
+    candidates.extend(_fleet_config_adapter_candidates(config_resolver))
     return candidates
 
 
@@ -1347,7 +1357,7 @@ def _fleet_config_has_servers(path: Any) -> bool:
     return False
 
 
-def _resolve_fleet_config():
+def _resolve_fleet_config(config_resolver: Any = None):
     """Resolve the fleet ``mcp_config.json`` — the one the multiplexer serves.
 
     Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
@@ -1357,7 +1367,7 @@ def _resolve_fleet_config():
     ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
     search, so it stays deployment-agnostic (genesis sets the env).
     """
-    for path in _fleet_config_candidates():
+    for path in _fleet_config_candidates(config_resolver):
         if _fleet_config_has_servers(path):
             return path
     return None
@@ -1450,26 +1460,90 @@ def _fleet_mux_metadata(mux: Any, catalog: dict[str, Any] | None) -> tuple[Any, 
     return configs, discovery_bindings
 
 
-def _probe_fleet_catalog() -> SimpleNamespace:
-    """Build the multiplexer from ``mcp_config.json`` and probe the served catalog.
+def _fleet_unavailable(reason: str) -> SimpleNamespace:
+    """Return one stable fleet-unavailable result without private details."""
+    return SimpleNamespace(
+        skip={"status": "unavailable", "source": "fleet", "reason": reason}
+    )
 
-    Returns ``SimpleNamespace(skip, catalog, configs, discovery_bindings)`` — a
-    non-``None`` ``skip`` is a ready-made handler result (the multiplexer is
-    optional at import, and a probe failure is never fatal to the caller).
-    """
+
+def _validate_fleet_resources(info: dict[str, Any]) -> None:
+    """Require mapping-shaped tool, skill, and prompt lists."""
+    for field in ("tools", "skills", "prompts"):
+        entries = info.get(field, [])
+        if not isinstance(entries, list) or any(
+            not isinstance(entry, dict) for entry in entries
+        ):
+            raise ValueError("fleet catalog resource list is invalid")
+
+
+def _validate_fleet_server(server_name: Any, info: Any) -> None:
+    """Validate one named fleet catalog entry."""
+    if not isinstance(server_name, str) or not server_name.strip():
+        raise ValueError("fleet catalog server name is invalid")
+    if not isinstance(info, dict) or not any(
+        key in info for key in ("tools", "skills", "prompts", "error")
+    ):
+        raise ValueError("fleet catalog server entry is invalid")
+    if info.get("error") is not None and not isinstance(info["error"], str):
+        raise ValueError("fleet catalog error is invalid")
+    _validate_fleet_resources(info)
+
+
+def _validate_fleet_catalog(catalog: Any) -> dict[str, dict[str, Any]]:
+    """Validate one complete MCP catalog before any governed write."""
+    if not isinstance(catalog, dict):
+        raise ValueError("fleet catalog is not a mapping")
+    for server_name, info in catalog.items():
+        _validate_fleet_server(server_name, info)
+    return catalog
+
+
+def _prepare_fleet_probe(probe_port: Any) -> SimpleNamespace:
+    """Validate composition and resolve its fleet config path."""
+    from .engine_mcp_discovery import MCPProbePort
+
+    if not isinstance(probe_port, MCPProbePort):
+        return _fleet_unavailable("mcp fleet probe is unavailable")
     try:
-        from ...mcp.multiplexer import MCPMultiplexer
-        from ...protocols.source_connectors.connectors.mcp_package import _run_async
-    except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
-        return SimpleNamespace(
-            skip={
-                "status": "skipped",
-                "source": "fleet",
-                "reason": f"multiplexer unavailable: {exc}",
-            }
+        config_path = _resolve_fleet_config(probe_port.resolve_config_path)
+    except Exception as exc:  # noqa: BLE001 - config failures are redacted
+        logger.warning(
+            "fleet MCP config resolution unavailable (exception_type=%s)",
+            type(exc).__name__,
         )
+        return _fleet_unavailable("fleet MCP config resolution is unavailable")
+    return SimpleNamespace(skip=None, config_path=config_path, probe_port=probe_port)
 
-    config_path = _resolve_fleet_config()
+
+def _run_fleet_probe(config_path: Any, probe_port: Any) -> SimpleNamespace:
+    """Run one bounded fleet probe and validate its complete output."""
+    probe_budget = _fleet_probe_budget()
+    try:
+        mux = probe_port.multiplexer_factory(config_path)
+        catalog = probe_port.run_async(
+            mux.probe_catalog(budget=probe_budget),
+            timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001 - adapter errors are redacted
+        logger.warning(
+            "fleet MCP catalog probe unavailable (exception_type=%s)",
+            type(exc).__name__,
+        )
+        return _fleet_unavailable("fleet MCP catalog probe is unavailable")
+    try:
+        catalog = _validate_fleet_catalog(catalog)
+    except (TypeError, ValueError):
+        return _fleet_unavailable("fleet MCP catalog probe returned an invalid catalog")
+    return SimpleNamespace(skip=None, mux=mux, catalog=catalog)
+
+
+def _probe_fleet_catalog(*, probe_port: Any = None) -> SimpleNamespace:
+    """Probe the fleet through the process-composed MCP adapter seams."""
+    prepared = _prepare_fleet_probe(probe_port)
+    if prepared.skip is not None:
+        return prepared
+    config_path = prepared.config_path
     if config_path is None:
         return SimpleNamespace(
             skip={
@@ -1479,24 +1553,28 @@ def _probe_fleet_catalog() -> SimpleNamespace:
             }
         )
 
-    probe_budget = _fleet_probe_budget()
-    try:
-        mux = MCPMultiplexer(config_path)
-        catalog = _run_async(
-            mux.probe_catalog(budget=probe_budget),
-            timeout=probe_budget + _FLEET_PROBE_GRACE_SEC,
-        )
-    except Exception as exc:  # noqa: BLE001 — probe is best-effort
-        return SimpleNamespace(
-            skip={"status": "error", "source": "fleet", "reason": str(exc)}
-        )
-
-    configs, discovery_bindings = _fleet_mux_metadata(mux, catalog)
+    probed = _run_fleet_probe(config_path, prepared.probe_port)
+    if probed.skip is not None:
+        return probed
+    configs, discovery_bindings = _fleet_mux_metadata(probed.mux, probed.catalog)
     return SimpleNamespace(
         skip=None,
-        catalog=catalog,
+        catalog=probed.catalog,
         configs=configs,
         discovery_bindings=discovery_bindings,
+    )
+
+
+def _fleet_probe_for_sync(engine: Any, client: Any) -> SimpleNamespace:
+    """Select a validated explicit catalog or the composed live probe."""
+    if not isinstance(client, dict):
+        return _probe_fleet_catalog(probe_port=getattr(engine, "mcp_probe_port", None))
+    try:
+        catalog = _validate_fleet_catalog(client)
+    except (TypeError, ValueError):
+        return _fleet_unavailable("fleet MCP catalog is invalid")
+    return SimpleNamespace(
+        skip=None, catalog=catalog, configs=None, discovery_bindings=None
     )
 
 
@@ -1515,13 +1593,7 @@ def _sync_fleet(
     ``declared_total``/``declared_uncovered`` (:func:`_reconcile_declared_fleet`)
     so the declared universe is visible alongside what was actually probed.
     """
-    probe = (
-        SimpleNamespace(
-            skip=None, catalog=client, configs=None, discovery_bindings=None
-        )
-        if isinstance(client, dict)
-        else _probe_fleet_catalog()
-    )
+    probe = _fleet_probe_for_sync(engine, client)
     if probe.skip is not None:
         return probe.skip
     catalog = probe.catalog

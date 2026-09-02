@@ -631,8 +631,9 @@ implement `GraphBackend` — Trino/Spark return tabular result pages, not
 Cypher-shaped rows, and per the Company Architecture program's invariant I3
 ("Provenance on every hop") a compute result is not a KG fact until it
 carries a lineage fence (run id, input snapshot id(s), code version,
-confidence). `TrinoQueryBackend` implements the narrower `QueryBackend`
-protocol instead (`query()` / `as_of()` -> paged `KnowledgeBatch`), and
+confidence). `TrinoQueryBackend` implements the narrower `QueryBackend` port
+owned by `core/tabular_query_service.py` (`query()` -> paged
+`KnowledgeBatch`), while retaining its validated `as_of()` adapter API.
 `ChangeEnvelopeBuilder` (in `trino_backend.py`, reused by `spark_jobs.py`)
 is the one place that fence is assembled before a result may reach the
 existing `ApplyChangeEnvelope` door (`knowledge_graph/ingestion/
@@ -642,9 +643,28 @@ competing writer — both modules refuse any write/DDL statement (grep
 `trino_backend.py`/`spark_jobs.py` for `iceberg`: read/catalog-list
 mentions only, zero write/commit calls). See
 `plans/company-architecture/lanes/CA-27-trino-spark-adapters.md` for the
-full design note, including the measured gap that principal-scoped OIDC
-cannot yet be proven end-to-end against the current (no-TLS, no-auth)
-Trino deployment.
+full design note.
+
+The public query path is deliberately recomposed around one lower application
+service. `graph_query(scope="sql", connection="trino")` is only transport
+routing; `TabularQueryService` owns selector validation, page materialization,
+and provenance consistency. The Trino adapter receives required token and
+principal providers at the MCP composition root and imports neither MCP nor
+runtime configuration. There is no anonymous, static-credential, or cleartext
+fallback: the configured endpoint must be TLS and the delegated bearer is
+resolved on every dispatch. A token rotation replaces only that principal's
+pooled engine; the LRU cap bounds total warm principals.
+
+```mermaid
+flowchart LR
+    MCP["MCP graph_query"] --> ROUTE["thin SQL route"]
+    REST["REST /graph/query"] --> ROUTE
+    ROUTE --> APP["TabularQueryService<br/>request + provenance contract"]
+    APP --> PORT{{"QueryBackend port"}}
+    PORT --> TRINO["TrinoQueryBackend<br/>TLS-only, read-only, bounded pools"]
+    COMPOSE["graph-os composition<br/>typed config + delegated identity"] --> TRINO
+    TRINO --> ICEBERG["Trino / Iceberg projection"]
+```
 
 ## Related
 
