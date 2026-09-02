@@ -156,7 +156,7 @@ cases:
       source_repository_path: agent-packages/agent-utilities
       source_manifest_path: architecture/component-registry.yml
       source_revision: e3a95186b1b5f1b7d752800d9b99bc2b3a161a6f
-      source_digest: sha256:19fdd2ec34b5b8a60f8b8fd84f594be52165f4f1a7854f75042641920314308b
+      source_digest: sha256:cb5e11775ffbde1b4ddc4f441ecf0cff8d4c66fd3d06cc10fd36c3dbbc75748f
       authority_signature: sha256:43d639292ea760954688135110797237ecc32d1f2ddf90f77db4f8f74f3e68bc
       behavioral_signature: sha256:2e9f0012e5b93fe1ea21946e5cff78898bec20275d2ff2bf9575703bc7f27459
       dependency_signature: sha256:490d3b808cdff5be2deced38f8e61e1e4fa6a1ee5e8bd2424ca57085c6bc73bf

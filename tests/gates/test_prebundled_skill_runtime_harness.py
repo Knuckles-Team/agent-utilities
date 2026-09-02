@@ -54,11 +54,18 @@ from agent_utilities.skills.runtime_validation import (
     _validation_reasoning_effort,
     _verified_validation_session,
     _wait_for_run_completion,
+    architecture_candidate_from_owner_manifest,
     build_evidence,
     load_matrix,
     render_report,
     sign_and_verify_evidence,
     validate_semantic_output,
+)
+from agent_utilities.skills.validation import (
+    _validate_architecture_candidate as validate_static_architecture_candidate,
+)
+from agent_utilities.skills.validation import (
+    load_architecture_owner_manifest,
 )
 from agent_utilities.usage.privacy import normalize_run_id
 
@@ -1112,7 +1119,7 @@ def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
     )
 
 
-def _architecture_payloads(case: ValidationCase) -> dict[str, dict[str, Any]]:
+def _architecture_payloads(case: ValidationCase) -> dict[str, Any]:
     candidate = case.architecture_candidate
     assert candidate is not None
     caller_file = f"{candidate.owned_source_roots[0]}/runtime.py"
@@ -1149,17 +1156,11 @@ def _architecture_payloads(case: ValidationCase) -> dict[str, dict[str, Any]]:
     }
     return {
         "graph_query": {"rows": [registry_row]},
-        "graph_search": {
-            "results": [
-                {
-                    "component_id": candidate.component_id,
-                    "capability_id": candidate.capability_id,
-                    "source_repository_id": candidate.source_repository_id,
-                    "source_manifest_path": candidate.source_manifest_path,
-                    "source_digest": candidate.source_digest,
-                }
-            ]
-        },
+        "graph_search": (
+            Path(__file__).resolve().parents[1]
+            / "fixtures"
+            / "architecture_graph_search_contract.txt"
+        ).read_text(encoding="utf-8"),
         "graph_code": {
             "error": None,
             "evidence_spans": [{"file": caller_file, "line": 17}],
@@ -1282,6 +1283,134 @@ async def test_architecture_operations_capture_candidate_bound_evidence(
     _assert_architecture_scenarios(result)
 
 
+def test_architecture_candidate_is_generated_from_the_owner_manifest() -> None:
+    manifest = load_architecture_owner_manifest()
+    generated = architecture_candidate_from_owner_manifest(
+        component_id="au.adapters.mcp-catalog-reconciliation"
+    )
+    _defaults, cases = load_matrix()
+    matrix_candidate = next(
+        case.architecture_candidate
+        for case in cases
+        if case.case_id == "development-direct"
+    )
+
+    assert manifest["generator"] == (
+        "agent_utilities.skills.validation:architecture_candidate_from_owner_manifest"
+    )
+    assert matrix_candidate is not None
+    assert matrix_candidate.model_dump(mode="json") == generated
+
+
+def test_architecture_candidate_rejects_unbound_owner_manifest() -> None:
+    manifest = load_architecture_owner_manifest()
+    manifest["integrity"]["source_digest"] = "sha256:" + "1" * 64
+
+    with pytest.raises(ValueError, match="owner_manifest_source_digest_mismatch"):
+        architecture_candidate_from_owner_manifest(manifest)
+
+
+def test_static_architecture_candidate_rejects_malformed_root_shapes() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    candidate_data = candidate.model_dump(mode="json")
+    candidate_data["owned_source_roots"] = [["nested"]]
+
+    errors = validate_static_architecture_candidate(
+        {"architecture_candidate": candidate_data}, "malformed"
+    )
+
+    assert "malformed: candidate owner root is not relative" in errors
+
+    candidate_data["owned_source_roots"] = ["agent_utilities/mcp/catalog"]
+    candidate_data["shared_paths"] = [
+        {
+            "path": "agent_utilities/mcp/shared.py",
+            "kind": "shared_file",
+            "owner_component_ids": "not-a-list",
+            "review_policy": "all-owners",
+            "exception_id": "shared-catalog-file",
+        }
+    ]
+    errors = validate_static_architecture_candidate(
+        {"architecture_candidate": candidate_data}, "malformed"
+    )
+
+    assert "malformed: shared-path owner ID is invalid" in errors
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error"),
+    [
+        (
+            lambda data: data.update(source_revision="0" * 40),
+            "architecture_candidate_source_revision_unavailable",
+        ),
+        (
+            lambda data: data.update(source_repository_path="/outside/repository"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_path="../outside"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_id="other-repository"),
+            "architecture_candidate_source_repository_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_path="agent-packages/other"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(target_inventory_ref="/outside"),
+            "architecture_candidate_target_inventory_ref_invalid",
+        ),
+        (
+            lambda data: data.update(target_inventory_ref="../outside"),
+            "architecture_candidate_target_inventory_ref_invalid",
+        ),
+        (
+            lambda data: data.update(
+                public_contract_roots=["agent_utilities/mcp/catalog"]
+            ),
+            "architecture_candidate_root_overlap",
+        ),
+        (
+            lambda data: data.update(
+                shared_paths=[
+                    {
+                        "path": "agent_utilities/mcp/shared.py",
+                        "kind": "shared_file",
+                        "owner_component_ids": [
+                            "au.adapters.mcp-catalog-reconciliation",
+                            "not an id",
+                        ],
+                        "review_policy": "all-owners",
+                        "exception_id": "shared-catalog-file",
+                    }
+                ]
+            ),
+            "architecture_candidate_shared_owner_invalid",
+        ),
+    ],
+)
+def test_architecture_candidate_rejects_untrusted_authority_shapes(
+    mutate, error
+) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    data = candidate.model_dump(mode="json")
+    mutate(data)
+
+    with pytest.raises(ValueError, match=error):
+        runtime_harness._validate_architecture_candidate(
+            runtime_harness.ArchitectureCandidateIdentity.model_validate(data)
+        )
+
+
 @pytest.mark.asyncio
 async def test_architecture_operations_fail_closed_when_projections_unavailable(
     monkeypatch,
@@ -1292,7 +1421,7 @@ async def test_architecture_operations_fail_closed_when_projections_unavailable(
         if name == "graph_query":
             return {"rows": []}
         if name == "graph_search":
-            return {"results": []}
+            return "No results found for query: 'au.adapters.mcp-catalog-reconciliation au.mcp-catalog-reconciliation'"
         return {"error": {"code": "unavailable"}}
 
     monkeypatch.setattr(runtime_harness, "_call_tool", unavailable_call)
@@ -1427,7 +1556,9 @@ def test_architecture_discovery_and_callers_reject_unrelated_or_ungrounded_rows(
     candidate = case.architecture_candidate
     assert candidate is not None
     payloads = _architecture_payloads(case)
-    payloads["graph_search"]["results"][0]["component_id"] = "unrelated.component"
+    payloads["graph_search"] = payloads["graph_search"].replace(
+        candidate.component_id, "unrelated.component", 1
+    )
     payloads["graph_code"]["reasoning_trace"][0]["sections"]["callers"][0]["line"] = 18
 
     with pytest.raises(
@@ -1438,6 +1569,55 @@ def test_architecture_discovery_and_callers_reject_unrelated_or_ungrounded_rows(
         )
     with pytest.raises(ValueError, match="architecture_live_caller_missing"):
         runtime_harness._architecture_caller_count(candidate, payloads["graph_code"])
+
+
+def test_architecture_discovery_accepts_the_signed_graph_search_text_fixture() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_search"]
+
+    rows = runtime_harness._architecture_discovery_rows(candidate, payload)
+
+    assert len(rows) == 1
+    assert rows[0].authority_signature == candidate.authority_signature
+
+
+def test_architecture_discovery_rejects_an_unexpected_connection_trailer() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_search"]
+    payload = payload.replace(
+        "[connection=default graph=(default)]",
+        "[connection=other graph=(default)]",
+    )
+
+    with pytest.raises(ValueError, match="architecture_discovery_contract_invalid"):
+        runtime_harness._architecture_discovery_rows(candidate, payload)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda text: text.replace(
+            "contract_digest=sha256:", "contract_digest=sha256:" + "0" * 64 + "\n#"
+        ),
+        lambda text: text + "\n---\n" + text,
+        lambda text: text.replace(
+            "authority_signature=", "authority_signature=sha256:", 1
+        ),
+    ],
+)
+def test_architecture_discovery_rejects_unsigned_or_ambiguous_text(mutate) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+
+    with pytest.raises(ValueError):
+        runtime_harness._architecture_discovery_rows(
+            candidate, mutate(_architecture_payloads(case)["graph_search"])
+        )
 
 
 @pytest.mark.asyncio

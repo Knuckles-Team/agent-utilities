@@ -257,12 +257,21 @@ pairs.
 The two development cases additionally bind one externally supplied, digest-bound
 RF-021 candidate identity. Their retained `architecture` evidence contains exactly
 three content-free tool observations: an authoritative component/capability join,
-advisory discovery, and a caller row grounded by the same file/line citation. It
-also records the twelve structured RF-021 scenario outcomes. Proposal,
+advisory discovery parsed from the existing flat-text `graph_search` contract with
+its exact single-target connection trailer, and a caller row grounded by the same
+file/line citation. The discovery record must
+carry the source identity, authority signature, and a digest over that exact text
+contract; a synthetic structured dictionary is not accepted. It also records the
+twelve structured RF-021 scenario outcomes. Proposal,
 non-authoritative, stale, duplicate, unrelated, text-only, missing-target,
 unbounded-owner-root, ungrounded-caller, and incomplete replacement/deletion
 evidence cannot produce a passing case. Concrete runtime identity labels are not
 retained; only the externally governed policy digest is bound.
+
+The immutable RF-019 source-acceptance result (`641c780f42db1187ddf377d26b81ff553f5ffacb`,
+tree `cb222da...`) is a CA/refactor reference-plane input only. Its qualification
+state remains `PROPOSED/NOT_RUN`; it does not establish runtime acceptance, and
+the external `/etc` authority bundle is deferred until post-refactor deployment.
 
 ```mermaid
 flowchart LR

@@ -50,8 +50,21 @@ from agent_utilities.security.persistence_privacy import (
 )
 from agent_utilities.skills import BUNDLED_SKILLS
 from agent_utilities.skills.validation import (
+    _ARCHITECTURE_ACTIVE_STATUS,
+    _ARCHITECTURE_AUTHORITY_STATE,
+    _ARCHITECTURE_COMPONENT_ID,
+    _ARCHITECTURE_MANIFEST_PATH,
+    _ARCHITECTURE_SOURCE_AUTHORITY,
+    _ARCHITECTURE_SOURCE_REPOSITORY_ID,
+    _ARCHITECTURE_SOURCE_REPOSITORY_PATH,
+    _ARCHITECTURE_SOURCE_REVISION,
+    _ARCHITECTURE_SOURCE_WORKSPACE_MANIFEST,
+    _ARCHITECTURE_TARGET_REF,
     FORWARD_MATRIX,
     SKILLS_ROOT,
+    _architecture_canonical_relative_path,
+    _architecture_revision_exists,
+    architecture_candidate_from_owner_manifest,
 )
 from agent_utilities.skills.validation import (
     validate as validate_static_suite,
@@ -66,10 +79,6 @@ _MAX_TOOL_DEPTH = 24
 _UNDECODED = object()
 _ARCHITECTURE_SKILL = "agent-utilities-development"
 _ARCHITECTURE_OPERATION_TIMEOUT_SECONDS = 15.0
-_ARCHITECTURE_MANIFEST_PATH = "architecture/component-registry.yml"
-_ARCHITECTURE_ACTIVE_STATUS = "active"
-_ARCHITECTURE_AUTHORITY_STATE = "owner_manifest_authoritative"
-_ARCHITECTURE_SOURCE_AUTHORITY = "owner_repository_manifest"
 # RF-021 keeps the proposal registry, owner manifests, and generated projection
 # as one contract.  These are scenario labels in the synthetic matrix, not a
 # second persisted registry schema.
@@ -111,6 +120,21 @@ _ARCHITECTURE_PHASE_OPERATIONS = (
     ("discovery", "graph_search"),
     ("caller_impact", "graph_code"),
 )
+_ARCHITECTURE_DISCOVERY_HEADER = re.compile(
+    r"^\[ArchitectureComponent\] (?P<name>[^\s]+) "
+    r"\(ID: (?P<component_id>[^)]+)\) - Score: (?P<score>[0-9]+(?:\.[0-9]+)?)$"
+)
+_ARCHITECTURE_DISCOVERY_FIELDS = frozenset(
+    {
+        "capability_id",
+        "source_repository_id",
+        "source_manifest_path",
+        "source_digest",
+        "authority_signature",
+        "contract_digest",
+    }
+)
+_ARCHITECTURE_DISCOVERY_TRAILER = "[connection=default graph=(default)]"
 _TRACE_PAGE_LIMIT = 20
 _TRACE_MAX_PAGES = 10
 _TRACE_TOOL_ERROR_RETRIES = 2
@@ -269,6 +293,7 @@ class ArchitectureDiscoveryRow(BaseModel):
     source_repository_id: str
     source_manifest_path: str
     source_digest: str
+    authority_signature: str
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -496,6 +521,14 @@ def _architecture_candidate_ref(candidate: ArchitectureCandidateIdentity) -> str
 def _canonical_owner_path(value: str) -> bool:
     """Return whether an owner root is finite, relative, and non-patterned."""
 
+    return _canonical_owner_path_checked(value)
+
+
+def _canonical_owner_path_checked(value: Any) -> bool:
+    """Apply the type guard and syntax checks for one owner path."""
+
+    if not isinstance(value, str):
+        return False
     path = Path(value)
     return bool(
         value
@@ -573,12 +606,35 @@ def _validate_architecture_candidate_roots(
 def _validate_architecture_root_groups(
     root_groups: tuple[tuple[str, ...], ...],
 ) -> None:
-    """Require every owner root to be finite and unique within its role."""
+    """Require every owner root to be finite and unique across all roles."""
 
-    if any(not _canonical_owner_path(root) for group in root_groups for root in group):
+    for group in root_groups:
+        _validate_architecture_root_group(group)
+    _validate_architecture_cross_role_roots(root_groups)
+
+
+def _validate_architecture_root_group(group: tuple[str, ...]) -> None:
+    """Require one owner-root role to be finite and internally unique."""
+
+    if any(not _canonical_owner_path(root) for root in group):
         raise ValueError("architecture_candidate_root_invalid")
-    if any(len(group) != len(set(group)) for group in root_groups):
+    if len(group) != len(set(group)):
         raise ValueError("architecture_candidate_root_duplicate")
+
+
+def _validate_architecture_cross_role_roots(
+    root_groups: tuple[tuple[str, ...], ...],
+) -> None:
+    """Reject identical or nested roots assigned to different roles."""
+
+    for index, left_group in enumerate(root_groups):
+        for right_group in root_groups[index + 1 :]:
+            if any(
+                _owner_paths_overlap(left, right)
+                for left in left_group
+                for right in right_group
+            ):
+                raise ValueError("architecture_candidate_root_overlap")
 
 
 def _validate_generated_root_isolation(
@@ -602,10 +658,40 @@ def _validate_architecture_candidate_identity(
 
     if candidate.parent_component_id == candidate.component_id:
         raise ValueError("architecture_candidate_parent_invalid")
+    _validate_architecture_candidate_owner_source(candidate)
     if candidate.source_manifest_path != _ARCHITECTURE_MANIFEST_PATH:
         raise ValueError("architecture_candidate_manifest_path_invalid")
+    _validate_architecture_candidate_source_identity(candidate)
     if candidate.replacement_required != bool(candidate.replaced_component_ids):
         raise ValueError("architecture_candidate_replacement_contract_invalid")
+
+
+def _validate_architecture_candidate_owner_source(
+    candidate: ArchitectureCandidateIdentity,
+) -> None:
+    """Require the exact AU source identity before any live operation."""
+
+    if candidate.source_workspace_manifest != _ARCHITECTURE_SOURCE_WORKSPACE_MANIFEST:
+        raise ValueError("architecture_candidate_source_workspace_invalid")
+    if candidate.source_repository_id != _ARCHITECTURE_SOURCE_REPOSITORY_ID:
+        raise ValueError("architecture_candidate_source_repository_invalid")
+    if candidate.source_repository_path != _ARCHITECTURE_SOURCE_REPOSITORY_PATH:
+        raise ValueError("architecture_candidate_source_repository_path_invalid")
+
+
+def _validate_architecture_candidate_source_identity(
+    candidate: ArchitectureCandidateIdentity,
+) -> None:
+    """Require a relative source, real revision, and canonical target reference."""
+
+    if not _architecture_canonical_relative_path(candidate.source_repository_path):
+        raise ValueError("architecture_candidate_source_repository_path_invalid")
+    if _ARCHITECTURE_SOURCE_REVISION.fullmatch(candidate.source_revision) is None:
+        raise ValueError("architecture_candidate_source_revision_invalid")
+    if not _architecture_revision_exists(candidate.source_revision):
+        raise ValueError("architecture_candidate_source_revision_unavailable")
+    if _ARCHITECTURE_TARGET_REF.fullmatch(candidate.target_inventory_ref) is None:
+        raise ValueError("architecture_candidate_target_inventory_ref_invalid")
 
 
 def _validate_architecture_candidate_shared_paths(
@@ -630,8 +716,20 @@ def _validate_architecture_shared_path(
         raise ValueError("architecture_candidate_shared_owner_missing")
     if len(shared.owner_component_ids) != len(set(shared.owner_component_ids)):
         raise ValueError("architecture_candidate_shared_owner_duplicate")
+    _validate_architecture_shared_owner_ids(shared.owner_component_ids)
     if any(_owner_paths_overlap(shared.path, root) for root in exclusive_roots):
         raise ValueError("architecture_candidate_shared_exclusive_overlap")
+
+
+def _validate_architecture_shared_owner_ids(owner_ids: tuple[str, ...]) -> None:
+    """Require every shared-path owner to use the canonical component ID shape."""
+
+    if any(
+        not isinstance(owner_id, str)
+        or _ARCHITECTURE_COMPONENT_ID.fullmatch(owner_id) is None
+        for owner_id in owner_ids
+    ):
+        raise ValueError("architecture_candidate_shared_owner_invalid")
 
 
 def _case_contract(case: ValidationCase) -> dict[str, Any]:
@@ -717,10 +815,26 @@ def _architecture_candidate_from_matrix(
 
     if "architecture_candidate" not in item:
         return None
-    candidate = ArchitectureCandidateIdentity.model_validate(
-        item["architecture_candidate"]
-    )
+    candidate_data = _architecture_candidate_source_data(item["architecture_candidate"])
+    candidate = ArchitectureCandidateIdentity.model_validate(candidate_data)
     return _validate_architecture_candidate(candidate)
+
+
+def _architecture_candidate_source_data(value: Any) -> dict[str, Any]:
+    """Project one matrix candidate only when it matches the owner manifest."""
+
+    candidate_data = value
+    if not isinstance(candidate_data, dict):
+        raise ValueError("architecture_candidate_source_invalid")
+    try:
+        owner_candidate = architecture_candidate_from_owner_manifest(
+            component_id=str(candidate_data.get("component_id") or "")
+        )
+    except ValueError as exc:
+        raise ValueError("architecture_candidate_source_unavailable") from exc
+    if candidate_data != owner_candidate:
+        raise ValueError("architecture_candidate_source_mismatch")
+    return candidate_data
 
 
 def _skill_body(skill: str) -> str:
@@ -1464,27 +1578,106 @@ def _verify_architecture_registry_replacement(
 def _architecture_discovery_rows(
     candidate: ArchitectureCandidateIdentity, payload: Any
 ) -> tuple[ArchitectureDiscoveryRow, ...]:
-    """Validate exact advisory discovery rows without treating them as ownership."""
+    """Validate the bounded flat-text ``graph_search`` discovery contract."""
 
-    rows = _architecture_payload_rows(payload, "results", 8)
-    if not rows:
-        raise ValueError("architecture_discovery_unavailable")
+    text = _architecture_discovery_text(payload)
+    records = text.split("\n---\n")
+    if len(records) != 1:
+        raise ValueError("architecture_discovery_unrelated_or_duplicate")
+    row_data = _architecture_discovery_record(records[0])
     try:
-        parsed = tuple(ArchitectureDiscoveryRow.model_validate(row) for row in rows)
+        row = ArchitectureDiscoveryRow.model_validate(row_data)
     except Exception as exc:
         raise ValueError("architecture_discovery_row_invalid") from exc
-    if len(parsed) != 1:
-        raise ValueError("architecture_discovery_unrelated_or_duplicate")
-    row = parsed[0]
     if (
         row.component_id != candidate.component_id
         or row.capability_id != candidate.capability_id
         or row.source_repository_id != candidate.source_repository_id
         or row.source_manifest_path != _ARCHITECTURE_MANIFEST_PATH
         or row.source_digest != candidate.source_digest
+        or row.authority_signature != candidate.authority_signature
     ):
         raise ValueError("architecture_discovery_unrelated_or_duplicate")
-    return parsed
+    return (row,)
+
+
+def _architecture_discovery_text(payload: Any) -> str:
+    """Unwrap only the actual string result shape emitted by ``graph_search``."""
+
+    if isinstance(payload, dict):
+        if set(payload) != {"result"} or not isinstance(payload["result"], str):
+            raise ValueError("architecture_response_schema_invalid")
+        payload = payload["result"]
+    if not isinstance(payload, str):
+        raise ValueError("architecture_response_schema_invalid")
+    text = payload.strip()
+    if not text or text.startswith("No results found for query:"):
+        raise ValueError("architecture_discovery_unavailable")
+    trailer_separator = f"\n\n{_ARCHITECTURE_DISCOVERY_TRAILER}"
+    if text.endswith(trailer_separator):
+        text = text[: -len(trailer_separator)].rstrip()
+    if not text:
+        raise ValueError("architecture_discovery_contract_invalid")
+    return text
+
+
+def _architecture_discovery_record(record: str) -> dict[str, str]:
+    """Parse one exact Graph-OS formatted component record and its digest."""
+
+    lines = record.splitlines()
+    if len(lines) < 2:
+        raise ValueError("architecture_discovery_contract_invalid")
+    fields = _architecture_discovery_header_fields(lines[0])
+    fields.update(_architecture_discovery_body_fields(lines[1:]))
+    _validate_architecture_discovery_contract(fields)
+    return {
+        key: fields[key]
+        for key in {"component_id", *_ARCHITECTURE_DISCOVERY_FIELDS}
+        if key != "contract_digest"
+    }
+
+
+def _architecture_discovery_header_fields(header_line: str) -> dict[str, str]:
+    """Parse the real graph-search result header and bound its score."""
+
+    header = _ARCHITECTURE_DISCOVERY_HEADER.fullmatch(header_line)
+    if header is None:
+        raise ValueError("architecture_discovery_contract_invalid")
+    score = float(header.group("score"))
+    if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+        raise ValueError("architecture_discovery_contract_invalid")
+    if header.group("name") != header.group("component_id"):
+        raise ValueError("architecture_discovery_unrelated_or_duplicate")
+    return {"component_id": header.group("component_id")}
+
+
+def _architecture_discovery_body_fields(lines: list[str]) -> dict[str, str]:
+    """Parse exactly one key/value line per signed discovery field."""
+
+    fields: dict[str, str] = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if not separator or key not in _ARCHITECTURE_DISCOVERY_FIELDS or not value:
+            raise ValueError("architecture_discovery_contract_invalid")
+        if key in fields:
+            raise ValueError("architecture_discovery_contract_invalid")
+        fields[key] = value
+    return fields
+
+
+def _validate_architecture_discovery_contract(fields: dict[str, str]) -> None:
+    """Verify exact field coverage and the signed contract digest."""
+
+    if set(fields) != {"component_id", *_ARCHITECTURE_DISCOVERY_FIELDS}:
+        raise ValueError("architecture_discovery_contract_invalid")
+    signed_fields = {
+        key: fields[key]
+        for key in sorted(
+            {"component_id", *_ARCHITECTURE_DISCOVERY_FIELDS - {"contract_digest"}}
+        )
+    }
+    if fields["contract_digest"] != _digest_bytes(_canonical_bytes(signed_fields)):
+        raise ValueError("architecture_discovery_contract_invalid")
 
 
 def _path_belongs_to_candidate(
