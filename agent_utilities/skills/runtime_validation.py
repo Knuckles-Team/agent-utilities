@@ -66,6 +66,10 @@ _MAX_TOOL_DEPTH = 24
 _UNDECODED = object()
 _ARCHITECTURE_SKILL = "agent-utilities-development"
 _ARCHITECTURE_OPERATION_TIMEOUT_SECONDS = 15.0
+_ARCHITECTURE_MANIFEST_PATH = "architecture/component-registry.yml"
+_ARCHITECTURE_ACTIVE_STATUS = "active"
+_ARCHITECTURE_AUTHORITY_STATE = "owner_manifest_authoritative"
+_ARCHITECTURE_SOURCE_AUTHORITY = "owner_repository_manifest"
 # RF-021 keeps the proposal registry, owner manifests, and generated projection
 # as one contract.  These are scenario labels in the synthetic matrix, not a
 # second persisted registry schema.
@@ -85,6 +89,20 @@ _ARCHITECTURE_LAYOUT_REQUIREMENTS = (
     "component_owned_roots",
     "worker_lane_shared_file_exception",
 )
+_ARCHITECTURE_PASS_OUTCOMES = (
+    "available",
+    "current",
+    "matched",
+    "not_required",
+    "verified",
+    "verified",
+    "discovery_only",
+    "authoritative",
+    "implementation_component",
+    "verified",
+    "verified",
+    "verified",
+)
 # Conceptual phases deliberately map to the existing Graph-OS operation names.
 # Local generation, tests, and deletion remain RF-021 evidence obligations; no
 # unsupported Graph-OS verb is invented for them.
@@ -92,47 +110,6 @@ _ARCHITECTURE_PHASE_OPERATIONS = (
     ("registry_lookup", "graph_query"),
     ("discovery", "graph_search"),
     ("caller_impact", "graph_code"),
-)
-_ARCHITECTURE_OPERATION_ARGUMENTS = (
-    (
-        "registry_lookup",
-        "graph_query",
-        (
-            (
-                "cypher",
-                "MATCH (n:ArchitectureComponent) RETURN "
-                "n.component_id AS component_id, "
-                "n.source_workspace_manifest AS source_workspace_manifest, "
-                "n.source_repository_id AS source_repository_id, "
-                "n.source_repository_path AS source_repository_path, "
-                "n.source_manifest_path AS source_manifest_path, "
-                "n.source_revision AS source_revision, "
-                "n.source_digest AS source_digest, "
-                "n.status AS status LIMIT 32",
-            ),
-            ("params", "{}"),
-            ("scope", "local"),
-        ),
-    ),
-    (
-        "discovery",
-        "graph_search",
-        (
-            ("query", "RF-021 architecture component registry"),
-            ("mode", "hybrid"),
-            ("top_k", 8),
-        ),
-    ),
-    (
-        "caller_impact",
-        "graph_code",
-        (
-            ("action", "code_context"),
-            ("query", "architecture component registry live callers"),
-            ("target", "usage"),
-            ("top_k", 8),
-        ),
-    ),
 )
 _TRACE_PAGE_LIMIT = 20
 _TRACE_MAX_PAGES = 10
@@ -208,6 +185,94 @@ class SemanticOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ArchitectureSharedPath(BaseModel):
+    """One finite RF-021 shared-path exception supplied by the owner manifest."""
+
+    path: str = Field(min_length=1, max_length=256)
+    kind: Literal["shared_root", "shared_file"]
+    owner_component_ids: tuple[str, ...] = Field(min_length=2, max_length=8)
+    review_policy: str = Field(min_length=1, max_length=128)
+    exception_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,127}$")
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ArchitectureCandidateIdentity(BaseModel):
+    """Exact, digest-bound RF-021 candidate supplied to runtime validation."""
+
+    component_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,127}$")
+    component_kind: Literal["implementation_component"]
+    capability_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,127}$")
+    parent_component_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,127}$")
+    parent_layer: str = Field(pattern=r"^[a-z][a-z0-9.-]{1,63}$")
+    source_workspace_manifest: Literal["workspace.yml"]
+    source_repository_id: str = Field(pattern=r"^[a-z][a-z0-9.-]{2,127}$")
+    source_repository_path: str = Field(min_length=1, max_length=256)
+    source_manifest_path: Literal["architecture/component-registry.yml"]
+    source_revision: str = Field(pattern=r"^[a-f0-9]{40,64}$")
+    source_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    authority_signature: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    behavioral_signature: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    dependency_signature: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    identity_policy_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    target_inventory_ref: str = Field(min_length=1, max_length=256)
+    owned_source_roots: tuple[str, ...] = Field(min_length=1, max_length=32)
+    public_contract_roots: tuple[str, ...] = Field(min_length=1, max_length=32)
+    test_roots: tuple[str, ...] = Field(min_length=1, max_length=32)
+    generated_roots: tuple[str, ...] = Field(max_length=32)
+    shared_paths: tuple[ArchitectureSharedPath, ...] = Field(max_length=16)
+    replacement_required: bool
+    replaced_component_ids: tuple[str, ...] = Field(max_length=16)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ArchitectureRegistryRow(BaseModel):
+    """Closed joined ArchitectureComponent/ArchitectureCapability observation."""
+
+    component_id: str
+    component_kind: str
+    capability_id: str
+    implementation_authority_component_id: str
+    parent_component_id: str
+    parent_layer: str
+    source_authority: str
+    authority_state: str
+    status: str
+    source_workspace_manifest: str
+    source_repository_id: str
+    source_repository_path: str
+    source_manifest_path: str
+    source_revision: str
+    source_digest: str
+    authority_signature: str
+    behavioral_signature: str
+    dependency_signature: str
+    identity_policy_digest: str
+    target_item_refs: tuple[str, ...]
+    owned_source_roots: tuple[str, ...]
+    public_contract_roots: tuple[str, ...]
+    test_roots: tuple[str, ...]
+    generated_roots: tuple[str, ...]
+    shared_paths: tuple[ArchitectureSharedPath, ...]
+    replaces: tuple[str, ...]
+    deletion_proof: str | None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ArchitectureDiscoveryRow(BaseModel):
+    """Closed advisory discovery row; it can never establish ownership."""
+
+    component_id: str
+    capability_id: str
+    source_repository_id: str
+    source_manifest_path: str
+    source_digest: str
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class DelegationContractError(ValueError):
     """Controlled current-contract diagnostic with no response material."""
 
@@ -222,11 +287,22 @@ class ValidationChildToolError(RuntimeError):
 
 @dataclass(frozen=True)
 class GraphOperationObservation:
-    """Metadata-only result for one real Graph-OS operation invocation."""
+    """Bounded metadata retained for one real Graph-OS operation invocation."""
 
     phase: str
     operation: str
     status: str
+    request_digest: str
+    response_digest: str
+    matched_record_count: int
+
+
+@dataclass(frozen=True)
+class ArchitectureScenarioObservation:
+    """One deterministic RF-021 behavioral outcome retained as evidence."""
+
+    scenario: str
+    outcome: str
 
 
 @dataclass(frozen=True)
@@ -241,6 +317,7 @@ class ValidationCase:
     expected_routes: tuple[str, ...]
     allowed_tools: tuple[str, ...]
     read_only: bool
+    architecture_candidate: ArchitectureCandidateIdentity | None = None
 
 
 @dataclass
@@ -269,6 +346,7 @@ class CaseResult:
     skill_ref: str = ""
     skill_body_ref: str = ""
     operation_evidence: tuple[GraphOperationObservation, ...] = ()
+    scenario_evidence: tuple[ArchitectureScenarioObservation, ...] = ()
     error_codes: list[str] = field(default_factory=list)
 
     @property
@@ -279,7 +357,7 @@ class CaseResult:
             and self._trace_evidence_exact()
             and self.selected_routes
             and all(_SAFE_ROUTE.fullmatch(route) for route in self.selected_routes)
-            and self._references_valid()
+            and self._all_evidence_exact()
         )
 
     def _required_checks_passed(self) -> bool:
@@ -321,6 +399,61 @@ class CaseResult:
             )
         )
 
+    def _all_evidence_exact(self) -> bool:
+        """Require opaque runtime references and the skill-specific evidence."""
+
+        return self._references_valid() and self._architecture_evidence_exact()
+
+    def _architecture_evidence_exact(self) -> bool:
+        """Require the exact joined/discovery/caller evidence for dev-skill cases."""
+
+        if self.skill != _ARCHITECTURE_SKILL:
+            return not self.operation_evidence and not self.scenario_evidence
+        return (
+            self._architecture_operations_exact()
+            and self._architecture_scenarios_exact()
+        )
+
+    def _architecture_operations_exact(self) -> bool:
+        """Require the three candidate-bound tool observations in contract order."""
+
+        expected = tuple(
+            (phase, operation, status)
+            for (phase, operation), status in zip(
+                _ARCHITECTURE_PHASE_OPERATIONS,
+                ("verified", "advisory", "grounded"),
+                strict=True,
+            )
+        )
+        observed = tuple(
+            (item.phase, item.operation, item.status)
+            for item in self.operation_evidence
+        )
+        return (
+            observed == expected
+            and tuple(item.matched_record_count for item in self.operation_evidence[:2])
+            == (1, 1)
+            and 1 <= self.operation_evidence[2].matched_record_count <= 32
+            and all(
+                _DIGEST.fullmatch(item.request_digest) is not None
+                and _DIGEST.fullmatch(item.response_digest) is not None
+                for item in self.operation_evidence
+            )
+        )
+
+    def _architecture_scenarios_exact(self) -> bool:
+        """Require every structured scenario and no failing outcome."""
+
+        expected = tuple(
+            ArchitectureScenarioObservation(scenario, outcome)
+            for scenario, outcome in zip(
+                architecture_workflow_scenarios(),
+                _ARCHITECTURE_PASS_OUTCOMES,
+                strict=True,
+            )
+        )
+        return self.scenario_evidence == expected
+
     def add_error(self, code: str) -> None:
         normalized = re.sub(r"[^a-z0-9_]+", "_", code.casefold()).strip("_")
         if not _SAFE_ERROR.fullmatch(normalized):
@@ -351,10 +484,160 @@ def _require_digest(value: str, field: str) -> str:
     return value
 
 
+def _architecture_candidate_ref(candidate: ArchitectureCandidateIdentity) -> str:
+    """Return a content-bound reference without persisting candidate identities."""
+
+    digest = hashlib.sha256(
+        _canonical_bytes(candidate.model_dump(mode="json"))
+    ).hexdigest()
+    return f"pref_architecture_candidate_{digest}"
+
+
+def _canonical_owner_path(value: str) -> bool:
+    """Return whether an owner root is finite, relative, and non-patterned."""
+
+    path = Path(value)
+    return bool(
+        value
+        and len(value) <= 256
+        and not path.is_absolute()
+        and value == path.as_posix()
+        and all(part not in {"", ".", ".."} for part in path.parts)
+        and not any(marker in value for marker in ("*", "?", "[", "]", "\x00"))
+    )
+
+
+def _owner_paths_overlap(left: str, right: str) -> bool:
+    """Return whether two canonical owner paths contain one another."""
+
+    return bool(
+        left == right
+        or left.startswith(f"{right.rstrip('/')}/")
+        or right.startswith(f"{left.rstrip('/')}/")
+    )
+
+
+def _validate_architecture_candidate(
+    candidate: ArchitectureCandidateIdentity,
+) -> ArchitectureCandidateIdentity:
+    """Fail closed on a broad, overlapping, or internally inconsistent candidate."""
+
+    _validate_architecture_candidate_digests(candidate)
+    roots = _validate_architecture_candidate_roots(candidate)
+    _validate_architecture_candidate_identity(candidate)
+    _validate_architecture_candidate_shared_paths(candidate, roots)
+    return candidate
+
+
+def _validate_architecture_candidate_digests(
+    candidate: ArchitectureCandidateIdentity,
+) -> None:
+    """Require every externally supplied content identity to be non-sentinel."""
+
+    digest_fields = (
+        "source_digest",
+        "authority_signature",
+        "behavioral_signature",
+        "dependency_signature",
+        "identity_policy_digest",
+    )
+    invalid = next(
+        (
+            field_name
+            for field_name in digest_fields
+            if _DIGEST.fullmatch(str(getattr(candidate, field_name))) is None
+        ),
+        None,
+    )
+    if invalid is not None:
+        raise ValueError(f"architecture_candidate_{invalid}_invalid")
+
+
+def _validate_architecture_candidate_roots(
+    candidate: ArchitectureCandidateIdentity,
+) -> tuple[str, ...]:
+    """Require unique finite roots and isolate generated from handwritten paths."""
+
+    root_groups = (
+        candidate.owned_source_roots,
+        candidate.public_contract_roots,
+        candidate.test_roots,
+        candidate.generated_roots,
+    )
+    _validate_architecture_root_groups(root_groups)
+    _validate_generated_root_isolation(root_groups[:3], candidate.generated_roots)
+    flattened = [root for group in root_groups for root in group]
+    return tuple(flattened)
+
+
+def _validate_architecture_root_groups(
+    root_groups: tuple[tuple[str, ...], ...],
+) -> None:
+    """Require every owner root to be finite and unique within its role."""
+
+    if any(not _canonical_owner_path(root) for group in root_groups for root in group):
+        raise ValueError("architecture_candidate_root_invalid")
+    if any(len(group) != len(set(group)) for group in root_groups):
+        raise ValueError("architecture_candidate_root_duplicate")
+
+
+def _validate_generated_root_isolation(
+    handwritten_groups: tuple[tuple[str, ...], ...], generated_roots: tuple[str, ...]
+) -> None:
+    """Keep generated ownership disjoint from handwritten owner roots."""
+
+    if any(
+        _owner_paths_overlap(handwritten_root, generated_root)
+        for group in handwritten_groups
+        for handwritten_root in group
+        for generated_root in generated_roots
+    ):
+        raise ValueError("architecture_candidate_generated_root_overlap")
+
+
+def _validate_architecture_candidate_identity(
+    candidate: ArchitectureCandidateIdentity,
+) -> None:
+    """Require canonical parent, manifest, and replacement identity semantics."""
+
+    if candidate.parent_component_id == candidate.component_id:
+        raise ValueError("architecture_candidate_parent_invalid")
+    if candidate.source_manifest_path != _ARCHITECTURE_MANIFEST_PATH:
+        raise ValueError("architecture_candidate_manifest_path_invalid")
+    if candidate.replacement_required != bool(candidate.replaced_component_ids):
+        raise ValueError("architecture_candidate_replacement_contract_invalid")
+
+
+def _validate_architecture_candidate_shared_paths(
+    candidate: ArchitectureCandidateIdentity, exclusive_roots: tuple[str, ...]
+) -> None:
+    """Require complete co-ownership and disjoint shared-path exceptions."""
+
+    for shared in candidate.shared_paths:
+        _validate_architecture_shared_path(candidate, shared, exclusive_roots)
+
+
+def _validate_architecture_shared_path(
+    candidate: ArchitectureCandidateIdentity,
+    shared: ArchitectureSharedPath,
+    exclusive_roots: tuple[str, ...],
+) -> None:
+    """Validate one finite shared-root or shared-file exception."""
+
+    if not _canonical_owner_path(shared.path):
+        raise ValueError("architecture_candidate_shared_path_invalid")
+    if candidate.component_id not in shared.owner_component_ids:
+        raise ValueError("architecture_candidate_shared_owner_missing")
+    if len(shared.owner_component_ids) != len(set(shared.owner_component_ids)):
+        raise ValueError("architecture_candidate_shared_owner_duplicate")
+    if any(_owner_paths_overlap(shared.path, root) for root in exclusive_roots):
+        raise ValueError("architecture_candidate_shared_exclusive_overlap")
+
+
 def _case_contract(case: ValidationCase) -> dict[str, Any]:
     """Return the content-free canonical contract bound into release evidence."""
 
-    return {
+    contract = {
         "id": case.case_id,
         "skill": case.skill,
         "mode": case.mode,
@@ -363,6 +646,20 @@ def _case_contract(case: ValidationCase) -> dict[str, Any]:
         "expectedRoutes": list(case.expected_routes),
         "allowedTools": list(case.allowed_tools),
         "readOnly": case.read_only,
+    }
+    contract.update(_architecture_contract_binding(case))
+    return contract
+
+
+def _architecture_contract_binding(case: ValidationCase) -> dict[str, str]:
+    """Bind development cases to a candidate without changing other contracts."""
+
+    if case.architecture_candidate is None:
+        return {}
+    return {
+        "architectureCandidateRef": _architecture_candidate_ref(
+            case.architecture_candidate
+        )
     }
 
 
@@ -406,10 +703,24 @@ def load_matrix() -> tuple[dict[str, int | bool], list[ValidationCase]]:
             expected_routes=tuple(str(route) for route in item["expected_routes"]),
             allowed_tools=tuple(str(tool) for tool in item["allowed_tools"]),
             read_only=bool(item["read_only"]),
+            architecture_candidate=_architecture_candidate_from_matrix(item),
         )
         for item in raw["cases"]
     ]
     return defaults, cases
+
+
+def _architecture_candidate_from_matrix(
+    item: dict[str, Any],
+) -> ArchitectureCandidateIdentity | None:
+    """Parse one optional candidate through the closed runtime model."""
+
+    if "architecture_candidate" not in item:
+        return None
+    candidate = ArchitectureCandidateIdentity.model_validate(
+        item["architecture_candidate"]
+    )
+    return _validate_architecture_candidate(candidate)
 
 
 def _skill_body(skill: str) -> str:
@@ -943,80 +1254,370 @@ async def _call_tool(
     return _decode_tool_result(result)
 
 
-def architecture_phase_operations() -> tuple[tuple[str, str], ...]:
-    """Return RF-021's conceptual phase to Graph-OS operation map."""
-
-    return _ARCHITECTURE_PHASE_OPERATIONS
-
-
 def architecture_workflow_scenarios() -> tuple[str, ...]:
     """Return the deterministic RF-021 scenario labels in matrix order."""
 
     return _ARCHITECTURE_WORKFLOW_SCENARIOS + _ARCHITECTURE_LAYOUT_REQUIREMENTS
 
 
-def _architecture_operation_specs() -> tuple[tuple[str, str, dict[str, Any]], ...]:
-    """Build fresh bounded requests for the three real Graph-OS operations."""
+def _architecture_operation_specs(
+    candidate: ArchitectureCandidateIdentity,
+) -> tuple[tuple[str, str, dict[str, Any]], ...]:
+    """Build candidate-bound requests for the three real Graph-OS operations."""
 
-    return tuple(
-        (phase, operation, dict(arguments))
-        for phase, operation, arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
+    query = (
+        "MATCH (component:ArchitectureComponent {component_id: $component_id})"
+        "-[:IMPLEMENTS]->"
+        "(capability:ArchitectureCapability {capability_id: $capability_id}) "
+        "WHERE component.source_repository_id = $source_repository_id "
+        "RETURN component.component_id AS component_id, "
+        "component.component_kind AS component_kind, "
+        "capability.capability_id AS capability_id, "
+        "capability.implementation_authority_component_id "
+        "AS implementation_authority_component_id, "
+        "component.parent_component_id AS parent_component_id, "
+        "component.parent_layer AS parent_layer, "
+        "component.source_authority AS source_authority, "
+        "component.authority_state AS authority_state, "
+        "component.status AS status, "
+        "component.source_workspace_manifest AS source_workspace_manifest, "
+        "component.source_repository_id AS source_repository_id, "
+        "component.source_repository_path AS source_repository_path, "
+        "component.source_manifest_path AS source_manifest_path, "
+        "component.source_revision AS source_revision, "
+        "component.source_digest AS source_digest, "
+        "component.authority_signature AS authority_signature, "
+        "component.behavioral_signature AS behavioral_signature, "
+        "component.dependency_signature AS dependency_signature, "
+        "component.identity_policy_digest AS identity_policy_digest, "
+        "component.target_item_refs AS target_item_refs, "
+        "component.owned_source_roots AS owned_source_roots, "
+        "component.public_contract_roots AS public_contract_roots, "
+        "component.test_roots AS test_roots, "
+        "component.generated_roots AS generated_roots, "
+        "component.shared_paths AS shared_paths, "
+        "component.replaces AS replaces, "
+        "component.deletion_proof AS deletion_proof LIMIT 2"
+    )
+    params = json.dumps(
+        {
+            "capability_id": candidate.capability_id,
+            "component_id": candidate.component_id,
+            "source_repository_id": candidate.source_repository_id,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    exact_identity = f"{candidate.component_id} {candidate.capability_id}"
+    caller_query = (
+        f"live callers of {candidate.capability_id} implemented by "
+        f"{candidate.component_id}"
+    )
+    return (
+        (
+            "registry_lookup",
+            "graph_query",
+            {"cypher": query, "params": params, "scope": "local"},
+        ),
+        (
+            "discovery",
+            "graph_search",
+            {"query": exact_identity, "mode": "hybrid", "top_k": 8},
+        ),
+        (
+            "caller_impact",
+            "graph_code",
+            {
+                "action": "code_context",
+                "query": caller_query,
+                "target": "usage",
+                "top_k": 8,
+            },
+        ),
     )
 
 
-def _architecture_response_status(_phase: str, payload: Any) -> str:
-    """Classify a decoded operation response without retaining its contents."""
+def _architecture_payload_rows(payload: Any, key: str, limit: int) -> list[Any]:
+    """Read one exact bounded row collection and reject text-shaped success."""
 
-    if isinstance(payload, dict):
-        nested = payload.get("result")
-        if len(payload) == 1 and isinstance(nested, dict | list | tuple | str):
-            return _architecture_response_status(_phase, nested)
-        if payload.get("isError") or payload.get("is_error"):
-            return "blocked"
-        raw_status = str(payload.get("status") or "").strip().casefold()
-        if raw_status in {
-            "error",
-            "failed",
-            "unavailable",
-            "degraded",
-            "denied",
-            "rejected",
-            "stale",
-            "outdated",
-            "identity_disagreement",
-        } or payload.get("error"):
-            return "blocked"
-        error_code = str(payload.get("error_code") or "").strip().casefold()
-        if error_code in {
-            "registry_unavailable",
-            "registry_outdated",
-            "owner_manifest_identity_disagreement",
-        }:
-            return "blocked"
-        evidence_keys = ("rows", "results", "claims", "anchors", "sections", "data")
-        observed_evidence = False
-        for key in evidence_keys:
-            if key not in payload:
-                continue
-            observed_evidence = True
-            value = payload[key]
-            if value:
-                return "returned"
-        if observed_evidence:
-            return "empty"
-        return "returned" if payload else "empty"
-    if isinstance(payload, list | tuple):
-        return "returned" if payload else "empty"
-    if isinstance(payload, str):
-        normalized = payload.strip().casefold()
-        if not normalized:
-            return "empty"
-        if normalized in {"[]", "{}", "null", "none"}:
-            return "empty"
-        if normalized.startswith(("error:", "unavailable:", "degraded:")):
-            return "blocked"
-        return "returned"
-    return "invalid"
+    if not isinstance(payload, dict) or key not in payload:
+        raise ValueError("architecture_response_schema_invalid")
+    rows = payload[key]
+    if not isinstance(rows, list) or len(rows) > limit:
+        raise ValueError("architecture_response_rows_invalid")
+    return rows
+
+
+def _architecture_registry_row(
+    candidate: ArchitectureCandidateIdentity, payload: Any
+) -> ArchitectureRegistryRow:
+    """Return the unique authoritative joined row for the exact candidate."""
+
+    rows = _architecture_payload_rows(payload, "rows", 2)
+    if not rows:
+        raise ValueError("architecture_registry_unavailable")
+    if len(rows) != 1:
+        raise ValueError("architecture_registry_duplicate_authority")
+    try:
+        row = ArchitectureRegistryRow.model_validate(rows[0])
+    except Exception as exc:
+        raise ValueError("architecture_registry_row_invalid") from exc
+    _verify_architecture_registry_identity(candidate, row)
+    _verify_architecture_registry_ownership(candidate, row)
+    _verify_architecture_registry_replacement(candidate, row)
+    return row
+
+
+def _architecture_registry_expected_identity(
+    candidate: ArchitectureCandidateIdentity,
+) -> dict[str, str]:
+    """Return the exact owner-manifest and signature identity to compare."""
+
+    return {
+        "component_id": candidate.component_id,
+        "component_kind": candidate.component_kind,
+        "capability_id": candidate.capability_id,
+        "implementation_authority_component_id": candidate.component_id,
+        "parent_component_id": candidate.parent_component_id,
+        "parent_layer": candidate.parent_layer,
+        "source_authority": _ARCHITECTURE_SOURCE_AUTHORITY,
+        "authority_state": _ARCHITECTURE_AUTHORITY_STATE,
+        "status": _ARCHITECTURE_ACTIVE_STATUS,
+        "source_workspace_manifest": candidate.source_workspace_manifest,
+        "source_repository_id": candidate.source_repository_id,
+        "source_repository_path": candidate.source_repository_path,
+        "source_manifest_path": _ARCHITECTURE_MANIFEST_PATH,
+        "source_revision": candidate.source_revision,
+        "source_digest": candidate.source_digest,
+        "authority_signature": candidate.authority_signature,
+        "behavioral_signature": candidate.behavioral_signature,
+        "dependency_signature": candidate.dependency_signature,
+        "identity_policy_digest": candidate.identity_policy_digest,
+    }
+
+
+def _verify_architecture_registry_identity(
+    candidate: ArchitectureCandidateIdentity, row: ArchitectureRegistryRow
+) -> None:
+    """Reject stale/proposal state separately from source identity disagreement."""
+
+    expected = _architecture_registry_expected_identity(candidate)
+    observed = row.model_dump(mode="json")
+    disagreements = {
+        field_name
+        for field_name, value in expected.items()
+        if observed[field_name] != value
+    }
+    if not disagreements:
+        return
+    stale_fields = {
+        "status",
+        "source_revision",
+        "source_authority",
+        "authority_state",
+    }
+    if disagreements.intersection(stale_fields):
+        raise ValueError("architecture_registry_outdated")
+    raise ValueError("architecture_owner_manifest_identity_disagreement")
+
+
+def _verify_architecture_registry_ownership(
+    candidate: ArchitectureCandidateIdentity, row: ArchitectureRegistryRow
+) -> None:
+    """Verify the sole target-inventory link and every finite owner root."""
+
+    if row.target_item_refs != (candidate.target_inventory_ref,):
+        raise ValueError("architecture_target_inventory_link_invalid")
+    expected = (
+        candidate.owned_source_roots,
+        candidate.public_contract_roots,
+        candidate.test_roots,
+        candidate.generated_roots,
+        candidate.shared_paths,
+    )
+    observed = (
+        row.owned_source_roots,
+        row.public_contract_roots,
+        row.test_roots,
+        row.generated_roots,
+        row.shared_paths,
+    )
+    if observed != expected:
+        raise ValueError("architecture_owner_roots_invalid")
+
+
+def _verify_architecture_registry_replacement(
+    candidate: ArchitectureCandidateIdentity, row: ArchitectureRegistryRow
+) -> None:
+    """Require exact replacement identities and deletion proof when applicable."""
+
+    if row.replaces != candidate.replaced_component_ids:
+        raise ValueError("architecture_replacement_identity_invalid")
+    if candidate.replacement_required:
+        if row.deletion_proof is None or _DIGEST.fullmatch(row.deletion_proof) is None:
+            raise ValueError("architecture_deletion_proof_missing")
+        return
+    if row.deletion_proof is not None:
+        raise ValueError("architecture_unrelated_deletion_proof")
+
+
+def _architecture_discovery_rows(
+    candidate: ArchitectureCandidateIdentity, payload: Any
+) -> tuple[ArchitectureDiscoveryRow, ...]:
+    """Validate exact advisory discovery rows without treating them as ownership."""
+
+    rows = _architecture_payload_rows(payload, "results", 8)
+    if not rows:
+        raise ValueError("architecture_discovery_unavailable")
+    try:
+        parsed = tuple(ArchitectureDiscoveryRow.model_validate(row) for row in rows)
+    except Exception as exc:
+        raise ValueError("architecture_discovery_row_invalid") from exc
+    if len(parsed) != 1:
+        raise ValueError("architecture_discovery_unrelated_or_duplicate")
+    row = parsed[0]
+    if (
+        row.component_id != candidate.component_id
+        or row.capability_id != candidate.capability_id
+        or row.source_repository_id != candidate.source_repository_id
+        or row.source_manifest_path != _ARCHITECTURE_MANIFEST_PATH
+        or row.source_digest != candidate.source_digest
+    ):
+        raise ValueError("architecture_discovery_unrelated_or_duplicate")
+    return parsed
+
+
+def _path_belongs_to_candidate(
+    candidate: ArchitectureCandidateIdentity, value: str
+) -> bool:
+    roots = (
+        *candidate.owned_source_roots,
+        *candidate.public_contract_roots,
+        *candidate.test_roots,
+    )
+    return _canonical_owner_path(value) and any(
+        value == root or value.startswith(f"{root.rstrip('/')}/") for root in roots
+    )
+
+
+def _architecture_caller_count(
+    candidate: ArchitectureCandidateIdentity, payload: Any
+) -> int:
+    """Require grounded, owner-scoped caller rows from the typed code-context bundle."""
+
+    if not isinstance(payload, dict) or payload.get("error"):
+        raise ValueError("architecture_caller_evidence_unavailable")
+    spans = payload.get("evidence_spans")
+    trace = payload.get("reasoning_trace")
+    if not isinstance(spans, list) or not 1 <= len(spans) <= 32:
+        raise ValueError("architecture_caller_evidence_invalid")
+    if not isinstance(trace, list) or len(trace) > 64:
+        raise ValueError("architecture_caller_evidence_invalid")
+    cited = _architecture_citations(candidate, spans)
+    callers = _architecture_callers(trace)
+    grounded = sum(
+        _architecture_caller_grounded(caller, cited) for caller in callers[:32]
+    )
+    if grounded < 1:
+        raise ValueError("architecture_live_caller_missing")
+    return grounded
+
+
+def _architecture_citations(
+    candidate: ArchitectureCandidateIdentity, spans: list[Any]
+) -> set[tuple[str, int]]:
+    """Return only bounded owner-scoped file/line citations."""
+
+    return {
+        (str(span.get("file") or ""), int(span.get("line") or 0))
+        for span in spans
+        if isinstance(span, dict)
+        and isinstance(span.get("line"), int)
+        and _path_belongs_to_candidate(candidate, str(span.get("file") or ""))
+    }
+
+
+def _architecture_callers(trace: list[Any]) -> list[Any]:
+    """Extract caller rows only from the typed code-context sections step."""
+
+    callers: list[Any] = []
+    for step in trace:
+        if not isinstance(step, dict) or step.get("step") != "sections":
+            continue
+        sections = step.get("sections")
+        if isinstance(sections, dict) and isinstance(sections.get("callers"), list):
+            callers.extend(sections["callers"])
+    return callers
+
+
+def _architecture_caller_grounded(caller: Any, citations: set[tuple[str, int]]) -> bool:
+    """Return whether one caller has an identical retained citation."""
+
+    if not isinstance(caller, dict) or not isinstance(caller.get("line"), int):
+        return False
+    citation = (str(caller.get("file") or ""), int(caller["line"]))
+    return citation in citations
+
+
+def _architecture_error_code(exc: Exception) -> str:
+    code = str(exc)
+    return code if _SAFE_ERROR.fullmatch(code) else "architecture_response_invalid"
+
+
+def _architecture_scenario_observations(
+    _candidate: ArchitectureCandidateIdentity, errors: set[str]
+) -> tuple[ArchitectureScenarioObservation, ...]:
+    """Project actual gate results into the deterministic RF-021 scenario schema."""
+
+    registry_missing = "architecture_registry_unavailable" in errors
+    registry_stale = bool(
+        errors
+        & {
+            "architecture_registry_outdated",
+            "architecture_registry_duplicate_authority",
+        }
+    )
+    identity_mismatch = "architecture_owner_manifest_identity_disagreement" in errors
+    refresh_required = bool(errors)
+    rejected = bool(errors)
+    outcomes = {
+        "registry_unavailable": _scenario_outcome(
+            registry_missing, "fail_closed", "available"
+        ),
+        "registry_outdated": _scenario_outcome(registry_stale, "rejected", "current"),
+        "owner_manifest_identity_disagreement": _scenario_outcome(
+            identity_mismatch, "rejected", "matched"
+        ),
+        "regeneration_reingestion": _scenario_outcome(
+            refresh_required, "rf021_handoff", "not_required"
+        ),
+        "finite_exception_metadata": _scenario_outcome(
+            rejected, "rejected", "verified"
+        ),
+        "caller_deletion_evidence": _scenario_outcome(rejected, "rejected", "verified"),
+        "concept_discovery_only": "discovery_only",
+        "plans_cutover": _scenario_outcome(rejected, "rejected", "authoritative"),
+        "layer_boundary_vs_component": _scenario_outcome(
+            rejected, "rejected", "implementation_component"
+        ),
+        "parent_layer_no_signature_match": _scenario_outcome(
+            rejected, "rejected", "verified"
+        ),
+        "component_owned_roots": _scenario_outcome(rejected, "rejected", "verified"),
+        "worker_lane_shared_file_exception": _scenario_outcome(
+            rejected, "rejected", "verified"
+        ),
+    }
+    return tuple(
+        ArchitectureScenarioObservation(scenario, outcomes[scenario])
+        for scenario in architecture_workflow_scenarios()
+    )
+
+
+def _scenario_outcome(condition: bool, when_true: str, when_false: str) -> str:
+    """Select one controlled scenario result without embedding scenario logic."""
+
+    return when_true if condition else when_false
 
 
 async def _capture_architecture_operations(
@@ -1028,51 +1629,189 @@ async def _capture_architecture_operations(
 ) -> tuple[GraphOperationObservation, ...]:
     """Invoke and capture every RF-021 Graph-OS operation for the dev skill.
 
-    The response body is intentionally reduced to a status and never reaches
-    ``CaseResult`` or any persisted report.  All three calls are attempted so a
-    missing operation cannot be hidden by an earlier failure.
+    Raw response bodies never reach ``CaseResult`` or a persisted report. Exact
+    request/response digests, typed status, and bounded match counts are retained.
+    All three calls are attempted so an earlier failure cannot hide another one.
     """
 
     if case.skill != _ARCHITECTURE_SKILL:
         return ()
 
-    required_operations = {
-        operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
-    }
-    if not required_operations.issubset(set(case.expected_routes)):
+    candidate = case.architecture_candidate
+    if candidate is None:
+        result.add_error("architecture_candidate_identity_missing")
+        return ()
+
+    if not _architecture_routes_valid(case):
         result.add_error("architecture_operation_contract_invalid")
         result.operation_evidence = ()
         return ()
 
+    specs = _architecture_operation_specs(candidate)
     budget = min(_ARCHITECTURE_OPERATION_TIMEOUT_SECONDS, max(1.0, timeout))
     deadline = time.monotonic() + budget
-    observations: list[GraphOperationObservation] = []
-    for phase, operation, arguments in _architecture_operation_specs():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            observations.append(GraphOperationObservation(phase, operation, "timeout"))
-            continue
-        try:
-            payload = await _call_tool(client, operation, arguments, remaining)
-        except TimeoutError:
-            status = "timeout"
-        except Exception:  # noqa: BLE001 - retain only typed status evidence
-            status = "error"
-        else:
-            status = _architecture_response_status(phase, payload)
-        observations.append(GraphOperationObservation(phase, operation, status))
+    observations, payloads = await _invoke_architecture_operations(
+        client, specs, deadline
+    )
+    counts, validation_errors = _validate_architecture_payloads(candidate, payloads)
+    captured = _finalize_architecture_observations(observations, counts)
 
-    captured = tuple(observations)
     result.operation_evidence = captured
-    if len(captured) != len(_ARCHITECTURE_OPERATION_ARGUMENTS) or any(
-        observation.status != "returned" for observation in captured
-    ):
-        # Missing, stale, empty, or degraded registry evidence is not an
-        # ownership negative.  Keep the case failed until RF-021 regeneration
-        # and re-ingestion restore a positive read.
-        result.add_error("architecture_operation_unavailable")
+    result.scenario_evidence = _architecture_scenario_observations(
+        candidate, validation_errors
+    )
+    for code in sorted(validation_errors):
+        result.add_error(code)
+    if validation_errors:
         result.add_error("architecture_registry_regenerate_reingest_required")
     return captured
+
+
+def _architecture_routes_valid(case: ValidationCase) -> bool:
+    """Require every real operation to be part of the case route contract."""
+
+    required = {operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS}
+    return required.issubset(case.expected_routes)
+
+
+async def _invoke_architecture_operations(
+    client: Any,
+    specs: tuple[tuple[str, str, dict[str, Any]], ...],
+    deadline: float,
+) -> tuple[list[GraphOperationObservation], dict[str, Any]]:
+    """Invoke all candidate-bound operations and retain bounded observations."""
+
+    observations: list[GraphOperationObservation] = []
+    payloads: dict[str, Any] = {}
+    for phase, operation, arguments in specs:
+        observation, payload = await _invoke_architecture_operation(
+            client, phase, operation, arguments, deadline
+        )
+        observations.append(observation)
+        if payload is not None:
+            payloads[phase] = payload
+    return observations, payloads
+
+
+async def _invoke_architecture_operation(
+    client: Any,
+    phase: str,
+    operation: str,
+    arguments: dict[str, Any],
+    deadline: float,
+) -> tuple[GraphOperationObservation, Any | None]:
+    """Invoke one operation within the shared deadline and digest its response."""
+
+    request_digest = _digest_bytes(_canonical_bytes(arguments))
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return _architecture_failed_observation(
+            phase, operation, request_digest, "timeout"
+        ), None
+    try:
+        payload = await _call_tool(client, operation, arguments, remaining)
+    except TimeoutError:
+        return _architecture_failed_observation(
+            phase, operation, request_digest, "timeout"
+        ), None
+    except Exception:  # noqa: BLE001 - retain only typed status evidence
+        return _architecture_failed_observation(
+            phase, operation, request_digest, "error"
+        ), None
+    return (
+        GraphOperationObservation(
+            phase,
+            operation,
+            "observed",
+            request_digest,
+            _digest_bytes(_canonical_bytes(payload)),
+            0,
+        ),
+        payload,
+    )
+
+
+def _architecture_failed_observation(
+    phase: str, operation: str, request_digest: str, status: str
+) -> GraphOperationObservation:
+    """Build one content-free timeout or tool-error observation."""
+
+    return GraphOperationObservation(
+        phase,
+        operation,
+        status,
+        request_digest,
+        _digest_bytes(_canonical_bytes({"status": status})),
+        0,
+    )
+
+
+def _architecture_registry_count(
+    candidate: ArchitectureCandidateIdentity, payload: Any
+) -> int:
+    _architecture_registry_row(candidate, payload)
+    return 1
+
+
+def _architecture_discovery_count(
+    candidate: ArchitectureCandidateIdentity, payload: Any
+) -> int:
+    """Return the number of exact advisory discovery rows."""
+
+    return len(_architecture_discovery_rows(candidate, payload))
+
+
+def _validate_architecture_payloads(
+    candidate: ArchitectureCandidateIdentity, payloads: dict[str, Any]
+) -> tuple[dict[str, int], set[str]]:
+    """Run the three typed validators and return controlled errors only."""
+
+    validators = {
+        "registry_lookup": _architecture_registry_count,
+        "discovery": _architecture_discovery_count,
+        "caller_impact": _architecture_caller_count,
+    }
+    counts: dict[str, int] = {}
+    errors: set[str] = set()
+    for phase, validator in validators.items():
+        if phase not in payloads:
+            errors.add("architecture_operation_unavailable")
+            continue
+        try:
+            counts[phase] = validator(candidate, payloads[phase])
+        except Exception as exc:  # noqa: BLE001 - convert to controlled code
+            errors.add(_architecture_error_code(exc))
+    return counts, errors
+
+
+def _architecture_verified_status(phase: str) -> str:
+    """Return the evidence role for one validated operation phase."""
+
+    return {
+        "registry_lookup": "verified",
+        "discovery": "advisory",
+        "caller_impact": "grounded",
+    }[phase]
+
+
+def _finalize_architecture_observations(
+    observations: list[GraphOperationObservation], counts: dict[str, int]
+) -> tuple[GraphOperationObservation, ...]:
+    """Attach typed validation roles and record counts to tool evidence."""
+
+    return tuple(
+        GraphOperationObservation(
+            observation.phase,
+            observation.operation,
+            _architecture_verified_status(observation.phase)
+            if observation.phase in counts
+            else observation.status,
+            observation.request_digest,
+            observation.response_digest,
+            counts.get(observation.phase, 0),
+        )
+        for observation in observations
+    )
 
 
 async def _verified_validation_session(
@@ -2814,7 +3553,38 @@ def _evidence_case_entry(
             "readbackMethod": "exact-trace-name",
             "matchCount": result.parent_kg_readback_count,
         },
+        "architecture": _architecture_evidence_entry(case, result),
         "errorCodes": sorted(result.error_codes),
+    }
+
+
+def _architecture_evidence_entry(
+    case: ValidationCase, result: CaseResult
+) -> dict[str, Any]:
+    """Build the exact content-free architecture observation block."""
+
+    candidate_ref = (
+        _architecture_candidate_ref(case.architecture_candidate)
+        if case.architecture_candidate is not None
+        else ""
+    )
+    return {
+        "candidateRef": _controlled_ref(candidate_ref),
+        "operations": [
+            {
+                "phase": item.phase,
+                "operation": item.operation,
+                "status": item.status,
+                "requestDigest": item.request_digest,
+                "responseDigest": item.response_digest,
+                "matchedRecordCount": item.matched_record_count,
+            }
+            for item in result.operation_evidence
+        ],
+        "scenarios": [
+            {"scenario": item.scenario, "outcome": item.outcome}
+            for item in result.scenario_evidence
+        ],
     }
 
 

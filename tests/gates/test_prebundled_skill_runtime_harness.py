@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -22,16 +23,20 @@ import agent_utilities.skills.runtime_validation as runtime_harness
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.skills.runtime_validation import (
     _ARCHITECTURE_LAYOUT_REQUIREMENTS,
-    _ARCHITECTURE_OPERATION_ARGUMENTS,
     _ARCHITECTURE_PHASE_OPERATIONS,
     _ARCHITECTURE_WORKFLOW_SCENARIOS,
     _CASE_COUNT,
     _SKILL_COUNT,
+    ArchitectureScenarioObservation,
     CaseResult,
+    GraphOperationObservation,
     SemanticOutput,
     TraceRecord,
     ValidationCase,
     ValidationChildToolError,
+    _architecture_operation_specs,
+    _architecture_registry_row,
+    _architecture_scenario_observations,
     _capture_architecture_operations,
     _contract_instruction,
     _direct_case_minimum_authority_ttl,
@@ -1079,7 +1084,9 @@ def test_runtime_matrix_has_two_read_only_cases_per_skill() -> None:
 
 def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
     _defaults, cases = load_matrix()
-    development = [case for case in cases if case.skill == "agent-utilities-development"]
+    development = [
+        case for case in cases if case.skill == "agent-utilities-development"
+    ]
 
     assert {case.mode for case in development} == {"direct", "delegated"}
     for case in development:
@@ -1090,9 +1097,9 @@ def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
         assert set(_ARCHITECTURE_LAYOUT_REQUIREMENTS).issubset(
             {marker for marker in _ARCHITECTURE_LAYOUT_REQUIREMENTS if marker in task}
         )
-        assert set(operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS) <= set(
-            case.expected_routes
-        )
+        assert set(
+            operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
+        ) <= set(case.expected_routes)
         if case.mode == "direct":
             assert not case.allowed_tools
         else:
@@ -1105,29 +1112,148 @@ def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
     )
 
 
-def test_development_runtime_artifacts_keep_lane_labels_model_agnostic() -> None:
-    skill_root = Path(runtime_harness.SKILLS_ROOT)
-    project_root = Path(runtime_harness.__file__).resolve().parents[2]
-    artifacts = (
-        skill_root / "agent-utilities-development" / "SKILL.md",
-        skill_root / "agent-utilities-development" / "agents" / "openai.yaml",
-        skill_root / "agent-utilities-development" / "agents" / "graph-os.yaml",
-        skill_root / "runtime_validation.py",
-        skill_root / "runtime_validation.yaml",
-        project_root / "deploy" / "release" / "prebundled-skills.catalog.json",
-    )
-    forbidden_terms = ("lu" + "na", "son" + "net")
+def _architecture_payloads(case: ValidationCase) -> dict[str, dict[str, Any]]:
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    caller_file = f"{candidate.owned_source_roots[0]}/runtime.py"
+    registry_row = {
+        "component_id": candidate.component_id,
+        "component_kind": candidate.component_kind,
+        "capability_id": candidate.capability_id,
+        "implementation_authority_component_id": candidate.component_id,
+        "parent_component_id": candidate.parent_component_id,
+        "parent_layer": candidate.parent_layer,
+        "source_authority": "owner_repository_manifest",
+        "authority_state": "owner_manifest_authoritative",
+        "status": "active",
+        "source_workspace_manifest": candidate.source_workspace_manifest,
+        "source_repository_id": candidate.source_repository_id,
+        "source_repository_path": candidate.source_repository_path,
+        "source_manifest_path": candidate.source_manifest_path,
+        "source_revision": candidate.source_revision,
+        "source_digest": candidate.source_digest,
+        "authority_signature": candidate.authority_signature,
+        "behavioral_signature": candidate.behavioral_signature,
+        "dependency_signature": candidate.dependency_signature,
+        "identity_policy_digest": candidate.identity_policy_digest,
+        "target_item_refs": [candidate.target_inventory_ref],
+        "owned_source_roots": list(candidate.owned_source_roots),
+        "public_contract_roots": list(candidate.public_contract_roots),
+        "test_roots": list(candidate.test_roots),
+        "generated_roots": list(candidate.generated_roots),
+        "shared_paths": [
+            item.model_dump(mode="json") for item in candidate.shared_paths
+        ],
+        "replaces": list(candidate.replaced_component_ids),
+        "deletion_proof": None,
+    }
+    return {
+        "graph_query": {"rows": [registry_row]},
+        "graph_search": {
+            "results": [
+                {
+                    "component_id": candidate.component_id,
+                    "capability_id": candidate.capability_id,
+                    "source_repository_id": candidate.source_repository_id,
+                    "source_manifest_path": candidate.source_manifest_path,
+                    "source_digest": candidate.source_digest,
+                }
+            ]
+        },
+        "graph_code": {
+            "error": None,
+            "evidence_spans": [{"file": caller_file, "line": 17}],
+            "reasoning_trace": [
+                {
+                    "step": "sections",
+                    "sections": {"callers": [{"file": caller_file, "line": 17}]},
+                }
+            ],
+        },
+    }
 
-    for artifact in artifacts:
-        content = artifact.read_text(encoding="utf-8").casefold()
-        assert not any(term in content for term in forbidden_terms), artifact
+
+def test_development_runtime_uses_external_policy_digest_only() -> None:
+    skill = (
+        Path(runtime_harness.SKILLS_ROOT) / "agent-utilities-development" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    case = _matrix_case("development-direct")
+
+    assert "externally supplied" in skill
+    assert re.search(r"identity\s+policy", skill)
+    assert case.architecture_candidate is not None
+    assert case.architecture_candidate.identity_policy_digest.startswith("sha256:")
+
+
+def _assert_architecture_observations(
+    case: ValidationCase,
+    result: CaseResult,
+    observations: tuple[GraphOperationObservation, ...],
+) -> None:
+    """Assert the exact typed metadata retained from the three projections."""
+
+    assert case.architecture_candidate is not None
+    assert [item.operation for item in observations] == [
+        operation
+        for _phase, operation, _arguments in _architecture_operation_specs(
+            case.architecture_candidate
+        )
+    ]
+    assert [item.status for item in observations] == [
+        "verified",
+        "advisory",
+        "grounded",
+    ]
+    assert all(item.request_digest.startswith("sha256:") for item in observations)
+    assert all(item.response_digest.startswith("sha256:") for item in observations)
+    assert [item.matched_record_count for item in observations] == [1, 1, 1]
+    assert result.operation_evidence == observations
+
+
+def _assert_architecture_calls(
+    case: ValidationCase, calls: list[tuple[str, dict[str, object]]]
+) -> None:
+    """Assert that each real operation was called with candidate-bound arguments."""
+
+    assert case.architecture_candidate is not None
+    assert [name for name, _arguments in calls] == [
+        "graph_query",
+        "graph_search",
+        "graph_code",
+    ]
+    query_call = next(arguments for name, arguments in calls if name == "graph_query")
+    params = json.loads(query_call["params"])
+    assert params == {
+        "capability_id": case.architecture_candidate.capability_id,
+        "component_id": case.architecture_candidate.component_id,
+        "source_repository_id": case.architecture_candidate.source_repository_id,
+    }
+    assert "ArchitectureComponent" in query_call["cypher"]
+    assert "ArchitectureCapability" in query_call["cypher"]
+    assert "[:IMPLEMENTS]" in query_call["cypher"]
+    assert query_call["cypher"].endswith("LIMIT 2")
+    code_call = next(arguments for name, arguments in calls if name == "graph_code")
+    assert code_call["action"] == "code_context"
+    assert code_call["target"] == "usage"
+
+
+def _assert_architecture_scenarios(result: CaseResult) -> None:
+    """Assert exact structured scenario names and the positive Plans outcome."""
+
+    assert [item.scenario for item in result.scenario_evidence] == [
+        *_ARCHITECTURE_WORKFLOW_SCENARIOS,
+        *_ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    ]
+    outcomes = {item.scenario: item.outcome for item in result.scenario_evidence}
+    assert outcomes["plans_cutover"] == "authoritative"
 
 
 @pytest.mark.asyncio
-async def test_architecture_operations_are_loaded_captured_and_fail_closed(
+async def test_architecture_operations_capture_candidate_bound_evidence(
     monkeypatch,
 ) -> None:
     case = _matrix_case("development-direct")
+    assert case.architecture_candidate is not None
     result = CaseResult(
         case_id=case.case_id,
         skill=case.skill,
@@ -1135,10 +1261,11 @@ async def test_architecture_operations_are_loaded_captured_and_fail_closed(
         model_class=case.model_class,
     )
     calls: list[tuple[str, dict[str, object]]] = []
+    payloads = _architecture_payloads(case)
 
     async def fake_call(_client, name, arguments, _timeout):
         calls.append((name, arguments))
-        return {"rows": [{"id": "synthetic"}]}
+        return payloads[name]
 
     monkeypatch.setattr(runtime_harness, "_call_tool", fake_call)
 
@@ -1149,25 +1276,24 @@ async def test_architecture_operations_are_loaded_captured_and_fail_closed(
         timeout=1.0,
     )
 
-    assert [item.operation for item in observations] == [
-        operation for _phase, operation, _arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
-    ]
-    assert all(item.status == "returned" for item in observations)
-    assert result.operation_evidence == observations
-    assert [name for name, _arguments in calls] == [
-        operation for _phase, operation, _arguments in _ARCHITECTURE_OPERATION_ARGUMENTS
-    ]
-    code_call = next(arguments for name, arguments in calls if name == "graph_code")
-    assert code_call["action"] == "code_context"
-    assert code_call["target"] == "usage"
+    _assert_architecture_observations(case, result, observations)
+    _assert_architecture_calls(case, calls)
     assert result.error_codes == []
+    _assert_architecture_scenarios(result)
+
+
+@pytest.mark.asyncio
+async def test_architecture_operations_fail_closed_when_projections_unavailable(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
 
     async def unavailable_call(_client, name, _arguments, _timeout):
         if name == "graph_query":
             return {"rows": []}
         if name == "graph_search":
-            return []
-        return {"status": "degraded", "error": {"code": "synthetic"}}
+            return {"results": []}
+        return {"error": {"code": "unavailable"}}
 
     monkeypatch.setattr(runtime_harness, "_call_tool", unavailable_call)
     result = CaseResult(
@@ -1183,15 +1309,236 @@ async def test_architecture_operations_are_loaded_captured_and_fail_closed(
         timeout=1.0,
     )
 
-    assert [item.status for item in observations] == ["empty", "empty", "blocked"]
-    assert result.error_codes == [
-        "architecture_operation_unavailable",
-        "architecture_registry_regenerate_reingest_required",
+    assert [item.status for item in observations] == [
+        "observed",
+        "observed",
+        "observed",
     ]
+    assert "architecture_registry_unavailable" in result.error_codes
+    assert "architecture_discovery_unavailable" in result.error_codes
+    assert "architecture_caller_evidence_unavailable" in result.error_codes
+    assert "architecture_registry_regenerate_reingest_required" in result.error_codes
+    outcomes = {item.scenario: item.outcome for item in result.scenario_evidence}
+    assert outcomes["registry_unavailable"] == "fail_closed"
+    assert outcomes["regeneration_reingestion"] == "rf021_handoff"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error"),
+    [
+        (
+            lambda row: row.update(status="proposed"),
+            "architecture_registry_outdated",
+        ),
+        (
+            lambda row: row.update(
+                authority_state="proposal_fixture_non_authoritative"
+            ),
+            "architecture_registry_outdated",
+        ),
+        (
+            lambda row: row.update(source_digest="sha256:" + "1" * 64),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+        (
+            lambda row: row.update(capability_id="unrelated.capability"),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+        (
+            lambda row: row.update(target_item_refs=[]),
+            "architecture_target_inventory_link_invalid",
+        ),
+        (
+            lambda row: row.update(owned_source_roots=[]),
+            "architecture_owner_roots_invalid",
+        ),
+        (
+            lambda row: row.update(behavioral_signature="sha256:" + "2" * 64),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+    ],
+)
+def test_architecture_registry_rejects_non_authoritative_or_unrelated_rows(
+    mutate, error
+) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    row = payload["rows"][0]
+    mutate(row)
+
+    with pytest.raises(ValueError, match=error):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_rejects_duplicate_authorities() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"].append(dict(payload["rows"][0]))
+
+    with pytest.raises(ValueError, match="architecture_registry_duplicate_authority"):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_requires_complete_shared_exception_metadata() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"][0]["shared_paths"] = [
+        {
+            "path": "agent_utilities/shared/contracts.py",
+            "kind": "shared_file",
+            "owner_component_ids": [candidate.component_id, "au.contracts"],
+            "review_policy": "all-owners",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="architecture_registry_row_invalid"):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_requires_replacement_deletion_proof() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    candidate_data = candidate.model_dump(mode="json")
+    candidate_data.update(
+        replacement_required=True,
+        replaced_component_ids=["au.adapters.superseded"],
+    )
+    replacement = runtime_harness._validate_architecture_candidate(
+        runtime_harness.ArchitectureCandidateIdentity.model_validate(candidate_data)
+    )
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"][0]["replaces"] = list(replacement.replaced_component_ids)
+
+    with pytest.raises(ValueError, match="architecture_deletion_proof_missing"):
+        _architecture_registry_row(replacement, payload)
+
+
+def test_architecture_discovery_and_callers_reject_unrelated_or_ungrounded_rows() -> (
+    None
+):
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payloads = _architecture_payloads(case)
+    payloads["graph_search"]["results"][0]["component_id"] = "unrelated.component"
+    payloads["graph_code"]["reasoning_trace"][0]["sections"]["callers"][0]["line"] = 18
+
+    with pytest.raises(
+        ValueError, match="architecture_discovery_unrelated_or_duplicate"
+    ):
+        runtime_harness._architecture_discovery_rows(
+            candidate, payloads["graph_search"]
+        )
+    with pytest.raises(ValueError, match="architecture_live_caller_missing"):
+        runtime_harness._architecture_caller_count(candidate, payloads["graph_code"])
 
 
 @pytest.mark.asyncio
-async def test_validation_tool_preparation_loads_architecture_operations(monkeypatch) -> None:
+async def test_architecture_operations_reject_arbitrary_nonempty_text(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+
+    async def text_call(_client, _name, _arguments, _timeout):
+        return "nonempty but untyped response"
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", text_call)
+    observations = await _capture_architecture_operations(
+        case, result, client=object(), timeout=1.0
+    )
+
+    assert all(item.matched_record_count == 0 for item in observations)
+    assert "architecture_response_schema_invalid" in result.error_codes
+    assert "architecture_caller_evidence_unavailable" in result.error_codes
+
+
+def test_architecture_scenarios_are_structured_behavioral_outcomes() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+
+    observations = _architecture_scenario_observations(
+        candidate,
+        {
+            "architecture_registry_outdated",
+            "architecture_owner_manifest_identity_disagreement",
+        },
+    )
+    outcomes = {item.scenario: item.outcome for item in observations}
+
+    assert set(outcomes) == {
+        *_ARCHITECTURE_WORKFLOW_SCENARIOS,
+        *_ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    }
+    assert outcomes["registry_outdated"] == "rejected"
+    assert outcomes["owner_manifest_identity_disagreement"] == "rejected"
+    assert outcomes["regeneration_reingestion"] == "rf021_handoff"
+    assert outcomes["plans_cutover"] == "rejected"
+
+
+def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    observations = tuple(
+        GraphOperationObservation(
+            phase,
+            operation,
+            status,
+            "sha256:" + "6" * 64,
+            "sha256:" + "7" * 64,
+            1,
+        )
+        for (phase, operation), status in zip(
+            _ARCHITECTURE_PHASE_OPERATIONS,
+            ("verified", "advisory", "grounded"),
+            strict=True,
+        )
+    )
+    scenarios = _architecture_scenario_observations(candidate, set())
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+        operation_evidence=(
+            GraphOperationObservation(
+                "discovery",
+                observations[0].operation,
+                observations[0].status,
+                observations[0].request_digest,
+                observations[0].response_digest,
+                observations[0].matched_record_count,
+            ),
+            *observations[1:],
+        ),
+        scenario_evidence=(
+            ArchitectureScenarioObservation(scenarios[0].scenario, "current"),
+            *scenarios[1:],
+        ),
+    )
+
+    assert not result._architecture_operations_exact()
+    assert not result._architecture_scenarios_exact()
+
+
+@pytest.mark.asyncio
+async def test_validation_tool_preparation_loads_architecture_operations(
+    monkeypatch,
+) -> None:
     case = _matrix_case("development-direct")
     ensured: list[str] = []
 
@@ -1353,6 +1700,7 @@ def _passing_runtime_results() -> list[CaseResult]:
     results: list[CaseResult] = []
     for index, case in enumerate(cases, start=1):
         opaque = f"{index:064x}"
+        operation_evidence, scenario_evidence = _passing_architecture_evidence(case)
         results.append(
             CaseResult(
                 case_id=case.case_id,
@@ -1376,9 +1724,41 @@ def _passing_runtime_results() -> list[CaseResult]:
                 trace_name="graph_run:pref_run_" + opaque,
                 langfuse_match_count=1,
                 parent_kg_readback_count=1,
+                operation_evidence=operation_evidence,
+                scenario_evidence=scenario_evidence,
             )
         )
     return results
+
+
+def _passing_architecture_evidence(
+    case: ValidationCase,
+) -> tuple[
+    tuple[GraphOperationObservation, ...],
+    tuple[ArchitectureScenarioObservation, ...],
+]:
+    """Build exact positive observations only for the development cases."""
+
+    if case.skill != "agent-utilities-development":
+        return (), ()
+    assert case.architecture_candidate is not None
+    operations = tuple(
+        GraphOperationObservation(
+            phase,
+            operation,
+            status,
+            "sha256:" + "6" * 64,
+            "sha256:" + "7" * 64,
+            1,
+        )
+        for (phase, operation), status in zip(
+            _ARCHITECTURE_PHASE_OPERATIONS,
+            ("verified", "advisory", "grounded"),
+            strict=True,
+        )
+    )
+    scenarios = _architecture_scenario_observations(case.architecture_candidate, set())
+    return operations, scenarios
 
 
 @pytest.mark.parametrize(

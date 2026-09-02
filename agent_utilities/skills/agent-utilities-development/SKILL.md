@@ -46,6 +46,21 @@ RF-021 handoff after a read detects missing or stale data; they are not invented
 Graph-OS mutation tools. Keep the read bounded, retain only typed/metadata evidence,
 and stop when any required operation is unavailable or degraded.
 
+The canonical source-owned declaration is exactly
+`architecture/component-registry.yml` in the repository resolved by root
+`workspace.yml`; never edit a Plans fixture or generated KG projection as the
+owner. The deterministic RF-021 repair handoff is: update that owner manifest,
+run the projection generator registered by the RF-021 owner declaration,
+independently review its exact diff, then invoke the existing `source_sync
+source=all mode=delta` ingestion path and repeat the candidate-bound
+`graph_query`/`graph_search`/`graph_code` observations. If the owner declaration
+does not name a registered generator, or that generator does not consume the
+owner manifest, report that materialization blocker instead of inferring a
+command or substituting another graph writer.
+Runtime identity labels come only from an externally supplied governed identity
+policy; retain its digest in the owner record and evidence, never its concrete
+labels, reconstructed fragments, or a repository-local exception list.
+
 1. **Resolve before creating.** Find the existing authority and its callers. Extend,
    merge into, or replace it; otherwise obtain a reviewed, finite exception with a
    bounded scope, owner, and expiry or review trigger.

@@ -88,6 +88,34 @@ _PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 _SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_DIGEST = re.compile(r"^sha256:(?!0{64}$)[a-f0-9]{64}$")
+_ARCHITECTURE_CANDIDATE_FIELDS = frozenset(
+    {
+        "component_id",
+        "component_kind",
+        "capability_id",
+        "parent_component_id",
+        "parent_layer",
+        "source_workspace_manifest",
+        "source_repository_id",
+        "source_repository_path",
+        "source_manifest_path",
+        "source_revision",
+        "source_digest",
+        "authority_signature",
+        "behavioral_signature",
+        "dependency_signature",
+        "identity_policy_digest",
+        "target_inventory_ref",
+        "owned_source_roots",
+        "public_contract_roots",
+        "test_roots",
+        "generated_roots",
+        "shared_paths",
+        "replacement_required",
+        "replaced_component_ids",
+    }
+)
 _AUXILIARY_DOC = re.compile(r"^(?:README|INSTALL|CHANGELOG)(?:\..*)?$", re.IGNORECASE)
 _IMPERATIVE_STEP = re.compile(
     r"^(?:\d+\.\s+|-\s+)(?:"
@@ -378,6 +406,63 @@ def _validate_forward_matrix_case_content(
     return errors
 
 
+def _validate_architecture_candidate(case: dict[str, Any], case_id: str) -> list[str]:
+    """Validate the closed candidate identity required by development cases."""
+
+    candidate = case.get("architecture_candidate")
+    if not isinstance(candidate, dict):
+        return [f"{case_id}: architecture_candidate must be a mapping"]
+    errors: list[str] = []
+    if set(candidate) != _ARCHITECTURE_CANDIDATE_FIELDS:
+        errors.append(f"{case_id}: architecture_candidate fields are not exact")
+    if candidate.get("component_kind") != "implementation_component":
+        errors.append(f"{case_id}: candidate must be an implementation_component")
+    if candidate.get("source_workspace_manifest") != "workspace.yml":
+        errors.append(f"{case_id}: candidate workspace manifest is not canonical")
+    if candidate.get("source_manifest_path") != "architecture/component-registry.yml":
+        errors.append(f"{case_id}: candidate owner manifest path is not canonical")
+    errors.extend(_validate_architecture_candidate_digests(candidate, case_id))
+    errors.extend(_validate_architecture_candidate_lists(candidate, case_id))
+    return errors
+
+
+def _validate_architecture_candidate_digests(
+    candidate: dict[str, Any], case_id: str
+) -> list[str]:
+    """Validate the externally supplied candidate content identities."""
+
+    errors: list[str] = []
+    for field in (
+        "source_digest",
+        "authority_signature",
+        "behavioral_signature",
+        "dependency_signature",
+        "identity_policy_digest",
+    ):
+        if _DIGEST.fullmatch(str(candidate.get(field) or "")) is None:
+            errors.append(f"{case_id}: candidate {field} is not a digest")
+    return errors
+
+
+def _validate_architecture_candidate_lists(
+    candidate: dict[str, Any], case_id: str
+) -> list[str]:
+    """Validate collection-shaped fields before runtime model parsing."""
+
+    errors: list[str] = []
+    for field in (
+        "owned_source_roots",
+        "public_contract_roots",
+        "test_roots",
+        "generated_roots",
+        "shared_paths",
+        "replaced_component_ids",
+    ):
+        if not isinstance(candidate.get(field), list):
+            errors.append(f"{case_id}: candidate {field} must be a list")
+    return errors
+
+
 def _validate_forward_matrix_case(
     case: Any,
     ids: set[str],
@@ -392,6 +477,7 @@ def _validate_forward_matrix_case(
     mode = str(case.get("mode") or "")
     errors = _validate_forward_matrix_case_identity(case_id, skill, mode, ids, seen)
     errors.extend(_validate_forward_matrix_case_content(case, case_id, skill))
+    errors.extend(_validate_architecture_case_assignment(case, case_id, skill))
     errors.extend(
         _validate_forward_matrix_case_routes(
             case_id, mode, skill, case.get("expected_routes"), domain_wraps
@@ -403,6 +489,18 @@ def _validate_forward_matrix_case(
         )
     )
     return errors
+
+
+def _validate_architecture_case_assignment(
+    case: dict[str, Any], case_id: str, skill: str
+) -> list[str]:
+    """Require the candidate only on development-skill matrix cases."""
+
+    if skill == "agent-utilities-development":
+        return _validate_architecture_candidate(case, case_id)
+    if "architecture_candidate" in case:
+        return [f"{case_id}: architecture_candidate is development-only"]
+    return []
 
 
 def _validate_forward_matrix_privacy(

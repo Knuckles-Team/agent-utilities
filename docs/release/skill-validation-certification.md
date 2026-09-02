@@ -254,6 +254,28 @@ metadata-only Langfuse lookup, and one governed parent-graph trace readback per
 case. Passing evidence requires twenty-six cases and thirteen complete direct/delegated
 pairs.
 
+The two development cases additionally bind one externally supplied, digest-bound
+RF-021 candidate identity. Their retained `architecture` evidence contains exactly
+three content-free tool observations: an authoritative component/capability join,
+advisory discovery, and a caller row grounded by the same file/line citation. It
+also records the twelve structured RF-021 scenario outcomes. Proposal,
+non-authoritative, stale, duplicate, unrelated, text-only, missing-target,
+unbounded-owner-root, ungrounded-caller, and incomplete replacement/deletion
+evidence cannot produce a passing case. Concrete runtime identity labels are not
+retained; only the externally governed policy digest is bound.
+
+```mermaid
+flowchart LR
+    C[Digest-bound candidate] --> Q[graph_query exact component/capability join]
+    C --> S[graph_search advisory discovery]
+    C --> G[graph_code grounded live callers]
+    Q --> V[RF-021 typed validation]
+    S --> V
+    G --> V
+    V --> E[Signed content-free architecture evidence]
+    V -->|missing or stale| H[Owner manifest regeneration and source_sync delta handoff]
+```
+
 The normative validation schema is
 `deploy/release/prebundled-skill-validation-evidence.schema.json`.
 

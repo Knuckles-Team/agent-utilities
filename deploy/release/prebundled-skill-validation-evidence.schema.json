@@ -7,6 +7,28 @@
     "check": {"enum": ["pass", "fail", "not-applicable"]},
     "opaqueRef": {"type": ["string", "null"], "pattern": "^pref_[a-z_]+_[a-f0-9]{64}$"},
     "traceName": {"type": "string", "pattern": "^graph_run:pref_run_[a-f0-9]{64}$"},
+    "architectureOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "operation", "status", "requestDigest", "responseDigest", "matchedRecordCount"],
+      "properties": {
+        "phase": {"enum": ["registry_lookup", "discovery", "caller_impact"]},
+        "operation": {"enum": ["graph_query", "graph_search", "graph_code"]},
+        "status": {"enum": ["verified", "advisory", "grounded", "observed", "timeout", "error"]},
+        "requestDigest": {"$ref": "#/$defs/digest"},
+        "responseDigest": {"$ref": "#/$defs/digest"},
+        "matchedRecordCount": {"type": "integer", "minimum": 0, "maximum": 32}
+      }
+    },
+    "architectureScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "outcome"],
+      "properties": {
+        "scenario": {"enum": ["registry_unavailable", "registry_outdated", "owner_manifest_identity_disagreement", "regeneration_reingestion", "finite_exception_metadata", "caller_deletion_evidence", "concept_discovery_only", "plans_cutover", "layer_boundary_vs_component", "parent_layer_no_signature_match", "component_owned_roots", "worker_lane_shared_file_exception"]},
+        "outcome": {"enum": ["available", "current", "matched", "not_required", "verified", "discovery_only", "authoritative", "implementation_component", "fail_closed", "rejected", "rf021_handoff"]}
+      }
+    },
     "signature": {
       "type": "object",
       "additionalProperties": false,
@@ -21,7 +43,7 @@
     "case": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["caseId", "caseDigest", "skill", "mode", "modelClass", "status", "checks", "skillRef", "skillBodyRef", "runRef", "traceRef", "langfuse", "parentKnowledgeGraph", "errorCodes"],
+      "required": ["caseId", "caseDigest", "skill", "mode", "modelClass", "status", "checks", "skillRef", "skillBodyRef", "runRef", "traceRef", "langfuse", "parentKnowledgeGraph", "architecture", "errorCodes"],
       "properties": {
         "caseId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
         "caseDigest": {"$ref": "#/$defs/digest"},
@@ -68,6 +90,16 @@
             "matchCount": {"type": "integer", "minimum": 0, "maximum": 1}
           }
         },
+        "architecture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidateRef", "operations", "scenarios"],
+          "properties": {
+            "candidateRef": {"$ref": "#/$defs/opaqueRef"},
+            "operations": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/architectureOperation"}},
+            "scenarios": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/architectureScenario"}}
+          }
+        },
         "errorCodes": {
           "type": "array",
           "uniqueItems": true,
@@ -101,6 +133,98 @@
               "langfuse": {"properties": {"traceName": {"$ref": "#/$defs/traceName"}, "matchCount": {"const": 1}, "linkage": {"const": "run-evidence"}}},
               "parentKnowledgeGraph": {"properties": {"matchCount": {"const": 1}}},
               "errorCodes": {"maxItems": 0}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"skill": {"const": "agent-utilities-development"}}, "required": ["skill"]},
+          "then": {
+            "properties": {
+              "architecture": {
+                "properties": {
+                  "candidateRef": {"type": "string"},
+                  "operations": {
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "prefixItems": [
+                      {"allOf": [{"$ref": "#/$defs/architectureOperation"}, {"properties": {"phase": {"const": "registry_lookup"}, "operation": {"const": "graph_query"}}}]},
+                      {"allOf": [{"$ref": "#/$defs/architectureOperation"}, {"properties": {"phase": {"const": "discovery"}, "operation": {"const": "graph_search"}}}]},
+                      {"allOf": [{"$ref": "#/$defs/architectureOperation"}, {"properties": {"phase": {"const": "caller_impact"}, "operation": {"const": "graph_code"}}}]}
+                    ],
+                    "items": false
+                  },
+                  "scenarios": {
+                    "minItems": 12,
+                    "maxItems": 12,
+                    "prefixItems": [
+                      {"properties": {"scenario": {"const": "registry_unavailable"}}},
+                      {"properties": {"scenario": {"const": "registry_outdated"}}},
+                      {"properties": {"scenario": {"const": "owner_manifest_identity_disagreement"}}},
+                      {"properties": {"scenario": {"const": "regeneration_reingestion"}}},
+                      {"properties": {"scenario": {"const": "finite_exception_metadata"}}},
+                      {"properties": {"scenario": {"const": "caller_deletion_evidence"}}},
+                      {"properties": {"scenario": {"const": "concept_discovery_only"}}},
+                      {"properties": {"scenario": {"const": "plans_cutover"}}},
+                      {"properties": {"scenario": {"const": "layer_boundary_vs_component"}}},
+                      {"properties": {"scenario": {"const": "parent_layer_no_signature_match"}}},
+                      {"properties": {"scenario": {"const": "component_owned_roots"}}},
+                      {"properties": {"scenario": {"const": "worker_lane_shared_file_exception"}}}
+                    ],
+                    "items": false
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "architecture": {
+                "properties": {
+                  "candidateRef": {"type": "null"},
+                  "operations": {"maxItems": 0},
+                  "scenarios": {"maxItems": 0}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "skill": {"const": "agent-utilities-development"},
+              "status": {"const": "pass"}
+            },
+            "required": ["skill", "status"]
+          },
+          "then": {
+            "properties": {
+              "architecture": {
+                "properties": {
+                  "operations": {
+                    "prefixItems": [
+                      {"properties": {"status": {"const": "verified"}, "matchedRecordCount": {"const": 1}}},
+                      {"properties": {"status": {"const": "advisory"}, "matchedRecordCount": {"const": 1}}},
+                      {"properties": {"status": {"const": "grounded"}, "matchedRecordCount": {"minimum": 1, "maximum": 32}}}
+                    ]
+                  },
+                  "scenarios": {
+                    "prefixItems": [
+                      {"properties": {"outcome": {"const": "available"}}},
+                      {"properties": {"outcome": {"const": "current"}}},
+                      {"properties": {"outcome": {"const": "matched"}}},
+                      {"properties": {"outcome": {"const": "not_required"}}},
+                      {"properties": {"outcome": {"const": "verified"}}},
+                      {"properties": {"outcome": {"const": "verified"}}},
+                      {"properties": {"outcome": {"const": "discovery_only"}}},
+                      {"properties": {"outcome": {"const": "authoritative"}}},
+                      {"properties": {"outcome": {"const": "implementation_component"}}},
+                      {"properties": {"outcome": {"const": "verified"}}},
+                      {"properties": {"outcome": {"const": "verified"}}},
+                      {"properties": {"outcome": {"const": "verified"}}}
+                    ]
+                  }
+                }
+              }
             }
           }
         }
