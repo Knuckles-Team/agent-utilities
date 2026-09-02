@@ -500,7 +500,28 @@ def set_value(key: str, value: Any, *, reason: str = "") -> dict[str, Any]:
     }
 
 
-def dispatch(
+async def _dispatch_mutation(
+    action: str, *, key: str, value: Any, reason: str
+) -> dict[str, Any]:
+    """Run one awaited configuration mutation and catalog reconciliation."""
+    import asyncio
+
+    if action == "reload":
+        result = await asyncio.to_thread(reload)
+        request_id = "graph-config-reload"
+    else:
+        result = await asyncio.to_thread(set_value, key, value, reason=reason)
+        if not result.get("applied"):
+            return result
+        request_id = f"graph-config:{result['key']}"
+    from agent_utilities.mcp.shared_multiplexer import get_served_multiplexer
+
+    mux = await get_served_multiplexer()
+    catalog = await mux.reconcile_current_catalog(request_id=request_id)
+    return {**result, "catalog": catalog.model_dump(mode="json")}
+
+
+async def dispatch(
     action: str, *, key: str = "", value: Any = "", reason: str = "", contains: str = ""
 ) -> dict[str, Any]:
     """Route one ``graph_config`` action. Unknown actions are refused."""
@@ -510,11 +531,9 @@ def dispatch(
         return get(key)
     if action == "diff":
         return diff()
-    if action == "reload":
-        return reload()
-    if action == "set":
-        return set_value(key, value, reason=reason)
-    raise ConfigAdminError(
-        "unknown_action",
-        f"unknown action {action!r}; expected one of {', '.join(ACTIONS)}",
-    )
+    if action not in {"reload", "set"}:
+        raise ConfigAdminError(
+            "unknown_action",
+            f"unknown action {action!r}; expected one of {', '.join(ACTIONS)}",
+        )
+    return await _dispatch_mutation(action, key=key, value=value, reason=reason)

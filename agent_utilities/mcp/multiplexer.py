@@ -80,6 +80,19 @@ from mcp.client.streamable_http import streamable_http_client
 from agent_utilities.core.capability_contract import Capability
 from agent_utilities.core.config import setting
 from agent_utilities.core.resource_priority import PriorityClass, priority_scope
+from agent_utilities.mcp.catalog_reconciliation import (
+    CatalogContractError,
+    CatalogIdentity,
+    CatalogRefreshRequest,
+    CatalogRefreshResult,
+    CatalogSessionResumeRequest,
+    CatalogSessionResumeResult,
+    CatalogSnapshot,
+    ChildCatalogCandidate,
+    McpCatalogReconciler,
+    reconciliation_receipt_digest,
+    refresh_error,
+)
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildError,
@@ -246,6 +259,21 @@ _RUNTIME_CHILD_POLICY_TRANSPORT_KEYS = frozenset(
 )
 _RUNTIME_CHILD_POLICY_INTERNAL_KEY = "_runtime_child_policy"
 _LIVE_MULTIPLEXERS: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _release_identifier() -> str:
+    """Installed release identity with a deterministic source-tree fallback."""
+    try:
+        return importlib.metadata.version("agent-utilities")
+    except importlib.metadata.PackageNotFoundError:
+        return "unpackaged"
+
+
+def _catalog_error_text(result: Any) -> str:
+    return " ".join(
+        str(getattr(item, "text", ""))
+        for item in (getattr(result, "content", None) or ())[:8]
+    )[:4096].lower()
 
 
 def _sample_child_health_gauges() -> None:
@@ -759,6 +787,44 @@ def _assert_bounded_resource_list(raw_resources: Any) -> None:
         raise RuntimeError("MCP child resource catalog exceeded its boundary")
 
 
+def _bounded_descriptor_catalog(
+    values: Any, *, key: str, family: str
+) -> list[dict[str, Any]]:
+    """Project one native MCP descriptor family through the shared boundary."""
+    if not isinstance(values, list | tuple) or len(values) > _MAX_DISCOVERED_TOOLS:
+        raise RuntimeError(f"MCP child {family} catalog exceeded its boundary")
+    projected: list[dict[str, Any]] = []
+    for value in values:
+        entry = _descriptor_mapping(value, key)
+        if not _bounded_catalog_name(entry.get(key)):
+            raise RuntimeError(f"MCP child {family} catalog is invalid")
+        projected.append(entry)
+    try:
+        _assert_bounded_json_value(projected, max_nodes=_MAX_CATALOG_NODES)
+    except ToolError:
+        raise RuntimeError(
+            f"MCP child {family} catalog exceeded its boundary"
+        ) from None
+    return projected
+
+
+def _descriptor_mapping(value: Any, key: str) -> dict[str, Any]:
+    """Convert one decoded descriptor without trusting a concrete SDK class."""
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        mapped = dump(mode="json", by_alias=True, exclude_none=True)
+        if isinstance(mapped, dict):
+            return mapped
+    attribute = "uri_template" if key == "uriTemplate" else key
+    identity = getattr(value, attribute, None)
+    entry = {key: str(identity) if identity is not None else ""}
+    for field in ("name", "description"):
+        field_value = getattr(value, field, None)
+        if isinstance(field_value, str) and field_value:
+            entry[field] = field_value
+    return entry
+
+
 def _bounded_skill_entry(resource: Any) -> dict[str, Any] | None:
     """Project ONE ``skill://`` resource, or ``None`` when it is not a skill."""
 
@@ -1229,13 +1295,24 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
     """
 
     try:
-        tools, skills, prompts, binding = await asyncio.wait_for(
-            probe(), timeout=probe_to
-        )
+        (
+            tools,
+            resources,
+            resource_templates,
+            native_prompts,
+            skills,
+            prompts,
+            family_errors,
+            binding,
+        ) = await asyncio.wait_for(probe(), timeout=probe_to)
     except TimeoutError:
         return (
             {
                 "tools": [],
+                "resources": [],
+                "resource_templates": [],
+                "native_prompts": [],
+                "catalog_family_errors": {},
                 "skills": [],
                 "prompts": [],
                 "error": f"timeout after {probe_to:g}s",
@@ -1246,6 +1323,10 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
         return (
             {
                 "tools": [],
+                "resources": [],
+                "resource_templates": [],
+                "native_prompts": [],
+                "catalog_family_errors": {},
                 "skills": [],
                 "prompts": [],
                 "error": _format_probe_error(e),
@@ -1253,7 +1334,16 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
             None,
         )
     return (
-        {"tools": tools, "skills": skills, "prompts": prompts, "error": None},
+        {
+            "tools": tools,
+            "resources": resources,
+            "resource_templates": resource_templates,
+            "native_prompts": native_prompts,
+            "catalog_family_errors": family_errors,
+            "skills": skills,
+            "prompts": prompts,
+            "error": None,
+        },
         binding,
     )
 
@@ -2084,10 +2174,6 @@ class MCPMultiplexer:
         # in parallel; only concurrent first-loads of the SAME server share
         # one attempt.
         self._mount_inflight: dict[str, asyncio.Future[list[MCPTool]]] = {}
-        # Explicit operator refreshes are independent per child but singleflight
-        # for the same child.  ``mount_child`` joins this owned task too, preventing
-        # a lazy load from racing the retirement/remount window.
-        self._refresh_inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
         self._closing = False
         self._child_runtime_policies: dict[str, Any] = {}
         self._child_policy_admitted_tools: dict[str, frozenset[str]] = {}
@@ -2107,8 +2193,10 @@ class MCPMultiplexer:
         # ``tools/list_changed`` notification on that session's next request.
         # Entries are bounded by the existing per-session visibility state and
         # disappear with it, so an idle client cannot accumulate revisions.
-        self._tool_list_change_revision = 0
-        self._pending_tool_list_changes: dict[str, int] = {}
+        self._catalog_reconciler = McpCatalogReconciler(
+            release_id=_release_identifier()
+        )
+        self._replica_catalog_identities: Callable[[], list[CatalogIdentity]] = list
         # Incremented before a hot catalog reload tears down child runtimes so
         # a late callback from an old generation can never repopulate fresh
         # routing state with a stale declaration.
@@ -2215,7 +2303,6 @@ class MCPMultiplexer:
         # NEXT time they're called (one-shot: load -> use -> auto-unload), so a
         # long session's tool surface doesn't monotonically grow.
         self._auto_unload: dict[str, set[str]] = {}
-        self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
         # Optional process-owned bridge into source_sync's ONE fleet-catalog
         # writer.  Serving GraphOS and the REST process inject it at composition
@@ -3551,127 +3638,6 @@ class MCPMultiplexer:
                 self._catalog[str(server_name)] = admitted
         return self._catalog
 
-    def _remove_all_host_forwarders(self) -> None:
-        """Remove every mux-owned FastMCP forwarder, fail-soft per tool."""
-        for prefixed_name in tuple(self._exposed):
-            try:
-                self._remove_host_forwarder(prefixed_name)
-            except Exception as exc:
-                # A later load can still repair the local bookkeeping.  Keep
-                # the provider failure private while making it visible to the
-                # operator; catalog reload must remain fail-soft for siblings.
-                logger.error(
-                    "Could not remove stale MCP forwarding schema "
-                    "(exception_type=%s): %s",
-                    type(exc).__name__,
-                    redact_for_log(exc),
-                )
-
-    def _clear_runtime_fleet_state(self) -> None:
-        """Drop every runtime-derived fleet map so a reload starts from config.
-
-        ``_remove_host_forwarder`` discards each exposed name normally.
-        Explicitly converge the marker as well when a legacy/provider failure
-        prevented removal, otherwise a fresh mount would falsely believe its
-        new forwarder had already been registered.
-        """
-        self._exposed.clear()
-        self.children.clear()
-        self._child_runtime_policies.clear()
-        self._child_policy_admitted_tools.clear()
-        self._child_catalog_fingerprints.clear()
-        self._child_tool_digests.clear()
-        self._child_schema_revisions.clear()
-        self._child_schema_refresh_errors.clear()
-        self._pending_tool_list_changes.clear()
-        self.sessions.clear()
-        self.tool_to_server.clear()
-        self.aggregated_tools.clear()
-        self._probe_cache.clear()
-        self._discovery_binding_sidechannel.clear()
-        self._local_discovery_cache_authority.clear()
-        # Not cancelled (a hot-reload should not visibly break an in-flight
-        # discovery call) — just untracked, so a NEW probe_catalog call for
-        # the same server starts fresh against the reloaded config rather
-        # than joining a probe that may be running against stale credentials.
-        self._probe_inflight.clear()
-        self._tool_embeddings.clear()
-        self._prefix_map = None
-        self._prefix_reverse.clear()
-        self._catalog = None
-        # An eager declaration is configuration-derived.  Its per-session
-        # result cannot survive a hot reload or an already-connected session
-        # would skip mounting the new declaration indefinitely.
-        self._always_load_done.clear()
-
-    def _close_stale_children(self, stale_children: tuple) -> None:
-        """Tear down the child runtimes and policies a catalog reload retired."""
-        if not stale_children:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # Configuration tooling may run without an event loop.  Calls
-            # are already denied by the cleared routing state; normal server
-            # shutdown remains the owner of these runtime resources.
-            logger.warning("MCP catalog reloaded outside a serving event loop")
-            for _name, _runtime, policy in stale_children:
-                if policy is not None:
-                    _close_runtime_child_policy(policy)
-            return
-
-        async def _close_stale(runtime: ChildRuntime, policy: Any) -> None:
-            try:
-                await runtime.aclose()
-            finally:
-                if policy is not None:
-                    _close_runtime_child_policy(policy)
-
-        for _name, runtime, policy in stale_children:
-            task = loop.create_task(_close_stale(runtime, policy))
-            self._catalog_reload_tasks.add(task)
-            task.add_done_callback(self._catalog_reload_tasks.discard)
-
-    def reload_catalog(self) -> dict[str, dict]:
-        """Discard runtime-derived fleet state and reparse the current catalog.
-
-        Hot configuration changes must not leave a disabled child callable or a
-        credential/TLS change attached to an old process.  Mux-owned host
-        forwarders are removed too, so a same-named tool on the reloaded child
-        cannot retain an obsolete client-visible schema.
-        """
-        # Invalidate callback closures before tearing down their runtimes.  A
-        # delayed reconnect can then cleanly close without resurrecting stale
-        # routing or admission state after this catalog has been rebuilt.
-        self._catalog_epoch += 1
-        stale_children = tuple(
-            (name, runtime, self._child_runtime_policies.get(name))
-            for name, runtime in self.children.items()
-        )
-        stale_tool_names = set(self.tool_to_server)
-        self._remove_all_host_forwarders()
-        self._clear_runtime_fleet_state()
-        if self._host_mcp is not None:
-            # ``graph_config set`` calls :func:`invalidate_live_catalogs` for
-            # every runtime setting update, including the always-load
-            # declarations themselves.  Re-read their validated effective
-            # values here so an already-running GraphOS instance applies the
-            # new eager posture on the next request rather than only after a
-            # process restart.
-            self._always_load_servers = _always_load_setting(
-                "mcp_always_load", "MCP_ALWAYS_LOAD"
-            )
-            self._always_load_tool_specs = _always_load_setting(
-                "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
-            )
-        for loaded in self._session_loaded.values():
-            loaded.difference_update(stale_tool_names)
-        for loaded in self._auto_unload.values():
-            loaded.difference_update(stale_tool_names)
-
-        self._close_stale_children(stale_children)
-        return self.load_catalog()
-
     @staticmethod
     def _server_stem(name: str) -> str:
         """Full cleaned server name used to disambiguate colliding prefixes."""
@@ -3910,13 +3876,7 @@ class MCPMultiplexer:
 
     def _queue_tool_list_change_for_sessions(self, session_keys: list[str]) -> None:
         """Queue one list revision for explicitly identified live sessions."""
-        if not session_keys:
-            return
-        self._tool_list_change_revision += 1
-        for session_key in session_keys:
-            self._pending_tool_list_changes[session_key] = (
-                self._tool_list_change_revision
-            )
+        self._catalog_reconciler.queue_pending(session_keys)
 
     async def notify_pending_tools_changed(self) -> bool:
         """Deliver this live session's queued ``tools/list_changed`` event.
@@ -3927,14 +3887,13 @@ class MCPMultiplexer:
         older revision is acknowledged.
         """
         session_key = _session_key()
-        revision = self._pending_tool_list_changes.get(session_key)
+        revision = self._catalog_reconciler.pending_generation(session_key)
         if revision is None:
             return True
         if self._host_mcp is None or not await _notify_tools_changed(self._host_mcp):
             return False
-        if self._pending_tool_list_changes.get(session_key) == revision:
-            self._pending_tool_list_changes.pop(session_key, None)
-            self.prune_session_visibility(session_key)
+        self._catalog_reconciler.acknowledge_pending(session_key, revision)
+        self.prune_session_visibility(session_key)
         return True
 
     def _rebind_server_tool_maps(
@@ -4160,12 +4119,6 @@ class MCPMultiplexer:
         if self._mount_inflight.get(server_name) is leader_future:
             del self._mount_inflight[server_name]
 
-    async def _join_refresh_before_mount(self, server_name: str) -> None:
-        """Wait for an owned refresh before evaluating ordinary mount state."""
-        refresh_pending = self._refresh_inflight.get(server_name)
-        if refresh_pending is not None:
-            await asyncio.shield(refresh_pending)
-
     async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -4190,7 +4143,6 @@ class MCPMultiplexer:
         attempt. Different servers mount fully in parallel — the singleflight
         is keyed per-server, never global.
         """
-        await self._join_refresh_before_mount(server_name)
         catalog = self.load_catalog()
         if server_name in self.children:
             return self.prefixed_tools_for_server(server_name)
@@ -4267,299 +4219,293 @@ class MCPMultiplexer:
             return []
         return self._register_child_result(s_name, payload, tools, r_cfg)
 
-    def _retire_child_forwarders(self, names: set[str]) -> None:
-        """Atomically remove one child's executable host forwarders."""
-        exposed = names & self._exposed
-        if not exposed:
-            return
-        if self._host_mcp is None:
-            self._exposed.difference_update(exposed)
-            return
-        provider, components = _local_provider_component_snapshot(self._host_mcp)
-        staged = _stage_forwarder_components(components, {}, exposed)
-        _swap_local_provider_components(provider, staged)
-        self._exposed.difference_update(exposed)
+    def _authorization_scope_digest(self) -> str:
+        """Digest only the ambient verified capability partition."""
+        capabilities = _request_capabilities()
+        payload = ["local-process"] if capabilities is None else sorted(capabilities)
+        return hashlib.sha256(
+            json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
-    async def _retire_child_for_refresh(self, server_name: str) -> dict[str, Any]:
-        """Retire exactly one child and return the exposure state to restore."""
-        old_tools = {
-            tool.name: tool for tool in self.prefixed_tools_for_server(server_name)
-        }
-        old_names = set(old_tools)
-        exposed = old_names & self._exposed
-        loaded = {
-            key: names & old_names
-            for key, names in self._session_loaded.items()
-            if names & old_names
-        }
-        auto_unload = {
-            key: names & old_names
-            for key, names in self._auto_unload.items()
-            if names & old_names
-        }
-        old_probe = self._probe_cache.get(server_name)
-
-        self._retire_child_forwarders(old_names)
-        stale_names = self._rebind_server_tool_maps(server_name, [], {})
-        self._retract_removed_from_sessions(stale_names)
-        self.sessions.pop(server_name, None)
-        runtime = self.children.pop(server_name, None)
-        policy = self._child_runtime_policies.pop(server_name, None)
-        self._child_policy_admitted_tools.pop(server_name, None)
-        self._child_catalog_fingerprints.pop(server_name, None)
-        self._child_tool_digests.pop(server_name, None)
-        self._child_schema_refresh_errors.pop(server_name, None)
-        self._drop_stale_child_caches(server_name)
-
-        try:
-            if runtime is not None:
-                await runtime.aclose()
-        finally:
-            if policy is not None:
-                _close_runtime_child_policy(policy)
-        return {
-            "tools": old_tools,
-            "exposed": exposed,
-            "loaded": loaded,
-            "auto_unload": auto_unload,
-            "probe": old_probe,
-        }
-
-    def _atomically_restore_refresh_forwarders(
-        self,
-        surviving_exposed: set[str],
-        new_tools: dict[str, MCPTool],
-    ) -> None:
-        """Validate and swap the complete refreshed executable set."""
-        if not surviving_exposed:
-            return
-        host = self._host_mcp
-        if host is None:
-            raise RuntimeError(
-                "MCP refresh cannot restore tool exposure without a host"
-            )
-        provider, previous_components = _local_provider_component_snapshot(host)
-        forwarders = {
-            name: _forwarder_component(self, new_tools[name])
-            for name in sorted(surviving_exposed)
-        }
-        staged_components = _stage_forwarder_components(
-            previous_components, forwarders, set()
+    def _config_revision(self) -> str:
+        """Content address the effective mountable declaration set."""
+        payload = json.dumps(
+            self.load_catalog(), sort_keys=True, separators=(",", ":"), default=str
         )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def catalog_identity(self) -> CatalogIdentity:
+        """Identity shared by discovery, REST, dispatch, and resume."""
+        return self._catalog_reconciler.current(
+            self._authorization_scope_digest(), config_revision=self._config_revision()
+        ).identity
+
+    def catalog_snapshot(self) -> CatalogSnapshot:
+        """Current immutable snapshot for the ambient authorization scope."""
+        return self._catalog_reconciler.current(
+            self._authorization_scope_digest(), config_revision=self._config_revision()
+        )
+
+    def catalog_discovery_identity(self) -> dict[str, Any]:
+        """Return identity plus the server-minted token for this session."""
+        identity = self.catalog_identity()
+        session_id = _session_key()
+        token = hmac.new(
+            _SESSION_KEY,
+            f"{session_id}:{identity.snapshot_digest}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        self._catalog_reconciler.bind_session(
+            session_id, identity, resume_token_digest=token
+        )
+        return {**identity.model_dump(mode="json"), "resume_token_digest": token}
+
+    def _catalog_child_candidate(
+        self, server_name: str, info: Mapping[str, Any]
+    ) -> ChildCatalogCandidate:
+        """Project one bounded probe into the immutable protocol authority."""
+        prefix = self.server_prefix(server_name)
+        tools: list[dict[str, Any]] = []
+        for item in info.get("tools", ()):
+            original = item["name"]
+            entry = dict(item)
+            entry.update(
+                {
+                    "name": f"{prefix}__{original}",
+                    "originalName": original,
+                    "server": server_name,
+                }
+            )
+            tools.append(entry)
+        runtime = self.children.get(server_name)
+        child_generation = int(getattr(runtime, "restart_count", 0)) + (
+            1 if runtime is not None else 0
+        )
+        return ChildCatalogCandidate.build(
+            server_name=server_name,
+            child_connection_generation=child_generation,
+            tools=tools,
+            resources=info.get("resources", ()),
+            resource_templates=info.get("resource_templates", ()),
+            prompts=info.get("native_prompts", ()),
+        )
+
+    async def _reconcile_catalog(
+        self, *, deadline_ms: int, request_id: str
+    ) -> CatalogRefreshResult:
+        """Probe, persist, cohort-check, then atomically publish all families."""
+        scope = self._authorization_scope_digest()
+        config_revision = self._config_revision()
+        rows = await self._probe_catalog_candidate_rows(deadline_ms)
+        catalog = {server: info for server, info in rows}
+        candidate = self._catalog_reconciler.candidate(
+            authorization_scope_digest=scope,
+            config_revision=config_revision,
+            children=(
+                self._catalog_child_candidate(server, info) for server, info in rows
+            ),
+        )
+        self._catalog_reconciler.assert_homogeneous(
+            candidate.identity, self._replica_catalog_identities()
+        )
+        writer_result = await self._write_catalog_candidate(catalog)
+        published, changed = self._catalog_reconciler.publish(
+            candidate, affected_session_ids=tuple(self._session_loaded)
+        )
+        identity = published.identity
+        return CatalogRefreshResult(
+            request_id=request_id,
+            served_instance_id=identity.served_instance_id,
+            release_id=identity.release_id,
+            config_revision=identity.config_revision,
+            catalog_generation=identity.catalog_generation,
+            snapshot_digest=identity.snapshot_digest,
+            changed=changed,
+            pending_list_change_generation=self._pending_catalog_highwater(),
+            reingestion_state="reconciled",
+            reconciliation_receipt_digest=reconciliation_receipt_digest(
+                identity, writer_result
+            ),
+        )
+
+    async def _probe_catalog_candidate_rows(
+        self, deadline_ms: int
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Probe every declaration under one bounded concurrency/deadline."""
+        semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
+
+        async def probe(server_name: str) -> tuple[str, dict[str, Any]]:
+            async with semaphore:
+                info = await self.probe_server(server_name, force=True)
+            if info.get("error") or info.get("catalog_family_errors"):
+                raise CatalogContractError(
+                    "catalog-snapshot-incomplete",
+                    "a declared child did not provide a complete snapshot",
+                    retryable=True,
+                )
+            return server_name, info
+
         try:
-            for forwarder in forwarders.values():
-                host.add_tool(forwarder)
-            _swap_local_provider_components(provider, staged_components)
-        except Exception:
-            _swap_local_provider_components(provider, previous_components)
-            raise
-        self._exposed.update(surviving_exposed)
+            return await asyncio.wait_for(
+                asyncio.gather(*(probe(name) for name in sorted(self.load_catalog()))),
+                timeout=deadline_ms / 1000,
+            )
+        except TimeoutError as exc:
+            raise CatalogContractError(
+                "refresh-deadline-exceeded",
+                "catalog reconciliation exceeded its deadline",
+                retryable=True,
+            ) from exc
 
-    def _restore_refresh_session_visibility(
-        self, snapshot: dict[str, Any], new_names: set[str]
-    ) -> None:
-        """Restore only session and auto-unload names the child still serves."""
-        for session_key, names in snapshot["loaded"].items():
-            self.session_loaded(session_key).update(names & new_names)
-        for session_key, names in snapshot["auto_unload"].items():
-            surviving = names & new_names
-            if surviving:
-                self._auto_unload.setdefault(session_key, set()).update(surviving)
-
-    @staticmethod
-    def _changed_refreshed_schemas(
-        old_tools: dict[str, MCPTool],
-        new_tools: dict[str, MCPTool],
-        old_exposed: set[str],
-    ) -> set[str]:
-        """Return prior exposed names whose refreshed schemas differ or vanished."""
-        return {
-            name
-            for name in old_exposed
-            if name not in new_tools
-            or _tool_catalog_digest([old_tools[name]])
-            != _tool_catalog_digest([new_tools[name]])
-        }
-
-    @staticmethod
-    def _sessions_affected_by_refresh(
-        snapshot: dict[str, Any], changed: set[str]
-    ) -> list[str]:
-        """Session keys whose prior visible set intersects changed schemas."""
-        return [key for key, names in snapshot["loaded"].items() if names & changed]
-
-    def _restore_refreshed_exposure(
-        self, snapshot: dict[str, Any], refreshed: list[MCPTool]
-    ) -> set[str]:
-        """Atomically restore surviving exposure and return changed schemas."""
-        old_tools = cast("dict[str, MCPTool]", snapshot["tools"])
-        new_tools = {tool.name: tool for tool in refreshed}
-        old_exposed = cast("set[str]", snapshot["exposed"])
-        surviving_exposed = old_exposed & set(new_tools)
-        self._atomically_restore_refresh_forwarders(surviving_exposed, new_tools)
-        self._restore_refresh_session_visibility(snapshot, set(new_tools))
-        changed = self._changed_refreshed_schemas(old_tools, new_tools, old_exposed)
-        affected_sessions = self._sessions_affected_by_refresh(snapshot, changed)
-        self._queue_tool_list_change_for_sessions(affected_sessions)
-        return changed
-
-    async def _reingest_refreshed_child(
-        self, server_name: str, info: dict[str, Any]
+    async def _write_catalog_candidate(
+        self, catalog: dict[str, dict[str, Any]]
     ) -> dict[str, Any]:
-        """Write one live child snapshot through source_sync's injected writer."""
+        """Obtain the downstream acknowledgement required before publication."""
         writer = self._fleet_catalog_writer
         if writer is None:
-            return {
-                "status": "unavailable",
-                "reason": "fleet_catalog_writer_unavailable",
-            }
-        catalog = {server_name: info}
-        configs = {server_name: self.load_catalog()[server_name]}
-        try:
-            self._bind_local_discovery_bindings(catalog)
-            bindings = self._take_discovery_bindings(catalog)
-            result = await writer(catalog, configs, bindings)
-        except Exception as exc:
-            logger.error(
-                "MCP child refresh catalog write failed "
-                "(server=%s, exception_type=%s): %s",
-                server_name,
-                type(exc).__name__,
-                redact_for_log(exc),
+            raise CatalogContractError(
+                "reingestion-unreconciled",
+                "catalog reconciliation writer is unavailable",
+                retryable=True,
             )
-            return {"status": "error", "reason": "fleet_catalog_write_failed"}
-        if not isinstance(result, dict):
-            return {"status": "error", "reason": "fleet_catalog_write_invalid"}
-        return result
-
-    def _settle_refresh_task(
-        self,
-        server_name: str,
-        task: asyncio.Future[dict[str, Any]],
-    ) -> None:
-        """Release one owned refresh task and retrieve an unobserved failure."""
-        if self._refresh_inflight.get(server_name) is task:
-            del self._refresh_inflight[server_name]
-        if not task.cancelled():
-            task.exception()
-
-    def _refresh_task_settler(
-        self, server_name: str
-    ) -> Callable[[asyncio.Future[dict[str, Any]]], None]:
-        """Build the explicitly typed done callback for one refresh owner."""
-
-        def _settle(task: asyncio.Future[dict[str, Any]]) -> None:
-            self._settle_refresh_task(server_name, task)
-
-        return _settle
-
-    async def _join_initial_mount_for_refresh(self, server_name: str) -> None:
-        """Let an already-owned initial mount settle before retiring the child."""
-        mounting = self._mount_inflight.get(server_name)
-        if mounting is not None:
-            await asyncio.shield(mounting)
-
-    async def _remount_refreshed_child(self, server_name: str) -> list[MCPTool]:
-        """Mount a fresh generation and fail truthfully when none registered."""
-        refreshed = await self._mount_child_first_load(
-            server_name, self.load_catalog()[server_name]
+        configs = {server: self.load_catalog()[server] for server in catalog}
+        result = await writer(catalog, configs, self._take_discovery_bindings(catalog))
+        if isinstance(result, dict) and result.get("status") == "ok":
+            return result
+        raise CatalogContractError(
+            "reingestion-unreconciled",
+            "catalog reconciliation was not acknowledged",
+            retryable=True,
         )
-        if server_name not in self.children:
-            raise RuntimeError("MCP child refresh could not remount the server")
-        return refreshed
 
-    async def _finish_child_refresh(
+    def _pending_catalog_highwater(self) -> int | None:
+        return max(
+            (
+                value
+                for session in self._session_loaded
+                if (value := self._catalog_reconciler.pending_generation(session))
+                is not None
+            ),
+            default=None,
+        )
+
+    async def refresh_catalog(
+        self, request: CatalogRefreshRequest
+    ) -> CatalogRefreshResult:
+        """Execute the exact optimistic refresh contract for this scope."""
+        current = self._catalog_reconciler.current(
+            self._authorization_scope_digest(), config_revision=self._config_revision()
+        )
+        self._catalog_reconciler.validate_refresh(request, current)
+        return await self._reconcile_catalog(
+            deadline_ms=request.deadline_ms, request_id=request.request_id
+        )
+
+    async def reconcile_current_catalog(
+        self, *, request_id: str, deadline_ms: int = 120_000
+    ) -> CatalogRefreshResult:
+        """Internal config seam using the same atomic reconciliation path."""
+        return await self._reconcile_catalog(
+            deadline_ms=deadline_ms, request_id=request_id
+        )
+
+    async def dispatch_catalog_tool(
         self,
-        server_name: str,
-        snapshot: dict[str, Any],
-        changed_tools: set[str],
-    ) -> dict[str, Any]:
-        """Harvest, canonically write, and describe one replaced generation."""
-        info = await self._live_child_probe(server_name)
-        reingest = await self._reingest_refreshed_child(server_name, info)
-        prior_probe = snapshot.get("probe")
-        if isinstance(prior_probe, dict):
-            catalog_changed = any(
-                prior_probe.get(key) != info.get(key)
-                for key in ("tools", "skills", "prompts")
-            )
-        else:
-            catalog_changed = True
-        return {
-            "status": "refreshed",
-            "server": server_name,
-            "state": self.children[server_name].state,
-            "catalog_revision": self._child_schema_revisions.get(server_name, 0),
-            "catalog_changed": catalog_changed,
-            "changed_tools": sorted(changed_tools),
-            "tool_count": len(info.get("tools") or []),
-            "skill_count": len(info.get("skills") or []),
-            "prompt_count": len(info.get("prompts") or []),
-            "kg_reingest": reingest,
-        }
-
-    def _queue_interrupted_refresh(
-        self, snapshot: dict[str, Any] | None, exposure_restored: bool
-    ) -> None:
-        """Notify prior sessions when retirement did not regain exposure."""
-        if snapshot is not None and not exposure_restored:
-            self._queue_tool_list_change_for_sessions(list(snapshot["loaded"]))
-
-    async def _refresh_child_once(self, server_name: str) -> dict[str, Any]:
-        """Execute one independently-owned retire/remount/harvest/write cycle."""
-        snapshot: dict[str, Any] | None = None
-        exposure_restored = False
-        try:
-            await self._join_initial_mount_for_refresh(server_name)
-            snapshot = await self._retire_child_for_refresh(server_name)
-            refreshed = await self._remount_refreshed_child(server_name)
-            changed_tools = self._restore_refreshed_exposure(snapshot, refreshed)
-            exposure_restored = True
-            return await self._finish_child_refresh(
-                server_name, snapshot, changed_tools
-            )
-        except BaseException:
-            # Once retirement happened, a failed/cancelled remount or an
-            # atomic exposure-restore refusal has materially changed what the
-            # affected sessions can call.  Queue the truthful list revision;
-            # never put the closed generation back into routing state.
-            self._queue_interrupted_refresh(snapshot, exposure_restored)
-            raise
-
-    async def refresh_child(self, server_name: str) -> dict[str, Any]:
-        """Retire, remount, re-harvest, and re-ingest one MCP child.
-
-        CONCEPT:AU-ECO.mcp.profile-differences-from-client.  The operation is
-        per-server singleflight: concurrent requests for the same server share
-        one exact result, while unrelated children remain mounted and callable.
-        A stale failed runtime, breaker, session pool, forwarding schema, and
-        derived discovery caches are discarded before a fresh declaration is
-        mounted.  The new live session is then forced through tool/resource
-        discovery, including skill and prompt bodies, and the resulting one-
-        server snapshot is handed to source_sync's injected canonical writer.
-        """
-        if (
-            not isinstance(server_name, str)
-            or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", server_name) is None
+        *,
+        tool_name: str,
+        arguments: dict[str, Any],
+        expected_catalog_generation: int,
+        expected_snapshot_digest: str,
+    ) -> MCPCallToolResult:
+        """Resolve and invoke one tool against the caller's exact snapshot."""
+        scope = self._authorization_scope_digest()
+        child, entry = self._catalog_reconciler.resolve_tool(
+            public_name=tool_name,
+            expected_generation=expected_catalog_generation,
+            expected_snapshot_digest=expected_snapshot_digest,
+            authorization_scope_digest=scope,
+            config_revision=self._config_revision(),
+        )
+        descriptor = entry.as_dict()
+        if self.tool_to_server.get(tool_name) != (
+            child.server_name,
+            descriptor.get("originalName"),
         ):
-            raise ValueError("MCP child selector is outside the safety boundary")
-        if server_name not in self.load_catalog():
-            raise KeyError(server_name)
-        if self._closing:
-            raise RuntimeError("MCP multiplexer is shutting down")
-
-        pending = self._refresh_inflight.get(server_name)
-        if pending is None:
-            pending = asyncio.create_task(
-                self._refresh_child_once(server_name),
-                name=f"mcp-refresh:{server_name}",
+            raise CatalogContractError(
+                "dispatcher-target-not-visible", "live route no longer matches snapshot"
             )
-            self._refresh_inflight[server_name] = pending
-            pending.add_done_callback(self._refresh_task_settler(server_name))
-        # Every caller, including the creator, is a shielded waiter.  Caller
-        # cancellation therefore cannot strand a child between retirement and
-        # replacement; only multiplexer shutdown owns task cancellation.
-        return await asyncio.shield(pending)
+        result = await self.call_proxied_tool(tool_name, arguments)
+        return await self._retry_read_only_unknown(
+            child=child,
+            descriptor=descriptor,
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+        )
+
+    async def _retry_read_only_unknown(
+        self,
+        *,
+        child: ChildCatalogCandidate,
+        descriptor: dict[str, Any],
+        tool_name: str,
+        arguments: dict[str, Any],
+        result: MCPCallToolResult,
+    ) -> MCPCallToolResult:
+        """Relist and retry one same-generation, read-only advertised miss."""
+        target = self._read_only_relist_target(child, descriptor, result)
+        if target is None:
+            return result
+        session, original_name = target
+        relisted = await session.list_tools()
+        names = {item.name for item in relisted.tools}
+        if original_name not in names:
+            return result
+        # One bounded retry, only after AU received the request and proved the
+        # same read-only descriptor still exists on the same child generation.
+        return await self.call_proxied_tool(tool_name, arguments)
+
+    def _read_only_relist_target(
+        self,
+        child: ChildCatalogCandidate,
+        descriptor: dict[str, Any],
+        result: MCPCallToolResult,
+    ) -> tuple[Any, str] | None:
+        """Eligible same-generation relist target, or ``None`` fail closed."""
+        if not bool(getattr(result, "is_error", False)):
+            return None
+        if not (descriptor.get("annotations") or {}).get("readOnlyHint", False):
+            return None
+        if "unknown tool" not in _catalog_error_text(result):
+            return None
+        runtime = self.children.get(child.server_name)
+        session = getattr(runtime, "primary_session", None)
+        generation = int(getattr(runtime, "restart_count", -1)) + 1
+        original = descriptor.get("originalName")
+        if (
+            session is None
+            or generation != child.child_connection_generation
+            or not isinstance(original, str)
+        ):
+            return None
+        return session, original
+
+    def resume_catalog_session(
+        self, request: CatalogSessionResumeRequest
+    ) -> CatalogSessionResumeResult:
+        """Validate reconnect continuity against the homogeneous cohort."""
+        scope = self._authorization_scope_digest()
+        current = self._catalog_reconciler.current(
+            scope, config_revision=self._config_revision()
+        )
+        peers = self._replica_catalog_identities()
+        self._catalog_reconciler.assert_homogeneous(current.identity, peers)
+        return self._catalog_reconciler.resume_session(
+            request,
+            authorization_scope_digest=scope,
+            config_revision=self._config_revision(),
+            cohort_homogeneous=True,
+        )
 
     def prefixed_tools_for_server(self, server_name: str) -> list[MCPTool]:
         """All aggregated prefixed tools currently owned by ``server_name``."""
@@ -4887,10 +4833,23 @@ class MCPMultiplexer:
     async def _live_child_probe(self, server_name: str) -> dict:
         """The probe answer for an ALREADY-MOUNTED child — read from its live
         session rather than paying a fresh connect."""
+        session = self._live_primary_session(server_name)
+        (
+            resources,
+            templates,
+            native_prompts,
+            skills,
+            prompts,
+            family_errors,
+        ) = await self._probe_protocol_families(server_name, session)
         info: dict[str, Any] = {
             "tools": self._live_tools_for_server(server_name),
-            "skills": await self._live_skills_for_server(server_name),
-            "prompts": await self._live_prompts_for_server(server_name),
+            "resources": resources,
+            "resource_templates": templates,
+            "native_prompts": native_prompts,
+            "catalog_family_errors": family_errors,
+            "skills": skills,
+            "prompts": prompts,
             "error": None,
         }
         result = self._cache_probe(server_name, info)
@@ -4898,6 +4857,12 @@ class MCPMultiplexer:
             server_name, result, _tenant_local_discovery_binding()
         )
         return result
+
+    def _live_primary_session(self, server_name: str) -> Any:
+        session = self.sessions.get(server_name)
+        if session is None:
+            raise RuntimeError("mounted child has no live primary session")
+        return session
 
     async def probe_server(
         self, server_name: str, force: bool = False, timeout: float | None = None
@@ -4938,7 +4903,16 @@ class MCPMultiplexer:
         # tool probe's own deadline and discard tools already in hand.
         probe_deadline = time.monotonic() + probe_to
 
-        async def _probe() -> tuple[list[dict], list[dict], list[dict], Any | None]:
+        async def _probe() -> tuple[
+            list[dict],
+            list[dict],
+            list[dict],
+            list[dict],
+            list[dict],
+            list[dict],
+            dict[str, str],
+            Any | None,
+        ]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
             # runs this whole coroutine as one task, so the stack is opened and
@@ -4961,19 +4935,29 @@ class MCPMultiplexer:
                             runtime_policy,
                             tools,
                         )
-                    skills = await self._probe_skills(
-                        server_name, session, probe_deadline=probe_deadline
-                    )
-                    prompts = await self._probe_prompts(
-                        server_name, session, probe_deadline=probe_deadline
+                    (
+                        resources,
+                        templates,
+                        native_prompts,
+                        skills,
+                        prompts,
+                        family_errors,
+                    ) = await self._probe_protocol_families(
+                        server_name,
+                        session,
+                        probe_deadline=probe_deadline,
                     )
                     discovery_binding = _CURRENT_DISCOVERY_BINDING.get()
                     if discovery_binding is None:
                         discovery_binding = _tenant_local_discovery_binding()
                     return (
                         _bounded_tool_catalog(tools),
+                        resources,
+                        templates,
+                        native_prompts,
                         skills,
                         prompts,
+                        family_errors,
                         discovery_binding,
                     )
             finally:
@@ -4987,6 +4971,83 @@ class MCPMultiplexer:
         if discovery_binding is not None and info.get("error") is None:
             self._record_discovery_binding(server_name, result, discovery_binding)
         return result
+
+    @staticmethod
+    def _optional_method_missing(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in ("method not found", "not supported", "no such method")
+        )
+
+    async def _probe_protocol_families(
+        self, server_name: str, session: Any, *, probe_deadline: float | None = None
+    ) -> tuple[
+        list[dict],
+        list[dict],
+        list[dict],
+        list[dict],
+        list[dict],
+        dict[str, str],
+    ]:
+        """Read all native discovery families once from one child generation."""
+        errors: dict[str, str] = {}
+        try:
+            resource_result = await session.list_resources()
+            raw_resources = resource_result.resources
+        except Exception as exc:  # noqa: BLE001 - optional protocol method
+            if not self._optional_method_missing(exc):
+                errors["resources"] = type(exc).__name__
+            raw_resources = []
+        try:
+            resources = _bounded_descriptor_catalog(
+                raw_resources, key="uri", family="resource"
+            )
+            skills = _bounded_skill_catalog(raw_resources)
+            prompt_resources = _bounded_prompt_catalog(raw_resources)
+        except RuntimeError as exc:
+            errors["resources"] = type(exc).__name__
+            resources, skills, prompt_resources = [], [], []
+
+        try:
+            template_result = await session.list_resource_templates()
+            templates = _bounded_descriptor_catalog(
+                template_result.resource_templates,
+                key="uriTemplate",
+                family="resource-template",
+            )
+        except Exception as exc:  # noqa: BLE001 - optional protocol method
+            if not self._optional_method_missing(exc):
+                errors["resource_templates"] = type(exc).__name__
+            templates = []
+
+        try:
+            prompt_result = await session.list_prompts()
+            native_prompts = _bounded_descriptor_catalog(
+                prompt_result.prompts, key="name", family="prompt"
+            )
+        except Exception as exc:  # noqa: BLE001 - optional protocol method
+            if not self._optional_method_missing(exc):
+                errors["prompts"] = type(exc).__name__
+            native_prompts = []
+
+        await self._harvest_resource_bodies(
+            server_name,
+            session,
+            skills,
+            _SKILL_HARVEST_SPEC,
+            self._read_skill_body,
+            probe_deadline=probe_deadline,
+        )
+        await self._harvest_resource_bodies(
+            server_name,
+            session,
+            prompt_resources,
+            _PROMPT_HARVEST_SPEC,
+            self._read_prompt_body,
+            probe_deadline=probe_deadline,
+        )
+        return resources, templates, native_prompts, skills, prompt_resources, errors
 
     async def _probe_skills(
         self, server_name: str, session: Any, *, probe_deadline: float | None = None
@@ -6024,6 +6085,7 @@ class MCPMultiplexer:
             for name in catalog
         ]
         return {
+            "catalog_identity": self.catalog_discovery_identity(),
             "total_servers": len(servers),
             "total_tools": sum(s["tool_count"] for s in servers),
             "servers_running": sorted(self.children.keys()),
@@ -6251,7 +6313,7 @@ class MCPMultiplexer:
             # Keep an empty visibility record only while a detached recovery
             # still owes this client a schema-removal notification. The record
             # is removed by ``notify_pending_tools_changed`` after delivery.
-            if session_key not in self._pending_tool_list_changes:
+            if not self._catalog_reconciler.has_pending(session_key):
                 self._session_loaded.pop(session_key, None)
 
     def requested_prefixed(
@@ -6296,6 +6358,7 @@ class MCPMultiplexer:
         """
         mounted = self._mounted_tool_counts()
         snapshot = {
+            "catalog_identity": self.catalog_identity().model_dump(mode="json"),
             "children": {
                 name: {
                     **runtime.status(),
@@ -6338,15 +6401,6 @@ class MCPMultiplexer:
             )
         return snapshot
 
-    async def _cancel_owned_refreshes(self) -> None:
-        """Cancel and await every multiplexer-owned refresh during shutdown."""
-        refresh_tasks = tuple(self._refresh_inflight.values())
-        for task in refresh_tasks:
-            task.cancel()
-        if refresh_tasks:
-            await asyncio.gather(*refresh_tasks, return_exceptions=True)
-        self._refresh_inflight.clear()
-
     async def aclose(self) -> None:
         """Shut down every child runtime and direct stack registration."""
         self._closing = True
@@ -6375,7 +6429,6 @@ class MCPMultiplexer:
         # during/after shutdown from joining a future that will never
         # resolve to a live mount.
         self._mount_inflight.clear()
-        await self._cancel_owned_refreshes()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():
@@ -6387,13 +6440,9 @@ class MCPMultiplexer:
             self._child_tool_digests.clear()
             self._child_schema_revisions.clear()
             self._child_schema_refresh_errors.clear()
-            self._pending_tool_list_changes.clear()
+            self._catalog_reconciler.clear_pending()
             for policy in policies:
                 _close_runtime_child_policy(policy)
-        if self._catalog_reload_tasks:
-            await asyncio.gather(
-                *tuple(self._catalog_reload_tasks), return_exceptions=True
-            )
         await self.exit_stack.aclose()
 
 
@@ -6409,12 +6458,15 @@ def _resolve_config_path(explicit: str | None) -> Path:
 
 
 def invalidate_live_catalogs() -> int:
-    """Rebuild every live GraphOS fleet catalog after a hot setting change."""
-    refreshed = 0
-    for multiplexer in tuple(_LIVE_MULTIPLEXERS):
-        multiplexer.reload_catalog()
-        refreshed += 1
-    return refreshed
+    """Retired synchronous invalidator retained as a non-mutating callback.
+
+    ``save_config_item`` historically invokes this callback synchronously.
+    Mutating every weakly-referenced multiplexer here created multiple catalog
+    writers and could clear a serving loop from another thread. Governed
+    configuration now awaits ``reconcile_current_catalog`` on the one bound
+    served authority; this callback intentionally performs no catalog I/O.
+    """
+    return 0
 
 
 def _tool_result_from_child(result: MCPCallToolResult) -> ToolResult:
@@ -7428,18 +7480,91 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             structured_content=payload,
         )
 
-    async def _refresh_mcp_server(server_name: str) -> ToolResult:
+    async def _catalog_refresh(
+        request_id: str,
+        expected_config_revision: str,
+        expected_catalog_generation: int,
+        expected_snapshot_digest: str,
+        deadline_ms: int,
+    ) -> ToolResult:
         _require_fleet_capability("manage")
         try:
-            payload = await mux.refresh_child(server_name)
-        except (KeyError, ValueError) as exc:
-            raise ToolError("MCP child is not refreshable") from exc
-        except RuntimeError as exc:
-            raise ToolError("MCP child refresh failed") from exc
+            request = CatalogRefreshRequest(
+                request_id=request_id,
+                expected_config_revision=expected_config_revision,
+                expected_catalog_generation=expected_catalog_generation,
+                expected_snapshot_digest=expected_snapshot_digest,
+                deadline_ms=deadline_ms,
+            )
+            payload = (await mux.refresh_catalog(request)).model_dump(mode="json")
+        except ValueError:
+            contract_exc = CatalogContractError(
+                "refresh-request-schema-mismatch",
+                "catalog refresh request did not match the v1 contract",
+            )
+            payload = refresh_error(
+                request_id, contract_exc, mux.catalog_snapshot()
+            ).model_dump(mode="json")
+        except CatalogContractError as exc:
+            payload = refresh_error(request_id, exc, mux.catalog_snapshot()).model_dump(
+                mode="json"
+            )
         return ToolResult(
             content=[
                 mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
             ],
+            structured_content=payload,
+        )
+
+    async def _catalog_dispatch(
+        tool_name: str,
+        arguments: dict[str, Any],
+        expected_catalog_generation: int,
+        expected_snapshot_digest: str,
+    ) -> ToolResult:
+        _require_fleet_capability("delegate")
+        try:
+            result = await mux.dispatch_catalog_tool(
+                tool_name=tool_name,
+                arguments=arguments,
+                expected_catalog_generation=expected_catalog_generation,
+                expected_snapshot_digest=expected_snapshot_digest,
+            )
+        except CatalogContractError as exc:
+            raise ToolError("MCP catalog dispatch refused") from exc
+        return _tool_result_from_child(result)
+
+    async def _catalog_session_resume(
+        session_id: str,
+        previous_served_instance_id: str,
+        release_id: str,
+        config_revision: str,
+        catalog_generation: int,
+        snapshot_digest: str,
+        child_connection_generation: int,
+        authorization_scope_digest: str,
+        resume_token_digest: str,
+        deadline_ms: int,
+    ) -> ToolResult:
+        _require_fleet_capability("delegate")
+        try:
+            request = CatalogSessionResumeRequest(
+                session_id=session_id,
+                previous_served_instance_id=previous_served_instance_id,
+                release_id=release_id,
+                config_revision=config_revision,
+                catalog_generation=catalog_generation,
+                snapshot_digest=snapshot_digest,
+                child_connection_generation=child_connection_generation,
+                authorization_scope_digest=authorization_scope_digest,
+                resume_token_digest=resume_token_digest,
+                deadline_ms=deadline_ms,
+            )
+            payload = mux.resume_catalog_session(request).model_dump(mode="json")
+        except (CatalogContractError, ValueError) as exc:
+            raise ToolError("MCP catalog session resume refused") from exc
+        return ToolResult(
+            content=[mcp_types.TextContent(type="text", text=json.dumps(payload))],
             structured_content=payload,
         )
 
@@ -7619,27 +7744,110 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     )
     mcp.add_tool(
         FunctionTool(
-            name="refresh_mcp_server",
+            name="catalog_refresh",
             description=(
-                "Administratively refresh exactly one configured MCP child. "
-                "Retires that child's stale runtime and forwarding schemas, "
-                "remounts it, force-harvests its current tools, skills, and "
-                "prompts, then re-ingests the snapshot through the governed "
-                "fleet source-sync writer. Concurrent refreshes of the same "
-                "server share one operation; sibling servers are unaffected."
+                "Atomically reconcile tools, prompts, resources, and resource "
+                "templates for the caller's exact catalog generation."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "server_name": {
+                    "request_id": {
                         "type": "string",
-                        "pattern": "^[A-Za-z0-9_.-]{1,128}$",
-                        "description": "Exact configured MCP child server name.",
-                    }
+                        "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
+                    },
+                    "expected_config_revision": {"type": "string"},
+                    "expected_catalog_generation": {
+                        "type": "integer",
+                        "minimum": 0,
+                    },
+                    "expected_snapshot_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "deadline_ms": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 120000,
+                    },
                 },
-                "required": ["server_name"],
+                "required": [
+                    "request_id",
+                    "expected_config_revision",
+                    "expected_catalog_generation",
+                    "expected_snapshot_digest",
+                    "deadline_ms",
+                ],
             },
-            fn=_refresh_mcp_server,
+            fn=_catalog_refresh,
+        )
+    )
+    mcp.add_tool(
+        FunctionTool(
+            name="catalog_dispatch",
+            description=(
+                "Invoke one already-visible tool against an exact catalog "
+                "generation and digest; stale identities fail closed."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tool_name": {"type": "string", "minLength": 1},
+                    "arguments": {"type": "object"},
+                    "expected_catalog_generation": {
+                        "type": "integer",
+                        "minimum": 0,
+                    },
+                    "expected_snapshot_digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                },
+                "required": [
+                    "tool_name",
+                    "arguments",
+                    "expected_catalog_generation",
+                    "expected_snapshot_digest",
+                ],
+            },
+            fn=_catalog_dispatch,
+        )
+    )
+    mcp.add_tool(
+        FunctionTool(
+            name="catalog_session_resume",
+            description="Validate reconnect continuity without replaying a tool call.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "previous_served_instance_id": {"type": "string"},
+                    "release_id": {"type": "string"},
+                    "config_revision": {"type": "string"},
+                    "catalog_generation": {"type": "integer", "minimum": 0},
+                    "snapshot_digest": {"type": "string"},
+                    "child_connection_generation": {
+                        "type": "integer",
+                        "minimum": 0,
+                    },
+                    "authorization_scope_digest": {"type": "string"},
+                    "resume_token_digest": {"type": "string"},
+                    "deadline_ms": {"type": "integer", "minimum": 1},
+                },
+                "required": [
+                    "session_id",
+                    "previous_served_instance_id",
+                    "release_id",
+                    "config_revision",
+                    "catalog_generation",
+                    "snapshot_digest",
+                    "child_connection_generation",
+                    "authorization_scope_digest",
+                    "resume_token_digest",
+                    "deadline_ms",
+                ],
+            },
+            fn=_catalog_session_resume,
         )
     )
     _register_status_tool(mcp, mux)
@@ -7737,7 +7945,8 @@ def attach_fleet_loader(
     fleet-aggregation engine on top so the SAME server can also reach the rest of the
     MCP fleet (declared in ``mcp_config.json``) on demand — it registers the meta-tools
     ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
-    ``refresh_mcp_server`` / ``multiplexer_status`` plus a per-session
+    ``catalog_refresh`` / ``catalog_dispatch`` / ``catalog_session_resume`` /
+    ``multiplexer_status`` plus a per-session
     progressive-disclosure middleware. Child
     servers are mounted LAZILY (each as an isolated subprocess/HTTP session via
     :class:`~agent_utilities.mcp.child_resilience.ChildRuntime`, with its own breaker +
@@ -7839,6 +8048,9 @@ def attach_fleet_loader(
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) can best-effort widen its search to the
     # whole fleet catalog without a second multiplexer instance.
     mcp._fleet_mux = mux
+    from agent_utilities.mcp.shared_multiplexer import bind_served_multiplexer
+
+    bind_served_multiplexer(mux)
     mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
     logger.info(
         "graph-os fleet loader ready: %d MCP server(s) mountable on demand via "

@@ -58,7 +58,7 @@ def register_config_tools(mcp):
         ),
         tags=["graph-os", "configure", "config"],
     )
-    def graph_config(
+    async def graph_config(
         action: Literal["describe", "get", "diff", "reload", "set"] = Field(
             default="describe",
             description="describe | get | diff | reload | set",
@@ -91,7 +91,7 @@ def register_config_tools(mcp):
 
         try:
             return json.dumps(
-                dispatch(
+                await dispatch(
                     action,
                     key=key,
                     value=value,

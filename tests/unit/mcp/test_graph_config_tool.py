@@ -16,6 +16,8 @@ concrete way it would otherwise be unsafe:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from agent_utilities.core import config_admin
@@ -349,10 +351,39 @@ def test_reload_names_the_fields_that_still_need_a_restart(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_dispatch_refuses_an_unknown_action():
+async def test_dispatch_refuses_an_unknown_action():
     with pytest.raises(config_admin.ConfigAdminError) as exc:
-        config_admin.dispatch("delete_everything")
+        await config_admin.dispatch("delete_everything")
     assert exc.value.code == "unknown_action"
+
+
+async def test_dispatch_reload_awaits_the_bound_catalog_authority(monkeypatch):
+    from agent_utilities.mcp import shared_multiplexer
+
+    monkeypatch.setattr(
+        config_admin,
+        "reload",
+        lambda: {"action": "reload", "reloaded": True},
+    )
+    result_model = type(
+        "Result",
+        (),
+        {"model_dump": lambda self, **_: {"catalog_generation": 4}},
+    )()
+    mux = type("Mux", (), {})()
+    mux.reconcile_current_catalog = AsyncMock(return_value=result_model)
+
+    async def get_mux():
+        return mux
+
+    monkeypatch.setattr(shared_multiplexer, "get_served_multiplexer", get_mux)
+
+    result = await config_admin.dispatch("reload")
+
+    assert result["catalog"] == {"catalog_generation": 4}
+    mux.reconcile_current_catalog.assert_awaited_once_with(
+        request_id="graph-config-reload"
+    )
 
 
 def test_graph_config_is_registered_on_the_graphos_surface():

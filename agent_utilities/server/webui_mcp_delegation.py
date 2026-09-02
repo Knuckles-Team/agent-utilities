@@ -106,10 +106,10 @@ async def _list_mcp_server_tools(*, server_name: str) -> list[dict[str, Any]]:
     (``api_extensions.list_mcp_server_tools``) sees a real failure instead of
     an indistinguishable "no tools" response.
     """
-    from agent_utilities.mcp.shared_multiplexer import get_shared_multiplexer
+    from agent_utilities.mcp.shared_multiplexer import get_served_multiplexer
 
     logger.debug("WebUI MCP delegation: tool inventory for %r", server_name)
-    mux = await get_shared_multiplexer()
+    mux = await get_served_multiplexer()
     info = await mux.probe_server(server_name)
     if info.get("error"):
         raise RuntimeError(f"MCP server {server_name!r} probe failed: {info['error']}")

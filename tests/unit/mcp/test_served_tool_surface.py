@@ -34,7 +34,7 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.mcp import kg_server
+from agent_utilities.mcp import kg_server, shared_multiplexer
 from agent_utilities.mcp.multiplexer import (
     SessionVisibilityMiddleware,
     attach_fleet_loader,
@@ -56,7 +56,9 @@ FLEET_META_TOOLS = frozenset(
         "list_catalog",
         "load_tools",
         "unload_tools",
-        "refresh_mcp_server",
+        "catalog_refresh",
+        "catalog_dispatch",
+        "catalog_session_resume",
         "multiplexer_status",
     }
 )
@@ -72,6 +74,7 @@ def _served_surface(monkeypatch, tmp_path, mode: str) -> tuple[Any, Any, set[str
     REAL :class:`SessionVisibilityMiddleware` predicate that ``on_list_tools``
     filters with, for a fresh session that has loaded nothing.
     """
+    shared_multiplexer._reset_served_multiplexer_for_tests()
     config_path = tmp_path / "mcp_config.json"
     config_path.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
     monkeypatch.setenv("MCP_TOOL_MODE", mode)

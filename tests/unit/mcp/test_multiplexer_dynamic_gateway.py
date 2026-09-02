@@ -204,54 +204,6 @@ def test_load_catalog_excludes_self_and_disabled(tmp_path):
     assert mux.load_catalog() is catalog
 
 
-async def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path, monkeypatch):
-    from fastmcp import FastMCP
-
-    config_path = _write_config(
-        tmp_path,
-        {"first": {"command": "first-server"}},
-    )
-    mux = MCPMultiplexer(config_path)
-    assert set(mux.load_catalog()) == {"first"}
-    mounted = mux._register_child_result(
-        "first",
-        AsyncMock(),
-        [_schema_tool("query", "legacy")],
-        mux.load_catalog()["first"],
-    )
-    host = FastMCP("reload-host")
-    mux._host_mcp = host
-    _register_forwarder(host, mux, mounted[0])
-    mux.session_loaded("session-a").add(mounted[0].name)
-    mux._always_load_done["session-a"] = {"mounted_servers": ["first"]}
-    mux._always_load_servers = ["first"]
-    mux._always_load_tool_specs = ["first:query"]
-    assert await host.get_tool(mounted[0].name) is not None
-
-    def refreshed_always_load_setting(field: str, _alias: str) -> list[str]:
-        return ["second"] if field == "mcp_always_load" else ["second:query"]
-
-    monkeypatch.setattr(
-        "agent_utilities.mcp.multiplexer._always_load_setting",
-        refreshed_always_load_setting,
-    )
-
-    config_path.write_text(
-        json.dumps({"mcpServers": {"second": {"command": "second-server"}}})
-    )
-    catalog = mux.reload_catalog()
-
-    assert set(catalog) == {"second"}
-    assert mux.tool_to_server == {}
-    assert mux._exposed == set()
-    assert mux._always_load_done == {}
-    assert mux._always_load_servers == ["second"]
-    assert mux._always_load_tool_specs == ["second:query"]
-    assert mux.session_loaded("session-a") == set()
-    assert await host.get_tool(mounted[0].name) is None
-    await mux.aclose()
-
-
 def test_load_catalog_auto_registers_native_langfuse_mcp(tmp_path, monkeypatch):
     config_path = tmp_path / "missing.json"
     native = {
@@ -680,7 +632,7 @@ async def test_detached_schema_refresh_notifies_the_affected_session_on_next_req
         )
     )
 
-    assert mux._pending_tool_list_changes[session_key] == 1
+    assert mux._catalog_reconciler.pending_generation(session_key) == 1
     assert mux._session_loaded[session_key] == set()
     assert await host.get_tool(prefixed_name) is None
 
@@ -707,7 +659,7 @@ async def test_detached_schema_refresh_notifies_the_affected_session_on_next_req
     assert await middleware.on_list_tools(SimpleNamespace(), call_next) == []
     assert len(context.notifications) == 1
     assert context.notifications[0].method == "notifications/tools/list_changed"
-    assert session_key not in mux._pending_tool_list_changes
+    assert not mux._catalog_reconciler.has_pending(session_key)
     assert session_key not in mux._session_loaded
     await mux.aclose()
 
@@ -745,7 +697,7 @@ async def test_removed_cached_tool_notifies_before_session_gate(tmp_path, monkey
         mux._catalog_epoch,
         [],
     )
-    assert mux._pending_tool_list_changes[session_key] == 1
+    assert mux._catalog_reconciler.pending_generation(session_key) == 1
     assert mux._session_loaded[session_key] == set()
 
     class _LiveContext:
@@ -773,7 +725,7 @@ async def test_removed_cached_tool_notifies_before_session_gate(tmp_path, monkey
         await middleware.on_call_tool(context, should_not_dispatch)
     assert len(context.notifications) == 1
     assert context.notifications[0].method == "notifications/tools/list_changed"
-    assert session_key not in mux._pending_tool_list_changes
+    assert not mux._catalog_reconciler.has_pending(session_key)
     assert session_key not in mux._session_loaded
     await mux.aclose()
 

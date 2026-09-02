@@ -21,6 +21,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+from agent_utilities.mcp.catalog_reconciliation import (
+    CatalogIdentity,
+    CatalogRefreshResult,
+    CatalogSnapshot,
+)
 from agent_utilities.server.routers import mcp_catalog
 
 
@@ -63,6 +68,13 @@ _ADMIN_CLAIMS = {
     "auth_type": "jwt",
     "sub": "mcp-catalog-test-admin",
     "scope": "mcp:admin",
+}
+_REFRESH_REQUEST = {
+    "request_id": "refresh-1",
+    "expected_config_revision": "config-1",
+    "expected_catalog_generation": 0,
+    "expected_snapshot_digest": "a" * 64,
+    "deadline_ms": 1000,
 }
 
 
@@ -129,31 +141,48 @@ class _StubMultiplexer:
             raise RuntimeError("status snapshot exploded")
         return {"children": {}, "catalog_size": 1}
 
-    async def refresh_child(self, server_name: str) -> dict:
+    async def refresh_catalog(self, request) -> CatalogRefreshResult:
         if self._fail_refresh:
             raise RuntimeError("refresh exploded")
-        if server_name != "github-api":
-            raise KeyError(server_name)
-        self.refreshed.append(server_name)
-        return {
-            "status": "refreshed",
-            "server": server_name,
-            "catalog_revision": 2,
-        }
+        self.refreshed.append(request.request_id)
+        return CatalogRefreshResult(
+            request_id=request.request_id,
+            served_instance_id="graph-os:test",
+            release_id="test",
+            config_revision=request.expected_config_revision,
+            catalog_generation=request.expected_catalog_generation,
+            snapshot_digest=request.expected_snapshot_digest,
+            changed=False,
+            reingestion_state="reconciled",
+        )
+
+    def catalog_snapshot(self) -> CatalogSnapshot:
+        return CatalogSnapshot(
+            identity=CatalogIdentity(
+                served_instance_id="graph-os:test",
+                release_id="test",
+                config_revision="config-1",
+                catalog_generation=0,
+                snapshot_digest="a" * 64,
+                child_connection_generation=0,
+                authorization_scope_digest="b" * 64,
+            ),
+            children=(),
+        )
 
 
 @pytest.fixture(autouse=True)
 def _reset_shared_multiplexer():
-    shared_mux_mod._reset_shared_multiplexer_for_tests()
+    shared_mux_mod._reset_served_multiplexer_for_tests()
     yield
-    shared_mux_mod._reset_shared_multiplexer_for_tests()
+    shared_mux_mod._reset_served_multiplexer_for_tests()
 
 
 def _install_stub(monkeypatch, stub: _StubMultiplexer) -> None:
     async def _get_stub() -> Any:
         return stub
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_stub)
 
 
 # ── authorized ──────────────────────────────────────────────────────────────
@@ -207,15 +236,12 @@ def test_refresh_route_returns_exact_mux_payload_for_admin(monkeypatch):
     _install_stub(monkeypatch, stub)
     client = _client(_ADMIN_CLAIMS)
 
-    response = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
+    response = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
 
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "status": "refreshed",
-        "server": "github-api",
-        "catalog_revision": 2,
-    }
-    assert stub.refreshed == ["github-api"]
+    assert response.json()["request_id"] == "refresh-1"
+    assert response.json()["snapshot_digest"] == "a" * 64
+    assert stub.refreshed == ["refresh-1"]
 
 
 # ── unauthorized ────────────────────────────────────────────────────────────
@@ -243,7 +269,7 @@ def test_refresh_route_refuses_discover_without_admin_scope(monkeypatch):
     _install_stub(monkeypatch, _StubMultiplexer())
     client = _client(_DISCOVER_CLAIMS)
 
-    response = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
+    response = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
 
     assert response.status_code == 403
 
@@ -278,16 +304,12 @@ def test_status_route_surfaces_a_typed_degraded_state_on_snapshot_failure(monkey
     assert detail["reason"] == "status_snapshot_failed"
 
 
-def test_refresh_route_surfaces_unknown_child_and_runtime_failure(monkeypatch):
-    _install_stub(monkeypatch, _StubMultiplexer())
-    client = _client(_ADMIN_CLAIMS)
-    unknown = client.post("/api/mcp/refresh", json={"server_name": "does-not-exist"})
-    assert unknown.status_code == 404
-
+def test_refresh_route_surfaces_runtime_failure(monkeypatch):
     _install_stub(monkeypatch, _StubMultiplexer(fail_refresh=True))
-    degraded = client.post("/api/mcp/refresh", json={"server_name": "github-api"})
+    client = _client(_ADMIN_CLAIMS)
+    degraded = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
     assert degraded.status_code == 503
-    assert degraded.json()["detail"]["reason"] == "mcp_child_refresh_failed"
+    assert degraded.json()["detail"]["reason"] == "mcp_catalog_refresh_failed"
 
 
 def test_catalog_route_surfaces_degraded_when_the_shared_multiplexer_cannot_construct(
@@ -296,7 +318,7 @@ def test_catalog_route_surfaces_degraded_when_the_shared_multiplexer_cannot_cons
     async def _boom() -> Any:
         raise OSError("mcp_config.json unreadable")
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _boom)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _boom)
     client = _client(_DISCOVER_CLAIMS)
 
     response = client.get("/api/mcp/catalog")
@@ -320,11 +342,10 @@ async def test_rest_catalog_payload_matches_the_shared_multiplexer_payload_direc
     """
     config_path = tmp_path / "mcp_config.json"
     config_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(shared_mux_mod, "_default_config_path", lambda: config_path)
+    from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
-    # First call constructs and caches the real (empty-catalog) shared
-    # multiplexer; the REST route below reuses that SAME instance.
-    direct_mux = await shared_mux_mod.get_shared_multiplexer()
+    direct_mux = MCPMultiplexer(config_path)
+    shared_mux_mod.bind_served_multiplexer(direct_mux)
     direct_payload = await direct_mux.list_catalog(server="", include_tools=True)
     direct_status = direct_mux.status_snapshot()
 

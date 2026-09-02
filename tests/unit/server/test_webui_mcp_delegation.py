@@ -11,6 +11,7 @@ protocol round trip and the result decoding are the production ones.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -116,7 +117,7 @@ async def test_list_mcp_server_tools_reads_the_shared_multiplexer(
     async def _get_stub() -> Any:
         return _StubMux()
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_stub)
 
     list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
     tools = await list_mcp_server_tools(server_name="github-api")
@@ -175,7 +176,7 @@ async def test_list_mcp_server_tools_forwards_an_mcp_apps_resource_uri(
     async def _get_stub() -> Any:
         return _StubMux()
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_stub)
 
     list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
     tools = await list_mcp_server_tools(server_name="graph-os")
@@ -211,7 +212,7 @@ async def test_list_mcp_server_tools_forwards_meta_from_an_unmounted_probe_tool_
     async def _get_stub() -> Any:
         return _StubMux()
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_stub)
 
     list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
     tools = await list_mcp_server_tools(server_name="graph-os")
@@ -254,6 +255,11 @@ async def test_list_mcp_server_tools_carries_a_real_mcp_apps_tool_end_to_end(
         async with fastmcp.Client(real_server) as client:
             listed = await client.list_tools()
         session = AsyncMock()
+        session.list_resources = AsyncMock(return_value=SimpleNamespace(resources=[]))
+        session.list_resource_templates = AsyncMock(
+            return_value=SimpleNamespace(resource_templates=[])
+        )
+        session.list_prompts = AsyncMock(return_value=SimpleNamespace(prompts=[]))
         return server_name, session, listed, cfg
 
     mux._start_child = AsyncMock(side_effect=fake_start_child)  # type: ignore[method-assign]
@@ -262,7 +268,7 @@ async def test_list_mcp_server_tools_carries_a_real_mcp_apps_tool_end_to_end(
     async def _get_mux() -> Any:
         return mux
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_mux)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_mux)
 
     list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
     tools = await list_mcp_server_tools(server_name="graph-os")
@@ -288,7 +294,7 @@ async def test_list_mcp_server_tools_raises_on_a_probe_error_rather_than_returni
     async def _get_stub() -> Any:
         return _StubMux()
 
-    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+    monkeypatch.setattr(shared_mux_mod, "get_served_multiplexer", _get_stub)
 
     list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
     with pytest.raises(RuntimeError, match="not in catalog"):

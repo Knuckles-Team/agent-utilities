@@ -33,7 +33,13 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+
+from agent_utilities.mcp.catalog_reconciliation import (
+    CatalogContractError,
+    CatalogRefreshRequest,
+    refresh_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +52,6 @@ _DISCOVER_SCOPES = frozenset(
     {"mcp:discover", "mcp:delegate", "mcp:admin", "kg:admin", "admin"}
 )
 _MANAGE_SCOPES = frozenset({"mcp:admin", "kg:admin", "admin"})
-
-
-class MCPRefreshRequest(BaseModel):
-    """Bounded selector for a governed single-child refresh."""
-
-    server_name: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
 
 
 def _mcp_capabilities(request: Request) -> set[str] | None:
@@ -123,10 +123,10 @@ def _degraded(reason: str, exc: Exception) -> HTTPException:
 
 
 async def _get_multiplexer_or_503():
-    from agent_utilities.mcp.shared_multiplexer import get_shared_multiplexer
+    from agent_utilities.mcp.shared_multiplexer import get_served_multiplexer
 
     try:
-        return await get_shared_multiplexer()
+        return await get_served_multiplexer()
     except Exception as exc:  # noqa: BLE001 - surfaced as a typed 503 below, cause preserved via `from exc`
         raise _degraded("mcp_multiplexer_unavailable", exc) from exc
 
@@ -175,22 +175,22 @@ async def get_mcp_status() -> dict[str, Any]:
 
 
 @router.post(
-    "/refresh",
-    summary="Refresh one MCP child runtime and its governed catalog snapshot",
+    "/catalog/refresh",
+    summary="Atomically reconcile the complete served MCP catalog",
     dependencies=[Depends(_require_mcp_manage)],
 )
-async def refresh_mcp_server(request: MCPRefreshRequest) -> dict[str, Any]:
-    """REST twin of the always-on ``refresh_mcp_server`` MCP meta-tool."""
+async def refresh_mcp_catalog(request: CatalogRefreshRequest) -> Any:
+    """Exact REST twin of the ``catalog_refresh`` MCP meta-tool."""
     mux = await _get_multiplexer_or_503()
     try:
-        return await mux.refresh_child(request.server_name)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=404, detail="MCP child is not refreshable"
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422, detail="Invalid MCP child selector"
-        ) from exc
+        return (await mux.refresh_catalog(request)).model_dump(mode="json")
+    except CatalogContractError as exc:
+        current = mux.catalog_snapshot()
+        return JSONResponse(
+            status_code=409,
+            content=refresh_error(request.request_id, exc, current).model_dump(
+                mode="json"
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 - typed degraded refresh response
-        raise _degraded("mcp_child_refresh_failed", exc) from exc
+        raise _degraded("mcp_catalog_refresh_failed", exc) from exc

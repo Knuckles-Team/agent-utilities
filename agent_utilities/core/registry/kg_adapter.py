@@ -439,7 +439,7 @@ class RegistryMixin(_Base):
         run on)?"** It intentionally does NOT and MUST NOT answer "what is
         DISPATCHABLE for the calling session right now" — that is a
         different, live, per-session-scoped question answered ONLY by
-        :func:`agent_utilities.mcp.shared_multiplexer.get_shared_multiplexer`
+        :func:`agent_utilities.mcp.shared_multiplexer.get_served_multiplexer`
         ``.list_catalog()``, which derives from the same visibility predicate
         the real dispatch gate enforces. A server can be registered here
         (e.g. declared in ``mcp_config.json``, or discovered on a prior
