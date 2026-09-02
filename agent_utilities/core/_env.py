@@ -20,6 +20,28 @@ from typing import Any
 
 # Sentinel distinguishing "no default given" from an explicit ``default=None``.
 _UNSET = object()
+_MAX_BOOTSTRAP_ENV_BYTES = 32_768
+
+
+def bootstrap_setting(key: str, default: Any, cast: Any = None) -> Any:
+    """Read one bounded value before application configuration can initialize.
+
+    This narrow primitive exists for import-time package provenance checks.
+    It deliberately does not project XDG config or import any application
+    module; all ordinary runtime reads must continue through :func:`setting`.
+    Invalid or oversized values return the conservative caller default.
+    """
+    raw = os.environ.get(key)
+    if raw is None or raw == "" or len(raw.encode("utf-8")) > _MAX_BOOTSTRAP_ENV_BYTES:
+        return default
+    if cast is bool:
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
+    return raw
 
 
 def setting(key: str, default: Any = _UNSET, cast: Any = None) -> Any:

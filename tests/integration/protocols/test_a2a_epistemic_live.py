@@ -45,7 +45,6 @@ from fasta2a.schema import Message
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from agent_utilities.knowledge_graph.core.session import GraphSession
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.protocols.a2a_epistemic import (
     _DELIVERY_CONTROL,
     _EXECUTION_BINDING,
@@ -54,6 +53,7 @@ from agent_utilities.protocols.a2a_epistemic import (
     EpistemicGraphA2ARuntime,
     EpistemicGraphA2AStorage,
 )
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 # xdist_group: this module's ``native_a2a_engine`` fixture is module-scoped and

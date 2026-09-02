@@ -31,7 +31,7 @@ from agent_utilities.knowledge_graph.core.session import (
     use_session,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import (
     ActorContext,
     CredentialLease,
@@ -1723,6 +1723,54 @@ def test_graphos_network_transport_never_uses_private_local_authority() -> None:
     minted_actor = mint_session.call_args.args[0]
     assert minted_actor.credential_lease is not None
     assert minted_actor.credential_lease.expires_at == actor.credential_expires_at
+
+
+def test_tiny_process_authority_remints_bounded_proof_after_expiry() -> None:
+    """A long-lived tiny stdio process remints locally; it never goes stale."""
+    from agent_utilities.mcp import kg_server
+
+    expired_at = int(time.time()) - 1
+    renewed_at = int(time.time()) + 120
+    lease = CredentialLease(expired_at)
+    current = _verified_session("graph-os:local-process")
+    current = replace(
+        current,
+        actor=replace(
+            current.actor,
+            tenant_id="local",
+            credential_expires_at=expired_at,
+            credential_lease=lease,
+        ),
+        tenant="local",
+    )
+    renewed = replace(
+        current,
+        actor=replace(
+            current.actor,
+            credential_expires_at=renewed_at,
+            credential_lease=CredentialLease(renewed_at),
+        ),
+    )
+
+    with (
+        patch(
+            "agent_utilities.security.request_identity.local_process_authority_enabled",
+            return_value=True,
+        ),
+        patch(
+            "agent_utilities.security.request_identity.mint_local_process_session",
+            return_value=renewed,
+        ) as remint,
+        patch(
+            "agent_utilities.security.request_identity.acquire_process_identity_token"
+        ) as acquire_external,
+    ):
+        selected = kg_server._refresh_process_authority(current)
+
+    assert selected is current
+    assert lease.expires_at == renewed_at
+    remint.assert_called_once_with()
+    acquire_external.assert_not_called()
 
 
 @pytest.mark.asyncio

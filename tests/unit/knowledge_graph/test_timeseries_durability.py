@@ -461,7 +461,7 @@ async def test_sync_offload_worker_thread_inherits_ambient_graph_session() -> No
     ``contextvars.Context`` so the session survives the thread-pool hop.
     """
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

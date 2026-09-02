@@ -18,7 +18,7 @@ from agent_utilities.knowledge_graph.memory.native_ingest import (
     ingest_documents,
     ingest_entities,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 

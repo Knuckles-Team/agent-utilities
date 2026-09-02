@@ -8,7 +8,7 @@ import pytest
 
 from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData
 from agent_utilities.gateway.widgets.base import BaseWidget
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.security.error_surface import (
     public_error_json,

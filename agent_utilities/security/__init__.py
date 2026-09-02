@@ -14,50 +14,69 @@ Modules:
     - ``sandboxed_executor``: Process-isolated code execution sandbox (CONCEPT:AU-OS.observability.deterministic-replay)
 """
 
-from agent_utilities.security.browser_auth import (
-    BaseBrowserAuthManager,
-    BaseLoopbackCallbackHandler,
-    BaseLoopbackCallbackServer,
-    generate_pkce,
-)
-from agent_utilities.security.credential_provider import (
-    CredentialProvider,
-    get_credential_provider,
-)
-from agent_utilities.security.execution_stability_engine import (
-    RepetitionGuard,
-    RepetitionResult,
-    RepetitionVerdict,
-)
-from agent_utilities.security.guardrails import PiiSanitizer
-from agent_utilities.security.sandboxed_executor import (
-    SandboxedExecutor,
-    SandboxLimits,
-    SandboxResult,
-)
-from agent_utilities.security.source_credentials import (
-    ApiKeyCredential,
-    AuthMaterial,
-    BasicAuthCredential,
-    CookieSessionCredential,
-    NoCredential,
-    OAuth2Credential,
-    SourceCredential,
-    build_credential,
-)
-from agent_utilities.security.threat_defense_engine import (
-    PromptInjectionScanner,
-    RiskLevel,
-    ScanResult,
-    SecurityFindingNode,
-)
-from agent_utilities.security.tool_guard import (
-    apply_tool_guard_approvals,
-    build_sensitive_tool_names,
-    flag_mcp_tool_definitions,
-    is_safe_tool,
-    is_sensitive_tool,
-)
+from importlib import import_module
+from typing import Any
+
+_LAZY_EXPORTS: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "BaseBrowserAuthManager",
+            "BaseLoopbackCallbackHandler",
+            "BaseLoopbackCallbackServer",
+            "generate_pkce",
+        ),
+        ".browser_auth",
+    ),
+    **dict.fromkeys(
+        ("CredentialProvider", "get_credential_provider"),
+        ".credential_provider",
+    ),
+    **dict.fromkeys(
+        ("RepetitionGuard", "RepetitionResult", "RepetitionVerdict"),
+        ".execution_stability_engine",
+    ),
+    "PiiSanitizer": ".guardrails",
+    **dict.fromkeys(
+        ("SandboxedExecutor", "SandboxLimits", "SandboxResult"),
+        ".sandboxed_executor",
+    ),
+    **dict.fromkeys(
+        (
+            "ApiKeyCredential",
+            "AuthMaterial",
+            "BasicAuthCredential",
+            "CookieSessionCredential",
+            "NoCredential",
+            "OAuth2Credential",
+            "SourceCredential",
+            "build_credential",
+        ),
+        ".source_credentials",
+    ),
+    **dict.fromkeys(
+        ("PromptInjectionScanner", "RiskLevel", "ScanResult", "SecurityFindingNode"),
+        ".threat_defense_engine",
+    ),
+    **dict.fromkeys(
+        (
+            "apply_tool_guard_approvals",
+            "build_sensitive_tool_names",
+            "flag_mcp_tool_definitions",
+            "is_safe_tool",
+            "is_sensitive_tool",
+        ),
+        ".tool_guard",
+    ),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load an explicitly exported security surface only when requested."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(module_name, package=__name__), name)
+
 
 __all__ = [
     # browser_auth

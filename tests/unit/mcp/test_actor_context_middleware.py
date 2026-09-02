@@ -153,7 +153,7 @@ def test_bridge_exempts_bound_local_process_authority():
     import contextvars
 
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     process_actor = ActorContext(
@@ -205,7 +205,7 @@ def test_bridge_exempts_already_ambient_session():
         reset_session,
         set_session,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

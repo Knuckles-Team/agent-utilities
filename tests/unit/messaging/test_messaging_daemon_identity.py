@@ -139,7 +139,7 @@ def test_run_forever_propagates_actor_and_session_into_the_serve_task(monkeypatc
     the thread's own event loop) — proving the identity fix actually reaches
     the code that talks to the engine, not just the outer synchronous call."""
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         current_actor,

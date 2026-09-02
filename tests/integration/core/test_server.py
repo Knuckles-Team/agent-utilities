@@ -29,7 +29,7 @@ def client(mock_agent):
     # every request via the TestClient's own default headers.
     import agent_utilities.core.config as _config_module
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     # ActorIdentityMiddleware 401s ANY request carrying a bearer token when

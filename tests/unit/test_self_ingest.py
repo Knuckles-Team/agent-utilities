@@ -404,7 +404,7 @@ class TestTenantStamping:
         return {a["key"]: a["value"] for a in recs[index]["attributes"]}
 
     def test_log_stamped_with_ambient_actor(self):
-        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.actor_identity import ActorType
         from agent_utilities.security.brain_context import ActorContext, use_actor
 
         transport = _CapturingTransport()
@@ -428,7 +428,7 @@ class TestTenantStamping:
 
     def test_run_trace_and_tool_call_are_stamped_too(self):
         """Stamping happens at the single ``emit`` choke-point, not just logs."""
-        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.actor_identity import ActorType
         from agent_utilities.security.brain_context import ActorContext, use_actor
 
         transport = _CapturingTransport()

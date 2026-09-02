@@ -26,7 +26,7 @@ from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
     ingest_skill_workflows,
     parse_workflow_skill,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 pytestmark = pytest.mark.concept("AU-KG.ingest.skill-workflow-corpus")

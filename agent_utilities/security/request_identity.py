@@ -65,13 +65,14 @@ byte-for-byte the same.
 import json
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from ..models.company_brain import ActorType
+from .actor_identity import ActorType
 from .brain_context import (
     ActorContext,
     CredentialExpiredError,
+    CredentialLease,
     reset_actor,
     set_actor,
     use_actor,
@@ -105,6 +106,7 @@ _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
+_MAX_CREDENTIAL_EXPIRY = (1 << 63) - 1
 
 
 def _bounded_authority_text(value: object, *, field_name: str) -> str:
@@ -130,20 +132,42 @@ def _bounded_authority_groups(values: object) -> tuple[str, ...]:
     return groups
 
 
-def _actor_expiry(actor: ActorContext) -> int:
-    raw_expiry = (
-        actor.credential_lease.expires_at
-        if actor.credential_lease is not None
-        else actor.credential_expires_at
-    )
+def _bounded_integer_expiry(value: object) -> int:
     if (
-        raw_expiry is None
-        or isinstance(raw_expiry, bool)
-        or not isinstance(raw_expiry, int)
-        or raw_expiry < 0
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= _MAX_CREDENTIAL_EXPIRY
     ):
         raise PermissionError("Verified authority requires a bounded expiry")
-    return raw_expiry
+    return value
+
+
+def _actor_expiry(actor: ActorContext) -> int:
+    lease = actor.credential_lease
+    raw_expiry = getattr(lease, "expires_at", actor.credential_expires_at)
+    return _bounded_integer_expiry(raw_expiry)
+
+
+def _claim_expiry(claims: dict[str, Any]) -> int | None:
+    if "exp" not in claims:
+        return None
+    raw_expiry = claims["exp"]
+    if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, int | float):
+        raise ValueError("validated identity has an invalid expiry claim")
+    try:
+        expiry = int(raw_expiry)
+    except (OverflowError, ValueError):
+        raise ValueError("validated identity has an invalid expiry claim") from None
+    if raw_expiry < 0 or expiry > _MAX_CREDENTIAL_EXPIRY:
+        raise ValueError("validated identity has an invalid expiry claim")
+    return expiry
+
+
+def _actor_with_credential_lease(actor: ActorContext) -> ActorContext:
+    return replace(
+        actor,
+        credential_lease=CredentialLease(_actor_expiry(actor)),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,13 +188,12 @@ class VerifiedRequestAuthority:
 
     actor: ActorContext
     subject: str
-    actor_type: ActorType
     tenant: str
     scopes: frozenset[str]
     groups: tuple[str, ...]
     audience: str
     policy_version: str
-    expires_at: int
+    credential_expires_at: int
 
     def __post_init__(self) -> None:
         _bounded_authority_text(self.subject, field_name="subject")
@@ -185,10 +208,7 @@ class VerifiedRequestAuthority:
         self.actor.ensure_credential_current()
         if not self.actor.authenticated:
             raise PermissionError("Verified authority actor is not authenticated")
-        if (
-            self.subject != self.actor.actor_id
-            or self.actor_type != self.actor.actor_type
-        ):
+        if self.subject != self.actor.actor_id:
             raise PermissionError("Verified authority actor identity drifted")
         if self.tenant != self.actor.tenant_id:
             raise PermissionError("Verified authority tenant drifted")
@@ -196,7 +216,7 @@ class VerifiedRequestAuthority:
             raise PermissionError("Verified authority scopes drifted")
         if self.groups != _bounded_authority_groups(self.actor.groups):
             raise PermissionError("Verified authority groups drifted")
-        if self.expires_at != _actor_expiry(self.actor):
+        if self.credential_expires_at != _actor_expiry(self.actor):
             raise PermissionError("Verified authority expiry drifted")
 
 
@@ -213,7 +233,7 @@ def build_verified_request_authority(
     security; it does not mint graph, session, placement, or trace state.
     """
     _assert_actor_authenticated(actor)
-    expires_at = _actor_expiry(actor)
+    credential_expires_at = _actor_expiry(actor)
     actor.ensure_credential_current()
     verified_audience, verified_policy = _assert_graph_authority(
         audience, policy_version
@@ -221,7 +241,6 @@ def build_verified_request_authority(
     authority = VerifiedRequestAuthority(
         actor=actor,
         subject=_bounded_authority_text(actor.actor_id, field_name="subject"),
-        actor_type=actor.actor_type,
         tenant=_bounded_authority_text(actor.tenant_id, field_name="tenant"),
         scopes=_resolve_authenticated_scopes(actor),
         groups=_bounded_authority_groups(actor.groups),
@@ -229,7 +248,7 @@ def build_verified_request_authority(
         policy_version=_bounded_authority_text(
             verified_policy, field_name="policy revision"
         ),
-        expires_at=expires_at,
+        credential_expires_at=credential_expires_at,
     )
     return authority
 
@@ -552,17 +571,7 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     group_map = getattr(config, "identity_group_capability_map", None)
 
     actor_type = ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
-    credential_expires_at: int | None = None
-    if "exp" in claims:
-        raw_expiry = claims["exp"]
-        if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, int | float):
-            raise ValueError("validated identity has an invalid expiry claim")
-        if raw_expiry < 0:
-            raise ValueError("validated identity has an invalid expiry claim")
-        try:
-            credential_expires_at = int(raw_expiry)
-        except (OverflowError, ValueError):
-            raise ValueError("validated identity has an invalid expiry claim") from None
+    credential_expires_at = _claim_expiry(claims)
     return ActorContext(
         actor_id=identity.subject,
         actor_type=actor_type,
@@ -623,7 +632,7 @@ def mint_local_process_session() -> GraphSession:
     # authority. Long-running process callers renew by minting a fresh proof;
     # destroying proof material must never turn a bounded credential into an
     # indefinite process grant.
-    actor = actor_from_claims(claims)
+    actor = _actor_with_credential_lease(actor_from_claims(claims))
     return _mint_graph_session(
         actor,
         audience=_LOCAL_PROCESS_AUDIENCE,

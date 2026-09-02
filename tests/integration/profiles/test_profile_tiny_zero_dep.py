@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 
 import pytest
@@ -123,7 +124,7 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
 
     from agent_utilities.gateway.graph_api import register_graph_routes
     from agent_utilities.mcp import kg_server
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     kg_server.ensure_tools_registered()
@@ -151,6 +152,7 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
         # tenant" / PlacementAuthorityError otherwise).
         tenant_id=TEST_TENANT,
         authenticated=True,
+        credential_expires_at=int(time.time()) + 300,
     )
 
     async def _actor_from_bearer_token(token: str) -> ActorContext:

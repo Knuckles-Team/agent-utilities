@@ -310,7 +310,7 @@ async def test_workflow_compile_live_route_isolates_graph_phases_and_authority(
     from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
     from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
     from agent_utilities.mcp.tools import workflow_tools
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         current_actor,

@@ -148,6 +148,17 @@ class TestActorFromClaims:
         )
         assert actor.credential_expires_at == expiry
 
+    @pytest.mark.parametrize("expiry", [True, -1, 1 << 63, float("inf")])
+    def test_validated_claim_expiry_is_bounded(self, expiry):
+        with pytest.raises(ValueError, match="invalid expiry"):
+            actor_from_claims(
+                {
+                    "sub": "principal:verified",
+                    "tenant_id": "tenant-a",
+                    "exp": expiry,
+                }
+            )
+
     @pytest.mark.parametrize(
         "claims",
         [
@@ -188,7 +199,7 @@ class TestActorFromClaims:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_human_when_email_claim_present(self):
-        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.actor_identity import ActorType
 
         human = actor_from_claims(
             {"sub": "principal", "email": "principal@example.invalid"}
@@ -880,6 +891,11 @@ class TestStdioProcessIdentity:
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
         assert session.actor.credential_expires_at is not None
+        assert session.actor.credential_lease is not None
+        assert (
+            session.actor.credential_lease.expires_at
+            == session.actor.credential_expires_at
+        )
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),

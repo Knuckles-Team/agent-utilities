@@ -28,7 +28,7 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from tests.unit.knowledge_graph.test_fleet_catalog_tables import _FakeGraphCompute
 
@@ -104,7 +104,7 @@ class _CatalogBackedEngine:
         self.graph_compute = _FakeGraphCompute()
         self.backend = cypher_backend
 
-    def for_graph(self, _graph_name: str) -> "_CatalogBackedEngine":
+    def for_graph(self, _graph_name: str) -> _CatalogBackedEngine:
         return self
 
 
@@ -277,7 +277,7 @@ def test_failed_sql_lookup_falls_back_to_cypher_and_never_grants_by_itself(
             self.graph_compute = _RaisingGraphCompute()
             self.backend = cypher
 
-        def for_graph(self, _graph_name: str) -> "_Engine":
+        def for_graph(self, _graph_name: str) -> _Engine:
             return self
 
     cypher = _RecordingCypherBackend(rows=[])  # Cypher also finds nothing.

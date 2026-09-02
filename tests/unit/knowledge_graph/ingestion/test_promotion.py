@@ -38,8 +38,9 @@ from agent_utilities.knowledge_graph.ingestion import (
 )
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.knowledge_graph.research.claim_flywheel import ClaimLifecycleState
-from agent_utilities.models.company_brain import ActorType, DataClassification
+from agent_utilities.models.company_brain import DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from tests.unit.knowledge_graph.ingestion.test_native_envelope_ingest import (
     _Compute,

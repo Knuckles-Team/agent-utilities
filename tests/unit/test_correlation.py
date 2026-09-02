@@ -85,13 +85,13 @@ def test_traceparent_is_w3c_shaped():
 
 
 def test_inject_carries_tenant_and_actor():
-    from agent_utilities.models.company_brain import ActorType
     from agent_utilities.observability.correlation import (
         ACTOR_HEADER,
         TENANT_HEADER,
         ensure_correlation_id,
         inject,
     )
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     actor = ActorContext(

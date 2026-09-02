@@ -40,7 +40,7 @@ from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.mcp import co_service_supervisor as cosvc
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging.service import MessagingService
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

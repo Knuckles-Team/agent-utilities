@@ -45,7 +45,7 @@ from agent_utilities.mcp.remote_oauth_broker import (
     discover_authorization_server,
     discover_protected_resource,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.secrets_client import SecretsBackend, SecretsClient
 

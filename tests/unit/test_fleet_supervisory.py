@@ -14,9 +14,9 @@ import time
 import pytest
 
 from agent_utilities.gateway import fleet
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.observability import runtime_health
 from agent_utilities.orchestration import fleet_health
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
@@ -466,7 +466,7 @@ def tenant_session_db(tmp_path, monkeypatch):
 
 
 def _actor(actor_id="alice", tenant="acme", roles=()):
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     return ActorContext(

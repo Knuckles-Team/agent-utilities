@@ -16,7 +16,7 @@ from agent_utilities.core.contextual_model import (
 )
 from agent_utilities.harness import g_eval as ge
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

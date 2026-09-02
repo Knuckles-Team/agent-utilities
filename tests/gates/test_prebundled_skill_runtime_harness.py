@@ -206,10 +206,10 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
         use_marking_authority,
     )
     from agent_utilities.models.company_brain import (
-        ActorType,
         DataClassification,
         NodeACL,
     )
+    from agent_utilities.security.actor_identity import ActorType
 
     sentinel_engine = object()
     sentinel_store = object()
@@ -249,8 +249,8 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
 
 @pytest.mark.asyncio
 async def test_validation_session_is_minted_from_verified_bearer(monkeypatch) -> None:
-    from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security import request_identity
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     seen: list[str] = []
@@ -471,7 +471,7 @@ async def test_mcp_wire_error_is_never_decoded_as_success() -> None:
 
 @pytest.mark.asyncio
 async def test_bounded_sdk_call_preserves_verified_tenant_context() -> None:
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         current_actor,

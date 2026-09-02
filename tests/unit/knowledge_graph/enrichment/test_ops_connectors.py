@@ -51,7 +51,7 @@ def wb_backend(tiny_engine):
         EpistemicGraphBackend,
     )
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     if isinstance(tiny_engine, str):

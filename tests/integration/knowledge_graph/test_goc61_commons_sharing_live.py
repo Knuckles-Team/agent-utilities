@@ -285,7 +285,7 @@ def test_bug030_placement_route_admin_capability_blocks_non_bootstrap_reads(
         current_session,
         use_session,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     _reset_process_engine()
@@ -354,7 +354,7 @@ def test_org_share_revocation_persists_across_a_real_restart(
         SCOPE_PRIVATE,
         make_private,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     _reset_process_engine()
@@ -449,7 +449,7 @@ def test_adopt_a_shared_scope_surfaces_survive_real_restart(
         GraphSession,
         use_session,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     _reset_process_engine()

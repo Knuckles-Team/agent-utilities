@@ -43,7 +43,8 @@ from agent_utilities.mcp.tools.data_prep_tools import (
     register_data_prep_tools,
     register_process_data_prep_runtime,
 )
-from agent_utilities.models.company_brain import ActorType, DataClassification
+from agent_utilities.models.company_brain import DataClassification
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

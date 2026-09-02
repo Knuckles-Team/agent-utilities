@@ -33,7 +33,8 @@ import logging
 import time
 from typing import Any
 
-from ...models.company_brain import ActorType, AssertionType, MergeStrategy
+from ...models.company_brain import AssertionType, MergeStrategy
+from ...security.actor_identity import ActorType
 from ...security.brain_context import current_actor, current_source
 from .base import GraphBackend
 

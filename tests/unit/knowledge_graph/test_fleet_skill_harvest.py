@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.ingestion.fleet_skill_harvest import (
     evaluate_skill_dispatchable,
     promote_harvested_skills,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 

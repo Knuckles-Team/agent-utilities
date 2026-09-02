@@ -11,7 +11,8 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
     reset_company_brain,
 )
 from agent_utilities.knowledge_graph.ontology import permissioning as p
-from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.company_brain import DataClassification, NodeACL
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

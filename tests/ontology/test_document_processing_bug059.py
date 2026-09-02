@@ -89,7 +89,7 @@ def test_persist_sections_requires_a_bound_actor_like_its_sibling_persist():
 
 
 def test_persist_sections_stamps_ownership_when_actor_bound():
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     writer = _FakeBulkWriter()

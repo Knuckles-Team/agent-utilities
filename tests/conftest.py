@@ -951,7 +951,7 @@ def isolate_graph_compute_engine(monkeypatch):
         reset_session,
         set_session,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         reset_actor,
@@ -1436,7 +1436,7 @@ def engine_graph(tiny_engine):
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     # Re-assert the engine wiring per test: ``tiny_engine`` exports

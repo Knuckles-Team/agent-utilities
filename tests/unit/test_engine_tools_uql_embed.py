@@ -21,7 +21,7 @@ import pytest
 from agent_utilities.core import embedding_utilities
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_tools
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # The tests below resolve the REAL, REGISTERED ``engine_query`` MCP tool

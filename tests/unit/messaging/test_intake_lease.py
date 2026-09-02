@@ -12,8 +12,8 @@ from agent_utilities.knowledge_graph.core.session import (
 )
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging import intake_lease
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration.work_item import NativeWorkItemRequired
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

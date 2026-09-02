@@ -91,7 +91,7 @@ def _own_graph_session(graph_name: str):
     )
 
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

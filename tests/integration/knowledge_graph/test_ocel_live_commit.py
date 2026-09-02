@@ -26,7 +26,7 @@ import pytest
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_surface_tools
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 _OCEL_MINE_FIXTURE = {

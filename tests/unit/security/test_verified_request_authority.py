@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import ast
+import subprocess
+import sys
 import time
+from dataclasses import fields
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, CredentialLease
 from agent_utilities.security.request_identity import (
     VerifiedRequestAuthority,
@@ -44,17 +49,29 @@ def test_contract_projects_only_verified_lower_authority() -> None:
 
     assert authority.actor is actor
     assert authority.subject == "subject-a"
-    assert authority.actor_type is ActorType.HUMAN
     assert authority.tenant == "tenant-a"
     assert authority.scopes == frozenset({"kg:read", "kg:write"})
     assert authority.groups == ("engineering",)
     assert authority.audience == "graph-service"
     assert authority.policy_version == "policy-7"
-    assert authority.expires_at == actor.credential_expires_at
+    assert authority.credential_expires_at == actor.credential_expires_at
     assert not hasattr(authority, "graph")
     assert not hasattr(authority, "trace_context")
     assert not hasattr(authority, "placement")
     assert not hasattr(authority, "session")
+
+
+def test_contract_field_set_matches_the_frozen_n2_handoff_exactly() -> None:
+    assert tuple(field.name for field in fields(VerifiedRequestAuthority)) == (
+        "actor",
+        "subject",
+        "tenant",
+        "scopes",
+        "groups",
+        "audience",
+        "policy_version",
+        "credential_expires_at",
+    )
 
 
 def test_generic_admin_never_widens_graph_scope() -> None:
@@ -80,6 +97,12 @@ def test_generic_admin_never_widens_graph_scope() -> None:
         ),
         (
             _actor(credential_expires_at=True),
+            "graph-service",
+            "policy-7",
+            "bounded expiry",
+        ),
+        (
+            _actor(credential_expires_at=1 << 63),
             "graph-service",
             "policy-7",
             "bounded expiry",
@@ -122,7 +145,7 @@ def test_contract_requires_fresh_projection_after_lease_renewal() -> None:
         authority.ensure_current()
     renewed = _authority(actor)
     renewed.ensure_current()
-    assert renewed.expires_at == lease.expires_at
+    assert renewed.credential_expires_at == lease.expires_at
 
 
 def test_authorities_for_two_tenants_remain_distinct() -> None:
@@ -132,3 +155,52 @@ def test_authorities_for_two_tenants_remain_distinct() -> None:
     assert tenant_a != tenant_b
     assert tenant_a.tenant == "tenant-a"
     assert tenant_b.tenant == "tenant-b"
+
+
+def test_request_authority_import_loads_no_models_or_kg_packages() -> None:
+    code = """
+import sys
+from agent_utilities.security.request_identity import VerifiedRequestAuthority
+bad = sorted(
+    name for name in sys.modules
+    if name == "agent_utilities.models"
+    or name.startswith("agent_utilities.knowledge_graph")
+)
+if bad:
+    raise SystemExit("unexpected import fanout: " + ",".join(bad))
+"""
+    completed = subprocess.run(  # noqa: S603 - fixed interpreter and source
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def _imports_legacy_actor_type(path: Path) -> bool:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and (node.module or "").endswith("models.company_brain")
+        and any(alias.name == "ActorType" for alias in node.names)
+        for node in ast.walk(tree)
+    )
+
+
+def _legacy_actor_type_imports(root: Path) -> list[str]:
+    paths = (
+        path
+        for search_root in (root / "agent_utilities", root / "tests")
+        for path in search_root.rglob("*.py")
+    )
+    return [
+        str(path.relative_to(root))
+        for path in paths
+        if _imports_legacy_actor_type(path)
+    ]
+
+
+def test_repository_has_no_company_brain_actor_type_compatibility_imports() -> None:
+    root = Path(__file__).resolve().parents[3]
+    assert _legacy_actor_type_imports(root) == []

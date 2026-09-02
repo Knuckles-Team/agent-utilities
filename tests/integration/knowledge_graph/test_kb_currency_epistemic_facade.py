@@ -232,7 +232,7 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         set_session,
     )
     from agent_utilities.knowledge_graph.facade import KnowledgeGraph
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     claim_id = f"claim-{uuid.uuid4().hex[:8]}"

@@ -23,10 +23,10 @@ from agent_utilities.knowledge_graph.core.session import (
     current_session,
     use_session,
 )
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration import agent_activation as aa
 from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security import delegation as _delegation
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 # Reuse the canonical, faithful WorkItem + statechart doubles (native lease/fencing

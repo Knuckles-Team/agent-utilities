@@ -39,7 +39,8 @@ from agent_utilities.knowledge_graph.ontology.derived_properties import (
     DerivedProperty,
     DerivedPropertyEngine,
 )
-from agent_utilities.models.company_brain import ActorType, DataClassification
+from agent_utilities.models.company_brain import DataClassification
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 pytestmark = pytest.mark.concept("AU-P0-5")

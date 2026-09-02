@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
     get_company_brain,
     reset_company_brain,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import (
     ActorContext,
     use_actor,
