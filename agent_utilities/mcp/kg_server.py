@@ -1223,6 +1223,7 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
 # stays in lockstep with REGISTERED_TOOLS so the two surfaces never drift.
 ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_query": "/graph/query",
+    "tabular_query": "/query/tabular",
     "graph_ask": "/graph/ask",
     "graph_table": "/graph/table",
     "graph_search": "/graph/search",
@@ -1402,7 +1403,7 @@ _GRAPH_QUERY_TOOL_FIELDS = frozenset(
     {
         "as_of",
         "connection",
-        "cypher",
+        "query",
         "graph",
         "include_epistemic",
         "params",
@@ -1413,24 +1414,14 @@ _GRAPH_QUERY_TOOL_FIELDS = frozenset(
 
 
 @contextlib.contextmanager
-def _rest_trino_delegated_identity(request: Request, kwargs: dict[str, Any]):
-    """Bridge one already-verified REST bearer into the delegation port.
+def _rest_tabular_delegated_identity(request: Request):
+    """Bridge one already-verified REST bearer into the tabular delegation port.
 
     The gateway's outer ``ActorIdentityMiddleware`` validates the bearer and
-    binds its actor before this route runs. Only the explicit Trino SQL route
-    needs the raw credential for RFC 8693 exchange; all other REST calls remain
-    untouched. Duplicate/malformed headers fail through the canonical parser,
-    and ContextVars are always reset after dispatch.
+    binds its actor before this route runs. Duplicate/malformed headers fail
+    through the canonical parser, and ContextVars are always reset after
+    dispatch.
     """
-
-    is_trino = (
-        kwargs.get("scope") == "sql"
-        and isinstance(kwargs.get("connection"), str)
-        and kwargs["connection"].strip().lower() == "trino"
-    )
-    if not is_trino:
-        yield
-        return
 
     from agent_utilities.mcp.delegated_auth import (
         _reset_delegated_identity,
@@ -1459,37 +1450,7 @@ def _rest_trino_delegated_identity(request: Request, kwargs: dict[str, Any]):
 
 
 async def graph_query_endpoint(request: Request) -> JSONResponse:
-    """REST twin of the ``graph_query`` MCP tool.
-
-    LANE 9 fix: the tool's real parameter is ``cypher`` (see
-    ``_GRAPH_QUERY_TOOL_FIELDS`` / the ``graph_query`` tool signature), but a
-    plausible, naturally-expected wire name for "the query string" is
-    ``query`` — and that name is not a caller mistake in this codebase: it is
-    the genuine field name of the *different*, already-correct
-    ``POST /api/graph/execute_cypher`` route (agent-webui's
-    ``execute_cypher``, whose target ``QueryMixin.query_cypher`` really does
-    take a ``query`` kwarg — see
-    ``agent_utilities/knowledge_graph/orchestration/engine_query.py``), which
-    ``CypherReplView.tsx``/``TemporalGraphView.tsx``/``GraphView.tsx`` all
-    call. To stay compatible with a client that assumes wire-name parity
-    across these two Cypher-shaped routes, ``query`` is accepted here as an
-    alias for ``cypher`` — mapping at this boundary, rather than renaming the
-    tool's own ``cypher`` parameter (which every existing internal caller of
-    the ``graph_query`` MCP tool relies on) or forcing every REST client onto
-    one spelling.
-
-    Precedence when both are supplied: identical values collapse to one
-    (no ambiguity); different values are a client error returned as a
-    deterministic 4xx rather than silently preferring either field.
-
-    This endpoint does not forward the raw request body into
-    ``_execute_tool`` — only ``_GRAPH_QUERY_TOOL_FIELDS`` (plus the ``query``
-    alias) are ever passed through, so a genuinely unknown field fails fast
-    as a clean 4xx here instead of reaching the tool dispatch (and, on a
-    build predating the ``_execute_tool``-internal
-    ``_validate_tool_kwargs_against_signature`` guard, the authority/session
-    bootstrap that precedes it) only to 500 later.
-    """
+    """REST twin of the ``graph_query`` MCP tool's canonical ``query`` field."""
     try:
         body = await request.json()
     except Exception:
@@ -1507,8 +1468,7 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
     kwargs = result
 
     try:
-        with _rest_trino_delegated_identity(request, kwargs):
-            res = await _execute_tool("graph_query", **kwargs)
+        res = await _execute_tool("graph_query", **kwargs)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except UnsupportedToolFieldError as e:
         # Defense-in-depth: `_GRAPH_QUERY_TOOL_FIELDS` is kept in sync with
@@ -1523,28 +1483,8 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
 def _graph_query_request_kwargs(
     body: dict[str, Any],
 ) -> dict[str, Any] | tuple[dict[str, Any], int]:
-    """Validate + normalize a ``graph_query`` REST body into tool kwargs.
-
-    Handles the ``query``/``cypher`` aliasing documented on
-    :func:`graph_query_endpoint`. Returns ``kwargs`` (a dict) on success, or
-    ``(payload, status_code)`` for a 4xx the caller should return verbatim.
-    The two are distinguished by the caller with ``isinstance(result, dict)``.
-    """
-    query_val = body.get("query")
-    cypher_val = body.get("cypher")
-    if query_val is not None and cypher_val is not None and query_val != cypher_val:
-        return (
-            {
-                "status": "error",
-                "message": (
-                    "both 'query' and 'cypher' were supplied with different "
-                    "values; send exactly one (or identical values in both)."
-                ),
-            },
-            400,
-        )
-
-    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
+    """Validate a ``graph_query`` REST body into canonical tool kwargs."""
+    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS)
     if unknown:
         return (
             {
@@ -1554,10 +1494,25 @@ def _graph_query_request_kwargs(
             400,
         )
 
-    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
-    if "cypher" not in kwargs and query_val is not None:
-        kwargs["cypher"] = query_val
-    return kwargs
+    return {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
+
+
+async def tabular_query_endpoint(request: Request) -> JSONResponse:
+    """REST twin of the dedicated ``tabular_query`` MCP operation."""
+
+    body = _strict_json_object(
+        await _read_json_body(request), allowed_fields=frozenset({"sql"})
+    )
+    if isinstance(body, JSONResponse):
+        return body
+    try:
+        with _rest_tabular_delegated_identity(request):
+            result = await _execute_tool("tabular_query", **body)
+        return JSONResponse({"status": "success", "result": safe_json_load(result)})
+    except UnsupportedToolFieldError as exc:
+        return _external_error_response(exc, status_code=400, code="invalid_request")
+    except Exception as exc:
+        return _external_error_response(exc)
 
 
 async def graph_search_endpoint(request: Request) -> JSONResponse:
@@ -1577,7 +1532,7 @@ async def graph_search_endpoint(request: Request) -> JSONResponse:
         # (`query`, `mode`, `top_k`, ...) already match its documented tool
         # parameters 1:1 — see `graph_search`'s signature in
         # `agent_utilities/mcp/tools/query_tools.py` — so unlike
-        # `graph_query`/`cypher` there is no latent name mismatch here; only
+        # the canonical `graph_query` field there is no latent mismatch; only
         # the missing status-code mapping needed fixing.
         return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
@@ -1677,6 +1632,28 @@ async def _read_json_body(request: Request) -> Any:
         return await request.json()
     except Exception:
         return {}
+
+
+def _strict_json_object(
+    body: Any, *, allowed_fields: frozenset[str]
+) -> dict[str, Any] | JSONResponse:
+    """Return an exact-field JSON object or its deterministic REST error."""
+
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"status": "error", "message": "request body must be a JSON object"},
+            status_code=400,
+        )
+    unknown = sorted(set(body) - allowed_fields)
+    if unknown:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": f"Unsupported field(s): {', '.join(unknown)}.",
+            },
+            status_code=400,
+        )
+    return body
 
 
 async def _run_json_endpoint(
@@ -1921,14 +1898,16 @@ def _to_json_str(val: Any) -> str:
 
 # 1. Granular Graph Query endpoints
 async def graph_query_federated_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    body = _strict_json_object(
+        await _read_json_body(request),
+        allowed_fields=frozenset({"query", "params", "reference_id"}),
+    )
+    if isinstance(body, JSONResponse):
+        return body
     try:
         res = await _execute_tool(
             "graph_query",
-            cypher=body.get("cypher", ""),
+            query=body.get("query", ""),
             params=_to_json_str(body.get("params", {})),
             scope="federated",
             reference_id=body.get("reference_id", ""),
@@ -5861,6 +5840,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
 
     # ── Bilateral graph execution (action-routed) ──
     route("/graph/query", graph_query_endpoint, ["POST"])
+    route("/query/tabular", tabular_query_endpoint, ["POST"])
     route("/graph/search", graph_search_endpoint, ["POST"])
     # Collapsed, typed graph_write dispatch (CONSOLIDATION: see the
     # `GraphWriteAction` discriminated union above graph_write_endpoint's
@@ -6096,6 +6076,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     # by the generic factory so the REST surface reaches everything MCP can.
     _bespoke_action_tools = {
         "graph_query",
+        "tabular_query",
         "graph_search",
         "graph_write",
         "graph_ingest",
@@ -6258,8 +6239,21 @@ def _preflight_mcp_sdk_floor() -> None:
     raise RuntimeError(message)
 
 
-async def _write_refreshed_fleet_catalog(catalog, configs, bindings):
-    """Bridge the served GraphOS mux into source-sync's canonical writer."""
+async def _write_refreshed_fleet_catalog(
+    catalog,
+    configs,
+    bindings,
+    *,
+    catalog_generation: int | None = None,
+    snapshot_digest: str | None = None,
+):
+    """Bridge the served GraphOS mux into source-sync's canonical writer.
+
+    Forwards the candidate's exact ``catalog_generation``/``snapshot_digest``
+    through unchanged so the returned receipt acknowledges precisely the
+    generation this call ingested (multiplexer._write_catalog_candidate
+    verifies the echo before treating reingestion as reconciled).
+    """
     from agent_utilities.knowledge_graph.core.source_sync import (
         write_fleet_catalog_snapshot,
     )
@@ -6270,6 +6264,8 @@ async def _write_refreshed_fleet_catalog(catalog, configs, bindings):
         catalog,
         configs=configs,
         discovery_bindings=bindings,
+        catalog_generation=catalog_generation,
+        snapshot_digest=snapshot_digest,
     )
 
 

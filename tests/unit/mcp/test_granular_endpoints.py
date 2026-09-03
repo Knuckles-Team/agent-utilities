@@ -275,10 +275,10 @@ async def test_base_endpoints(mock_execute_tool, client):
     mock_execute_tool.return_value = {"status": "mocked_success"}
 
     # 1. POST /graph/query
-    res = client.post("/graph/query", json={"cypher": "MATCH (n) RETURN n"})
+    res = client.post("/graph/query", json={"query": "MATCH (n) RETURN n"})
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "mocked_success"}}
-    mock_execute_tool.assert_called_with("graph_query", cypher="MATCH (n) RETURN n")
+    mock_execute_tool.assert_called_with("graph_query", query="MATCH (n) RETURN n")
 
     # 2. POST /graph/search
     res = client.post("/graph/search", json={"query": "test query"})
@@ -296,21 +296,29 @@ async def test_granular_query_endpoints(mock_execute_tool, client):
     res = client.post(
         "/graph/query/federated",
         json={
-            "cypher": "MATCH (n) RETURN n",
+            "query": "MATCH (n) RETURN n",
             "params": {"id": 123},
             "reference_id": "ref-456",
-            "scope": "federated",
         },
     )
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "mocked_success"}}
     mock_execute_tool.assert_called_with(
         "graph_query",
-        cypher="MATCH (n) RETURN n",
+        query="MATCH (n) RETURN n",
         params='{"id": 123}',
         reference_id="ref-456",
         scope="federated",
     )
+
+    mock_execute_tool.reset_mock()
+    rejected = client.post(
+        "/graph/query/federated",
+        json={"query": "MATCH (n) RETURN n", "cypher": "retired"},
+    )
+    assert rejected.status_code == 400
+    assert "cypher" in rejected.json()["message"]
+    mock_execute_tool.assert_not_called()
 
 
 @pytest.mark.asyncio

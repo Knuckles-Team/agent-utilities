@@ -24,7 +24,7 @@ class _FakeControlEngine:
     """Minimal WorkItem control authority: enough for `submit_work_item`'s
     create path (no pre-existing item, no dependencies), AND for
     `ensure_ingest_task_work_item`'s post-submit durable admission readback
-    (U-24, `agent_utilities.orchestration.work_item.get_work_item`), which
+    (U-24, `agent_utilities.knowledge_graph.core.work_durability.get_work_item`), which
     re-queries by id and raises `WorkItemBackendUnavailable` if the row isn't
     found. Before the node exists this still answers "not found" (so the
     pre-create idempotency probe in `_submit_work_item` behaves correctly);

@@ -170,7 +170,7 @@
     rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp a
     WorkItem's gated consent was granted. Absent (no triple) is the ABSENT consent
     state, DISTINCT from a granted consent past consentExpiresAt (LAPSED) — the
-    claim/renewal gate (orchestration.work_item) denies both but reports them as
+    claim/renewal gate (knowledge_graph.core.work_durability) denies both but reports them as
     different states.""" ;
     rdfs:domain :WorkItem ;
     rdfs:range xsd:double .

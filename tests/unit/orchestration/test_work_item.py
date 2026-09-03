@@ -10,7 +10,7 @@ against two fake engine doubles:
 * :class:`NativeEngine` — the strict, engine-native surface (``claim_work_item``/
   ``renew_work_item_lease``/``commit_work_item_result``/``cancel_work_item``/
   ``defer_work_item``); an engine build lacking these verbs raises
-  :class:`~agent_utilities.orchestration.work_item.NativeWorkItemRequired` rather
+  :class:`~agent_utilities.knowledge_graph.core.work_durability.NativeWorkItemRequired` rather
   than silently falling back.
 * :class:`CasEngine` — a dict-backed double with a real atomic
   ``compare_and_set_node_fields`` (mirroring the ``_ClaimHarness``/fake-CAS
@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.orchestration import work_item as wi
+from agent_utilities.knowledge_graph.core import work_durability as wi
 
 
 class FakeStatechartClient:
@@ -942,7 +942,7 @@ def test_reaper_has_no_python_transition_writer(engine: NativeEngine) -> None:
 class CasEngine:
     """Minimal engine double: add_node/link_nodes/query_cypher/CAS over an
     in-memory node store, with just enough Cypher pattern recognition to
-    answer the exact queries ``work_item.py`` issues."""
+    answer the exact queries ``work_durability.py`` issues."""
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
@@ -990,7 +990,7 @@ class CasEngine:
 
     # -- engine-native WorkItem verbs (AU-P1-1) --------------------------
     #
-    # ``work_item.py``'s claim/renew/commit/cancel/defer primitives now
+    # ``work_durability.py``'s claim/renew/commit/cancel/defer primitives now
     # dispatch exclusively through these five generated verbs (mirroring
     # ``graph_compute.py``'s real ``self._client.work_items.*`` bridge) —
     # there is no Python-side CAS-scan fallback left in production. This
@@ -1545,7 +1545,7 @@ def test_mark_running_and_heartbeat_extend_the_lease(cas_engine: CasEngine) -> N
     # ``mark_running`` only VALIDATES that the claim came from the native
     # ClaimWorkItem transaction (AU-P1-1) — it never writes a separate
     # "running" status; the engine-native lease already IS the running
-    # ownership decision (see ``work_item.mark_running``'s docstring).
+    # ownership decision (see ``work_durability.mark_running``'s docstring).
     assert item["status"] == "leased"
 
     assert wi.heartbeat(cas_engine, item_id, claim, now=1030.0, lease_ttl_s=60.0)

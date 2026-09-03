@@ -1,9 +1,9 @@
 # Design Document: WorkItem Consent + Expiry Gate (D-25-3)
 
 > `WorkItemNode` (AU-P1-1) is bound only to a tenant today — no representation of
-> what a subject consented to, or when that consent lapses. This adds an opt-in
-> consent/expiry state to `WorkItemNode` and enforces it on the live
-> claim/renew path (`orchestration.work_item`), not just as a declared field.
+> what a subject consented to, or when that consent lapses. This adds an explicit
+> consent/expiry state to `WorkItemNode` and enforces it on the live claim/renew
+> path (`knowledge_graph.core.work_durability`), not just as a declared field.
 
 ## Research Provenance
 
@@ -17,7 +17,7 @@ concept — no `open-source-libraries/` provenance row applies.
 | Concept ID | Name | Similarity | Pillar |
 |---|---|---|---|
 | Gap-6 `AgentCapabilityGrantNode` | per-agent capability grant with `issuer`/`granted_at`/`expires_at`/`revoked` + `is_active()` | 0.58 | ORCH |
-| `AU-OS.identity.per-agent-on-behalf-delegation` | delegated-credential bounded-time revocation gate (`_delegation_still_live`, `work_item.py`) | 0.55 | OS |
+| `AU-OS.identity.per-agent-on-behalf-delegation` | delegated-credential bounded-time revocation gate (`_delegation_still_live`, `work_durability.py`) | 0.55 | OS |
 | `ontology_medical.ttl` `:ConsentRecord` | patient consent with `consentScope`/`consentValidUntil`, HL7 FHIR-aligned | 0.40 | KG (medical domain) |
 
 Highest similarity (~0.58) is below the 0.70 extend-threshold, and none of the three
@@ -32,8 +32,8 @@ rather than inventing a new enforcement idiom.
 ### Extension Analysis
 
 - **Primary Extension Point**: `agent_utilities.models.knowledge_graph.WorkItemNode`
-  (fields) + `agent_utilities.orchestration.work_item` (`claim_specific`/
-  `claim_next`/`heartbeat`, the sole claim/renew choke points per the module's own
+  (fields) + `agent_utilities.knowledge_graph.core.work_durability` (`claim_specific`/
+  `claim_next`/`heartbeat`, the canonical native claim/renew choke points per the module's own
   "two claiming entry points" contract).
 - **Extension Strategy**: augment — six new fields on `WorkItemNode`
   (`consent_required`, `consent_scope`, `consent_subject`, `consent_basis`,
@@ -62,7 +62,7 @@ C4Context
     title WorkItem Consent + Expiry Gate — Integration Context
     System_Boundary(b1, "agent-utilities Core") {
         System(workitem, "WorkItemNode", "tenant + NEW consent_*/expiry fields")
-        System(claim, "orchestration.work_item claim_specific/claim_next/heartbeat", "sole claim/renew authority")
+        System(claim, "knowledge_graph.core.work_durability claim_specific/claim_next/heartbeat", "canonical native claim/renew path")
         System(gate, "_consent_still_live", "absent/lapsed/active/not_required classifier")
         System(bus, "messaging.bus_inbox", "materializes WorkItem only (no claim/transition)")
     }
@@ -74,7 +74,8 @@ C4Context
 ## Data Flow
 
 1. **ORCH**: `submit_work_item`/`bus_inbox.commit_message_to_work_item` populate the
-   consent fields at intake (opt-in, default `consent_required=False`);
+   current-schema consent fields at intake (`consent_required=False` means
+   consent is not applicable to that item);
    `claim_specific`/`claim_next`/`heartbeat` evaluate `_consent_still_live` before
    the native engine call.
 2. **KG**: `WorkItem` OWL class gains six datatype properties
@@ -90,20 +91,21 @@ C4Context
 ## Risk Assessment
 
 - **Blast Radius**: `agent_utilities/models/knowledge_graph.py` (fields),
-  `agent_utilities/orchestration/work_item.py` (gate + 3 call sites),
+  `agent_utilities/knowledge_graph/core/work_durability.py` (gate + 3 call sites),
   `agent_utilities/messaging/bus_inbox.py` (intake population only — the
   native-work-item-boundary gate forbids it from claiming/transitioning),
   `ontology_orchestration.ttl`, `governance.shapes.ttl`.
-- **Backward Compatible**: Yes — `consent_required` defaults `False`; every
-  pre-existing `WorkItemNode` deserializes as `not_required` (gate never
-  engages) rather than silently `active` or silently `absent`-denied. See
-  `WorkItemNode`'s docstring for the full migration trade-off (blanket-consented
-  is a silent privacy regression for unknown legacy subject-bound items;
-  blanket-unconsented halts the entire live backlog; "not applicable" changes
-  nothing for existing traffic and is the deliberate choice here). Retroactively
-  classifying which legacy items ARE subject-bound is an operator/data-audit
-  decision this change does not make.
-- **Breaking Changes**: None — opt-in only.
+- **Current-only contract**: `consent_required=False` means consent is not
+  applicable; `True` requires a valid current-schema consent record. There is
+  no alternate field vocabulary, permissive reader, or dual evaluation path.
+- **Cutover requirement**: persisted items whose consent applicability is
+  unknown require an operator data audit before enforcement. This design does
+  not infer consent, translate another schema, or silently classify unknown
+  subject-bound work.
+- **Convergence blocker**: native WorkItem claim/renew is canonical, but active
+  `:AgentTask.status` mirrors and the `:TaskNode` bridge prevent a claim of fully
+  converged writable lifecycle authority. Their atomic deletion is a separate
+  required change guarded against further expansion by the boundary scanner.
 
 ## Wiring (Wire-First, ≤3 hops)
 
@@ -123,7 +125,8 @@ C4Context
 `test_claim_specific_denies_on_malformed_consent_record` (fail-closed),
 `test_claim_next_releases_a_consent_denied_item_instead_of_returning_it`,
 `test_heartbeat_denies_once_a_running_item_s_consent_lapses`,
-`test_ordinary_work_item_is_unaffected_by_the_consent_gate` (migration no-op proof).
+`test_ordinary_work_item_is_unaffected_by_the_consent_gate` (current
+not-required behavior proof).
 `tests/unit/knowledge_graph/test_agent_os_objects.py`:
 `test_work_item_consent_defaults_are_not_required_absent_fields`,
 round-trip coverage in `test_work_item_round_trip_carries_fencing_and_dependencies`.

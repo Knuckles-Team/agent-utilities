@@ -12,7 +12,7 @@ Two things this file proves:
    IMMEDIATELY (before the next step starts, never mid-step) and, on resume,
    continues from its checkpointed memento exactly once with no duplicate
    writes — reusing the EXISTING ``run_loop``/``WorkItem`` checkpoint/lease
-   machinery (``orchestration/work_item.py``), proven here specifically for
+   machinery (``knowledge_graph/core/work_durability.py``), proven here specifically for
    iterations that record :class:`~agent_utilities.knowledge_graph.research.
    evidence.Evidence` (lane 7.1), so a resumed run never double-records the
    evidence an already-committed iteration produced.
@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 
 from agent_utilities.core.resource_priority import PriorityClass, current_priority
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.research.evidence import (
     Evidence,
     EvidenceChannel,
@@ -31,7 +32,6 @@ from agent_utilities.knowledge_graph.research.evidence import (
 )
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 from agent_utilities.knowledge_graph.research.loops import claim_loop, submit_loop
-from agent_utilities.orchestration import work_item as wi
 from tests.unit.knowledge_graph.test_loops import LoopEngine, _authority
 
 

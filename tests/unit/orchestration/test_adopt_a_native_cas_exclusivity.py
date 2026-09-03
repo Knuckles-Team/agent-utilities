@@ -2,9 +2,9 @@
 
 BUG-111's fix replaced checkpoint/input/priority scheduling-metadata CAS with
 the engine-native ``CasWorkItemMetadata`` RPC
-(:func:`agent_utilities.orchestration.work_item._cas_work_item_metadata`),
+(:func:`agent_utilities.knowledge_graph.core.work_durability._cas_work_item_metadata`),
 because the OLD generic path
-(:func:`agent_utilities.orchestration.work_item._cas`, which calls the
+(:func:`agent_utilities.knowledge_graph.core.work_durability._cas`, which calls the
 engine's generic ``compare_and_set_node_fields``) is unconditionally refused
 by epistemic-graph's native-WorkItem-authority guard
 (``work_item_capability::validate_generic_method``, RMDD-29) the moment the
@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import pytest
 
-import agent_utilities.orchestration.work_item as wi
+import agent_utilities.knowledge_graph.core.work_durability as wi
 from tests.unit.orchestration.test_work_item import NativeEngine
 
 _METADATA_CAS_FIELDS = {"checkpoint_id", "metadata", "prio_bucket"}

@@ -105,7 +105,7 @@ token = jwt.encode(
 resp = httpx.post(
     "http://localhost:9000/api/graph/query",
     headers={"Authorization": f"Bearer {token}"},
-    json={"cypher": "MATCH (n) RETURN count(n) AS c"},
+    json={"query": "MATCH (n) RETURN count(n) AS c"},
     timeout=30,
 )
 print(resp.status_code, resp.json())
@@ -137,7 +137,7 @@ TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlbW8ta2V5LTEi..."  # from your IdP  # sani
 curl -s http://localhost:9000/api/graph/query \
   -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"cypher": "MATCH (n) RETURN count(n) AS c"}'
+  -d '{"query": "MATCH (n) RETURN count(n) AS c"}'
 ```
 
 ## 4. Failure modes

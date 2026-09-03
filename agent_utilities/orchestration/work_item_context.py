@@ -6,8 +6,9 @@ from __future__ import annotations
 BUG-064: 45,478 of 47,465 live nodes were stamped ``_visibility='public'`` by a
 raw Cypher payload (``MATCH (n) WHERE n._visibility IS NULL SET n._visibility
 = 'public'``) that reached ``lifecycle.batch_update`` — almost certainly via a
-queued :class:`~agent_utilities.orchestration.work_item.WorkItem`'s claimed,
-pluggable ``executor(...)`` body. Three separate investigations (``git log
+queued WorkItem claimed through
+:mod:`agent_utilities.knowledge_graph.core.work_durability`, with a pluggable
+``executor(...)`` body. Three separate investigations (``git log
 -S``/``-G`` across both repos, all branches) found nothing, because nothing
 was ever committed: the caller/session identity that triggered the mutation
 was never recorded at any layer.

@@ -99,7 +99,7 @@ def test_graph_query_wires_typed_evidence_bundle_from_engine_wire(
     out = asyncio.run(
         kg_server._execute_tool(
             "graph_query",
-            cypher="MATCH (a:Agent) RETURN a",
+            query="MATCH (a:Agent) RETURN a",
         )
     ).model_dump()
 
@@ -145,7 +145,7 @@ def test_graph_query_degrades_cleanly_with_no_compute_surface(
     out = asyncio.run(
         kg_server._execute_tool(
             "graph_query",
-            cypher="MATCH (a:Agent) RETURN a",
+            query="MATCH (a:Agent) RETURN a",
         )
     ).model_dump()
     assert out["reasoning_trace"][-1]["payload"]["rows"] == _ROWS
@@ -183,7 +183,7 @@ def test_graph_query_failure_carries_a_populated_error_field_never_fabricated_su
     )
 
     bundle = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+        kg_server._execute_tool("graph_query", query="MATCH (a:Agent) RETURN a")
     )
     out = bundle.model_dump()
 

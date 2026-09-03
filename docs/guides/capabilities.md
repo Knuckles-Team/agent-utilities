@@ -10,9 +10,9 @@ The `capabilities/` module provides self-healing and resilience patterns that th
 
 ### Checkpointing (`capabilities/checkpointing.py`)
 
-Captures full conversation snapshots (`Checkpoint`) at tool and turn boundaries, enabling cross-process session fork, rewind, and resumability. **(HSM Concept: State Snapshot)**
+Captures full conversation snapshots (`Checkpoint`) at tool and turn boundaries for durable execution evidence and explicit state restoration. **(HSM Concept: State Snapshot)**
 
-Checkpoints are written through a pluggable `CheckpointStore` (`InMemoryCheckpointStore`, `FileCheckpointStore`, or `GraphCheckpointStore` for KG persistence) and wired into the agent run loop by `CheckpointMiddleware` / `CheckpointToolset`.
+Checkpoints are written through a pluggable `CheckpointStore` (`InMemoryCheckpointStore`, `FileCheckpointStore`, or `GraphCheckpointStore` for KG persistence) and wired into the agent run loop by `CheckpointMiddleware`.
 `GraphCheckpointStore` writes through the graph engine's typed `add_node` and
 `add_edge` seams. They materialize the canonical `node_type=checkpoint` and
 `relationship=SNAPSHOT_OF` properties, persist the configured backend first, and

@@ -140,7 +140,7 @@ host port (`8200+`) so they coexist on one machine. Front them with Caddy
 ```bash
 curl -s -X POST localhost:9000/api/graph/query \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"cypher":"MATCH (n) RETURN count(n) AS n"}'
+  -d '{"query":"MATCH (n) RETURN count(n) AS n"}'
 # Restart the gateway — KG state persists in the engine's own durable volume
 # (and any optional Postgres mirror); sessions/goals persist if STATE_DB_URI set.
 # Without a Bearer token the same call returns 401.

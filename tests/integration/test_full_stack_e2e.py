@@ -59,7 +59,7 @@ async def test_query_path_dispatches():
     kg_server.ensure_tools_registered()
     # The read path must dispatch through the shared tool layer without error.
     out = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n LIMIT 1"
+        "graph_query", query="MATCH (n) RETURN n LIMIT 1"
     )
     assert out is not None
 

@@ -1,7 +1,7 @@
-"""AU acceptance A: the public WorkItem facade reaches native durable verbs.
+"""AU acceptance A: the core WorkItem boundary reaches native durable verbs.
 
 This is intentionally a real-engine test.  The unit doubles in
-``tests/unit/orchestration/test_work_item.py`` prove the Python routing and
+``tests/unit/orchestration/test_work_item.py`` proves the Python routing and
 fencing branches, while this harness proves that the same one-tenant flow is
 actually accepted by the installed epistemic-graph server and survives its
 native claim/lease authority.  A missing native metadata CAS verb is a hard
@@ -20,8 +20,8 @@ from _test_engine import TEST_TENANT
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.orchestration import work_item as wi
 
 pytestmark = [pytest.mark.integration, pytest.mark.engine, pytest.mark.timeout(180)]
 
@@ -30,7 +30,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.engine, pytest.mark.timeout(1
 def native_work_item_engine(engine_graph: Any):
     """Bind AU's high-level engine to the real engine fixture's graph.
 
-    ``work_item._authority`` resolves this engine's one control-plane view,
+    ``work_durability._authority`` resolves this engine's one control-plane view,
     which is the production path used by task/organization callers.  It keeps
     the test on the native WorkItem authority instead of bypassing it with the
     content graph's generic CRUD helpers.
@@ -223,6 +223,21 @@ def test_native_work_item_expiry_reclaim_old_fence_and_commit_readback(
         now=2000.0,
         ttl=5.0,
     )
+
+    # Replace the AU host object while leaving epistemic-graph running.  A
+    # successful read/reclaim through this fresh composition proves that no
+    # process-local orchestration queue or lease mirror is required after an
+    # AU worker restart.
+    IntelligenceGraphEngine.set_active(None)
+    engine = IntelligenceGraphEngine(
+        backend=EpistemicGraphBackend(
+            graph_name=native_work_item_engine.backend.graph_name
+        ),
+        defer_background_start=True,
+    )
+    persisted = wi.get_work_item(engine, expiring_id)
+    assert persisted is not None
+    assert persisted["lease_epoch"] == old_claim["lease_epoch"]
     new_claim = _claim(
         engine,
         expiring_id,

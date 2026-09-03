@@ -71,7 +71,7 @@ async def test_unknown_target_is_reported_via_registry():
     kg_server.ensure_tools_registered()
     bundle = await kg_server._execute_tool(
         "graph_query",
-        cypher="MATCH (n) RETURN n AS n",
+        query="MATCH (n) RETURN n AS n",
         connection="does-not-exist",
     )
     payload = bundle.claims[0]
@@ -91,7 +91,7 @@ async def test_fanout_returns_labeled_per_connection_results():
     kg_server.ensure_tools_registered()
     bundle = await kg_server._execute_tool(
         "graph_query",
-        cypher="MATCH (n) RETURN n AS n",
+        query="MATCH (n) RETURN n AS n",
         connection="all",
     )
     payload = bundle.claims[0]

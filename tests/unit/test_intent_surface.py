@@ -1189,7 +1189,7 @@ def test_engine_placement_resolves_under_manage_without_failing_closed():
     assert "engine_placement" in {c.tool for c in candidates}
 
 
-def test_query_workflow_skill_documents_the_registered_cypher_argument():
+def test_query_workflow_skill_documents_the_registered_query_argument():
     """The consolidated query workflow remains the operator-facing guide for
     ``graph_query`` and explicitly claims the verb in its sidecar."""
     from pathlib import Path
@@ -1203,10 +1203,10 @@ def test_query_workflow_skill_documents_the_registered_cypher_argument():
     text = (skill_path / "SKILL.md").read_text(encoding="utf-8")
     sidecar = (skill_path / "agents" / "graph-os.yaml").read_text(encoding="utf-8")
     parameters = inspect.signature(kg_server.REGISTERED_TOOLS["graph_query"]).parameters
-    assert "cypher" in parameters
-    assert "query" not in parameters
-    assert 'graph_query(cypher="' in text
-    assert "graph_query(query=" not in text
+    assert "query" in parameters
+    assert "cypher" not in parameters
+    assert 'graph_query(query="' in text
+    assert "graph_query(cypher=" not in text
     assert "graph_query" in sidecar
 
 
@@ -1237,7 +1237,7 @@ def test_resolver_ranks_against_the_generated_cpd_when_available():
 async def test_dispatch_reports_cpd_capability_source_for_a_cpd_backed_tool(
     monkeypatch,
 ):
-    async def fake_graph_query(cypher: str = "", **_kw) -> str:
+    async def fake_graph_query(query: str = "", **_kw) -> str:
         return json.dumps({"rows": []})
 
     monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_query", fake_graph_query)

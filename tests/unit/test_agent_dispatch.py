@@ -14,8 +14,8 @@ import pytest
 import yaml
 
 from agent_utilities.core import sessions as _sessions
+from agent_utilities.knowledge_graph.core import work_durability as _wi
 from agent_utilities.orchestration import agent_dispatch
-from agent_utilities.orchestration import work_item as _wi
 from agent_utilities.orchestration.agent_dispatch import (
     AGENT_TURNS_TOPIC,
     KIND_GOAL_LOOP,
@@ -312,7 +312,7 @@ class _FakeOrchEngine:
     ``renew_work_item_lease``/``commit_work_item_result``) that
     ``claim_specific``/``mark_running``/``commit_result`` require
     unconditionally post-AU-P1-1 (No-Legacy: no scan/CAS fallback -- see
-    ``work_item.py``'s module docstring). Mirrors
+    ``work_durability.py``'s module docstring). Mirrors
     ``tests/unit/orchestration/test_work_item.py``'s ``NativeEngine`` (exact-id
     claim only; this file never exercises ``claim_next``'s queue scan).
     """
@@ -556,7 +556,7 @@ def test_session_execution_guard_distinct_sessions_run_concurrently():
 # enqueue_agent_turn -> submit_work_item; execute_agent_turn -> claim_specific
 # / mark_running / commit_result; run_goal_loop -> LoopController.run_loop --
 # against the engine-native WorkItem state machine (AU-P1-1, No-Legacy: no
-# scan/CAS fallback, see work_item.py's module docstring). There is no fake
+# scan/CAS fallback, see work_durability.py's module docstring). There is no fake
 # shim that stays honest against that contract (claim/lease/statechart
 # semantics live in the engine), so -- mirroring
 # tests/unit/test_goal_loop_durable.py's ``loop_env`` fixture -- these are
@@ -569,7 +569,7 @@ def _goal_node(goal_id: str) -> dict:
     status, via the SAME reader ``sessions.get_goal_iterations``/``list_goals``
     use (``_load_goal_entry``) -- not a raw Concept-node dict (there is no
     such thing reachable from test code; the WorkItem is the sole status
-    authority, see ``work_item.py``'s module docstring)."""
+    authority, see ``work_durability.py``'s module docstring)."""
     entry = _sessions._load_goal_entry(_sessions._goal_engine(), goal_id)
     assert entry is not None, f"goal {goal_id} has no durable KG entry"
     return entry
@@ -775,7 +775,7 @@ def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal)
     # terminal outcome is "cancelled" -- there is no free-text
     # "failed"/error write onto the goal's Concept node anymore; the
     # WorkItem status is the sole authority post-AU-P1-1, see
-    # work_item.py's module docstring).
+    # work_durability.py's module docstring).
     node = _goal_node(queued_goal["goal_id"])
     assert node["status"] == "cancelled"
 
@@ -809,8 +809,8 @@ def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
     import threading
 
     from agent_utilities.core import sessions as _sessions
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
     from agent_utilities.orchestration import agent_dispatch_worker as worker
-    from agent_utilities.orchestration import work_item as _wi
 
     payload = {"job_id": "poison", "kind": "goal_loop"}  # no session_id
     fake_queue.put(payload)
@@ -852,8 +852,8 @@ def test_consumer_loop_dead_letters_tenant_mismatched_envelope(
     import threading
 
     from agent_utilities.core import sessions as _sessions
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
     from agent_utilities.orchestration import agent_dispatch_worker as worker
-    from agent_utilities.orchestration import work_item as _wi
 
     goal_id = queued_goal["goal_id"]
     real_item_id, real_payload = fake_queue.get()
@@ -919,7 +919,7 @@ def test_consumer_loop_rejects_tenant_mismatch_before_claiming(monkeypatch) -> N
     queue.put(payload)
 
     monkeypatch.setattr(
-        "agent_utilities.orchestration.work_item.get_work_item",
+        "agent_utilities.knowledge_graph.core.work_durability.get_work_item",
         lambda _engine, _item_id: {"tenant": "tenant-legit"},
     )
 
@@ -1055,9 +1055,9 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
     ``executed_by``) directly on a bare ``Task``-labeled node via a
     ``query_cypher``/``_update_task_status`` pair shaped for a status
     vocabulary ``Orchestrator.get_task_status`` no longer uses (it now reads
-    the WorkItem through ``work_item.get_work_item`` exclusively -- see
+    the WorkItem through ``work_durability.get_work_item`` exclusively -- see
     ``manager.py``). Under the current WorkItem-native commit contract
-    (``_execute_orchestrator_turn`` -> ``work_item.commit_result``), only
+    (``_execute_orchestrator_turn`` -> ``work_durability.commit_result``), only
     ``status``/``result_ref``/``error_ref`` are durably recorded; there is no
     free-text ``result`` or ``executed_by`` field anywhere in that path
     anymore (``_execute_orchestrator_turn`` never persists the executor's
@@ -1082,7 +1082,10 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
         idempotency_key=dispatch_job_id,
     )
 
+    invoked: dict[str, object] = {}
+
     async def _fake_execute_agent(self, **kw):
+        invoked.update(kw)
         return f"ran {kw['task']} as {kw['agent_name'] or 'default'}"
 
     from agent_utilities.orchestration.manager import Orchestrator
@@ -1101,6 +1104,9 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
     item = _wi.get_work_item(engine, _wi.orchestrator_work_item_id(job_id))
     assert item["status"] == "succeeded"
     assert item["result_ref"] == f"orchestrator:{dispatch_job_id}:completed"
+    assert invoked["run_id"] == dispatch_job_id
+    dispatch_item = _wi.get_work_item(engine, f"workitem:dispatch:{dispatch_job_id}")
+    assert dispatch_item["result_ref"] == f"dispatch:{dispatch_job_id}:completed"
     # Redelivery is an idempotent skip (the dispatch wrapper WorkItem is
     # already terminal).
     assert worker.execute_agent_turn(env, engine) == "skipped"
@@ -1110,7 +1116,7 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
 # docstring) — agent_dispatch_worker.claim_agent_task/CLAIM_TTL_S no longer
 # exist; the AU-P1-1 authority-convergence assimilation rewrote agent task
 # claiming around the engine-native WorkItem state machine
-# (engine_claim.claim_agent_task -> work_item.claim_agent_task_via_work_item).
+# (engine_claim.claim_agent_task -> work_durability.claim_agent_task_via_work_item).
 # D-DSTO-5 (reports/deferred/lane-dst-orch.md): the 6 tests that lived here
 # (test_claim_agent_task_unknown_task_is_skipped, _terminal_status_is_duplicate_skip,
 # _claims_and_writes_lease, _skips_task_with_fresh_live_lease,
@@ -1243,7 +1249,7 @@ def test_job_status_reports_executing_worker_and_host(fake_queue, monkeypatch):
     also asserted an ``executed_by``/``dispatch_host`` stamp naming which
     worker/host ran the job. That per-execution attribution has no equivalent
     in the current engine-native WorkItem contract -- ``_execute_orchestrator_
-    turn``'s commit path (work_item.commit_result) only ever records
+    turn``'s commit path (work_durability.commit_result) only ever records
     ``status``/``result_ref``/``error_ref``, and clears ``lease_owner`` on
     terminal commit (see ``NativeEngine.commit_work_item_result`` in
     tests/unit/orchestration/test_work_item.py, mirrored by

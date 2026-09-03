@@ -45,7 +45,7 @@ def test_sparql_scope_routes_to_engine_sparql(monkeypatch):
         lambda target: ([("kg", engine)], {}, False),
     )
     out = graph_query(
-        cypher="SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 5",
+        query="SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 5",
         scope="sparql",
         params="{}",
     )
@@ -61,9 +61,7 @@ def test_sparql_scope_ask_roundtrip(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("kg", engine)], {}, False),
     )
-    out = graph_query(
-        cypher="ASK { ?s a ?o }", scope="sparql", params="{}"
-    ).model_dump()
+    out = graph_query(query="ASK { ?s a ?o }", scope="sparql", params="{}").model_dump()
     assert out["claims"] == [{"boolean": True}]
 
 
@@ -76,7 +74,7 @@ def test_sparql_scope_fans_out(monkeypatch):
         lambda target: ([("k1", e1), ("k2", e2)], {}, True),
     )
     out = graph_query(
-        cypher="SELECT ?x WHERE { ?x a ?t }",
+        query="SELECT ?x WHERE { ?x a ?t }",
         scope="sparql",
         connection="all",
         params="{}",

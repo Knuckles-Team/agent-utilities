@@ -58,7 +58,7 @@ from enum import StrEnum
 from typing import Any
 
 from agent_utilities.core.resource_priority import PriorityClass, priority_scope
-from agent_utilities.orchestration import work_item as _wi
+from agent_utilities.knowledge_graph.core import work_durability as _wi
 from agent_utilities.security import delegation as _delegation
 
 logger = logging.getLogger(__name__)
@@ -1124,7 +1124,7 @@ def _resolve_activation_target(
     raw_metadata = item.get("metadata")
     metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     # ``payload_ref`` is the opaque machine reference and is NEVER routed through
-    # ``PersistencePrivacyGuard`` (work_item.py's ``submit_work_item``); the
+    # ``PersistencePrivacyGuard`` (work_durability.py's ``submit_work_item``); the
     # duplicate copy on ``metadata["agent_instance_id"]`` IS privacy-sanitized on
     # write (it's a display/decorative field) and can be corrupted by a false
     # positive — the IBAN pattern matches ~1-in-20 random hex ids (D-GM-3's same

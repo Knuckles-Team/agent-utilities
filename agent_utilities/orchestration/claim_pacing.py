@@ -52,9 +52,10 @@ now forwards as the wire ``priority`` claim once an engine build carries W2.4 �
 method's docstring for the W2.4-2 deploy-ordering constraint).
 
 Wired in at the ONE choke point every claim path already shares (native by default, no
-caller changes anywhere): :func:`agent_utilities.orchestration.work_item.claim_specific`
-and :func:`~agent_utilities.orchestration.work_item.claim_next` are the sole two
-"claiming" entry points into the engine-native ``claim_work_item`` verb — AgentTask
+caller changes anywhere):
+:func:`agent_utilities.knowledge_graph.core.work_durability.claim_specific` and
+:func:`~agent_utilities.knowledge_graph.core.work_durability.claim_next` are the sole
+two "claiming" entry points into the engine-native ``claim_work_item`` verb — AgentTask
 bridge claims, orchestrator-work-item claims, ingest-task claims, loop claims, and any
 future claim caller all route through exactly one of those two functions, so pacing them
 covers the whole system with zero per-caller wiring.
@@ -93,7 +94,7 @@ _DEFAULT_CLASS = PriorityClass.ORCHESTRATION
 #: Claim-pacing policy AS DATA (ADR-5 division: the engine owns admission
 #: authority; this policy only shapes how eagerly Python retries claiming
 #: after being told to back off). Deliberately a much shorter base delay than
-#: :data:`agent_utilities.orchestration.work_item.DEFAULT_BACKOFF_BASE_S`
+#: :data:`agent_utilities.knowledge_graph.core.work_durability.DEFAULT_BACKOFF_BASE_S`
 #: (30s, a WorkItem's own post-failure retry-after backoff, a different
 #: concept): a claim-pacing window governs "how soon may I even ATTEMPT to
 #: claim again", so it should react in the sub-second-to-low-second range,

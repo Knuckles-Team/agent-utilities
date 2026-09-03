@@ -185,8 +185,10 @@ async def test_graph_jobs_cancel_uses_the_dispatched_work_item(monkeypatch) -> N
     import json
 
     import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        orchestrator_work_item_id,
+    )
     from agent_utilities.mcp.tools.job_tools import register_job_tools
-    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
 
     class _MCP:
         def tool(self, **_kwargs):
@@ -244,11 +246,13 @@ async def test_completed_task_surfaces_the_real_run_trace_output_not_the_opaque_
     (``_execute_orchestrator_turn``'s ``run_id=envelope.job_id``,
     D-25-4's fix in ``agent_dispatch_worker.py``)."""
     import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        orchestrator_work_item_id,
+    )
     from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
     from agent_utilities.observability.trace_ontology import (
         trace_id as canonical_trace_id,
     )
-    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
 
     job_id = "job:mcp-task-result"
     item_id = orchestrator_work_item_id(job_id)
@@ -335,8 +339,10 @@ async def test_completed_task_falls_back_to_opaque_marker_with_no_run_trace(
     job kind, or a run predating D-25-4) still degrades to the prior,
     real opaque-marker behavior -- never an error."""
     import agent_utilities.mcp.kg_server as kg
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        orchestrator_work_item_id,
+    )
     from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
-    from agent_utilities.orchestration.work_item import orchestrator_work_item_id
 
     job_id = "job:mcp-task-no-trace"
     item_id = orchestrator_work_item_id(job_id)

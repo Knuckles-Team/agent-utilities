@@ -174,7 +174,7 @@ The engine's admission decision is **authoritative**: agent-utilities never gran
 itself extra capacity, retries past what the engine shed as if it hadn't happened, or
 second-guesses which class the engine chose to shed. What agent-utilities *does* do
 (`agent_utilities/orchestration/claim_pacing.py`, W2.9) is behave as a **cooperative
-participant**. The WorkItem claim loop (`orchestration/work_item.py`'s
+participant**. The WorkItem claim loop (`knowledge_graph/core/work_durability.py`'s
 `claim_specific`/`claim_next` — the sole two "claiming" entry points every caller
 already shares, so this is native with zero per-caller wiring) remembers, **per
 `PriorityClass`**, that a class was just shed and stops attempting new claims of that

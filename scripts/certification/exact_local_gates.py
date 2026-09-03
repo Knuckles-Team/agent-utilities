@@ -1502,9 +1502,7 @@ class _ExactWorkItemAdapter:
 
 def _work_item_bus_worker(engine_binary: Path, root: Path, result_path: Path) -> None:
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.messaging.bus_inbox import commit_message_to_work_item
-    from agent_utilities.models.company_brain import ActorType
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         checkpoint_work_item,
         claim_next,
         claim_specific,
@@ -1513,6 +1511,8 @@ def _work_item_bus_worker(engine_binary: Path, root: Path, result_path: Path) ->
         heartbeat,
         submit_work_item,
     )
+    from agent_utilities.messaging.bus_inbox import commit_message_to_work_item
+    from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     root.mkdir(parents=True, exist_ok=True, mode=0o700)

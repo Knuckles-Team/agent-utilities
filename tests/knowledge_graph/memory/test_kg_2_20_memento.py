@@ -153,8 +153,10 @@ def test_memento_capability_live_path_evicts_and_inserts_memento(monkeypatch):
         ToolReturnPart,
     )
 
-    from agent_utilities.capabilities import MementoCompaction
-    from agent_utilities.capabilities.memento import _message_to_dict
+    from agent_utilities.capabilities.memento import (
+        MementoCompaction,
+        _message_to_dict,
+    )
     from agent_utilities.knowledge_graph.memory.agent_context import (
         estimate_message_tokens,
     )
@@ -200,7 +202,7 @@ def test_memento_capability_live_path_evicts_and_inserts_memento(monkeypatch):
 def test_memento_capability_noop_under_budget():
     from pydantic_ai.messages import ModelRequest, UserPromptPart
 
-    from agent_utilities.capabilities import MementoCompaction
+    from agent_utilities.capabilities.memento import MementoCompaction
 
     cap = MementoCompaction(max_tokens=100_000)
     msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])] * 5

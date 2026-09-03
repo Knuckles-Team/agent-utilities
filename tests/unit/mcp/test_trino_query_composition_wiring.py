@@ -46,16 +46,16 @@ class _Engine:
         self.disposed = True
 
 
-def _registered_graph_query():
+def _registered_tabular_query():
     from fastmcp import FastMCP
 
     from agent_utilities.mcp.tools.query_tools import register_query_tools
 
     register_query_tools(FastMCP("trino-wiring-test"))
-    return kg_server.REGISTERED_TOOLS["graph_query"]
+    return kg_server.REGISTERED_TOOLS["tabular_query"]
 
 
-def test_registered_graph_query_reaches_composed_service_and_injected_backend(
+def test_registered_tabular_query_reaches_composed_service_and_injected_backend(
     monkeypatch,
 ):
     built = {}
@@ -81,11 +81,8 @@ def test_registered_graph_query_reaches_composed_service_and_injected_backend(
     monkeypatch.setattr(kg_server, "_TABULAR_QUERY_SERVICE", None)
     monkeypatch.setattr(kg_server, "_TABULAR_QUERY_SERVICE_KEY", None)
 
-    result = _registered_graph_query()(
-        cypher="SELECT id FROM analytics.agents",
-        scope="sql",
-        connection="trino",
-        params="{}",
+    result = _registered_tabular_query()(
+        sql="SELECT id FROM analytics.agents"
     ).model_dump()
 
     assert result["claims"] == [{"id": "row-1"}]
@@ -132,12 +129,10 @@ def test_rest_adapter_binds_and_resets_verified_bearer():
         {
             "type": "http",
             "method": "POST",
-            "path": "/graph/query",
+            "path": "/query/tabular",
             "headers": [(b"authorization", b"Bearer verified-rest-token")],
         }
     )
-    kwargs = {"scope": "sql", "connection": "trino"}
-
     assert get_user_token() is None
     with use_actor(
         ActorContext(
@@ -146,6 +141,6 @@ def test_rest_adapter_binds_and_resets_verified_bearer():
             authenticated=True,
         )
     ):
-        with kg_server._rest_trino_delegated_identity(request, kwargs):
+        with kg_server._rest_tabular_delegated_identity(request):
             assert get_user_token() == "verified-rest-token"
     assert get_user_token() is None

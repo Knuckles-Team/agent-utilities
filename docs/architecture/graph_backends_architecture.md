@@ -645,9 +645,9 @@ mentions only, zero write/commit calls). See
 `plans/company-architecture/lanes/CA-27-trino-spark-adapters.md` for the
 full design note.
 
-The public query path is deliberately recomposed around one lower application
-service. `graph_query(scope="sql", connection="trino")` is only transport
-routing; `TabularQueryService` owns selector validation, page materialization,
+The public tabular path is deliberately recomposed around one lower application
+service. `tabular_query(sql=...)` is the purpose-specific transport operation;
+`TabularQueryService` owns selector validation, page materialization,
 and provenance consistency. The Trino adapter receives required token and
 principal providers at the MCP composition root and imports neither MCP nor
 runtime configuration. There is no anonymous, static-credential, or cleartext
@@ -657,8 +657,8 @@ pooled engine; the LRU cap bounds total warm principals.
 
 ```mermaid
 flowchart LR
-    MCP["MCP graph_query"] --> ROUTE["thin SQL route"]
-    REST["REST /graph/query"] --> ROUTE
+    MCP["MCP tabular_query"] --> ROUTE["thin SQL route"]
+    REST["REST /query/tabular"] --> ROUTE
     ROUTE --> APP["TabularQueryService<br/>request + provenance contract"]
     APP --> PORT{{"QueryBackend port"}}
     PORT --> TRINO["TrinoQueryBackend<br/>TLS-only, read-only, bounded pools"]

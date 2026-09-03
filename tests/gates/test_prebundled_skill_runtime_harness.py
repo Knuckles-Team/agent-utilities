@@ -842,7 +842,10 @@ async def test_parent_ingestion_proof_queries_one_exact_opaque_trace(
     assert calls[0][0] == "graph_query"
     assert calls[0][1]["scope"] == "local"
     assert calls[0][1]["params"] == '{"name":"' + _TRACE_NAME + '"}'
-    assert calls[0][1]["cypher"].endswith("RETURN n.id AS id, n.name AS name LIMIT 2")
+    # current-only graph_query.query cutover: the tool's sole query field is
+    # `query`, not the retired `cypher` (agent_utilities/mcp/tools/query_tools.py).
+    assert "cypher" not in calls[0][1]
+    assert calls[0][1]["query"].endswith("RETURN n.id AS id, n.name AS name LIMIT 2")
 
     async def missing_call(*_args, **_kwargs):
         return governed_projection([])

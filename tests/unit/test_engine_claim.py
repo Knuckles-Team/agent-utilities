@@ -3,7 +3,7 @@
 Covers ``AGENT_CLAIM_BACKEND`` resolution (``workitem`` is the sole backend and
 default; fail-safe on an unrecognized value) and that :func:`claim_agent_task`
 routes every claim through the WorkItem bridge
-(:func:`~agent_utilities.orchestration.work_item.claim_agent_task_via_work_item`).
+(:func:`~agent_utilities.knowledge_graph.core.work_durability.claim_agent_task_via_work_item`).
 
 No-Legacy history (report §2 Claims seam / §9 #4): the ``kg`` KG-``:AgentLease``
 backend and the ``engine`` namespace-probing backend (``_CLAIM_NEXT_CANDIDATES``,
@@ -64,11 +64,11 @@ def test_unknown_backend_value_fails_safe_to_workitem(
 def test_claim_agent_task_delegates_to_work_item_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
     bridge_calls: list[dict] = []
     monkeypatch.setattr(
-        work_item,
+        work_durability,
         "claim_agent_task_via_work_item",
         lambda engine, task_id, **kw: (
             bridge_calls.append({"task_id": task_id, **kw})
@@ -84,17 +84,17 @@ def test_claim_agent_task_delegates_to_work_item_bridge(
     }
     assert len(bridge_calls) == 1
     assert bridge_calls[0]["task_id"] == "task-1"
-    assert bridge_calls[0]["claim_ttl_s"] == work_item.DEFAULT_LEASE_TTL_S
+    assert bridge_calls[0]["claim_ttl_s"] == work_durability.DEFAULT_LEASE_TTL_S
 
 
 def test_claim_agent_task_honors_explicit_token_now_and_ttl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
     bridge_calls: list[dict] = []
     monkeypatch.setattr(
-        work_item,
+        work_durability,
         "claim_agent_task_via_work_item",
         lambda engine, task_id, **kw: bridge_calls.append(kw) or None,
     )
@@ -110,10 +110,10 @@ def test_claim_agent_task_unrecognized_backend_override_still_claims(
 ) -> None:
     """A bogus explicit ``backend=`` never silently disables claiming — it's
     logged and the sole (workitem) backend is used anyway."""
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
     monkeypatch.setattr(
-        work_item,
+        work_durability,
         "claim_agent_task_via_work_item",
         lambda engine, task_id, **kw: {"task_id": task_id, "lease_id": "lease:1"},
     )

@@ -104,7 +104,7 @@ def test_graph_query_default_target_uses_short_fanout_timeout(monkeypatch):
     monkeypatch.setattr(kg_server, "fanout_execute", _spy)
 
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
 
     assert seen["timeout"] == kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S
@@ -143,7 +143,7 @@ def test_graph_query_target_default_string_also_uses_short_timeout(monkeypatch):
 
     asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", connection="default"
+            "graph_query", query="MATCH (n) RETURN n", connection="default"
         )
     )
 
@@ -177,7 +177,7 @@ def test_graph_query_explicit_all_target_keeps_full_fanout_timeout(monkeypatch):
 
     asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", connection="all"
+            "graph_query", query="MATCH (n) RETURN n", connection="all"
         )
     )
 
@@ -208,7 +208,7 @@ def test_graph_query_default_grounds_primary_backend_and_skips_slow_backends(
 
     started = time.monotonic()
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
     elapsed = time.monotonic() - started
 
@@ -237,7 +237,7 @@ def test_graph_query_primary_grounds_when_all_supplementary_time_out(monkeypatch
 
     started = time.monotonic()
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
     elapsed = time.monotonic() - started
 
@@ -260,7 +260,7 @@ def test_graph_query_primary_grounds_when_no_default_named_entry(monkeypatch):
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines_multi(entries)
     )
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
     rows = out["reasoning_trace"][-1]["payload"]["rows"]
     assert {"id": "concept:delegation-router", "name": "DelegationRouter"} in rows
@@ -295,7 +295,7 @@ def test_graph_query_aggregation_still_bypasses_fanout_entirely(monkeypatch):
 
     out = asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN count(n) AS count"
+            "graph_query", query="MATCH (n) RETURN count(n) AS count"
         )
     ).model_dump()
 
@@ -331,7 +331,7 @@ def test_graph_query_primary_denial_is_labeled_error_not_a_crash_or_leak(monkeyp
     # Must not raise — a denied primary degrades like any other fan-out
     # target, it does not crash the whole tool call.
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
 
     rows = out["reasoning_trace"][-1]["payload"]["rows"]
@@ -357,7 +357,7 @@ def test_graph_query_supplementary_denial_never_leaks_into_primary_rows(
     )
 
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+        kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
     ).model_dump()
 
     rows = out["reasoning_trace"][-1]["payload"]["rows"]
@@ -381,7 +381,7 @@ def test_graph_query_explicit_target_denial_also_never_crashes(monkeypatch):
 
     out = asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", connection="all"
+            "graph_query", query="MATCH (n) RETURN n", connection="all"
         )
     ).model_dump()
 

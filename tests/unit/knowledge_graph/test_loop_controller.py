@@ -58,7 +58,7 @@ class _StubEngine:
             ]
         if "MATCH (w:WorkItem" in q:
             # active_loops() backs every Concept with a WorkItem
-            # (orchestration/work_item.py get_work_item) to track its
+            # (knowledge_graph/core/work_durability.py get_work_item) to track its
             # goal_loop lifecycle — a bare id/name Concept has no backing
             # WorkItem of its own, so synthesize a minimal always-active one
             # keyed by the SAME deterministic id get_work_item looks up

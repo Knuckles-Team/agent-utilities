@@ -8,7 +8,7 @@ already trusts for its orchestrator-kind path (claim_work_item /
 renew_work_item_lease / commit_work_item_result against an in-memory node
 dict) — see that module's docstring for why a fake is honest here: claim/
 lease/statechart semantics are the engine's, and this fake mirrors exactly
-the same CAS/fencing/retry-exhaustion contract ``work_item.py`` requires.
+the same CAS/fencing/retry-exhaustion contract ``work_durability.py`` requires.
 
 The first two tests below (``test_poison_envelope_ack_requires_durable_dead_letter_record``
 and ``test_crash_mid_execution_never_acks_without_durable_terminal_state``) are
@@ -18,7 +18,7 @@ by temporarily reverting that file to its pre-fix ``main`` content and running
 this file alone), then made to pass by the BUG-003 remediation. They
 deliberately use ONLY functions that already existed pre-fix
 (``run_dispatch_consumer_loop``, ``load_goal_run``, ``_execute_goal_turn``,
-``work_item.get_work_item``) so the red run is a genuine behavioral failure,
+``work_durability.get_work_item``) so the red run is a genuine behavioral failure,
 not an ImportError against a not-yet-written symbol.
 """
 
@@ -28,9 +28,9 @@ import threading
 
 import pytest
 
+from agent_utilities.knowledge_graph.core import work_durability as _wi
 from agent_utilities.knowledge_graph.core.queue_backend import MemoryQueueBackend
 from agent_utilities.orchestration import agent_dispatch_worker as worker
-from agent_utilities.orchestration import work_item as _wi
 from agent_utilities.orchestration.agent_dispatch import (
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
@@ -130,6 +130,7 @@ def test_crash_mid_execution_never_acks_without_durable_terminal_state(monkeypat
         engine,
         kind="agent_turn",
         payload_ref="goal-x",
+        tenant="tenant-a",
         work_item_id=dispatch_item_id,
         idempotency_key=job_id,
     )
@@ -138,6 +139,7 @@ def test_crash_mid_execution_never_acks_without_durable_terminal_state(monkeypat
         session_id="sess-crash-1",
         kind=KIND_GOAL_LOOP,
         payload_ref="goal-x",
+        tenant="tenant-a",
     )
     queue.put(env.to_item())
 
@@ -154,7 +156,7 @@ def test_crash_mid_execution_never_acks_without_durable_terminal_state(monkeypat
         },
     )
 
-    def _boom(spec):
+    def _boom(spec, **_kwargs):
         raise RuntimeError("simulated crash mid execution")
 
     monkeypatch.setattr(worker, "_execute_goal_turn", _boom)
@@ -167,6 +169,7 @@ def test_crash_mid_execution_never_acks_without_durable_terminal_state(monkeypat
         f"WorkItem left non-terminal ({item['status']!r}) after an executor "
         "crash -- BUG-003: crash-before-commit"
     )
+    assert item["error_ref"].startswith(f"dispatch:{job_id}:RuntimeError:")
     assert queue.get_queue_size() == 0  # acked only now that durable state exists
 
 
@@ -186,6 +189,7 @@ def test_crash_mid_orchestrator_turn_still_lands_terminal_before_ack(monkeypatch
         engine,
         kind="agent_turn",
         payload_ref=job_id,
+        tenant="tenant-a",
         work_item_id=dispatch_item_id,
         idempotency_key=dispatch_job_id,
     )
@@ -195,6 +199,7 @@ def test_crash_mid_orchestrator_turn_still_lands_terminal_before_ack(monkeypatch
         kind=KIND_ORCHESTRATOR_TASK,
         payload_ref=job_id,
         agent_name="librarian",
+        tenant="tenant-a",
     )
     queue.put(env.to_item())
 
@@ -208,6 +213,7 @@ def test_crash_mid_orchestrator_turn_still_lands_terminal_before_ack(monkeypatch
     item = _wi.get_work_item(engine, dispatch_item_id)
     assert item is not None
     assert item["status"] in _wi.TERMINAL_WORK_ITEM_STATUSES
+    assert item["error_ref"].startswith(f"dispatch:{dispatch_job_id}:RuntimeError:")
     assert queue.get_queue_size() == 0
 
 

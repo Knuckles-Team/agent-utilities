@@ -14,7 +14,7 @@ that performs an atomic CAS on a WorkItem's non-authority scheduling metadata
 transaction ``ClaimWorkItem``/``RenewWorkItemLease`` use -- so all four sites
 now SUCCEED against an already-claimed item instead of hitting the generic
 -CAS authority guard. ``work_item.py``'s ``_cas_work_item_metadata`` still
-raises :class:`~agent_utilities.orchestration.work_item.WorkItemBackendUnavailable`
+raises :class:`~agent_utilities.knowledge_graph.core.work_durability.WorkItemBackendUnavailable`
 for a genuine capability gap (missing RPC) or a malformed engine response --
 never for an ordinary claimed-item CAS anymore.
 
@@ -28,8 +28,8 @@ from __future__ import annotations
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-from agent_utilities.orchestration import work_item as wi
 
 
 class _Harness:

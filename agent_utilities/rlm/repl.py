@@ -93,7 +93,7 @@ class RLMEnvironment:
         - ``rlm_query(prompt, context)`` — Spawn a recursive sub-RLM
         - ``run_parallel_sub_calls(calls)`` — Parallel sub-call dispatch
         - ``magma_view(query, views)`` — MAGMA orthogonal memory views
-        - ``graph_query(cypher, params)`` — Cypher against LPG
+        - ``graph_query(query, params)`` — Cypher against LPG
         - ``owl_query(sparql)`` — SPARQL against OWL reasoner
         - ``kg_bulk_export(node_type, limit)`` — Bulk KG node export
         - ``sub_agent_call(prompt, agent_id, data)`` — Specialist dispatch
@@ -262,7 +262,10 @@ class RLMEnvironment:
             raise TopologyAdmissionError(
                 "live RLM retirement requires an immutable admission"
             )
-        from ..orchestration.work_item import cancel_work_item, get_work_item
+        from ..knowledge_graph.core.work_durability import (
+            cancel_work_item,
+            get_work_item,
+        )
 
         item = get_work_item(engine, self.work_item_id)
         self.admission.require_work_item(item)
@@ -298,7 +301,7 @@ class RLMEnvironment:
         return engine.retrieve_orthogonal_context(query, views=views)
 
     async def graph_query(
-        self, cypher: str, params: dict[str, Any] | None = None
+        self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Run a Cypher query against the knowledge graph."""
         if not self.graph_deps or not hasattr(self.graph_deps, "knowledge_engine"):
@@ -308,7 +311,7 @@ class RLMEnvironment:
         if not engine:
             return [{"error": "Knowledge engine not initialized"}]
 
-        return engine.query_cypher(cypher, params)
+        return engine.query_cypher(query, params)
 
     async def ephemeral_graph_query(
         self, cypher: str, namespace: str, params: dict[str, Any] | None = None

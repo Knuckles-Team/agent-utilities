@@ -18,9 +18,9 @@ running under a real tenant's authority.
 
 from __future__ import annotations
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.models.company_brain import ActorType
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security.brain_context import ActorContext
 
 

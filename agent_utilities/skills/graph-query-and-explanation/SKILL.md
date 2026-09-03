@@ -55,9 +55,9 @@ single bounded lookup direct.
 | `graph_promql` | `action=instant` (single evaluation at `time`, default now) or `range` (`start`..`end` at `step`) | extra engine kwargs via `params_json`; degrades cleanly with no metrics surface |
 | `graph_gis` | `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` | degrades cleanly with no GIS surface |
 | `graph_engineering` (GraphRAG) | `local_search` (one entity + relationship-path neighborhood via the SAME `ContextCompiler`), `global_search` (bounded map-reduce over `:CommunityReport` nodes, `max_communities` default 8), `build_community_reports` | reuses the engine's existing Louvain/label-propagation community detection and the ingest-time report summarizer — no reimplementation; auto-builds reports on first `global_search` use |
-| `graph_query` (`scope="sql"`) | read-only SQL over the KG + user tables via the engine's DataFusion surface — the same path the pg-wire listener serves | the query text goes in the `cypher` field regardless of dialect; non-`SELECT` is refused |
+| `graph_query` (`scope="sql"`) | read-only SQL over the KG + user tables via the engine's DataFusion surface — the same path the pg-wire listener serves | the query text goes in the canonical `query` field; non-`SELECT` is refused |
 | `graph_query` (`scope="sparql"`) | SPARQL 1.1 `SELECT`/`ASK`/`CONSTRUCT`/`DESCRIBE` over the engine's RDF projection of the live graph | RLS-governed exactly like the default Cypher path |
-| `graph_query` (`scope="uql"`) | bounded, read-only Unified Query Language pipeline over the governed engine UQL surface | query text goes in `cypher`, must start with `MATCH`, end in `LIMIT 1..1000`, and uses `params='{}'`; unsupported external connections fail clearly |
+| `graph_query` (`scope="uql"`) | bounded, read-only Unified Query Language pipeline over the governed engine UQL surface | query text goes in `query`, must start with `MATCH`, end in `LIMIT 1..1000`, and uses `params='{}'`; unsupported external connections fail clearly |
 | `graph_query` (`scope="federated"`) | query one registered `ExternalGraphReference` node by `reference_id` | ranking across SEVERAL external graphs at once → `graph_federated_search` instead |
 | `engine_query` (`action="uql"`) | UQL — the engine's native cross-modal query language: one pipelined text query composing `MATCH`/`TRAVERSE`/`RANK BY`/`WHERE`/`AS OF`/`RERANK`/`FUSE`/`EVIDENCE FOR`/`BELIEF AS OF` over one snapshot, parsing to the exact same `wire::Plan` the structured `action="unified"` API builds — no second execution path | the keyword arg is **`text`**, not `query`; an unsupported-in-this-build clause degrades to `{"error": ...}`, never a silent wrong answer; full grammar + ~20 worked examples in `references/uql-reference.md` |
 
@@ -131,7 +131,7 @@ Example direct plan:
 
 ```text
 graph_search(query="sample service dependency", mode="hybrid", top_k=8)
-graph_query(cypher="MATCH (s:Service {id: $id})-[:DEPENDS_ON]->(d) RETURN d.id", params='{"id":"sample-service"}')
+graph_query(query="MATCH (s:Service {id: $id})-[:DEPENDS_ON]->(d) RETURN d.id", params='{"id":"sample-service"}')
 ```
 
 ### 3. Cross-check important claims

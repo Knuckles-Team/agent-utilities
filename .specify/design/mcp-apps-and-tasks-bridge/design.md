@@ -22,7 +22,7 @@ CONCEPT:AU-ECO.ui.mcp-apps-host
 ### Extension Analysis
 
 - **Primary Extension Point**: `mcp/server_factory.py` / `mcp/
-  tasks_extension.py` / `orchestration/work_item.py` for the Tasks bridge;
+  tasks_extension.py` / `knowledge_graph/core/work_durability.py` for the Tasks bridge;
   `mcp/kg_server.py` / `mcp/tools/mcp_apps.py` for the Apps host.
 - **Extension Strategy**: augment (Tasks bridge projects onto the existing
   `WorkItem` state machine); new, narrowly-scoped module (Apps host).
@@ -64,7 +64,7 @@ C4Context
     title MCP Apps Host + Tasks/WorkItem Bridge — Integration Context
     System_Boundary(b1, "agent-utilities Core") {
         System(tasks, "mcp/tasks_extension.py", "SEP-2663 Tasks wire, backed by WorkItem")
-        System(workitem, "orchestration/work_item.py", "native state machine, sole claim/renew authority")
+        System(workitem, "knowledge_graph/core/work_durability.py", "canonical native claim/renew state machine")
         System(apps, "mcp/tools/mcp_apps.py", "trace-waterfall MCP App, postMessage bridge")
         System(webui, "agent-webui bridge", "the ONLY place that authorizes an app's tools/call")
     }
@@ -88,10 +88,19 @@ C4Context
 
 - **Blast Radius**: any MCP client using the Tasks extension against this
   server; any embedded MCP App (currently one: the trace waterfall).
-- **Backward Compatible**: Yes — both are additive surfaces.
-- **Breaking Changes**: None.
+- **Current-only contract**: the Tasks and Apps surfaces expose only the current
+  SEP-2663 mapping and canonical WorkItem durability API. No protocol alias,
+  alternate job engine, or fallback authority is served.
+- **Cutover requirement**: clients must adopt the current mapping atomically;
+  divergent field names or lifecycle writes are rejected rather than adapted.
+- **Convergence blocker**: operational `:AgentTask.status` mirror writes and the
+  `:TaskNode` status projection/bridge remain outside this design's
+  deletion scope. Claim and renewal route canonically, but the repository must
+  not claim fully converged writable lifecycle authority until that separate
+  mirror-deletion change lands. The native boundary gate ratchets against any
+  additional `AgentTask` or `TaskNode` operational status writer meanwhile.
 - **What would make this wrong later**: the Tasks bridge diverges
-  deliberately from the isolated gateway's older pinned SEP-2663 revision —
+  deliberately from the isolated gateway's distinct SEP-2663 revision —
   if that draft's field names change again, or if the gateway and native
   server adapters drift in their `input_required` semantics, the mapping
   needs re-deriving. The Apps host explicitly deferred 3 of 5 originally

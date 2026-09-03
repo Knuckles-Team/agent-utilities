@@ -64,10 +64,27 @@ def persist(engine):
     assert any("WorkItem lifecycle payload" in item for item in findings)
 
 
+def test_gate_rejects_operational_task_status_mirrors(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "agent_utilities/orchestration/new_mirror.py",
+        """
+def mirror_agent_task(engine):
+    engine.add_node("agent-1", "AgentTask", properties={"status": "running"})
+
+def mirror_team_task(engine):
+    engine.add_node("team-1", "TaskNode", properties={"status": "in_progress"})
+""",
+    )
+    findings = check(tmp_path)
+    assert any("operational AgentTask status mirror" in item for item in findings)
+    assert any("operational TaskNode status mirror" in item for item in findings)
+
+
 def test_gate_allows_authority_schemas_and_read_only_labels(tmp_path: Path) -> None:
     _write(
         tmp_path,
-        "agent_utilities/orchestration/work_item.py",
+        "agent_utilities/knowledge_graph/core/work_durability.py",
         """
 class WorkItemStatus:
     READY = "ready"
@@ -88,6 +105,35 @@ def transition_work_item(backend):
         "    return engine.get_nodes_by_type(WORK_ITEM_LABEL)\n",
     )
     assert check(tmp_path) == []
+
+
+def test_gate_rejects_legacy_orchestration_authority_imports(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "agent_utilities/orchestration/consumer.py",
+        "from agent_utilities.orchestration import work_item as wi\n",
+    )
+    _write(
+        tmp_path,
+        "agent_utilities/capabilities/consumer.py",
+        "from ..orchestration import work_item as wi\n",
+    )
+    findings = check(tmp_path)
+    assert any(
+        "legacy orchestration WorkItem authority import" in item for item in findings
+    )
+
+
+def test_gate_rejects_legacy_authority_facade_module(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "agent_utilities/orchestration/work_item.py",
+        "from agent_utilities.knowledge_graph.core import work_durability\n",
+    )
+    findings = check(tmp_path)
+    assert any(
+        "legacy WorkItem authority/facade must be deleted" in item for item in findings
+    )
 
 
 def test_gate_limits_bus_to_initial_materialization(tmp_path: Path) -> None:

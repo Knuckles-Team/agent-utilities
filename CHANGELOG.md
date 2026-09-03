@@ -136,8 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `:ToolCall`s** across a budget-halt-then-restart. A resumed run is always
   reported truthfully (`resumed`/`replayed_step_ids`, `outcome="replayed"`),
   never as an indistinguishable clean success. The conductor is also given a
-  real default-ON `CheckpointMiddleware` (genuine restore-and-continue via
-  `fork_from_checkpoint`). `GraphExecutionEvidence.resume_supported` is now a
+  real default-ON `CheckpointMiddleware` for durable checkpoint evidence.
+  `GraphExecutionEvidence.resume_supported` is now a
   per-producer `bool` (was hard-coded `Literal[False]`) — `true` only for this
   genuinely-resumable path; the `pydantic_graph`/`ParallelEngine` plane is
   unchanged and still reports `false`.

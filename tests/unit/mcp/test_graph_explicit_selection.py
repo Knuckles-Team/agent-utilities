@@ -198,14 +198,14 @@ async def test_explicit_graph_selection_consults_the_engine_catalog():
     assert {row["name"] for row in listed} == {"graph-a", "graph-b"}
 
     ok = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n", graph="graph-a"
+        "graph_query", query="MATCH (n) RETURN n", graph="graph-a"
     )
     payload = _query_payload(ok)
     assert payload["graph"] == "graph-a"
     assert payload["connection"] == "default"
 
     missing = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n", graph="does-not-exist"
+        "graph_query", query="MATCH (n) RETURN n", graph="does-not-exist"
     )
     assert _query_error_code(missing) == "graph_not_found"
 
@@ -233,14 +233,14 @@ async def test_two_graph_isolation_write_a_not_visible_from_b():
 
     # Visible from graph-a...
     from_a = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n", graph="graph-a"
+        "graph_query", query="MATCH (n) RETURN n", graph="graph-a"
     )
     rows_a = _query_payload(from_a)["rows"]
     assert [r["id"] for r in rows_a] == ["secret-1"]
 
     # ...NOT visible from graph-b.
     from_b = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n", graph="graph-b"
+        "graph_query", query="MATCH (n) RETURN n", graph="graph-b"
     )
     assert _query_payload(from_b)["rows"] == []
 
@@ -252,7 +252,7 @@ async def test_two_graph_isolation_write_a_not_visible_from_b():
     # `graph-a`/`graph-b` and sees neither.)
     own_default_graph = current_session().graph
     default_read = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n"
+        "graph_query", query="MATCH (n) RETURN n"
     )
     assert _query_payload(default_read)["rows"] == []
 
@@ -281,7 +281,7 @@ async def test_unknown_graph_fails_closed_never_falls_back():
     )
 
     out = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n) RETURN n", graph="ghost-graph"
+        "graph_query", query="MATCH (n) RETURN n", graph="ghost-graph"
     )
     assert _query_error_code(out) == "graph_not_found"
     dumped_json = json.dumps(out.model_dump())
@@ -317,7 +317,7 @@ async def test_graph_and_fanout_connection_is_a_typed_conflict_not_silent_pick()
 
     out = await kg_server._execute_tool(
         "graph_query",
-        cypher="MATCH (n) RETURN n",
+        query="MATCH (n) RETURN n",
         connection="all",
         graph="graph-a",
     )
@@ -353,7 +353,7 @@ async def test_graph_on_non_native_connection_is_a_typed_conflict_not_silent_pic
     # cross-contaminate. Combined with an explicit `graph` it's unsupported.
     out = await kg_server._execute_tool(
         "graph_query",
-        cypher="MATCH (n) RETURN n",
+        query="MATCH (n) RETURN n",
         connection="other",
         graph="graph-a",
     )
@@ -458,18 +458,18 @@ async def test_unauthenticated_style_session_same_explicitness_and_fail_closed()
         assert current_session() is None  # no per-request ambient — the stdio shape
 
         ok = await kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", graph="graph-a"
+            "graph_query", query="MATCH (n) RETURN n", graph="graph-a"
         )
         assert _query_payload(ok)["graph"] == "graph-a"
 
         unknown = await kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", graph="ghost"
+            "graph_query", query="MATCH (n) RETURN n", graph="ghost"
         )
         assert _query_error_code(unknown) == "graph_not_found"
 
         conflict = await kg_server._execute_tool(
             "graph_query",
-            cypher="MATCH (n) RETURN n",
+            query="MATCH (n) RETURN n",
             connection="all",
             graph="graph-a",
         )

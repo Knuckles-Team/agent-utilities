@@ -1,6 +1,7 @@
 """graph_query scope='sql' — native SQL-on-the-KG over MCP (CONCEPT:AU-KG.query.read-only-sql-over).
 
-The `sql` scope routes the `cypher` arg (the SQL text) to ``engine.sql()``, which
+The `sql` scope routes the canonical `query` field (the SQL text) to
+``engine.sql()``, which
 bridges to the epistemic-graph engine's DataFusion SQL surface (the same path the
 pg-wire listener uses). RLS is engine-side; read-path-first (SELECT/WITH/EXPLAIN
 only). The REST twin ``/graph/query`` dispatches the same tool, so surface-parity
@@ -50,10 +51,35 @@ def test_sql_scope_routes_to_engine_sql(monkeypatch):
     )
 
     out = graph_query(
-        cypher="SELECT id, label FROM nodes LIMIT 5", scope="sql", params="{}"
+        query="SELECT id, label FROM nodes LIMIT 5", scope="sql", params="{}"
     )
     assert out.model_dump()["claims"] == rows
     assert engine.seen == "SELECT id, label FROM nodes LIMIT 5"
+
+
+def test_sql_scope_rejects_as_of_instead_of_silently_dropping_it(monkeypatch):
+    """The engine's SQL surface has no bitemporal instant filter — `as_of`
+    must be refused explicitly, never silently executed as if it were
+    honored (CONCEPT:AU-KG.query.as-of-instant-filter)."""
+    graph_query = _register_graph_query()
+    engine = _FakeEngine([{"id": "n1"}])
+    monkeypatch.setattr(
+        kg_server,
+        "_resolve_target_engines",
+        lambda target: ([("kg", engine)], {}, False),
+    )
+
+    out = graph_query(
+        query="SELECT id FROM nodes",
+        scope="sql",
+        params="{}",
+        as_of="2026-01-01T00:00:00Z",
+    ).model_dump()
+
+    assert out["error"]["code"] == "invalid_request"
+    # The engine must never have been reached: rejection is upfront, not a
+    # post-hoc annotation on an already-executed, unfiltered query.
+    assert engine.seen is None
 
 
 def test_sql_scope_fans_out(monkeypatch):
@@ -66,7 +92,7 @@ def test_sql_scope_fans_out(monkeypatch):
     )
 
     out = graph_query(
-        cypher="SELECT id FROM nodes", scope="sql", connection="all", params="{}"
+        query="SELECT id FROM nodes", scope="sql", connection="all", params="{}"
     ).model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
     assert payload["targets"] == {"k1": [{"id": "a"}], "k2": [{"id": "b"}]}
@@ -85,7 +111,7 @@ def test_sql_scope_surfaces_engine_error(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("kg", _Boom())], {}, False),
     )
-    out = graph_query(cypher="DELETE FROM nodes", scope="sql", params="{}").model_dump()
+    out = graph_query(query="DELETE FROM nodes", scope="sql", params="{}").model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
     # The standardized, privacy-safe operation-failure envelope
     # (agent_utilities.security.error_surface) no longer echoes raw exception

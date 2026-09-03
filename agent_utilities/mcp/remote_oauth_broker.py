@@ -135,7 +135,6 @@ __all__ = [
     "OAuthStateError",
     "OAuthTokenAbsentError",
     "OAuthTransaction",
-    "OAuthGrantBinding",
     "ProtectedResourceMetadata",
     "ProviderDescriptor",
     "ProviderRegistry",

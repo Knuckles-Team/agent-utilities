@@ -120,7 +120,7 @@ async def test_graph_query_mcp_composition_forwards_registry_after_session(
     ):
         result = await kg_server._execute_tool(
             "graph_query",
-            cypher="SELECT * WHERE { ?s ?p ?o }",
+            query="SELECT * WHERE { ?s ?p ?o }",
             scope="federated",
             reference_id="external-graph",
         )

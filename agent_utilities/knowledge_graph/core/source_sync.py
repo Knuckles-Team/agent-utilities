@@ -1065,6 +1065,8 @@ def write_fleet_catalog_snapshot(
     *,
     configs: dict[str, dict] | None = None,
     discovery_bindings: dict[str, Any] | None = None,
+    catalog_generation: int | None = None,
+    snapshot_digest: str | None = None,
 ) -> dict[str, Any]:
     """Write a live fleet snapshot through the canonical governed seam.
 
@@ -1073,6 +1075,17 @@ def write_fleet_catalog_snapshot(
     fresh write authority, relational projection, skill/prompt promotion, and
     KG capability-node materialization behind this one function prevents the
     refresh surface from growing an ad-hoc second graph writer.
+
+    ``catalog_generation``/``snapshot_digest`` (governed refresh callers only —
+    ``multiplexer._write_catalog_candidate``) name the EXACT catalog identity
+    this write is for. They are not merely accepted and dropped: the write
+    only commits, and only then echoes them back verbatim in the returned
+    receipt, once it has actually written that slice — so the caller can bind
+    its published identity to a positive acknowledgement of the precise
+    generation + digest that was ingested, rather than a generic ``status:
+    "ok"`` that could just as easily describe a stale or unrelated write.
+    A full ``fleet`` source sync (no governed refresh in progress) passes
+    neither, and the fields are omitted from the receipt.
     """
     _apply_with_preflight(engine, "fleet", [])
     with _fresh_write_authority():
@@ -1082,12 +1095,17 @@ def write_fleet_catalog_snapshot(
             configs=configs,
             discovery_bindings=discovery_bindings,
         )
-    return {
+    receipt: dict[str, Any] = {
         "status": "ok",
         "source": "fleet",
         "servers_seen": len(catalog or {}),
         **counts,
     }
+    if catalog_generation is not None:
+        receipt["catalog_generation"] = catalog_generation
+    if snapshot_digest is not None:
+        receipt["snapshot_digest"] = snapshot_digest
+    return receipt
 
 
 _REJECTED_ROW_CACHE_FILE = "fleet_sync_rejected_rows.json"
@@ -1373,62 +1391,6 @@ def _resolve_fleet_config(config_resolver: Any = None):
     return None
 
 
-def _declared_fleet_services() -> list[dict[str, Any]] | None:
-    """The declared fleet universe from ``deploy/mcp-fleet.registry.yml``.
-
-    ``None`` when the registry is absent or unparsable — this reconcile is purely
-    informational and a broken/missing file must never block a sync.
-    """
-    try:
-        import yaml
-
-        from ...orchestration.fleet_reconciler import resolve_registry_path
-
-        path = resolve_registry_path()
-        if path is None:
-            return None
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return [
-            s
-            for s in (data.get("services") or [])
-            if isinstance(s, dict) and s.get("name")
-        ]
-    except Exception:  # noqa: BLE001 — registry reconcile is informational only
-        return None
-
-
-def _reconcile_declared_fleet(catalog: dict[str, dict] | None) -> dict[str, Any] | None:
-    """Best-effort reconcile the probed catalog against the DECLARED fleet universe.
-
-    ``deploy/mcp-fleet.registry.yml`` (the ~62-server desired-state manifest) was,
-    until now, read only by the k8s reconciler — ingestion had no notion of "the
-    declared universe" to compare probe coverage against. This makes that
-    coverage visible: a registry entry is *covered* when either its ``name`` or
-    its ``package`` (they diverge for ~half the fleet, e.g. ``github-mcp`` /
-    ``github-agent``) appears as a probed ``mcp_config.json`` server key —
-    mirroring the exact name-or-package membership check
-    :func:`_sync_fleet_connectors` already uses for this same registry/config
-    naming mismatch. Purely additive/informational: never raises, never affects
-    which nodes get written, and returns ``None`` (added onto nothing) when the
-    registry is absent or unparsable so a broken/missing file never blocks a sync.
-    """
-    services = _declared_fleet_services()
-    if services is None:
-        return None
-
-    probed = set(catalog or {})
-    uncovered = sorted(
-        str(svc["name"])
-        for svc in services
-        if str(svc["name"]) not in probed
-        and str(svc.get("package") or "") not in probed
-    )
-    return {
-        "declared_total": len(services),
-        "declared_uncovered": uncovered,
-    }
-
-
 def _fleet_probe_budget() -> float:
     """The cooperative probe budget, sized from the tightest lane's soft timeout."""
     from .task_lanes import lane_soft_timeout
@@ -1588,10 +1550,7 @@ def _sync_fleet(
     capability nodes. ``client`` may inject a pre-probed catalog dict (tests /
     callers that already hold one); otherwise the multiplexer is built from the
     fleet ``mcp_config.json`` and probed. Unreachable servers are recorded, never
-    fatal — coverage is "the currently registered + reachable fleet". When
-    ``deploy/mcp-fleet.registry.yml`` resolves, the result also carries
-    ``declared_total``/``declared_uncovered`` (:func:`_reconcile_declared_fleet`)
-    so the declared universe is visible alongside what was actually probed.
+    fatal — coverage is "the currently registered + reachable fleet".
     """
     probe = _fleet_probe_for_sync(engine, client)
     if probe.skip is not None:
@@ -1611,7 +1570,6 @@ def _sync_fleet(
         "delta_capable": True,
         "servers_seen": len(catalog or {}),
         **counts,
-        **(_reconcile_declared_fleet(catalog) or {}),
     }
 
 

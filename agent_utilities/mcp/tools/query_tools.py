@@ -325,20 +325,10 @@ def _annotate_path_hops(engine: Any, path: list[Any]) -> list[dict[str, Any]]:
     return hops
 
 
-def _public_query_call(operation: Callable[[], str]) -> str:
-    """Return one source-safe public query result."""
-
-    try:
-        return operation()
-    except Exception as exc:  # noqa: BLE001 - public query error boundary
-        return public_error_json(exc)
-
-
 def _run_graph_query_sql(
-    cypher: str,
+    sql: str,
     connection: str,
     graph: str,
-    *,
     as_of: Any = "",
 ) -> str:
     """``scope=='sql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.query.read-only-sql-over).
@@ -355,38 +345,34 @@ def _run_graph_query_sql(
     ``EvidenceBundle.from_payload`` — this function's sole caller, via
     ``graph_query`` — to stay valid, and for the message-redaction contract
     ``test_sql_scope_surfaces_engine_error`` already asserts on).
+
+    ``as_of`` (the public top-level bitemporal-instant filter) was previously
+    accepted by ``graph_query`` and then silently dropped for ``scope='sql'``
+    — the engine's ``sql()`` surface (``engine_query.py``) has no bitemporal
+    instant parameter at all, so a caller who set ``as_of`` believing it was
+    honored got an UNFILTERED result with no signal anything was ignored.
+    Mirrors the ``scope='uql'`` precedent immediately below (same silent-drop
+    failure mode, same fix): reject a non-empty ``as_of`` explicitly rather
+    than silently executing without it.
     """
-    rejection = _reject_unsafe_table_sql(str(cypher or ""))
+    if isinstance(as_of, str) and as_of.strip():
+        return public_error_json(
+            ValueError(
+                "scope='sql' does not support as_of: the engine's SQL "
+                "surface has no bitemporal instant filter. Omit as_of, or "
+                "use scope='local' (Cypher), which honors it."
+            ),
+            code="invalid_request",
+            context={"tool": "graph_query", "scope": "sql"},
+        )
+    rejection = _reject_unsafe_table_sql(str(sql or ""))
     if rejection is not None:
         return public_error_json(ValueError(rejection))
-    from agent_utilities.knowledge_graph.core.tabular_query_service import (
-        TabularQueryRequest,
-    )
-
-    routes = {
-        "trino": lambda: json.dumps(
-            kg_server.get_tabular_query_service()
-            .execute(
-                TabularQueryRequest(
-                    sql=cypher,
-                    graph=graph,
-                    as_of="" if isinstance(as_of, FieldInfo) else as_of,
-                )
-            )
-            .to_payload(),
-            default=_json_default,
-        )
-    }
-    return _public_query_call(
-        routes.get(
-            str(connection).strip().lower(),
-            lambda: _run_graph_query_sql_engine(cypher, connection, graph),
-        )
-    )
+    return _run_graph_query_sql_engine(sql, connection, graph)
 
 
 def _run_graph_query_engine(
-    cypher: str,
+    query: str,
     connection: str,
     graph: str,
     *,
@@ -411,7 +397,7 @@ def _run_graph_query_engine(
         name, engine = entries[0]
         try:
             with kg_server.bound_to_graph(graph):
-                rows = run_query(engine, cypher)
+                rows = run_query(engine, query)
             return json.dumps(
                 {"rows": rows, "connection": name, "graph": graph},
                 default=str,
@@ -423,7 +409,7 @@ def _run_graph_query_engine(
         except Exception as e:
             return public_error_json(e)
     results, fan_errors = kg_server.fanout_execute(
-        entries, lambda _name, engine: run_query(engine, cypher)
+        entries, lambda _name, engine: run_query(engine, query)
     )
     return json.dumps(
         {
@@ -436,19 +422,19 @@ def _run_graph_query_engine(
     )
 
 
-def _run_graph_query_sql_engine(cypher: str, connection: str, graph: str) -> str:
+def _run_graph_query_sql_engine(sql: str, connection: str, graph: str) -> str:
     return _run_graph_query_engine(
-        cypher,
+        sql,
         connection,
         graph,
         run_query=lambda engine, query: engine.sql(query),
     )
 
 
-def _run_graph_query_sparql(cypher: str, connection: str, graph: str) -> str:
+def _run_graph_query_sparql(sparql: str, connection: str, graph: str) -> str:
     """``scope=='sparql'`` branch of ``_run_graph_query`` (CONCEPT:AU-KG.ingest.mirror-inbound)."""
     return _run_graph_query_engine(
-        cypher,
+        sparql,
         connection,
         graph,
         run_query=lambda engine, query: engine.sparql(query),
@@ -456,7 +442,7 @@ def _run_graph_query_sparql(cypher: str, connection: str, graph: str) -> str:
 
 
 def _run_graph_query_federated(
-    cypher: str, reference_id: str, parsed_params: dict[str, Any]
+    query: str, reference_id: str, parsed_params: dict[str, Any]
 ) -> str:
     """``scope=='federated'`` branch of ``_run_graph_query``."""
     if not reference_id:
@@ -472,7 +458,7 @@ def _run_graph_query_federated(
         engine = kg_server._get_engine()
         registry = kg_server.get_connection_registry()
         results = engine.execute_federated_query(
-            reference_id, cypher, parsed_params, registry=registry
+            reference_id, query, parsed_params, registry=registry
         )
         return json.dumps(results, default=str)
     except Exception as e:
@@ -1937,12 +1923,12 @@ def _projection_request_params(request: dict[str, Any]) -> str:
     return params if isinstance(params, str) else json.dumps(params or {})
 
 
-def _projection_request_kwargs(request: dict[str, Any], cypher: str) -> dict[str, str]:
+def _projection_request_kwargs(request: dict[str, Any], query: str) -> dict[str, str]:
     kwargs = {
         name: str(request.get(name) or "") for name in _PROJECTION_REQUEST_STRING_FIELDS
     }
     kwargs["scope"] = kwargs["scope"] or "local"
-    kwargs["cypher"] = cypher
+    kwargs["query"] = query
     kwargs["params"] = _projection_request_params(request)
     return kwargs
 
@@ -1961,10 +1947,10 @@ def _parse_projection_request(request_json: str) -> tuple[dict[str, str], str | 
     request = _parse_projection_request_object(request_json)
     if isinstance(request, str):
         return {}, request
-    cypher = str(request.get("cypher") or "")
-    if not cypher:
-        return {}, "request_json.cypher is required"
-    return _projection_request_kwargs(request, cypher), None
+    query = str(request.get("query") or "")
+    if not query:
+        return {}, "request_json.query is required"
+    return _projection_request_kwargs(request, query), None
 
 
 def _projection_rows(payload: Any) -> list[Any]:
@@ -2405,7 +2391,7 @@ def register_query_tools(mcp):
     """Register the query_tools group on the given FastMCP server."""
 
     def _run_graph_query(
-        cypher: str = Field(
+        query: str = Field(
             description=(
                 "A read-only query string. scope='local' expects Cypher; scope='uql' "
                 "expects a bounded UQL pipeline ending in LIMIT 1..1000; "
@@ -2424,7 +2410,7 @@ def register_query_tools(mcp):
                 "(CONCEPT:AU-KG.ingest.mirror-inbound), 'uql' to run a bounded, read-only "
                 "Unified Query Language pipeline through the governed engine surface, or "
                 "'federated' to query an external graph endpoint. For 'sql'/'sparql'/'uql' "
-                "the `cypher` arg carries the selected dialect's query string; UQL must "
+                "the `query` arg carries the selected dialect's query string; UQL must "
                 "end in LIMIT 1..1000 and uses params='{}'."
             ),
         ),
@@ -2505,7 +2491,7 @@ def register_query_tools(mcp):
 
         if scope == "uql":
             return _run_graph_query_uql(
-                cypher,
+                query,
                 connection,
                 graph,
                 include_epistemic_flag,
@@ -2516,29 +2502,29 @@ def register_query_tools(mcp):
         if scope == "sql":
             # CONCEPT:AU-KG.query.read-only-sql-over — read-only SQL over the KG via the engine's
             # DataFusion surface (the same path the pg-wire listener uses). The
-            # `cypher` arg carries the SQL string. RLS-governed + read-path-first
+            # `query` arg carries the SQL string. RLS-governed + read-path-first
             # (engine.sql refuses non-SELECT). Honors `connection` fan-out like
             # Cypher; `graph` (CONCEPT:AU-KG.backend.explicit-graph-selection) selects a physical engine
             # graph, independent of `connection` — see `resolve_explicit_graph`.
-            return _run_graph_query_sql(cypher, connection, graph, as_of=as_of)
+            return _run_graph_query_sql(query, connection, graph, as_of)
 
         if scope == "sparql":
             # CONCEPT:AU-KG.ingest.mirror-inbound — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
-            # engine's RDF projection of the live graph. The `cypher` arg carries the
+            # engine's RDF projection of the live graph. The `query` arg carries the
             # SPARQL string. RLS-governed (engine.sparql visibility-filters rows) and
             # honors `connection` fan-out like Cypher/SQL; `graph` selects a physical
             # engine graph, independent of `connection`.
-            return _run_graph_query_sparql(cypher, connection, graph)
+            return _run_graph_query_sparql(query, connection, graph)
 
         if scope == "federated":
-            return _run_graph_query_federated(cypher, reference_id, parsed_params)
+            return _run_graph_query_federated(query, reference_id, parsed_params)
 
         # Local reads use each backend's server-enforced read-only transaction.
         # The native engine requires an explicit read mode and validates it with
         # the complete parser; external backends without an equivalent contract
         # fail closed. No lexical query filter is an authorization boundary.
         return _run_graph_query_local(
-            cypher,
+            query,
             parsed_params,
             as_of,
             include_epistemic,
@@ -2556,7 +2542,7 @@ def register_query_tools(mcp):
         tags=["graph-os", "query"],
     )
     def graph_query(
-        cypher: str = Field(
+        query: str = Field(
             description=(
                 "A read-only query string; scope='local' expects Cypher and "
                 "scope='uql' expects a bounded UQL pipeline ending in LIMIT 1..1000 "
@@ -2604,7 +2590,7 @@ def register_query_tools(mcp):
         ),
     ) -> EvidenceBundle:
         raw = _run_graph_query(
-            cypher=cypher,
+            query=query,
             params=params,
             scope=scope,
             reference_id=reference_id,
@@ -2616,6 +2602,40 @@ def register_query_tools(mcp):
         return EvidenceBundle.from_payload(raw, operation="graph_query")
 
     kg_server.REGISTERED_TOOLS["graph_query"] = graph_query
+
+    @mcp.tool(
+        name="tabular_query",
+        description=(
+            "Execute a read-only SQL projection through the governed tabular "
+            "query service and return its typed evidence bundle."
+        ),
+        tags=["graph-os", "query", "tabular"],
+    )
+    def tabular_query(
+        sql: str = Field(description="A non-empty read-only SQL statement."),
+    ) -> EvidenceBundle:
+        from agent_utilities.knowledge_graph.core.tabular_query_service import (
+            TabularQueryRequest,
+        )
+
+        rejection = _reject_unsafe_table_sql(str(sql or ""))
+        if rejection is not None:
+            return EvidenceBundle.from_payload(
+                public_error_json(ValueError(rejection)), operation="tabular_query"
+            )
+        try:
+            payload = kg_server.get_tabular_query_service().execute(
+                TabularQueryRequest(sql=sql)
+            )
+        except Exception as exc:  # noqa: BLE001 - public query error boundary
+            return EvidenceBundle.from_payload(
+                public_error_json(exc), operation="tabular_query"
+            )
+        return EvidenceBundle.from_payload(
+            payload.to_payload(), operation="tabular_query"
+        )
+
+    kg_server.REGISTERED_TOOLS["tabular_query"] = tabular_query
 
     # ══════════════════════════════════════════════════════════════════
     # 1a-bis. graph_ask — CONCEPT:AU-KG.ingest.mirror-inbound natural-language → query
@@ -2904,7 +2924,7 @@ def register_query_tools(mcp):
             "Nodes are de-duplicated by id across all rows. Takes ONE JSON request "
             "object (project rule, wD10 preamble addendum — no new wide MCP-tool "
             "signatures) rather than one Field per argument: request_json is "
-            "{cypher (required), params, scope, reference_id, as_of, connection, "
+            "{query (required), params, scope, reference_id, as_of, connection, "
             "graph} — identical fields/semantics to graph_query's own arguments."
         ),
         tags=["graph-os", "query", "visualization"],
@@ -2912,7 +2932,7 @@ def register_query_tools(mcp):
     def graph_projection(
         request_json: str = Field(
             description=(
-                "JSON object: {cypher (required), params, scope, reference_id, "
+                "JSON object: {query (required), params, scope, reference_id, "
                 "as_of, connection, graph} — same fields/semantics as graph_query's "
                 "individual arguments."
             )

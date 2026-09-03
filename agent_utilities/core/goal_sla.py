@@ -82,8 +82,8 @@ def assess_goal_sla(
 
 
 def _open_goals(engine: Any) -> list[dict[str, Any]]:
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
     from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
-    from agent_utilities.orchestration import work_item as _wi
 
     definitions = read_rows(
         engine,

@@ -2,9 +2,9 @@
 
 The engine writes a co-located ``machine_state`` (its phase-1 statechart mirror) onto each
 WorkItem node atomically with the authoritative ``status``.
-:func:`~agent_utilities.orchestration.work_item.machine_state_distribution` surfaces the
+:func:`~agent_utilities.knowledge_graph.core.work_durability.machine_state_distribution` surfaces the
 lifecycle-state distribution over that property, and
-:func:`~agent_utilities.orchestration.work_item.find_status_machine_divergences` sweeps for
+:func:`~agent_utilities.knowledge_graph.core.work_durability.find_status_machine_divergences` sweeps for
 disagreements and raises the au-side divergence alarm via the module logger.
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent_utilities.orchestration import work_item
+from agent_utilities.knowledge_graph.core import work_durability as work_item
 
 
 class _CypherEngine:
@@ -66,7 +66,8 @@ def test_find_divergences_flags_and_alarms(caplog: Any) -> None:
         }
     )
     with caplog.at_level(
-        logging.WARNING, logger="agent_utilities.orchestration.work_item"
+        logging.WARNING,
+        logger="agent_utilities.knowledge_graph.core.work_durability",
     ):
         divergences = work_item.find_status_machine_divergences(engine)
     assert divergences == [
@@ -88,7 +89,8 @@ def test_find_divergences_clean_when_mirror_tracks_authority(caplog: Any) -> Non
         }
     )
     with caplog.at_level(
-        logging.WARNING, logger="agent_utilities.orchestration.work_item"
+        logging.WARNING,
+        logger="agent_utilities.knowledge_graph.core.work_durability",
     ):
         assert work_item.find_status_machine_divergences(engine) == []
     assert not any("statechart divergence" in m for m in caplog.messages)

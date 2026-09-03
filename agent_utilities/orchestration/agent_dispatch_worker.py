@@ -255,7 +255,7 @@ def _goal_concept_row(rows: list[dict[str, Any]] | None) -> dict[str, Any] | Non
 
 
 def _goal_work_item_is_terminal(engine: Any, goal_id: str) -> bool:
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         TERMINAL_WORK_ITEM_STATUSES,
         work_item_view_of_loop,
     )
@@ -360,7 +360,7 @@ def claim_orchestrator_work_item(
     now = now if now is not None else time.time()
     claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
 
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     view = getattr(engine, "_work_item_engine", engine)
     item_id = _wi.orchestrator_work_item_id(job_id)
@@ -397,7 +397,7 @@ def _work_item_fence_still_valid(
         )
         return False
 
-    from agent_utilities.orchestration.work_item import heartbeat
+    from agent_utilities.knowledge_graph.core.work_durability import heartbeat
 
     try:
         lease_ttl_s = _claim_ttl_seconds(lease_ttl_s)
@@ -901,7 +901,7 @@ def _finalize_work_item(
     """Commit the WorkItem, then durably append its OutcomeEvaluation.
 
     BUG-015/GOC-20 (B7, ``decisions/GOC-20-atomic-outcome-provenance.md``): the
-    WorkItem status CAS (:func:`~agent_utilities.orchestration.work_item
+    WorkItem status CAS (:func:`~agent_utilities.knowledge_graph.core.work_durability
     .commit_execution_work_item`) is the existing atomic, fenced B6 boundary —
     one redb transaction with its outbox row, CAS'd on lease epoch/fencing
     token — and is unchanged here. The OutcomeEvaluation append that follows
@@ -922,7 +922,9 @@ def _finalize_work_item(
 
     if claim.get("work_item_id") != work_item_id:
         return "missing"
-    from agent_utilities.orchestration.work_item import commit_execution_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        commit_execution_work_item,
+    )
 
     try:
         committed = commit_execution_work_item(
@@ -1145,7 +1147,9 @@ def _prepare_work_item_turn(
     request: _WorkItemTurnRequest,
 ) -> _WorkItemTurnContext | None:
     """Claim the WorkItem and build its turn context; ``None`` means "skipped"."""
-    from agent_utilities.orchestration.work_item import claim_execution_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        claim_execution_work_item,
+    )
 
     claim = claim_execution_work_item(
         engine,
@@ -1376,7 +1380,7 @@ def _finalize_agent_task(
     """Commit an executed ``:AgentTask`` turn's WorkItem shadow.
 
     Mirrors :func:`_finalize_work_item`'s pattern for the AgentTask-specific
-    bridge: commits through :func:`~agent_utilities.orchestration.work_item
+    bridge: commits through :func:`~agent_utilities.knowledge_graph.core.work_durability
     .commit_agent_task_work_item` (native dependency release, DLQ, idempotent
     commit), then mirrors the TERMINAL legacy ``:AgentTask.status`` for
     unmigrated readers (``fleet_reconciler``, dashboards) —
@@ -1388,7 +1392,9 @@ def _finalize_agent_task(
     if claim.get("work_item_id") != work_item_id:
         return None
 
-    from agent_utilities.orchestration.work_item import commit_agent_task_work_item
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        commit_agent_task_work_item,
+    )
 
     try:
         committed = commit_agent_task_work_item(
@@ -1467,7 +1473,7 @@ def execute_agent_task_turn(
     .to_durable_task_dag``): claims through
     :func:`~agent_utilities.orchestration.engine_claim.claim_agent_task`
     (which shadows the task 1:1 onto a WorkItem — see
-    :func:`~agent_utilities.orchestration.work_item.ensure_agent_task_work_item`
+    :func:`~agent_utilities.knowledge_graph.core.work_durability.ensure_agent_task_work_item`
     — and mirrors the legacy ``:AgentTask``/``:AgentLease`` nodes for
     unmigrated readers), runs the bound ``executor(claim)``, then commits
     through the SAME fenced WorkItem authority :func:`execute_work_item_turn`
@@ -1636,7 +1642,7 @@ def _execute_orchestrator_turn(
             run_id=envelope.job_id,
         )
 
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     work_engine = getattr(engine, "_work_item_engine", engine)
     item_id = str(claim["work_item_id"])
@@ -1706,7 +1712,7 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             logger.error("No KG engine — cannot expire goal %s.", gid)
             return
         try:
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             item_id = _wi.loop_work_item_id(gid)
             # A goal past its dispatch deadline before ever being claimed has
@@ -1732,7 +1738,7 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             logger.error("Failed to expire goal: %s", e)
     elif envelope.kind == KIND_ORCHESTRATOR_TASK and engine is not None:
         try:
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             view = getattr(engine, "_work_item_engine", engine)
             item_id = _wi.orchestrator_work_item_id(envelope.payload_ref)
@@ -1809,7 +1815,7 @@ def _commit_agent_turn_result(
 
     Raises ``WorkItemBackendUnavailable`` if the commit itself was rejected.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     committed = lease.side_effect(
         _wi.commit_result,
@@ -1848,7 +1854,7 @@ def execute_agent_turn(
     claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
     engine = _resolve_dispatch_engine(engine, envelope)
 
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
     with session_execution_guard(envelope.session_id):
@@ -2010,7 +2016,7 @@ def _dead_letter_poison_envelope(
     """
     if engine is None:
         return None
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     work_item_id = poison_work_item_id(payload)
     try:
@@ -2082,10 +2088,10 @@ def _ack_after_durable_outcome(
     A withheld ack is always safe: at-least-once redelivery retries the
     message, and every durable write this worker makes (claim, commit,
     poison-DLQ) is itself idempotent on redelivery — see
-    :func:`_dead_letter_poison_envelope` and ``work_item.commit_result``'s
+    :func:`_dead_letter_poison_envelope` and ``work_durability.commit_result``'s
     idempotency-key docstring.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     if work_item_id is None:
         logger.warning("agent-dispatch ack withheld: no durable WorkItem id")
@@ -2237,7 +2243,7 @@ def _dispatch_tenant_mismatch(
     """Whether the wire tenant disagrees with the WorkItem's admitted tenant."""
     if engine is None or not envelope.tenant:
         return False
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     admitted_item = _wi.get_work_item(engine, dispatch_item_id)
     admitted_tenant = admitted_item.get("tenant") if admitted_item else None
@@ -2471,7 +2477,7 @@ def run_dispatch_consumer_loop(
         # CONCEPT: GOC-18 defense in depth — reject a wire tenant that
         # disagrees with the tenant this WorkItem was durably admitted under,
         # BEFORE ever claiming or executing it. Reads the WorkItem directly
-        # (never the claim response — ``work_item.claim_specific``'s
+        # (never the claim response — ``work_durability.claim_specific``'s
         # ``_normalize_native_claim`` does not yet surface tenant on the
         # claim itself; that gap is tracked separately) so this check is
         # unaffected by that surface. A missing WorkItem or a missing/blank
@@ -2628,7 +2634,7 @@ def main(argv: list[str] | None = None) -> int:
         # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
         # that cannot reach the engine must fail loud, not claim turns and drop them.
         try:
-            from agent_utilities.orchestration import work_item as _wi
+            from agent_utilities.knowledge_graph.core import work_durability as _wi
 
             if not callable(getattr(engine, "claim_work_item", None)):
                 raise _wi.NativeWorkItemRequired(

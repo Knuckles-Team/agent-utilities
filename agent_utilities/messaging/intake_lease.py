@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from agent_utilities.orchestration.work_item import (
+from agent_utilities.knowledge_graph.core.work_durability import (
     NativeWorkItemRequired,
     WorkItemBackendUnavailable,
     claim_specific,

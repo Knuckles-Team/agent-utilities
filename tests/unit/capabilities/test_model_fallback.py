@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Unit tests for the D-47 caller-level model/schema fallback chain
+"""Unit tests for the caller-level model/schema fallback chain
 (``capabilities/model_fallback.py``).
 
 Covers:
@@ -11,27 +11,17 @@ Covers:
   attempt's repair history); a non-``StructuredOutputRepairExhausted``
   exception propagates immediately instead of triggering fallback; an empty
   chain raises ``ValueError``.
-- ``model_fallback_chain``: builds its attempt order from ``ModelRegistry``'s
-  own tier-fallback ranking (never a hardcoded model list, never able to
-  disagree with ``explain_pick_for_task``'s ``chosen_model_id``); respects
-  ``max_fallbacks``; ``.run()`` convenience wiring.
 """
 
 import pytest
 
 from agent_utilities.capabilities.model_fallback import (
     FallbackChainExhausted,
-    model_fallback_chain,
     run_fallback_chain,
 )
 from agent_utilities.capabilities.output_repair import (
     RepairAttempt,
     StructuredOutputRepairExhausted,
-)
-from agent_utilities.models.model_registry import (
-    ModelCostRate,
-    ModelDefinition,
-    ModelRegistry,
 )
 
 
@@ -47,49 +37,6 @@ def _exhausted(model_id: str) -> StructuredOutputRepairExhausted:
     return StructuredOutputRepairExhausted(
         f"structured output repair exhausted for {model_id}",
         attempts=attempts,
-    )
-
-
-@pytest.fixture
-def sample_registry() -> ModelRegistry:
-    return ModelRegistry(
-        models=[
-            ModelDefinition(
-                id="model-fast",
-                name="Fast model",
-                provider="provider-a",
-                model_id="operator/fast",
-                tier="light",
-                is_default=True,
-            ),
-            ModelDefinition(
-                id="model-standard",
-                name="Standard model",
-                provider="provider-b",
-                model_id="operator/standard",
-                tier="medium",
-                cost=ModelCostRate(input=0.15, output=0.6),
-                tags=["code", "tools"],
-            ),
-            ModelDefinition(
-                id="model-heavy",
-                name="Heavy model",
-                provider="provider-c",
-                model_id="operator/heavy",
-                tier="heavy",
-                cost=ModelCostRate(input=15, output=75),
-                tags=["reasoning", "tools"],
-            ),
-            ModelDefinition(
-                id="model-reasoning",
-                name="Reasoning model",
-                provider="provider-d",
-                model_id="operator/reasoning",
-                tier="reasoning",
-                cost=ModelCostRate(input=15, output=60),
-                tags=["reasoning"],
-            ),
-        ]
     )
 
 
@@ -183,90 +130,3 @@ class TestRunFallbackChain:
 
         with pytest.raises(ValueError, match="same length"):
             await run_fallback_chain([attempt], labels=["a", "b"])
-
-
-# ─────────────────────────── model_fallback_chain ───────────────────────────
-
-
-class TestModelFallbackChain:
-    async def test_chain_starts_with_the_registry_chosen_model(
-        self, sample_registry: ModelRegistry
-    ):
-        seen: list[str] = []
-
-        async def build_and_run(model_id: str) -> str:
-            seen.append(model_id)
-            return f"ran {model_id}"
-
-        chain = model_fallback_chain(
-            build_and_run, registry=sample_registry, complexity="medium"
-        )
-        expected_primary = sample_registry.pick_for_task(complexity="medium").id
-        assert chain.model_ids[0] == expected_primary
-
-        result = await chain.run()
-        assert result == f"ran {expected_primary}"
-        assert seen == [expected_primary]
-
-    async def test_falls_back_across_distinct_registry_models(
-        self, sample_registry: ModelRegistry
-    ):
-        attempted: list[str] = []
-
-        async def build_and_run(model_id: str) -> str:
-            attempted.append(model_id)
-            if len(attempted) == 1:
-                raise _exhausted(model_id)
-            return f"succeeded on {model_id}"
-
-        chain = model_fallback_chain(
-            build_and_run, registry=sample_registry, complexity="medium"
-        )
-        assert len(chain.model_ids) >= 2
-        assert len(set(chain.model_ids)) == len(chain.model_ids)  # no duplicates
-
-        result = await chain.run()
-        assert attempted[0] == chain.model_ids[0]
-        assert attempted[1] == chain.model_ids[1]
-        assert result == f"succeeded on {chain.model_ids[1]}"
-
-    async def test_max_fallbacks_bounds_the_chain_length(
-        self, sample_registry: ModelRegistry
-    ):
-        async def build_and_run(model_id: str) -> str:
-            return model_id
-
-        chain = model_fallback_chain(
-            build_and_run,
-            registry=sample_registry,
-            complexity="medium",
-            max_fallbacks=1,
-        )
-        # primary + 1 fallback = 2, even though the registry has 4 models.
-        assert len(chain.model_ids) == 2
-        assert len(chain.attempts) == 2
-
-    async def test_all_registry_models_exhausted_raises_chain_exhausted(
-        self, sample_registry: ModelRegistry
-    ):
-        async def build_and_run(model_id: str) -> str:
-            raise _exhausted(model_id)
-
-        chain = model_fallback_chain(
-            build_and_run,
-            registry=sample_registry,
-            complexity="medium",
-            max_fallbacks=3,
-        )
-        with pytest.raises(FallbackChainExhausted) as exc_info:
-            await chain.run()
-        assert [r.label for r in exc_info.value.records] == chain.model_ids
-
-    async def test_empty_registry_raises_value_error(self):
-        empty_registry = ModelRegistry(models=[])
-
-        async def build_and_run(model_id: str) -> str:
-            return model_id
-
-        with pytest.raises(ValueError):
-            model_fallback_chain(build_and_run, registry=empty_registry)

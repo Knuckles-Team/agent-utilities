@@ -29,8 +29,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import agent_activation as aa
-from agent_utilities.orchestration import work_item as wi
 
 # Reuse the composed in-memory double (native WorkItem verbs + eg-statechart reference +
 # the :AgentInstance/:AgentMessage reads), already made snapshot-safe for a worker pool.

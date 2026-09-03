@@ -1348,7 +1348,7 @@ def _parent_ingestion_query(expected_name: str) -> dict[str, Any]:
     """Build the bounded, identity-retaining parent-ingestion readback query."""
 
     return {
-        "cypher": (
+        "query": (
             "MATCH (n:Trace) WHERE n.name = $name "
             "RETURN n.id AS id, n.name AS name LIMIT 2"
         ),

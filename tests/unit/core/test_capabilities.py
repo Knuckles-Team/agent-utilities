@@ -159,58 +159,6 @@ def test_checkpoint_to_json_from_json_roundtrip() -> None:
     assert cp2.label == "My Checkpoint"
 
 
-def test_rewind_requested_exception() -> None:
-    """RewindRequested exception stores checkpoint_id."""
-    from agent_utilities.capabilities.checkpointing import RewindRequested
-
-    exc = RewindRequested("cp123")
-    assert exc.checkpoint_id == "cp123"
-
-
-@pytest.mark.asyncio
-async def test_checkpoint_toolset_list_empty() -> None:
-    """list_checkpoints returns empty string when store is empty."""
-    from agent_utilities.capabilities.checkpointing import (
-        CheckpointToolset,
-        InMemoryCheckpointStore,
-    )
-
-    store = InMemoryCheckpointStore()
-    toolset = CheckpointToolset(store)
-    ctx = MagicMock()
-    result = await toolset.list_checkpoints(ctx)
-    assert result == ""
-
-
-@pytest.mark.asyncio
-async def test_checkpoint_toolset_create() -> None:
-    """create_checkpoint returns stub text."""
-    from agent_utilities.capabilities.checkpointing import (
-        CheckpointToolset,
-        InMemoryCheckpointStore,
-    )
-
-    toolset = CheckpointToolset(InMemoryCheckpointStore())
-    ctx = MagicMock()
-    result = await toolset.create_checkpoint(ctx, "mylabel")
-    assert "Checkpoint" in result
-
-
-@pytest.mark.asyncio
-async def test_checkpoint_toolset_rewind_raises() -> None:
-    """rewind raises RewindRequested."""
-    from agent_utilities.capabilities.checkpointing import (
-        CheckpointToolset,
-        InMemoryCheckpointStore,
-        RewindRequested,
-    )
-
-    toolset = CheckpointToolset(InMemoryCheckpointStore())
-    with pytest.raises(RewindRequested) as exc_info:
-        await toolset.rewind(MagicMock(), "cpid")
-    assert exc_info.value.checkpoint_id == "cpid"
-
-
 # ---------------------------------------------------------------------------
 # GraphCheckpointStore
 # ---------------------------------------------------------------------------
@@ -411,26 +359,6 @@ async def test_graph_checkpoint_store_list_skips_unparseable_rows() -> None:
     store = GraphCheckpointStore(SimpleNamespace(query_cypher=lambda _c: rows))
     result = await store.list()
     assert [c.id for c in result] == ["cp1"]
-
-
-# ---------------------------------------------------------------------------
-# fork_from_checkpoint
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_fork_from_checkpoint() -> None:
-    """fork_from_checkpoint delegates to agent.run with message_history."""
-    from agent_utilities.capabilities.checkpointing import (
-        Checkpoint,
-        fork_from_checkpoint,
-    )
-
-    fake_agent = MagicMock()
-    fake_agent.run = AsyncMock(return_value=MagicMock(output="ok"))
-    cp = Checkpoint(id="c1", label="l", turn=1, messages=[])
-    await fork_from_checkpoint(fake_agent, cp, "next turn")
-    fake_agent.run.assert_called_once_with("next turn", message_history=cp.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -801,7 +729,7 @@ async def test_team_add_task_no_engine() -> None:
 async def test_team_add_task_with_engine_and_team() -> None:
     """add_task with engine + team creates an authoritative WorkItem."""
     from agent_utilities.capabilities.teams import TeamCapability
-    from agent_utilities.orchestration.work_item import team_work_item_id
+    from agent_utilities.knowledge_graph.core.work_durability import team_work_item_id
 
     cap = TeamCapability(team_id="team_1")
     ctx = MagicMock()

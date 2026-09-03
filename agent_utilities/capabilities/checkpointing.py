@@ -5,8 +5,9 @@ from __future__ import annotations
 
 CONCEPT:AU-ORCH.execution.execution-budget-caps
 
-Allows snapshotting conversation state, persisting it to the knowledge graph,
-and rewinding or forking from specific points.
+Allows snapshotting conversation state and persisting it to the knowledge graph
+as durable execution evidence. Restoration is owned by the execution runtime,
+not this persistence capability.
 """
 
 
@@ -236,44 +237,6 @@ class FileCheckpointStore(CheckpointStore):
         return [Checkpoint.from_json(f.read_text(encoding="utf-8")) for f in files]
 
 
-class CheckpointToolset:
-    """A toolset that exposes checkpointing operations to the agent."""
-
-    def __init__(self, store: CheckpointStore):
-        self.store = store
-
-    async def create_checkpoint(self, ctx: RunContext[Any], label: str) -> str:
-        """Manually create a checkpoint of the current state."""
-        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex}"
-        messages = getattr(ctx, "messages", [])
-        turn = len(messages) // 2
-        cp = Checkpoint(
-            id=checkpoint_id,
-            label=label,
-            turn=turn,
-            messages=messages,
-            metadata={"episode_id": getattr(ctx.deps, "episode_id", None)},
-        )
-        await self.store.save(cp)
-        return f"Checkpoint created: {checkpoint_id}"
-
-    async def list_checkpoints(self, ctx: RunContext[Any]) -> str:
-        """List available checkpoints for rewinding."""
-        ckpts = await self.store.list()
-        return "\n".join([f"- {c.id}: {c.label} ({c.turn} turns)" for c in ckpts])
-
-    async def rewind(self, ctx: RunContext[Any], checkpoint_id: str) -> None:
-        """Rewind the conversation to a specific checkpoint."""
-        raise RewindRequested(checkpoint_id)
-
-
-class RewindRequested(Exception):
-    """Raised to trigger a conversation rewind."""
-
-    def __init__(self, checkpoint_id: str):
-        self.checkpoint_id = checkpoint_id
-
-
 @dataclass
 class CheckpointMiddleware(AbstractCapability[Any]):
     """Capability that automatically saves checkpoints during a run."""
@@ -303,10 +266,3 @@ class CheckpointMiddleware(AbstractCapability[Any]):
         )
         await self.store.save(cp)
         return checkpoint_id
-
-
-async def fork_from_checkpoint(
-    agent: Any, checkpoint: Checkpoint, user_input: str
-) -> Any:
-    """Start a new run from a specific checkpoint."""
-    return await agent.run(user_input, message_history=checkpoint.messages)

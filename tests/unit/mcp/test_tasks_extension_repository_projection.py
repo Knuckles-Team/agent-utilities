@@ -92,8 +92,8 @@ def _raw_item(status: str = "succeeded") -> dict:
 def test_repository_completed_projection_preserves_domain_result_ref_and_route_meta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
 
     view = _view(RepositoryJobState.SUCCEEDED)
     monkeypatch.setattr(
@@ -124,8 +124,8 @@ def test_repository_completed_projection_preserves_domain_result_ref_and_route_m
 def test_repository_failed_projection_preserves_failure_and_refusal_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
 
     view = _view(
         RepositoryJobState.FAILED,
@@ -185,8 +185,8 @@ def test_repository_projection_fails_closed_on_missing_or_corrupt_authoritative_
     bad_row: dict | None,
     message: str,
 ) -> None:
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
 
     view = _view(RepositoryJobState.SUCCEEDED)
     monkeypatch.setattr(
@@ -256,8 +256,8 @@ def test_route_caller_spoof_is_rejected_even_when_server_is_local() -> None:
 async def test_direct_tasks_get_handler_uses_repository_adapter_and_verified_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
 
     view = _view(RepositoryJobState.READY, result_ref=None)
     monkeypatch.setattr(
@@ -294,8 +294,8 @@ async def test_child_handler_accepts_only_the_signed_multiplexer_task_proof(
     owner-scoped adapter lookup, and response metadata path used by the
     FastMCP request handler.
     """
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
     from agent_utilities.mcp.tasks_extension import (
         _channel_proof,
         _mint_delegation_token,
@@ -462,8 +462,8 @@ async def test_host_handler_forwards_through_bounded_runtime_to_child_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cover host extension -> multiplexer -> native child handler end to end."""
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
     from agent_utilities.mcp.child_resilience import ChildRuntime
     from agent_utilities.mcp.multiplexer import MCPMultiplexer
     from agent_utilities.mcp.tasks_extension import _GetTaskResult
@@ -643,8 +643,8 @@ async def test_read_retry_rebuilds_stdio_proof_for_the_new_generation(
 def test_cancel_race_reports_durable_terminal_winner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import agent_utilities.knowledge_graph.core.work_durability as work_item
     import agent_utilities.orchestration.repository_work_item as repository_adapter
-    import agent_utilities.orchestration.work_item as work_item
 
     terminal = _view(RepositoryJobState.SUCCEEDED)
     monkeypatch.setattr(

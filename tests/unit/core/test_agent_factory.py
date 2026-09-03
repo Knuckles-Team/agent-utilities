@@ -309,7 +309,7 @@ def test_create_agent_with_custom_checkpoint_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Custom checkpoint_store is used when include_checkpoints=True."""
-    from agent_utilities.capabilities import InMemoryCheckpointStore
+    from agent_utilities.capabilities.checkpointing import InMemoryCheckpointStore
 
     custom_store = InMemoryCheckpointStore()
     agent, _ = agent_factory.create_agent(

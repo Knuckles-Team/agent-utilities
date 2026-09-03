@@ -179,9 +179,8 @@ the `pydantic_graph`/`ParallelEngine` plane, which has no equivalent mechanism).
 
 The conductor agent is additionally given a real `CheckpointMiddleware` +
 `GraphCheckpointStore` by default (one message-history snapshot per
-`run_workflow` tool call) — genuine "restore and continue" for the conductor's
-own conversation via `fork_from_checkpoint()`, independent of the catalog-call
-resume cache above. This is the one default-ON exception to the workspace-wide
+`run_workflow` tool call), recording durable checkpoint evidence independently
+of the catalog-call resume cache above. This is the one default-ON exception to the workspace-wide
 `default_runtime_capabilities(include_checkpoints=False)` default: safe here
 specifically because a DynamicWorkflow conductor makes exactly one bounded,
 low-frequency tool call per attempt.

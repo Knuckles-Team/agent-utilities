@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
@@ -10,10 +11,10 @@ from agent_utilities.knowledge_graph.core.session import (
     current_session,
     use_session,
 )
+from agent_utilities.knowledge_graph.core.work_durability import NativeWorkItemRequired
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging import intake_lease
 from agent_utilities.models.company_brain import ActorType
-from agent_utilities.orchestration.work_item import NativeWorkItemRequired
 from agent_utilities.security.brain_context import ActorContext
 
 
@@ -38,7 +39,7 @@ def test_two_contenders_cannot_both_enter_intake(monkeypatch):
     """The native claim result, not process-local state, selects one owner."""
     monkeypatch.setattr(intake_lease, "_identity_digest", lambda platform: "identity")
     rows: dict[str, dict[str, object]] = {}
-    submit_calls: list[dict[str, object]] = []
+    submit_calls: list[dict[str, Any]] = []
     claim_calls: list[str] = []
     lock = threading.Lock()
     owner: str | None = None
@@ -254,7 +255,8 @@ def test_renewal_worker_inherits_ambient_graph_session(monkeypatch):
             )
         observed_sessions.append(ambient)
         heartbeat_called.set()
-        return True  # keep the lease alive so the test controls the stop deterministically
+        # Keep the lease alive so the test controls the stop deterministically.
+        return True
 
     monkeypatch.setattr(intake_lease, "heartbeat", _heartbeat)
     monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)

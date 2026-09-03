@@ -1030,7 +1030,7 @@ async def _probe_graph_os_tools(endpoint: str, *, request_timeout: float) -> Non
             client,
             "graph_query",
             {
-                "cypher": "MATCH (n) RETURN n LIMIT 0",
+                "query": "MATCH (n) RETURN n LIMIT 0",
                 "params": "{}",
                 "scope": "local",
             },

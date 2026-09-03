@@ -35,9 +35,7 @@ def _imported_modules(module: object) -> set[str]:
     """Return static import targets for one inspected module."""
     tree = ast.parse(inspect.getsource(module))
     imported_from = {
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     }
     imported_direct = {
         alias.name
@@ -177,7 +175,10 @@ def test_fleet_sync_uses_composed_probe_and_governed_snapshot_writer(
     monkeypatch.setattr(source_sync, "write_fleet_catalog_snapshot", write_snapshot)
     monkeypatch.setattr(source_sync, "_fleet_probe_budget", lambda: 10.0)
     monkeypatch.setattr(source_sync, "_fresh_write_authority", contextlib.nullcontext)
-    monkeypatch.setattr(source_sync, "_reconcile_declared_fleet", lambda _catalog: None)
+    # NOTE: `_reconcile_declared_fleet` (the declared-fleet-registry coverage
+    # reconcile) was removed from source_sync.py by this candidate — its
+    # `declared_total`/`declared_uncovered` accounting is no longer part of
+    # `_sync_fleet`'s result, so there is nothing left here to monkeypatch.
     engine = SimpleNamespace(mcp_probe_port=port)
 
     result = source_sync._sync_fleet(engine)

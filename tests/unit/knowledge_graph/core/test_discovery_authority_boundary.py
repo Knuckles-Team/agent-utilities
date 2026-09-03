@@ -6,13 +6,11 @@ import ast
 from pathlib import Path
 
 from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
-from agent_utilities.mcp.remote_oauth_broker import (
-    OAuthGrantBinding as BrokerOAuthGrantBinding,
-)
+from agent_utilities.mcp import remote_oauth_broker
 
 
-def test_broker_exports_the_canonical_lower_binding_type():
-    assert BrokerOAuthGrantBinding is OAuthGrantBinding
+def test_broker_does_not_reexport_the_canonical_lower_binding_type():
+    assert "OAuthGrantBinding" not in remote_oauth_broker.__all__
 
 
 def test_canonical_binding_has_no_grant_digest_compatibility_alias():

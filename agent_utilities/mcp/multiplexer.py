@@ -108,6 +108,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mcp_multiplexer")
 _SESSION_KEY = secrets.token_bytes(32)
+#: Total "unknown tool" relist-and-retry attempts a stable-dispatch caller
+#: gets against ONE child connection generation before it fails closed
+#: (`MCPMultiplexer._retry_read_only_unknown`). A single `dispatch_catalog_tool`
+#: call only ever issues one retry, but with no cap on the number of separate
+#: dispatch calls a caller can make, a child that keeps genuinely lacking the
+#: tool would otherwise be relisted and retried without limit.
+_UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION = 3
 _CONFIG_MAX_BYTES = 4 * 1024 * 1024
 _MAX_DELEGATED_VALUE_BYTES = 4 * 1024 * 1024
 _MAX_DELEGATED_NODES = 16_384
@@ -274,6 +281,31 @@ def _catalog_error_text(result: Any) -> str:
         str(getattr(item, "text", ""))
         for item in (getattr(result, "content", None) or ())[:8]
     )[:4096].lower()
+
+
+def _tool_schema_compatible(descriptor: dict[str, Any], relisted_tool: Any) -> bool:
+    """Positive proof the relisted tool still accepts the exact call in hand.
+
+    The snapshot's own ``inputSchema`` for this tool must be byte-identical
+    (via a canonical JSON compare, order-independent) to the LIVE relisted
+    tool's ``inputSchema``. A name match alone is not compatibility: a child
+    can legitimately redefine a tool's schema between generations while
+    keeping its name, and blindly resending the same arguments against a
+    changed schema is exactly the "unknown tool" retry's failure mode this
+    guards against.
+    """
+    try:
+        expected = json.dumps(
+            descriptor.get("inputSchema") or {}, sort_keys=True, default=str
+        )
+        actual = json.dumps(
+            getattr(relisted_tool, "input_schema", None) or {},
+            sort_keys=True,
+            default=str,
+        )
+    except (TypeError, ValueError):
+        return False
+    return expected == actual
 
 
 def _sample_child_health_gauges() -> None:
@@ -2321,6 +2353,16 @@ class MCPMultiplexer:
         # once per session even when every entry failed — a fleet outage must
         # not turn every tools/list into a fresh round of doomed connections.
         self._always_load_done: dict[str, dict[str, Any]] = {}
+        # CONCEPT:AU-ECO.mcp.stable-dispatch-bounded-retry — `(server_name,
+        # child_connection_generation)` -> retries already spent on an
+        # "unknown tool" relist-and-retry for that exact child incarnation
+        # (`_retry_read_only_unknown`). A single `dispatch_catalog_tool` call
+        # only ever issues one retry, but nothing previously stopped a caller
+        # from re-invoking dispatch repeatedly against a child that keeps
+        # reporting the same tool unknown — this budget makes the total
+        # retries per child generation finite instead of relying on caller
+        # good behavior.
+        self._unknown_tool_retry_budget: dict[tuple[str, int], int] = {}
         _LIVE_MULTIPLEXERS.add(self)
         _register_child_health_sampler()
 
@@ -4308,7 +4350,11 @@ class MCPMultiplexer:
         self._catalog_reconciler.assert_homogeneous(
             candidate.identity, self._replica_catalog_identities()
         )
-        writer_result = await self._write_catalog_candidate(catalog)
+        writer_result = await self._write_catalog_candidate(
+            catalog,
+            catalog_generation=candidate.identity.catalog_generation,
+            snapshot_digest=candidate.identity.snapshot_digest,
+        )
         published, changed = self._catalog_reconciler.publish(
             candidate, affected_session_ids=tuple(self._session_loaded)
         )
@@ -4358,9 +4404,20 @@ class MCPMultiplexer:
             ) from exc
 
     async def _write_catalog_candidate(
-        self, catalog: dict[str, dict[str, Any]]
+        self,
+        catalog: dict[str, dict[str, Any]],
+        *,
+        catalog_generation: int,
+        snapshot_digest: str,
     ) -> dict[str, Any]:
-        """Obtain the downstream acknowledgement required before publication."""
+        """Obtain the downstream acknowledgement required before publication.
+
+        A generic ``status: "ok"`` is not sufficient evidence that the writer
+        ingested THIS candidate: it binds and verifies the writer's receipt
+        against the exact ``catalog_generation``/``snapshot_digest`` this
+        write was for, so a stale or unrelated acknowledgement can never be
+        mistaken for reconciliation of the candidate about to be published.
+        """
         writer = self._fleet_catalog_writer
         if writer is None:
             raise CatalogContractError(
@@ -4369,14 +4426,30 @@ class MCPMultiplexer:
                 retryable=True,
             )
         configs = {server: self.load_catalog()[server] for server in catalog}
-        result = await writer(catalog, configs, self._take_discovery_bindings(catalog))
-        if isinstance(result, dict) and result.get("status") == "ok":
-            return result
-        raise CatalogContractError(
-            "reingestion-unreconciled",
-            "catalog reconciliation was not acknowledged",
-            retryable=True,
+        result = await writer(
+            catalog,
+            configs,
+            self._take_discovery_bindings(catalog),
+            catalog_generation=catalog_generation,
+            snapshot_digest=snapshot_digest,
         )
+        if not (isinstance(result, dict) and result.get("status") == "ok"):
+            raise CatalogContractError(
+                "reingestion-unreconciled",
+                "catalog reconciliation was not acknowledged",
+                retryable=True,
+            )
+        if (
+            result.get("catalog_generation") != catalog_generation
+            or result.get("snapshot_digest") != snapshot_digest
+        ):
+            raise CatalogContractError(
+                "reingestion-unreconciled",
+                "catalog reconciliation acknowledged a different generation/"
+                "digest than the candidate being published",
+                retryable=True,
+            )
+        return result
 
     def _pending_catalog_highwater(self) -> int | None:
         return max(
@@ -4452,17 +4525,47 @@ class MCPMultiplexer:
         arguments: dict[str, Any],
         result: MCPCallToolResult,
     ) -> MCPCallToolResult:
-        """Relist and retry one same-generation, read-only advertised miss."""
+        """Relist and retry one same-generation, read-only advertised miss.
+
+        Bounded on two independent axes so this can never become an
+        unbounded retry loop:
+
+        * **Count** — at most :data:`_UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION`
+          retries total per ``(server, child_connection_generation)``, tracked
+          in :attr:`_unknown_tool_retry_budget`. A single call only ever
+          issues one retry, but nothing previously stopped a caller from
+          re-invoking dispatch repeatedly against a persistently-broken
+          child; the budget now makes that finite.
+        * **Schema compatibility** — the relisted tool's own ``inputSchema``
+          must be byte-identical to the snapshot's descriptor before the
+          SAME ``arguments`` are ever resent. A relist that proves the name
+          exists again but under a CHANGED schema is not proof the retry is
+          safe — it is proof the tool was redefined, so retrying blind could
+          send arguments the new schema never agreed to. That case fails
+          closed (returns the original miss) exactly like a still-missing
+          name.
+        """
         target = self._read_only_relist_target(child, descriptor, result)
         if target is None:
             return result
+        budget_key = (child.server_name, child.child_connection_generation)
+        spent = self._unknown_tool_retry_budget.get(budget_key, 0)
+        if spent >= _UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION:
+            return result
         session, original_name = target
         relisted = await session.list_tools()
-        names = {item.name for item in relisted.tools}
-        if original_name not in names:
+        relisted_tool = next(
+            (item for item in relisted.tools if item.name == original_name), None
+        )
+        if relisted_tool is None:
             return result
-        # One bounded retry, only after AU received the request and proved the
-        # same read-only descriptor still exists on the same child generation.
+        if not _tool_schema_compatible(descriptor, relisted_tool):
+            return result
+        self._unknown_tool_retry_budget[budget_key] = spent + 1
+        # One retry per this check, only after AU received the request and
+        # proved the same read-only descriptor — same name, same schema —
+        # still exists on the same child generation, and the per-generation
+        # budget above has not been exhausted.
         return await self.call_proxied_tool(tool_name, arguments)
 
     def _read_only_relist_target(
@@ -6455,18 +6558,6 @@ def _resolve_config_path(explicit: str | None) -> Path:
     from agent_utilities.core.paths import config_dir
 
     return config_dir() / "mcp_config.json"
-
-
-def invalidate_live_catalogs() -> int:
-    """Retired synchronous invalidator retained as a non-mutating callback.
-
-    ``save_config_item`` historically invokes this callback synchronously.
-    Mutating every weakly-referenced multiplexer here created multiple catalog
-    writers and could clear a serving loop from another thread. Governed
-    configuration now awaits ``reconcile_current_catalog`` on the one bound
-    served authority; this callback intentionally performs no catalog I/O.
-    """
-    return 0
 
 
 def _tool_result_from_child(result: MCPCallToolResult) -> ToolResult:

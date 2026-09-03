@@ -245,7 +245,7 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
             "/api/graph/query",
             headers=auth_headers,
             json={
-                "cypher": "MATCH (n:TinyProfileNode) WHERE n.id = $id RETURN n.id AS id",
+                "query": "MATCH (n:TinyProfileNode) WHERE n.id = $id RETURN n.id AS id",
                 # graph_query expects ``params`` as a JSON string, mirroring the MCP tool.
                 "params": json.dumps({"id": node_id}),
             },

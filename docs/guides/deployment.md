@@ -293,7 +293,7 @@ agent-utilities-doctor
 curl -s localhost:8004/health
 
 # REST via the gateway
-curl -s -XPOST localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
+curl -s -XPOST localhost:9000/api/graph/query -d '{"query":"MATCH (n) RETURN count(n)"}'
 ```
 
 See also: [Configuration](configuration.md) · [Graph Engine (Authority + Mirrors)](graph_engine.md)

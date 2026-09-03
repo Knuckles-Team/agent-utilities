@@ -1,7 +1,7 @@
 {
   "_comment": "Fleet consumer index for check_removed_symbol_consumers.py. Maps a fully-qualified agent_utilities dotted target (module path + symbol name, OR a bare module path for a whole-module import) to every agents/*  and skills/* repo+file+line that imports it. Regenerate with `python3 scripts/gen_fleet_symbol_consumers.py --update` after any fleet-wide checkout refresh; the gate FAILS closed if this file is missing or older than its staleness threshold \u2014 see that script's docstring.",
-  "generated_at": "2026-09-01T07:42:25+00:00",
-  "workspace_manifest_sha256": "e2427f162030c0ea30473f657d2daed79b0aec31c93c85b5f21a1980589fb814",
+  "generated_at": "2026-09-02T17:43:51+00:00",
+  "workspace_manifest_sha256": "b3ec959806ace64a512b4b5e47d2eecc6b320ed7fca941e8f4424f0c0df29c7f",
   "workspace_root": "/home/apps/workspace",
   "repos_scanned": {
     "ansible-tower-mcp": {
@@ -10,7 +10,7 @@
     },
     "archimate-mcp": {
       "kind": "agents",
-      "head_sha": "19fd2205c47fda2faed56f40a4e2348b902c643a"
+      "head_sha": "e759dab50ea630678c30f9b6ba0d8bdb9bb482e4"
     },
     "archivebox-api": {
       "kind": "agents",
@@ -18,7 +18,7 @@
     },
     "aris-mcp": {
       "kind": "agents",
-      "head_sha": "02df2665f6b5457d865951205ebd33350b0ac39a"
+      "head_sha": "6fbdd585f9ef55caf82ef450e7d7194d2e2f883b"
     },
     "arr-mcp": {
       "kind": "agents",
@@ -42,11 +42,11 @@
     },
     "camunda-mcp": {
       "kind": "agents",
-      "head_sha": "5d30dd6d9194d9403497df3c224a4e20b580c0a1"
+      "head_sha": "490bd71a0d5381111f797247947bf9e87747e360"
     },
     "ciso-assistant-api": {
       "kind": "agents",
-      "head_sha": "3ffdc9525027498f1a5206ffdcec2c9c62d55808"
+      "head_sha": "f122e91cc42062adc06ec65dab7d7f5a6bb821cf"
     },
     "clarity-api": {
       "kind": "agents",
@@ -70,7 +70,7 @@
     },
     "egeria-mcp": {
       "kind": "agents",
-      "head_sha": "be0643a6884229b54b596871de688ed1d5aea5f4"
+      "head_sha": "0e76b8da8582e9f67cfca6f382e01080ce4bfae1"
     },
     "emerald-exchange": {
       "kind": "agents",
@@ -142,11 +142,11 @@
     },
     "leanix-agent": {
       "kind": "agents",
-      "head_sha": "ba37d79156f186444e755673727912df1a6cccfb"
+      "head_sha": "52302b25087265ec7abe20e6747f9a7a43338ba1"
     },
     "legal-peripherals-mcp": {
       "kind": "agents",
-      "head_sha": "080bb1548f09081091949c6b25410024c94de917"
+      "head_sha": "1426800b0ec8455b6a4e0a4b763475b91de16185"
     },
     "lgtm-mcp": {
       "kind": "agents",
@@ -154,7 +154,7 @@
     },
     "listmonk-api": {
       "kind": "agents",
-      "head_sha": "d9388d2dd0bfa54cfbfebc558b8b5da1334eb43d"
+      "head_sha": "49001aeecc9da6f924653295ac7c1ca8f4e327a8"
     },
     "mattermost-mcp": {
       "kind": "agents",
@@ -170,7 +170,7 @@
     },
     "microsoft-agent": {
       "kind": "agents",
-      "head_sha": "0573efde9a50b1b1c8de0d309fdc18e003056f8d"
+      "head_sha": "c0e86758bf20e4ea0df36cc27d44ac0ac927c64a"
     },
     "nextcloud-agent": {
       "kind": "agents",
@@ -218,7 +218,7 @@
     },
     "pulselink-mcp": {
       "kind": "agents",
-      "head_sha": "1490db0ba25f2a5e37f7e667f50d3986bba16359"
+      "head_sha": "4eea8b669e90ff8874f3017791518c9efa2a47ba"
     },
     "qbittorrent-agent": {
       "kind": "agents",
@@ -226,7 +226,7 @@
     },
     "repository-manager": {
       "kind": "agents",
-      "head_sha": "182dbd4e5b2fdaa9206eb4d9a6ea167e1b9bb61a"
+      "head_sha": "64064acdfbf06f0c36cc66fa67a19b68c5754768"
     },
     "rom-manager": {
       "kind": "agents",
@@ -290,11 +290,11 @@
     },
     "skill-graphs": {
       "kind": "skills",
-      "head_sha": "0892ddc75cfae9a37f91b8d41d1d45aad48f3e7b"
+      "head_sha": "e53278bbb27d1edc8f8582e199eeaf826eb66f14"
     },
     "universal-skills": {
       "kind": "skills",
-      "head_sha": "71edf1252b1eb762283a76bec1b5d2dee0b2dc53"
+      "head_sha": "0bb8efa5f7d559813a14af2414997ca8b433818d"
     }
   },
   "repos_missing_locally": [],
@@ -316,6 +316,13 @@
         "line": 7
       }
     ],
+    "agent_utilities.agent.factory.create_agent": [
+      {
+        "repo": "universal-skills",
+        "file": "universal_skills/agent-tools/agent-spawner/scripts/spawn_agent.py",
+        "line": 74
+      }
+    ],
     "agent_utilities.agent.factory.create_agent_parser": [
       {
         "repo": "microsoft-agent",
@@ -333,20 +340,6 @@
         "line": 8
       }
     ],
-    "agent_utilities.agent_utilities.chat": [
-      {
-        "repo": "universal-skills",
-        "file": "universal_skills/agent-tools/agent-spawner/scripts/spawn_agent.py",
-        "line": 46
-      }
-    ],
-    "agent_utilities.agent_utilities.create_agent": [
-      {
-        "repo": "universal-skills",
-        "file": "universal_skills/agent-tools/agent-spawner/scripts/spawn_agent.py",
-        "line": 46
-      }
-    ],
     "agent_utilities.automation.file_watcher.FileWatcher": [
       {
         "repo": "systems-manager",
@@ -358,7 +351,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 45
+        "line": 50
       }
     ],
     "agent_utilities.base_utilities.get_logger": [
@@ -725,12 +718,12 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 7
+        "line": 8
       },
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 56
+        "line": 62
       },
       {
         "repo": "rom-manager",
@@ -889,7 +882,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 45
+        "line": 50
       },
       {
         "repo": "salesforce-agent",
@@ -1266,6 +1259,13 @@
         "line": 23
       }
     ],
+    "agent_utilities.core.chat_persistence.chat": [
+      {
+        "repo": "universal-skills",
+        "file": "universal_skills/agent-tools/agent-spawner/scripts/spawn_agent.py",
+        "line": 76
+      }
+    ],
     "agent_utilities.core.chat_persistence.prune_large_messages": [
       {
         "repo": "vector-mcp",
@@ -1285,9 +1285,7 @@
         "repo": "fan-manager",
         "file": "tests/test_kg_control.py",
         "line": 140
-      }
-    ],
-    "agent_utilities.core.config.AgentConfig": [
+      },
       {
         "repo": "leanix-agent",
         "file": "leanix_agent/official_mcp.py",
@@ -1301,7 +1299,7 @@
       {
         "repo": "universal-skills",
         "file": "universal_skills/agent-tools/agent-spawner/scripts/spawn_agent.py",
-        "line": 47
+        "line": 75
       },
       {
         "repo": "universal-skills",
@@ -1605,7 +1603,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 8
+        "line": 9
       },
       {
         "repo": "qbittorrent-agent",
@@ -2140,11 +2138,6 @@
         "repo": "microsoft-agent",
         "file": "microsoft_agent/agent_server.py",
         "line": 13
-      },
-      {
-        "repo": "microsoft-agent",
-        "file": "microsoft_agent/auth.py",
-        "line": 17
       },
       {
         "repo": "microsoft-agent",
@@ -3015,7 +3008,7 @@
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/auth.py",
-        "line": 18
+        "line": 17
       },
       {
         "repo": "microsoft-agent",
@@ -3025,7 +3018,7 @@
       {
         "repo": "microsoft-agent",
         "file": "tests/test_auth.py",
-        "line": 440
+        "line": 452
       },
       {
         "repo": "microsoft-agent",
@@ -4058,7 +4051,7 @@
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/auth.py",
-        "line": 18
+        "line": 17
       },
       {
         "repo": "microsoft-agent",
@@ -4334,7 +4327,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 724
+        "line": 828
       },
       {
         "repo": "repository-manager",
@@ -4948,13 +4941,8 @@
       },
       {
         "repo": "pulselink-mcp",
-        "file": "pulselink_mcp/api/api_client_base.py",
-        "line": 4
-      },
-      {
-        "repo": "pulselink-mcp",
-        "file": "pulselink_mcp/sources/base.py",
-        "line": 29
+        "file": "pulselink_mcp/sources/http_transport.py",
+        "line": 9
       },
       {
         "repo": "qbittorrent-agent",
@@ -5437,18 +5425,13 @@
       },
       {
         "repo": "pulselink-mcp",
-        "file": "pulselink_mcp/api/api_client_base.py",
-        "line": 4
-      },
-      {
-        "repo": "pulselink-mcp",
         "file": "pulselink_mcp/integrations/x_search_tool.py",
         "line": 27
       },
       {
         "repo": "pulselink-mcp",
-        "file": "pulselink_mcp/sources/base.py",
-        "line": 29
+        "file": "pulselink_mcp/sources/http_transport.py",
+        "line": 9
       },
       {
         "repo": "pulselink-mcp",
@@ -6701,7 +6684,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6733,12 +6716,12 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/mcp_tools/merge_queue.py",
-        "line": 105
+        "line": 115
       },
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6750,7 +6733,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6777,12 +6760,12 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/mcp_tools/merge_queue.py",
-        "line": 105
+        "line": 115
       },
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 3323
+        "line": 3475
       },
       {
         "repo": "repository-manager",
@@ -6792,12 +6775,12 @@
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1288
+        "line": 1312
       },
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1606
+        "line": 1652
       },
       {
         "repo": "repository-manager",
@@ -6809,7 +6792,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       }
     ],
     "agent_utilities.governance.lanes.hold_lease": [
@@ -6821,7 +6804,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6862,7 +6845,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6872,12 +6855,12 @@
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 946
+        "line": 970
       },
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1058
+        "line": 1082
       }
     ],
     "agent_utilities.governance.lanes.lease_status": [
@@ -6889,12 +6872,12 @@
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1606
+        "line": 1652
       },
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1652
+        "line": 1698
       }
     ],
     "agent_utilities.governance.lanes.partitioned_paths": [
@@ -6906,7 +6889,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/merge_queue.py",
-        "line": 102
+        "line": 103
       },
       {
         "repo": "repository-manager",
@@ -6916,7 +6899,7 @@
       {
         "repo": "repository-manager",
         "file": "tests/test_merge_queue.py",
-        "line": 1058
+        "line": 1082
       },
       {
         "repo": "repository-manager",
@@ -7672,6 +7655,11 @@
         "line": 40
       },
       {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/mcp_server.py",
+        "line": 78
+      },
+      {
         "repo": "repository-manager",
         "file": "tests/test_graph_pipeline.py",
         "line": 14
@@ -7918,7 +7906,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "qbittorrent-agent",
@@ -8241,7 +8229,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "qbittorrent-agent",
@@ -8312,6 +8300,20 @@
         "repo": "wger-agent",
         "file": "tests/test_kg_ingest.py",
         "line": 18
+      }
+    ],
+    "agent_utilities.knowledge_graph.core.work_durability.claim_specific": [
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/native_lane_authority.py",
+        "line": 170
+      }
+    ],
+    "agent_utilities.knowledge_graph.core.work_durability.submit_work_item_atomic": [
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/native_lane_authority.py",
+        "line": 170
       }
     ],
     "agent_utilities.knowledge_graph.distillation.AcquiredDoc": [
@@ -8429,7 +8431,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/integrations/x_search_tool.py",
-        "line": 492
+        "line": 493
       }
     ],
     "agent_utilities.knowledge_graph.memory.media_store.MediaStore": [
@@ -8805,7 +8807,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "qbittorrent-agent",
@@ -12401,7 +12403,7 @@
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/auth.py",
-        "line": 84
+        "line": 83
       }
     ],
     "agent_utilities.mcp.delegated_auth.is_delegation_enabled": [
@@ -12511,13 +12513,6 @@
         "repo": "leanix-agent",
         "file": "tests/test_official_mcp_live_path.py",
         "line": 12
-      }
-    ],
-    "agent_utilities.mcp.multiplexer.MCPMultiplexer": [
-      {
-        "repo": "leanix-agent",
-        "file": "tests/test_official_mcp_live_path.py",
-        "line": 13
       }
     ],
     "agent_utilities.mcp.multiplexer.get_server_prefix": [
@@ -12803,7 +12798,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 9
+        "line": 10
       },
       {
         "repo": "qbittorrent-agent",
@@ -13208,7 +13203,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 10
+        "line": 11
       },
       {
         "repo": "qbittorrent-agent",
@@ -13322,19 +13317,9 @@
         "line": 17
       },
       {
-        "repo": "archimate-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
         "repo": "archivebox-api",
         "file": "tests/test_kg_ingest.py",
         "line": 19
-      },
-      {
-        "repo": "aris-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
       },
       {
         "repo": "arr-mcp",
@@ -13355,16 +13340,6 @@
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 17
-      },
-      {
-        "repo": "camunda-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "ciso-assistant-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 25
       },
       {
         "repo": "clarity-api",
@@ -13388,11 +13363,6 @@
       },
       {
         "repo": "documentdb-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "egeria-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 18
       },
@@ -13462,19 +13432,9 @@
         "line": 17
       },
       {
-        "repo": "legal-peripherals-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 16
-      },
-      {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 17
-      },
-      {
-        "repo": "listmonk-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 26
       },
       {
         "repo": "mattermost-mcp",
@@ -13525,11 +13485,6 @@
         "repo": "postiz-agent",
         "file": "tests/test_kg_ingest.py",
         "line": 18
-      },
-      {
-        "repo": "pulselink-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
       },
       {
         "repo": "qbittorrent-agent",
@@ -13900,20 +13855,6 @@
         "line": 30
       }
     ],
-    "agent_utilities.orchestration.work_item.claim_specific": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/native_lane_authority.py",
-        "line": 170
-      }
-    ],
-    "agent_utilities.orchestration.work_item.submit_work_item_atomic": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/native_lane_authority.py",
-        "line": 170
-      }
-    ],
     "agent_utilities.prompting.builder.build_system_prompt_from_workspace": [
       {
         "repo": "microsoft-agent",
@@ -14057,6 +13998,43 @@
         "repo": "portainer-agent",
         "file": "tests/test_stack_query.py",
         "line": 34
+      }
+    ],
+    "agent_utilities.security.actor_identity.ActorType": [
+      {
+        "repo": "archimate-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "camunda-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "ciso-assistant-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 25
+      },
+      {
+        "repo": "egeria-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "legal-peripherals-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 16
+      },
+      {
+        "repo": "listmonk-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 26
       }
     ],
     "agent_utilities.security.brain_context.ActorContext": [
@@ -14278,7 +14256,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 17
       },
       {
         "repo": "qbittorrent-agent",
@@ -14359,6 +14337,13 @@
         "repo": "wger-agent",
         "file": "tests/test_kg_ingest.py",
         "line": 16
+      }
+    ],
+    "agent_utilities.security.brain_context.ActorType": [
+      {
+        "repo": "pulselink-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
       }
     ],
     "agent_utilities.security.brain_context.IdentityRequiredError": [
@@ -14587,7 +14572,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 17
       },
       {
         "repo": "qbittorrent-agent",
@@ -14750,11 +14735,11 @@
         "line": 35
       }
     ],
-    "agent_utilities.security.credential_provider.get_credential_provider": [
+    "agent_utilities.security.credential_provider.CredentialProvider": [
       {
         "repo": "pulselink-mcp",
-        "file": "pulselink_mcp/sources/base.py",
-        "line": 123
+        "file": "pulselink_mcp/auth.py",
+        "line": 11
       }
     ],
     "agent_utilities.security.egress.validate_base_url": [
@@ -14922,7 +14907,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 224
+        "line": 387
       },
       {
         "repo": "repository-manager",
@@ -14957,11 +14942,52 @@
         "line": 3649
       }
     ],
+    "agent_utilities.security.secrets_client.InEpistemicGraphBackend": [
+      {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/mcp_server.py",
+        "line": 79
+      }
+    ],
+    "agent_utilities.security.secrets_client.SecretsClient": [
+      {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/auth.py",
+        "line": 12
+      },
+      {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/mcp_server.py",
+        "line": 20
+      },
+      {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/mcp_server.py",
+        "line": 79
+      },
+      {
+        "repo": "pulselink-mcp",
+        "file": "tests/test_auth.py",
+        "line": 4
+      },
+      {
+        "repo": "pulselink-mcp",
+        "file": "tests/test_pulselink_mcp_validation.py",
+        "line": 5
+      }
+    ],
     "agent_utilities.security.secrets_client.create_secrets_client": [
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/connection_security.py",
         "line": 188
+      }
+    ],
+    "agent_utilities.security.source_credentials.NoCredential": [
+      {
+        "repo": "pulselink-mcp",
+        "file": "tests/test_sources_live.py",
+        "line": 13
       }
     ],
     "agent_utilities.security.xai_auth.XaiAuthManager": [

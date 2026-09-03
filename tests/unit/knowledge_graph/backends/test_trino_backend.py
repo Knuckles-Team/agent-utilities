@@ -12,12 +12,12 @@ import pytest
 
 from agent_utilities.knowledge_graph.backends.trino_backend import (
     ChangeEnvelopeBuilder,
-    KnowledgeBatch,
     MissingFenceFieldError,
     TrinoQueryBackend,
     TrinoQueryError,
     UnknownSnapshotError,
 )
+from agent_utilities.knowledge_graph.core.tabular_query_service import KnowledgeBatch
 
 # ---------------------------------------------------------------------------
 # KnowledgeBatch contract

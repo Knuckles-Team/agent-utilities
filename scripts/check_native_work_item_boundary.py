@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Enforce one engine-native ``WorkItem`` lifecycle authority.
 
-``agent_utilities/orchestration/work_item.py`` is the only module allowed to
-define or persist WorkItem lifecycle transitions.  The AgentBus inbox may
-construct its initial WorkItem inside the same transaction as the inbox, but it
-may not implement a transition.  Passive schemas, protocol objects, and
-read-only label references remain valid.
+``agent_utilities/knowledge_graph/core/work_durability.py`` is the only module
+allowed to define or persist WorkItem lifecycle transitions.  The AgentBus
+inbox may construct its initial WorkItem inside the same transaction as the
+inbox, but it may not implement a transition.  Passive schemas, protocol
+objects, and read-only label references remain valid.
 """
 
 from __future__ import annotations
@@ -15,9 +15,34 @@ import sys
 from pathlib import Path, PurePosixPath
 
 _PACKAGE = PurePosixPath("agent_utilities")
-_AUTHORITY = PurePosixPath("agent_utilities/orchestration/work_item.py")
+_AUTHORITY = PurePosixPath("agent_utilities/knowledge_graph/core/work_durability.py")
+_LEGACY_AUTHORITY = "agent_utilities.orchestration.work_item"
+_LEGACY_AUTHORITY_PATH = PurePosixPath("agent_utilities/orchestration/work_item.py")
 _BUS_INBOX = PurePosixPath("agent_utilities/messaging/bus_inbox.py")
 _PASSIVE_PARTS = frozenset({"models", "protocols", "schemas"})
+
+# Exact operational status mirrors that remain deletion blockers. The gate
+# permits only these current writes so every new AgentTask or TaskNode status
+# authority is rejected while their atomic removal lands separately.
+_OPERATIONAL_MIRROR_DELETION_BLOCKERS = {
+    (
+        PurePosixPath("agent_utilities/orchestration/agent_dispatch_worker.py"),
+        "_finalize_agent_task",
+        "AgentTask",
+    ): 1,
+    (
+        PurePosixPath("agent_utilities/orchestration/fleet_reconciler.py"),
+        "fire_ready_agent_tasks",
+        "AgentTask",
+    ): 1,
+    (
+        PurePosixPath("agent_utilities/models/knowledge_graph.py"),
+        "to_durable_task_dag",
+        "AgentTask",
+    ): 1,
+    (_AUTHORITY, "_mirror_agent_task_running_status", "AgentTask"): 1,
+}
+_OPERATIONAL_MIRROR_LABELS = frozenset({"AgentTask", "TaskNode"})
 
 _LIFECYCLE_CLASSES = frozenset(
     {"WorkItem", "WorkItemStatus", "WorkItemPhase", "OrgPhase"}
@@ -117,6 +142,23 @@ def _contains_work_item_literal(node: ast.AST) -> bool:
     return any(_literal_string(child) == "WorkItem" for child in ast.walk(node))
 
 
+def _operational_status_mirror_labels(node: ast.Call) -> frozenset[str]:
+    """Return task labels whose operational status is written by ``node``."""
+    if not _is_direct_write(_call_name(node.func)):
+        return frozenset()
+    labels = {
+        literal
+        for child in ast.walk(node)
+        if (literal := _literal_string(child)) in _OPERATIONAL_MIRROR_LABELS
+    }
+    has_status = any(
+        isinstance(child, ast.Dict)
+        and bool({"status", "state", "phase"}.intersection(_dict_items(child)))
+        for child in ast.walk(node)
+    )
+    return frozenset(labels) if has_status else frozenset()
+
+
 def _dict_items(node: ast.Dict) -> dict[str, ast.AST]:
     items: dict[str, ast.AST] = {}
     for key, value in zip(node.keys, node.values, strict=True):
@@ -147,11 +189,34 @@ def _is_orchestration_module(relative: PurePosixPath) -> bool:
     return relative.parts[:2] == ("agent_utilities", "orchestration")
 
 
+def _is_legacy_import_parent(node: ast.ImportFrom, relative: PurePosixPath) -> bool:
+    """Return whether an imported ``work_item`` name resolves to the old package."""
+    module = node.module or ""
+    return (
+        module == "agent_utilities.orchestration"
+        or (node.level > 0 and module == "orchestration")
+        or (node.level == 1 and _is_orchestration_module(relative))
+    )
+
+
+def _imports_legacy_work_item(node: ast.ImportFrom, relative: PurePosixPath) -> bool:
+    """Recognize absolute and package-relative imports of the retired module."""
+    module = node.module or ""
+    if module == _LEGACY_AUTHORITY:
+        return True
+    if node.level > 0 and module.endswith("orchestration.work_item"):
+        return True
+    if not any(alias.name == "work_item" for alias in node.names):
+        return False
+    return _is_legacy_import_parent(node, relative)
+
+
 class _BoundaryVisitor(ast.NodeVisitor):
     def __init__(self, relative: PurePosixPath) -> None:
         self.relative = relative
         self.findings: list[str] = []
         self._functions: list[str] = []
+        self._operational_mirror_counts: dict[tuple[PurePosixPath, str, str], int] = {}
 
     def _add(self, node: ast.AST, message: str) -> None:
         self.findings.append(f"{self.relative}:{node.lineno}: {message}")
@@ -169,7 +234,26 @@ class _BoundaryVisitor(ast.NodeVisitor):
             self._add(
                 node,
                 f"parallel WorkItem lifecycle class {node.name!r}; use "
-                "orchestration.work_item",
+                "agent_utilities.knowledge_graph.core.work_durability",
+            )
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if alias.name == _LEGACY_AUTHORITY:
+                self._add(
+                    node,
+                    "legacy orchestration WorkItem authority import; use "
+                    "agent_utilities.knowledge_graph.core.work_durability",
+                )
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if _imports_legacy_work_item(node, self.relative):
+            self._add(
+                node,
+                "legacy orchestration WorkItem authority import; use "
+                "agent_utilities.knowledge_graph.core.work_durability",
             )
         self.generic_visit(node)
 
@@ -182,7 +266,7 @@ class _BoundaryVisitor(ast.NodeVisitor):
             self._add(
                 node,
                 f"parallel WorkItem transition {node.name!r}; use "
-                "orchestration.work_item",
+                "agent_utilities.knowledge_graph.core.work_durability",
             )
         self._functions.append(node.name)
         self.generic_visit(node)
@@ -194,7 +278,21 @@ class _BoundaryVisitor(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
 
+    def _visit_operational_status_mirrors(self, node: ast.Call) -> None:
+        for label in _operational_status_mirror_labels(node):
+            key = (self.relative, self._function, label)
+            count = self._operational_mirror_counts.get(key, 0) + 1
+            self._operational_mirror_counts[key] = count
+            if count > _OPERATIONAL_MIRROR_DELETION_BLOCKERS.get(key, 0):
+                self._add(
+                    node,
+                    f"operational {label} status mirror creates a parallel "
+                    "lifecycle authority; use "
+                    "agent_utilities.knowledge_graph.core.work_durability",
+                )
+
     def visit_Call(self, node: ast.Call) -> None:
+        self._visit_operational_status_mirrors(node)
         if self.relative != _AUTHORITY:
             name = _call_name(node.func)
             if _is_direct_write(name) and _contains_work_item_literal(node):
@@ -266,12 +364,23 @@ def violations(path: Path, *, root: Path) -> list[str]:
     return visitor.findings
 
 
+def _legacy_authority_finding(root: Path) -> list[str]:
+    """Reject even an import-free legacy facade module."""
+    if not (root / _LEGACY_AUTHORITY_PATH).exists():
+        return []
+    return [
+        f"{_LEGACY_AUTHORITY_PATH}: legacy WorkItem authority/facade must be "
+        "deleted; import agent_utilities.knowledge_graph.core.work_durability "
+        "directly"
+    ]
+
+
 def check(root: Path) -> list[str]:
     """Scan production modules and return every WorkItem authority violation."""
     package = root / _PACKAGE
     if not package.is_dir():
         return ["agent_utilities: package root is missing"]
-    findings: list[str] = []
+    findings = _legacy_authority_finding(root)
     for path in sorted(package.rglob("*.py")):
         findings.extend(violations(path, root=root))
     return findings

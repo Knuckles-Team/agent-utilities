@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-from agent_utilities.orchestration import work_item as wi
 
 
 class Harness:

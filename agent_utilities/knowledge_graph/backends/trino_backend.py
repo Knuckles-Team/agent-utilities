@@ -66,12 +66,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...models.company_brain import DataClassification
-from ..core.tabular_query_service import KnowledgeBatch, QueryBackend
+from ..core.tabular_query_service import KnowledgeBatch
 from ..ingestion.change_envelope import ChangeEnvelope, Operation
 
 __all__ = [
-    "KnowledgeBatch",
-    "QueryBackend",
     "TrinoQueryBackend",
     "TrinoQueryError",
     "UnknownSnapshotError",

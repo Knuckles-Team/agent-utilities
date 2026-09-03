@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 
 def _manifest_tool_families() -> set[str]:
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
@@ -94,6 +96,61 @@ def test_manifest_has_no_phantom_tool_families():
         "live registration -- regenerate with "
         f"`python scripts/gen_graphos_manifest.py`: {phantom}"
     )
+
+
+def test_generated_manifest_matches_live_source_deterministically():
+    """The checked-in manifest is a projection, never a preservation source."""
+
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+    from scripts.gen_graphos_manifest import build_manifest
+
+    first = build_manifest()
+    second = build_manifest()
+
+    assert first == second
+    assert first == GRAPHOS_ACTIONS
+
+
+def test_manifest_generation_rejects_duplicate_operation_identity():
+    from scripts.gen_graphos_manifest import _validate_operations
+
+    duplicate = {"tool": "graph_example", "action": "read", "name": "one"}
+    with pytest.raises(RuntimeError, match="duplicate GraphOS operation identity"):
+        _validate_operations([duplicate, {**duplicate, "name": "two"}])
+
+
+def test_manifest_generation_rejects_conflicting_verbose_name():
+    from scripts.gen_graphos_manifest import _validate_operations
+
+    with pytest.raises(RuntimeError, match="conflicting GraphOS verbose name"):
+        _validate_operations(
+            [
+                {"tool": "graph_one", "action": "read", "name": "shared_name"},
+                {"tool": "graph_two", "action": "write", "name": "shared_name"},
+            ]
+        )
+
+
+def test_mining_helper_action_identities_are_preserved():
+    """Helper delegation remains source authority, not an action=None collapse."""
+
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+
+    actions_by_tool = {
+        tool: {entry["action"] for entry in GRAPHOS_ACTIONS if entry["tool"] == tool}
+        for tool in ("graph_mine", "graph_mine_deep")
+    }
+
+    assert actions_by_tool == {
+        "graph_mine": {"process"},
+        "graph_mine_deep": {
+            "autoencoder_anomaly",
+            "deep_classify",
+            "deep_forecast",
+            "embed",
+            "xgboost",
+        },
+    }
 
 
 def test_focused_analysis_actions_are_declared_in_the_generated_manifest():

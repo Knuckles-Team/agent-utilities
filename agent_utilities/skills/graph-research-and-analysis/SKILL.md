@@ -83,7 +83,7 @@ advancing a Loop cycle (`graph_loops`, see `graph-orchestration-and-automation`)
   finding id on a later pass). Every transition is an append-only
   `ClaimLifecycleEvent`, never a silent mutation of the Claim's own fields. Advance a
   cycle with `graph_loops(action="run", max_topics=5)` or `drive`, then inspect via
-  `graph_query(cypher="MATCH (e:ClaimLifecycleEvent) WHERE e.claim_id = $id RETURN e
+  `graph_query(query="MATCH (e:ClaimLifecycleEvent) WHERE e.claim_id = $id RETURN e
   ORDER BY e.at", params='{"id": "<claim_id>"}')`. Cross-reference a resulting claim
   id with `graph-query-and-explanation`'s epistemic-answer/evidence-citation tools
   for its justification tree and source loci. For ad hoc association-rule/clustering/

@@ -29,6 +29,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
     TenantLocalDiscoveryBinding,
 )
@@ -40,7 +41,6 @@ from agent_utilities.knowledge_graph.core.session import (
 from agent_utilities.mcp import multiplexer as mod
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 from agent_utilities.mcp.remote_oauth_broker import (
-    OAuthGrantBinding,
     OAuthProviderError,
     OAuthTokenAbsentError,
     OAuthTokenStore,

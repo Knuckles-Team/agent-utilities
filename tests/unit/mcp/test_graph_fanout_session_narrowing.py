@@ -179,7 +179,7 @@ def test_graph_query_implicit_union_fanout_succeeds_across_two_graphs(monkeypatc
 
     with use_actor(actor), use_session(session):
         out = asyncio.run(
-            kg_server._execute_tool("graph_query", cypher="MATCH (n) RETURN n")
+            kg_server._execute_tool("graph_query", query="MATCH (n) RETURN n")
         ).model_dump()
         # The narrowing is scoped to the call — the ambient session is
         # restored to the caller's own graph afterward, never leaked.

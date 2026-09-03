@@ -83,7 +83,7 @@ async def test_team_add_task_no_engine() -> None:
 async def test_team_add_task_with_engine_and_team() -> None:
     """add_task with engine + team creates an authoritative WorkItem."""
     from agent_utilities.capabilities.teams import TeamCapability
-    from agent_utilities.orchestration.work_item import team_work_item_id
+    from agent_utilities.knowledge_graph.core.work_durability import team_work_item_id
 
     cap = TeamCapability(team_id="team_1")
     ctx = MagicMock()

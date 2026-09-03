@@ -661,7 +661,7 @@ def enqueue_agent_turn(
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.session import resolve_session
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         cancel_work_item,
         submit_work_item,
     )

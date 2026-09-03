@@ -51,7 +51,7 @@ res = await kg_server._execute_tool("graph_query",
 | Capability | MCP tool | Action(s) |
 |---|---|---|
 | Write nodes/edges/memories | `graph_write` | `add_node`, `add_edge`, `store_memory`, `bulk_ingest` |
-| Cypher / federated query | `graph_query` | `cypher`, `scope=federated` |
+| Cypher / federated query | `graph_query` | `query`, `scope=federated` |
 | Hybrid / semantic / analogy search | `graph_search` | `hybrid`, `concept`, `analogy`, `memory`, `discover` |
 | Bitemporal "as of" recall | `graph_query` | `as_of=<ISO-8601>` |
 

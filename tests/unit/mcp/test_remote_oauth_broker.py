@@ -25,10 +25,10 @@ import time
 import httpx
 import pytest
 
+from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.mcp.remote_oauth_broker import (
     OAuthBindingError,
     OAuthDiscoveryError,
-    OAuthGrantBinding,
     OAuthProviderError,
     OAuthRefreshRaceError,
     OAuthRevokedError,

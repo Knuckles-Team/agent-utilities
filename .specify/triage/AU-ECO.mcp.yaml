@@ -1147,7 +1147,7 @@ concepts:
       - agent_utilities/mcp/server_factory.py
       - agent_utilities/mcp/tasks_extension.py
       - agent_utilities/mcp/tools/mcp_apps.py
-      - agent_utilities/orchestration/work_item.py
+      - agent_utilities/knowledge_graph/core/work_durability.py
       test_files:
       - tests/unit/test_mcp_tasks_extension_compatibility.py
       doc_files:
@@ -1165,7 +1165,7 @@ concepts:
       - agent_utilities/mcp/tasks_extension.py:3
       - agent_utilities/mcp/tasks_extension.py:62
       - agent_utilities/mcp/tools/mcp_apps.py:31
-      - agent_utilities/orchestration/work_item.py:1531
+      - agent_utilities/knowledge_graph/core/work_durability.py:1920
       - docs/architecture/fastmcp4-default.md:186
       - docs/architecture/mcp-2026-protocol-surface.md:82
       - tests/unit/test_mcp_tasks_extension_compatibility.py:5

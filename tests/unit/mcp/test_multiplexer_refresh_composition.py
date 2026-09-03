@@ -21,6 +21,20 @@ from agent_utilities.mcp.catalog_reconciliation import (
 from agent_utilities.mcp.multiplexer import MCPMultiplexer, attach_fleet_loader
 
 
+async def _echo_ack(
+    _catalog, _configs, _bindings, *, catalog_generation, snapshot_digest
+):
+    """Stand-in writer that acknowledges exactly the generation/digest it was
+    called with — the only shape ``_write_catalog_candidate`` now accepts as
+    a genuine reingestion receipt (blocker: reingestion must bind + ack the
+    precise generation + digest it ingested, not a generic ``status: "ok"``)."""
+    return {
+        "status": "ok",
+        "catalog_generation": catalog_generation,
+        "snapshot_digest": snapshot_digest,
+    }
+
+
 async def test_graphos_and_rest_mux_composition_reach_one_canonical_writer(
     tmp_path, monkeypatch
 ) -> None:
@@ -95,7 +109,7 @@ async def test_refresh_publishes_one_four_family_generation_after_writer_ack(
             "error": None,
         }
     )
-    mux._fleet_catalog_writer = AsyncMock(return_value={"status": "ok"})
+    mux._fleet_catalog_writer = AsyncMock(side_effect=_echo_ack)
 
     result = await mux.refresh_catalog(_request(mux))
     snapshot = mux.catalog_snapshot()
@@ -122,7 +136,7 @@ async def test_writer_or_replica_failure_never_publishes_candidate(tmp_path) -> 
         await mux.refresh_catalog(_request(mux))
     assert mux.catalog_identity().catalog_generation == 0
 
-    mux._fleet_catalog_writer = AsyncMock(return_value={"status": "ok"})
+    mux._fleet_catalog_writer = AsyncMock(side_effect=_echo_ack)
     local = mux.catalog_identity()
     mux._replica_catalog_identities = lambda: [
         CatalogIdentity(
@@ -175,7 +189,7 @@ async def test_stable_dispatch_relists_and_retries_one_read_only_unknown(
             "error": None,
         }
     )
-    mux._fleet_catalog_writer = AsyncMock(return_value={"status": "ok"})
+    mux._fleet_catalog_writer = AsyncMock(side_effect=_echo_ack)
     await mux.refresh_catalog(_request(mux))
     identity = mux.catalog_identity()
     public_name = "alpha__work"
@@ -201,3 +215,126 @@ async def test_stable_dispatch_relists_and_retries_one_read_only_unknown(
     assert result is succeeded
     assert mux.call_proxied_tool.await_count == 2
     session.list_tools.assert_awaited_once()
+
+
+async def _stable_dispatch_mux(
+    tmp_path, *, relisted_schema: dict
+) -> tuple[MCPMultiplexer, str, object]:
+    """Shared setup for the unknown-tool-retry bound/schema-proof tests below."""
+    config_path = tmp_path / "mcp_config.json"
+    config_path.write_text(
+        json.dumps(
+            {"mcpServers": {"alpha-mcp": {"command": "alpha", "prefix": "alpha"}}}
+        ),
+        encoding="utf-8",
+    )
+    mux = MCPMultiplexer(config_path)
+    session = AsyncMock()
+    session.list_tools = AsyncMock(
+        return_value=SimpleNamespace(
+            tools=[mcp_types.Tool(name="work", inputSchema=relisted_schema)]
+        )
+    )
+    mux.children["alpha-mcp"] = SimpleNamespace(
+        primary_session=session, restart_count=0
+    )
+    mux.probe_server = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "tools": [
+                {
+                    "name": "work",
+                    "inputSchema": {"type": "object"},
+                    "annotations": {"readOnlyHint": True},
+                }
+            ],
+            "resources": [],
+            "resource_templates": [],
+            "native_prompts": [],
+            "skills": [],
+            "prompts": [],
+            "error": None,
+        }
+    )
+    mux._fleet_catalog_writer = AsyncMock(side_effect=_echo_ack)
+    await mux.refresh_catalog(_request(mux))
+    public_name = "alpha__work"
+    mux.tool_to_server[public_name] = ("alpha-mcp", "work")
+    return mux, public_name, session
+
+
+async def test_stable_dispatch_never_retries_a_relisted_tool_with_a_changed_schema(
+    tmp_path,
+) -> None:
+    """A name match alone is not proof the retry is safe: a relisted tool
+    whose `inputSchema` changed must NOT be blindly retried with the same
+    arguments — that fails closed exactly like a still-missing name."""
+    mux, public_name, session = await _stable_dispatch_mux(
+        tmp_path, relisted_schema={"type": "object", "required": ["new_field"]}
+    )
+    identity = mux.catalog_identity()
+    failed = mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="Unknown tool: work")],
+        isError=True,
+    )
+    mux.call_proxied_tool = AsyncMock(return_value=failed)  # type: ignore[method-assign]
+
+    result = await mux.dispatch_catalog_tool(
+        tool_name=public_name,
+        arguments={},
+        expected_catalog_generation=identity.catalog_generation,
+        expected_snapshot_digest=identity.snapshot_digest,
+    )
+
+    assert result is failed
+    # Only the original call — the schema mismatch must forbid the retry.
+    assert mux.call_proxied_tool.await_count == 1
+    session.list_tools.assert_awaited_once()
+
+
+async def test_stable_dispatch_retry_budget_is_bounded_per_child_generation(
+    tmp_path,
+) -> None:
+    """Total unknown-tool retries against one child generation are FINITE:
+    once `_UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION` is spent, further dispatch
+    calls that keep missing get no more relist-and-retry — proving the retry
+    is bounded, not merely "one per call" with no aggregate cap."""
+    from agent_utilities.mcp.multiplexer import _UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION
+
+    mux, public_name, session = await _stable_dispatch_mux(
+        tmp_path, relisted_schema={"type": "object"}
+    )
+    identity = mux.catalog_identity()
+    failed = mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="Unknown tool: work")],
+        isError=True,
+    )
+    succeeded = mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="ok")]
+    )
+    # Every dispatch call: the primary attempt misses, the retry succeeds —
+    # so exactly one retry is spent from the budget per dispatch call.
+    mux.call_proxied_tool = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[failed, succeeded] * (_UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION + 1)
+    )
+
+    for _ in range(_UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION):
+        result = await mux.dispatch_catalog_tool(
+            tool_name=public_name,
+            arguments={},
+            expected_catalog_generation=identity.catalog_generation,
+            expected_snapshot_digest=identity.snapshot_digest,
+        )
+        assert result is succeeded
+
+    # The budget is now exhausted: the NEXT dispatch call's miss gets no retry.
+    result = await mux.dispatch_catalog_tool(
+        tool_name=public_name,
+        arguments={},
+        expected_catalog_generation=identity.catalog_generation,
+        expected_snapshot_digest=identity.snapshot_digest,
+    )
+    assert result is failed
+    assert (
+        mux.call_proxied_tool.await_count
+        == 2 * _UNKNOWN_TOOL_RETRY_MAX_PER_GENERATION + 1
+    )

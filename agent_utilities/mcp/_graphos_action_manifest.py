@@ -1321,16 +1321,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_broker", "action": None, "name": "graph_broker"},
     {"tool": "graph_bus", "action": None, "name": "graph_bus"},
     {
-        "tool": "graph_catalog",
-        "action": "list",
-        "name": "graph_catalog_list",
-    },
-    {
-        "tool": "graph_catalog",
-        "action": "preview_sync",
-        "name": "graph_catalog_preview_sync",
-    },
-    {
         "tool": "graph_candidate_claims",
         "action": "propose",
         "name": "graph_candidate_claims_propose",
@@ -1339,6 +1329,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_candidate_claims",
         "action": "resolve_identities",
         "name": "graph_candidate_claims_resolve_identities",
+    },
+    {"tool": "graph_catalog", "action": "list", "name": "graph_catalog_list"},
+    {
+        "tool": "graph_catalog",
+        "action": "preview_sync",
+        "name": "graph_catalog_preview_sync",
     },
     {"tool": "graph_claims", "action": "accept", "name": "graph_claims_accept"},
     {"tool": "graph_claims", "action": "deprecate", "name": "graph_claims_deprecate"},
@@ -1918,6 +1914,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_ingest", "action": "cancel", "name": "graph_ingest_cancel"},
     {
         "tool": "graph_ingest",
+        "action": "cdc_catchup",
+        "name": "graph_ingest_cdc_catchup",
+    },
+    {
+        "tool": "graph_ingest",
         "action": "classify_topics",
         "name": "graph_ingest_classify_topics",
     },
@@ -2019,6 +2020,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ingest_materialize_source",
     },
     {"tool": "graph_ingest", "action": "observe", "name": "graph_ingest_observe"},
+    {
+        "tool": "graph_ingest",
+        "action": "opensearch_reindex",
+        "name": "graph_ingest_opensearch_reindex",
+    },
     {"tool": "graph_ingest", "action": "prioritize", "name": "graph_ingest_prioritize"},
     {"tool": "graph_ingest", "action": "profile", "name": "graph_ingest_profile"},
     {
@@ -2149,9 +2155,21 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_message", "action": "send", "name": "graph_message_send"},
     {
         "tool": "graph_mine_deep",
+        "action": "autoencoder_anomaly",
+        "name": "graph_mine_deep_autoencoder_anomaly",
+    },
+    {
+        "tool": "graph_mine_deep",
+        "action": "deep_classify",
+        "name": "graph_mine_deep_deep_classify",
+    },
+    {
+        "tool": "graph_mine_deep",
         "action": "deep_forecast",
         "name": "graph_mine_deep_deep_forecast",
     },
+    {"tool": "graph_mine_deep", "action": "embed", "name": "graph_mine_deep_embed"},
+    {"tool": "graph_mine_deep", "action": "xgboost", "name": "graph_mine_deep_xgboost"},
     {"tool": "graph_mine", "action": "process", "name": "graph_mine_process"},
     {
         "tool": "graph_observe",
@@ -2264,9 +2282,9 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_orchestrate", "action": None, "name": "graph_orchestrate"},
     {"tool": "graph_pipeline", "action": None, "name": "graph_pipeline"},
+    {"tool": "graph_projection", "action": None, "name": "graph_projection"},
     {"tool": "graph_promql", "action": "instant", "name": "graph_promql_instant"},
     {"tool": "graph_promql", "action": "range", "name": "graph_promql_range"},
-    {"tool": "graph_projection", "action": None, "name": "graph_projection"},
     {"tool": "graph_query", "action": None, "name": "graph_query"},
     {
         "tool": "graph_reach",
@@ -2779,6 +2797,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "source_drain", "action": None, "name": "source_drain"},
     {"tool": "source_sync", "action": None, "name": "source_sync"},
     {"tool": "spec_ticket", "action": None, "name": "spec_ticket"},
+    {"tool": "tabular_query", "action": None, "name": "tabular_query"},
     {"tool": "usage_query", "action": "activity", "name": "usage_query_activity"},
     {"tool": "usage_query", "action": "by_agent", "name": "usage_query_by_agent"},
     {"tool": "usage_query", "action": "by_model", "name": "usage_query_by_model"},

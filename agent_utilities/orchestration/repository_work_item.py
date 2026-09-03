@@ -39,15 +39,8 @@ from pydantic import (
     model_validator,
 )
 
-from agent_utilities.orchestration import work_item as _work_item
-from agent_utilities.orchestration.operation_payload import (
-    MAX_OPERATION_PAYLOAD_BYTES,
-    RepositoryBuildExecutionPayloadV1,
-    RepositoryOperationPayload,
-    operation_payload_from_mapping,
-    payload_digest,
-)
-from agent_utilities.orchestration.work_item import (
+from agent_utilities.knowledge_graph.core import work_durability as _work_item
+from agent_utilities.knowledge_graph.core.work_durability import (
     DEFAULT_LEASE_TTL_S,
     WorkItemBackendUnavailable,
     cancel_work_item,
@@ -59,6 +52,13 @@ from agent_utilities.orchestration.work_item import (
     heartbeat,
     mark_running,
     submit_work_item_atomic,
+)
+from agent_utilities.orchestration.operation_payload import (
+    MAX_OPERATION_PAYLOAD_BYTES,
+    RepositoryBuildExecutionPayloadV1,
+    RepositoryOperationPayload,
+    operation_payload_from_mapping,
+    payload_digest,
 )
 from agent_utilities.protocols.epistemic_operations._generated import (
     DevelopmentLaneCleanupIntent,
@@ -2300,9 +2300,9 @@ def _append_matching_rows(
 
 
 def _work_item_fields() -> tuple[str, ...]:
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
-    return work_item._FIELDS
+    return work_durability._FIELDS
 
 
 def claim_repository_work_item(

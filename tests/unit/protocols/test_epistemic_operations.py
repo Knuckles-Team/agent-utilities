@@ -176,7 +176,7 @@ def test_work_item_and_artifact_identity_contracts_are_current_only() -> None:
     # W2.5 statechart migration: WorkItem.state is a validated state-id String,
     # NOT a closed wire enum. The 8-value lifecycle vocabulary is enforced at
     # runtime by the native WorkItem state machine (WORK_ITEM_DEF in the engine;
-    # WorkItemStatus in agent_utilities.orchestration.work_item), so the shared
+    # WORK_ITEM_STATES in agent_utilities.knowledge_graph.core.work_durability), so the shared
     # schema binds a non-empty string here and the generated Rust field is
     # `pub state: String` (no WorkItemState enum). See
     # reports/w2_5-statechart-migration-design.md section 2.5.

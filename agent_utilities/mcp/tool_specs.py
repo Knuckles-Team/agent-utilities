@@ -34,6 +34,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ask_data": ("ask",),
         "nl_query": ("ask",),
         "graph_query": ("ask",),
+        "tabular_query": ("ask",),
         "graph_ask": ("ask",),
         "graph_search": ("ask",),
         "graph_search_synthesis": ("ask",),

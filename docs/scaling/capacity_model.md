@@ -223,7 +223,7 @@ that:
 2. **The load generator** ([`scripts/scale/loadgen.py`](../../scripts/scale/loadgen.py))
    — actually GENERATES that workload: submits `WorkItem`s (turns) through the
    real engine-native CAS/lease/fencing state machine
-   (`orchestration/work_item.py`), publishes `AgentBus` messages with tenant
+   (`knowledge_graph/core/work_durability.py`), publishes `AgentBus` messages with tenant
    namespacing, drives independent mutation/tool-call producers, and measures
    the four SLO axes' percentiles for real. Two engine modes:
    `--engine mock` (an in-memory `FakeScaleEngine`, driven by a deterministic
@@ -244,7 +244,7 @@ that:
 |---|---|---|
 | Steady-state SLO + invariant check (scaled) | **Yes** — `test_steady_burst.py::test_steady_phase_slos_and_invariants_hold` | Scaled-down population/rates; SLO *targets* are the full-scale ones (per-operation, not population-dependent) |
 | Burst-on-steady + bounded backlog | **Yes** — `test_steady_burst.py::test_burst_phase_bounded_backlog_and_slos_hold` | Asserts the worker pool drains the burst, not an ever-growing queue |
-| Worker/host loss mid-lease + crash-recovery reclaim | **Yes** — `test_chaos_worker_and_delivery.py` | Exact CAS/lease state built directly against `work_item.py`, not rate-based |
+| Worker/host loss mid-lease + crash-recovery reclaim | **Yes** — `test_chaos_worker_and_delivery.py` | Exact CAS/lease state built directly against `work_durability.py`, not rate-based |
 | Duplicate/redelivered claim + idempotent re-ack | **Yes** — `test_chaos_worker_and_delivery.py` | At-least-once redelivery modeled at the claim/commit level |
 | Timeout → retry (backoff) → DLQ | **Yes** — `test_chaos_lifecycle_and_dlq.py` | Exercises `max_attempts`/backoff/dead-letter exactly |
 | Cancel mid-flight (never falsely-completes) | **Yes** — `test_chaos_lifecycle_and_dlq.py` | |

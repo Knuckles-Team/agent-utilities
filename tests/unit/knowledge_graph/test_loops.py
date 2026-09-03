@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.research.loops import (
     TERMINAL_STATUS,
@@ -13,7 +14,6 @@ from agent_utilities.knowledge_graph.research.loops import (
     prioritize_loop,
     submit_loop,
 )
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security.brain_context import ActorContext, ActorType
 from tests.unit.orchestration.test_work_item import NativeEngine
 

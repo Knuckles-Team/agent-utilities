@@ -1442,15 +1442,6 @@ def _refresh_after_configuration_save(env_key: str) -> None:
 
         reset_langfuse_exporter()
 
-    # Native/declared child availability depends on several live settings (most
-    # notably Langfuse and TLS references).  Invalidate every in-process fleet
-    # catalog; the next discovery operation reparses it without spawning a child.
-    import sys
-
-    multiplexer_module = sys.modules.get("agent_utilities.mcp.multiplexer")
-    if multiplexer_module is not None:
-        multiplexer_module.invalidate_live_catalogs()
-
 
 def save_config_item(key: str, value) -> str:
     """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.

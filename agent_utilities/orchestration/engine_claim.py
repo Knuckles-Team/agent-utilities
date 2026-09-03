@@ -26,10 +26,10 @@ now GONE:
   behind legacy reference" No-Legacy forbids, so it is deleted, not shimmed.
 
 :func:`claim_agent_task` therefore has ONE live backend —
-:func:`~agent_utilities.orchestration.work_item.claim_agent_task_via_work_item`
+:func:`~agent_utilities.knowledge_graph.core.work_durability.claim_agent_task_via_work_item`
 (the SAME CAS/lease/fencing primitives the removed backends used, now with
 atomic dependency release, bounded-retry-then-DLQ, and idempotent result commit
-layered on top; see ``work_item.py``'s module docstring for the full
+layered on top; see ``work_durability.py``'s module docstring for the full
 migrated-vs-shimmed accounting). :func:`resolve_claim_backend` still validates
 ``AGENT_CLAIM_BACKEND`` against the known-backend set (fail-safe, never silently
 disable claiming on a typo'd env var) rather than being inlined away, so a future
@@ -89,13 +89,13 @@ def claim_agent_task(
 
     ``backend`` overrides ``AGENT_CLAIM_BACKEND`` for this call (mainly for
     tests); production callers leave it unset. ``claim_ttl_s`` defaults to
-    :data:`~agent_utilities.orchestration.work_item.DEFAULT_LEASE_TTL_S` when
+    :data:`~agent_utilities.knowledge_graph.core.work_durability.DEFAULT_LEASE_TTL_S` when
     omitted. See the module docstring for why this is a single-backend
     resolver rather than the three-way switch it used to be.
     """
     import time
 
-    from agent_utilities.orchestration.work_item import (
+    from agent_utilities.knowledge_graph.core.work_durability import (
         DEFAULT_LEASE_TTL_S,
         claim_agent_task_via_work_item,
     )

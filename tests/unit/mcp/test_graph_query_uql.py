@@ -109,7 +109,7 @@ def test_uql_scope_uses_governed_engine_method_and_bundle(monkeypatch):
         kg_server, "_resolve_read_engines", _resolve_read_engines(("default", engine))
     )
 
-    out = graph_query(cypher=_UQL, scope="uql").model_dump()
+    out = graph_query(query=_UQL, scope="uql").model_dump()
 
     assert engine.seen == [(_UQL, False)]
     assert engine.graph.seen_ids == ["agent:foo"]
@@ -126,7 +126,7 @@ def test_uql_include_epistemic_is_threaded_to_governed_method(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", include_epistemic=True, params="{}"
+        query=_UQL, scope="uql", include_epistemic=True, params="{}"
     ).model_dump()
 
     assert engine.seen == [(_UQL, True)]
@@ -148,7 +148,7 @@ def test_uql_rejects_unbounded_or_mutating_requests_before_engine(monkeypatch):
         "MATCH (:Agent) |> SET owner='x' |> LIMIT 5",
         "MATCH (:Agent) |> LIMIT 5 |> WHERE score > 0",
     ):
-        out = graph_query(cypher=query, scope="uql", params="{}").model_dump()
+        out = graph_query(query=query, scope="uql", params="{}").model_dump()
         assert out["error"]["code"] == "invalid_request"
     assert engine.seen == []
 
@@ -164,13 +164,13 @@ def test_uql_limit_bound_is_intentionally_inclusive_and_bounded(monkeypatch):
         "MATCH (:Agent) |> LIMIT 1",
         "MATCH (:Agent) |> LIMIT 1000",
     ):
-        assert graph_query(cypher=query, scope="uql", params="{}").error is None
+        assert graph_query(query=query, scope="uql", params="{}").error is None
 
     for query in (
         "MATCH (:Agent) |> LIMIT 0",
         "MATCH (:Agent) |> LIMIT 1001",
     ):
-        out = graph_query(cypher=query, scope="uql", params="{}").model_dump()
+        out = graph_query(query=query, scope="uql", params="{}").model_dump()
         assert out["error"]["code"] == "invalid_request"
 
     assert engine.seen == [
@@ -187,7 +187,7 @@ def test_uql_lexical_guard_does_not_reject_mutation_word_in_literal(monkeypatch)
     )
 
     query = "MATCH (:Agent) |> WHERE note = 'DELETE' |> LIMIT 5"
-    out = graph_query(cypher=query, scope="uql", params="{}").model_dump()
+    out = graph_query(query=query, scope="uql", params="{}").model_dump()
 
     assert out["error"] is None
     assert engine.seen == [(query, False)]
@@ -201,7 +201,7 @@ def test_uql_rejects_unused_query_parameters_before_engine(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", params='{"agent_id": "agent:foo"}'
+        query=_UQL, scope="uql", params='{"agent_id": "agent:foo"}'
     ).model_dump()
 
     assert out["error"]["code"] == "invalid_request"
@@ -216,7 +216,7 @@ def test_uql_params_fail_closed_with_stable_invalid_request(monkeypatch, params)
         kg_server, "_resolve_read_engines", _resolve_read_engines(("default", engine))
     )
 
-    out = graph_query(cypher=_UQL, scope="uql", params=params).model_dump()
+    out = graph_query(query=_UQL, scope="uql", params=params).model_dump()
 
     assert out["error"]["code"] == "invalid_request"
     assert out["next_actions"] == ["review the structured error and retry"]
@@ -231,7 +231,7 @@ def test_uql_rejects_top_level_as_of_before_engine(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL,
+        query=_UQL,
         scope="uql",
         params="{}",
         as_of="2026-01-01T00:00:00Z",
@@ -256,7 +256,7 @@ def test_uql_external_connection_without_surface_fails_clearly(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", connection="teradata", params="{}"
+        query=_UQL, scope="uql", connection="teradata", params="{}"
     ).model_dump()
 
     assert out["error"]["code"] == "dependency_unavailable"
@@ -284,7 +284,7 @@ def test_uql_fanout_preserves_targets_errors_and_per_target_evidence(monkeypatch
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", connection="all", params="{}"
+        query=_UQL, scope="uql", connection="all", params="{}"
     ).model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
 
@@ -311,7 +311,7 @@ def test_uql_fanout_all_unsupported_targets_returns_typed_failure(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", connection="all", params="{}"
+        query=_UQL, scope="uql", connection="all", params="{}"
     ).model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
 
@@ -337,7 +337,7 @@ def test_uql_fanout_all_failed_targets_returns_typed_failure(monkeypatch):
     )
 
     out = graph_query(
-        cypher=_UQL, scope="uql", connection="all", params="{}"
+        query=_UQL, scope="uql", connection="all", params="{}"
     ).model_dump()
 
     assert out["error"]["code"] == "dependency_unavailable"
@@ -357,7 +357,7 @@ def test_uql_rank_text_uses_shared_au_preembedding(monkeypatch):
     )
 
     query = 'MATCH (:Agent) |> RANK BY ~"agents" |> LIMIT 5'
-    out = graph_query(cypher=query, scope="uql", params="{}").model_dump()
+    out = graph_query(query=query, scope="uql", params="{}").model_dump()
 
     assert out["error"] is None
     assert engine.seen == [
@@ -370,20 +370,19 @@ def test_uql_rank_text_uses_shared_au_preembedding(monkeypatch):
 
 def test_uql_rest_twin_keeps_scope_and_route_contract():
     kwargs = kg_server._graph_query_request_kwargs(
-        {"cypher": _UQL, "scope": "uql", "params": "{}"}
+        {"query": _UQL, "scope": "uql", "params": "{}"}
     )
-    alias_kwargs = kg_server._graph_query_request_kwargs(
-        {"query": _UQL, "scope": "uql"}
-    )
+    retired = kg_server._graph_query_request_kwargs({"cypher": _UQL, "scope": "uql"})
 
-    assert kwargs == {"cypher": _UQL, "scope": "uql", "params": "{}"}
-    assert alias_kwargs == {"scope": "uql", "cypher": _UQL}
+    assert kwargs == {"query": _UQL, "scope": "uql", "params": "{}"}
+    assert retired[1] == 400
+    assert "cypher" in retired[0]["message"]
     assert kg_server.ACTION_TOOL_ROUTES["graph_query"] == "/graph/query"
 
 
 @pytest.mark.asyncio
 async def test_uql_rest_endpoint_dispatches_scope_to_same_tool(monkeypatch):
-    body = json.dumps({"cypher": _UQL, "scope": "uql", "params": "{}"}).encode()
+    body = json.dumps({"query": _UQL, "scope": "uql", "params": "{}"}).encode()
     sent = False
 
     async def receive():
@@ -411,5 +410,5 @@ async def test_uql_rest_endpoint_dispatches_scope_to_same_tool(monkeypatch):
     assert response.status_code == 200
     assert json.loads(response.body)["result"] == {"rows": []}
     execute_tool.assert_awaited_once_with(
-        "graph_query", cypher=_UQL, scope="uql", params="{}"
+        "graph_query", query=_UQL, scope="uql", params="{}"
     )

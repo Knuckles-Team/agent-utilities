@@ -28,7 +28,7 @@ _BASE = (
     "filter on typed results rather than re-reading many text answers.\n"
     "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context "
     "(semantic, temporal, causal, entity).\n"
-    "- `await graph_query(cypher, params=None)`: Run a Cypher query against the knowledge graph.\n"
+    "- `await graph_query(query, params=None)`: Run a Cypher query against the knowledge graph.\n"
     "- `await ephemeral_graph_query(cypher, namespace, params=None)`: Run a Cypher query against a specific ephemeral memory namespace.\n"
     "- `await owl_query(sparql)`: Run a SPARQL query against the OWL reasoner "
     "for transitive reasoning (wasDerivedFrom chains, SKOS hierarchies, escalation paths).\n"

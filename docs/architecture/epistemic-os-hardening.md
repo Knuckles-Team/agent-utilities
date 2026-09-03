@@ -92,7 +92,7 @@ submitted -> ready -> leased(fencing_token) -> running(heartbeat, attempt)
     -> succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter
 ```
 
-**Code anchor.** `orchestration/work_item.py::WorkItemStatus` (the `StrEnum`),
+**Code anchor.** `knowledge_graph/core/work_durability.py::WORK_ITEM_STATES`,
 `TERMINAL_WORK_ITEM_STATUSES`, `submit_work_item`/`claim_next`/`commit_result`/
 `reap_expired_leases`. Every transition is a single
 `backend.compare_and_set_node_fields(...)` CAS call — the *same* primitive
@@ -120,7 +120,7 @@ existing entrypoints: `graph_orchestrate` (`action=dispatch`/`execute_agent`, RE
 `/graph/orchestrate`) drives the AgentTask/team paths, `graph_ingest` drives the
 ingestion-queue path, and `graph_goals` (REST `/graph/goals`) exposes the Loop
 read-only projection. A raw `WorkItem` row is queryable like any other node via
-`graph_query action=cypher` (`MATCH (w:WorkItem {id: $id}) RETURN w`, REST
+`graph_query query=...` (`MATCH (w:WorkItem {id: $id}) RETURN w`, REST
 `/graph/query`) — there is no typed getter tool for it.
 
 ### 2.2 Partitioned-log `AgentBus` delivery plane
@@ -732,7 +732,7 @@ next — not just a missing baseline entry.
 | Capability | MCP tool (action) | REST route | Standalone or piggybacked? |
 |---|---|---|---|
 | Low-level engine surface (19 normal + 5 admin domains) | `engine_<domain>` | `POST /engine/<domain>` | Standalone, one per domain |
-| `WorkItem` (query only) | `graph_query` (`cypher`) | `/graph/query` | Piggybacked (generic Cypher) |
+| `WorkItem` (query only) | `graph_query` (`query`) | `/graph/query` | Piggybacked (generic Cypher) |
 | `WorkItem` (AgentTask/team dispatch) | `graph_orchestrate` (`dispatch`/`execute_agent`) | `/graph/orchestrate` | Piggybacked |
 | `WorkItem` (ingestion queue) | `graph_ingest` | `/graph/ingest` | Piggybacked |
 | `WorkItem` (Loop/Goal read view) | `graph_goals` | `/graph/goals` | Piggybacked |

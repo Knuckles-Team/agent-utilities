@@ -256,7 +256,7 @@
 # consent/expiry fields. Mirrors :ValidityIntervalShape's "end must not precede
 # start" invariant (temporal.shapes.ttl) for the same shape of bug: an expiry
 # recorded before its grant, or an expiry with no grant at all, is a malformed
-# consent window the enforcement gate (orchestration.work_item) already fails
+# consent window the enforcement gate (knowledge_graph.core.work_durability) already fails
 # CLOSED on (treats as lapsed) — this makes that malformation a DETECTABLE SHACL
 # violation rather than only a runtime deny. A self-contained prefix declaration
 # is used (not temporal.shapes.ttl's :temporalPrefixes) because the ontology gate

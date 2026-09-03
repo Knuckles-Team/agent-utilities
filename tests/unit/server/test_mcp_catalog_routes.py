@@ -22,8 +22,10 @@ from fastapi.testclient import TestClient
 
 from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
 from agent_utilities.mcp.catalog_reconciliation import (
+    CatalogContractError,
     CatalogIdentity,
     CatalogRefreshResult,
+    CatalogSessionResumeResult,
     CatalogSnapshot,
 )
 from agent_utilities.server.routers import mcp_catalog
@@ -69,6 +71,11 @@ _ADMIN_CLAIMS = {
     "sub": "mcp-catalog-test-admin",
     "scope": "mcp:admin",
 }
+_DELEGATE_CLAIMS = {
+    "auth_type": "jwt",
+    "sub": "mcp-catalog-test-delegate",
+    "scope": "mcp:delegate",
+}
 _REFRESH_REQUEST = {
     "request_id": "refresh-1",
     "expected_config_revision": "config-1",
@@ -88,11 +95,16 @@ class _StubMultiplexer:
         fail_catalog: bool = False,
         fail_status: bool = False,
         fail_refresh: bool = False,
+        fail_dispatch: Exception | None = None,
+        fail_resume: Exception | None = None,
     ):
         self._fail_catalog = fail_catalog
         self._fail_status = fail_status
         self._fail_refresh = fail_refresh
+        self._fail_dispatch = fail_dispatch
+        self._fail_resume = fail_resume
         self.refreshed: list[str] = []
+        self.dispatched: list[str] = []
 
     async def list_catalog(self, server: str = "", include_tools: bool = True) -> dict:
         if self._fail_catalog:
@@ -168,6 +180,38 @@ class _StubMultiplexer:
                 authorization_scope_digest="b" * 64,
             ),
             children=(),
+        )
+
+    async def dispatch_catalog_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict,
+        expected_catalog_generation: int,
+        expected_snapshot_digest: str,
+    ):
+        from mcp import types as mcp_types
+
+        if self._fail_dispatch is not None:
+            raise self._fail_dispatch
+        self.dispatched.append(tool_name)
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text", text=f"dispatched:{tool_name}")]
+        )
+
+    def resume_catalog_session(self, request) -> CatalogSessionResumeResult:
+        if self._fail_resume is not None:
+            raise self._fail_resume
+        return CatalogSessionResumeResult(
+            session_id=request.session_id,
+            served_instance_id="graph-os:test",
+            release_id=request.release_id,
+            config_revision=request.config_revision,
+            catalog_generation=request.catalog_generation,
+            snapshot_digest=request.snapshot_digest,
+            child_connection_generation=request.child_connection_generation,
+            authorization_scope_digest=request.authorization_scope_digest,
+            resume_state="resumed",
         )
 
 
@@ -272,6 +316,144 @@ def test_refresh_route_refuses_discover_without_admin_scope(monkeypatch):
     response = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
 
     assert response.status_code == 403
+
+
+def test_catalog_route_fails_closed_when_no_claims_were_ever_set(monkeypatch):
+    """Absent ``request.state.user_claims`` must NOT be treated as the
+    trusted static-API-key bypass — a request that never went through
+    identity verification is denied (403), not silently waved through."""
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(None)
+
+    response = client.get("/api/mcp/catalog")
+
+    assert response.status_code == 403
+
+
+def test_status_route_fails_closed_when_no_claims_were_ever_set(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(None)
+
+    response = client.get("/api/mcp/status")
+
+    assert response.status_code == 403
+
+
+def test_refresh_route_fails_closed_when_no_claims_were_ever_set(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(None)
+
+    response = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
+
+    assert response.status_code == 403
+
+
+# ── dispatch/session-resume parity (blocker: REST lacked these entirely) ────
+
+
+_DISPATCH_REQUEST = {
+    "tool_name": "gh__create_issue",
+    "arguments": {"title": "hi"},
+    "expected_catalog_generation": 0,
+    "expected_snapshot_digest": "a" * 64,
+}
+_SESSION_RESUME_REQUEST = {
+    "session_id": "sess-1",
+    "previous_served_instance_id": "graph-os:test",
+    "release_id": "test",
+    "config_revision": "config-1",
+    "catalog_generation": 0,
+    "snapshot_digest": "a" * 64,
+    "child_connection_generation": 0,
+    "authorization_scope_digest": "b" * 64,
+    "resume_token_digest": "c" * 64,
+    "deadline_ms": 1000,
+}
+
+
+def test_dispatch_route_invokes_the_same_multiplexer_dispatch_method(monkeypatch):
+    stub = _StubMultiplexer()
+    _install_stub(monkeypatch, stub)
+    client = _client(_DELEGATE_CLAIMS)
+
+    response = client.post("/api/mcp/dispatch", json=_DISPATCH_REQUEST)
+
+    assert response.status_code == 200, response.text
+    assert stub.dispatched == ["gh__create_issue"]
+    body = response.json()
+    assert body["content"][0]["text"] == "dispatched:gh__create_issue"
+
+
+def test_dispatch_route_refuses_a_caller_with_no_delegate_scope(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(_DISCOVER_CLAIMS)  # discover only, no mcp:delegate
+
+    response = client.post("/api/mcp/dispatch", json=_DISPATCH_REQUEST)
+
+    assert response.status_code == 403
+
+
+def test_dispatch_route_fails_closed_when_no_claims_were_ever_set(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(None)
+
+    response = client.post("/api/mcp/dispatch", json=_DISPATCH_REQUEST)
+
+    assert response.status_code == 403
+
+
+def test_dispatch_route_surfaces_a_stale_generation_as_a_deterministic_409(
+    monkeypatch,
+):
+    stub = _StubMultiplexer(
+        fail_dispatch=CatalogContractError(
+            "catalog-generation-stale", "stale generation", retryable=True
+        )
+    )
+    _install_stub(monkeypatch, stub)
+    client = _client(_DELEGATE_CLAIMS)
+
+    response = client.post("/api/mcp/dispatch", json=_DISPATCH_REQUEST)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "catalog-generation-stale"
+
+
+def test_session_resume_route_invokes_the_same_multiplexer_resume_method(monkeypatch):
+    stub = _StubMultiplexer()
+    _install_stub(monkeypatch, stub)
+    client = _client(_DELEGATE_CLAIMS)
+
+    response = client.post("/api/mcp/session_resume", json=_SESSION_RESUME_REQUEST)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["session_id"] == "sess-1"
+    assert body["resume_state"] == "resumed"
+
+
+def test_session_resume_route_refuses_a_caller_with_no_delegate_scope(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(_DISCOVER_CLAIMS)
+
+    response = client.post("/api/mcp/session_resume", json=_SESSION_RESUME_REQUEST)
+
+    assert response.status_code == 403
+
+
+def test_session_resume_route_surfaces_a_contract_error_as_a_typed_409(monkeypatch):
+    stub = _StubMultiplexer(
+        fail_resume=CatalogContractError(
+            "replica-generation-divergent", "cohort diverged", retryable=True
+        )
+    )
+    _install_stub(monkeypatch, stub)
+    client = _client(_DELEGATE_CLAIMS)
+
+    response = client.post("/api/mcp/session_resume", json=_SESSION_RESUME_REQUEST)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "replica-generation-divergent"
 
 
 # ── degraded ────────────────────────────────────────────────────────────────

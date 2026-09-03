@@ -8,7 +8,7 @@ Capabilities are higher-level features that interact with the graph orchestratio
 
 ## Core Capabilities
 
-- **Checkpointing (`checkpointing.py`)**: Full conversation snapshots at tool and turn boundaries. Enables cross-process session fork, rewind, and resumability.
+- **Checkpointing (`checkpointing.py`)**: Durable conversation snapshots at tool and turn boundaries for audit and runtime-owned restoration.
 - **Context Warnings (`context_warnings.py`)**: Proactive monitoring of token usage. Warns the model at 70% (URGENT) and 90% (CRITICAL) of the context window.
 - **Output Eviction (`eviction.py`)**: Intercepts massive tool outputs (>80k chars), moves them to the Knowledge Base, and leaves a concise preview in the history.
 - **Lifecycle Hooks (`hooks.py`)**: Unified `PRE_TOOL_USE`, `POST_TOOL_USE`, `BEFORE_RUN`, and `AFTER_RUN` hooks for auditing and telemetry.

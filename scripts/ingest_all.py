@@ -38,7 +38,7 @@ async def get_stats(client: httpx.AsyncClient):
         response = await client.post(
             f"{GATEWAY_URL}/api/graph/query",
             json={
-                "cypher": "MATCH (n) RETURN n.node_type AS node_type, count(*) AS count ORDER BY count DESC LIMIT 50"
+                "query": "MATCH (n) RETURN n.node_type AS node_type, count(*) AS count ORDER BY count DESC LIMIT 50"
             },
         )
         if response.status_code == 200:

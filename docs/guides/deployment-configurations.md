@@ -283,7 +283,7 @@ curl -s localhost:9000/health
 
 # Without a token: 401
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:9000/api/graph/query \
-  -H 'content-type: application/json' -d '{"cypher":"MATCH (n) RETURN n LIMIT 1"}'
+  -H 'content-type: application/json' -d '{"query":"MATCH (n) RETURN n LIMIT 1"}'
 # -> 401
 
 # With a valid JWT from your issuer: 200
@@ -292,7 +292,7 @@ TOKEN=$(curl -s -X POST "$AUTH_JWT_ISSUER/protocol/openid-connect/token" \
   -d client_secret=REDACTED | jq -r .access_token)
 curl -s -X POST localhost:9000/api/graph/query \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"cypher":"MATCH (n) RETURN count(n) AS n"}'
+  -d '{"query":"MATCH (n) RETURN count(n) AS n"}'
 
 # Engine secret was minted automatically
 ls -l "$XDG_DATA_HOME/agent-utilities/engine_secret"    # mode 0600

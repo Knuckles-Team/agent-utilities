@@ -331,10 +331,8 @@ class _CapturingCheckpointStore(CheckpointStore):
     """Wrap a ``CheckpointStore``, capturing every saved checkpoint id.
 
     The conductor agent is given a real ``CheckpointMiddleware`` (one message-
-    history snapshot per ``run_workflow`` tool call) by default -- "restore and
-    continue a run" for the DynamicWorkflow path is genuinely available via
-    :func:`agent_utilities.capabilities.checkpointing.fork_from_checkpoint`.
-    This wrapper makes the ids inspectable as execution evidence without
+    history snapshot per ``run_workflow`` tool call) by default. This wrapper
+    makes the ids inspectable as execution evidence without
     depending on ``GraphCheckpointStore.list()`` (not yet a real Cypher query).
     """
 

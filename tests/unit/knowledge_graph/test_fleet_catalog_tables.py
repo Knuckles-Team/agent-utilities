@@ -26,13 +26,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from agent_utilities.knowledge_graph.core import fleet_catalog_tables as fct
+from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
     current_session,
     suspend_session,
     use_session,
 )
-from agent_utilities.mcp.remote_oauth_broker import OAuthGrantBinding
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
@@ -1781,8 +1781,9 @@ def test_write_fleet_catalog_stamps_acl_projection_fields_from_the_write_time_ac
     two-day role outage. The owner marker is retained as provenance; an
     explicit ``org`` scope is what the row-visibility check reads."""
     eng = _FakeEngine()
-    with use_actor(_session("tenant-a", actor_id="sync-actor").actor), use_session(
-        _session("tenant-a", actor_id="sync-actor")
+    with (
+        use_actor(_session("tenant-a", actor_id="sync-actor").actor),
+        use_session(_session("tenant-a", actor_id="sync-actor")),
     ):
         _write_fleet_catalog(eng, _server_catalog())
     server_row = eng.graph_compute.tables[fct.TABLE_MCP_SERVERS]["mcp_server_srv"]

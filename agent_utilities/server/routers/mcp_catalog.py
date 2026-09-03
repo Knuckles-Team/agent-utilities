@@ -34,11 +34,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_utilities.mcp.catalog_reconciliation import (
     CatalogContractError,
     CatalogRefreshRequest,
+    CatalogSessionResumeRequest,
     refresh_error,
+    resume_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,19 +55,28 @@ _DISCOVER_SCOPES = frozenset(
     {"mcp:discover", "mcp:delegate", "mcp:admin", "kg:admin", "admin"}
 )
 _MANAGE_SCOPES = frozenset({"mcp:admin", "kg:admin", "admin"})
+# Mirrors ``multiplexer._require_fleet_capability("delegate")``'s scope set
+# exactly (``{"mcp:delegate", *administrative}``) — the same authority the
+# ``catalog_dispatch``/``catalog_session_resume`` MCP meta-tools require.
+_DELEGATE_SCOPES = frozenset({"mcp:delegate", "mcp:admin", "kg:admin", "admin"})
 
 
 def _mcp_capabilities(request: Request) -> set[str] | None:
     """Resolve the caller's capabilities from verified identity.
 
-    Same pattern as ``routers/enhanced.py``'s ``_enhanced_capabilities``:
-    returns ``None`` (skip enforcement) only for the already-fully-trusted
-    static-API-key path, matching the existing REST convention rather than
-    inventing a new one here.
+    Returns ``None`` (skip enforcement) ONLY for the already-fully-trusted
+    static-API-key path. Absent claims are NOT the same case: they mean no
+    identity was verified for this request at all, so enforcement must fail
+    closed (403) rather than silently be skipped. NOTE: ``routers/enhanced.py``'s
+    ``_enhanced_capabilities`` has the identical claims-absent bypass and is
+    NOT fixed here — it is a separate REST surface outside this lane's closure;
+    flagged for a follow-up fix.
     """
     claims = getattr(request.state, "user_claims", None)
-    if not claims or claims.get("auth_type") == "api_key":
+    if claims and claims.get("auth_type") == "api_key":
         return None
+    if not claims:
+        raise HTTPException(status_code=403, detail="MCP fleet capability required")
     try:
         from agent_utilities.core.config import config
         from agent_utilities.security.identity import (
@@ -96,6 +108,14 @@ async def _require_mcp_manage(request: Request) -> None:
     if capabilities is not None and not capabilities.intersection(_MANAGE_SCOPES):
         raise HTTPException(
             status_code=403, detail="MCP fleet manage capability required"
+        )
+
+
+async def _require_mcp_delegate(request: Request) -> None:
+    capabilities = _mcp_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(_DELEGATE_SCOPES):
+        raise HTTPException(
+            status_code=403, detail="MCP fleet delegate capability required"
         )
 
 
@@ -194,3 +214,84 @@ async def refresh_mcp_catalog(request: CatalogRefreshRequest) -> Any:
         )
     except Exception as exc:  # noqa: BLE001 - typed degraded refresh response
         raise _degraded("mcp_catalog_refresh_failed", exc) from exc
+
+
+class CatalogDispatchRequest(BaseModel):
+    """``mcp-catalog-dispatch-request/v1`` — REST twin of the
+    ``catalog_dispatch`` MCP meta-tool's own parameters (same field names,
+    same required fields)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str = Field(min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    expected_catalog_generation: int = Field(ge=0)
+    expected_snapshot_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@router.post(
+    "/dispatch",
+    summary="Invoke one catalog tool at an exact generation (REST twin of `catalog_dispatch`)",
+    dependencies=[Depends(_require_mcp_delegate)],
+)
+async def dispatch_mcp_catalog_tool(request: CatalogDispatchRequest) -> Any:
+    """Exact REST twin of the ``catalog_dispatch`` MCP meta-tool.
+
+    Calls the SAME ``MCPMultiplexer.dispatch_catalog_tool`` the MCP tool
+    calls — same generation/digest binding, same bounded read-only relist
+    retry — so a caller gets identical dispatch semantics from either
+    surface. A ``CatalogContractError`` (stale generation/digest, dispatcher
+    target no longer visible, ...) is refused with the same message the MCP
+    tool raises as a ``ToolError``, returned here as a deterministic 409
+    rather than an unhandled 500.
+    """
+    mux = await _get_multiplexer_or_503()
+    try:
+        result = await mux.dispatch_catalog_tool(
+            tool_name=request.tool_name,
+            arguments=request.arguments,
+            expected_catalog_generation=request.expected_catalog_generation,
+            expected_snapshot_digest=request.expected_snapshot_digest,
+        )
+    except CatalogContractError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "error",
+                "code": exc.code,
+                "message": "MCP catalog dispatch refused",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a typed 503 below, cause preserved via `from exc`
+        raise _degraded("mcp_catalog_dispatch_failed", exc) from exc
+    return result.model_dump(mode="json")
+
+
+@router.post(
+    "/session_resume",
+    summary="Validate reconnect continuity against the homogeneous cohort (REST twin of `catalog_session_resume`)",
+    dependencies=[Depends(_require_mcp_delegate)],
+)
+async def resume_mcp_catalog_session(request: CatalogSessionResumeRequest) -> Any:
+    """Exact REST twin of the ``catalog_session_resume`` MCP meta-tool.
+
+    Calls the SAME ``MCPMultiplexer.resume_catalog_session`` the MCP tool
+    calls, with the identical request/response contract
+    (``CatalogSessionResumeRequest``/``CatalogSessionResumeResult``) — no
+    REST-side reshaping, exactly like ``get_mcp_catalog``/``get_mcp_status``
+    above.
+    """
+    mux = await _get_multiplexer_or_503()
+    try:
+        result = mux.resume_catalog_session(request)
+    except CatalogContractError as exc:
+        current = mux.catalog_snapshot()
+        return JSONResponse(
+            status_code=409,
+            content=resume_error(request.session_id, exc, current).model_dump(
+                mode="json"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a typed 503 below, cause preserved via `from exc`
+        raise _degraded("mcp_catalog_session_resume_failed", exc) from exc
+    return result.model_dump(mode="json")

@@ -16,24 +16,21 @@ See each model's docstring for its source handler/tool and the exact
 permissiveness contract (``extra="allow"`` vs ``extra="forbid"``) proven
 against that handler's code, not assumed.
 
-Two REAL mismatches were found and are called out below (and pinned by
-tests): ``/graph/query`` accepts either ``cypher`` or ``query`` (a fix already
-applied to the handler), and the top-level ``/tools`` route name is used by
-TWO unrelated handlers in this codebase that happen to share the same leaf
-path — see :class:`ToolsCatalogResponse` vs :class:`ToolCatalogItem`.
+The top-level ``/tools`` route name is used by two unrelated handlers in this
+codebase that happen to share the same leaf path — see
+:class:`ToolsCatalogResponse` vs :class:`ToolCatalogItem`.
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 
 __all__ = [
     # graph_query / graph_query/federated
-    "GraphQueryRequest",
     "GraphQueryFederatedRequest",
     "EvidenceBundleEnvelope",
     # graph_code / graph_research / graph_evaluate / graph_explain
@@ -121,122 +118,22 @@ class EvidenceBundleEnvelope(BaseModel):
 # ══════════════════════════════════════════════════════════════════
 
 
-class GraphQueryRequest(BaseModel):
-    """Request body for ``POST /graph/query`` — REST twin of the ``graph_query``
-    MCP tool (``agent_utilities/mcp/tools/query_tools.py``).
-
-    ``extra="forbid"``: PROVEN, not assumed — ``graph_query_endpoint`` (see
-    ``kg_server.py``, ``_GRAPH_QUERY_TOOL_FIELDS``) builds its ``_execute_tool``
-    kwargs from an explicit allowlist and returns a deterministic 400 for any
-    other top-level field (``"Unsupported field(s): ..."``), so this model
-    mirrors that rejection rather than silently accepting it.
-
-    KNOWN DEFECT ENCODED HERE (fixed earlier the same day this lane ran): the
-    tool's real, required parameter is ``cypher``, but ``POST
-    /api/graph/execute_cypher`` (a different, already-correct route consumed
-    by ``CypherReplView.tsx``/``TemporalGraphView.tsx``/``GraphView.tsx``)
-    uses the wire name ``query`` for the same concept. This route now accepts
-    EITHER name as an alias for the same value; supplying both with
-    DIFFERENT values is a client error (mirrored below as a validation
-    error, matching the handler's own 400).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cypher: str | None = Field(
-        default=None,
-        description="A read-only query string in the dialect selected by "
-        "`scope`. The tool's own required parameter name. Alias: `query` "
-        "(see `GraphQueryRequest` docstring for the mismatch this "
-        "resolves). Provide exactly one of `cypher`/`query`.",
-        json_schema_extra={"examples": ["MATCH (n:Concept) RETURN n LIMIT 5"]},
-    )
-    query: str | None = Field(
-        default=None,
-        description="Alias for `cypher`, accepted for wire-name parity with "
-        "the sibling `/api/graph/execute_cypher` route. If both are "
-        "supplied they must be identical.",
-        json_schema_extra={"examples": ["MATCH (n:Concept) RETURN n LIMIT 5"]},
-    )
-    params: str = Field(
-        default="{}",
-        description="JSON-ENCODED STRING of query parameters (the tool's "
-        "real parameter type — unlike the federated twin below, this route "
-        "does not accept a native JSON object here and forwards the value "
-        "as-is).",
-        json_schema_extra={"examples": ['{"limit": 5}']},
-    )
-    scope: Literal["local", "sql", "sparql", "federated"] = Field(
-        default="local",
-        description="Query dialect / execution scope.",
-    )
-    reference_id: str = Field(
-        default="",
-        description="ExternalGraphReference id, required only when "
-        "`scope='federated'`.",
-    )
-    as_of: str = Field(
-        default="",
-        description="Optional ISO-8601 bitemporal query instant.",
-    )
-    connection: str = Field(
-        default="",
-        description="Named BACKEND connection, 'all', or a connection list. "
-        "Selects WHICH BACKEND, never which physical graph (see `graph`).",
-    )
-    graph: str = Field(
-        default="",
-        description="Explicit physical engine graph to target "
-        "(CONCEPT:AU-KG.backend.explicit-graph-selection). Empty resolves "
-        "to the caller's own bound graph.",
-    )
-    include_epistemic: bool = Field(
-        default=False,
-        description="Resolve per-row epistemic data before building the "
-        "response bundle.",
-    )
-
-    @model_validator(mode="after")
-    def _reconcile_cypher_alias(self) -> GraphQueryRequest:
-        if (
-            self.cypher is not None
-            and self.query is not None
-            and self.cypher != self.query
-        ):
-            raise ValueError(
-                "both 'query' and 'cypher' were supplied with different "
-                "values; send exactly one (or identical values in both)."
-            )
-        if self.cypher is None and self.query is None:
-            raise ValueError("one of 'cypher' or 'query' is required.")
-        return self
-
-    @property
-    def resolved_cypher(self) -> str:
-        """The single effective query string, resolving the `query` alias."""
-        return self.cypher if self.cypher is not None else (self.query or "")
-
-
 class GraphQueryFederatedRequest(BaseModel):
-    """Request body for ``POST /graph/query/federated`` — a NARROWER, more
-    PERMISSIVE twin of ``graph_query`` (``graph_query_federated_endpoint`` in
+    """Request body for ``POST /graph/query/federated`` — a narrower,
+    fixed-scope twin of ``graph_query`` (``graph_query_federated_endpoint`` in
     ``kg_server.py``).
 
-    ``extra="allow"``: PROVEN — the handler reads exactly ``cypher``,
-    ``params``, and ``reference_id`` off the body with ``body.get(...)`` and
-    silently ignores everything else (no allowlist check, no 400). This is a
-    genuine permissiveness MISMATCH against ``/graph/query`` (which rejects
-    unknown fields) worth flagging: two routes for "the same shape of query"
-    behave differently for typo'd/extra fields.
+    ``extra="forbid"`` mirrors the handler's explicit allowlist for ``query``,
+    ``params``, and ``reference_id``. Unknown fields fail before dispatch.
 
     Also unlike ``/graph/query``, ``params`` here is converted through
     ``_to_json_str`` server-side, so it genuinely accepts EITHER a JSON
     object or a pre-encoded string.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    cypher: str = Field(
+    query: str = Field(
         default="",
         description="Read-only query string; always run with `scope='federated'` "
         "server-side (not caller-settable on this route).",

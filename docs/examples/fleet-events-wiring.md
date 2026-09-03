@@ -166,7 +166,7 @@ Query it back:
 ```bash
 curl -sS -X POST http://localhost:8000/api/graph/query \
   -H "Content-Type: application/json" \
-  -d '{"action": "cypher", "cypher": "MATCH (e:FleetEvent {subject: \"caddy-mcp\"}) RETURN e ORDER BY e.received_at DESC LIMIT 1"}'
+  -d '{"query": "MATCH (e:FleetEvent {subject: \"caddy-mcp\"}) RETURN e ORDER BY e.received_at DESC LIMIT 1"}'
 ```
 
 ## 6. From event to remediation playbook

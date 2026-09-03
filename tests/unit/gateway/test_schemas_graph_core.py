@@ -3,8 +3,8 @@
 Per model: a realistic currently-valid payload is accepted, an invalid one is
 rejected, and every declared field carries a non-empty description. Plus two
 contract-pinning tests called out by the lane brief: the `/tools` flat-list
-shape agent-terminal-ui depends on, and the exact field name(s)
-`/graph/query` really accepts (the `cypher`/`query` alias fix).
+shape agent-terminal-ui depends on, and the canonical field name
+`/graph/query` accepts.
 """
 
 from __future__ import annotations
@@ -48,87 +48,27 @@ def test_collected_at_least_one_model_per_route_family() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════
-# graph_query / graph_query/federated
+# graph_query/federated
 # ══════════════════════════════════════════════════════════════════
-
-
-def test_graph_query_accepts_cypher() -> None:
-    req = schemas.GraphQueryRequest(cypher="MATCH (n) RETURN n LIMIT 1")
-    assert req.resolved_cypher == "MATCH (n) RETURN n LIMIT 1"
-
-
-def test_graph_query_accepts_query_alias() -> None:
-    """Pins the known-defect fix: `query` is accepted as an alias for `cypher`."""
-    req = schemas.GraphQueryRequest(query="MATCH (n) RETURN n LIMIT 1")
-    assert req.resolved_cypher == "MATCH (n) RETURN n LIMIT 1"
-    assert req.cypher is None
-    assert req.query == "MATCH (n) RETURN n LIMIT 1"
-
-
-def test_graph_query_accepts_identical_cypher_and_query() -> None:
-    req = schemas.GraphQueryRequest(
-        cypher="MATCH (n) RETURN n", query="MATCH (n) RETURN n"
-    )
-    assert req.resolved_cypher == "MATCH (n) RETURN n"
-
-
-def test_graph_query_rejects_conflicting_cypher_and_query() -> None:
-    with pytest.raises(ValidationError):
-        schemas.GraphQueryRequest(
-            cypher="MATCH (a) RETURN a", query="MATCH (b) RETURN b"
-        )
-
-
-def test_graph_query_rejects_neither_cypher_nor_query() -> None:
-    with pytest.raises(ValidationError):
-        schemas.GraphQueryRequest()
-
-
-def test_graph_query_rejects_unknown_field() -> None:
-    """/graph/query returns a deterministic 400 for a field outside
-    `_GRAPH_QUERY_TOOL_FIELDS` (plus the `query` alias) — mirrored here as a
-    strict `extra='forbid'` rejection."""
-    with pytest.raises(ValidationError):
-        schemas.GraphQueryRequest(cypher="MATCH (n) RETURN n", connectionn="default")
-
-
-def test_graph_query_full_valid_payload() -> None:
-    req = schemas.GraphQueryRequest(
-        cypher="MATCH (n:Concept) RETURN n LIMIT 5",
-        params='{"limit": 5}',
-        scope="local",
-        reference_id="",
-        as_of="",
-        connection="default",
-        graph="",
-        include_epistemic=False,
-    )
-    assert req.scope == "local"
 
 
 def test_graph_query_federated_accepts_dict_params() -> None:
     """Unlike /graph/query, the federated twin accepts a native JSON object
     for `params` (converted server-side via `_to_json_str`)."""
     req = schemas.GraphQueryFederatedRequest(
-        cypher="MATCH (n) RETURN n", params={"limit": 5}, reference_id="ref-1"
+        query="MATCH (n) RETURN n", params={"limit": 5}, reference_id="ref-1"
     )
     assert req.params == {"limit": 5}
 
 
 def test_graph_query_federated_accepts_string_params() -> None:
-    req = schemas.GraphQueryFederatedRequest(cypher="MATCH (n) RETURN n", params="{}")
+    req = schemas.GraphQueryFederatedRequest(query="MATCH (n) RETURN n", params="{}")
     assert req.params == "{}"
 
 
-def test_graph_query_federated_ignores_unknown_field() -> None:
-    """Permissiveness MISMATCH vs /graph/query: the federated endpoint only
-    ever reads cypher/params/reference_id off the body — an unknown field is
-    silently ignored, never rejected."""
-    req = schemas.GraphQueryFederatedRequest(
-        cypher="MATCH (n) RETURN n", bogus_field="x"
-    )
-    assert req.cypher == "MATCH (n) RETURN n"
-    assert req.bogus_field == "x"  # allowed, not stripped
+def test_graph_query_federated_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError):
+        schemas.GraphQueryFederatedRequest(query="MATCH (n) RETURN n", bogus_field="x")
 
 
 def test_evidence_bundle_envelope_accepts_a_real_bundle() -> None:

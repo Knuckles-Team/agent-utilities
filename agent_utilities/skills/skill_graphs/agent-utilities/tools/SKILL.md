@@ -31,7 +31,7 @@ The KG is exposed via the `graph-os` MCP server with these actions:
 ### graph_query — Read-only Cypher queries
 ```python
 # Find all concepts in the ORCH pillar
-result = graph_query(cypher="MATCH (n:Concept) WHERE n.pillar = 'ORCH' RETURN n")
+result = graph_query(query="MATCH (n:Concept) WHERE n.pillar = 'ORCH' RETURN n")
 ```
 
 ### graph_search — Semantic + keyword hybrid search

@@ -152,7 +152,7 @@ Example authorized sync and verification plan; use
 
 ```text
 source_sync(source="registered-source", mode="delta")
-graph_query(cypher="MATCH (n {id: $id}) RETURN n.id LIMIT 1", params='{"id":"synthetic-record"}')
+graph_query(query="MATCH (n {id: $id}) RETURN n.id LIMIT 1", params='{"id":"synthetic-record"}')
 ```
 
 ### 4. Verify the graph

@@ -89,7 +89,7 @@ def claim_task_envelope(
     ``(job_id, target, is_codebase, task_type)``. A
     duplicate delivery receives an authoritative negative claim and is skipped.
     """
-    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     job_id = envelope.get("job_id")
     if not job_id:

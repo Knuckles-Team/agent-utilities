@@ -36,7 +36,7 @@ def _deferrals_value(task_type: str) -> float:
 
 
 def test_empty_poll_increments_empty_claim_counter(monkeypatch):
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(work_item, "claim_next", lambda _engine, **_kw: None)
 
@@ -56,7 +56,7 @@ def test_empty_poll_increments_empty_claim_counter(monkeypatch):
 
 
 def test_admitted_claim_increments_claimed_counter(monkeypatch):
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(
         work_item,
@@ -89,7 +89,7 @@ def test_admitted_claim_increments_claimed_counter(monkeypatch):
 
 
 def test_admission_denied_increments_deferral_counter_by_task_type(monkeypatch):
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability as work_item
 
     monkeypatch.setattr(work_item, "defer_work_item", lambda *_a, **_k: True)
     _patch_claim(

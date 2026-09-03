@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from agent_utilities.core.resource_priority import PriorityClass, current_priority
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
     SessionRequiredError,
@@ -25,7 +26,6 @@ from agent_utilities.knowledge_graph.core.session import (
 )
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration import agent_activation as aa
-from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security import delegation as _delegation
 from agent_utilities.security.brain_context import ActorContext
 

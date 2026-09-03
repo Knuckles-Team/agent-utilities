@@ -1070,6 +1070,31 @@ class _BuiltinAdapterFactory:
         return self.builder(*(values[name] for name in parameters))
 
 
+#: Explicit built-in provider→builder registration seam (CONCEPT:AU-ORCH.adapter.byok-provider-proxy).
+#:
+#: This replaces a ``globals().get(f"_build_{provider}_model")`` reflection lookup that
+#: resolved the same builder through implicit module-namespace introspection keyed on a
+#: string-formatted provider name. ``registry.get_adapter_factory(provider)`` — the neutral
+#: model registry's OWN lookup — returns ``None`` for every provider until a caller
+#: explicitly injects one via ``register_adapter_factory``; nothing pre-seeds it with these
+#: built-ins, so this table is the load-bearing default path for every non-injected model
+#: creation call, not dead weight behind it. Keeping the dispatch as one explicit, greppable
+#: dict (rather than scanning this module's global namespace at call time) makes the built-in
+#: provider set an auditable, static seam instead of an implicit naming convention a stray
+#: module-level name could silently satisfy or a rename could silently break.
+_BUILTIN_ADAPTER_BUILDERS: dict[str, Callable[..., Any]] = {
+    "openai": _build_openai_model,
+    "ollama": _build_ollama_model,
+    "deepseek": _build_deepseek_model,
+    "anthropic": _build_anthropic_model,
+    "google": _build_google_model,
+    "groq": _build_groq_model,
+    "mistral": _build_mistral_model,
+    "huggingface": _build_huggingface_model,
+    "custom": _build_custom_model,
+}
+
+
 def _resolve_model_adapter_factory(
     provider: str, injected: ModelAdapterFactory | None = None
 ) -> ModelAdapterFactory:
@@ -1079,7 +1104,7 @@ def _resolve_model_adapter_factory(
     if injected is not None:
         registry.register_adapter_factory(provider, injected)
     configured = registry.get_adapter_factory(provider)
-    builder = globals().get(f"_build_{provider}_model")
+    builder = _BUILTIN_ADAPTER_BUILDERS.get(provider)
     factory = configured or (
         _BuiltinAdapterFactory(builder) if callable(builder) else None
     )

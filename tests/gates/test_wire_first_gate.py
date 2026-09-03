@@ -427,6 +427,96 @@ def test_symbol_gate_scoped_resolution_still_trips_when_the_collision_partner_ha
     assert "Lineage2.parent_of" in symbols
 
 
+def _init_differential_repo(root: Path) -> None:
+    source = root / "agent_utilities"
+    tests = root / "tests"
+    source.mkdir(parents=True)
+    tests.mkdir()
+    (source / "__init__.py").write_text("")
+    (source / "old.py").write_text("def dormant():\n    return 1\n")
+    (tests / "test_old.py").write_text(
+        "from agent_utilities.old import dormant\n\n"
+        "def test_old():\n    assert dormant() == 1\n"
+    )
+    for args in (
+        ("init", "-q"),
+        ("config", "user.name", "Wire First Test"),
+        ("config", "user.email", "wire-first@example.invalid"),
+        ("add", "--", "agent_utilities", "tests"),
+        ("commit", "-qm", "baseline"),
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True)
+
+
+def _differential_findings(root: Path) -> list[dict]:
+    current = check_wiring.find_test_only_symbols(
+        src_dir=root / "agent_utilities",
+        tests_dir=root / "tests",
+        display_root=root,
+    )
+    findings = check_wiring._new_symbol_findings_vs_head(str(root), current)
+    assert findings is not None
+    return findings
+
+
+def test_differential_gate_preserves_findings_across_a_git_rename(tmp_path):
+    """An exact move keeps the prior finding identity; path motion is not debt."""
+    _init_differential_repo(tmp_path)
+    subprocess.run(
+        ["git", "mv", "agent_utilities/old.py", "agent_utilities/new.py"],
+        cwd=tmp_path,
+        check=True,
+    )
+    test_path = tmp_path / "tests" / "test_old.py"
+    test_path.write_text(test_path.read_text().replace(".old import", ".new import"))
+    subprocess.run(["git", "add", "--", str(test_path)], cwd=tmp_path, check=True)
+
+    assert _differential_findings(tmp_path) == []
+
+
+def test_differential_gate_still_finds_a_new_unwired_symbol(tmp_path):
+    """Rename awareness must not hide a genuinely added test-only function."""
+    _init_differential_repo(tmp_path)
+    source = tmp_path / "agent_utilities" / "old.py"
+    source.write_text(source.read_text() + "\ndef newly_unwired():\n    return 2\n")
+    test_path = tmp_path / "tests" / "test_old.py"
+    test_path.write_text(
+        test_path.read_text().replace("import dormant", "import dormant, newly_unwired")
+        + "\ndef test_new():\n    assert newly_unwired() == 2\n"
+    )
+    subprocess.run(
+        ["git", "add", "--", str(source), str(test_path)], cwd=tmp_path, check=True
+    )
+
+    assert {entry["symbol"] for entry in _differential_findings(tmp_path)} == {
+        "newly_unwired"
+    }
+
+
+def test_differential_gate_does_not_treat_a_cross_file_copy_as_a_rename(tmp_path):
+    """Keeping the original and copying its unwired API creates new backlog."""
+    _init_differential_repo(tmp_path)
+    old_source = tmp_path / "agent_utilities" / "old.py"
+    new_source = tmp_path / "agent_utilities" / "new.py"
+    new_source.write_text(old_source.read_text())
+    test_path = tmp_path / "tests" / "test_old.py"
+    test_path.write_text(test_path.read_text().replace(".old import", ".new import"))
+    subprocess.run(
+        ["git", "add", "--", str(new_source), str(test_path)],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    renames = check_wiring._current_to_head_renames(str(tmp_path))
+    assert renames is not None
+    assert "agent_utilities/new.py" not in renames
+    head = {"file": "agent_utilities/old.py", "symbol": "dormant", "ordinal": 0}
+    copied = {"file": "agent_utilities/new.py", "symbol": "dormant", "ordinal": 0}
+    assert check_wiring._finding_key_at_head(
+        copied, renames
+    ) != check_wiring._finding_key(head)
+
+
 # ---------------------------------------------------------------------------
 # Regression lock — the real repo must stay green with nothing new since HEAD
 # ---------------------------------------------------------------------------

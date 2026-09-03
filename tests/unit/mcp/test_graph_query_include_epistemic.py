@@ -72,7 +72,7 @@ def test_graph_query_default_passes_current_include_epistemic_kwarg(monkeypatch)
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
     )
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+        kg_server._execute_tool("graph_query", query="MATCH (a:Agent) RETURN a")
     ).model_dump()
     assert engine.seen_include_epistemic is False
     assert out["reasoning_trace"][-1]["payload"]["rows"] == [{"id": "agent:foo"}]
@@ -87,7 +87,7 @@ def test_graph_query_include_epistemic_true_returns_epistemic_rows(monkeypatch):
     out = asyncio.run(
         kg_server._execute_tool(
             "graph_query",
-            cypher="MATCH (a:Agent) RETURN a",
+            query="MATCH (a:Agent) RETURN a",
             include_epistemic=True,
         )
     ).model_dump()
@@ -106,7 +106,7 @@ def test_graph_query_include_epistemic_false_is_default(monkeypatch):
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
     )
     out = asyncio.run(
-        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+        kg_server._execute_tool("graph_query", query="MATCH (a:Agent) RETURN a")
     ).model_dump()
     assert out["reasoning_trace"][-1]["payload"]["rows"] == [{"id": "agent:foo"}]
 

@@ -91,15 +91,15 @@ async def test_add_task_persists_only_authoritative_work_item(
         TeamCapability,
         _GraphComputeWorkItemView,
     )
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
     task_ref = await TeamCapability(team_id="team_ref").add_task(
         ctx_with_graph, "do the thing", assigned_to="agent_ref"
     )
     engine = ctx_with_graph.deps.graph_engine
     graph = engine.graph
-    item_id = work_item.team_work_item_id(task_ref)
-    item = work_item.get_work_item(_GraphComputeWorkItemView(engine), item_id)
+    item_id = work_durability.team_work_item_id(task_ref)
+    item = work_durability.get_work_item(_GraphComputeWorkItemView(engine), item_id)
     assert item is not None
     assert item["kind"] == "team_assignment"
     assert item["status"] == "ready"
@@ -114,19 +114,19 @@ async def test_team_transition_changes_only_work_item(
         TeamCapability,
         _GraphComputeWorkItemView,
     )
-    from agent_utilities.orchestration import work_item
+    from agent_utilities.knowledge_graph.core import work_durability
 
     cap = TeamCapability(team_id="team_ref")
     task_ref = await cap.add_task(ctx_with_graph, "do the thing")
     view = _GraphComputeWorkItemView(ctx_with_graph.deps.graph_engine)
-    item_id = work_item.team_work_item_id(task_ref)
+    item_id = work_durability.team_work_item_id(task_ref)
 
     assert await cap.update_task_status(ctx_with_graph, task_ref, "in_progress")
     # ClaimWorkItem's native lease is the running ownership decision; there is
     # no second Python-side status write.
-    assert work_item.get_work_item(view, item_id)["status"] == "leased"
+    assert work_durability.get_work_item(view, item_id)["status"] == "leased"
     assert await cap.update_task_status(ctx_with_graph, task_ref, "completed")
-    assert work_item.get_work_item(view, item_id)["status"] == "succeeded"
+    assert work_durability.get_work_item(view, item_id)["status"] == "succeeded"
 
 
 @pytest.mark.asyncio

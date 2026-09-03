@@ -54,11 +54,13 @@ archived and validity-closed.
 - **Blast Radius**: `agent_utilities/knowledge_graph/ingestion/dead_letter.py`,
   `agent_utilities/knowledge_graph/ingestion/supersession.py`,
   `agent_utilities/mcp/tools/job_tools.py`,
-  `agent_utilities/orchestration/work_item.py`.
-- **Backward Compatible**: Yes — both build on existing primitives
-  (`WorkItem` terminal status, `ChangeEnvelope` delete/archive) rather than
-  introducing new storage.
-- **Breaking Changes**: None.
+  `agent_utilities/knowledge_graph/core/work_durability.py`.
+- **Current-only contract**: dead-letter state uses the current native WorkItem
+  terminal vocabulary and the current `ChangeEnvelope` archive operation. No
+  alternate status vocabulary, alias, or dual-write fallback is retained.
+- **Cutover requirement**: every drain/supersession consumer must move with this
+  contract; a consumer that still writes another lifecycle is rejected rather
+  than translated.
 - **Known weak point**: dead-letter drain being operator-initiated-only
   means a large backlog of dead-lettered items accumulates indefinitely
   without an automatic sweep — nothing forces attention to a growing

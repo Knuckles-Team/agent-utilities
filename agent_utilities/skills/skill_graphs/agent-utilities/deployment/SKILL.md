@@ -80,7 +80,7 @@ always constructed as the authority; naming a mirror is what turns fan-out on:
 
 - **uvx / uv** — fastest, ephemeral; great for test/dev.
   `uvx --from 'agent-utilities[mcp]' graph-os --transport stdio`
-  `uv run --with 'agent-utilities[all]' python -m agent_utilities` (full server)
+  `uv run --with 'agent-utilities[serving]' python -m agent_utilities` (full server)
 - **Docker Compose** — single node, durable. Compose files in `docker/`
   (`mcp.compose.yml`, `pggraph.compose.yml`, `neo4j`/`falkordb`, `kafka-kraft`).
 - **Kubernetes** — HA/multi-node. The wizard generates a Namespace + Deployment
@@ -112,7 +112,7 @@ python -c "from agent_utilities.knowledge_graph.backends import create_backend a
 b=c(); print(type(b).__name__)"   # EpistemicGraphBackend (default) or FanOutBackend
 graph-os --help            # standard --transport/--host/--port
 curl -s localhost:8004/health
-curl -s -XPOST localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
+curl -s -XPOST localhost:9000/api/graph/query -d '{"query":"MATCH (n) RETURN count(n)"}'
 ```
 
 See also: [Deployment Guide](../../../../../docs/guides/deployment.md)

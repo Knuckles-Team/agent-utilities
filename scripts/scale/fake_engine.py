@@ -4,7 +4,8 @@
 Same shape as the per-file ``FakeEngine`` doubles already used across the unit suite
 (``tests/unit/orchestration/test_work_item.py``, ``tests/unit/knowledge_graph/
 test_task_claim_cas.py``): a dict-backed node store with a REAL atomic
-``compare_and_set_node_fields``, so :mod:`agent_utilities.orchestration.work_item`'s
+``compare_and_set_node_fields``, so
+:mod:`agent_utilities.knowledge_graph.core.work_durability`'s
 CAS-based claim/lease/fencing/commit runs against genuine optimistic-concurrency
 semantics, not a stub. This module generalizes that pattern (recognizing the closed
 set of Cypher shapes ``work_item.py`` AND ``messaging.bus.AgentBus``'s graph-fallback
@@ -30,7 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from agent_utilities.orchestration import work_item as _wi
+from agent_utilities.knowledge_graph.core import work_durability as _wi
 
 
 class WallClock:
@@ -205,7 +206,7 @@ class FakeScaleEngine:
 
     # -- engine-native WorkItem verbs (D-OTD-2) ------------------------------
     #
-    # ``work_item.py``'s claim/renew/commit/cancel/defer primitives dispatch
+    # ``work_durability.py``'s claim/renew/commit/cancel/defer primitives dispatch
     # exclusively through these five generated verbs (mirroring
     # ``graph_compute.py``'s real ``self._client.work_items.*`` bridge) — there
     # is no Python-side CAS-scan fallback in production. This mirrors
@@ -404,7 +405,7 @@ class FakeScaleEngine:
             self.query_count += 1
             return self._dispatch_query(" ".join(cypher.split()), params)
 
-    # -- query dispatch: the closed set work_item.py + messaging.bus.AgentBus issue --
+    # -- query dispatch: the closed set work_durability.py + messaging.bus.AgentBus issue --
 
     def _query_work_item_by_id(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         node = self.nodes.get(params["id"])

@@ -250,7 +250,7 @@ class TestHungTaskTimeout:
         obj._active_work_item_claims_lock = threading.Lock()  # type: ignore[attr-defined]
         obj._work_item_engine_cache = object()  # type: ignore[attr-defined]
         obj._require_live_work_item_lease = MagicMock()  # type: ignore[attr-defined]
-        from agent_utilities.orchestration import work_item
+        from agent_utilities.knowledge_graph.core import work_durability as work_item
 
         commit = MagicMock(return_value="dead_letter")
         monkeypatch.setattr(work_item, "commit_result", commit)

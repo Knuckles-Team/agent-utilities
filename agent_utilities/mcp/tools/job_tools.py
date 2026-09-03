@@ -114,7 +114,7 @@ def register_job_tools(mcp: Any) -> None:
             if action == "cancel":
                 if not job_id:
                     return "Error: job_id required"
-                from agent_utilities.orchestration import work_item as _wi
+                from agent_utilities.knowledge_graph.core import work_durability as _wi
 
                 item_id = _wi.orchestrator_work_item_id(job_id)
                 view = getattr(engine, "_work_item_engine", engine)
@@ -137,10 +137,10 @@ def register_job_tools(mcp: Any) -> None:
                 )
                 if not isinstance(parsed_responses, dict):
                     raise ValueError("input_responses must decode to a JSON object")
+                from agent_utilities.knowledge_graph.core import work_durability as _wi
                 from agent_utilities.knowledge_graph.core.session import (
                     resolve_session,
                 )
-                from agent_utilities.orchestration import work_item as _wi
 
                 item_id = _wi.orchestrator_work_item_id(job_id)
                 view = getattr(engine, "_work_item_engine", engine)

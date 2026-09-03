@@ -97,10 +97,10 @@ class GatewayClient:
 
     # --- Knowledge graph ----------------------------------------------------- #
 
-    async def graph_query(self, cypher: str, **params: Any) -> dict[str, Any]:
-        """Run a Cypher ``cypher`` query against the KG (``/api/graph/query``)."""
+    async def graph_query(self, query: str, **params: Any) -> dict[str, Any]:
+        """Run a read-only ``query`` against the KG (``/api/graph/query``)."""
         body = self._body(
-            await self._api.post("/api/graph/query", json={"cypher": cypher, **params})
+            await self._api.post("/api/graph/query", json={"query": query, **params})
         )
         return body if isinstance(body, dict) else {"data": body}
 

@@ -433,7 +433,7 @@ def test_graph_query_basic(mock_engine, server_tools):
         return_value=([("default", mock_engine)], {}, False),
     ):
         result = graph_query(
-            cypher="MATCH (n) RETURN labels(n)[0] AS type, count(n) AS count",
+            query="MATCH (n) RETURN labels(n)[0] AS type, count(n) AS count",
             params="{}",
             scope="local",
             reference_id="",
@@ -457,7 +457,7 @@ def test_graph_query_surfaces_backend_write_rejection_as_typed_error(
         return_value=([("default", mock_engine)], {}, False),
     ):
         result = graph_query(
-            cypher="CREATE (n:Test) RETURN n",
+            query="CREATE (n:Test) RETURN n",
             params="{}",
             scope="local",
             reference_id="",

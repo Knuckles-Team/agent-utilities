@@ -6,8 +6,8 @@ from dataclasses import replace
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.trino_backend import KnowledgeBatch
 from agent_utilities.knowledge_graph.core.tabular_query_service import (
+    KnowledgeBatch,
     TabularQueryRequest,
     TabularQueryService,
 )

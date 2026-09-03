@@ -41,10 +41,8 @@ from agent_utilities.base_utilities import (
     is_loopback_url,
     to_boolean,
 )
-from agent_utilities.capabilities import (
-    HooksCapability,
-    default_runtime_capabilities,
-)
+from agent_utilities.capabilities.composition import default_runtime_capabilities
+from agent_utilities.capabilities.hooks import HooksCapability
 from agent_utilities.core.config import (
     DEFAULT_AGENT_NAME,
     DEFAULT_AGENT_SYSTEM_PROMPT,

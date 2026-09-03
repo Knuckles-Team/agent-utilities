@@ -605,7 +605,7 @@ concepts:
       - agent_utilities/mcp/delegated_auth.py
       - agent_utilities/orchestration/agent_runner.py
       - agent_utilities/orchestration/engine.py
-      - agent_utilities/orchestration/work_item.py
+      - agent_utilities/knowledge_graph/core/work_durability.py
       - agent_utilities/security/delegation.py
       test_files: []
       doc_files:
@@ -630,8 +630,8 @@ concepts:
       - agent_utilities/orchestration/engine.py:525
       - agent_utilities/orchestration/engine.py:1154
       - agent_utilities/orchestration/engine.py:1442
-      - agent_utilities/orchestration/work_item.py:388
-      - agent_utilities/orchestration/work_item.py:1212
+      - agent_utilities/knowledge_graph/core/work_durability.py:463
+      - agent_utilities/knowledge_graph/core/work_durability.py:1582
       - agent_utilities/security/delegation.py:1
       - docs/architecture/per-agent-delegation.md:3
   AU-OS.identity.permissions-kernel:

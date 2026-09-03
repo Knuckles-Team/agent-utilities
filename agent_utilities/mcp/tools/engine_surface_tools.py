@@ -1899,7 +1899,7 @@ def _feature_query_rows(cypher: str, graph: str) -> list[Any]:
     """Run one read-only projection through ``graph_query`` and validate its shape."""
     raw = _run_coro(
         kg_server._execute_tool(
-            "graph_query", cypher=cypher, params="{}", scope="local", target=graph or ""
+            "graph_query", query=cypher, params="{}", scope="local", graph=graph or ""
         )
     )
     payload = json.loads(raw) if isinstance(raw, str) else raw

@@ -46,7 +46,7 @@ avoid expressing its acceptance criteria.
 When the KG has no registered `Server`/`CallableResource` nodes yet (cold start),
 auto-hydrate before delegating rather than failing:
 
-1. **Discover**: `graph_query(cypher="MATCH (s:Server)-[:PROVIDES]->(r:CallableResource)
+1. **Discover**: `graph_query(query="MATCH (s:Server)-[:PROVIDES]->(r:CallableResource)
    RETURN s.name AS server, count(r) AS tool_count ORDER BY tool_count DESC LIMIT 50")`
    — an empty result means the KG is cold.
 2. **Hydrate** (only if cold): ingest every discoverable `mcp_config*.json` (scan known IDE

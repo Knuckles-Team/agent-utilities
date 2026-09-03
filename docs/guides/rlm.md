@@ -190,7 +190,7 @@ Functions available inside the RLM execution environment:
 |---|---|---|
 | `rlm_query` | `await rlm_query(prompt, context, schema=None)` | Spawn a recursive sub-RLM at depth+1; pass `schema=` to get a validated, typed return |
 | `magma_view` | `await magma_view(query, views)` | MAGMA orthogonal memory views |
-| `graph_query` | `await graph_query(cypher, params)` | Run Cypher against the knowledge graph |
+| `graph_query` | `await graph_query(query, params)` | Run Cypher against the knowledge graph |
 | `owl_query` | `await owl_query(sparql)` | Run SPARQL against the OWL reasoner |
 | `kg_bulk_export` | `await kg_bulk_export(node_type, limit)` | Export KG nodes as JSON for bulk analysis |
 | `sub_agent_call` | `await sub_agent_call(prompt, agent_id, data)` | Dispatch to specialist agent |

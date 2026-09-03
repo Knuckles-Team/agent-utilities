@@ -62,7 +62,7 @@ async def main():
         properties='{"msg":"it works"}',
     )
     res = await kg_server._execute_tool(
-        "graph_query", cypher="MATCH (n:Greeting) RETURN n",
+        "graph_query", query="MATCH (n:Greeting) RETURN n",
     )
     assert res is not None, "graph_query returned nothing"
     print("  ✓ wrote a node and queried it back — the KG works with zero infra.")

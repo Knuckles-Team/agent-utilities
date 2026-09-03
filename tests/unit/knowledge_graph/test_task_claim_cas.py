@@ -3,7 +3,7 @@
 The worker claim used to be a single raw ``compare_and_set_node_fields`` on
 the ``:Task`` node's own ``status`` field. AU-P1-CL made the ingestion
 queue's claim/commit/reap arbitration authoritative on a deterministic
-shadow ``:WorkItem`` (:mod:`agent_utilities.orchestration.work_item`) instead
+shadow ``:WorkItem`` (:mod:`agent_utilities.knowledge_graph.core.work_durability`) instead
 — the SAME engine-native CAS/lease/attempt machinery ``:AgentTask`` dispatch
 already uses — so these tests were rewritten (from mocking a single
 ``backend.compare_and_set_node_fields`` call) to exercise the REAL WorkItem
@@ -30,11 +30,11 @@ import threading
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
+from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
     _encode_metadata,
 )
-from agent_utilities.orchestration import work_item as wi
 
 TOKEN = "claimhost:333:1700000003"
 

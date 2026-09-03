@@ -3,6 +3,9 @@
 
 """Tests for agent capabilities (reliability, session resilience, teams)."""
 
+import inspect
+import subprocess
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,16 +13,64 @@ from pydantic_ai import RunContext
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from agent_utilities.capabilities import (
+from agent_utilities.capabilities.checkpointing import (
     CheckpointMiddleware,
-    ContextLimitWarner,
-    HooksCapability,
     InMemoryCheckpointStore,
-    StuckLoopDetection,
-    StuckLoopError,
-    TeamCapability,
-    ToolOutputEviction,
 )
+from agent_utilities.capabilities.context_warnings import ContextLimitWarner
+from agent_utilities.capabilities.eviction import ToolOutputEviction
+from agent_utilities.capabilities.hooks import HooksCapability
+from agent_utilities.capabilities.stuck_loop import StuckLoopDetection, StuckLoopError
+from agent_utilities.capabilities.teams import TeamCapability
+
+
+def test_capability_imports_are_lean_and_runtime_guardrails_are_required() -> None:
+    """Lean imports work; constructing default runtime capabilities requires Harness."""
+    from agent_utilities.agent.factory import create_agent
+    from agent_utilities.capabilities.composition import default_runtime_capabilities
+
+    assert (
+        inspect.signature(create_agent).parameters["content_guardrails"].default is True
+    )
+    assert (
+        inspect.signature(default_runtime_capabilities)
+        .parameters["content_guardrails"]
+        .default
+        is True
+    )
+
+    script = """
+import builtins
+
+real_import = builtins.__import__
+
+def import_without_harness(name, *args, **kwargs):
+    if name == "pydantic_ai_harness" or name.startswith("pydantic_ai_harness."):
+        raise ModuleNotFoundError("No module named 'pydantic_ai_harness'", name=name)
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = import_without_harness
+import agent_utilities.capabilities as capabilities
+import agent_utilities.agent.factory
+from agent_utilities.capabilities.composition import default_runtime_capabilities
+
+assert not hasattr(capabilities, "HooksCapability")
+
+try:
+    default_runtime_capabilities()
+except ModuleNotFoundError as exc:
+    assert exc.name == "pydantic_ai_harness"
+else:
+    raise AssertionError("default runtime capabilities loaded without their harness")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture

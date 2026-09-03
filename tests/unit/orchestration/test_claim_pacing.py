@@ -6,7 +6,7 @@ Two layers, per the module docstring's unified model:
 1. The pure mechanism (:mod:`agent_utilities.orchestration.claim_pacing`) — shed
    detection, per-class backoff growth/cap/jitter, recovery-on-success,
    per-class isolation. Deterministic: every ``now``/``rng`` is injected.
-2. The live-path wiring (:func:`agent_utilities.orchestration.work_item.
+2. The live-path wiring (:func:`agent_utilities.knowledge_graph.core.work_durability.
    claim_specific`/``claim_next`` routing every claim through
    ``_paced_claim_call``) — proves a real shed from the engine is recorded,
    re-raised UNCHANGED (wire-compatible with every existing caller), and that
@@ -265,7 +265,7 @@ def _negative_claim() -> dict:
 
 
 def test_claim_next_shed_is_recorded_and_reraised_unchanged():
-    from agent_utilities.orchestration import work_item as wi
+    from agent_utilities.knowledge_graph.core import work_durability as wi
 
     engine = _ShedThenAdmitEngine(shed_count=1)
     with priority_scope(PriorityClass.BACKGROUND_INGESTION):
@@ -277,7 +277,7 @@ def test_claim_next_shed_is_recorded_and_reraised_unchanged():
 
 
 def test_claim_next_is_paced_after_a_shed_without_hitting_the_engine():
-    from agent_utilities.orchestration import work_item as wi
+    from agent_utilities.knowledge_graph.core import work_durability as wi
 
     engine = _ShedThenAdmitEngine(shed_count=100)  # would shed forever if hit again
     with priority_scope(PriorityClass.BACKGROUND_INGESTION):
@@ -295,7 +295,7 @@ def test_claim_next_is_paced_after_a_shed_without_hitting_the_engine():
 def test_claim_next_recovers_and_admits_after_the_window_elapses():
     """A real (short) wait past the live default policy's window: the NEXT
     attempt reaches the engine again (one probe) and, admitted, resets."""
-    from agent_utilities.orchestration import work_item as wi
+    from agent_utilities.knowledge_graph.core import work_durability as wi
 
     engine = _ShedThenAdmitEngine(shed_count=1, admit=True)
     with priority_scope(PriorityClass.BACKGROUND_INGESTION):
@@ -315,7 +315,7 @@ def test_claim_next_recovers_and_admits_after_the_window_elapses():
 def test_a_negative_but_legitimate_claim_is_not_a_shed():
     """The engine cleanly answering 'nothing to claim' is NOT a BUSY shed —
     it must not engage pacing at all."""
-    from agent_utilities.orchestration import work_item as wi
+    from agent_utilities.knowledge_graph.core import work_durability as wi
 
     engine = _ShedThenAdmitEngine(shed_count=0, admit=False)
     with priority_scope(PriorityClass.BACKGROUND_INGESTION):
@@ -325,7 +325,7 @@ def test_a_negative_but_legitimate_claim_is_not_a_shed():
 
 
 def test_interactive_class_is_unaffected_by_a_concurrent_ingest_shed():
-    from agent_utilities.orchestration import work_item as wi
+    from agent_utilities.knowledge_graph.core import work_durability as wi
 
     ingest_engine = _ShedThenAdmitEngine(shed_count=50)
     with priority_scope(PriorityClass.BACKGROUND_INGESTION):
