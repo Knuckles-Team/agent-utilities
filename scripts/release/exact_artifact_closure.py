@@ -19,7 +19,7 @@ from typing import Any, Final
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.release.exact_local_cli import add_exact_local_release_arguments
+from scripts.release.exact_local_cli import exact_local_parser
 from scripts.release.exact_local_gates_manifest import (
     ManifestError,
     _write_new_private,
@@ -1127,11 +1127,10 @@ def bind_closure(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = exact_local_parser(
         prog="bind-exact-local-release-evidence",
         description="Validate and sign the complete local exact-artifact closure.",
     )
-    add_exact_local_release_arguments(parser)
     parser.add_argument("--campaign-manifest", required=True, type=Path)
     parser.add_argument("--fault-restart-evidence", required=True, type=Path)
     parser.add_argument("--protocol-authorization-evidence", required=True, type=Path)
