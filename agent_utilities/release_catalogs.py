@@ -110,6 +110,29 @@ def write_catalog(path: Path, payload: bytes, *, prefix: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def check_or_write_catalog(
+    path: Path,
+    payload: bytes,
+    *,
+    check: bool,
+    prefix: str,
+) -> bool:
+    """Check a retained catalog or atomically write it, according to ``check``.
+
+    A check treats a missing, symlinked, or non-regular output as drift through
+    :func:`read_retained_bytes`. A write keeps the existing atomic regular-file
+    and parent-directory safeguards in :func:`write_catalog`. The boolean is
+    true after a write and reflects byte equality in check mode, so generator
+    entry points share one output contract without sharing catalog-specific
+    payload or path validation.
+    """
+
+    if check:
+        return read_retained_bytes(path) == payload
+    write_catalog(path, payload, prefix=prefix)
+    return True
+
+
 def _safe_skill_names(skill_names: Iterable[str]) -> tuple[str, ...]:
     names = tuple(sorted(skill_names))
     if (

@@ -35,9 +35,9 @@ from agent_utilities.release_catalogs import (  # noqa: E402
     ReleaseCatalogError,
     canonical_json_bytes,
     canonical_value_digest,
+    check_or_write_catalog,
     content_digest,
     read_retained_bytes,
-    write_catalog,
 )
 
 DEFAULT_AGENTS_ROOT = _default_agents_root()
@@ -225,14 +225,14 @@ def main(argv: list[str] | None = None) -> int:
             lock_path=args.lock_path,
             matrix_path=args.matrix,
         )
-        if args.check:
-            if read_retained_bytes(args.output) != payload:
-                print(
-                    json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
-                )
-                return 1
-        else:
-            write_catalog(args.output, payload, prefix=".connector-catalog-")
+        if not check_or_write_catalog(
+            args.output,
+            payload,
+            check=args.check,
+            prefix=".connector-catalog-",
+        ):
+            print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
+            return 1
     except (ReleaseCatalogError, OSError, UnicodeError, ValueError):
         print(json.dumps({"error": "CatalogInputInvalid", "ok": False}, sort_keys=True))
         return 1
