@@ -306,8 +306,11 @@ def map_index_result(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Map an engine ``IndexResult`` into KG entities + relationships.
 
-    Node ids are namespaced ``gitlab:<instance>:<project_id>:<engine_id>`` so the
-    engine's content-hash symbol ids never collide across projects/instances. A
+    Node ids are namespaced ``gitlab:<instance>:<project_id>:<engine_id>`` so
+    engine symbol ids never collide across projects/instances. (The namespacing is
+    still required: engine ids are unique per occurrence WITHIN one index batch,
+    not globally across projects or instances. Before 2026-09-04 they were content
+    hashes and collided within a single batch too.) A
     ``Repository`` node + ``File`` nodes are synthesized so ``IMPLEMENTS`` /
     ``depends_on`` edges (which reference ``file:<path>``) are not dangling, and the
     code graph ties back to the GitLab project structure.

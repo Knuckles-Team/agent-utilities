@@ -174,7 +174,8 @@ def _replay_parse_result(
     """Replay an engine ParseResult (nodes/edges) into the registry graph.
 
     Faithful to the previous hand-rolled extraction: SYMBOL nodes keyed by
-    ``symbol:<sha256>`` with name/symbol_type/line/ast_hash/file_path, joined to their
+    ``symbol:<sha256>`` (occurrence identity since 2026-09-04, not a content hash --
+    ``ast_hash`` carries content) with name/symbol_type/line/ast_hash/file_path, joined to their
     ``file:<path>`` by IMPLEMENTS, plus calls_raw / depends_on_raw edges. The engine adds
     language/kind_detail/minhash (resolution inputs) which we carry through untouched.
     """

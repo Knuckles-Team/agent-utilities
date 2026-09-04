@@ -93,8 +93,10 @@ def entities_from_parse_result(
         name = props.get("name", "")
         line = _int(props, "line")
         ast_hash = props.get("ast_hash", "")
-        # Stable identity per (file, symbol) — NOT the Rust content-hash id, which
-        # collides for identically-bodied symbols (e.g. ``def test_x(): pass``).
+        # Stable identity per (file, symbol). Historically this also worked around
+        # the Rust content-hash id colliding for identically-bodied symbols (e.g.
+        # ``def test_x(): pass``); engine ids carry occurrence identity since
+        # 2026-09-04, so that collision is gone, but keying locally stays correct.
         # ast_hash is kept as a property for incremental change detection.
 
         if (

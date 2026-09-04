@@ -180,9 +180,19 @@ flowchart LR
 ```
 
 **Leveraging Rust epistemic-graph.** For code, the content hash is *free*: the
-tree-sitter parser already emits a content-stable `ast_hash` and uses it as the
-`symbol:<hash>` node id, so "which symbols changed" is answered by node existence
-(`HasNodesBatch`) with zero extra compute. `IndexRepository` resolves an entire
+tree-sitter parser emits a content-stable `ast_hash` on every symbol, so "which
+symbols changed" is answered by comparing `ast_hash`, not by node existence.
+
+> **Corrected 2026-09-04.** This paragraph previously said the parser *uses*
+> `ast_hash` as the `symbol:<hash>` node id, and that node existence
+> (`HasNodesBatch`) therefore answers the delta question. Both halves are now
+> false and the technique would be wrong if applied: since `3831475a` the node id
+> is OCCURRENCE identity -- `sha256(file_path, symbol_type, qualified_symbol,
+> per-file ordinal)` -- so it is stable across content edits, and a node
+> continues to exist unchanged when a symbol's body changes. Delta detection must
+> read the `ast_hash` PROPERTY. The id was changed because content-addressing made
+> byte-identical declarations share one id (max multiplicity 46), which made
+> 954,652 EG edge rows ambiguous. `IndexRepository` resolves an entire
 repo's `:calls`/`:dependsOn` in one parallel (`rayon`) pass off-reactor. The
 generic write-layer delta extends that same content-hash idea to every non-code
 connector.
