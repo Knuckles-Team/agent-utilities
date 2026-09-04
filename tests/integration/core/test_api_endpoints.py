@@ -38,7 +38,7 @@ def client(mock_agent):
     """
     import agent_utilities.core.config as config_module
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     original_jwks = config_module.config.auth_jwt_jwks_uri

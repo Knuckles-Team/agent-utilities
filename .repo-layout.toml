@@ -20,6 +20,7 @@
 # docstring for why the split.
 
 [dirs]
+architecture = "owner-authored architecture component manifests consumed by the validation generator"
 agent_utilities = "the importable library package itself (kg_server.py MCP entry point, agent.py, skills/, core/, ...)"
 deploy = "k8s/Compose deployment manifests, the fleet MCP registry, action-policy defaults, and release/schedule config read by the deploy tooling"
 docker = "Dockerfile + docker-compose stacks (graph-os, engine-shards, falkordb, jena_fuseki, kafka, egeria, ...) for image build and local dev"

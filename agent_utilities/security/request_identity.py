@@ -65,13 +65,14 @@ byte-for-byte the same.
 import json
 import logging
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from ..models.company_brain import ActorType
+from .actor_identity import ActorType
 from .brain_context import (
     ActorContext,
     CredentialExpiredError,
+    CredentialLease,
     reset_actor,
     set_actor,
     use_actor,
@@ -102,6 +103,155 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # supplied directly or through the configured identity mapping — grants graph
 # administration; a generic application role named ``admin`` is not equivalent.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
+
+_MAX_AUTHORITY_TEXT_LENGTH = 512
+_MAX_AUTHORITY_GROUPS = 128
+_MAX_CREDENTIAL_EXPIRY = (1 << 63) - 1
+
+
+def _bounded_authority_text(value: object, *, field_name: str) -> str:
+    text = value if isinstance(value, str) else ""
+    if (
+        not text
+        or text != text.strip()
+        or len(text) > _MAX_AUTHORITY_TEXT_LENGTH
+        or any(ord(character) < 32 or ord(character) == 127 for character in text)
+    ):
+        raise PermissionError(f"Verified authority has an invalid {field_name}")
+    return text
+
+
+def _bounded_authority_groups(values: object) -> tuple[str, ...]:
+    if not isinstance(values, tuple) or len(values) > _MAX_AUTHORITY_GROUPS:
+        raise PermissionError("Verified authority has invalid groups")
+    groups = tuple(
+        _bounded_authority_text(value, field_name="group") for value in values
+    )
+    if len(set(groups)) != len(groups):
+        raise PermissionError("Verified authority has duplicate groups")
+    return groups
+
+
+def _bounded_integer_expiry(value: object) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= _MAX_CREDENTIAL_EXPIRY
+    ):
+        raise PermissionError("Verified authority requires a bounded expiry")
+    return value
+
+
+def _actor_expiry(actor: ActorContext) -> int:
+    lease = actor.credential_lease
+    raw_expiry = getattr(lease, "expires_at", actor.credential_expires_at)
+    return _bounded_integer_expiry(raw_expiry)
+
+
+def _claim_expiry(claims: dict[str, Any]) -> int | None:
+    if "exp" not in claims:
+        return None
+    raw_expiry = claims["exp"]
+    if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, int | float):
+        raise ValueError("validated identity has an invalid expiry claim")
+    try:
+        expiry = int(raw_expiry)
+    except (OverflowError, ValueError):
+        raise ValueError("validated identity has an invalid expiry claim") from None
+    if raw_expiry < 0 or expiry > _MAX_CREDENTIAL_EXPIRY:
+        raise ValueError("validated identity has an invalid expiry claim")
+    return expiry
+
+
+def _actor_with_credential_lease(actor: ActorContext) -> ActorContext:
+    return replace(
+        actor,
+        credential_lease=CredentialLease(_actor_expiry(actor)),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedRequestAuthority:
+    """Immutable lower authority consumed by application projections.
+
+    This security-owned DTO is deliberately graph-agnostic. It contains no
+    graph name, placement, trace, session, engine, transport, or persistence
+    implementation. ``knowledge_graph.core.session`` owns the sole projection
+    from this object into its graph-session currency.
+
+    The embedded actor is retained for existing actor-context consumers, while
+    every authorization-bearing member is snapshotted and rechecked by
+    :meth:`ensure_current`. A renewable credential lease therefore cannot
+    silently mutate authority after construction: renewal must build a fresh
+    DTO, and subject/tenant/capability/group drift fails closed.
+    """
+
+    actor: ActorContext
+    subject: str
+    tenant: str
+    scopes: frozenset[str]
+    groups: tuple[str, ...]
+    audience: str
+    policy_version: str
+    credential_expires_at: int
+
+    def __post_init__(self) -> None:
+        _bounded_authority_text(self.subject, field_name="subject")
+        _bounded_authority_text(self.tenant, field_name="tenant")
+        _bounded_authority_text(self.audience, field_name="audience")
+        _bounded_authority_text(self.policy_version, field_name="policy revision")
+        _bounded_authority_groups(self.groups)
+        self.ensure_current()
+
+    def ensure_current(self) -> None:
+        """Reject expired authority or drift from the verified actor snapshot."""
+        self.actor.ensure_credential_current()
+        if not self.actor.authenticated:
+            raise PermissionError("Verified authority actor is not authenticated")
+        if self.subject != self.actor.actor_id:
+            raise PermissionError("Verified authority actor identity drifted")
+        if self.tenant != self.actor.tenant_id:
+            raise PermissionError("Verified authority tenant drifted")
+        if self.scopes != _resolve_authenticated_scopes(self.actor):
+            raise PermissionError("Verified authority scopes drifted")
+        if self.groups != _bounded_authority_groups(self.actor.groups):
+            raise PermissionError("Verified authority groups drifted")
+        if self.credential_expires_at != _actor_expiry(self.actor):
+            raise PermissionError("Verified authority expiry drifted")
+
+
+def build_verified_request_authority(
+    actor: ActorContext,
+    *,
+    audience: str,
+    policy_version: str,
+) -> VerifiedRequestAuthority:
+    """Snapshot one already-authenticated actor into the lower authority DTO.
+
+    External credential verification must happen before this call. This
+    function performs only the fail-closed structural/narrowing checks owned by
+    security; it does not mint graph, session, placement, or trace state.
+    """
+    _assert_actor_authenticated(actor)
+    credential_expires_at = _actor_expiry(actor)
+    actor.ensure_credential_current()
+    verified_audience, verified_policy = _assert_graph_authority(
+        audience, policy_version
+    )
+    authority = VerifiedRequestAuthority(
+        actor=actor,
+        subject=_bounded_authority_text(actor.actor_id, field_name="subject"),
+        tenant=_bounded_authority_text(actor.tenant_id, field_name="tenant"),
+        scopes=_resolve_authenticated_scopes(actor),
+        groups=_bounded_authority_groups(actor.groups),
+        audience=_bounded_authority_text(verified_audience, field_name="audience"),
+        policy_version=_bounded_authority_text(
+            verified_policy, field_name="policy revision"
+        ),
+        credential_expires_at=credential_expires_at,
+    )
+    return authority
+
 
 # The exact claim-key shape of the ONE live verified-identity carrier this
 # codebase ships (GOC-15 carrier contract,
@@ -291,7 +441,11 @@ def _mint_graph_session(
     ``catalog_epoch`` unbound. See the module docstring's *"Identity, not
     topology"* note for why binding a route here was a security defect.
     """
-    _assert_actor_authenticated(actor)
+    authority = build_verified_request_authority(
+        actor,
+        audience=audience,
+        policy_version=policy_version,
+    )
 
     from agent_utilities.knowledge_graph.core.session import GraphSession
     from agent_utilities.knowledge_graph.core.shard_topology import (
@@ -300,10 +454,9 @@ def _mint_graph_session(
     )
     from agent_utilities.observability import correlation
 
-    scopes = _resolve_authenticated_scopes(actor)
-    tenant = _resolve_verified_tenant(actor)
+    scopes = authority.scopes
+    tenant = authority.tenant
     graph = tenant_graph_name(tenant, base=default_graph_name())
-    audience, policy_version = _assert_graph_authority(audience, policy_version)
 
     # No route, no engine contact, no transport provisioning: the data plane
     # (``knowledge_graph/core/graph_compute.py``) binds the authoritative route
@@ -312,13 +465,13 @@ def _mint_graph_session(
     # documented "resolve normally" value on GraphSession. See the module
     # docstring's "Identity, not topology" note (D-SP-1).
     return GraphSession(
-        actor=actor,
+        actor=authority.actor,
         tenant=tenant,
         scopes=scopes,
         graph=graph,
-        policy_version=policy_version,
+        policy_version=authority.policy_version,
         trace_context=correlation.ensure_correlation_id(),
-        audience=audience,
+        audience=authority.audience,
     )
 
 
@@ -418,17 +571,7 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     group_map = getattr(config, "identity_group_capability_map", None)
 
     actor_type = ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
-    credential_expires_at: int | None = None
-    if "exp" in claims:
-        raw_expiry = claims["exp"]
-        if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, int | float):
-            raise ValueError("validated identity has an invalid expiry claim")
-        if raw_expiry < 0:
-            raise ValueError("validated identity has an invalid expiry claim")
-        try:
-            credential_expires_at = int(raw_expiry)
-        except (OverflowError, ValueError):
-            raise ValueError("validated identity has an invalid expiry claim") from None
+    credential_expires_at = _claim_expiry(claims)
     return ActorContext(
         actor_id=identity.subject,
         actor_type=actor_type,
@@ -485,10 +628,11 @@ def mint_local_process_session() -> GraphSession:
         audience=_LOCAL_PROCESS_AUDIENCE,
     )
     del token
-    # The local JWT is a one-time bootstrap attestation. Its private key and
-    # token are destroyed, so the resulting process session is intentionally
-    # bounded by the process lifetime rather than the 120-second proof window.
-    actor = replace(actor_from_claims(claims), credential_expires_at=None)
+    # The proof key and token are destroyed, but their validated expiry remains
+    # authority. Long-running process callers renew by minting a fresh proof;
+    # destroying proof material must never turn a bounded credential into an
+    # indefinite process grant.
+    actor = _actor_with_credential_lease(actor_from_claims(claims))
     return _mint_graph_session(
         actor,
         audience=_LOCAL_PROCESS_AUDIENCE,
@@ -871,7 +1015,7 @@ async def _mint_request_session(actor: ActorContext, send: Any) -> GraphSession 
 
     try:
         return mint_graph_session(actor)
-    except SessionExpiredError:
+    except (CredentialExpiredError, SessionExpiredError):
         await _send_json(send, 401, {"error": "Bearer credential expired"})
         return None
     except PermissionError:
@@ -1019,10 +1163,12 @@ __all__ = [
     "OPTIONAL_CARRIER_CLAIM_FIELDS",
     "SERVED_TRANSPORTS",
     "UNAUTHENTICATED_PATHS",
+    "VerifiedRequestAuthority",
     "acquire_process_identity_token",
     "actor_from_bearer_token",
     "actor_from_claims",
     "apply_served_security_profile",
+    "build_verified_request_authority",
     "local_process_authority_enabled",
     "mint_local_process_session",
     "mint_graph_session",

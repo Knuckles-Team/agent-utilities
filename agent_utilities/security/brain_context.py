@@ -19,7 +19,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from ..models.company_brain import ActorType
+from .actor_identity import ActorType
 
 
 class CredentialExpiredError(PermissionError):

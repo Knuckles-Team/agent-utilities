@@ -4690,19 +4690,34 @@ def _same_process_authority(left: Any, right: Any) -> bool:
     )
 
 
-def _refresh_process_authority(session: Any) -> Any:
-    """Renew one external process lease without replacing captured sessions.
+def _renewed_process_actor(config: Any) -> Any:
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        local_process_authority_enabled,
+        mint_actor_from_token_sync,
+        mint_local_process_session,
+    )
 
-    The token exists only inside this call. After validation, only its bounded
-    expiry is copied into the shared in-memory lease. Identity, roles, tenant,
-    route, and policy may not change during renewal.
+    if local_process_authority_enabled(config):
+        return mint_local_process_session().actor
+    token = acquire_process_identity_token(config)
+    try:
+        return mint_actor_from_token_sync(token)
+    finally:
+        del token
+
+
+def _refresh_process_authority(session: Any) -> Any:
+    """Renew one process lease without replacing captured sessions.
+
+    External identities reacquire and validate their configured token. Tiny
+    packaged-local stdio remints its in-memory asymmetric proof instead; it
+    never falls through to an external-token lookup it cannot satisfy. After
+    validation, only the bounded expiry is copied into the shared in-memory
+    lease. Identity, roles, tenant, route, and policy may not change.
     """
     from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
-    from agent_utilities.security.request_identity import (
-        acquire_process_identity_token,
-        mint_actor_from_token_sync,
-    )
 
     lease = getattr(getattr(session, "actor", None), "credential_lease", None)
     if lease is None:
@@ -4713,9 +4728,7 @@ def _refresh_process_authority(session: Any) -> Any:
             return session
         except SessionExpiredError:  # noqa: BLE001 — expected: falls through to the renewal path below
             pass
-        token = acquire_process_identity_token(config)
-        renewed_actor = mint_actor_from_token_sync(token)
-        del token
+        renewed_actor = _renewed_process_actor(config)
         if not _same_process_authority(session.actor, renewed_actor):
             raise RuntimeError("Graph process authority changed during renewal")
         expires_at = getattr(renewed_actor, "credential_expires_at", None)

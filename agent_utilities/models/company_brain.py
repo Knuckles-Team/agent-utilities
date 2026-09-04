@@ -46,32 +46,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..security import actor_identity as _actor_identity
+
 # ---------------------------------------------------------------------------
 # Core Enums — Actor Types & Assertion Semantics
 # ---------------------------------------------------------------------------
-
-
-class ActorType(StrEnum):
-    """Type of actor interacting with the Company Brain.
-
-    The Company Brain is actor-agnostic: humans, AI agents, automated
-    services, and hybrid human+AI teams are all first-class participants.
-    This enum exists for provenance and audit purposes, not for access
-    control differentiation.
-
-    Values:
-        HUMAN: A human user (employee, contractor, external stakeholder).
-        AI_AGENT: An autonomous AI agent operating within the ecosystem.
-        AUTOMATED_SERVICE: A non-AI automated system (CI/CD, cron, webhook).
-        HYBRID_TEAM: A human+AI collaborative unit acting as a single actor.
-        SYSTEM: The Company Brain infrastructure itself (maintenance, synthesis).
-    """
-
-    HUMAN = "human"
-    AI_AGENT = "ai_agent"
-    AUTOMATED_SERVICE = "automated_service"
-    HYBRID_TEAM = "hybrid_team"
-    SYSTEM = "system"
 
 
 class AssertionType(StrEnum):
@@ -274,7 +253,7 @@ class GraphLock(BaseModel):
     lock_id: str = Field(default_factory=lambda: f"lock:{uuid.uuid4().hex}")
     target_id: str
     holder_id: str
-    holder_type: ActorType = ActorType.AI_AGENT
+    holder_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     mode: LockMode = LockMode.OPTIMISTIC
     acquired_at: str = Field(
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -334,7 +313,7 @@ class TenantNode(BaseModel):
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )
     created_by: str = "system"
-    created_by_type: ActorType = ActorType.SYSTEM
+    created_by_type: _actor_identity.ActorType = _actor_identity.ActorType.SYSTEM
     is_active: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -352,7 +331,7 @@ class TenantMembership(BaseModel):
     """
 
     actor_id: str
-    actor_type: ActorType = ActorType.HUMAN
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.HUMAN
     tenant_id: str
     role: str = "member"
     granted_at: str = Field(
@@ -402,9 +381,9 @@ class ConflictNode(BaseModel):
     value_a: Any = None
     value_b: Any = None
     actor_a: str = ""
-    actor_a_type: ActorType = ActorType.AI_AGENT
+    actor_a_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     actor_b: str = ""
-    actor_b_type: ActorType = ActorType.AI_AGENT
+    actor_b_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     assertion_type_a: AssertionType = AssertionType.AGENT_INFERENCE
     assertion_type_b: AssertionType = AssertionType.AGENT_INFERENCE
     confidence_a: float = 0.5
@@ -451,7 +430,7 @@ class ProvenanceRecord(BaseModel):
     record_id: str = Field(default_factory=lambda: f"prov:{uuid.uuid4().hex}")
     node_id: str
     actor_id: str
-    actor_type: ActorType = ActorType.AI_AGENT
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     action: str = "create"
     assertion_type: AssertionType = AssertionType.AGENT_INFERENCE
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -519,7 +498,7 @@ class ReadAuditEntry(BaseModel):
 
     entry_id: str = Field(default_factory=lambda: f"read:{uuid.uuid4().hex}")
     actor_id: str
-    actor_type: ActorType = ActorType.AI_AGENT
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     query_type: str = "traversal"
     nodes_accessed: list[str] = Field(default_factory=list)
     query_summary: str = ""
@@ -558,7 +537,7 @@ class EventStreamConfig(BaseModel):
     endpoint: str = ""
     tenant_id: str = ""
     actor_id: str = "system"
-    actor_type: ActorType = ActorType.AUTOMATED_SERVICE
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.AUTOMATED_SERVICE
     transform_rules: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
     batch_size: int = 10
@@ -589,7 +568,7 @@ class WebhookEvent(BaseModel):
     event_type: str
     payload: dict[str, Any] = Field(default_factory=dict)
     actor_id: str = ""
-    actor_type: ActorType = ActorType.HUMAN
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.HUMAN
     timestamp: str = Field(
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )
@@ -666,7 +645,7 @@ class NodeACL(BaseModel):
     node_id: str
     classification: DataClassification = DataClassification.INTERNAL
     data_owner: str = ""
-    data_owner_type: ActorType = ActorType.HUMAN
+    data_owner_type: _actor_identity.ActorType = _actor_identity.ActorType.HUMAN
     read_actors: list[str] = Field(default_factory=list)
     write_actors: list[str] = Field(default_factory=list)
     admin_actors: list[str] = Field(default_factory=list)
@@ -699,7 +678,7 @@ class PermissionCheckResult(BaseModel):
     allowed: bool
     node_id: str
     actor_id: str
-    actor_type: ActorType = ActorType.AI_AGENT
+    actor_type: _actor_identity.ActorType = _actor_identity.ActorType.AI_AGENT
     action: str = "read"
     reason: str = ""
     classification: DataClassification = DataClassification.INTERNAL
@@ -753,7 +732,6 @@ class CompanyBrainEdgeType(StrEnum):
 
 
 __all__ = [
-    "ActorType",
     "AssertionType",
     "CASResult",
     "CompanyBrainEdgeType",

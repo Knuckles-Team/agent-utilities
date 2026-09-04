@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -21,13 +22,22 @@ from pydantic import BaseModel, ValidationError
 import agent_utilities.skills.runtime_validation as runtime_harness
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.skills.runtime_validation import (
+    _ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    _ARCHITECTURE_PHASE_OPERATIONS,
+    _ARCHITECTURE_WORKFLOW_SCENARIOS,
     _CASE_COUNT,
     _SKILL_COUNT,
+    ArchitectureScenarioObservation,
     CaseResult,
+    GraphOperationObservation,
     SemanticOutput,
     TraceRecord,
     ValidationCase,
     ValidationChildToolError,
+    _architecture_operation_specs,
+    _architecture_registry_row,
+    _architecture_scenario_observations,
+    _capture_architecture_operations,
     _contract_instruction,
     _direct_case_minimum_authority_ttl,
     _direct_execution_prompt,
@@ -44,11 +54,18 @@ from agent_utilities.skills.runtime_validation import (
     _validation_reasoning_effort,
     _verified_validation_session,
     _wait_for_run_completion,
+    architecture_candidate_from_owner_manifest,
     build_evidence,
     load_matrix,
     render_report,
     sign_and_verify_evidence,
     validate_semantic_output,
+)
+from agent_utilities.skills.validation import (
+    _validate_architecture_candidate as validate_static_architecture_candidate,
+)
+from agent_utilities.skills.validation import (
+    load_architecture_owner_manifest,
 )
 from agent_utilities.usage.privacy import normalize_run_id
 
@@ -206,10 +223,10 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
         use_marking_authority,
     )
     from agent_utilities.models.company_brain import (
-        ActorType,
         DataClassification,
         NodeACL,
     )
+    from agent_utilities.security.actor_identity import ActorType
 
     sentinel_engine = object()
     sentinel_store = object()
@@ -249,8 +266,8 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
 
 @pytest.mark.asyncio
 async def test_validation_session_is_minted_from_verified_bearer(monkeypatch) -> None:
-    from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security import request_identity
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     seen: list[str] = []
@@ -471,7 +488,7 @@ async def test_mcp_wire_error_is_never_decoded_as_success() -> None:
 
 @pytest.mark.asyncio
 async def test_bounded_sdk_call_preserves_verified_tenant_context() -> None:
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         current_actor,
@@ -1075,6 +1092,674 @@ def test_runtime_matrix_has_two_read_only_cases_per_skill() -> None:
     )
 
 
+def _assert_development_case_binds_rf021(case: ValidationCase) -> None:
+    """One development case names every RF-021 marker and the real operations."""
+
+    task = case.task.casefold()
+    assert set(_ARCHITECTURE_WORKFLOW_SCENARIOS).issubset(
+        {marker for marker in _ARCHITECTURE_WORKFLOW_SCENARIOS if marker in task}
+    )
+    assert set(_ARCHITECTURE_LAYOUT_REQUIREMENTS).issubset(
+        {marker for marker in _ARCHITECTURE_LAYOUT_REQUIREMENTS if marker in task}
+    )
+    assert {
+        operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
+    } <= set(case.expected_routes)
+    if case.mode == "direct":
+        assert not case.allowed_tools
+    else:
+        assert case.allowed_tools == ("graph_code", "graph_query", "graph_search")
+
+
+def test_development_cases_bind_rf021_scenarios_to_real_operations() -> None:
+    _defaults, cases = load_matrix()
+    development = [
+        case for case in cases if case.skill == "agent-utilities-development"
+    ]
+
+    assert {case.mode for case in development} == {"direct", "delegated"}
+    for case in development:
+        _assert_development_case_binds_rf021(case)
+
+    assert _ARCHITECTURE_PHASE_OPERATIONS == (
+        ("registry_lookup", "graph_query"),
+        ("discovery", "graph_search"),
+        ("caller_impact", "graph_code"),
+    )
+
+
+def _architecture_payloads(case: ValidationCase) -> dict[str, Any]:
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    caller_file = f"{candidate.owned_source_roots[0]}/runtime.py"
+    registry_row = {
+        "component_id": candidate.component_id,
+        "component_kind": candidate.component_kind,
+        "capability_id": candidate.capability_id,
+        "implementation_authority_component_id": candidate.component_id,
+        "parent_component_id": candidate.parent_component_id,
+        "parent_layer": candidate.parent_layer,
+        "source_authority": "owner_repository_manifest",
+        "authority_state": "owner_manifest_authoritative",
+        "status": "active",
+        "source_workspace_manifest": candidate.source_workspace_manifest,
+        "source_repository_id": candidate.source_repository_id,
+        "source_repository_path": candidate.source_repository_path,
+        "source_manifest_path": candidate.source_manifest_path,
+        "source_revision": candidate.source_revision,
+        "source_digest": candidate.source_digest,
+        "authority_signature": candidate.authority_signature,
+        "behavioral_signature": candidate.behavioral_signature,
+        "dependency_signature": candidate.dependency_signature,
+        "identity_policy_digest": candidate.identity_policy_digest,
+        "target_item_refs": [candidate.target_inventory_ref],
+        "owned_source_roots": list(candidate.owned_source_roots),
+        "public_contract_roots": list(candidate.public_contract_roots),
+        "test_roots": list(candidate.test_roots),
+        "generated_roots": list(candidate.generated_roots),
+        "shared_paths": [
+            item.model_dump(mode="json") for item in candidate.shared_paths
+        ],
+        "replaces": list(candidate.replaced_component_ids),
+        "deletion_proof": None,
+    }
+    return {
+        "graph_query": {"rows": [registry_row]},
+        "graph_search": (
+            Path(__file__).resolve().parents[1]
+            / "fixtures"
+            / "architecture_graph_search_contract.txt"
+        ).read_text(encoding="utf-8"),
+        "graph_code": {
+            "error": None,
+            "evidence_spans": [{"file": caller_file, "line": 17}],
+            "reasoning_trace": [
+                {
+                    "step": "sections",
+                    "sections": {"callers": [{"file": caller_file, "line": 17}]},
+                }
+            ],
+        },
+    }
+
+
+def test_development_runtime_uses_external_policy_digest_only() -> None:
+    skill = (
+        Path(runtime_harness.SKILLS_ROOT) / "agent-utilities-development" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    case = _matrix_case("development-direct")
+
+    assert "externally supplied" in skill
+    assert re.search(r"identity\s+policy", skill)
+    assert case.architecture_candidate is not None
+    assert case.architecture_candidate.identity_policy_digest.startswith("sha256:")
+
+
+def _assert_architecture_observations(
+    case: ValidationCase,
+    result: CaseResult,
+    observations: tuple[GraphOperationObservation, ...],
+) -> None:
+    """Assert the exact typed metadata retained from the three projections."""
+
+    assert case.architecture_candidate is not None
+    assert [item.operation for item in observations] == [
+        operation
+        for _phase, operation, _arguments in _architecture_operation_specs(
+            case.architecture_candidate
+        )
+    ]
+    assert [item.status for item in observations] == [
+        "verified",
+        "advisory",
+        "grounded",
+    ]
+    assert all(item.request_digest.startswith("sha256:") for item in observations)
+    assert all(item.response_digest.startswith("sha256:") for item in observations)
+    assert [item.matched_record_count for item in observations] == [1, 1, 1]
+    assert result.operation_evidence == observations
+
+
+def _assert_architecture_calls(
+    case: ValidationCase, calls: list[tuple[str, dict[str, object]]]
+) -> None:
+    """Assert that each real operation was called with candidate-bound arguments."""
+
+    assert case.architecture_candidate is not None
+    assert [name for name, _arguments in calls] == [
+        "graph_query",
+        "graph_search",
+        "graph_code",
+    ]
+    query_call = next(arguments for name, arguments in calls if name == "graph_query")
+    params = json.loads(query_call["params"])
+    assert params == {
+        "capability_id": case.architecture_candidate.capability_id,
+        "component_id": case.architecture_candidate.component_id,
+        "source_repository_id": case.architecture_candidate.source_repository_id,
+    }
+    assert "ArchitectureComponent" in query_call["cypher"]
+    assert "ArchitectureCapability" in query_call["cypher"]
+    assert "[:IMPLEMENTS]" in query_call["cypher"]
+    assert query_call["cypher"].endswith("LIMIT 2")
+    code_call = next(arguments for name, arguments in calls if name == "graph_code")
+    assert code_call["action"] == "code_context"
+    assert code_call["target"] == "usage"
+
+
+def _assert_architecture_scenarios(result: CaseResult) -> None:
+    """Assert exact structured scenario names and the positive Plans outcome."""
+
+    assert [item.scenario for item in result.scenario_evidence] == [
+        *_ARCHITECTURE_WORKFLOW_SCENARIOS,
+        *_ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    ]
+    outcomes = {item.scenario: item.outcome for item in result.scenario_evidence}
+    assert outcomes["plans_cutover"] == "authoritative"
+
+
+@pytest.mark.asyncio
+async def test_architecture_operations_capture_candidate_bound_evidence(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+    assert case.architecture_candidate is not None
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+    calls: list[tuple[str, dict[str, object]]] = []
+    payloads = _architecture_payloads(case)
+
+    async def fake_call(_client, name, arguments, _timeout):
+        calls.append((name, arguments))
+        return payloads[name]
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", fake_call)
+
+    observations = await _capture_architecture_operations(
+        case,
+        result,
+        client=object(),
+        timeout=1.0,
+    )
+
+    _assert_architecture_observations(case, result, observations)
+    _assert_architecture_calls(case, calls)
+    assert result.error_codes == []
+    _assert_architecture_scenarios(result)
+
+
+def test_architecture_candidate_is_generated_from_the_owner_manifest() -> None:
+    manifest = load_architecture_owner_manifest()
+    generated = architecture_candidate_from_owner_manifest(
+        component_id="au.adapters.mcp-catalog-reconciliation"
+    )
+    _defaults, cases = load_matrix()
+    matrix_candidate = next(
+        case.architecture_candidate
+        for case in cases
+        if case.case_id == "development-direct"
+    )
+
+    assert manifest["generator"] == (
+        "agent_utilities.skills.validation:architecture_candidate_from_owner_manifest"
+    )
+    assert matrix_candidate is not None
+    assert matrix_candidate.model_dump(mode="json") == generated
+
+
+def test_architecture_candidate_rejects_unbound_owner_manifest() -> None:
+    manifest = load_architecture_owner_manifest()
+    manifest["integrity"]["source_digest"] = "sha256:" + "1" * 64
+
+    with pytest.raises(ValueError, match="owner_manifest_source_digest_mismatch"):
+        architecture_candidate_from_owner_manifest(manifest)
+
+
+def test_static_architecture_candidate_rejects_malformed_root_shapes() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    candidate_data = candidate.model_dump(mode="json")
+    candidate_data["owned_source_roots"] = [["nested"]]
+
+    errors = validate_static_architecture_candidate(
+        {"architecture_candidate": candidate_data}, "malformed"
+    )
+
+    assert "malformed: candidate owner root is not relative" in errors
+
+    candidate_data["owned_source_roots"] = ["agent_utilities/mcp/catalog"]
+    candidate_data["shared_paths"] = [
+        {
+            "path": "agent_utilities/mcp/shared.py",
+            "kind": "shared_file",
+            "owner_component_ids": "not-a-list",
+            "review_policy": "all-owners",
+            "exception_id": "shared-catalog-file",
+        }
+    ]
+    errors = validate_static_architecture_candidate(
+        {"architecture_candidate": candidate_data}, "malformed"
+    )
+
+    assert "malformed: shared-path owner ID is invalid" in errors
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error"),
+    [
+        (
+            lambda data: data.update(source_revision="0" * 40),
+            "architecture_candidate_source_revision_unavailable",
+        ),
+        (
+            lambda data: data.update(source_repository_path="/outside/repository"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_path="../outside"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_id="other-repository"),
+            "architecture_candidate_source_repository_invalid",
+        ),
+        (
+            lambda data: data.update(source_repository_path="agent-packages/other"),
+            "architecture_candidate_source_repository_path_invalid",
+        ),
+        (
+            lambda data: data.update(target_inventory_ref="/outside"),
+            "architecture_candidate_target_inventory_ref_invalid",
+        ),
+        (
+            lambda data: data.update(target_inventory_ref="../outside"),
+            "architecture_candidate_target_inventory_ref_invalid",
+        ),
+        (
+            lambda data: data.update(
+                public_contract_roots=["agent_utilities/mcp/catalog"]
+            ),
+            "architecture_candidate_root_overlap",
+        ),
+        (
+            lambda data: data.update(
+                shared_paths=[
+                    {
+                        "path": "agent_utilities/mcp/shared.py",
+                        "kind": "shared_file",
+                        "owner_component_ids": [
+                            "au.adapters.mcp-catalog-reconciliation",
+                            "not an id",
+                        ],
+                        "review_policy": "all-owners",
+                        "exception_id": "shared-catalog-file",
+                    }
+                ]
+            ),
+            "architecture_candidate_shared_owner_invalid",
+        ),
+    ],
+)
+def test_architecture_candidate_rejects_untrusted_authority_shapes(
+    mutate, error
+) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    data = candidate.model_dump(mode="json")
+    mutate(data)
+
+    with pytest.raises(ValueError, match=error):
+        runtime_harness._validate_architecture_candidate(
+            runtime_harness.ArchitectureCandidateIdentity.model_validate(data)
+        )
+
+
+@pytest.mark.asyncio
+async def test_architecture_operations_fail_closed_when_projections_unavailable(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+
+    async def unavailable_call(_client, name, _arguments, _timeout):
+        if name == "graph_query":
+            return {"rows": []}
+        if name == "graph_search":
+            return "No results found for query: 'au.adapters.mcp-catalog-reconciliation au.mcp-catalog-reconciliation'"
+        return {"error": {"code": "unavailable"}}
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", unavailable_call)
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+    observations = await _capture_architecture_operations(
+        case,
+        result,
+        client=object(),
+        timeout=1.0,
+    )
+
+    assert [item.status for item in observations] == [
+        "observed",
+        "observed",
+        "observed",
+    ]
+    assert "architecture_registry_unavailable" in result.error_codes
+    assert "architecture_discovery_unavailable" in result.error_codes
+    assert "architecture_caller_evidence_unavailable" in result.error_codes
+    assert "architecture_registry_regenerate_reingest_required" in result.error_codes
+    outcomes = {item.scenario: item.outcome for item in result.scenario_evidence}
+    assert outcomes["registry_unavailable"] == "fail_closed"
+    assert outcomes["regeneration_reingestion"] == "rf021_handoff"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error"),
+    [
+        (
+            lambda row: row.update(status="proposed"),
+            "architecture_registry_outdated",
+        ),
+        (
+            lambda row: row.update(
+                authority_state="proposal_fixture_non_authoritative"
+            ),
+            "architecture_registry_outdated",
+        ),
+        (
+            lambda row: row.update(source_digest="sha256:" + "1" * 64),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+        (
+            lambda row: row.update(capability_id="unrelated.capability"),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+        (
+            lambda row: row.update(target_item_refs=[]),
+            "architecture_target_inventory_link_invalid",
+        ),
+        (
+            lambda row: row.update(owned_source_roots=[]),
+            "architecture_owner_roots_invalid",
+        ),
+        (
+            lambda row: row.update(behavioral_signature="sha256:" + "2" * 64),
+            "architecture_owner_manifest_identity_disagreement",
+        ),
+    ],
+)
+def test_architecture_registry_rejects_non_authoritative_or_unrelated_rows(
+    mutate, error
+) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    row = payload["rows"][0]
+    mutate(row)
+
+    with pytest.raises(ValueError, match=error):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_rejects_duplicate_authorities() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"].append(dict(payload["rows"][0]))
+
+    with pytest.raises(ValueError, match="architecture_registry_duplicate_authority"):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_requires_complete_shared_exception_metadata() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"][0]["shared_paths"] = [
+        {
+            "path": "agent_utilities/shared/contracts.py",
+            "kind": "shared_file",
+            "owner_component_ids": [candidate.component_id, "au.contracts"],
+            "review_policy": "all-owners",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="architecture_registry_row_invalid"):
+        _architecture_registry_row(candidate, payload)
+
+
+def test_architecture_registry_requires_replacement_deletion_proof() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    candidate_data = candidate.model_dump(mode="json")
+    candidate_data.update(
+        replacement_required=True,
+        replaced_component_ids=["au.adapters.superseded"],
+    )
+    replacement = runtime_harness._validate_architecture_candidate(
+        runtime_harness.ArchitectureCandidateIdentity.model_validate(candidate_data)
+    )
+    payload = _architecture_payloads(case)["graph_query"]
+    payload["rows"][0]["replaces"] = list(replacement.replaced_component_ids)
+
+    with pytest.raises(ValueError, match="architecture_deletion_proof_missing"):
+        _architecture_registry_row(replacement, payload)
+
+
+def test_architecture_discovery_and_callers_reject_unrelated_or_ungrounded_rows() -> (
+    None
+):
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payloads = _architecture_payloads(case)
+    payloads["graph_search"] = payloads["graph_search"].replace(
+        candidate.component_id, "unrelated.component", 1
+    )
+    payloads["graph_code"]["reasoning_trace"][0]["sections"]["callers"][0]["line"] = 18
+
+    with pytest.raises(
+        ValueError, match="architecture_discovery_unrelated_or_duplicate"
+    ):
+        runtime_harness._architecture_discovery_rows(
+            candidate, payloads["graph_search"]
+        )
+    with pytest.raises(ValueError, match="architecture_live_caller_missing"):
+        runtime_harness._architecture_caller_count(candidate, payloads["graph_code"])
+
+
+def test_architecture_discovery_accepts_the_signed_graph_search_text_fixture() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_search"]
+
+    rows = runtime_harness._architecture_discovery_rows(candidate, payload)
+
+    assert len(rows) == 1
+    assert rows[0].authority_signature == candidate.authority_signature
+
+
+def test_architecture_discovery_rejects_an_unexpected_connection_trailer() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    payload = _architecture_payloads(case)["graph_search"]
+    payload = payload.replace(
+        "[connection=default graph=(default)]",
+        "[connection=other graph=(default)]",
+    )
+
+    with pytest.raises(ValueError, match="architecture_discovery_contract_invalid"):
+        runtime_harness._architecture_discovery_rows(candidate, payload)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda text: text.replace(
+            "contract_digest=sha256:", "contract_digest=sha256:" + "0" * 64 + "\n#"
+        ),
+        lambda text: text + "\n---\n" + text,
+        lambda text: text.replace(
+            "authority_signature=", "authority_signature=sha256:", 1
+        ),
+    ],
+)
+def test_architecture_discovery_rejects_unsigned_or_ambiguous_text(mutate) -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+
+    with pytest.raises(ValueError):
+        runtime_harness._architecture_discovery_rows(
+            candidate, mutate(_architecture_payloads(case)["graph_search"])
+        )
+
+
+@pytest.mark.asyncio
+async def test_architecture_operations_reject_arbitrary_nonempty_text(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+    )
+
+    async def text_call(_client, _name, _arguments, _timeout):
+        return "nonempty but untyped response"
+
+    monkeypatch.setattr(runtime_harness, "_call_tool", text_call)
+    observations = await _capture_architecture_operations(
+        case, result, client=object(), timeout=1.0
+    )
+
+    assert all(item.matched_record_count == 0 for item in observations)
+    assert "architecture_response_schema_invalid" in result.error_codes
+    assert "architecture_caller_evidence_unavailable" in result.error_codes
+
+
+def test_architecture_scenarios_are_structured_behavioral_outcomes() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+
+    observations = _architecture_scenario_observations(
+        candidate,
+        {
+            "architecture_registry_outdated",
+            "architecture_owner_manifest_identity_disagreement",
+        },
+    )
+    outcomes = {item.scenario: item.outcome for item in observations}
+
+    assert set(outcomes) == {
+        *_ARCHITECTURE_WORKFLOW_SCENARIOS,
+        *_ARCHITECTURE_LAYOUT_REQUIREMENTS,
+    }
+    assert outcomes["registry_outdated"] == "rejected"
+    assert outcomes["owner_manifest_identity_disagreement"] == "rejected"
+    assert outcomes["regeneration_reingestion"] == "rf021_handoff"
+    assert outcomes["plans_cutover"] == "rejected"
+
+
+def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    observations = tuple(
+        GraphOperationObservation(
+            phase,
+            operation,
+            status,
+            "sha256:" + "6" * 64,
+            "sha256:" + "7" * 64,
+            1,
+        )
+        for (phase, operation), status in zip(
+            _ARCHITECTURE_PHASE_OPERATIONS,
+            ("verified", "advisory", "grounded"),
+            strict=True,
+        )
+    )
+    scenarios = _architecture_scenario_observations(candidate, set())
+    result = CaseResult(
+        case_id=case.case_id,
+        skill=case.skill,
+        mode=case.mode,
+        model_class=case.model_class,
+        operation_evidence=(
+            GraphOperationObservation(
+                "discovery",
+                observations[0].operation,
+                observations[0].status,
+                observations[0].request_digest,
+                observations[0].response_digest,
+                observations[0].matched_record_count,
+            ),
+            *observations[1:],
+        ),
+        scenario_evidence=(
+            ArchitectureScenarioObservation(scenarios[0].scenario, "current"),
+            *scenarios[1:],
+        ),
+    )
+
+    assert not result._architecture_operations_exact()
+    assert not result._architecture_scenarios_exact()
+
+
+@pytest.mark.asyncio
+async def test_validation_tool_preparation_loads_architecture_operations(
+    monkeypatch,
+) -> None:
+    case = _matrix_case("development-direct")
+    ensured: list[str] = []
+
+    async def fake_ensure(_client, tool, _timeout):
+        ensured.append(tool)
+
+    async def fake_langfuse(_client, _timeout):
+        return "langfuse_observability"
+
+    async def fake_verify(_client, _tool, _timeout):
+        return None
+
+    async def fake_snapshot(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(runtime_harness, "_ensure_tool", fake_ensure)
+    monkeypatch.setattr(runtime_harness, "_load_langfuse_tool", fake_langfuse)
+    monkeypatch.setattr(runtime_harness, "_verify_langfuse_posture", fake_verify)
+    monkeypatch.setattr(runtime_harness, "_trace_snapshot", fake_snapshot)
+
+    assert (
+        await runtime_harness._prepare_validation_tools(object(), [case], _TENANT_ID)
+        == "langfuse_observability"
+    )
+    assert ensured[:4] == [
+        "graph_orchestrate",
+        "graph_query",
+        "graph_search",
+        "graph_code",
+    ]
+
+
 def test_economy_validation_omits_nonportable_reasoning_none() -> None:
     assert _validation_reasoning_effort("economy", delegated=False) is None
     assert _validation_reasoning_effort("economy", delegated=True) == ""
@@ -1204,6 +1889,7 @@ def _passing_runtime_results() -> list[CaseResult]:
     results: list[CaseResult] = []
     for index, case in enumerate(cases, start=1):
         opaque = f"{index:064x}"
+        operation_evidence, scenario_evidence = _passing_architecture_evidence(case)
         results.append(
             CaseResult(
                 case_id=case.case_id,
@@ -1227,9 +1913,41 @@ def _passing_runtime_results() -> list[CaseResult]:
                 trace_name="graph_run:pref_run_" + opaque,
                 langfuse_match_count=1,
                 parent_kg_readback_count=1,
+                operation_evidence=operation_evidence,
+                scenario_evidence=scenario_evidence,
             )
         )
     return results
+
+
+def _passing_architecture_evidence(
+    case: ValidationCase,
+) -> tuple[
+    tuple[GraphOperationObservation, ...],
+    tuple[ArchitectureScenarioObservation, ...],
+]:
+    """Build exact positive observations only for the development cases."""
+
+    if case.skill != "agent-utilities-development":
+        return (), ()
+    assert case.architecture_candidate is not None
+    operations = tuple(
+        GraphOperationObservation(
+            phase,
+            operation,
+            status,
+            "sha256:" + "6" * 64,
+            "sha256:" + "7" * 64,
+            1,
+        )
+        for (phase, operation), status in zip(
+            _ARCHITECTURE_PHASE_OPERATIONS,
+            ("verified", "advisory", "grounded"),
+            strict=True,
+        )
+    )
+    scenarios = _architecture_scenario_observations(case.architecture_candidate, set())
+    return operations, scenarios
 
 
 @pytest.mark.parametrize(

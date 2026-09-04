@@ -69,7 +69,7 @@ def test_system_write_session_prefers_the_ambient_session():
     identity -- the fallback minting path must never override a real
     caller's authority with a generic system one."""
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
     from agent_utilities.security.request_identity import system_write_session
 

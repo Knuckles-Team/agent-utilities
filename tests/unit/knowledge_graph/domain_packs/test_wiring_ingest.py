@@ -36,7 +36,7 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
     DomainPackError,
     load_pack,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 RUNBOOK_MD = """---

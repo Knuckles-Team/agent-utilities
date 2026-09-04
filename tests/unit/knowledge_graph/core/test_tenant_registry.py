@@ -21,7 +21,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core import tenant_registry as tr
 from agent_utilities.knowledge_graph.core import tenant_sharing as ts
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 CFG = type("C", (), {"kg_default_graph": "kg"})()

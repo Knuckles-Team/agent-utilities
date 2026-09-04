@@ -24,8 +24,9 @@ from agent_utilities.knowledge_graph.enrichment.semantic import (
     configured_embedding_dimension,
 )
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
-from agent_utilities.models.company_brain import ActorType, DataClassification
+from agent_utilities.models.company_brain import DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 TEST_EMBEDDING_DIMENSION = configured_embedding_dimension()

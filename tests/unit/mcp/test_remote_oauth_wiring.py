@@ -49,7 +49,7 @@ from agent_utilities.mcp.remote_oauth_broker import (
     RemoteOAuthBroker,
     StoredToken,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.security.secrets_client import SecretsBackend, SecretsClient
 

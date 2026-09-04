@@ -20,7 +20,7 @@ import asyncio
 import json
 from typing import Any
 
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.security.error_surface import public_error_payload
 

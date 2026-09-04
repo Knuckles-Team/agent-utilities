@@ -76,7 +76,7 @@ def engine(tmp_path_factory):
         EpistemicGraphBackend,
     )
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     ensure_dirs()

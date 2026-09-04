@@ -407,7 +407,7 @@ def test_persist_native_requires_a_bound_actor(
 def test_persist_native_stamps_ownership_when_actor_bound(
     monkeypatch, registry: ActionRegistry, kernel: PermissionsKernel
 ) -> None:
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     store = _FakeNativeStore()

@@ -45,7 +45,7 @@ def test_current_bus_tenant_defaults_to_default(monkeypatch):
 
 
 def test_current_bus_tenant_scoped_to_actor():
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     actor = ActorContext("u1", ActorType.HUMAN, tenant_id="acme")

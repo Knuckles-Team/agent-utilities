@@ -21,7 +21,7 @@ from agent_utilities.kvcache import KVCheckpointStore
 from agent_utilities.kvcache.remote_backend import KvCacheStats
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_surface_tools
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # The two tests below compare against ``engine_surface_tools._mining_actions()``,

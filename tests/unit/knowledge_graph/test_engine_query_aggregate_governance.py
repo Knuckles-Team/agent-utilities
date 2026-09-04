@@ -49,7 +49,8 @@ from agent_utilities.knowledge_graph.orchestration.engine_query import (
     QueryMixin,
     is_aggregation_cypher,
 )
-from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.company_brain import DataClassification, NodeACL
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 _LOGGER_NAME = "agent_utilities.knowledge_graph.orchestration.engine_query"

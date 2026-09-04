@@ -18,7 +18,7 @@ from agent_utilities.deployment import backends
 from agent_utilities.deployment.backends import PlanOnlyBackendError
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.messaging import daemon as messaging_daemon
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

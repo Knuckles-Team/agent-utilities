@@ -19,7 +19,7 @@ from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.knowledge_graph.memory.media_store import MediaStore
 from agent_utilities.media import video_sidecar
 from agent_utilities.media.sidecar_delegate import SidecarDelegationResult
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 # -- the SAME fake engine-client shape as test_image_sidecar.py /

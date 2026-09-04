@@ -16,7 +16,24 @@ from agent_utilities.deployment.skill_validation import (
     SkillValidationDeployment,
     _lifecycle_subject,
 )
-from agent_utilities.skills.runtime_validation import CaseResult
+from agent_utilities.skills.runtime_validation import (
+    ArchitectureScenarioObservation,
+    CaseResult,
+    GraphOperationObservation,
+)
+
+
+def test_development_skill_names_source_owned_rf021_refresh_handoff() -> None:
+    skill = (
+        Path("agent_utilities/skills/agent-utilities-development/SKILL.md")
+        .read_text(encoding="utf-8")
+        .replace("\n", " ")
+    )
+
+    assert "architecture/component-registry.yml" in skill
+    assert "source_sync source=all mode=delta" in skill
+    assert "registered by the RF-021 owner declaration" in skill
+    assert "instead of inferring a command" in skill
 
 
 def _model(*, identity: str, level: str, base_url: str, referenced: bool = True):
@@ -108,6 +125,7 @@ def _passing_results() -> list[CaseResult]:
     results: list[CaseResult] = []
     for index, case in enumerate(cases, start=1):
         opaque = f"{index:064x}"
+        operation_evidence, scenario_evidence = _passing_architecture_evidence(case)
         results.append(
             CaseResult(
                 case_id=case.case_id,
@@ -131,9 +149,42 @@ def _passing_results() -> list[CaseResult]:
                 trace_name="graph_run:pref_run_" + opaque,
                 langfuse_match_count=1,
                 parent_kg_readback_count=1,
+                operation_evidence=operation_evidence,
+                scenario_evidence=scenario_evidence,
             )
         )
     return results
+
+
+def _passing_architecture_evidence(case):
+    """Build exact positive architecture evidence only for development cases."""
+
+    if case.skill != "agent-utilities-development":
+        return (), ()
+    operations = tuple(
+        GraphOperationObservation(
+            phase,
+            operation,
+            status,
+            "sha256:" + "6" * 64,
+            "sha256:" + "7" * 64,
+            1,
+        )
+        for (phase, operation), status in zip(
+            runtime_validation._ARCHITECTURE_PHASE_OPERATIONS,
+            ("verified", "advisory", "grounded"),
+            strict=True,
+        )
+    )
+    scenarios = tuple(
+        ArchitectureScenarioObservation(scenario, outcome)
+        for scenario, outcome in zip(
+            runtime_validation.architecture_workflow_scenarios(),
+            runtime_validation._ARCHITECTURE_PASS_OUTCOMES,
+            strict=True,
+        )
+    )
+    return operations, scenarios
 
 
 def test_model_registry_proof_is_content_free_and_exact() -> None:

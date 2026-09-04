@@ -13,7 +13,6 @@ from fasta2a.schema import Artifact, Message, Task
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from agent_utilities.knowledge_graph.core.session import GraphSession
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.protocols.a2a_epistemic import (
     _DELIVERY_CONTROL,
     A2AStorageConflict,
@@ -24,6 +23,7 @@ from agent_utilities.protocols.a2a_epistemic import (
     _payload_ref,
 )
 from agent_utilities.security import persistence_privacy
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

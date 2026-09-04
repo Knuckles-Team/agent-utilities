@@ -1,0 +1,43 @@
+schema: au-architecture-component-owner-manifest/v1
+owner_repository: agent-utilities
+manifest_version: 1
+generator: agent_utilities.skills.validation:architecture_candidate_from_owner_manifest
+canonical_source:
+  workspace_manifest: workspace.yml
+  repository_id: agent-utilities
+  repository_path: agent-packages/agent-utilities
+  manifest_path: architecture/component-registry.yml
+  source_revision: e3a95186b1b5f1b7d752800d9b99bc2b3a161a6f
+  source_authority: owner_repository_manifest
+  authority_state: owner_manifest_authoritative
+components:
+  - component_id: au.adapters.mcp-catalog-reconciliation
+    component_kind: implementation_component
+    capability_id: au.mcp-catalog-reconciliation
+    parent_component_id: au.adapters
+    parent_layer: adapters
+    source_workspace_manifest: workspace.yml
+    source_repository_id: agent-utilities
+    source_repository_path: agent-packages/agent-utilities
+    source_manifest_path: architecture/component-registry.yml
+    source_revision: e3a95186b1b5f1b7d752800d9b99bc2b3a161a6f
+    authority_signature: sha256:43d639292ea760954688135110797237ecc32d1f2ddf90f77db4f8f74f3e68bc
+    behavioral_signature: sha256:2e9f0012e5b93fe1ea21946e5cff78898bec20275d2ff2bf9575703bc7f27459
+    dependency_signature: sha256:490d3b808cdff5be2deced38f8e61e1e4fa6a1ee5e8bd2424ca57085c6bc73bf
+    identity_policy_digest: sha256:b1790cd1a95e93a8b35c3336108df4d637918671bb550ccea960bb43974f54ff
+    target_inventory_ref: tgt:contract:v1:e911ea98519b71586c529ee9676110afbabe6acd9009f7bdbd552f88f29de300
+    owned_source_roots:
+      - agent_utilities/mcp/catalog
+    public_contract_roots:
+      - agent_utilities/mcp/contracts
+    test_roots:
+      - tests/unit/mcp
+    generated_roots:
+      - agent_utilities/mcp/_graphos_action_manifest.py
+    shared_paths: []
+    replacement_required: false
+    replaced_component_ids: []
+    status: active
+integrity:
+  canonicalization: json-sort-keys-utf8
+  source_digest: sha256:cb5e11775ffbde1b4ddc4f441ecf0cff8d4c66fd3d06cc10fd36c3dbbc75748f

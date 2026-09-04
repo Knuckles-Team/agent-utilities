@@ -8,6 +8,7 @@ CONCEPT:AU-KG.identity.verified-carrier-required-federation
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -48,6 +49,7 @@ async def test_bridge_scopes_call_to_okta_identity_and_resets(monkeypatch):
                 "tenant_id": "tenant-a",
                 "groups": ["k8s:prod"],
                 "email": "a@b.c",
+                "exp": int(time.time()) + 3600,
             }
         )
     )
@@ -153,7 +155,7 @@ def test_bridge_exempts_bound_local_process_authority():
     import contextvars
 
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     process_actor = ActorContext(
@@ -205,7 +207,7 @@ def test_bridge_exempts_already_ambient_session():
         reset_session,
         set_session,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

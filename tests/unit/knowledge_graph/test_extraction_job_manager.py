@@ -49,7 +49,7 @@ def _force_local_process_authority(monkeypatch):
 def _make_session(actor_id: str, tenant: str = "tenant-a"):
     """Build a real, verified ``GraphSession`` for ``actor_id`` (test helper)."""
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

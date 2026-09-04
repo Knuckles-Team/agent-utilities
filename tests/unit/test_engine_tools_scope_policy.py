@@ -25,7 +25,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_tools
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # A subset of tests below resolve a real, REGISTERED ``engine_<domain>`` MCP
