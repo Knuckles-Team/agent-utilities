@@ -511,6 +511,34 @@ class ConfigManager:
 
         logger.info("Dashboard config saved")
 
+    @staticmethod
+    def _load_service(data: object) -> ServiceConfig:
+        """Validate one persisted service entry and build its model."""
+        if not isinstance(data, dict):
+            raise ValueError("dashboard service entries must be objects")
+        if _INLINE_CREDENTIAL_FIELDS.intersection(data):
+            raise ValueError(
+                "persistent inline credentials are forbidden; use credential_refs"
+            )
+        return ServiceConfig(**data)
+
+    @classmethod
+    def _load_group(cls, data: object) -> ServiceGroup:
+        """Validate one persisted group and build its service models."""
+        if not isinstance(data, dict):
+            raise ValueError("dashboard group entries must be objects")
+        raw_services = data.get("services", [])
+        if not isinstance(raw_services, list):
+            raise ValueError("dashboard services must be a list")
+        services = [cls._load_service(service) for service in raw_services]
+        return ServiceGroup(
+            name=data.get("name", ""),
+            services=services,
+            order=data.get("order", 0),
+            collapsed=data.get("collapsed", False),
+            icon=data.get("icon", ""),
+        )
+
     def _load_yaml(self) -> DashboardLayout:
         """Load layout from existing YAML file."""
         raw = self._config_path.read_bytes()
@@ -522,35 +550,10 @@ class ConfigManager:
 
         settings = data.get("settings", {})
         groups_data = data.get("groups", [])
-
         if not isinstance(settings, dict) or not isinstance(groups_data, list):
             raise ValueError("dashboard configuration has an invalid shape")
 
-        groups = []
-        for g in groups_data:
-            if not isinstance(g, dict):
-                raise ValueError("dashboard group entries must be objects")
-            services = []
-            raw_services = g.get("services", [])
-            if not isinstance(raw_services, list):
-                raise ValueError("dashboard services must be a list")
-            for s in raw_services:
-                if not isinstance(s, dict):
-                    raise ValueError("dashboard service entries must be objects")
-                if _INLINE_CREDENTIAL_FIELDS.intersection(s):
-                    raise ValueError(
-                        "persistent inline credentials are forbidden; use credential_refs"
-                    )
-                services.append(ServiceConfig(**s))
-            groups.append(
-                ServiceGroup(
-                    name=g.get("name", ""),
-                    services=services,
-                    order=g.get("order", 0),
-                    collapsed=g.get("collapsed", False),
-                    icon=g.get("icon", ""),
-                )
-            )
+        groups = [self._load_group(group) for group in groups_data]
 
         layout = DashboardLayout(
             groups=groups,
