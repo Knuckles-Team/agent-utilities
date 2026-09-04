@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Utilities Development"
-  short_description: "Review or implement approved agent-utilities changes"
-  default_prompt: "Use $agent-utilities-development to review this concrete change or implement it in isolation once authorized, then prove live wiring and relevant gates."
+  short_description: "RF-021 registry-driven AU development"
+  default_prompt: "Use $agent-utilities-development to apply the RF-021 registry workflow with graph_query, graph_search, and graph_code before a bounded isolated change, then prove live wiring and relevant gates."

@@ -1,0 +1,9 @@
+[ArchitectureComponent] au.adapters.mcp-catalog-reconciliation (ID: au.adapters.mcp-catalog-reconciliation) - Score: 0.99
+capability_id=au.mcp-catalog-reconciliation
+source_repository_id=agent-utilities
+source_manifest_path=architecture/component-registry.yml
+source_digest=sha256:cb5e11775ffbde1b4ddc4f441ecf0cff8d4c66fd3d06cc10fd36c3dbbc75748f
+authority_signature=sha256:43d639292ea760954688135110797237ecc32d1f2ddf90f77db4f8f74f3e68bc
+contract_digest=sha256:232b501d466f819a71aff7560ac3ee0f26bb022cc86cab4c96ae7e6059b0f627
+
+[connection=default graph=(default)]

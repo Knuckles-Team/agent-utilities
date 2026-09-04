@@ -111,6 +111,36 @@ the refactor-program 847-module raw SCC above: different scope, different
 snapshot, different graph.
 
 
+## The rules — target direction
+
+**The rules — TARGET direction you are held to in review, NOT a property the
+tree has or a gate enforces.** ★ Nothing enforces the layering. `check-import-cycles`
+refuses only *eager cycles*, in any direction; `scripts/check_coupling.py`
+covers only geniusbot→`agent_utilities` and its hook wraps it in `|| true`. Rules
+1 and 2 are measurably violated on `main` today (counts repeated in rules 1 and 2
+below, re-measured 2026-09-03). Re-measure before quoting a number — one AST walk over
+`git ls-files agent_utilities`, counting top-level and `from` import statements
+whose first-level package differs from the importing file's, is what produced
+them:
+
+1. **Dependencies should point inward.** Contracts ← domain ← ports ←
+   application ← adapters ← composition. **Violated today:** 62
+   application→adapter import statements over 14 package pairs.
+2. **Adapters should not call each other.** REST does not call MCP; MCP does not
+   call REST. Both call the same use-case object. **Violated today:** 85
+   adapter→adapter import statements over 19 package pairs, including the
+   reciprocal `gateway -> mcp` (19) / `mcp -> gateway` (3).
+3. **REST and MCP bind the SAME use-case object** — `_execute_tool()`. The tool
+   function carries argument marshalling, never logic.
+4. **Production code never imports tests, dev tooling, generated output, or
+   deployment composition** (RF-ADR-003). Dev/test edges are inventoried
+   separately and may not pull production upward.
+5. **One capability, one owner, one implementation** (`plans/refactor/DESIGN.md` "Anti-sprawl
+   invariants"). No new package/repository without a cohesive lower-level owner,
+   **two or more real live consumers**, and a *measured* net reduction in cycles,
+   duplicate implementations, public surface, or edges. Splitting by file count,
+   scan score, or aesthetics is rejected.
+
 ## Named reverse edges — do not add to them
 
 The named reverse edges the program is cutting — do not add to them:

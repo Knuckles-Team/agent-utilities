@@ -121,18 +121,86 @@ cases:
     skill: agent-utilities-development
     mode: direct
     model_class: standard
-    task: Use $agent-utilities-development at skill://agent-utilities-development to perform a read-only impact review of a synthetic contract rename, tracing its live path and consumers without creating a branch, worktree, edit, or commit.
-    expected_routes: [repository_search, live_path_trace]
+    task: >-
+      Use $agent-utilities-development at skill://agent-utilities-development to
+      run the deterministic RF-021 scenarios for a synthetic capability in
+      read-only mode: scenario=registry_unavailable and scenario=registry_outdated
+      must fail closed; scenario=owner_manifest_identity_disagreement must reject
+      the source; scenario=regeneration_reingestion must hand off to the governed
+      RF-021 regeneration/re-ingestion path; scenario=finite_exception_metadata
+      must require path, kind, owner_component_ids, review_policy, and
+      exception_id; scenario=caller_deletion_evidence must prove a live caller and
+      same-change deletion obligation; scenario=concept_discovery_only must keep
+      concept tags discovery-only; and scenario=plans_cutover must follow the
+      Plans proposal-to-owner-manifest cutover. Distinguish a layer boundary from
+      a cohesive implementation component, require parent layer plus no current
+      signature match before creating one, and resolve component-owned
+      source/test/generated roots plus limited shared-file ownership for worker
+      lanes (layout=layer_boundary_vs_component,
+      layout=parent_layer_no_signature_match, layout=component_owned_roots,
+      layout=worker_lane_shared_file_exception). Map registry lookup to graph_query, discovery to graph_search, and
+      caller/impact evidence to graph_code(action=code_context); these are the
+      actual bounded Graph-OS operations. Do not create a branch, worktree, edit,
+      or commit, and never auto-merge by concept label.
+    expected_routes: [graph_code, graph_query, graph_search]
     allowed_tools: []
     read_only: true
+    architecture_candidate: &development_architecture_candidate
+      component_id: au.adapters.mcp-catalog-reconciliation
+      component_kind: implementation_component
+      capability_id: au.mcp-catalog-reconciliation
+      parent_component_id: au.adapters
+      parent_layer: adapters
+      source_workspace_manifest: workspace.yml
+      source_repository_id: agent-utilities
+      source_repository_path: agent-packages/agent-utilities
+      source_manifest_path: architecture/component-registry.yml
+      source_revision: e3a95186b1b5f1b7d752800d9b99bc2b3a161a6f
+      source_digest: sha256:cb5e11775ffbde1b4ddc4f441ecf0cff8d4c66fd3d06cc10fd36c3dbbc75748f
+      authority_signature: sha256:43d639292ea760954688135110797237ecc32d1f2ddf90f77db4f8f74f3e68bc
+      behavioral_signature: sha256:2e9f0012e5b93fe1ea21946e5cff78898bec20275d2ff2bf9575703bc7f27459
+      dependency_signature: sha256:490d3b808cdff5be2deced38f8e61e1e4fa6a1ee5e8bd2424ca57085c6bc73bf
+      identity_policy_digest: sha256:b1790cd1a95e93a8b35c3336108df4d637918671bb550ccea960bb43974f54ff
+      target_inventory_ref: tgt:contract:v1:e911ea98519b71586c529ee9676110afbabe6acd9009f7bdbd552f88f29de300
+      owned_source_roots: [agent_utilities/mcp/catalog]
+      public_contract_roots: [agent_utilities/mcp/contracts]
+      test_roots: [tests/unit/mcp]
+      generated_roots: [agent_utilities/mcp/_graphos_action_manifest.py]
+      shared_paths: []
+      replacement_required: false
+      replaced_component_ids: []
   - id: development-delegated
     skill: agent-utilities-development
     mode: delegated
     model_class: standard
-    task: Use $agent-utilities-development at skill://agent-utilities-development to produce a review-only split of a synthetic cross-surface change into consumer audit, implementation, and independent test review.
-    expected_routes: [graph_orchestrate, parallel_worktrees, focused_tests, pre_commit]
-    allowed_tools: [graph_query, graph_search]
+    task: >-
+      Use $agent-utilities-development at skill://agent-utilities-development to
+      produce a review-only split of the deterministic RF-021 scenarios for a
+      synthetic cross-surface change: scenario=registry_unavailable and
+      scenario=registry_outdated must fail closed; scenario=owner_manifest_identity_disagreement
+      must reject the source; scenario=regeneration_reingestion must hand off to
+      the governed RF-021 regeneration/re-ingestion path;
+      scenario=finite_exception_metadata must require path, kind,
+      owner_component_ids, review_policy, and exception_id;
+      scenario=caller_deletion_evidence must prove a live caller and same-change
+      deletion obligation; scenario=concept_discovery_only must keep concept tags
+      discovery-only; and scenario=plans_cutover must follow the Plans
+      proposal-to-owner-manifest cutover. Distinguish a layer boundary from a
+      cohesive implementation component, require parent layer plus no current
+      signature match before creating one, and resolve component-owned
+      source/test/generated roots plus limited shared-file ownership for worker
+      lanes (layout=layer_boundary_vs_component,
+      layout=parent_layer_no_signature_match, layout=component_owned_roots,
+      layout=worker_lane_shared_file_exception). Use graph_query for registry lookup, graph_search for discovery, and
+      graph_code(action=code_context) for caller/impact evidence. Then review the
+      source-owned declaration, consolidated-view generation, target_inventory
+      lifecycle linkage, consumer audit, same-change redundant-path deletion,
+      implementation, and independent tests/gates. Reject parallel authorities,
+      missing real callers/tests, stale declarations, and concept-label matches.
+    expected_routes: [graph_orchestrate, graph_code, graph_query, graph_search]
+    allowed_tools: [graph_code, graph_query, graph_search]
     read_only: true
+    architecture_candidate: *development_architecture_candidate
   - id: deployment-direct
     skill: agent-utilities-deployment
     mode: direct

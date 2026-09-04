@@ -126,54 +126,30 @@ heaviest single modules. Read it before you create a module.
 
 ## Dependency direction and the known SCC
 
-The measured figures — 1,701 modules / 6,066 raw internal edges, the **847-module**
-raw all-import SCC, the eager graph's **zero** non-trivial SCCs, the 59-node package
-projection with its one 44-package SCC, and `check_import_cycles.py`'s own
-differently-scoped **821-module / 48.5%** measurement (the standing reason the
-eager/deferred/`TYPE_CHECKING` split must not be "simplified" away) — are under
-"Dependency direction — the measured SCC" in `references/architecture-reference.md`.
+The measured figures — 1,701 modules / 6,066 raw internal edges, the **847-module** raw
+all-import SCC, the eager graph's **zero** non-trivial SCCs, the 59-node package projection
+with its one 44-package SCC, and `check_import_cycles.py`'s own differently scoped
+**821-module / 48.5%** measurement (the standing reason the eager/deferred/`TYPE_CHECKING`
+split must not be "simplified" away) — are under "Dependency direction — the measured SCC"
+in `references/architecture-reference.md`.
 
-**The rules — TARGET direction you are held to in review, NOT a property the
-tree has or a gate enforces.** ★ Nothing enforces the layering. `check-import-cycles`
-refuses only *eager cycles*, in any direction; `scripts/check_coupling.py`
-covers only geniusbot→`agent_utilities` and its hook wraps it in `|| true`. Rules
-1 and 2 are measurably violated on `main` today (counts repeated in rules 1 and 2
-below, re-measured 2026-09-03). Re-measure before quoting a number — one AST walk over
-`git ls-files agent_utilities`, counting top-level and `from` import statements
-whose first-level package differs from the importing file's, is what produced
-them:
-
-1. **Dependencies should point inward.** Contracts ← domain ← ports ←
-   application ← adapters ← composition. **Violated today:** 62
-   application→adapter import statements over 14 package pairs.
-2. **Adapters should not call each other.** REST does not call MCP; MCP does not
-   call REST. Both call the same use-case object. **Violated today:** 85
-   adapter→adapter import statements over 19 package pairs, including the
-   reciprocal `gateway -> mcp` (19) / `mcp -> gateway` (3).
-3. **REST and MCP bind the SAME use-case object** — `_execute_tool()`. The tool
-   function carries argument marshalling, never logic.
-4. **Production code never imports tests, dev tooling, generated output, or
-   deployment composition** (RF-ADR-003). Dev/test edges are inventoried
-   separately and may not pull production upward.
-5. **One capability, one owner, one implementation** (`plans/refactor/DESIGN.md` "Anti-sprawl
-   invariants"). No new package/repository without a cohesive lower-level owner,
-   **two or more real live consumers**, and a *measured* net reduction in cycles,
-   duplicate implementations, public surface, or edges. Splitting by file count,
-   scan score, or aesthetics is rejected.
-
-The named reverse edges the program is cutting — and the intended directions that
-must stay one-way — are listed with their measured edge counts under "Named
-reverse edges" in `references/architecture-reference.md`. Do not add to them.
+**The rules — TARGET direction you are held to in review, NOT a property the tree
+has or a gate enforces.** ★ Nothing enforces the layering; rules 1 and 2 are
+measurably violated on `main` today. All five rules, what refuses what, and the
+measured violation counts are under "The rules — target direction" in
+`references/architecture-reference.md`, and the named reverse edges the program is
+cutting — with their measured edge counts and the directions that must stay one-way —
+under "Named reverse edges" in the same file. Do not add to them; re-measure before
+quoting a number.
 
 `KnowledgeGraph` (`knowledge_graph/facade.py`) is the graph facade;
-`Orchestrator.execute_agent` (`orchestration/manager.py:512`) owns
-agent/loop/workflow dispatch. ★ `run_agent` is **not** a method on
-`Orchestrator` — it is a **module-level function**, `orchestration/agent_runner.py:700`,
-which `Orchestrator.execute_agent` imports and calls. (`AGENTS.md` writes them
-together as `Orchestrator.execute_agent`/`run_agent`; that shorthand is not a
-class API.) Facade and orchestrator have **disjoint** authority — the facade does not dispatch agents, and the
-orchestrator does not implement graph persistence. Composition binds exactly one
-of each.
+`Orchestrator.execute_agent` (`orchestration/manager.py:512`) owns agent/loop/workflow
+dispatch. ★ `run_agent` is **not** a method on `Orchestrator` — it is a **module-level
+function**, `orchestration/agent_runner.py:700`, which `Orchestrator.execute_agent`
+imports and calls (`AGENTS.md` writes them together; that shorthand is not a class API).
+Facade and orchestrator have **disjoint** authority — the facade does not dispatch
+agents, the orchestrator does not implement graph persistence. Composition binds
+exactly one of each.
 
 ## The gates that actually enforce this
 
@@ -223,10 +199,10 @@ Run all five. Any "no" that you cannot answer is a stop, not a caveat.
    constants.
 4. **Does the new module declare an owning component?** Under RF-ADR-005 an
    architecture seam declares its identity at `architecture/component-registry.yml`
-   in the owning repository. ★ **Unverified/not yet present:** AU has no
-   `architecture/` directory today (`ls architecture/` → no such file). Until it
-   exists, name the owning package and its layer in the module docstring beside the
-   `CONCEPT:` tag, and reserve the concept id first
+   in the owning repository — ★ present as of RF-021, the source-owned owner
+   manifest, never a hand-edited projection (see *Architecture component registry*
+   below). Also name the owning package and its layer in the module docstring
+   beside the `CONCEPT:` tag, and reserve the concept id first
    (`agent-utilities --json concept reserve --id …`).
 5. **Where does the weight belong?** Heavy AI/ML → `agents/data-science-mcp`.
    Finance/quant → `emerald-exchange`. Any KG compute, ANN, vector similarity, or
@@ -243,6 +219,32 @@ scanner counters as evidence, a gate's universe vs the package's, the poisoned
 copied reference implementations, file-partitioned lanes, dual-purpose predicates,
 unverified blockers, stale hook comments, the fleet denominator — are in
 [`references/failure-patterns-reference.md`](references/failure-patterns-reference.md).
+
+## Architecture component registry — mandatory pre-change workflow
+
+Before adding or changing a capability, read the generated `ArchitectureComponent` /
+`ArchitectureCapability` projection through the real Graph-OS operations — registry lookup →
+`graph_query`, discovery → `graph_search`, caller/impact evidence → `graph_code(action=code_context)`
+— and match candidates by stable component/capability ID **and** their behavioural, authority,
+and dependency signatures; a shared name or concept label is not identity evidence. Operation
+map, RF-019 reference, the four rules, and the repository-layout / worker-lane ownership
+contract: [`references/architecture-component-registry-reference.md`](references/architecture-component-registry-reference.md).
+
+The canonical source-owned declaration is exactly
+`architecture/component-registry.yml` in the repository resolved by root
+`workspace.yml`; never edit a Plans fixture or generated KG projection as the
+owner. The deterministic RF-021 repair handoff is: update that owner manifest,
+run the projection generator registered by the RF-021 owner declaration (the
+owner manifest's `generator` is the executable source-to-candidate projection),
+independently review its exact diff, then invoke the existing `source_sync
+source=all mode=delta` ingestion path and repeat the candidate-bound
+`graph_query`/`graph_search`/`graph_code` observations. If the owner declaration
+does not name a registered generator, or that generator does not consume the
+owner manifest, report that materialization blocker instead of inferring a
+command or substituting another graph writer.
+Runtime identity labels come only from an externally supplied governed identity
+policy; retain its digest in the owner record and evidence, never its concrete
+labels, reconstructed fragments, or a repository-local exception list.
 
 ## Workflow
 
