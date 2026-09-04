@@ -53,7 +53,7 @@ from agent_utilities.mcp.kg_server import (
     get_tools_endpoint,
     set_toggle_state,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 ACTOR = ActorContext(

@@ -328,11 +328,11 @@ async def test_parallel_execute_keeps_graph_coordination_and_persistence_off_loo
         current_session,
         use_session,
     )
-    from agent_utilities.models.company_brain import ActorType
     from agent_utilities.models.execution_manifest import (
         AgentExecutionResult,
         WaveResult,
     )
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import (
         ActorContext,
         current_actor,

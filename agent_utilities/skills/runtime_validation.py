@@ -927,10 +927,10 @@ def _direct_evidence_authority(
         use_marking_authority,
     )
     from agent_utilities.models.company_brain import (
-        ActorType,
         DataClassification,
         NodeACL,
     )
+    from agent_utilities.security.actor_identity import ActorType
 
     source = _SkillValidationEvidenceSource(skill)
     permissions = get_company_brain().permissions

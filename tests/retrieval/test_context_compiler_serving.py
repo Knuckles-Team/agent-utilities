@@ -39,7 +39,8 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
     resolve_bundle_chat_client,
 )
-from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.company_brain import DataClassification, NodeACL
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

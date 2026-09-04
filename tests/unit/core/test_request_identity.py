@@ -148,6 +148,17 @@ class TestActorFromClaims:
         )
         assert actor.credential_expires_at == expiry
 
+    @pytest.mark.parametrize("expiry", [True, -1, 1 << 63, float("inf")])
+    def test_validated_claim_expiry_is_bounded(self, expiry):
+        with pytest.raises(ValueError, match="invalid expiry"):
+            actor_from_claims(
+                {
+                    "sub": "principal:verified",
+                    "tenant_id": "tenant-a",
+                    "exp": expiry,
+                }
+            )
+
     @pytest.mark.parametrize(
         "claims",
         [
@@ -188,7 +199,7 @@ class TestActorFromClaims:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_human_when_email_claim_present(self):
-        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.actor_identity import ActorType
 
         human = actor_from_claims(
             {"sub": "principal", "email": "principal@example.invalid"}
@@ -203,6 +214,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:write unrelated:claim",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -214,6 +226,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:admin unrelated:claim",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -225,6 +238,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "roles": ["admin"],
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -240,19 +254,30 @@ class TestActorFromClaims:
                     "sub": "principal:verified",
                     "groups": ["platform-operators"],
                     "tenant_id": "tenant-a",
+                    "exp": int(time.time()) + 300,
                 }
             )
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
     def test_authenticated_actor_without_tenant_cannot_mint_session(self):
-        actor = actor_from_claims({"sub": "principal:verified", "scope": "kg:read"})
-        with pytest.raises(PermissionError, match="verified tenant"):
+        actor = actor_from_claims(
+            {
+                "sub": "principal:verified",
+                "scope": "kg:read",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        with pytest.raises(PermissionError, match="invalid tenant"):
             _mint(actor)
 
     def test_missing_audience_or_policy_cannot_mint_session(self):
         actor = actor_from_claims(
-            {"sub": "principal:verified", "tenant_id": "tenant-a"}
+            {
+                "sub": "principal:verified",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
         )
         for config in (
             _make_config(auth_jwt_audience=None),
@@ -287,6 +312,7 @@ class TestActorFromClaims:
                 "sub": "principal:verified",
                 "scope": "kg:admin",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         with (
@@ -331,6 +357,7 @@ class TestActorFromClaims:
                 "sub": "principal:agent-webui",
                 "scope": "kg:read",
                 "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
             }
         )
         session = _mint(actor)
@@ -863,7 +890,12 @@ class TestStdioProcessIdentity:
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
-        assert session.actor.credential_expires_at is None
+        assert session.actor.credential_expires_at is not None
+        assert session.actor.credential_lease is not None
+        assert (
+            session.actor.credential_lease.expires_at
+            == session.actor.credential_expires_at
+        )
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),

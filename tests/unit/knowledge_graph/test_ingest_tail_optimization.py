@@ -46,7 +46,7 @@ from agent_utilities.knowledge_graph.ingestion.repo_split import (
     plan_repo_split,
     split_graph_suffix,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

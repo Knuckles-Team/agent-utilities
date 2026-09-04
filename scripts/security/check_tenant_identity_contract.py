@@ -220,7 +220,7 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
     for marker in (
         "if not actor.authenticated:",
         'if not str(actor.actor_id or "").strip():',
-        "if not tenant:",
+        "_bounded_authority_text(actor.tenant_id",
         "if not audience or not policy_version:",
         "tenant_graph_name(tenant",
         "return GraphSession(",
@@ -245,7 +245,9 @@ def check_sources(sources: dict[str, str]) -> dict[str, Any]:
                 "session minting resolves engine topology at authentication time"
             )
     middleware = _function(trees["identity"], "__call__")
-    middleware_source = _local_call_closure_source(trees["identity"], identity, middleware)
+    middleware_source = _local_call_closure_source(
+        trees["identity"], identity, middleware
+    )
     if (
         "if path not in UNAUTHENTICATED_PATHS:" not in middleware_source
         or "actor_from_bearer_token" not in middleware_source

@@ -41,7 +41,8 @@ from agent_utilities.knowledge_graph.core.session import (
     use_session,
 )
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
-from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.company_brain import DataClassification, NodeACL
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

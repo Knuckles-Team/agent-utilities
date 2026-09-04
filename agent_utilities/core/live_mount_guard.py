@@ -74,7 +74,7 @@ import os
 from pathlib import Path
 from typing import TypedDict
 
-from agent_utilities.core._env import setting
+from agent_utilities.core._env import bootstrap_setting as setting
 
 logger = logging.getLogger("agent_utilities.live_mount_guard")
 

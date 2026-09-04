@@ -21,7 +21,7 @@ def mock_agent():
 @pytest.fixture
 def secure_client(mock_agent):
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     original_jwks = config.config.auth_jwt_jwks_uri

@@ -23,10 +23,10 @@ from agent_utilities.knowledge_graph.retrieval.governance_rules import (
     apply_governance_rules,
 )
 from agent_utilities.models.company_brain import (
-    ActorType,
     DataClassification,
     NodeACL,
 )
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import (
     ActorContext,
     use_actor,

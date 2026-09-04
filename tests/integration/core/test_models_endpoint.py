@@ -55,7 +55,7 @@ def _build_client(monkeypatch, **kwargs):
     try/finally) restores ``config`` afterward.
     """
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     monkeypatch.setattr(

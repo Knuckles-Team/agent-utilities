@@ -546,7 +546,7 @@ def test_enrich_documents_stamps_ownership_when_actor_is_bound(tmp_path):
     """With a real actor bound, the write succeeds and the Document node
     carries the SAME governance stamp enrich_files' nodes carry — proving
     enrich_documents now enters the identical chokepoint as its sibling."""
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     (tmp_path / "doc.md").write_text("# Title\n\nSome document content.\n")

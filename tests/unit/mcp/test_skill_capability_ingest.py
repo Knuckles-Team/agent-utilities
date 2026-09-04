@@ -20,8 +20,8 @@ from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
     runnable_skill_digest,
 )
 from agent_utilities.mcp import kg_server
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration.agent_runner import _resolve_agent_from_kg
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.persistence_privacy import persistence_reference
 

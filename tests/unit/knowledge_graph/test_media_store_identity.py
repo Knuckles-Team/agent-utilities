@@ -24,7 +24,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.knowledge_graph.memory.media_store import MediaStore
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 pytestmark = [pytest.mark.concept("AU-KG.identity.asset-occurrence")]

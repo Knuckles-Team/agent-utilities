@@ -40,7 +40,8 @@ from agent_utilities.knowledge_graph.ontology.permissioning import (
     use_marking_authority,
 )
 from agent_utilities.knowledge_graph.retrieval.context_compiler import ContextCompiler
-from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.company_brain import DataClassification, NodeACL
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

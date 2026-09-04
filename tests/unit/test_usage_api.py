@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway.usage_api import usage_router
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.usage import backends as usage_backends
 from agent_utilities.usage.models import (

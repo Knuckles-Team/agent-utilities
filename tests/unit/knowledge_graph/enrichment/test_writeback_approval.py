@@ -159,7 +159,7 @@ def test_proposal_queue_enqueue_requires_a_bound_actor():
 
 
 def test_proposal_queue_enqueue_stamps_ownership_when_actor_bound():
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     backend = _FakeApprovalBackend()
@@ -185,7 +185,7 @@ def test_proposal_queue_mark_preserves_original_owner_not_the_approver():
     setdefault semantics only fill in a missing stamp, and mark() explicitly
     carries the original governance fields forward so a re-stamp under the
     approver's identity can never overwrite them."""
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     backend = _FakeApprovalBackend()

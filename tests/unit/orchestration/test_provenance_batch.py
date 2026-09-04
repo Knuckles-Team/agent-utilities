@@ -25,9 +25,9 @@ from agent_utilities.knowledge_graph.backends.fanout_backend import (
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.observability.trace_ontology import outcome_id, trace_id
 from agent_utilities.orchestration import agent_runner
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

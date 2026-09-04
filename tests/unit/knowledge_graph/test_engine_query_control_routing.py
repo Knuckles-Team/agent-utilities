@@ -11,7 +11,7 @@ from agent_utilities.knowledge_graph.orchestration.engine_query import (
     QueryMixin,
     _is_control_plane_query,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

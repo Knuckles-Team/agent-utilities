@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.actions import (
 )
 from agent_utilities.knowledge_graph.core import secured_reads, tenant_sharing
 from agent_utilities.knowledge_graph.ontology import permissioning
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import (
     ActorContext,
     CredentialExpiredError,

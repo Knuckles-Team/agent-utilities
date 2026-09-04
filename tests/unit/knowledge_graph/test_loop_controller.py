@@ -209,7 +209,7 @@ def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
 
 def _loop_controller_test_session():
     from agent_utilities.knowledge_graph.core.session import GraphSession
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     actor = ActorContext(

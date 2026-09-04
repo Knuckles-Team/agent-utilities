@@ -11,7 +11,7 @@ from agent_utilities.gateway import daemon
 
 
 def test_mint_process_identity_is_bounded_and_verified(monkeypatch):
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     calls: list[str] = []

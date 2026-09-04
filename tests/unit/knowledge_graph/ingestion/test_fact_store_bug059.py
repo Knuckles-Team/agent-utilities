@@ -46,7 +46,7 @@ def test_fact_store_add_node_requires_a_bound_actor():
 
 
 def test_fact_store_add_node_stamps_ownership_when_actor_bound():
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     backend = _FakeBackend()
@@ -73,7 +73,7 @@ def test_fact_store_add_node_stamps_ownership_when_actor_bound():
 def test_fact_store_add_node_respects_an_explicit_writer_override():
     """``_fact_store(writer=...)`` targets an explicit routed backend instead
     of ``self.backend`` — the stamping applies there too."""
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     default_backend = _FakeBackend()

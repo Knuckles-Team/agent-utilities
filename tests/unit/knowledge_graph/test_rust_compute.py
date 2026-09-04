@@ -10,7 +10,7 @@ from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST
 from agent_utilities.knowledge_graph.core.engine_breaker import unwrap_client
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
 

@@ -1512,7 +1512,7 @@ def _work_item_bus_worker(engine_binary: Path, root: Path, result_path: Path) ->
         submit_work_item,
     )
     from agent_utilities.messaging.bus_inbox import commit_message_to_work_item
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     root.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -49,7 +49,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ...models.company_brain import ActorType, DataClassification
+from ...models.company_brain import DataClassification
+from ...security.actor_identity import ActorType
 from ...security.brain_context import ActorContext, current_actor
 from .shard_topology import default_graph_name, tenant_graph_name
 

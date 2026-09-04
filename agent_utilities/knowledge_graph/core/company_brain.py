@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from ...models.company_brain import (
-    ActorType,
     AssertionType,
     CASResult,
     ConflictNode,
@@ -49,6 +48,7 @@ from ...models.company_brain import (
     VersionVector,
     WebhookEvent,
 )
+from ...security.actor_identity import ActorType
 
 logger = logging.getLogger(__name__)
 

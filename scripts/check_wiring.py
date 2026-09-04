@@ -136,7 +136,7 @@ import tarfile
 import tempfile
 import tokenize
 from collections import Counter, defaultdict, deque
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
@@ -908,6 +908,63 @@ def _read_au_sources(src_dir: Path, display_root: Path) -> dict[str, str]:
     return au_sources
 
 
+def _all_assignment_values(tree: ast.Module) -> list[ast.expr]:
+    """Module-level ``__all__`` assignment right-hand sides."""
+    values: list[ast.expr] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+            values.append(node.value)
+    return values
+
+
+def _string_elements(value: ast.expr | None) -> list[str]:
+    """The string constants of a literal list/tuple/set, else nothing."""
+    if not isinstance(value, ast.List | ast.Tuple | ast.Set):
+        return []
+    return [
+        element.value
+        for element in value.elts
+        if isinstance(element, ast.Constant) and isinstance(element.value, str)
+    ]
+
+
+def _declared_reexports(rel: str, text: str) -> Counter[str]:
+    """Names a package ``__init__.py`` declares as public exports in ``__all__``.
+
+    A package that re-exports eagerly (``from .mod import Name``) puts ``Name``
+    in the file as a NAME token, so :func:`_index_file` counts it as a real
+    non-test reference. The lazy ``__getattr__`` + export-map form used by most
+    of this package's ``__init__.py`` files (``agent_utilities/__init__.py``,
+    ``knowledge_graph/``, ``deployment/``, ``security/`` ...) stores that same
+    name as a STRING literal instead, which :func:`_index_file` deliberately
+    does not count. Without this, converting a package to lazy exports silently
+    turns every symbol whose only non-test reference was that re-export into a
+    bogus "test-only" finding.
+
+    Only module-level ``__all__`` entries in an ``__init__.py`` count: that is a
+    DECLARED public export, not a passing mention in a comment or docstring, so
+    this restores parity with the eager form without reintroducing the
+    string-mention false positive ``_index_file``'s tokenize pass exists to
+    prevent.
+    """
+    if PurePosixPath(rel).name != "__init__.py":
+        return Counter()
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return Counter()
+    names: Counter[str] = Counter()
+    for value in _all_assignment_values(tree):
+        names.update(_string_elements(value))
+    return names
+
+
 def _index_au_sources(
     au_sources: dict[str, str],
 ) -> tuple[
@@ -919,6 +976,7 @@ def _index_au_sources(
     total_au_calls: Counter[str] = Counter()
     for rel, source in au_sources.items():
         idents, calls = _index_file(source)
+        idents = idents + _declared_reexports(rel, source)
         au_idents[rel] = idents
         au_calls[rel] = calls
         total_au_idents.update(idents)

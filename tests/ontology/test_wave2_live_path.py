@@ -49,8 +49,8 @@ from agent_utilities.knowledge_graph.ontology.permissioning import (
     apply_marking,
     clear_markings,
 )
-from agent_utilities.models.company_brain import ActorType
 from agent_utilities.observability.escalation_matrix import make_decision_provider
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.permissions_kernel import AgentRole, PermissionsKernel
 

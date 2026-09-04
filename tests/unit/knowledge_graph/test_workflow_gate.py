@@ -255,7 +255,7 @@ class TestShapeGateBackendPath:
 
 class TestPermissionGate:
     def _actor(self, actor_id="agent:intern", roles=()):
-        from agent_utilities.models.company_brain import ActorType
+        from agent_utilities.security.actor_identity import ActorType
         from agent_utilities.security.brain_context import ActorContext
 
         return ActorContext(

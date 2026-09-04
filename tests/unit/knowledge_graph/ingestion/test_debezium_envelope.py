@@ -40,7 +40,7 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (
 from agent_utilities.knowledge_graph.streams.kafka_adapter import (
     DebeziumKafkaConsumer,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from tests.unit.knowledge_graph.ingestion.test_native_envelope_ingest import _Compute
 

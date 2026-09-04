@@ -321,7 +321,7 @@ def test_partition_key_tenant_wins():
     from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
         partition_key_for,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
 
     env = _envelope(full_path="org/repo", target="/x/y.py")
@@ -748,7 +748,7 @@ def test_consumer_pool_spreads_messages_and_closes():
     from agent_utilities.knowledge_graph.ingest_worker import (
         start_ingest_consumer_pool,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     engine = _FakeEngine()
@@ -855,7 +855,7 @@ def test_consumer_pool_reserves_a_hydration_subset():
     from agent_utilities.knowledge_graph.ingest_worker import (
         start_ingest_consumer_pool,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     engine = _FakeEngine()
@@ -916,7 +916,7 @@ def test_consumer_pool_single_worker_reserves_none():
     from agent_utilities.knowledge_graph.ingest_worker import (
         start_ingest_consumer_pool,
     )
-    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.actor_identity import ActorType
     from agent_utilities.security.brain_context import ActorContext
 
     engine = _FakeEngine()

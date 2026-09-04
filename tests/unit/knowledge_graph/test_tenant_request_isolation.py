@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from agent_utilities.knowledge_graph.core.session import current_session, use_session
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # The in-memory backend connects to the (possibly shared) live engine, so make

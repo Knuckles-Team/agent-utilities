@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
 from agent_utilities.knowledge_graph.backends.fanout_backend import FanOutBackend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
