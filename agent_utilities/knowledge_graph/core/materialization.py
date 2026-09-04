@@ -222,6 +222,149 @@ def group_by_rel(
 # ── the one writer ───────────────────────────────────────────────────────────
 
 
+def _stamp_entities(entities: list[dict[str, Any]], domain: str) -> None:
+    """Validate and stamp the entity side of a materialization batch."""
+    from ..enrichment.provenance import stamp_source
+    from .tenant_sharing import stamp_classification, stamp_ownership
+
+    # Defence-in-depth ACL registration (D-ACL-4, CONCEPT:AU-KG.backend.company-brain-write-guard):
+    # this is the fifth write surface the four-chokepoint ACL-registration fix
+    # did not reach. Every connector/materialize source (``write_batch`` ->
+    # here) and internal offline batch (finance/synthesize, source=None)
+    # funnels through this one writer. Without this stamp, an internal batch
+    # with no connector-supplied ``external_access`` lands without an owner or
+    # classification and is permanently unreadable under the default-deny
+    # ``secured_reads.permit()`` policy.
+    #
+    # BUG-033/BUG-039: a write reaching this seam with NO bound actor must
+    # raise, not silently land unowned. A genuinely privileged/system actor
+    # still lands intentionally unowned (``stamp_ownership``'s policy for
+    # platform/connector data).
+    for index, row in enumerate(entities):
+        if "type" in row:
+            raise retired_node_type_property_error(context=f"entity[{index}]")
+        if not row.get("id") or not row.get("node_type"):
+            raise ValueError(f"entity[{index}] requires id and node_type")
+        stamp_source(row, domain)
+        stamp_ownership(row)
+        stamp_classification(row, row.get("node_type"))
+
+
+def _stamp_relationships(relationships: list[dict[str, Any]], domain: str) -> None:
+    """Validate and stamp the relationship side of a materialization batch."""
+    from ..enrichment.provenance import stamp_source
+
+    for index, row in enumerate(relationships):
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
+        if aliases:
+            raise retired_edge_relationship_property_error(
+                aliases, context=f"relationship[{index}]"
+            )
+        if (
+            not row.get("source")
+            or not row.get("target")
+            or not row.get("relationship")
+        ):
+            raise ValueError(
+                f"relationship[{index}] requires source, target, and relationship"
+            )
+        stamp_source(row, domain)
+
+
+def _write_authority(
+    backend: Any,
+    domain: str,
+    entities: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+    skipped_unchanged: int,
+) -> dict[str, Any]:
+    """Commit a materialization batch through the native graph authority."""
+    from ..ingestion.envelope_ingest import ingest_graph_slice
+
+    receipt = ingest_graph_slice(
+        backend,
+        domain,
+        entities,
+        relationships,
+        source_instance=domain,
+    )
+    return {
+        "status": receipt.get("status", "success"),
+        "nodes": len(entities),
+        "edges": len(relationships),
+        "skipped_unchanged": skipped_unchanged,
+        "envelope_id": receipt.get("envelope_id", ""),
+    }
+
+
+def _write_ladybug(
+    backend: Any,
+    entities: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+) -> int:
+    """Write one row at a time for Ladybug's non-UNWIND dialect."""
+    for row in entities:
+        node_type = safe_label(row.get("node_type"))
+        backend.execute(
+            f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
+            row,
+        )
+    for row in relationships:
+        # Use the REAL rel type so Kuzu builds a typed table, not a generic
+        # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
+        rtype = safe_label(row.get("relationship") or "RELATED")
+        backend.execute(
+            f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
+            f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
+            row,
+        )
+    return len(relationships)
+
+
+def _write_entity_batch(backend: Any, label: str, rows: list[dict[str, Any]]) -> None:
+    """Write one node-label group through the backend batch API."""
+    keys = sorted({key for row in rows for key in row} - {"id"})
+    clause = (
+        "SET " + ", ".join([f"n.`{key}` = row.`{key}`" for key in keys]) if keys else ""
+    )
+    backend.execute_batch(
+        f"UNWIND $batch AS row MERGE (n:{label} {{id: row.id}}) {clause}".rstrip(),
+        rows,
+    )
+
+
+def _write_relationship_batch(
+    backend: Any, relationship: str, rows: list[dict[str, Any]]
+) -> int:
+    """Write one relationship-type group through the backend batch API."""
+    keys = sorted(
+        {key for row in rows for key in row} - {"source", "target", "relationship"}
+    )
+    clause = (
+        "SET " + ", ".join([f"r.`{key}` = row.`{key}`" for key in keys]) if keys else ""
+    )
+    backend.execute_batch(
+        f"UNWIND $batch AS row MATCH (s {{id: row.source}}) "
+        f"MATCH (t {{id: row.target}}) MERGE (s)-[r:{relationship}]->(t) {clause}".rstrip(),
+        rows,
+    )
+    return len(rows)
+
+
+def _write_batches(
+    backend: Any,
+    entities: list[dict[str, Any]],
+    relationships: list[dict[str, Any]],
+) -> int:
+    """Write grouped node and relationship batches for UNWIND backends."""
+    for label, rows in group_by_label(entities).items():
+        _write_entity_batch(backend, label, rows)
+    return sum(
+        _write_relationship_batch(backend, relationship, rows)
+        for relationship, rows in group_by_rel(relationships).items()
+    )
+
+
 def write_entities(
     backend: Any,
     domain: str,
@@ -240,51 +383,9 @@ def write_entities(
     projection/export workflows; they are never selected as the operational
     authority. Returns ``{status, nodes, edges, skipped_unchanged}``.
     """
-    from ..enrichment.provenance import stamp_source
-
-    # Defence-in-depth ACL registration (D-ACL-4, CONCEPT:AU-KG.backend.company-brain-write-guard):
-    # this is the fifth write surface the four-chokepoint ACL-registration fix
-    # (IntelligenceGraphEngine._upsert_node, GraphComputeEngine.add_node,
-    # BrainGuardedBackend.add_node, enrichment/pipeline.py's buffered batch)
-    # did not reach — every connector/materialize source (``write_batch`` ->
-    # here) and internal offline batch (finance/synthesize, source=None)
-    # funnels through this one writer. Without this stamp, an internal batch
-    # with no connector-supplied ``external_access`` landed with no owner and
-    # no classification: written but permanently unreadable under
-    # ``secured_reads.permit()``'s default-deny (identical gap to the one the
-    # four chokepoints already closed elsewhere).
-    #
-    # BUG-033/BUG-039: fail closed, same as the other four chokepoints — a
-    # write reaching this seam with NO bound actor at all must raise, not
-    # silently land unowned. A genuinely privileged/system actor still lands
-    # intentionally unowned (``stamp_ownership``'s own, unchanged policy for
-    # platform/connector data).
-    from .tenant_sharing import stamp_classification, stamp_ownership
-
     rels = relationships or []
-    for index, row in enumerate(entities):
-        if "type" in row:
-            raise retired_node_type_property_error(context=f"entity[{index}]")
-        if not row.get("id") or not row.get("node_type"):
-            raise ValueError(f"entity[{index}] requires id and node_type")
-        stamp_source(row, domain)
-        stamp_ownership(row)
-        stamp_classification(row, row.get("node_type"))
-    for index, row in enumerate(rels):
-        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
-        if aliases:
-            raise retired_edge_relationship_property_error(
-                aliases, context=f"relationship[{index}]"
-            )
-        if (
-            not row.get("source")
-            or not row.get("target")
-            or not row.get("relationship")
-        ):
-            raise ValueError(
-                f"relationship[{index}] requires source, target, and relationship"
-            )
-        stamp_source(row, domain)
+    _stamp_entities(entities, domain)
+    _stamp_relationships(rels, domain)
 
     skipped_unchanged = 0
     if delta and str(setting("KG_WRITE_DELTA", "1")) != "0":
@@ -299,76 +400,14 @@ def write_entities(
 
     authority_backend = getattr(backend, "_authority", backend)
     if authority_backend.__class__.__name__ == "EpistemicGraphBackend":
-        from ..ingestion.envelope_ingest import ingest_graph_slice
-
-        receipt = ingest_graph_slice(
-            authority_backend,
-            domain,
-            entities,
-            rels,
-            source_instance=domain,
+        return _write_authority(
+            authority_backend, domain, entities, rels, skipped_unchanged
         )
-        return {
-            "status": receipt.get("status", "success"),
-            "nodes": len(entities),
-            "edges": len(rels),
-            "skipped_unchanged": skipped_unchanged,
-            "envelope_id": receipt.get("envelope_id", ""),
-        }
-
-    edges = 0
 
     if backend.__class__.__name__ == "LadybugBackend":
-        # Ladybug (Kuzu) has no UNWIND — per-row MERGE via the shared SET clause.
-        for row in entities:
-            node_type = safe_label(row.get("node_type"))
-            backend.execute(
-                f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
-                row,
-            )
-        for row in rels:
-            # Use the REAL rel type so Kuzu builds a typed table, not a generic
-            # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
-            rtype = safe_label(row.get("relationship") or "RELATED")
-            backend.execute(
-                f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
-                f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
-                row,
-            )
-            edges += 1
-        return {
-            "status": "success",
-            "nodes": len(entities),
-            "edges": edges,
-            "skipped_unchanged": skipped_unchanged,
-        }
-
-    # Every other backend: high-throughput UNWIND MERGE, grouped by the REAL
-    # node/rel type so each entity keeps its specific label.
-    for label, rows in group_by_label(entities).items():
-        keys = sorted({k for row in rows for k in row} - {"id"})
-        clause = (
-            "SET " + ", ".join([f"n.`{k}` = row.`{k}`" for k in keys]) if keys else ""
-        )
-        backend.execute_batch(
-            f"UNWIND $batch AS row MERGE (n:{label} {{id: row.id}}) {clause}".rstrip(),
-            rows,
-        )
-    for rel, rows in group_by_rel(rels).items():
-        r_keys = sorted(
-            {k for row in rows for k in row} - {"source", "target", "relationship"}
-        )
-        clause = (
-            "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
-            if r_keys
-            else ""
-        )
-        backend.execute_batch(
-            f"UNWIND $batch AS row MATCH (s {{id: row.source}}) "
-            f"MATCH (t {{id: row.target}}) MERGE (s)-[r:{rel}]->(t) {clause}".rstrip(),
-            rows,
-        )
-        edges += len(rows)
+        edges = _write_ladybug(backend, entities, rels)
+    else:
+        edges = _write_batches(backend, entities, rels)
 
     return {
         "status": "success",
