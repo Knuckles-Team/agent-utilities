@@ -1221,6 +1221,23 @@ def _prepare_runtime_child_policy(cfg: dict[str, Any]) -> tuple[dict[str, Any], 
         raise RuntimeError("MCP child runtime policy is unavailable") from None
 
 
+def _child_transport_values(
+    cfg: dict, command: Any
+) -> tuple[Any, str, str, bool | None]:
+    """Resolve child transport fields; ``None`` marks an invalid declaration."""
+    url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
+    explicit_transport = str(cfg.get("transport", "")).lower()
+    invalid = (
+        explicit_transport not in {"", "streamable-http", "sse"}
+        or bool(command) == bool(url)
+        or (explicit_transport and not url)
+    )
+    if invalid:
+        return command, url, explicit_transport, None
+    is_remote = bool(url) or explicit_transport in ("streamable-http", "sse")
+    return command, url, explicit_transport, is_remote
+
+
 def _child_transport_is_remote(cfg: dict) -> bool | None:
     """Whether one child speaks HTTP; ``None`` when its declaration is invalid.
 
@@ -1229,17 +1246,10 @@ def _child_transport_is_remote(cfg: dict) -> bool | None:
     ``command``. Either kind loads transparently from the same config.
     """
 
-    command = cfg.get("command")
-    url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
-    explicit_transport = str(cfg.get("transport", "")).lower()
-    if (
-        explicit_transport not in {"", "streamable-http", "sse"}
-        or bool(command) == bool(url)
-        or (explicit_transport and not url)
-    ):
+    command, _, _, is_remote = _child_transport_values(cfg, cfg.get("command"))
+    if is_remote is None:
         logger.error("MCP child transport declaration is invalid")
         return None
-    is_remote = bool(url) or explicit_transport in ("streamable-http", "sse")
     if not command and not is_remote:
         logger.warning("MCP child has neither command nor URL; skipping")
         return None
@@ -2797,19 +2807,11 @@ class MCPMultiplexer:
         remote case states that in the type: the sole caller passes ``command``
         only into the local branch.
         """
-        command = self._child_command(cfg)
-        url = _resolve_runtime_value(cfg.get("url", ""), sensitive=False)
-        explicit_transport = str(cfg.get("transport", "")).lower()
-        if (
-            explicit_transport not in {"", "streamable-http", "sse"}
-            or bool(command) == bool(url)
-            or (explicit_transport and not url)
-        ):
-            raise RuntimeError("MCP child transport declaration is invalid")
-        is_remote = bool(url) or explicit_transport in (
-            "streamable-http",
-            "sse",
+        command, url, explicit_transport, is_remote = (
+            _child_transport_values(cfg, self._child_command(cfg))
         )
+        if is_remote is None:
+            raise RuntimeError("MCP child transport declaration is invalid")
         if not command and not is_remote:
             raise RuntimeError("MCP child requires a command or URL")
         if not is_remote:
@@ -5260,14 +5262,10 @@ class MCPMultiplexer:
             entry[spec.body_field] = body
 
     @staticmethod
-    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
-        """Read one skill body, backing off while the child rate-limits us.
-
-        Retries are bounded by BOTH an attempt count and the caller's harvest
-        deadline, so a permanently-failing child costs a fixed amount of time.
-        The FINAL failure is re-raised with its original cause intact — the
-        caller records and logs it; nothing is swallowed.
-        """
+    async def _read_resource_body(
+        session: Any, uri: str, deadline: float, resource_kind: str
+    ) -> str:
+        """Read one body with bounded retries, deadline, and original errors."""
         delay = _SKILL_HARVEST_BACKOFF_SEC
         last: Exception | None = None
         for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
@@ -5283,8 +5281,17 @@ class MCPMultiplexer:
                 await asyncio.sleep(min(delay, remaining))
                 delay *= 2
         if last is None:  # pragma: no cover — the loop only exits via a failure
-            raise RuntimeError("skill body read failed without a recorded cause")
+            raise RuntimeError(
+                f"{resource_kind} body read failed without a recorded cause"
+            )
         raise last
+
+    @staticmethod
+    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
+        """Read one skill body with the shared bounded retry provider."""
+        return await MCPMultiplexer._read_resource_body(
+            session, uri, deadline, "skill"
+        )
 
     async def _probe_prompts(
         self, server_name: str, session: Any, *, probe_deadline: float | None = None
@@ -5337,30 +5344,10 @@ class MCPMultiplexer:
 
     @staticmethod
     async def _read_prompt_body(session: Any, uri: str, deadline: float) -> str:
-        """Read one prompt body, backing off while the child rate-limits us.
-
-        Same retry/backoff shape as :meth:`_read_skill_body` (bounded by BOTH
-        an attempt count and the caller's harvest deadline); a separate
-        method so a prompt-body budget can never be charged against a
-        skill-body harvest's accounting on the same probe, or vice versa.
-        """
-        delay = _SKILL_HARVEST_BACKOFF_SEC
-        last: Exception | None = None
-        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
-            try:
-                return _resource_body_text(await session.read_resource(uri))
-            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
-                last = exc
-                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
-                    break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                await asyncio.sleep(min(delay, remaining))
-                delay *= 2
-        if last is None:  # pragma: no cover — the loop only exits via a failure
-            raise RuntimeError("prompt body read failed without a recorded cause")
-        raise last
+        """Read one prompt body with the shared bounded retry provider."""
+        return await MCPMultiplexer._read_resource_body(
+            session, uri, deadline, "prompt"
+        )
 
     @classmethod
     async def probe_declaration(
