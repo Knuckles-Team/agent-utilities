@@ -744,14 +744,7 @@ class ContextCompiler:
             return 0.0
 
     @staticmethod
-    def _evidence_quality(node: dict[str, Any]) -> float:
-        """Score a candidate's evidence quality from its epistemic columns (CONCEPT:EPI-P3-1).
-
-        Reads the ``KnowledgeBatch``-shaped fields when present — ``confidence``,
-        ``source_refs``, ``evidence_refs``, ``proof_ids``, ``contradiction_ids``,
-        ``policy_labels`` — and degrades gracefully to a neutral prior for a
-        plain node carrying none of them.
-        """
+    def _evidence_confidence(node: dict[str, Any]) -> float:
         trace_quality = trace_candidate_quality(node)
         conf = trace_quality if trace_quality is not None else node.get("confidence")
         if conf is None:
@@ -760,22 +753,39 @@ class ContextCompiler:
             conf = float(conf) if conf is not None else _NEUTRAL_CONFIDENCE
         except (TypeError, ValueError):
             conf = _NEUTRAL_CONFIDENCE
-        conf = max(0.0, min(1.0, conf))
+        return max(0.0, min(1.0, conf))
 
-        bonus = 0.0
-        if node.get("source_refs") or node.get("sources"):
-            bonus += 0.1
-        if node.get("evidence_refs") or node.get("evidence"):
-            bonus += 0.1
-        if node.get("proof_ids"):
-            bonus += 0.05
+    @staticmethod
+    def _evidence_signal(node: dict[str, Any], *keys: str) -> float:
+        return 0.1 if any(node.get(key) for key in keys) else 0.0
 
-        penalty = 0.0
+    @staticmethod
+    def _evidence_adjustment(node: dict[str, Any]) -> float:
+        bonus = sum(
+            ContextCompiler._evidence_signal(node, *keys)
+            for keys in (("source_refs", "sources"), ("evidence_refs", "evidence"))
+        )
+        bonus += 0.05 if node.get("proof_ids") else 0.0
         policy_labels = node.get("policy_labels") or []
-        if node.get("contradiction_ids") or _CONTESTED_LABEL in policy_labels:
-            penalty += 0.2
+        penalty = (
+            0.2
+            if node.get("contradiction_ids") or _CONTESTED_LABEL in policy_labels
+            else 0.0
+        )
+        return bonus - penalty
 
-        return max(0.0, min(1.0, conf + bonus - penalty))
+    @staticmethod
+    def _evidence_quality(node: dict[str, Any]) -> float:
+        """Score a candidate's evidence quality from its epistemic columns (CONCEPT:EPI-P3-1).
+
+        Reads the ``KnowledgeBatch``-shaped fields when present — ``confidence``,
+        ``source_refs``, ``evidence_refs``, ``proof_ids``, ``contradiction_ids``,
+        ``policy_labels`` — and degrades gracefully to a neutral prior for a
+        plain node carrying none of them.
+        """
+        score = ContextCompiler._evidence_confidence(node)
+        score += ContextCompiler._evidence_adjustment(node)
+        return max(0.0, min(1.0, score))
 
     @staticmethod
     def _freshness(
