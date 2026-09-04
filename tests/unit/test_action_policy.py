@@ -22,6 +22,7 @@ from agent_utilities.orchestration.action_policy import (
     DEFAULT_POLICY,
     ActionPolicy,
     ActionRequest,
+    PolicyDisposition,
     in_maintenance_window,
 )
 
@@ -85,6 +86,89 @@ def test_every_decision_is_audited(engine):
     assert len(audited) == 2
     assert {a["decision"] for a in audited} == {"allow", "queue_approval"}
     assert all(a.get("decided_unix") for a in audited)
+
+
+def test_policy_receipt_is_stable_and_bound_before_request_mutation(engine):
+    request = ActionRequest(
+        kind="diagnose",
+        target="anything",
+        params={"b": [2, 3], "a": 1},
+    )
+    decision = ActionPolicy(engine=engine).decide(request)
+    receipt = decision.receipt
+    assert decision.disposition is PolicyDisposition.APPROVE
+    assert decision.allowed
+    assert receipt is not None
+    assert receipt.schema == "policy-receipt.v1"
+    original_digest = receipt.request_digest
+
+    request.params["a"] = 9
+    assert receipt.request_digest == original_digest
+    assert request.digest() != original_digest
+
+
+def test_policy_dispositions_preserve_deny_hold_approve_unavailable(engine, tmp_path):
+    approve = ActionPolicy(engine=engine).decide(
+        ActionRequest(kind="diagnose", target="anything")
+    )
+    hold = ActionPolicy(engine=engine).decide(
+        ActionRequest(kind="restart_service", target="service-a")
+    )
+    forbidden_path = write_policy(
+        tmp_path,
+        "rules:\n  - {kind: diagnose, target: '*', tier: forbidden}\n",
+    )
+    deny = ActionPolicy(engine=engine, policy_path=forbidden_path).decide(
+        ActionRequest(kind="diagnose", target="anything")
+    )
+    unavailable = ActionPolicy(engine=None).decide(
+        ActionRequest(kind="diagnose", target="anything")
+    )
+
+    assert approve.disposition is PolicyDisposition.APPROVE
+    assert approve.receipt is not None
+    assert hold.disposition is PolicyDisposition.HOLD
+    assert hold.receipt is not None
+    assert hold.receipt.approval_id == hold.approval_id
+    assert deny.disposition is PolicyDisposition.DENY
+    assert deny.receipt is not None
+    assert unavailable.disposition is PolicyDisposition.UNAVAILABLE
+    assert not unavailable.allowed
+
+
+def test_audit_persists_receipt_schema_and_exact_request_digest(engine):
+    request = ActionRequest(kind="diagnose", target="anything", params={"x": 1})
+    decision = ActionPolicy(engine=engine).decide(request)
+    (audit,) = engine.by_type("ActionDecision")
+    assert audit["receipt_schema"] == "policy-receipt.v1"
+    assert audit["request_digest"] == request.digest()
+    assert decision.receipt is not None
+    assert decision.receipt.request_digest == audit["request_digest"]
+
+
+def test_granted_approval_authorizes_only_the_exact_request_digest(engine):
+    policy = ActionPolicy(engine=engine)
+    request = ActionRequest(kind="restart_service", target="service-a")
+    held = policy.decide(request)
+    assert held.disposition is PolicyDisposition.HOLD
+    assert held.approval_id is not None
+    approval = engine.nodes[held.approval_id]
+    assert approval["request_digest"] == request.digest()
+
+    approval["status"] = "approved"
+    approved = policy.decide(request)
+    assert approved.disposition is PolicyDisposition.APPROVE
+    assert approved.approval_id == held.approval_id
+    assert approved.receipt is not None
+    assert approved.receipt.request_digest == request.digest()
+
+    changed = policy.decide(
+        ActionRequest(
+            kind="restart_service", target="service-a", params={"replicas": 2}
+        )
+    )
+    assert changed.disposition is PolicyDisposition.HOLD
+    assert changed.approval_id != held.approval_id
 
 
 def test_shipped_yaml_matches_embedded_default():
@@ -321,7 +405,8 @@ def test_internal_error_fails_closed(engine, monkeypatch):
         policy, "_decide_inner", lambda req: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     decision = policy.decide(ActionRequest(kind="diagnose", target="x"))
-    assert decision.decision == "deny"
+    assert decision.decision == "unavailable"
+    assert decision.disposition is PolicyDisposition.UNAVAILABLE
     assert "fail closed" in decision.reason
 
 
@@ -484,7 +569,8 @@ class TestAssuranceGateWiring:
             ActionRequest(kind="diagnose", target="anything")
         )
         assert verdict.decision == "allow"
-        assert verdict.allowed
+        assert verdict.disposition is PolicyDisposition.APPROVE
+        assert not verdict.allowed, "a side-effect-free preview has no durable receipt"
 
     def test_classify_forbids_an_invariant_violation(self, engine):
         # classify() is the side-effect-free tier read the PreToolUse gate uses;

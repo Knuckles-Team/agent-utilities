@@ -268,6 +268,16 @@ def _mean_score(trajectories: list[SkillTrajectory]) -> float:
     return sum(t.score for t in trajectories) / len(trajectories)
 
 
+def _trajectory_receipt(candidate_id: str, trajectories: list[SkillTrajectory]) -> str:
+    """Content-bound receipt for the exact held-out rollout set."""
+    payload = "\n".join(
+        f"{t.task_id}\0{t.output}\0{t.success}\0{t.score}\0{t.fail_reason}"
+        for t in trajectories
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"skill_evaluation:{candidate_id}:{digest}"
+
+
 # ── ② Reflect ────────────────────────────────────────────────────────────────────
 
 
@@ -602,6 +612,9 @@ def run_reflact_cycle(
                 "on held-out eval"
             ),
             evidence={"task_count": len(holdout_tasks)},
+            provenance_receipts=(
+                _trajectory_receipt(candidate_id, candidate_trajectories),
+            ),
         ),
         min_delta=0.0,
         strict=True,
@@ -628,7 +641,7 @@ def run_reflact_cycle(
         # A benchmark loss never reaches action_policy — nothing to promote.
         return report
 
-    report["action_decision"] = verdict.decision
+    report["action_decision"] = verdict.disposition.value
     if not verdict.approved:
         return report
 

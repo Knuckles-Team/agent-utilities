@@ -414,6 +414,9 @@ class TestGovernedPublish:
 
         assert report["status"] == "published"
         assert report["approval_id"] == approval_id
+        assert report["decision"] == "approve"
+        assert report["provenance_receipts"]
+        assert report["policy_receipt"]["schema"] == "policy-receipt.v1"
         assert report["publish"]["branch_ref"].startswith("pref_branch_")
         assert engine.nodes[approval_id]["status"] == "executed"
         executions = engine.by_type("ActionExecution")
@@ -438,7 +441,7 @@ class TestGovernedPublish:
             publisher=_publisher(engine, target_repo, tmp_path),
         )
         assert report["status"] == "published"
-        assert report["decision"] == "allow"
+        assert report["decision"] == "approve"
 
     def test_granted_but_invalid_change_set_fails_validation(
         self, target_repo, tmp_path

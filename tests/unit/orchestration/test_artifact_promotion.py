@@ -6,10 +6,16 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from agent_utilities.harness.reward_signal import RewardSignal
-from agent_utilities.orchestration.action_policy import ActionDecision, ActionRequest
+from agent_utilities.orchestration.action_policy import (
+    ActionDecision,
+    ActionRequest,
+    PolicyDisposition,
+    PolicyReceipt,
+)
 from agent_utilities.orchestration.artifact_promotion import (
     PromotionCandidate,
     evaluate_promotion,
@@ -30,6 +36,9 @@ def _candidate(
             if incumbent_value is not None
             else None
         ),
+        provenance_receipts=kw.pop(
+            "provenance_receipts", ("provenance:synthetic-fixture",)
+        ),
         **kw,
     )
 
@@ -46,13 +55,22 @@ class _FakePolicy:
 
     def decide(self, request: ActionRequest) -> ActionDecision:
         self.requests.append(request)
-        return ActionDecision(
+        decision = ActionDecision(
             decision=self._decision,
             tier="approval_required",
             request=request,
             reason=self._reason,
             approval_id=self._approval_id,
+            audit_id="action_decision:fixture",
         )
+        decision.receipt = PolicyReceipt(
+            receipt_id=decision.audit_id,
+            request_digest=request.digest(),
+            disposition=decision.disposition,
+            policy_origin="fixture",
+            approval_id=decision.approval_id,
+        )
+        return decision
 
 
 class _BoomPolicy:
@@ -107,7 +125,7 @@ class TestPromote:
         )
         assert verdict.eligible is False
         assert verdict.approved is False
-        assert verdict.decision == ""
+        assert verdict.disposition is PolicyDisposition.DENY
         assert policy.requests == [], "a losing candidate has nothing to decide"
 
     def test_winning_candidate_consults_action_policy_with_synthesized_kind(self):
@@ -116,7 +134,7 @@ class TestPromote:
             None, _candidate(candidate_value=0.9, incumbent_value=0.7), policy=policy
         )
         assert verdict.eligible is True
-        assert verdict.decision == "queue_approval"
+        assert verdict.disposition is PolicyDisposition.HOLD
         assert verdict.approved is False
         assert verdict.approval_id == "action_approval:x"
         (request,) = policy.requests
@@ -146,10 +164,13 @@ class TestPromote:
                 policy=policy,
             )
             assert verdict.approved is True, decision
-            assert verdict.decision == decision
+            assert verdict.disposition is PolicyDisposition.APPROVE
 
     def test_deny_and_queue_approval_are_not_approved(self):
-        for decision in ("deny", "queue_approval"):
+        for decision, disposition in (
+            ("deny", PolicyDisposition.DENY),
+            ("queue_approval", PolicyDisposition.UNAVAILABLE),
+        ):
             policy = _FakePolicy(decision)
             verdict = promote(
                 None,
@@ -157,7 +178,7 @@ class TestPromote:
                 policy=policy,
             )
             assert verdict.approved is False, decision
-            assert verdict.decision == decision
+            assert verdict.disposition is disposition
 
     def test_policy_failure_fails_closed(self):
         verdict = promote(
@@ -166,9 +187,47 @@ class TestPromote:
             policy=_BoomPolicy(),
         )
         assert verdict.eligible is True
-        assert verdict.decision == "deny"
+        assert verdict.disposition is PolicyDisposition.UNAVAILABLE
         assert verdict.approved is False
         assert "fail closed" in verdict.reason
+
+    def test_missing_provenance_is_unavailable_before_policy(self):
+        policy = _FakePolicy("allow")
+        verdict = promote(
+            None,
+            _candidate(
+                candidate_value=0.9,
+                incumbent_value=0.7,
+                provenance_receipts=(),
+            ),
+            policy=policy,
+        )
+        assert verdict.disposition is PolicyDisposition.UNAVAILABLE
+        assert verdict.approved is False
+        assert policy.requests == []
+
+    def test_approve_requires_exact_request_bound_receipt(self):
+        class _WrongReceiptPolicy:
+            def decide(self, request: ActionRequest) -> Any:
+                return SimpleNamespace(
+                    disposition=PolicyDisposition.APPROVE,
+                    receipt=PolicyReceipt(
+                        receipt_id="action_decision:fixture",
+                        request_digest="0" * 64,
+                        disposition=PolicyDisposition.APPROVE,
+                        policy_origin="fixture",
+                    ),
+                    reason="fixture",
+                    approval_id=None,
+                )
+
+        verdict = promote(
+            None,
+            _candidate(candidate_value=0.9, incumbent_value=0.7),
+            policy=_WrongReceiptPolicy(),
+        )
+        assert verdict.disposition is PolicyDisposition.UNAVAILABLE
+        assert verdict.approved is False
 
     def test_never_raises_on_policy_failure(self):
         # The whole point of a governance gate: a broken policy backend must

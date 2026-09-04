@@ -34,15 +34,25 @@ best-effort discipline: a policy-consult failure degrades to a fail-closed
 ``deny`` verdict rather than crashing the caller's promotion cycle.
 """
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from agent_utilities.harness.reward_signal import RewardSignal
+from agent_utilities.orchestration.action_policy import (
+    ActionRequest,
+    PolicyDisposition,
+    PolicyReceipt,
+    get_action_policy,
+)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PromotionCandidate", "PromotionVerdict", "evaluate_promotion", "promote"]
+__all__ = ["PromotionCandidate", "PromotionOutcome", "evaluate_promotion", "promote"]
+
+PROMOTION_OUTCOME_SCHEMA = "promotion-outcome.v1"
 
 
 @dataclass(frozen=True)
@@ -70,31 +80,81 @@ class PromotionCandidate:
     source: str = "loop_engine"
     reason: str = ""
     evidence: dict[str, Any] = field(default_factory=dict)
+    provenance_receipts: tuple[str, ...] = ()
 
     @property
     def policy_action_kind(self) -> str:
         return self.policy_kind or f"promote_{self.artifact_kind}_version"
 
+    def normalized_provenance_receipts(self) -> tuple[str, ...]:
+        """Validate the bounded, exact provenance set required for publication."""
+        receipts = self.provenance_receipts
+        if not receipts:
+            raise ValueError("promotion requires at least one provenance receipt")
+        if len(receipts) > 64 or len(receipts) != len(set(receipts)):
+            raise ValueError("promotion provenance receipts must be unique and bounded")
+        if any(not item or len(item) > 256 for item in receipts):
+            raise ValueError(
+                "promotion provenance receipt ids must be present and bounded"
+            )
+        return tuple(sorted(receipts))
+
+    def intent_digest(self) -> str:
+        """Stable identity of the exact candidate and provenance presented."""
+        payload = {
+            "artifact_id": self.artifact_id,
+            "artifact_kind": self.artifact_kind,
+            "candidate_ref": self.candidate_ref,
+            "candidate_reward": self.candidate_reward.value,
+            "candidate_reward_source": self.candidate_reward.source,
+            "evidence": self.evidence,
+            "incumbent_ref": self.incumbent_ref,
+            "incumbent_reward": (
+                self.incumbent_reward.value
+                if self.incumbent_reward is not None
+                else None
+            ),
+            "policy_kind": self.policy_action_kind,
+            "provenance_receipts": self.normalized_provenance_receipts(),
+            "reason": self.reason,
+            "source": self.source,
+        }
+        encoded = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
 
 @dataclass(frozen=True)
-class PromotionVerdict:
-    """The gate's answer: whether the candidate cleared BOTH checks in play.
-
-    ``eligible`` is the comparison-gate result (or ``True`` when the vector has
-    no comparison gate, i.e. ``incumbent_reward is None``). ``decision`` is the
-    raw ``action_policy`` verdict string (``"allow"`` | ``"allow_notify"`` |
-    ``"queue_approval"`` | ``"deny"``), empty when the comparison gate itself
-    rejected the candidate (``action_policy`` was never consulted — mirrors
-    ``run_reflact_cycle``'s "a benchmark loss never reaches action_policy").
-    ``approved`` is the single boolean a caller should act on: eligible AND the
-    policy allowed it.
-    """
+class PromotionOutcome:
+    """Lossless effect-boundary result for one promotion intent."""
 
     eligible: bool
-    decision: str
-    approved: bool
-    reason: str = ""
+    disposition: PolicyDisposition
+    intent_digest: str
+    policy_request_digest: str
+    reason: str
+    provenance_receipts: tuple[str, ...]
+    policy_receipt: PolicyReceipt | None = None
     approval_id: str | None = None
+    schema: ClassVar[str] = PROMOTION_OUTCOME_SCHEMA
+
+    @property
+    def approved(self) -> bool:
+        """Only an exact, receipt-backed approval can authorize publication."""
+        receipt = self.policy_receipt
+        return bool(
+            self.eligible
+            and self.disposition is PolicyDisposition.APPROVE
+            and receipt is not None
+            and receipt.disposition is PolicyDisposition.APPROVE
+            and receipt.request_digest == self.policy_request_digest
+            and self.provenance_receipts
+        )
 
 
 def evaluate_promotion(
@@ -118,6 +178,91 @@ def evaluate_promotion(
     return candidate.candidate_reward.value >= threshold
 
 
+def _promotion_identity(candidate: PromotionCandidate) -> tuple[tuple[str, ...], str]:
+    receipts = candidate.normalized_provenance_receipts()
+    return receipts, candidate.intent_digest()
+
+
+def _promotion_request(
+    candidate: PromotionCandidate,
+    provenance_receipts: tuple[str, ...],
+    intent_digest: str,
+) -> ActionRequest:
+    params = {
+        **candidate.evidence,
+        "candidate_ref": candidate.candidate_ref,
+        "candidate_reward": candidate.candidate_reward.value,
+        "candidate_reward_source": candidate.candidate_reward.source,
+        "promotion_intent_digest": intent_digest,
+        "provenance_receipts": list(provenance_receipts),
+    }
+    if candidate.incumbent_reward is not None:
+        params["incumbent_reward"] = candidate.incumbent_reward.value
+    return ActionRequest(
+        kind=candidate.policy_action_kind,
+        target=candidate.artifact_id,
+        params=params,
+        source=candidate.source,
+        reason=candidate.reason
+        or f"{candidate.artifact_kind} candidate {candidate.candidate_ref} promotion",
+    )
+
+
+def _policy_unavailable(
+    request: ActionRequest,
+    intent_digest: str,
+    provenance_receipts: tuple[str, ...],
+    error: Exception,
+) -> PromotionOutcome:
+    logger.warning(
+        "artifact_promotion: action_policy consult failed for %s: %s",
+        request.summary(),
+        error,
+    )
+    return PromotionOutcome(
+        eligible=True,
+        disposition=PolicyDisposition.UNAVAILABLE,
+        intent_digest=intent_digest,
+        policy_request_digest=request.digest(),
+        reason=f"action policy unavailable (fail closed): {error}",
+        provenance_receipts=provenance_receipts,
+    )
+
+
+def _receipt_matches_approval(receipt: Any, request_digest: str) -> bool:
+    return bool(
+        isinstance(receipt, PolicyReceipt)
+        and receipt.request_digest == request_digest
+        and receipt.disposition is PolicyDisposition.APPROVE
+    )
+
+
+def _promotion_outcome(
+    request: ActionRequest,
+    intent_digest: str,
+    provenance_receipts: tuple[str, ...],
+    decision: Any,
+) -> PromotionOutcome:
+    disposition = getattr(decision, "disposition", PolicyDisposition.UNAVAILABLE)
+    receipt = getattr(decision, "receipt", None)
+    request_digest = request.digest()
+    if disposition is PolicyDisposition.APPROVE and not _receipt_matches_approval(
+        receipt, request_digest
+    ):
+        disposition = PolicyDisposition.UNAVAILABLE
+        receipt = None
+    return PromotionOutcome(
+        eligible=True,
+        disposition=disposition,
+        intent_digest=intent_digest,
+        policy_request_digest=request_digest,
+        reason=decision.reason,
+        provenance_receipts=provenance_receipts,
+        policy_receipt=receipt,
+        approval_id=decision.approval_id,
+    )
+
+
 def promote(
     engine: Any,
     candidate: PromotionCandidate,
@@ -125,7 +270,7 @@ def promote(
     min_delta: float = 0.0,
     strict: bool = True,
     policy: Any = None,
-) -> PromotionVerdict:
+) -> PromotionOutcome:
     """The ONE promotion entry point every optimizer's promotion boundary calls.
 
     1. :func:`evaluate_promotion` (the comparison gate, when applicable). Not
@@ -135,7 +280,7 @@ def promote(
        ``policy`` overrides the resolved gate (auto_merge's own injectable
        ``action_policy=...``); ``None`` resolves ``get_action_policy(engine)``,
        the same default every other reserved-kind call site uses.
-    3. A :class:`PromotionVerdict` the caller applies: ``approved`` gates
+    3. A :class:`PromotionOutcome` the caller applies: ``approved`` gates
        whatever vector-specific write the caller performs next (flip a
        ``:SkillVersion`` to ``active`` + write ``SUPERSEDES``, flip a golden-loop
        proposal's lifecycle, write a hardened prompt to source, ...).
@@ -146,57 +291,31 @@ def promote(
     """
     eligible = evaluate_promotion(candidate, min_delta=min_delta, strict=strict)
     if not eligible:
-        return PromotionVerdict(
+        return PromotionOutcome(
             eligible=False,
-            decision="",
-            approved=False,
+            disposition=PolicyDisposition.DENY,
+            intent_digest="",
+            policy_request_digest="",
             reason="candidate did not beat incumbent",
+            provenance_receipts=(),
         )
 
-    from agent_utilities.orchestration.action_policy import (
-        ActionRequest,
-        get_action_policy,
-    )
+    try:
+        provenance_receipts, intent_digest = _promotion_identity(candidate)
+    except (TypeError, ValueError) as exc:
+        return PromotionOutcome(
+            eligible=True,
+            disposition=PolicyDisposition.UNAVAILABLE,
+            intent_digest="",
+            policy_request_digest="",
+            reason=f"promotion provenance unavailable: {exc}",
+            provenance_receipts=(),
+        )
 
     active_policy = policy or get_action_policy(engine)
-    request = ActionRequest(
-        kind=candidate.policy_action_kind,
-        target=candidate.artifact_id,
-        params={
-            "candidate_ref": candidate.candidate_ref,
-            "candidate_reward": candidate.candidate_reward.value,
-            "candidate_reward_source": candidate.candidate_reward.source,
-            **(
-                {"incumbent_reward": candidate.incumbent_reward.value}
-                if candidate.incumbent_reward is not None
-                else {}
-            ),
-            **candidate.evidence,
-        },
-        source=candidate.source,
-        reason=candidate.reason
-        or f"{candidate.artifact_kind} candidate {candidate.candidate_ref} promotion",
-    )
+    request = _promotion_request(candidate, provenance_receipts, intent_digest)
     try:
         decision = active_policy.decide(request)
     except Exception as e:  # noqa: BLE001 — gate failure => fail closed, never crash
-        logger.warning(
-            "artifact_promotion: action_policy consult failed for %s: %s",
-            request.summary(),
-            e,
-        )
-        return PromotionVerdict(
-            eligible=True,
-            decision="deny",
-            approved=False,
-            reason=f"action policy unavailable (fail closed): {e}",
-        )
-
-    approved = decision.decision in ("allow", "allow_notify")
-    return PromotionVerdict(
-        eligible=True,
-        decision=decision.decision,
-        approved=approved,
-        reason=decision.reason,
-        approval_id=decision.approval_id,
-    )
+        return _policy_unavailable(request, intent_digest, provenance_receipts, e)
+    return _promotion_outcome(request, intent_digest, provenance_receipts, decision)

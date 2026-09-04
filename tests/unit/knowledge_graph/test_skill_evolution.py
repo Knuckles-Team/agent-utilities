@@ -222,9 +222,7 @@ def test_winning_candidate_default_never_auto_promotes(monkeypatch):
 
     assert rep["gate_action"] == "accept"
     assert calls == ["promote_skill_version"]  # the gate WAS consulted
-    assert (
-        rep["action_decision"] == "queue_approval"
-    )  # shipped tier => queued, not allowed
+    assert rep["action_decision"] == "hold"  # shipped tier => queued, not allowed
     assert rep["promoted"] is False
 
     versions = eng.by_type("skill_version")
@@ -255,7 +253,7 @@ def test_winning_candidate_promotes_when_policy_relaxed():
     signal = _winning_signal()
     rep = run_reflact_cycle(eng, "skill:demo", _INCUMBENT, signal=signal)
 
-    assert rep["action_decision"] == "allow"
+    assert rep["action_decision"] == "approve"
     assert rep["promoted"] is True
 
     versions = eng.by_type("skill_version")

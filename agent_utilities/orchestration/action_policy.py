@@ -45,14 +45,17 @@ executes granted entries through the durable action-outbox fence
 """
 
 import fnmatch
+import hashlib
 import json
 import logging
+import math
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +70,90 @@ DECISION_ALLOW = "allow"
 DECISION_ALLOW_NOTIFY = "allow_notify"
 DECISION_QUEUE = "queue_approval"
 DECISION_DENY = "deny"
+DECISION_UNAVAILABLE = "unavailable"
 
 _ALLOWING = {DECISION_ALLOW, DECISION_ALLOW_NOTIFY}
 
 # How many recent audit rows the durable rate/blast accounting scans.
 _LEDGER_SCAN_LIMIT = 500
+
+POLICY_RECEIPT_SCHEMA = "policy-receipt.v1"
+
+
+class PolicyDisposition(StrEnum):
+    """Closed policy outcome used at every effect boundary.
+
+    ``deny`` is an explicit policy refusal, ``unavailable`` means the policy or
+    its receipt authority could not answer, ``hold`` names a durable approval
+    wait, and ``approve`` is the only outcome that can authorize an effect.
+    """
+
+    DENY = "deny"
+    UNAVAILABLE = "unavailable"
+    HOLD = "hold"
+    APPROVE = "approve"
+
+
+def _canonical_policy_value(value: Any) -> Any:
+    """Return a deterministic JSON value or reject an unbound identity."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        return _canonical_policy_number(value)
+    if isinstance(value, dict):
+        return _canonical_policy_mapping(value)
+    if isinstance(value, (list, tuple)):
+        return [_canonical_policy_value(item) for item in value]
+    raise TypeError(f"unsupported policy request value: {type(value).__name__}")
+
+
+def _canonical_policy_number(value: float) -> float:
+    if not math.isfinite(value):
+        raise ValueError("policy request numbers must be finite")
+    return value
+
+
+def _canonical_policy_mapping(value: dict[Any, Any]) -> dict[str, Any]:
+    if not all(isinstance(key, str) for key in value):
+        raise TypeError("policy request parameter keys must be strings")
+    return {key: _canonical_policy_value(item) for key, item in sorted(value.items())}
+
+
+def _bounded_identity(value: str | None, *, label: str) -> str:
+    if not value or len(value) > 256:
+        raise ValueError(f"{label} must be present and bounded")
+    return value
+
+
+def _sha256_identity(value: str) -> str:
+    if len(value) != 64 or set(value) - set("0123456789abcdef"):
+        raise ValueError("policy receipt request digest must be lowercase sha256")
+    return value
+
+
+@dataclass(frozen=True)
+class PolicyReceipt:
+    """Durable, request-bound evidence for one policy disposition."""
+
+    receipt_id: str
+    request_digest: str
+    disposition: PolicyDisposition
+    policy_origin: str
+    approval_id: str | None = None
+    schema: ClassVar[str] = POLICY_RECEIPT_SCHEMA
+
+    def __post_init__(self) -> None:
+        _bounded_identity(self.receipt_id, label="policy receipt id")
+        _sha256_identity(self.request_digest)
+        if not self.policy_origin or len(self.policy_origin) > 128:
+            raise ValueError("policy receipt origin must be present and bounded")
+        if self.approval_id is not None:
+            _bounded_identity(self.approval_id, label="policy approval id")
+
+    @property
+    def authorizes_effect(self) -> bool:
+        return self.disposition is PolicyDisposition.APPROVE
+
 
 # The conservative shipped policy (kept byte-for-byte in sync with
 # ``deploy/action-policy.default.yml`` — tests assert the parity) so an
@@ -251,6 +333,24 @@ class ActionRequest:
             f" — {self.reason}" if self.reason else ""
         )
 
+    def digest(self) -> str:
+        """Stable identity of the exact intent considered by policy."""
+        payload = {
+            "actor_id": self.actor_id,
+            "kind": self.kind,
+            "params": _canonical_policy_value(self.params),
+            "reason": self.reason,
+            "source": self.source,
+            "target": self.target,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
 
 @dataclass
 class ActionRule:
@@ -282,6 +382,7 @@ class ActionDecision:
     rule_origin: str = "default"
     approval_id: str | None = None
     audit_id: str | None = None
+    receipt: PolicyReceipt | None = None
     # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — which invariant the
     # pre-execution verifier failed ("role" | "schema" | "precondition" | "reference"),
     # empty when the verifier passed (or was never reached, e.g. an earlier fail-closed
@@ -291,7 +392,39 @@ class ActionDecision:
 
     @property
     def allowed(self) -> bool:
-        return self.decision in _ALLOWING
+        """Whether this decision carries effect-authorizing evidence."""
+        return bool(getattr(self.receipt, "authorizes_effect", False))
+
+    @property
+    def disposition(self) -> PolicyDisposition:
+        """Lossless closed mapping from the internal policy decision."""
+        if self.decision == DECISION_UNAVAILABLE:
+            return PolicyDisposition.UNAVAILABLE
+        if self.decision == DECISION_QUEUE:
+            return (
+                PolicyDisposition.HOLD
+                if self.approval_id
+                else PolicyDisposition.UNAVAILABLE
+            )
+        if self.decision in _ALLOWING:
+            return PolicyDisposition.APPROVE
+        return PolicyDisposition.DENY
+
+
+def _policy_receipt(decision: ActionDecision) -> PolicyReceipt | None:
+    """Bind one immutable receipt to the exact request audited for ``decision``."""
+    if not decision.audit_id:
+        return None
+    try:
+        return PolicyReceipt(
+            receipt_id=decision.audit_id,
+            request_digest=decision.request.digest(),
+            disposition=decision.disposition,
+            policy_origin=decision.rule_origin,
+            approval_id=decision.approval_id,
+        )
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_window(window: str) -> tuple[int, int] | None:
@@ -619,10 +752,11 @@ class ActionPolicy:
                 "action_policy: evaluate error for %s: %s", request.summary(), e
             )
             return ActionDecision(
-                decision=DECISION_DENY,
+                decision=DECISION_UNAVAILABLE,
                 tier=TIER_FORBIDDEN,
                 request=request,
-                reason=f"policy error (fail closed): {e}",
+                reason=f"policy unavailable (fail closed): {e}",
+                rule_origin="unavailable",
             )
 
     # ── the decision ────────────────────────────────────────────────
@@ -701,18 +835,62 @@ class ActionPolicy:
                 "action_policy: decision error for %s: %s", request.summary(), e
             )
             decision = ActionDecision(
-                decision=DECISION_DENY,
+                decision=DECISION_UNAVAILABLE,
                 tier=TIER_FORBIDDEN,
                 request=request,
-                reason=f"policy error (fail closed): {e}",
+                reason=f"policy unavailable (fail closed): {e}",
+                rule_origin="unavailable",
             )
-        decision.audit_id = self._audit(decision)
+        decision = self._bind_decision_receipt(decision)
         if decision.decision == DECISION_ALLOW_NOTIFY:
             self._notify(
                 f"[fleet-autonomy] executing {request.summary()} "
                 f"(source={request.source}, tier={decision.tier})"
             )
         return decision
+
+    def _bind_decision_receipt(self, decision: ActionDecision) -> ActionDecision:
+        decision.audit_id = self._audit(decision)
+        decision.receipt = _policy_receipt(decision)
+        if decision.disposition is not PolicyDisposition.APPROVE or decision.receipt:
+            return decision
+        unavailable = ActionDecision(
+            decision=DECISION_UNAVAILABLE,
+            tier=TIER_FORBIDDEN,
+            request=decision.request,
+            reason="policy receipt unavailable (fail closed)",
+            rule_origin="unavailable",
+        )
+        unavailable.audit_id = self._audit(unavailable)
+        unavailable.receipt = _policy_receipt(unavailable)
+        return unavailable
+
+    def _hold(self, base: ActionDecision, reason: str) -> ActionDecision:
+        base.decision = DECISION_QUEUE
+        base.reason = reason
+        base.approval_id = self.queue_approval(base.request, reason=reason)
+        if base.approval_id:
+            return base
+        base.decision = DECISION_UNAVAILABLE
+        base.reason = "approval receipt unavailable (fail closed)"
+        base.rule_origin = "unavailable"
+        return base
+
+    def _tier_decision(
+        self, request: ActionRequest, rule: ActionRule, base: ActionDecision
+    ) -> ActionDecision | None:
+        if rule.tier == TIER_FORBIDDEN:
+            base.reason = "forbidden by policy"
+            return base
+        granted_id = self._granted_approval_id(request)
+        if granted_id:
+            base.decision = DECISION_ALLOW
+            base.reason = "matching durable approval granted"
+            base.approval_id = granted_id
+            return base
+        if rule.tier == TIER_APPROVAL:
+            return self._hold(base, "tier requires human approval")
+        return None
 
     def _decide_inner(self, request: ActionRequest) -> ActionDecision:
         # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — the deterministic
@@ -741,15 +919,9 @@ class ActionPolicy:
             verify_ms=verify.latency_ms,
         )
 
-        if rule.tier == TIER_FORBIDDEN:
-            base.reason = "forbidden by policy"
-            return base
-
-        if rule.tier == TIER_APPROVAL:
-            base.decision = DECISION_QUEUE
-            base.reason = "tier requires human approval"
-            base.approval_id = self.queue_approval(request, reason=base.reason)
-            return base
+        tier_decision = self._tier_decision(request, rule, base)
+        if tier_decision is not None:
+            return tier_decision
 
         # auto / auto_notify — run the safety pre-checks.
         rate = rule.rate_limit or defaults.get("rate_limit") or {}
@@ -763,13 +935,11 @@ class ActionPolicy:
 
         blast = rule.blast_radius or defaults.get("blast_radius") or {}
         if isinstance(blast, dict) and self._blast_exceeded(request, blast):
-            base.decision = DECISION_QUEUE
-            base.reason = (
+            return self._hold(
+                base,
                 f"blast-radius cap ({blast.get('max_targets')} targets/"
-                f"{blast.get('window_s')}s) — queued for approval"
+                f"{blast.get('window_s')}s) — queued for approval",
             )
-            base.approval_id = self.queue_approval(request, reason=base.reason)
-            return base
 
         # CONCEPT:AU-OS.safety.irreversibility-aversion — irreversibility aversion (opt-in). An irreversible
         # action that would otherwise auto-execute is routed to a human, since
@@ -778,18 +948,15 @@ class ActionPolicy:
             from agent_utilities.core.corrigibility import is_irreversible
 
             if is_irreversible(request.kind):
-                base.decision = DECISION_QUEUE
-                base.reason = "irreversible action — queued for approval (SAFE-1.5)"
-                base.approval_id = self.queue_approval(request, reason=base.reason)
-                return base
+                return self._hold(
+                    base, "irreversible action — queued for approval (SAFE-1.5)"
+                )
 
         if not in_maintenance_window(rule.maintenance_window):
-            base.decision = DECISION_QUEUE
-            base.reason = (
-                f"outside maintenance window {rule.maintenance_window} — queued"
+            return self._hold(
+                base,
+                f"outside maintenance window {rule.maintenance_window} — queued",
             )
-            base.approval_id = self.queue_approval(request, reason=base.reason)
-            return base
 
         base.decision = (
             DECISION_ALLOW_NOTIFY if rule.tier == TIER_AUTO_NOTIFY else DECISION_ALLOW
@@ -798,6 +965,26 @@ class ActionPolicy:
         return base
 
     # ── side effects: approval queue, audit ledger, notification ────
+
+    def _granted_approval_id(self, request: ActionRequest) -> str | None:
+        """Return an approval bound to this exact request, never a target match."""
+        if self.engine is None:
+            return None
+        try:
+            rows = self.engine.query_cypher(
+                "MATCH (a:ActionApproval {status: 'approved', "
+                "request_digest: $request_digest}) RETURN a.id AS id LIMIT 1",
+                {"request_digest": request.digest()},
+            )
+            for row in rows or []:
+                approval = row.get("a", row)
+                if approval.get("request_digest") == request.digest() and approval.get(
+                    "id"
+                ):
+                    return str(approval["id"])
+        except Exception as exc:  # noqa: BLE001 — missing evidence fails closed
+            logger.debug("action_policy: granted approval probe failed: %s", exc)
+        return None
 
     def queue_approval(self, request: ActionRequest, reason: str = "") -> str | None:
         """File an ``ActionApproval`` node for the existing fleet approvals flow.
@@ -835,6 +1022,8 @@ class ActionPolicy:
                     "params_json": json.dumps(request.params, default=str)[:2000],
                     "source": request.source,
                     "reason": reason or request.reason,
+                    "request_digest": request.digest(),
+                    "receipt_schema": POLICY_RECEIPT_SCHEMA,
                     "status": "pending",
                     "created_at": _now_iso(),
                     "created_unix": _now(),
@@ -869,6 +1058,8 @@ class ActionPolicy:
                     "reason": decision.reason[:500],
                     "rule_origin": decision.rule_origin,
                     "approval_id": decision.approval_id or "",
+                    "request_digest": req.digest(),
+                    "receipt_schema": POLICY_RECEIPT_SCHEMA,
                     "decided_at": _now_iso(),
                     "decided_unix": _now(),
                 },

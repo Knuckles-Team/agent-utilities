@@ -35,6 +35,7 @@ default publication *queues an approval*; a granted approval (via
 ``graph_evolution(action="publish_proposal")`` action proceed.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -737,29 +738,6 @@ def get_change_publisher(
 # ── governed entry points ────────────────────────────────────────────
 
 
-def _find_granted_approval(engine: Any, proposal_id: str) -> str | None:
-    """A human-granted ``merge_promotion`` approval for this proposal, if any."""
-    if engine is None:
-        return None
-    try:
-        rows = engine.query_cypher(
-            "MATCH (a:ActionApproval {status: 'approved'}) RETURN a LIMIT 100"
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Approval scan failed: error_type=%s", type(exc).__name__)
-        return None
-    for row in rows or []:
-        props = row.get("a") if isinstance(row, dict) else None
-        if (
-            isinstance(props, dict)
-            and props.get("kind") == "merge_promotion"
-            and props.get("target") == proposal_id
-            and props.get("id")
-        ):
-            return str(props["id"])
-    return None
-
-
 def _stamp_approval(engine: Any, approval_id: str, status: str) -> None:
     try:
         engine.backend.execute(
@@ -930,6 +908,7 @@ def _resolve_publish_approval(
     source: str,
     action_policy: Any,
     report: dict[str, Any],
+    provenance_receipts: tuple[str, ...],
 ) -> str | None:
     """Decide whether publication may proceed. Extracted from :func:`governed_publish`.
 
@@ -940,12 +919,6 @@ def _resolve_publish_approval(
     proceed, this sets ``report["status"]`` -- the caller checks that and
     returns ``report`` early.
     """
-    granted_id = _find_granted_approval(engine, proposal_id)
-    if granted_id is not None:
-        report["decision"] = "approved"
-        report["approval_id"] = granted_id
-        return granted_id
-
     # Wave-6 D4/WP#2 (CONCEPT:AU-AHE.harness.unified-promotion-gate): route the
     # merge_promotion decision through the SAME generalized gate auto_merge and
     # run_reflact_cycle use, instead of a hand-built action_policy.decide(). A
@@ -971,17 +944,42 @@ def _resolve_publish_approval(
             policy_kind="merge_promotion",
             source=source,
             reason="publish promoted evolution proposal as a reviewable branch",
+            provenance_receipts=provenance_receipts,
         ),
         policy=action_policy,
     )
-    report["decision"] = verdict.decision
+    report["decision"] = verdict.disposition.value
     report["approval_id"] = verdict.approval_id
+    report["provenance_receipts"] = list(verdict.provenance_receipts)
+    if verdict.policy_receipt is not None:
+        report["policy_receipt"] = {
+            "id": verdict.policy_receipt.receipt_id,
+            "request_digest": verdict.policy_receipt.request_digest,
+            "schema": verdict.policy_receipt.schema,
+        }
     if not verdict.approved:
-        report["status"] = "approval_queued" if verdict.approval_id else "denied"
-        report["detail"] = (
-            "approval is required" if verdict.approval_id else "publication denied"
-        )
-    return None
+        report["status"] = {
+            "hold": "approval_queued",
+            "unavailable": "policy_unavailable",
+        }.get(verdict.disposition.value, "denied")
+        report["detail"] = verdict.reason
+        return None
+    return verdict.approval_id
+
+
+def _proposal_provenance_receipts(proposal: Any, proposal_id: str) -> tuple[str, ...]:
+    """Bind publication to the exact durable proposal payload presented."""
+    if isinstance(proposal, dict):
+        payload = proposal
+    else:
+        model_dump = getattr(proposal, "model_dump", None)
+        if not callable(model_dump):
+            return ()
+        payload = model_dump(mode="json")
+    encoded = json.dumps(
+        payload, default=str, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return (f"proposal:{proposal_id}:{hashlib.sha256(encoded).hexdigest()}",)
 
 
 def _synthesize_publish_change_set(
@@ -1123,7 +1121,12 @@ def governed_publish(
     }
 
     granted_id = _resolve_publish_approval(
-        engine, proposal_id, source=source, action_policy=action_policy, report=report
+        engine,
+        proposal_id,
+        source=source,
+        action_policy=action_policy,
+        report=report,
+        provenance_receipts=_proposal_provenance_receipts(proposal, proposal_id),
     )
     if "status" in report:
         return report

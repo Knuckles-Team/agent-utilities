@@ -278,7 +278,7 @@ def test_materialize_root_cause_claims_direct_consults_action_policy_by_default(
 
     label, props = engine.nodes[claim_id]
     assert label == "Claim" and props["status"] == "proposal"
-    assert governance[claim_id]["decision"] == "queue_approval"
+    assert governance[claim_id]["decision"] == "hold"
     assert governance[claim_id]["approved"] is False
 
 
@@ -352,7 +352,7 @@ def test_root_cause_action_materializes_claims_by_default(monkeypatch):
     # the claim was ALSO proposed through the ClaimFlywheel and run through the
     # unified promote() gate under kind=promote_mined_claim — the shipped
     # default tier (approval_required) queues it, never silently auto-verifies.
-    assert out["claims_governance"][claim_id]["decision"] == "queue_approval"
+    assert out["claims_governance"][claim_id]["decision"] == "hold"
     assert out["claims_governance"][claim_id]["approved"] is False
     lifecycle_events = engine.by_label("ClaimLifecycleEvent")
     assert any(
@@ -474,7 +474,7 @@ def test_root_cause_materialize_claims_allowed_when_policy_relaxed(monkeypatch):
         _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
     )
     claim_id = out["claims_materialized"][0]
-    assert out["claims_governance"][claim_id]["decision"] == "allow"
+    assert out["claims_governance"][claim_id]["decision"] == "approve"
     assert out["claims_governance"][claim_id]["approved"] is True
 
     # allow never retracts — the flywheel stays at its initial proposal.

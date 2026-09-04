@@ -250,7 +250,9 @@ async def test_apply_blocked_when_action_policy_denies_even_with_auto_apply_on(
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
     assert rec["status"] == "proposed" and rec["applied"] is False
-    assert rec["action_decision"] == "queue_approval"
+    # This engine has no durable audit/approval store, so the gate distinguishes
+    # policy unavailability from a receipt-backed hold.
+    assert rec["action_decision"] == "unavailable"
 
 
 async def test_apply_blocked_when_action_policy_forbids(tmp_path):
@@ -330,7 +332,7 @@ async def test_apply_succeeds_when_auto_apply_on_and_action_policy_allows(tmp_pa
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
     assert rec["status"] == "applied" and rec["applied"] is True and rec["delta"] > 0
-    assert rec["action_decision"] == "allow"
+    assert rec["action_decision"] == "approve"
     assert "agent_id" not in rec and "file_path" not in rec
     assert "candidate_blueprint" not in rec
     assert "deploy-agent" not in json.dumps(rec)

@@ -1039,12 +1039,13 @@ class EvolveAgent:
         from .reward_signal import RewardSignal
 
         before, after = scores
+        candidate_ref = str(meta.get("candidate_version_hash") or component_ref)
         verdict = promote_gate(
             self.knowledge_engine,
             PromotionCandidate(
                 artifact_kind="prompt",
                 artifact_id=component_ref,
-                candidate_ref=str(meta.get("candidate_version_hash") or component_ref),
+                candidate_ref=candidate_ref,
                 candidate_reward=RewardSignal(value=after, source="eval_corpus"),
                 # The comparison gate already ran (should_promote, upstream) —
                 # incumbent_reward=None skips re-comparing and goes straight to
@@ -1057,9 +1058,10 @@ class EvolveAgent:
                     f"({before:.3f} → {after:.3f})"
                 ),
                 evidence={"baseline_score": before, "candidate_score": after},
+                provenance_receipts=(f"prompt_candidate:{candidate_ref}",),
             ),
         )
-        meta["action_decision"] = verdict.decision
+        meta["action_decision"] = verdict.disposition.value
         return bool(verdict.approved)
 
     def _write_prompt_candidate(
