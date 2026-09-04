@@ -4,7 +4,8 @@
 Fails on:
   - versioned-clone filenames: *_v2.py, *_old.py, *_new.py
   - merge/conflict artifacts: *.orig, *.rej, *.bak
-  - the literal botched-merge marker `# --- Merged from`
+  - the literal botched-merge marker (quoted occurrences in Markdown code
+    spans and fences are not violations)
   - tracked binaries above a size threshold
 
 Usage: python3 scripts/check_sprawl.py [ROOT]   (default: repo root)
@@ -32,6 +33,20 @@ MARKER_ALLOWLIST = {
     "tests/gates/test_gates_meta.py",
     "tests/unit/graph/test_learned_strategy.py",
 }
+
+# Markdown that *documents* this gate necessarily quotes MERGE_MARKER. A real
+# botched merge lands as bare line content; a quoted one sits inside backticks
+# or a fence. Stripping code spans in Markdown removes that false-positive class
+# without weakening detection on source files, which stay byte-exact. Growing
+# MARKER_ALLOWLIST instead would require an entry per document, which is the
+# sprawl this gate exists to prevent.
+_MD_FENCE_RE = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
+_MD_INLINE_RE = re.compile(r"`[^`\n]*`")
+
+
+def _strip_markdown_code(text: str) -> str:
+    """Return *text* with fenced blocks and inline code spans removed."""
+    return _MD_INLINE_RE.sub("", _MD_FENCE_RE.sub("", text))
 SKIP_DIRS = {
     ".git",
     ".venv",
@@ -75,6 +90,39 @@ def _candidate_files(root: Path):
     return tracked_or_walked(root, root=ROOT)
 
 
+def _name_violations(name: str, rel: Path) -> list[str]:
+    """Violations derivable from the filename alone."""
+    found: list[str] = []
+    if CLONE_RE.match(name):
+        found.append(f"versioned-clone file: {rel}")
+    if name.endswith(ARTIFACT_SUFFIXES):
+        found.append(f"merge/conflict artifact: {rel}")
+    return found
+
+
+def _text_violations(path: Path, rel: Path) -> list[str]:
+    """Violations found by reading a text file's content."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    haystack = _strip_markdown_code(text) if path.suffix == ".md" else text
+    if MERGE_MARKER in haystack and rel.as_posix() not in MARKER_ALLOWLIST:
+        return [f"botched-merge marker in: {rel}"]
+    return []
+
+
+def _binary_violations(path: Path, rel: Path) -> list[str]:
+    """Violations found by sizing a non-text file."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size > MAX_BINARY_BYTES:
+        return [f"tracked binary > {MAX_BINARY_BYTES} bytes: {rel} ({size} bytes)"]
+    return []
+
+
 def scan(root: Path) -> list[str]:
     violations: list[str] = []
     for path in _candidate_files(root):
@@ -82,30 +130,12 @@ def scan(root: Path) -> list[str]:
             continue
         if not path.is_file():
             continue
-        name = path.name
         rel = path.relative_to(root)
-
-        if CLONE_RE.match(name):
-            violations.append(f"versioned-clone file: {rel}")
-        if name.endswith(ARTIFACT_SUFFIXES):
-            violations.append(f"merge/conflict artifact: {rel}")
-
+        violations.extend(_name_violations(path.name, rel))
         if path.suffix in TEXT_SUFFIXES:
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            if MERGE_MARKER in text and rel.as_posix() not in MARKER_ALLOWLIST:
-                violations.append(f"botched-merge marker in: {rel}")
+            violations.extend(_text_violations(path, rel))
         else:
-            try:
-                if path.stat().st_size > MAX_BINARY_BYTES:
-                    violations.append(
-                        f"tracked binary > {MAX_BINARY_BYTES} bytes: {rel} "
-                        f"({path.stat().st_size} bytes)"
-                    )
-            except OSError:
-                continue
+            violations.extend(_binary_violations(path, rel))
     return violations
 
 

@@ -32,6 +32,21 @@ def test_sprawl_gate_trips_on_merge_marker(tmp_path):
     assert _run("check_sprawl.py", str(tmp_path)) == 1
 
 
+def test_sprawl_gate_trips_on_bare_merge_marker_in_markdown(tmp_path):
+    """A real botched merge in a .md is still a violation."""
+    (tmp_path / "d.md").write_text("# --- Merged from other.py\n")
+    assert _run("check_sprawl.py", str(tmp_path)) == 1
+
+
+def test_sprawl_gate_ignores_quoted_merge_marker_in_markdown(tmp_path):
+    """Documentation that quotes the marker is not a botched merge."""
+    (tmp_path / "d.md").write_text(
+        "The gate refuses the literal `# --- Merged from` marker.\n\n"
+        "```\n# --- Merged from other.py\n```\n"
+    )
+    assert _run("check_sprawl.py", str(tmp_path)) == 0
+
+
 def test_sprawl_gate_trips_on_reject_artifact(tmp_path):
     (tmp_path / "patch.orig").write_text("junk\n")
     assert _run("check_sprawl.py", str(tmp_path)) == 1

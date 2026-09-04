@@ -168,7 +168,7 @@ granular startup table.
 | Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `catalog_refresh`, `catalog_dispatch`, `catalog_session_resume`, `multiplexer_status` | Discover, expose, retract, atomically refresh and dispatch against an exact catalog generation, resume a bound session, and inspect exact tools without permanently filling model context. |
 | MCP Apps | `graph_task_progress_app`, `graph_trace_waterfall_app` | Launch the two always-available interactive GraphOS views. |
 
-The generated Capability Power Descriptor catalog currently contains **132
+The generated Capability Power Descriptor catalog currently contains **133
 public capabilities**. Their granular MCP and REST actions remain current and
 fully governed, but are hidden from the initial model context. `find_tools`
 ranks the catalog, `load_tools` exposes only the selected exact tools for the
