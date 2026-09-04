@@ -84,6 +84,27 @@ at all, independent of whether a `_markings` column ever gets added anywhere —
 is new (CA-16's own finding only named the column gap, not this granularity
 mismatch) and is re-filed here, not silently worked around.
 
+**Bundle shape: one verified caller, never a population (RF-RULING-001).** As
+of 2026-09-04 eg's bundle carries a singular `caller` block (subject +
+effective roles) in place of the `principals: {subject: [roles]}` map it used
+to export. The map was caller-supplied over the wire
+(`Method::PolicyExport.principals`), so it was forgeable, and — being a
+population type — every consumer here was entitled to read it as an inventory.
+This module did exactly that, and the misreading was a live fail-open: see
+:class:`TrinoRenderer`'s class doc for the catch-all rule it used to emit and
+what Trino's first-match-wins rule ordering did with it. Both repositories
+landed the deletion in ONE cutover (`plans/refactor/DECISIONS.md`
+RF-RULING-001) because eg-first would have left a window in which au's fetch
+failed closed while Trino kept serving the permissive ruleset it already held —
+a fail-closed component inside a fail-open system is still fail-open.
+
+Consequence for every renderer below: **a bundle can only justify rules about
+the one subject it names.** Where a target's policy shape is an allow-list
+(OpenSearch DLS, Lakekeeper OpenFGA tuples) that under-grants, which is
+fail-closed. Where it is a deny-list (Trino row filters) the missing population
+is reported in `RenderedTarget.not_applicable`, never approximated with a rule
+that covers subjects the bundle does not describe.
+
 **Live-integration status.** CA-16's `/policy/export` HTTP surface and
 `Method::PolicyExport` exist on `epistemic-graph` `main` (commit `16cb2c1b`) but
 this module has not exercised them live in this session (no reachable graph-os
@@ -106,6 +127,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict
 
@@ -119,6 +141,7 @@ __all__ = [
     "RESERVED_MARKING_COLUMN",
     "RequiresRolePredicate",
     "MarkingPolicyEntry",
+    "BundleCaller",
     "PolicyBundle",
     "FetchedBundle",
     "BundleFetcher",
@@ -168,6 +191,18 @@ GOVERNS_SUPPORTED: frozenset[str] = frozenset({"M1"})
 _TRINO_FILTER_KEY = "filter"
 
 
+def _exact_user_pattern(subject: str) -> str:
+    """Trino's file-based access control matches a rule's ``user`` as a REGEX
+    against the username. A subject is an opaque identifier, not a pattern, so
+    it is escaped before it becomes one -- an unescaped ``.`` or ``+`` in a
+    subject would silently widen a per-subject rule to other users, which is
+    the same class of defect (a rule matching more principals than the bundle
+    describes) as the catch-all this module refuses to emit at all. See
+    :class:`TrinoRenderer`.
+    """
+    return re.escape(subject)
+
+
 # ── Bundle schema (mirrors eg's `policy_export::PolicyBundle`, `serde`-exact) ──
 
 
@@ -176,7 +211,7 @@ class RequiresRolePredicate:
     """Decoded `MarkingPredicate::RequiresRole` (eg `policy_export/mod.rs`).
 
     A row carrying ``column`` == ``role``'s marking name is visible only to a
-    principal whose bundle-``principals`` role set contains ``role`` (always
+    principal whose effective role set contains ``role`` (always
     ``marking:<name>``, per :data:`MARKING_ROLE_PREFIX`).
     """
 
@@ -230,6 +265,32 @@ class MarkingPolicyEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class BundleCaller:
+    """Python mirror of eg's `policy_export::BundleCaller`.
+
+    **This is ONE subject, not a population.** eg has no engine-owned principal
+    inventory (its `policy_export` module doc's "Owed" section), so a bundle
+    describes exactly the verified caller it was generated for. A renderer MUST
+    NOT read it as "the set of principals": it cannot answer "who holds role
+    R?", and it says nothing at all about any other subject's roles.
+
+    It replaced a `principals: dict[subject, roles]` map on 2026-09-04
+    (`plans/refactor/DECISIONS.md` RF-RULING-001). That map was both forgeable
+    (`Method::PolicyExport` accepted it from the caller) and structurally
+    misreadable as an inventory -- see :class:`TrinoRenderer` for the concrete
+    fail-open that misreading produced.
+    """
+
+    subject: str
+    effective_roles: tuple[str, ...]
+
+    def holds(self, role: str) -> bool:
+        """Does THIS caller hold ``role``? The only membership question a
+        single-caller bundle can answer."""
+        return role in self.effective_roles
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyBundle:
     """Python mirror of eg's `policy_export::PolicyBundle` (DEC-CA-04, extended
     per the W0 review appendix: `governs` + `tenant`/`graphs`, A1/A3).
@@ -244,7 +305,7 @@ class PolicyBundle:
     governs: tuple[str, ...]
     tenant: str
     graphs: tuple[str, ...]
-    principals: dict[str, tuple[str, ...]]
+    caller: BundleCaller
     markings: dict[str, MarkingPolicyEntry]
 
     @classmethod
@@ -259,17 +320,18 @@ class PolicyBundle:
                 else MarkingPolicyEntry(predicate_json=str(entry["predicate"]))
                 for name, entry in dict(data["markings"]).items()
             }
-            principals = {
-                str(subject): tuple(str(r) for r in roles)
-                for subject, roles in dict(data["principals"]).items()
-            }
+            raw_caller = dict(data["caller"])
+            caller = BundleCaller(
+                subject=str(raw_caller["subject"]),
+                effective_roles=tuple(str(r) for r in raw_caller["effective_roles"]),
+            )
             return cls(
                 version=str(data["version"]),
                 generated_from=str(data["generated_from"]),
                 governs=tuple(str(g) for g in data["governs"]),
                 tenant=str(data["tenant"]),
                 graphs=tuple(str(g) for g in data["graphs"]),
-                principals=principals,
+                caller=caller,
                 markings=markings,
             )
         except KeyError as exc:
@@ -281,12 +343,6 @@ class PolicyBundle:
         """DEC-CA-04's binding rule: a bundle governing anything outside
         :data:`GOVERNS_SUPPORTED` must be denied, never partially applied."""
         return bool(self.governs) and set(self.governs) <= GOVERNS_SUPPORTED
-
-    def role_holders(self, role: str) -> frozenset[str]:
-        """Every principal subject whose role set contains ``role``."""
-        return frozenset(
-            subject for subject, roles in self.principals.items() if role in roles
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,14 +481,40 @@ class TrinoTargetTable:
 
 @dataclass(frozen=True, slots=True)
 class TrinoRenderer:
-    """Renders `renderings.trino` -- one `filter` rule per (table, principal
-    lacking the marking role), pushdown-safe by construction: Trino's own
+    """Renders `renderings.trino` -- at most one `filter` rule per (marking,
+    table), scoped to the ONE subject the bundle describes
+    (:class:`BundleCaller`), pushdown-safe by construction: Trino's own
     file-based access control evaluates `filter` against the table's real
     columns as part of query planning, before any projection/aggregation runs
     -- there is no "already-fetched row" state for a `filter` expression to be
     blind to (the same reasoning CA-24's OpenSearch DLS module gives for why
     its mechanism is pushdown-safe, and the reasoning DEC-CA-04/CA-63 requires
-    every renderer to state explicitly rather than assume)."""
+    every renderer to state explicitly rather than assume).
+
+    **This renderer never emits a catch-all `"user": ".*"` rule.** It used to,
+    whenever no principal in the bundle's `principals` map held the marking
+    role. That was fail-OPEN, for a reason the map's shape hid:
+
+    * Trino evaluates table rules **in order, first match wins**. A `.*` rule
+      matches every user, so the FIRST marking that emitted one shadowed every
+      rule appended after it -- including every other marking's row filter, on
+      the same table, in the same render. Rows carrying those markings became
+      visible to everyone, silently.
+    * The trigger was routine, not exotic. A `principals` map is a population
+      type, so "nobody in it holds the role" read as "nobody holds the role".
+      Once eg started exporting one verified caller instead of a caller-supplied
+      map (`plans/refactor/DECISIONS.md` RF-RULING-001), "nobody in it" became
+      the ordinary case for every marking that caller is not cleared for.
+
+    A single-caller bundle simply cannot express a population deny-list: it has
+    no way to say anything about a subject it does not name. So this renderer
+    says nothing about them -- it emits a rule for the caller when the caller
+    lacks the marking role, emits nothing when the caller is cleared, and
+    reports the undescribable remainder in
+    :attr:`RenderedTarget.not_applicable` on every marking it renders. A gap
+    that is reported is a gap an operator can close; a `.*` rule that disables
+    the rest of the ruleset is not.
+    """
 
     tables: tuple[TrinoTargetTable, ...]
 
@@ -443,44 +525,42 @@ class TrinoRenderer:
             )
         rules: list[dict[str, Any]] = []
         not_applicable: list[str] = []
+        caller = bundle.caller
         for name, entry in bundle.markings.items():
             predicate = entry.decode()
             for tbl in self.tables:
+                target = f"{tbl.catalog}.{tbl.schema}.{tbl.table}"
                 if not tbl.has_markings_column:
                     not_applicable.append(
-                        f"marking '{name}': {tbl.catalog}.{tbl.schema}.{tbl.table} has no "
+                        f"marking '{name}': {target} has no "
                         f"'{predicate.column}' column (CA-21/CA-23/CA-34 gap, not rendered)"
                     )
                     continue
-                holders = bundle.role_holders(predicate.role)
-                if not holders:
-                    # No principal in this bundle holds the role -- filter applies to everyone.
-                    rules.append(
-                        {
-                            "catalog": tbl.catalog,
-                            "schema": tbl.schema,
-                            "table": tbl.table,
-                            "user": ".*",
-                            _TRINO_FILTER_KEY: (
-                                f"NOT contains({predicate.column}, '{predicate.marking_name}')"
-                            ),
-                        }
-                    )
-                    continue
-                for subject in sorted(bundle.principals):
-                    if subject in holders:
-                        continue  # cleared: no filter rule needed for this principal
-                    rules.append(
-                        {
-                            "catalog": tbl.catalog,
-                            "schema": tbl.schema,
-                            "table": tbl.table,
-                            "user": subject,
-                            _TRINO_FILTER_KEY: (
-                                f"NOT contains({predicate.column}, '{predicate.marking_name}')"
-                            ),
-                        }
-                    )
+                # The bundle names exactly one subject, so exactly one subject
+                # can be ruled on. Everyone else is unaddressed and REPORTED --
+                # never covered by a catch-all that would shadow the rest of
+                # this ruleset (see the class doc).
+                not_applicable.append(
+                    f"marking '{name}': {target} rule covers only the bundle's caller "
+                    f"'{caller.subject}'; a per-subject deny-list for the rest of the "
+                    "population is not derivable from a single-caller bundle (eg has no "
+                    "principal inventory) and is deliberately NOT rendered as a "
+                    "'user': '.*' catch-all, which Trino's first-match-wins rule order "
+                    "would let shadow every later rule"
+                )
+                if caller.holds(predicate.role):
+                    continue  # cleared: no filter rule needed for this caller
+                rules.append(
+                    {
+                        "catalog": tbl.catalog,
+                        "schema": tbl.schema,
+                        "table": tbl.table,
+                        "user": _exact_user_pattern(caller.subject),
+                        _TRINO_FILTER_KEY: (
+                            f"NOT contains({predicate.column}, '{predicate.marking_name}')"
+                        ),
+                    }
+                )
         return RenderedTarget(
             target="trino", payload=rules, not_applicable=tuple(not_applicable)
         )
@@ -488,10 +568,17 @@ class TrinoRenderer:
 
 @dataclass(frozen=True, slots=True)
 class OpenSearchRenderer:
-    """Renders `renderings.opensearch` -- one DLS role per distinct principal,
-    reusing CA-24's own `search.dls.render_dls_query_for_role` (this module
-    does not re-derive the query shape; see the module doc's "OpenSearch —
-    CLOSED" section for why that reuse is deliberate, not incidental)."""
+    """Renders `renderings.opensearch` -- one DLS role for the ONE subject the
+    bundle describes (:class:`BundleCaller`), reusing CA-24's own
+    `search.dls.render_dls_query_for_role` (this module does not re-derive the
+    query shape; see the module doc's "OpenSearch — CLOSED" section for why
+    that reuse is deliberate, not incidental).
+
+    OpenSearch DLS is an allow-list per role -- a role's query says which
+    documents that role MAY see -- so a bundle describing fewer subjects
+    under-grants (fail-closed) rather than over-granting. There is nothing to
+    fix here for RF-RULING-001; the renderer simply has one subject to render
+    instead of a map's worth."""
 
     index_patterns: tuple[str, ...]
 
@@ -503,18 +590,27 @@ class OpenSearchRenderer:
         from ..search.dls import render_dls_query_for_role
 
         all_marking_names = sorted(bundle.markings)
-        rows: list[dict[str, Any]] = []
-        for subject, roles in sorted(bundle.principals.items()):
-            query = render_dls_query_for_role(roles, all_marking_names)
-            for pattern in self.index_patterns:
-                rows.append(
-                    {
-                        "index_pattern": pattern,
-                        "role": f"ca26-{subject}",
-                        "dls_query": query,
-                    }
-                )
-        return RenderedTarget(target="opensearch", payload=rows)
+        caller = bundle.caller
+        query = render_dls_query_for_role(caller.effective_roles, all_marking_names)
+        rows: list[dict[str, Any]] = [
+            {
+                "index_pattern": pattern,
+                "role": f"ca26-{caller.subject}",
+                "dls_query": query,
+            }
+            for pattern in self.index_patterns
+        ]
+        return RenderedTarget(
+            target="opensearch",
+            payload=rows,
+            not_applicable=(
+                f"bundle describes only its caller '{caller.subject}'; DLS roles for "
+                "other subjects are not derivable from it (eg has no principal "
+                "inventory)",
+            )
+            if rows
+            else (),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,6 +640,7 @@ class LakekeeperRenderer:
             )
         by_table: dict[tuple[str, str], list[OpenFgaTuple]] = {}
         not_applicable: list[str] = []
+        caller = bundle.caller
         for name, entry in bundle.markings.items():
             predicate = entry.decode()
             ref = self.table_scope.get(name)
@@ -555,9 +652,17 @@ class LakekeeperRenderer:
                 )
                 continue
             key = (ref.namespace, ref.table)
-            holders = bundle.role_holders(predicate.role)
             tuples = by_table.setdefault(key, [])
-            for subject in sorted(holders):
+            # An OpenFGA tuple set is an ALLOW-list, so a bundle naming one
+            # subject under-grants (fail-closed) rather than over-granting.
+            # The un-named remainder is reported, never assumed cleared.
+            not_applicable.append(
+                f"marking '{name}': grant covers only the bundle's caller "
+                f"'{caller.subject}'; clearances for other subjects are not derivable "
+                "from a single-caller bundle (eg has no principal inventory)"
+            )
+            if caller.holds(predicate.role):
+                subject = caller.subject
                 tuples.append(
                     {
                         "user": f"oidc~{subject}"

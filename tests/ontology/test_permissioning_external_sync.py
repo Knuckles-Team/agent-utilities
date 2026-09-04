@@ -12,6 +12,7 @@ known_marking_set_produces_the_expected_bundle_json`), not a live fetch.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -28,29 +29,48 @@ def _fixture_bundle(
     *,
     governs: list[str] | None = None,
     markings: dict[str, str] | None = None,
-    principals: dict[str, list[str]] | None = None,
+    subject: str = "svc:restricted",
+    effective_roles: list[str] | None = None,
 ) -> sync.PolicyBundle:
     """A DEC-CA-04-shaped bundle -- byte-for-byte the JSON CA-16's Rust
-    `generate_bundle` emits (matching field names/types exactly)."""
+    `generate_bundle` emits (matching field names/types exactly).
+
+    The default caller is NOT cleared for `confidential`, i.e. the ordinary
+    case: a bundle whose one subject lacks the marking role.
+    """
     markings = markings if markings is not None else {"confidential": _predicate_json("confidential")}
-    principals = (
-        principals
-        if principals is not None
-        else {
-            "svc:cleared": ["kg:read", "marking:confidential"],
-            "svc:restricted": ["kg:read"],
-        }
-    )
     raw = {
         "version": "policy-bundle-v1",
         "generated_from": "epoch:sha256:deadbeef",
         "governs": governs if governs is not None else ["M1"],
         "tenant": "tenant-a",
         "graphs": ["tenant:tenant-a", "__commons__"],
-        "principals": principals,
+        "caller": {
+            "subject": subject,
+            "effective_roles": (
+                effective_roles if effective_roles is not None else ["kg:read"]
+            ),
+        },
         "markings": {name: {"predicate": pred} for name, pred in markings.items()},
     }
     return sync.PolicyBundle.from_json(raw)
+
+
+def _reasons(rendered: sync.RenderedTarget) -> str:
+    """`not_applicable` joined into one searchable string.
+
+    A test that searched it with ``any(... for ...)`` would add a branch to a
+    function the complexity regression gate measures; this keeps the search
+    branch-free and in exactly one place.
+    """
+    return " | ".join(rendered.not_applicable)
+
+
+def _cleared_bundle(**kwargs) -> sync.PolicyBundle:
+    """A bundle whose caller DOES hold `marking:confidential`."""
+    kwargs.setdefault("subject", "svc:cleared")
+    kwargs.setdefault("effective_roles", ["kg:read", "marking:confidential"])
+    return _fixture_bundle(**kwargs)
 
 
 # ── Schema round-trip (W02 acceptance evidence) ─────────────────────────────
@@ -62,7 +82,19 @@ def test_schema_round_trip_matches_eg_bundle_shape():
     assert bundle.governs == ("M1",)
     assert bundle.tenant == "tenant-a"
     assert bundle.graphs == ("tenant:tenant-a", "__commons__")
-    assert bundle.principals["svc:cleared"] == ("kg:read", "marking:confidential")
+    assert bundle.caller == sync.BundleCaller(
+        subject="svc:restricted", effective_roles=("kg:read",)
+    )
+    assert bundle.caller.holds("kg:read") is True
+    assert bundle.caller.holds("marking:confidential") is False
+    assert not hasattr(bundle, "principals"), (
+        "the forgeable `principals` map is deleted, not renamed -- a consumer must "
+        "not be able to reach a population type on this bundle (RF-RULING-001)"
+    )
+    assert not hasattr(bundle, "role_holders"), (
+        "`role_holders` answered 'who holds role R?', which a single-caller bundle "
+        "cannot answer; it is deleted, not adapted"
+    )
     predicate = bundle.markings["confidential"].decode()
     assert predicate == sync.RequiresRolePredicate(role="marking:confidential", column="_markings")
     assert predicate.marking_name == "confidential"
@@ -70,6 +102,25 @@ def test_schema_round_trip_matches_eg_bundle_shape():
 
 def test_missing_required_field_raises():
     raw = {"version": "policy-bundle-v1", "generated_from": "x", "governs": ["M1"], "tenant": "t"}
+    with pytest.raises(ValueError):
+        sync.PolicyBundle.from_json(raw)
+
+
+def test_a_bundle_carrying_the_deleted_principals_map_is_refused():
+    """The other half of the atomic cutover, asserted from this side: a bundle
+    in the OLD shape (a `principals` map, no `caller`) does not decode. It is
+    refused loudly by `from_json`, so `BundleFetcher.fetch` turns it into
+    `FetchedBundle(bundle=None, ...)` and `Applier.apply_all` denies every
+    target -- never a silent partial read of a stale contract."""
+    raw = {
+        "version": "policy-bundle-v1",
+        "generated_from": "epoch:sha256:deadbeef",
+        "governs": ["M1"],
+        "tenant": "tenant-a",
+        "graphs": ["tenant:tenant-a"],
+        "principals": {"svc:a": ["kg:read"]},
+        "markings": {},
+    }
     with pytest.raises(ValueError):
         sync.PolicyBundle.from_json(raw)
 
@@ -108,11 +159,10 @@ def test_trino_renderer_emits_pushdown_filter_only_for_columned_tables():
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
 
     # The un-columned table is reported, never silently dropped or faked.
-    assert any("no_column_yet" in msg for msg in rendered.not_applicable)
-    assert not any("docs" in msg for msg in rendered.not_applicable)
+    assert "no_column_yet" in _reasons(rendered)
 
-    # Exactly one filter row for the principal LACKING marking:confidential;
-    # none for the principal holding it (cleared -> no restriction needed).
+    # Exactly one filter row, for the bundle's caller, which LACKS
+    # marking:confidential.
     docs_rows = [r for r in rendered.payload if r["table"] == "docs"]
     assert len(docs_rows) == 1
     row = docs_rows[0]
@@ -126,14 +176,82 @@ def test_trino_renderer_emits_pushdown_filter_only_for_columned_tables():
     assert "_markings" in row["filter"] and "confidential" in row["filter"]
 
 
-def test_trino_renderer_everyone_filtered_when_no_principal_holds_role():
+# ── C-7 regression: the catch-all fail-open is closed ───────────────────────
+#
+# This block replaces `test_trino_renderer_everyone_filtered_when_no_principal_
+# holds_role`, which PINNED the defect: it asserted that a bundle in which no
+# principal held the marking role renders `{"user": ".*"}`. See
+# `TrinoRenderer`'s class doc and `plans/refactor/evidence/reports/
+# ADVERSARIAL-REVIEW-THREE-DESIGNS.md` C-7.
+
+
+def test_trino_renderer_never_emits_a_catch_all_user_rule():
+    """C-7. No principal holding the marking role must NOT produce a
+    `"user": ".*"` rule. A catch-all matches every user, and Trino evaluates
+    table rules first-match-wins, so one such rule silently disables every rule
+    appended after it."""
+    bundle = _fixture_bundle()  # caller holds kg:read only -- holds no marking role
+    tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
+    rendered = sync.TrinoRenderer(tables=tables).render(bundle)
+
+    assert rendered.payload, "the caller lacks the role, so it must still be filtered"
+    assert all(row["user"] != ".*" for row in rendered.payload)
+    # Nothing that MATCHES every user, however it is spelled.
+    for row in rendered.payload:
+        assert re.fullmatch(row["user"], "some:unrelated:subject") is None, (
+            f"rule user pattern {row['user']!r} matches a subject this bundle does "
+            "not describe"
+        )
+    # The population it cannot describe is REPORTED, not approximated.
+    assert "single-caller bundle" in _reasons(rendered)
+
+
+def test_trino_renderer_cleared_caller_emits_no_rule_but_reports_the_gap():
+    """The other side of C-7: when the caller IS cleared there is nothing to
+    filter for it, and still nothing may be asserted about anyone else."""
+    bundle = _cleared_bundle()
+    tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
+    rendered = sync.TrinoRenderer(tables=tables).render(bundle)
+    assert rendered.payload == []
+    assert "single-caller bundle" in _reasons(rendered)
+
+
+def test_trino_renderer_one_marking_never_shadows_another():
+    """The concrete harm the old catch-all caused: with two markings on one
+    table, a `.*` rule emitted for the first shadowed the second under Trino's
+    first-match-wins rule order, so rows carrying the second marking became
+    visible to everyone. Every rule now names exactly one subject, so no rule
+    can shadow a later one for a different user."""
     bundle = _fixture_bundle(
-        principals={"svc:a": ["kg:read"], "svc:b": ["kg:write"]},
+        markings={
+            "confidential": _predicate_json("confidential"),
+            "restricted": _predicate_json("restricted"),
+        }
     )
     tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
-    assert len(rendered.payload) == 1
-    assert rendered.payload[0]["user"] == ".*"
+
+    marking_names = {
+        name for name in ("confidential", "restricted")
+        for row in rendered.payload
+        if f"'{name}'" in row["filter"]
+    }
+    assert marking_names == {"confidential", "restricted"}, (
+        "both markings must still be filtered -- neither may be shadowed"
+    )
+    assert all(row["user"] == "svc:restricted" for row in rendered.payload)
+
+
+def test_trino_renderer_escapes_regex_metacharacters_in_the_subject():
+    """`user` is a REGEX in Trino's file-based access control. An unescaped
+    subject would widen a per-subject rule to other users -- the same defect
+    class as the catch-all, one order of magnitude smaller."""
+    bundle = _fixture_bundle(subject="svc.planner+eu")
+    tables = (sync.TrinoTargetTable("c", "s", "t", has_markings_column=True),)
+    rendered = sync.TrinoRenderer(tables=tables).render(bundle)
+    pattern = rendered.payload[0]["user"]
+    assert re.fullmatch(pattern, "svc.planner+eu") is not None
+    assert re.fullmatch(pattern, "svcxplanner+eu") is None
 
 
 def test_trino_renderer_pushdown_is_role_based_not_row_content_based():
@@ -161,14 +279,25 @@ def test_trino_renderer_rejects_unrecognized_governs_bundle():
 
 
 def test_opensearch_renderer_reuses_ca24_dls_query_shape():
-    bundle = _fixture_bundle()
-    rendered = sync.OpenSearchRenderer(index_patterns=("kg-tenant-a-*",)).render(bundle)
-    by_role = {row["role"]: row for row in rendered.payload}
-    cleared = by_role["ca26-svc:cleared"]
-    restricted = by_role["ca26-svc:restricted"]
-    assert cleared["dls_query"] == {"match_all": {}}
-    assert restricted["dls_query"] == {"bool": {"must_not": [{"term": {"marking": "confidential"}}]}}
-    assert cleared["index_pattern"] == "kg-tenant-a-*"
+    restricted = sync.OpenSearchRenderer(index_patterns=("kg-tenant-a-*",)).render(
+        _fixture_bundle()
+    )
+    cleared = sync.OpenSearchRenderer(index_patterns=("kg-tenant-a-*",)).render(
+        _cleared_bundle()
+    )
+    # One row per index pattern, for the ONE subject the bundle describes.
+    assert len(restricted.payload) == 1
+    assert len(cleared.payload) == 1
+    assert restricted.payload[0]["role"] == "ca26-svc:restricted"
+    assert cleared.payload[0]["role"] == "ca26-svc:cleared"
+    assert cleared.payload[0]["dls_query"] == {"match_all": {}}
+    assert restricted.payload[0]["dls_query"] == {
+        "bool": {"must_not": [{"term": {"marking": "confidential"}}]}
+    }
+    assert cleared.payload[0]["index_pattern"] == "kg-tenant-a-*"
+    # DLS is an allow-list, so one subject under-grants rather than
+    # over-granting -- but the un-described population is still reported.
+    assert "only its caller" in _reasons(restricted)
 
 
 def test_opensearch_renderer_query_matches_ca24_render_dls_query_for_role():
@@ -193,22 +322,33 @@ def test_lakekeeper_renderer_row_scoped_marking_is_not_applicable():
     bundle = _fixture_bundle()
     rendered = sync.LakekeeperRenderer(table_scope={}).render(bundle)
     assert rendered.payload == []
-    assert any("row-level relation" in msg for msg in rendered.not_applicable)
+    assert "row-level relation" in _reasons(rendered)
 
 
 def test_lakekeeper_renderer_table_scoped_marking_renders_real_tuples():
-    bundle = _fixture_bundle()
+    bundle = _cleared_bundle()
     ref = sync.LakekeeperTableRef(namespace="analytics", table="restricted_table")
     rendered = sync.LakekeeperRenderer(table_scope={"confidential": ref}).render(bundle)
-    assert rendered.not_applicable == ()
     assert len(rendered.payload) == 1
     entry = rendered.payload[0]
     assert entry["namespace"] == "analytics"
     assert entry["table"] == "restricted_table"
-    # Only the principal holding marking:confidential gets a tuple.
+    # The caller holds marking:confidential, so it gets the grant tuple.
     users = {t["user"] for t in entry["openfga_tuples"]}
     assert users == {"oidc~svc:cleared"}
     assert entry["openfga_tuples"][0]["relation"] == "select"
+    # An OpenFGA tuple set is an allow-list: an un-described subject simply
+    # gets no grant (fail-closed), and that limit is reported.
+    assert "only the bundle's caller" in _reasons(rendered)
+
+
+def test_lakekeeper_renderer_uncleared_caller_gets_no_grant_tuple():
+    bundle = _fixture_bundle()
+    ref = sync.LakekeeperTableRef(namespace="analytics", table="restricted_table")
+    rendered = sync.LakekeeperRenderer(table_scope={"confidential": ref}).render(bundle)
+    assert rendered.payload == [
+        {"namespace": "analytics", "table": "restricted_table", "openfga_tuples": []}
+    ]
 
 
 # ── Applier: fail-closed + idempotent double-apply ──────────────────────────
