@@ -904,63 +904,37 @@ class HydrationManager:
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
             ).strip()
             repo_name = os.path.basename(os.getcwd())
-            repo_id = f"git:repo:{repo_name}"
-            entities.append(
-                {
-                    "id": repo_id,
-                    "type": "repository",
-                    "name": repo_name,
-                    "branch": branch,
-                    "commit": sha,
-                    "domain": "git",
-                }
-            )
-            module_id = "git:module:core"
-            entities.append(
-                {
-                    "id": module_id,
-                    "type": "module",
-                    "name": "core",
-                    "domain": "git",
-                }
-            )
-            relationships.append(
-                {
-                    "source": module_id,
-                    "target": repo_id,
-                    "type": "depends_on",
-                    "domain": "git",
-                }
-            )
         except Exception:
-            repo_id = "git:repo:workspace"
-            entities.append(
-                {
-                    "id": repo_id,
-                    "type": "repository",
-                    "name": "workspace",
-                    "branch": "main",
-                    "commit": "abcdef123456",
-                    "domain": "git",
-                }
-            )
-            module_id = "git:module:core"
-            entities.append(
-                {
-                    "id": module_id,
-                    "type": "module",
-                    "name": "core",
-                    "domain": "git",
-                }
-            )
-            relationships.append(
-                {
-                    "source": module_id,
-                    "target": repo_id,
-                    "type": "depends_on",
-                    "domain": "git",
-                }
-            )
+            sha, branch, repo_name = "abcdef123456", "main", "workspace"
+
+        repo_id = f"git:repo:{repo_name}"
+        entities.append(
+            {
+                "id": repo_id,
+                "type": "repository",
+                "name": repo_name,
+                "branch": branch,
+                "commit": sha,
+                "domain": "git",
+            }
+        )
+        module_id = "git:module:core"
+        entities.append(
+            {
+                "id": module_id,
+                "type": "module",
+                "name": "core",
+                "domain": "git",
+            }
+        )
+        relationships.append(
+            {
+                "source": module_id,
+                "target": repo_id,
+                "type": "depends_on",
+                "domain": "git",
+            }
+        )
 
         engine.ingest_external_batch("git", entities, relationships)
         return {
