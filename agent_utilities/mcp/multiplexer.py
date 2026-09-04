@@ -2807,8 +2807,8 @@ class MCPMultiplexer:
         remote case states that in the type: the sole caller passes ``command``
         only into the local branch.
         """
-        command, url, explicit_transport, is_remote = (
-            _child_transport_values(cfg, self._child_command(cfg))
+        command, url, explicit_transport, is_remote = _child_transport_values(
+            cfg, self._child_command(cfg)
         )
         if is_remote is None:
             raise RuntimeError("MCP child transport declaration is invalid")
@@ -5289,9 +5289,7 @@ class MCPMultiplexer:
     @staticmethod
     async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
         """Read one skill body with the shared bounded retry provider."""
-        return await MCPMultiplexer._read_resource_body(
-            session, uri, deadline, "skill"
-        )
+        return await MCPMultiplexer._read_resource_body(session, uri, deadline, "skill")
 
     async def _probe_prompts(
         self, server_name: str, session: Any, *, probe_deadline: float | None = None
