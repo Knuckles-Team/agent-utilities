@@ -48,6 +48,7 @@ class _FakeEngine:
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
+        self.memories: list[dict[str, Any]] = []
 
     def add_node(self, node_id: str, _label: str, properties: dict[str, Any]) -> None:
         self.nodes[node_id] = dict(properties)
@@ -59,7 +60,8 @@ class _FakeEngine:
     def recall_memory(self, **_: Any):
         return []
 
-    def store_memory(self, **_: Any):
+    def store_memory(self, **kwargs: Any):
+        self.memories.append(kwargs)
         return "mem-1"
 
 
@@ -130,6 +132,38 @@ async def test_send_blocked_when_policy_denies(
     res = await svc.send("telegram", "1", "blocked?")
     assert not res.success
     assert "policy" in res.error
+
+
+@pytest.mark.asyncio
+async def test_send_refuses_when_action_policy_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A broken authorization dependency cannot deliver or persist a message."""
+    from agent_utilities.orchestration import action_policy
+
+    engine = _FakeEngine()
+    service = MessagingService(engine)
+    backend = _FakeBackend()
+    service.register_connected(backend)
+
+    def _raise_policy_error(_engine: Any) -> None:
+        raise RuntimeError("sensitive policy backend detail")
+
+    monkeypatch.setattr(action_policy, "get_action_policy", _raise_policy_error)
+
+    result = await service.send("telegram", "1", "must not leave the process")
+
+    assert result == SendResult(
+        success=False,
+        platform="telegram",
+        channel_id="1",
+        error="action policy unavailable",
+    )
+    assert "sensitive" not in result.model_dump_json()
+    assert "sensitive" not in caplog.text
+    assert backend.sent == []
+    assert engine.memories == []
 
 
 @pytest.mark.asyncio

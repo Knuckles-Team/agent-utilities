@@ -27,6 +27,9 @@ falls back to the configured default (`MESSAGING_DEFAULT_PLATFORM` /
 `MESSAGING_DEFAULT_CHANNEL`) so a fresh system still works. Every send passes the
 fail-closed **ActionPolicy** gate (`message.send`, default `auto_notify`) and is mirrored
 into KG conversational memory (`kg_ingest`), so history is recallable cross-platform.
+If the policy dependency raises or cannot produce a decision, the service returns a
+sanitized failed `SendResult` before resolving a backend; no provider call or KG memory
+write occurs.
 
 ## Flow
 
@@ -39,6 +42,7 @@ flowchart TD
         Reach --> SVC[MessagingService]
         SVC -->|ActionPolicy gate| Gate{message.send}
         Gate -->|allow| Backend[(Telegram backend)]
+        Gate -->|deny / unavailable| Refuse[Failed SendResult]
         SVC -->|mirror| KG[(KG memory)]
         Backend --> User((User on Telegram))
     end

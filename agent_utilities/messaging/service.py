@@ -150,7 +150,14 @@ class MessagingService:
         """
         engine = self._resolve_engine()
         decision = self._gate(channel_id, platform, source=source, reason=reason)
-        if decision is not None and not decision.allowed:
+        if decision is None:
+            return SendResult(
+                success=False,
+                platform=platform,
+                channel_id=channel_id,
+                error="action policy unavailable",
+            )
+        if not decision.allowed:
             return SendResult(
                 success=False,
                 platform=platform,
@@ -185,7 +192,7 @@ class MessagingService:
         return result
 
     def _gate(self, channel_id: str, platform: str, *, source: str, reason: str) -> Any:
-        """Run the ActionPolicy gate for an outbound send (None if unavailable)."""
+        """Run ActionPolicy, returning ``None`` when authorization is unavailable."""
         try:
             from agent_utilities.orchestration.action_policy import (
                 ActionRequest,
@@ -200,7 +207,10 @@ class MessagingService:
             )
             return get_action_policy(self._resolve_engine()).decide(request)
         except Exception as exc:  # noqa: BLE001 — gate failure must not silently send
-            logger.warning("[ECO-4.48] action policy unavailable: %s", exc)
+            logger.warning(
+                "[ECO-4.48] action policy unavailable; outbound send refused (%s)",
+                type(exc).__name__,
+            )
             return None
 
     async def _ingest_outbound(
