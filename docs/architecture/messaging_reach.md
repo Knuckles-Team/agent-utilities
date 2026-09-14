@@ -213,6 +213,46 @@ same WorkItem lease prevents two healthy contenders from polling at once and per
 bounded failover after expiry; stale network partitions can hold the lease only until
 its configured TTL.
 
+## Agent WebUI contact delivery
+
+The WebUI contact route uses a narrow AU host adapter rather than the generic
+reach route. Set `AGENT_WEBUI_CONTACT_DESTINATION` to the server-owned
+`platform:channel` pair and set `AGENT_WEBUI_CONTACT_RETENTION_DAYS=0`.
+Nonzero retention is refused until a governed purge authority exists.
+The host negotiates this port from the installed agent-webui factory signature;
+an older package without the contact contract receives no adapter, leaving the
+route unavailable until a contract-bearing release is installed.
+
+The adapter uses the control graph's native WorkItem create, claim, and commit
+transactions for first-writer admission and stable successful replay. Its
+deterministic item identity is scoped to the verified tenant, the WebUI's
+already-hashed actor, and the client idempotency key. A shared control-graph
+CAS counter limits each actor to five new attempts per fixed minute. Authority,
+read, or CAS ambiguity fails closed, and an existing non-succeeded item is
+never reclaimed or sent again.
+
+Admission and commit run through agent-webui's fixed-capacity synchronous-work
+executor with a ten-second inner deadline, so a slow graph RPC cannot block the
+ASGI event loop or escape the route's outer deadline. The limiter keeps one
+bounded node per tenant/actor and a maximum of five item references; replaying
+the same item does not consume another slot, and a new window resets that
+bounded state with CAS.
+
+The same bounded runner executes MessagingService's synchronous ActionPolicy
+read and audit boundary before provider lookup. Cancellation or a deadline at
+that boundary fails closed without invoking the provider. The adapter also
+recomputes the actor hash from the authenticated GraphSession and rejects a
+caller-supplied actor reference that does not match it.
+
+Only the verified tenant needed for native WorkItem partitioning, HMAC
+persistence references, the request digest, and a `contact_*` receipt enter
+the graph. Form fields are passed directly to
+`MessagingService.send(..., persist_outbound=False)`, so the outbound KG memory
+mirror cannot retain contact PII. A confirmed provider result followed by an
+ambiguous WorkItem commit is reported as unknown; this provides at most one AU
+send invocation rather than claiming impossible provider-level exactly-once
+delivery.
+
 ## Configuration
 
 | Setting | Purpose |
@@ -220,6 +260,8 @@ its configured TTL.
 | `TELEGRAM_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `MATTERMOST_TOKEN` / `MSTEAMS_APP_ID`… | Enable each backend for governed outbound use (auto-detected; multiple may be set together); never grants inbound ownership |
 | `MESSAGING_DEFAULT_PLATFORM` | Default platform when no last-active channel (default `telegram`) |
 | `MESSAGING_DEFAULT_CHANNEL` | Default channel id for `reach_user` fallback |
+| `AGENT_WEBUI_CONTACT_DESTINATION` | Fixed contact destination in `platform:channel` form; the browser cannot override it |
+| `AGENT_WEBUI_CONTACT_RETENTION_DAYS` | Must be explicitly `0` for delivery-only contact handling |
 | `MESSAGING_AGENT` | Named agent the universal path routes a chat turn to (default the `messaging-assistant` identity; unresolved names still flow through the full orchestration graph) |
 | `MESSAGING_MODEL_TRIGGER` | Optional prefix that selects the explicitly addressed registry model; empty by default |
 | `MESSAGING_ADDRESSED_MODEL` | `ModelRegistry` id (or an exact configured `model_id`) selected by the trigger; empty by default |

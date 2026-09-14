@@ -818,10 +818,20 @@ def _mount_web_ui(
             from .webui_voice_delegation import webui_voice_delegation_helpers
 
             helpers.update(webui_voice_delegation_helpers())
+            from agent_webui.api_extensions import _invoke_governed_helper
+
+            from .webui_contact_governance import contact_delivery_factory_kwargs
+
+            contact_kwargs = contact_delivery_factory_kwargs(
+                create_agent_web_app,
+                lambda operation: _invoke_governed_helper(operation, deadline=10.0),
+            )
+
             web_app = create_agent_web_app(
                 agent_instance,
                 workspace_helpers=helpers,
                 html_source=html_source,
+                **contact_kwargs,
             )
             web_app.state.reload_app = None
             web_app.state.model_registry = resolved_registry

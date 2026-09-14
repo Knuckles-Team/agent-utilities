@@ -7,7 +7,9 @@ bridge, and that the inbound planner handler is no longer the canned-acknowledgm
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -164,6 +166,138 @@ async def test_send_refuses_when_action_policy_raises(
     assert "sensitive" not in caplog.text
     assert backend.sent == []
     assert engine.memories == []
+
+
+@pytest.mark.asyncio
+async def test_action_policy_deadline_keeps_event_loop_live_and_never_sends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The production WebUI runner bounds a stalled synchronous policy gate."""
+    from agent_webui.api_extensions import _invoke_governed_helper
+
+    engine = _FakeEngine()
+    service = MessagingService(engine)
+    backend = _FakeBackend()
+    service.register_connected(backend)
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_gate(*_args: Any, **_kwargs: Any) -> Any:
+        started.set()
+        release.wait(timeout=2.0)
+        return type("D", (), {"allowed": True})()
+
+    monkeypatch.setattr(service, "_gate", _blocking_gate)
+
+    async def _runner(operation: Any) -> Any:
+        return await _invoke_governed_helper(operation, deadline=0.1)
+
+    heartbeat = asyncio.create_task(asyncio.sleep(0.02, result=True))
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    try:
+        result = await service.send(
+            "telegram", "1", "must stay local", policy_runner=_runner
+        )
+    finally:
+        release.set()
+
+    assert started.is_set()
+    assert await heartbeat is True
+    assert loop.time() - began < 1.0
+    assert result.error == "action policy unavailable"
+    assert backend.sent == []
+    assert engine.memories == []
+
+
+@pytest.mark.asyncio
+async def test_action_policy_cancellation_never_reaches_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelling admission propagates while the charged worker finishes safely."""
+    from agent_webui.api_extensions import _invoke_governed_helper
+
+    service = MessagingService(_FakeEngine())
+    backend = _FakeBackend()
+    service.register_connected(backend)
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_gate(*_args: Any, **_kwargs: Any) -> Any:
+        started.set()
+        release.wait(timeout=2.0)
+        return type("D", (), {"allowed": True})()
+
+    monkeypatch.setattr(service, "_gate", _blocking_gate)
+
+    async def _runner(operation: Any) -> Any:
+        return await _invoke_governed_helper(operation, deadline=10.0)
+
+    send_task = asyncio.create_task(
+        service.send("telegram", "1", "must stay local", policy_runner=_runner)
+    )
+    while not started.is_set():
+        await asyncio.sleep(0)
+    send_task.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await send_task
+    finally:
+        release.set()
+    await asyncio.sleep(0)
+
+    assert backend.sent == []
+
+
+@pytest.mark.asyncio
+async def test_send_can_suppress_outbound_kg_persistence(
+    svc: MessagingService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Contact delivery can send PII without copying it into KG memory."""
+    ingest = AsyncMock()
+    monkeypatch.setattr(svc, "_ingest_outbound", ingest)
+
+    result = await svc.send(
+        "telegram",
+        "support",
+        "contact form PII",
+        persist_outbound=False,
+    )
+
+    assert result.success is True
+    ingest.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_backend_connect_error_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_utilities.messaging.registry import MessagingRegistry
+
+    class _BrokenBackend:
+        async def connect(self) -> None:
+            raise RuntimeError("provider leaked secret detail")
+
+    registry = type(
+        "Registry",
+        (),
+        {
+            "is_installed": lambda self, _platform: True,
+            "create_backend": lambda self, _platform: _BrokenBackend(),
+        },
+    )()
+    monkeypatch.setattr(MessagingRegistry, "instance", lambda: registry)
+    service = MessagingService(_FakeEngine())
+    monkeypatch.setattr(
+        service, "_gate", lambda *a, **k: type("D", (), {"allowed": True})()
+    )
+
+    result = await service.send("telegram", "support", "contact form PII")
+
+    assert result.success is False
+    assert "secret detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 @pytest.mark.asyncio

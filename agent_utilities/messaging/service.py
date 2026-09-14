@@ -24,11 +24,17 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.messaging.governed_send import (
+    PolicyRunner,
+    mirror_outbound_if_enabled,
+    run_action_policy,
+)
 from agent_utilities.messaging.models import InboundEvent, MediaAttachment, SendResult
 
 if TYPE_CHECKING:
@@ -108,8 +114,12 @@ class MessagingService:
         try:
             backend = registry.create_backend(platform)
             await backend.connect()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[ECO-4.48] connect '%s' failed: %s", platform, exc)
+        except Exception as exc:  # noqa: BLE001 — a backend connect failure is represented by None; log only its type because exception text can contain provider credentials or contact data
+            logger.warning(
+                "[ECO-4.48] connect '%s' failed (%s)",
+                platform,
+                type(exc).__name__,
+            )
             return None
         self._backends[platform] = backend
         return backend
@@ -143,13 +153,20 @@ class MessagingService:
         metadata: dict[str, Any] | None = None,
         source: str = "manual",
         reason: str = "",
+        persist_outbound: bool = True,
+        policy_runner: PolicyRunner | None = None,
     ) -> SendResult:
         """Send a message, gated by ActionPolicy and mirrored into KG memory.
 
         CONCEPT:AU-ECO.messaging.messaging-reach-service-governed — every outbound send is a governed ``message.send`` fleet action.
         """
         engine = self._resolve_engine()
-        decision = self._gate(channel_id, platform, source=source, reason=reason)
+        decision = await run_action_policy(
+            functools.partial(
+                self._gate, channel_id, platform, source=source, reason=reason
+            ),
+            policy_runner=policy_runner,
+        )
         if decision is None:
             return SendResult(
                 success=False,
@@ -187,8 +204,13 @@ class MessagingService:
                 metadata=metadata,
             )
 
-        if result.success:
-            await self._ingest_outbound(platform, channel_id, text, engine)
+        await mirror_outbound_if_enabled(
+            result,
+            functools.partial(
+                self._ingest_outbound, platform, channel_id, text, engine
+            ),
+            enabled=persist_outbound,
+        )
         return result
 
     def _gate(self, channel_id: str, platform: str, *, source: str, reason: str) -> Any:

@@ -118,11 +118,17 @@ def run_web_ui(
     # Import here, not at module import: graph-os must start normally when the
     # `ag-ui` extra is absent, and only a deployment that asked for the WebUI
     # should ever pay this import.
-    from agent_webui.api_extensions import _get_engine_bounded
+    from agent_webui.api_extensions import (
+        _get_engine_bounded,
+        _invoke_governed_helper,
+    )
     from agent_webui.orchestrator_model import build_orchestrator_model
     from agent_webui.server import create_agent_web_app
 
     from agent_utilities.core.contextual_model import create_context_agent
+    from agent_utilities.server.webui_contact_governance import (
+        contact_delivery_factory_kwargs,
+    )
     from agent_utilities.server.webui_mcp_delegation import (
         webui_mcp_delegation_helpers,
     )
@@ -145,10 +151,15 @@ def run_web_ui(
         **webui_mcp_delegation_helpers(),
         **webui_voice_delegation_helpers(),
     }
+    contact_kwargs = contact_delivery_factory_kwargs(
+        create_agent_web_app,
+        lambda operation: _invoke_governed_helper(operation, deadline=10.0),
+    )
     app = create_agent_web_app(
         agent,
         workspace_helpers=helpers,
         listener_host=bind_host,
+        **contact_kwargs,
     )
 
     # Uvicorn access records include the raw query string, which can carry user
