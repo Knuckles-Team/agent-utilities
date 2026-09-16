@@ -194,6 +194,7 @@ class InProcessBackend:
         dry_run: bool = True,
         session: Any = None,
         engine: Any = None,
+        messaging_intake_enabled: bool | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         """Genuinely start the composed co-services in THIS process.
@@ -202,6 +203,19 @@ class InProcessBackend:
         blocks) — the same real, tested entry points ``kg_server.mcp_server()``
         calls :func:`start_co_services`. The returned ``CoServiceSupervisor`` is
         the caller's to stop.
+
+        ``messaging_intake_enabled`` threads straight through to
+        :func:`start_co_services`/``detect_composition`` (default ``None`` ->
+        ``False``, so a generic caller stays send-only, unchanged from before
+        this parameter existed) — omitting it here silently made it
+        IMPOSSIBLE for any caller of this backend to ever start the inbound
+        messaging co-service, defeating this exact method's own "genuinely
+        start the composed co-services" contract for the one co-service that
+        needs an explicit opt-in (AU-CORE-TESTS: reproduced via
+        ``tests/unit/deployment/test_backends.py::
+        test_in_process_apply_live_actually_starts_messaging``, which
+        deterministically timed out waiting for a co-service that this method
+        gave it no way to request).
         """
         if dry_run:
             return {"applied": False, "plan": plan}
@@ -209,7 +223,9 @@ class InProcessBackend:
             raise ValueError("apply(dry_run=False) requires a verified session")
         from agent_utilities.mcp.co_service_supervisor import start_co_services
 
-        supervisor = start_co_services(session, engine)
+        supervisor = start_co_services(
+            session, engine, messaging_intake_enabled=messaging_intake_enabled
+        )
         return {"applied": True, "supervisor": supervisor}
 
 

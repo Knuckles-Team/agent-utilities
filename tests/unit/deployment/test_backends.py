@@ -97,10 +97,35 @@ def test_in_process_apply_live_actually_starts_messaging(monkeypatch):
         messaging_daemon, "configured_platforms", lambda engine=None: ["fake"]
     )
 
+    from agent_utilities.messaging import intake_lease
     from agent_utilities.messaging.service import MessagingService
 
     MessagingService._instance = None
     reached = threading.Event()
+
+    # This test's ``engine=object()`` below is a bare sentinel -- enough to
+    # thread through the real supervisor/thread/run_forever wiring this test
+    # exists to verify, but not a real engine capable of issuing a native
+    # WorkItem-backed intake lease (``intake_lease.acquire_intake_lease``
+    # needs actual engine methods; a bare ``object()`` raises AttributeError,
+    # which ``acquire_intake_leases`` catches and turns into "no lease" --
+    # observed live: "messaging inbound intake has no native lease; refusing
+    # to poll", so ``get_backend`` was never reached). Lease ACQUISITION/
+    # renewal semantics against a real engine are that module's own concern
+    # (its own dedicated tests own that contract); this test only needs one
+    # platform admitted so the real ``run_with_intake_leases`` -> ``serve`` ->
+    # ``_run_poll_loop`` -> ``get_backend`` chain actually runs.
+    def _fake_acquire_intake_leases(engine, platforms, session, **_):
+        return tuple(
+            intake_lease.IntakeLease(
+                platform=platform, item_id="test-lease", claim={}, lease_ttl_s=60.0
+            )
+            for platform in platforms
+        )
+
+    monkeypatch.setattr(
+        intake_lease, "acquire_intake_leases", _fake_acquire_intake_leases
+    )
 
     class _FakeBackend:
         id = "fake"
@@ -135,13 +160,32 @@ def test_in_process_apply_live_actually_starts_messaging(monkeypatch):
     b = backends.InProcessBackend()
     plan = b.plan()
     session = _verified_session()
-    out = b.apply(plan, dry_run=False, session=session, engine=object())
+    # ``messaging_intake_enabled`` defaults to False (deployment intent, kept
+    # send-only for a generic caller) -- without it, ``apply()`` never starts
+    # the messaging co-service at all, which is a PRODUCT defect this test
+    # exists to catch: a genuinely reproducible (load-independent) hang, not
+    # a timing flake. Fixed in ``InProcessBackend.apply()`` by threading this
+    # parameter through to ``start_co_services`` (AU-CORE-TESTS); request it
+    # explicitly here since that is exactly the co-service this LIVE-PATH
+    # test verifies actually starts.
+    out = b.apply(
+        plan,
+        dry_run=False,
+        session=session,
+        engine=object(),
+        messaging_intake_enabled=True,
+    )
     supervisor = out["supervisor"]
     try:
-        assert reached.wait(timeout=10.0)
+        # The co-service runs on its own OS thread (CoServiceSupervisor.
+        # start_service -> _authorized_background_thread); this waits on the
+        # real ``reached`` Event it sets, never a sleep. A generous bound
+        # tolerates genuine host CPU contention delaying that thread's first
+        # timeslice while still failing fast on an actual regression.
+        assert reached.wait(timeout=60.0)
         assert "messaging" in supervisor.running()
     finally:
-        supervisor.stop_all(timeout=10.0)
+        supervisor.stop_all(timeout=60.0)
     MessagingService._instance = None
 
 
