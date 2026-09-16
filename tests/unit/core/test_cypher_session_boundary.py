@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -155,6 +156,16 @@ async def test_authenticated_mcp_dispatch_uses_the_middleware_minted_currency():
         roles=("kg:read",),
         tenant_id="tenant-alpha",
         authenticated=True,
+        # A real MCP-middleware-minted actor is always projected from an
+        # already-validated bearer credential and therefore always carries a
+        # bounded expiry (ActorContext.credential_expires_at's own docstring:
+        # "Non-token/bootstrap actors leave it unset" -- this one is neither).
+        # ``mint_graph_session`` -> ``build_verified_request_authority`` ->
+        # ``_actor_expiry`` requires exactly this (PermissionError "Verified
+        # authority requires a bounded expiry" otherwise), so an authenticated
+        # fixture actor exercising THIS path must set it, unlike the other
+        # fixture actors in this file that never call ``mint_graph_session``.
+        credential_expires_at=int(time.time()) + 300,
     )
     cfg = _config()
     placement = SimpleNamespace(
