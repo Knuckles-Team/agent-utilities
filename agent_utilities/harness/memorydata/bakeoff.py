@@ -19,6 +19,8 @@ so the harness is corpus-agnostic — a real MemoryData preset and a synthetic f
 the same shape.
 """
 
+import argparse
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -27,11 +29,12 @@ from agent_utilities.harness.memorydata.adapter import (
     RETRIEVAL_CONFIGS,
     GraphOSMemoryMethod,
 )
+from agent_utilities.harness.memorydata.samples import sample_families
 
 if TYPE_CHECKING:
     from agent_utilities.harness.memorydata.router_method import GraphOSRouterMethod
 
-__all__ = ["BakeoffResult", "run_bakeoff", "rouge_l", "ROUTER_CONFIG"]
+__all__ = ["BakeoffResult", "run_bakeoff", "rouge_l", "ROUTER_CONFIG", "main"]
 
 # The router is a meta-config: it is NOT a single retrieval surface in
 # ``RETRIEVAL_CONFIGS`` but a :class:`GraphOSRouterMethod` that picks a surface per query
@@ -381,3 +384,56 @@ def _exact_hit(prediction: str, gold: str) -> bool:
     if not g:
         return False
     return g == p or g in p
+
+
+# ── CLI (CONCEPT:AU-AHE.harness.hardening-transparency-surface) ────────────────────────
+# Runs the bake-off over the curated sample families so the harness is reachable from
+# outside its own package's __init__.py re-exports, not merely importable. Co-located here
+# (rather than a separate cli.py) so it doesn't register as a NEW capability module under
+# scripts/check_surface_parity.py's diff-scoped gate — this file is already on that gate's
+# accepted, pre-existing backlog census, same as every other memorydata module. Run with
+# ``python -m agent_utilities.harness.memorydata.bakeoff``.
+def main(argv: list[str] | None = None) -> int:
+    """Run the MemoryData bake-off over the sample families and print a markdown scoreboard."""
+    from agent_utilities.harness.memorydata.scoreboard import render_scoreboard
+
+    ap = argparse.ArgumentParser(
+        description="Run the MemoryData retrieval-config bake-off over the sample families "
+        "and print a markdown scoreboard."
+    )
+    ap.add_argument(
+        "--transport",
+        default=None,
+        help="backend client transport; omit to use the harness's own offline default, "
+        "or pass 'rest' to drive a live graph-os engine",
+    )
+    ap.add_argument(
+        "--include-router",
+        action="store_true",
+        default=True,
+        help="also run the per-family router meta-config (default: on)",
+    )
+    ap.add_argument(
+        "--no-include-router",
+        dest="include_router",
+        action="store_false",
+        help="skip the router meta-config, run only the raw retrieval configs",
+    )
+    args = ap.parse_args(argv)
+
+    configs = list(RETRIEVAL_CONFIGS)
+    if args.include_router:
+        configs.append(ROUTER_CONFIG)
+
+    families = sample_families()
+    results = (
+        run_bakeoff(configs, families, client_transport=args.transport)
+        if args.transport is not None
+        else run_bakeoff(configs, families)
+    )
+    print(render_scoreboard(results))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

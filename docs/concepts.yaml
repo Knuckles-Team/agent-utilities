@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1230
+total_concepts: 1229
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -512,8 +512,8 @@ concepts:
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/harness/memorydata/__init__.py
   - agent_utilities/harness/memorydata/adapter.py
+  - agent_utilities/harness/memorydata/cli.py
   - agent_utilities/harness/memorydata/client.py
-  - agent_utilities/harness/memorydata/tests/test_adapter_offline.py
   doc: a MemoryData-contract agent method over the graph-os
 - id: AU-AHE.harness.harness-evolution
   name: Agentic Harness Engineering / Evolution
@@ -1916,6 +1916,7 @@ concepts:
   - agent_utilities/messaging/daemon.py
   - agent_utilities/messaging/service.py
   - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/server/webui_contact_delivery.py
   doc: Messaging reach service for governed outbound and channel routing
 - id: AU-ECO.messaging.messaging-renderer-core-reaction
   name: the messaging renderer of a core reaction
@@ -6187,13 +6188,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/sparql_http.py
   doc: go through query_sparql so the query runs on the
-- id: AU-KG.query.sparql-surface
-  name: a zero-dependency SPARQL surface over the OWL/RDF bridge
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/api/sparql_server.py
-  doc: a zero-dependency SPARQL surface over the OWL/RDF bridge
 - id: AU-KG.query.top-nodes-by-degree
   name: the top nodes by degree + edges
   pillar: AU-KG

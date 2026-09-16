@@ -56,7 +56,7 @@ def _matrix_expected_entries(matrix_path: Path) -> int:
         expected = value["components"]["connector-bundles"]["exactEntries"]
     except (OSError, KeyError, TypeError, yaml.YAMLError) as exc:
         raise ReleaseCatalogError("connector_catalog_matrix_invalid") from exc
-    if type(expected) is not int or expected != 71:
+    if type(expected) is not int or expected != 72:
         raise ReleaseCatalogError("connector_catalog_matrix_membership_invalid")
     return expected
 

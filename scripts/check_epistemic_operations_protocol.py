@@ -9,10 +9,29 @@ The packaged JSON Schema catalog is authoritative.  This gate proves:
 * the generated strict Python/Rust client DTOs and manifests match the catalog;
 * all cross-file references remain inside the catalog.
 
-Use ``--self-only`` in an isolated agent-utilities checkout.  Workspace and
-release validation must supply/discover epistemic-graph and therefore proves
-the cross-repository projection too.  ``--write`` is the deterministic
-regenerator; generated files must never be edited by hand.
+The commit-time gate (pre-commit, CI ``advisory.yml``) always runs
+``--self-only``: it verifies AU's own generated Python projection against the
+packaged catalog, then verifies the catalog's manifest projections against a
+pinned digest snapshot (``eg_contract_pin.json``, checked into this repo) of
+the last epistemic-graph contract state AU was reconciled against.  It never
+reads a sibling epistemic-graph checkout, because that checkout's on-disk
+state is not hermetic input for a commit gate (D16: an isolated agent-utilities
+worktree has no control over what state a sibling repo's working tree is in,
+and epistemic-graph hand-curates its Rust DTO module — ``epistemic_operations.rs``
+is intentionally split into multiple files with schemars customization this
+generator does not attempt to reproduce, so it is no longer a checked
+projection).
+
+Pass ``--epistemic-graph-root`` explicitly (a deliberate maintenance
+operation, run by a human or agent syncing the two repos, never a local
+commit hook) to additionally regenerate/verify the two thin cross-repo
+projections that AU *does* still own byte-for-byte: the schema manifest
+(``protocols/epistemic-operations/v1/manifest.json``) and the Rust digest
+constants module (``epistemic_operations_manifest.rs``). Use ``--write`` to
+regenerate the AU-side Python projection and (with ``--epistemic-graph-root``)
+those two engine projections; ``--write-pin`` refreshes
+``eg_contract_pin.json`` after a legitimate catalog change. Generated files
+must never be edited by hand.
 """
 
 from __future__ import annotations
@@ -37,6 +56,7 @@ CATALOG_PATH = CATALOG_DIR / "catalog.json"
 AU_GENERATED = (
     ROOT / "agent_utilities" / "protocols" / "epistemic_operations" / "_generated.py"
 )
+EG_CONTRACT_PIN = CATALOG_DIR / "eg_contract_pin.json"
 ENGINE_MANIFEST = Path("protocols/epistemic-operations/v1/manifest.json")
 ENGINE_GENERATED = Path("crates/eg-types/src/epistemic_operations_manifest.rs")
 
@@ -1213,7 +1233,91 @@ def _check_or_write(path: Path, expected: str, write: bool) -> None:
         )
 
 
-def run(engine_root: Path | None, *, write: bool) -> dict[str, Any]:
+def _pin_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "epistemic_graph_commit": "2faa2e22eb7e02a2d28d1f27ea8c565968d6ff95",
+        "catalog_sha256": manifest["catalog_sha256"],
+        "manifest_json_sha256": hashlib.sha256(
+            _render_manifest(manifest).encode("utf-8")
+        ).hexdigest(),
+        "epistemic_operations_manifest_rs_sha256": hashlib.sha256(
+            _render_rust_manifest(manifest).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _verify_pin(manifest: dict[str, Any]) -> None:
+    """Verify AU's own generated projections against a pinned digest snapshot.
+
+    This replaces reading a sibling epistemic-graph checkout for the local
+    commit-time gate (D16): the pin is checked into this repo, so verifying
+    against it is hermetic -- it depends only on files this repo controls.
+    It catches AU-side generator drift; it does not (and cannot) prove the
+    hand-curated Rust DTO module (``epistemic_operations.rs``) matches, since
+    that file is no longer a generated projection -- see module docstring.
+    """
+    try:
+        pin = _load_json(EG_CONTRACT_PIN)
+    except ProtocolGateError as exc:
+        raise ProtocolGateError(
+            f"missing {EG_CONTRACT_PIN}; run --write-pin after a coordinated "
+            f"epistemic-graph contract sync ({exc})"
+        ) from exc
+    actual = _pin_payload(manifest)
+    drifted = {
+        key: (pin.get(key), value)
+        for key, value in actual.items()
+        if key != "epistemic_graph_commit" and pin.get(key) != value
+    }
+    if drifted:
+        raise ProtocolGateError(
+            "generated projection drifted from the pinned epistemic-graph "
+            f"contract snapshot ({EG_CONTRACT_PIN}): {drifted}; if this "
+            "catalog change was coordinated with epistemic-graph, run "
+            "--write-pin to refresh the pin"
+        )
+
+
+def _write_pin(manifest: dict[str, Any]) -> None:
+    EG_CONTRACT_PIN.parent.mkdir(parents=True, exist_ok=True)
+    EG_CONTRACT_PIN.write_text(
+        json.dumps(_pin_payload(manifest), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _apply_pin(manifest: dict[str, Any], *, write_pin: bool) -> None:
+    if write_pin:
+        _write_pin(manifest)
+    else:
+        _verify_pin(manifest)
+
+
+def _sync_engine_projections(
+    engine_root: Path, manifest: dict[str, Any], *, write: bool
+) -> None:
+    # `epistemic_operations.rs` (catalog["rust_source"]) is intentionally NOT
+    # verified here: epistemic-graph hand-curates it as a multi-file schemars
+    # closure this generator cannot reproduce (D16). Only `--write` (an
+    # explicit, deliberate maintenance reset -- never the commit-time gate)
+    # may regenerate it from scratch.
+    if write:
+        catalog = _load_json(CATALOG_PATH)
+        rust_source = engine_root / str(catalog["rust_source"])
+        _check_or_write(rust_source, _render_rust_types(manifest), write)
+        _assert_projection(
+            manifest["bindings"], _rust_fields(rust_source), "rust_type", "Rust"
+        )
+        _assert_rust_closed(rust_source, manifest["bindings"])
+    _check_or_write(engine_root / ENGINE_MANIFEST, _render_manifest(manifest), write)
+    _check_or_write(
+        engine_root / ENGINE_GENERATED, _render_rust_manifest(manifest), write
+    )
+
+
+def run(
+    engine_root: Path | None, *, write: bool, write_pin: bool = False
+) -> dict[str, Any]:
     manifest, python_source = build_manifest()
     _check_or_write(
         AU_GENERATED, _format_python_source(_render_python(manifest)), write
@@ -1225,28 +1329,23 @@ def run(engine_root: Path | None, *, write: bool) -> dict[str, Any]:
         "Python",
     )
     _assert_python_closed(python_source, manifest["bindings"])
+    _apply_pin(manifest, write_pin=write_pin)
     if engine_root is not None:
-        catalog = _load_json(CATALOG_PATH)
-        rust_source = engine_root / str(catalog["rust_source"])
-        _check_or_write(rust_source, _render_rust_types(manifest), write)
-        _assert_projection(
-            manifest["bindings"],
-            _rust_fields(rust_source),
-            "rust_type",
-            "Rust",
-        )
-        _assert_rust_closed(rust_source, manifest["bindings"])
-        _check_or_write(
-            engine_root / ENGINE_MANIFEST,
-            _render_manifest(manifest),
-            write,
-        )
-        _check_or_write(
-            engine_root / ENGINE_GENERATED,
-            _render_rust_manifest(manifest),
-            write,
-        )
+        _sync_engine_projections(engine_root, manifest, write=write)
     return manifest
+
+
+def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if args.self_only and args.epistemic_graph_root is not None:
+        parser.error("--self-only and --epistemic-graph-root are mutually exclusive")
+    if args.write_pin and args.write:
+        parser.error("--write-pin and --write are mutually exclusive")
+
+
+def _describe_mode(args: argparse.Namespace) -> str:
+    if args.write_pin:
+        return "pin refreshed"
+    return "regenerated" if args.write else "verified"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1262,21 +1361,27 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Explicit epistemic-graph repository root.",
     )
+    parser.add_argument(
+        "--write-pin",
+        action="store_true",
+        help=(
+            "Refresh eg_contract_pin.json from the current catalog, after a "
+            "coordinated epistemic-graph contract sync."
+        ),
+    )
     args = parser.parse_args(argv)
-    if args.self_only and args.epistemic_graph_root is not None:
-        parser.error("--self-only and --epistemic-graph-root are mutually exclusive")
+    _validate_args(args, parser)
     try:
         engine_root = _resolve_engine_root(args.epistemic_graph_root, args.self_only)
-        manifest = run(engine_root, write=args.write)
+        manifest = run(engine_root, write=args.write, write_pin=args.write_pin)
     except ProtocolGateError as exc:
         print(f"epistemic-operations protocol gate: FAIL: {exc}", file=sys.stderr)
         return 1
-    mode = "regenerated" if args.write else "verified"
     scope = "AU" if engine_root is None else "AU + epistemic-graph"
     print(
-        f"epistemic-operations protocol gate: {mode} {len(REQUIRED_SCHEMAS)} "
-        f"schemas / {len(manifest['bindings'])} bound objects ({scope}); "
-        f"catalog_sha256={manifest['catalog_sha256']}"
+        f"epistemic-operations protocol gate: {_describe_mode(args)} "
+        f"{len(REQUIRED_SCHEMAS)} schemas / {len(manifest['bindings'])} bound "
+        f"objects ({scope}); catalog_sha256={manifest['catalog_sha256']}"
     )
     return 0
 

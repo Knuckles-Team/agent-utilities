@@ -824,9 +824,12 @@ repos:
     pass_filenames: false
     always_run: true
   - id: guardrail-epistemic-operations-protocol
-    name: Guardrail — Epistemic Operations schema/Python/Rust parity
-    entry: |-
-      bash -c 'canonical_repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${EPISTEMIC_GRAPH_ROOT:-"$(dirname "$canonical_repo")/epistemic-graph"}; python3 scripts/check_epistemic_operations_protocol.py --epistemic-graph-root "$root"'
+    name: Guardrail — Epistemic Operations schema/Python parity
+    # Hermetic by design (D16): verifies AU's own generated catalog/Python
+    # projection plus a pinned epistemic-graph contract digest snapshot
+    # (eg_contract_pin.json, checked into this repo) -- never a sibling
+    # checkout, whose on-disk state a local commit hook cannot control.
+    entry: python3 scripts/check_epistemic_operations_protocol.py --self-only
     language: system
     pass_filenames: false
     always_run: true

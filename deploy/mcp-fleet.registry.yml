@@ -507,6 +507,13 @@ services:
     container_port: 8000
     host_port: 8249
     profiles: [enterprise]
+  - name: vaultwarden-mcp
+    package: vaultwarden-mcp
+    console_script: vaultwarden-mcp
+    image: example/vaultwarden-mcp:latest
+    container_port: 8000
+    host_port: 8271
+    profiles: [enterprise]
   - name: vector-mcp
     package: vector-mcp
     console_script: vector-mcp

@@ -191,11 +191,6 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
         ),
     ),
     SurfaceEntry(
-        surface_id="au:sparql-server-standalone",
-        disposition=Disposition.ALWAYS_DENY_NO_CREDENTIAL_MECHANISM,
-        citation="api/sparql_server.py:24-59 -- unwired/dormant, no importer",
-    ),
-    SurfaceEntry(
         surface_id="au:sql-sparql-row-visibility-acl",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(

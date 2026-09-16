@@ -19,6 +19,7 @@ Modules:
 
 from __future__ import annotations
 
+from .agent_manager_dashboard import AgentManagerDashboard, DashboardReport
 from .agents_md_reflector import AgentsMdReflector, create_reflector_hook
 from .bridge import EcosystemBridge
 from .config_staleness_auditor import ConfigStalenessAuditor, StalenessReport
@@ -34,10 +35,12 @@ from .permission_policy import PermissionPolicyEngine, create_permission_hook
 from .plugin_bundle import PluginBundle, PluginBundleManager
 
 __all__ = [
+    "AgentManagerDashboard",
     "AgentsMdReflector",
     "ChangeProposal",
     "ChangeType",
     "ConfigStalenessAuditor",
+    "DashboardReport",
     "EcosystemBridge",
     "GovernanceDecision",
     "GovernanceReport",

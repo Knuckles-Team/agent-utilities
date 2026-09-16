@@ -255,7 +255,7 @@ def validate(root: Path = ROOT) -> list[str]:
             or release_order != RELEASE_ORDER
             or exact_versions["agent-utilities"] != f"=={version}"
             or any(not value.startswith("==") for value in exact_versions.values())
-            or components["connector-bundles"].get("exactEntries") != 71
+            or components["connector-bundles"].get("exactEntries") != 72
             or "langfuse-agent" not in components
         ):
             findings.append("compatibility-matrix-version")

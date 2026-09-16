@@ -15,7 +15,7 @@ from agent_utilities.harness.memorydata.adapter import (
     RETRIEVAL_CONFIGS,
     GraphOSMemoryMethod,
 )
-from agent_utilities.harness.memorydata.bakeoff import BakeoffResult, run_bakeoff
+from agent_utilities.harness.memorydata.bakeoff import BakeoffResult, main, run_bakeoff
 from agent_utilities.harness.memorydata.client import (
     BackendUnavailable,
     GraphOSRestClient,
@@ -42,4 +42,5 @@ __all__ = [
     "GraphOSRestClient",
     "BackendUnavailable",
     "build_client",
+    "main",
 ]

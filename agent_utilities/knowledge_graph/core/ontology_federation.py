@@ -132,6 +132,7 @@ REGISTERED_FEDERATED_IRIS: tuple[str, ...] = (
     "http://knuckles.team/kg/tunnel",
     "http://knuckles.team/kg/twenty",
     "http://knuckles.team/kg/uptimekuma",
+    "http://knuckles.team/kg/vaultwarden",
     "http://knuckles.team/kg/vector",
     "http://knuckles.team/kg/wellness",
 )

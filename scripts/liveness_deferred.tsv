@@ -44,20 +44,21 @@ dead_definitions	agent_utilities/knowledge_graph/core/formal_reasoning_core.py	#
 # PRODUCER decision per node kind, not a wiring line.
 dead_definitions	agent_utilities/models/knowledge_graph.py	# owner=@genius review-by=2026-10-01 note=ontology-scaffolded-ahead-of-ingestion-see-DEAD-CODE-INTENT-RECOVERY-3.6
 
-# Memory-retrieval-strategy benchmarking harness — already fully surveyed by
-# MEMORY-CAPABILITY-COLLAPSE.md Section 3.3/1.4 (zero production callers,
-# corroborated by surface_parity_baseline.txt, its one test lives outside
-# pytest.ini's testpaths). Reused here, not re-derived, per
-# DEAD-CODE-INTENT-RECOVERY.md Section 3.8's own "cite, don't re-derive" rule.
-orphan_modules	agent_utilities/harness/memorydata/*	# owner=@genius review-by=2026-09-15 note=wire-as-bakeoff-console-script-or-delete-see-MEMORY-CAPABILITY-COLLAPSE-3.3
-
-# Genuinely-unreferenced modules found by THIS task's own corrected-detector
-# audit (2026-08-13) — no static import (production or test), no
-# pyproject.toml entry-point, no getattr registry, no __getattr__ lazy-import
-# map, and no genuinely-dynamic (non-literal) import_module()/__import__()
-# call in the owning package. Kept on the baseline (not deleted — this task's
-# constraint is measurement-only) pending an owning decision.
-orphan_modules	agent_utilities/api/sparql_server.py	# owner=@genius review-by=2026-09-15 note=self-documented-in-surface_manifest-py-as-unwired-dormant-no-importer
-orphan_modules	agent_utilities/protocols/dataflows.py	# owner=@genius review-by=2026-09-15 note=zero-references-anywhere-production-or-test
-orphan_modules	agent_utilities/protocols/quant_agent.py	# owner=@genius review-by=2026-09-15 note=only-textual-hit-is-an-unrelated-string-literal-author-quant_agent-in-a-test-not-an-import
-orphan_modules	agent_utilities/ecosystem/agent_manager_dashboard.py	# owner=@genius review-by=2026-09-15 note=only-mentioned-in-a-docstring-listing-not-imported
+# The five entries formerly here (harness/memorydata/*, api/sparql_server.py,
+# protocols/dataflows.py, protocols/quant_agent.py, ecosystem/agent_manager_dashboard.py)
+# hit review-by=2026-09-15 and were resolved on evidence, not re-deferred (AU-LIVENESS,
+# 2026-09-16): harness/memorydata/* wired via a real CLI entrypoint
+# (agent_utilities/harness/memorydata/bakeoff.py:main, run via
+# `python -m agent_utilities.harness.memorydata.bakeoff` — co-located in the existing
+# bakeoff.py rather than a new cli.py so it doesn't register as a NEW capability module
+# under scripts/check_surface_parity.py's diff-scoped gate) and its existing offline test
+# suite moved from outside pytest's testpaths into tests/harness/; ecosystem/agent_manager_dashboard.py wired into
+# agent_utilities/ecosystem/__init__.py's public surface (matching every sibling module in
+# that package) with a new test; api/sparql_server.py deleted (RF-ADR-009 makes
+# epistemic-graph sole owner of SPARQL/OWL/SHACL — this was an unwired duplicate of the
+# canonical agent_utilities/gateway/graph_api.py mount, self-documented as dormant in
+# surface_manifest.py); protocols/dataflows.py and protocols/quant_agent.py deleted (zero
+# references anywhere, production or test — the ECO-4.7/4.8 SAAPI/TickerStreamConnector
+# prototype was superseded by the actual working implementation in
+# agent_utilities/domains/finance/quant_mcp_tools.py, which uses a different design
+# (DebateEngine/TradingSwarm/RegimeDetector) and never imports either symbol).
