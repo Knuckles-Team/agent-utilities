@@ -31,34 +31,39 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        # No `vector_mcp.api_client` module exists. The package's real public
-        # client is `vector_mcp.vector_api.Api`, and in the PUBLISHED
-        # distribution (vector-mcp>=2.1.2, the one the `gateway-widgets` extra
-        # installs and the one that ships in the served image) it is a REMOTE
-        # REST client: `Api(base_url, token=None, verify=False)` — `base_url`
-        # is REQUIRED. An earlier revision of this widget called `Api()` with
-        # no arguments, matching the unpublished local sibling checkout whose
-        # `Api` is an in-process facade instead; against the published package
-        # that raises `TypeError: Api.__init__() missing 1 required positional
-        # argument: 'base_url'` on every aggregator poll. Resolve the tile's
-        # configured URL/token like every other REST-backed widget here.
-        from vector_mcp.vector_api import Api
-
-        client = Api(
-            base_url=self._resolve_url(config),
-            token=self._resolve_token(config) or None,
+        # RF-ADR-009: agent-utilities (workspace phase 4) must not import a
+        # sibling connector package (the vector-database connector is phase
+        # 7) — no in-process package import here, ever again. Reach it over
+        # its MCP server instead, the same fleet transport every mcp_tool source
+        # connector already uses for the ~58-server fleet
+        # (protocols/source_connectors/connectors/mcp_tool.call_tool_once):
+        # a FastMCP client against vector-mcp's `streamable-http` endpoint,
+        # never a package import. `VECTOR_URL` keeps its prior meaning (the
+        # service's base host:port); the MCP endpoint is that base + FastMCP's
+        # default `/mcp` mount path.
+        from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+            _run_async,
         )
+        from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+            call_tool_once,
+        )
+
         try:
-            result = client.list_collections() or {}
-            collections = (
-                result.get("collections", []) if isinstance(result, dict) else []
+            base_url = self._resolve_url(config).rstrip("/")
+            result = _run_async(
+                call_tool_once(
+                    url=f"{base_url}/mcp",
+                    tool="vector_collection_management",
+                    action="list_collections",
+                    timeout=10.0,
+                )
             )
-            count = len(collections)
         except Exception as e:
             logger.debug("Vector DB fetch: %s", type(e).__name__)
             return self._error_data(e)
 
+        collections = result.get("collections", []) if isinstance(result, dict) else []
         return WidgetData(
-            fields={"collections": count, "points": 0, "status": "Online"},
+            fields={"collections": len(collections), "points": 0, "status": "Online"},
             status="ok",
         )

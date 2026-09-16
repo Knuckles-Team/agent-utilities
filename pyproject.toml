@@ -15,25 +15,62 @@ classifiers = [
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.12,<3.15"
 license = "MIT"
-# CURRENT BASE (the eg-absent floor). Configuration, envelopes, and transport
-# dependencies used on every path — including paths that never touch the engine —
-# live here. GOC-73: `epistemic-graph[full]` moved OUT of base into the `[graphos]`
-# extra (see `[project.optional-dependencies].graphos` below) because a hard base
-# dependency on an unpublished eg floor (`>=2.27.0`, PyPI's newest is 2.23.0) blocked
-# every consumer that imports `agent_utilities` but never touches the engine (e.g.
-# agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph` usage).
-# `[full]`/`[all]`/`[serving]` all still pull `[graphos]` so an existing
-# `pip install agent-utilities[full-or-all-or-serving]` is unaffected; only the
-# BARE `pip install agent-utilities` (no extras) no longer gets the engine — see the
-# `graphos` extra's comment for the full compatibility/blast-radius analysis. Optional
+# CURRENT BASE. RF-ADR-009 fixed AU's role as the agent plane that plans and acts
+# BY QUERYING epistemic-graph (EG) — EG is AU's context and inference engine, not
+# an optional accelerator. GOC-73 (2026-08) had moved `epistemic-graph[full]` OUT
+# of base into the `[graphos]` extra because a hard base dependency on an
+# unpublished eg floor (`>=2.27.0`, PyPI's newest was 2.23.0) blocked every
+# consumer that imports `agent_utilities` but never touches the engine (e.g.
+# agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph`
+# usage at the time). That trade made the package's OWN declared metadata lie
+# about its own code: `agent_utilities/numeric/__init__.py` has always
+# unconditionally imported `epistemic_graph.numeric` at module-load time (see the
+# module docstring) regardless of which extras were requested, so a "plain"
+# `pip install agent-utilities` could never actually import large parts of the
+# package it claimed to provide — the AU-RELEASE-BASELINE-20260913 report's cause
+# #1, blocking `gates` (Test suite), and `numeric-runtime-gate`. Per RF-ADR-009 §2
+# phase 4 (AU depends on the EG client; EG is phase 2, strictly earlier), EG is
+# reinstated here as a genuine BASE dependency so the declaration matches the
+# code's actual, unconditional requirement instead of contradicting it. The floor
+# stays `>=2.27.0,<3.0.0` — the compatibility-matrix release this ecosystem
+# workspace requires (see the numeric-kernel rationale that used to live on the
+# `graphos` extra, preserved below) — so this repository's OWN
+# `scripts/release/check_eg_pypi_resolvable.py` gate (`gates` job step 6) is
+# EXPECTED to stay red until epistemic-graph actually publishes that floor to
+# PyPI: that is the real, external cross-repo release order (eg must publish
+# before au, D11), not a packaging defect to route around. `[graphos]` remains
+# below as a no-op compatibility alias (same pattern as `[auth]`) for the fleet
+# manifests that already pin `agent-utilities[graphos, ...]`. Optional
 # Python application layers such as the agent runtime, document readers, provider
-# SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras. Native code
-# parsing and database compute are delegated to the (now optional) engine. See
-# "Dependency discipline" in AGENTS.md.
+# SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras — those are
+# genuinely optional; the engine is not. See "Dependency discipline" in AGENTS.md.
 dependencies = [
     "pydantic[email]>=2.13.4",
     "pydantic-settings>=2.14.2",
     "PyYAML>=6.0.3",
+    # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision —
+    # RF-ADR-009: epistemic-graph is AU's context and inference engine (not an
+    # optional accelerator), so it is a hard base dependency, not an extra. See
+    # the base-dependency block comment above for the GOC-73 history and why this
+    # supersedes it. The canonical wheel contract builds the whole main CPU
+    # feature set (`MATURIN_FEATURES=full,ast-extended` → compute/finance/
+    # datascience/mining/graphlearn/reasoning + query/cypher + redb-authoritative
+    # durability + security + every wire protocol) and bundles the
+    # `epistemic-graph-server` binary (next to `sys.executable`) that graph-os
+    # autostarts + supervises over a private UDS socket (EngineResolver, OS-5.63)
+    # — no external DB/service. `[full]` is the sole supported engine profile. It
+    # includes the compiled `epistemic_graph.numeric` kernel, whose Python
+    # boundary accepts built-in sequences and has no NumPy package dependency;
+    # agent-utilities imports NumPy nowhere on the runtime path.
+    #
+    # Floor `>=2.27.0` — never an exact pin. Below 2.26.2 the kernel hands back a
+    # numpy ndarray, which agent_utilities/numeric's boundary rejects with a
+    # TypeError on every engine init (eg `b7d5825` fixed that, first in 2.26.2).
+    # 2.26.2 itself removed the numpy passthrough but did not reimplement the
+    # construction surface it had been forwarding (no `zeros`/`eye`/`array`/
+    # `concatenate`); eg 2.27.0 (NE-249) is the first release that ships those
+    # natively, still with no numpy. See docs/guides/numeric-kernel.md.
+    "epistemic-graph[full]>=2.27.0,<3.0.0",
     # Native engine envelopes, analytics jobs, and ingestion batches use msgpack
     # directly on the base GraphOS path.
     "msgpack>=1.2.1",
@@ -90,6 +127,17 @@ dependencies = [
     # external fleet manifests still pin `agent-utilities[auth]` and must keep
     # resolving.
     "joserfc>=1.7.4",
+    # `knowledge_graph/extraction/pdf.py` (`_pdf_worker`, the single bounded,
+    # license-approved PDF text extraction path every reader in this package
+    # routes through) does `from pypdf import PdfReader` unconditionally, with
+    # no ImportError guard — like joserfc above, a dependency accident that
+    # only worked because `pypdf` rode along transitively via
+    # `llama-index-readers-file` in the (now removed, D2/nltk) `documents`
+    # extra. A plain `pip install agent-utilities` with no extras would raise
+    # `ModuleNotFoundError` on the first PDF. Promoted to base so PDF
+    # ingestion is never a packaging accident.
+    "pypdf>=6.16.1",  # CVE-2026-57204 — stream-length limit bypass;
+                       # GHSA-fp3f-mc75-235c + GHSA-fwg2-594c-jp42
 ]
 
 [[project.authors]]
@@ -97,70 +145,16 @@ name = "Repository Maintainers"
 email = "maintainers@example.invalid"
 
 [project.optional-dependencies]
-# CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — GOC-73:
-# the epistemic-graph engine moved from a hard base dependency to this OPT-IN extra.
-# `pip install agent-utilities[graphos]` yields a self-contained, FULLY-CAPABLE
-# graph-os when the approved `epistemic-graph` artifact passes its release gate. The
-# canonical wheel contract builds the whole main CPU feature set
-# (`MATURIN_FEATURES=full,ast-extended` → compute/finance/datascience/mining/
-# graphlearn/reasoning + query/cypher + redb-authoritative durability + security +
-# every wire protocol), and bundles the `epistemic-graph-server` binary (next to
-# `sys.executable`) that graph-os autostarts + supervises over a private UDS socket
-# (EngineResolver, OS-5.63) — no external DB/service. `[full]` is the sole supported
-# engine profile. It includes the compiled `epistemic_graph.numeric` kernel, whose
-# Python boundary accepts built-in sequences and has no NumPy package dependency;
-# agent-utilities imports NumPy nowhere on the runtime path.
-#
-# `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
-# httpx accel on top of the numeric kernel; package metadata has exposed this extra
-# since v2.15.0. Consumer CI still imports and executes the folded kernel so metadata
-# alone cannot satisfy the release. NOT `[full-extras]`: that is the engine's opt-in
-# GPU (cudarc) + ROS2/DDS cargo layer, which needs an external CUDA/robotics
-# TOOLCHAIN to run — the opposite of "self-contained, no external dependency" — and
-# is a wheel BUILD variant, not a pip extra (absent from the published CPU wheel).
-#
-# Floor `>=2.27.0` — the compatibility-matrix release used by this ecosystem
-# workspace; it includes the published `[full]` extra and the native numeric
-# operation set. Never an exact pin. See docs/guides/numeric-kernel.md.
-#
-# WHO ACTUALLY NEEDS THIS (see the module-load audit in the GOC-73 report): every
-# direct `import epistemic_graph` / `from epistemic_graph import ...` in this
-# repository is either (a) already a LAZY, function-scoped import (the
-# `knowledge_graph` engine-client call sites in core/graph_compute.py,
-# core/placement_catalog.py, pipeline/phases/parse.py, analytics_worker.py,
-# protocols/a2a_epistemic.py, mcp/tools/engine_tools.py, deployment/production_ops.py
-# — none of these execute at `import agent_utilities.<subpackage>` time) or (b) the
-# ONE genuinely unconditional module-load-time import,
-# `agent_utilities/numeric/__init__.py` (the `xp` numeric-kernel shim), which raises
-# a clear `ImportError` naming this extra instead of failing silently or stubbing.
-# `agent_utilities.numeric` is imported (transitively) by `domains/*` (finance) and a
-# handful of `knowledge_graph` analytics call sites that *use* the kernel-backed `xp`
-# surface — but NOT by importing the `knowledge_graph`, `server`, `core`, `security`,
-# `gateway`, `observability`, `models`, `mcp`, `sdd`, or `orchestration` packages
-# themselves; those only pull `agent_utilities.numeric` inside the specific functions
-# that need array math. Bare `import agent_utilities.<subpackage>` for all ten stays
-# eg-free — see the acceptance-test venv in the GOC-73 report.
-graphos = [
-    # Floor is 2.27.0, and the reason is a runtime contract rather than a
-    # feature: agent_utilities/numeric is deliberately numpy-free and its
-    # boundary accepts only scalars, builtin list/tuple trees, and Arrow
-    # `to_pylist` producers. Kernels below 2.26.2 hand back a numpy ndarray,
-    # which that boundary rejects with a TypeError the moment anything
-    # constructs a PositionalInteractionEncoder -- i.e. on every engine init,
-    # in production, at import depth. eg `b7d5825` ("fix(numeric): remove numpy
-    # from native boundary") is the commit that made the kernel return
-    # builtins, and it first shipped in 2.26.2.
-    #
-    # NE-249 raises it again, from 2.26.2 to 2.27.0. `b7d5825` removed the
-    # numpy passthrough but did not reimplement the construction surface it had
-    # been forwarding, so 2.26.2 returns builtins yet exposes no `zeros`/`eye`/
-    # `array`/`concatenate` at all. `_ROOT_OPERATIONS` below now resolves those
-    # names, so on a 2.26.2 kernel this package would raise
-    # UnsupportedNumericOperationError from a facade that believes they exist.
-    # eg 2.27.0 is the first release that actually ships them, natively and
-    # still with no numpy.
-    "epistemic-graph[full]>=2.27.0,<3.0.0",
-]
+# CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision.
+# RF-ADR-009 SUPERSEDES GOC-73: `epistemic-graph[full]>=2.27.0,<3.0.0` moved back
+# into the base `dependencies` above (see that block's comment for the full
+# rationale — the engine is AU's context/inference engine, not an optional
+# accelerator, and the package's own code already required it unconditionally).
+# `graphos` is kept as a no-op compatibility alias, same pattern as `[auth]`
+# below: fleet manifests across the ecosystem already pin
+# `agent-utilities[graphos, ...]`, and removing the extra name would break every
+# one of them for zero benefit now that the engine ships unconditionally.
+graphos = []
 # CONCEPT:ORCH-1.38 — RLM sandbox tiers. `monty` is the default fast/isolated tier
 # (small pure-Rust wheel, no transitive deps; backend import guarded so absence degrades
 # to the local floor); the CPython-WASI/wasm tier needs `wasmtime`. Both kept here so the
@@ -363,17 +357,29 @@ computer-use = [
 # (`except ImportError: return WidgetData(status="skipped", ...)`); `sentry.py` and
 # `zulip.py` do not and will keep flooding logs until those connectors are published.
 #
-# `container_manager.py`, `arr.py`, `vector_db.py`, `tunnel_manager.py`,
+# `container_manager.py`, `arr.py`, `tunnel_manager.py`,
 # `atlassian.py`, `repository_manager.py` and `media_downloader.py` used to import a
 # `<pkg>.api_client` submodule those packages never shipped at any version — a second,
 # deeper bug a dependency declaration alone could not fix. That has since been fixed
 # separately (`fix(gateway): point 9 dashboard widgets at their real connector
 # clients`): each now imports its package's ACTUAL public entry point
 # (`container_manager_mcp.create_manager`, `arr_mcp.api.api_client_sonarr`,
-# `vector_mcp.vector_api`, `tunnel_manager.HostManager`,
+# `tunnel_manager.HostManager`,
 # `atlassian_agent.api.api_client_jira_cloud`, `repository_manager.repository_manager`,
 # `media_downloader.api_client`), so declaring their distributions here does make them
 # work rather than merely moving the ModuleNotFoundError one level deeper.
+#
+# `vector-mcp` is deliberately NOT declared here (nor is it a dependency
+# anywhere in this project): it is a workspace phase-7 connector, and
+# agent-utilities is phase 4 -- RF-ADR-009 forbids a lower phase depending on
+# a higher one. `vector_db.py`'s widget reaches it over its MCP server
+# (the same fleet transport every `mcp_tool` source connector uses,
+# `protocols/source_connectors/connectors/mcp_tool.call_tool_once`), never a
+# package import. This is also what let nltk (GHSA-8mgp-746c-j5xp, no
+# patched release) leave `uv.lock` for good -- vector-mcp's own published
+# metadata has an unconditional `llama-index-core` dependency with no way to
+# exclude it, and it was the sole remaining source once D2 removed AU's own
+# llama-index use.
 #
 # `portainer-agent` IS declared below, but its newest PUBLISHED version (1.1.0) imports
 # `agent_utilities.http`, a module this package renamed to `agent_utilities.httpsupport`;
@@ -414,42 +420,43 @@ gateway-widgets = [
     "tunnel-manager>=2.1.0",
     "twenty-mcp>=1.0.1",
     "uptime-kuma-agent>=1.0.1",
-    "vector-mcp>=2.1.2",
     "wger-agent>=1.0.1",
 ]
 acp = [
     "pydantic-ai-harness[acp]>=0.14.0,<0.15.0",
 ]
-documents = [
-    "llama-index-core>=0.14.23",
-    "llama-index-readers-file>=0.6.0",
-    # Security floors: transitive via llama-index-*. uv resolves one version
-    # graph-wide, so these raise the floor for the whole all-extras lock.
-    "banks>=2.4.5",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
-    "nltk>=3.10.3",     # CVE-2026-54293 — path traversal in nltk.data.load
-    "pypdf>=6.16.1",    # CVE-2026-57204 — stream-length limit bypass;
-                        # GHSA-fp3f-mc75-235c + GHSA-fwg2-594c-jp42 — both
-                        # the current security floor is enforced by the OSV audit gate.
-    # CONCEPT:PHASE2-RECONCILE — relaxed off the modernize-bump's 3.14.2 floor:
-    # 3.14.1 already carries the CVE-2026-50269/54274/54275 fix (the original
-    # floor before the Phase-1 bump), and it's the exact version ccxt==4.5.67
-    # hard-pins its own aiohttp dependency to.
-    "aiohttp>=3.14.1"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
-]
-embeddings = [
-    "llama-index-core>=0.14.23"]
+# D2 (GHSA-8mgp-746c-j5xp, no patched nltk release): `documents` previously
+# pulled llama-index-core + llama-index-readers-file solely to run
+# SimpleDirectoryReader, which hard-depends on nltk with no way to exclude
+# it. Document loading is native now (kb/parser.KBDocumentParser +
+# extraction/readers.read_any — see engine_tasks._load_documents), needs no
+# extra package (python-docx/ebooklib/beautifulsoup4 are already
+# import-guarded optional deps of those native readers; pypdf is now a base
+# dependency, see `[project.dependencies]` above) — kept as a no-op alias
+# only in case an external manifest pins `agent-utilities[documents]` (also
+# self-referenced by the `all` aggregate extra below).
+documents = []
+#
+# `embeddings`/`embeddings-openai`/`embeddings-ollama` are no-op aliases for
+# the same reason (their llama-index packages are gone; the native OpenAI-
+# compatible / Ollama HTTP embedder in core/embedding_utilities.py needs no
+# extra package beyond the httpx already in base) — kept because vector-mcp
+# externally pins `agent-utilities[embeddings-openai]`. `embeddings-huggingface`
+# is also a no-op, but for a different reason: local/HuggingFace embedding
+# inference is no longer served from agent-utilities core at all (heavy ML
+# deps stay out of the serving plane, see AGENTS.md "Dependency discipline";
+# use agents/data-science-mcp) — kept only because vector-mcp externally pins
+# `agent-utilities[embeddings-huggingface]`.
+embeddings = []
 embeddings-openai = [
     "agent-utilities[embeddings]>=1.0.0",
-    "llama-index-embeddings-openai>=0.6.0",
-    # OpenAI LLM bindings (previously provided unconditionally via base); the embeddings
-    # plane that talks to OpenAI needs it.
-    "llama-index-llms-openai>=0.7.9"]
+]
 embeddings-huggingface = [
     "agent-utilities[embeddings]>=1.0.0",
-    "llama-index-embeddings-huggingface>=0.7.0"]
+]
 embeddings-ollama = [
     "agent-utilities[embeddings]>=1.0.0",
-    "llama-index-embeddings-ollama>=0.9.0"]
+]
 logfire = [
     # Observability must remain composable. Provider packages commonly request
     # `[agent-runtime,logfire]`; this extra stays independent of the full UI stack.
@@ -543,20 +550,21 @@ serving = [
     #     libs a server never renders, and agent-webui pulls the full pydantic-ai meta
     #     (temporalio/botocore/google-genai/grpc/mistralai, ~140 MB). Replaced by the
     #     `agent-headless` extra (same skill/runtime stack, no frontends).
-    #   - documents: document readers are ingestion-only; the MCP query/serving
-    #     surface never parses PDFs. PDF extraction uses the bounded pypdf path.
+    #   - documents: a no-op alias (D2 — document loading is native, no extra
+    #     package needed); PDF extraction uses the bounded pypdf path (now a
+    #     base dependency).
     #
     #   - graph (ladybug): a contrib MIRROR backend only (primary store is engine + postgres);
     #     it is opt-in via `[graph]`, never shipped on the serving default. neo4j/falkordb stay
     #     because they remain actively-selectable mirrors; ladybug does not.
     #
-    # GOC-73: `epistemic-graph[full]` is no longer a hard BASE dependency (see the
-    # `graphos` extra above), but the serving plane (graph-os MCP / host daemon) is
-    # THE engine consumer, so `serving` pulls `graphos` explicitly here — an existing
-    # `pip install agent-utilities[serving]` still gets the engine unchanged. `feeds`
-    # remains an optional serving dependency for RSS ingestion. Code parsing is
-    # delegated to the engine's native tree-sitter — no Python tree-sitter is added
-    # to the serving plane.
+    # RF-ADR-009 SUPERSEDES GOC-73: `epistemic-graph[full]` is a hard BASE
+    # dependency again (see the `dependencies` block comment at the top of this
+    # file), so `serving` no longer needs to pull it in itself — an existing
+    # `pip install agent-utilities[serving]` still gets the engine unchanged,
+    # now via base rather than via `graphos`. `feeds` remains an optional serving
+    # dependency for RSS ingestion. Code parsing is delegated to the engine's
+    # native tree-sitter — no Python tree-sitter is added to the serving plane.
     #
     # Full external OWL-DL reasoning (owlready2, the `owl` extra) stays excluded: GraphOS
     # delegates classification to the engine's native RDF/SPARQL/OWL surface. The narrower
@@ -569,12 +577,15 @@ serving = [
     # The light ``rdf`` extra is unrelated: workflow and ontology ingestion need rdflib
     # parsing at runtime regardless of whether the guardrail reasoners are present.
     # CONCEPT:KG-2.3 — the serving/host plane RUNS ingestion + enrichment, so it needs the
-    # CANONICAL embedder, not the bare `embeddings` core. `embeddings` pulls only
-    # `llama-index-core` (no provider), so `create_embedding_model()` / `make_embed_fn()`
-    # (which import `llama_index.embeddings.openai` to talk to the bge-m3 vLLM endpoint) raise
-    # `ModuleNotFoundError: No module named 'llama_index.embeddings'` on the host — dead-lettering
-    # every document ingest and producing ZERO embeddings fleet-wide. `embeddings-openai` ships the
-    # OpenAI-compatible provider (+ llms-openai) the vLLM embedding plane requires. See AGENTS.md.
+    # CANONICAL embedder. D2 (GHSA-8mgp-746c-j5xp) removed llama-index entirely:
+    # `create_embedding_model()`'s openai/ollama providers are now plain
+    # OpenAI-compatible/Ollama HTTP (core/embedding_utilities._HttpEmbeddingModel),
+    # needing no optional package at all — the `ModuleNotFoundError: No module
+    # named 'llama_index.embeddings'` dead-lettering failure this extra was
+    # originally added to route around is now structurally impossible.
+    # `embeddings`/`embeddings-openai` are kept as no-op aliases (an external
+    # manifest — vector-mcp — still pins `embeddings-openai`); listed here so
+    # that reference keeps resolving, not because it ships anything.
     # Include Logfire so the enabled OTel/Langfuse profile can instrument
     # Pydantic-AI calls in the shipped GraphOS process instead of degrading to a
     # configuration-only warning.
@@ -600,7 +611,7 @@ serving = [
     # without it here, every configured dashboard tile logs
     # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
     # refresh in production.
-    "agent-utilities[graphos,mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails,gateway-widgets]",
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails,gateway-widgets]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -685,12 +696,13 @@ test = [
     "opentelemetry-instrumentation-starlette>=0.60b0",
     "opentelemetry-instrumentation-fastapi>=0.60b0",
     "opentelemetry-instrumentation-asgi>=0.60b0",
-    # `agent-runtime` already implies mcp+sandbox. GOC-73: the engine is no longer a
-    # hard base dependency, so `test` must pull `graphos` explicitly — this repo's own
-    # suite (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
+    # `agent-runtime` already implies mcp+sandbox. RF-ADR-009 SUPERSEDES GOC-73:
+    # the engine is a hard base dependency again (see the top-of-file comment), so
+    # `test` no longer needs to name `graphos` itself — this repo's own suite
+    # (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
-    "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
+    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
@@ -710,11 +722,12 @@ test = [
     # server, only imported by messaging/daemon.py when MESSAGING_ALERT_INTAKE_PORT
     # is set — never on the default import path) needs aiohttp.web unconditionally
     # the moment IT is imported. tests/unit/messaging/test_alert_intake_security.py
-    # exercises that module directly. aiohttp is already a floor-pinned dependency
-    # of this project (see the `documents` extra, CVE-2026-50269/54274/54275) but
-    # that extra is not part of `test`'s selection, so pin the same floor here too
-    # rather than dragging in the unrelated llama-index/nltk/pypdf stack.
-    "aiohttp>=3.14.1",
+    # exercises that module directly. This is the sole declared floor now (D2
+    # removed the former duplicate in the `documents` extra along with
+    # llama-index-core, which is what pulled aiohttp transitively there) —
+    # uv's universal resolution still raises the floor project-wide from this
+    # one declaration; pinned here rather than base since nothing else needs it.
+    "aiohttp>=3.14.1",  # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
     # DEV/TEST-ONLY. setuptools is already a `[build-system] requires` floor
     # (>=83.0.0) for this project's own PEP 517 backend (`build_backend.py`, which
     # wraps `setuptools.build_meta` to embed a deterministic CycloneDX SBOM) — build
@@ -731,10 +744,11 @@ test-backends = [
     "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
     "testcontainers>=4.14.2"
 ]
-# GOC-73: `graphos` is listed first so an existing `pip install agent-utilities[all]`
-# still gets the engine unchanged now that it is no longer a hard base dependency.
+# RF-ADR-009 SUPERSEDES GOC-73: the engine is a hard base dependency again, so
+# `all` no longer needs to name `graphos` — an existing `pip install
+# agent-utilities[all]` still gets the engine unchanged, now via base.
 all = [
-    "agent-utilities[graphos,mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
@@ -1169,9 +1183,21 @@ disable_error_code = ["attr-defined"]
 # after resolves the identical 366 packages — this is a declaration, not a re-resolution.
 prerelease = "allow"
 override-dependencies = [
-    # CONCEPT:PHASE2-RECONCILE — nltk transitively pinned below 3.10 by an older
-    # fleet dependency; the ecosystem-wide resolve needs the fixed 3.10.3+ floor.
-    "nltk>=3.10.3",
+    # D2 (nltk, GHSA-8mgp-746c-j5xp): the former `nltk>=3.10.3` override here
+    # (CONCEPT:PHASE2-RECONCILE) floored a transitive nltk pulled in by
+    # llama-index-core. llama-index-core is gone from this project entirely
+    # (document loading and embeddings are native — see the `documents`/
+    # `embeddings*` extras and core/embedding_utilities.py), so nltk no
+    # longer resolves into the lock at all; there is nothing left to floor.
+    #
+    # httpx2/httpcore2 raised to >=2.12.0 (both transitive-only, via
+    # mcp/fastmcp-slim/genai-prices — never declared directly). httpx2==2.12.0
+    # pins httpcore2==2.12.0 exactly, so both floors match. Fixes every OSV
+    # advisory found on 2.9.1: GHSA-7mj9-2mp8-4m2p, GHSA-f2fp-rgf2-35cp,
+    # GHSA-h4x7-gw46-3wm6, GHSA-pf96-p4fj-6566, GHSA-8xx6-hgc6-gc2m,
+    # PYSEC-2026-3844..3849.
+    "httpx2>=2.12.0",
+    "httpcore2>=2.12.0",
     # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
     # `[mcp]` extra above). `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]
     # ==4.0.0b1`, while pydantic-ai-slim 2.29.0 now declares

@@ -2,10 +2,11 @@
 """Fail-closed check that the required epistemic-graph release is on PyPI.
 
 **The vector this gate defends.** agent-utilities declares a version-floored
-dependency on ``epistemic-graph[full]`` (GOC-73: via the opt-in
-``[graphos]`` extra — see ``pyproject.toml`` — not a base dependency; any
-`pip install`/`uv sync` that requests `[graphos]`/`[serving]`/`[all]`/`[test]`,
-or this repo's own dev/release tooling, still resolves it). If that floor has
+dependency on ``epistemic-graph[full]`` (RF-ADR-009: a hard BASE dependency in
+``[project.dependencies]`` — see ``pyproject.toml`` — since the engine is AU's
+context/inference engine, not an optional accelerator; `graphos` is now a
+no-op compatibility alias extra. Every `pip install`/`uv sync` of this
+package, extras or none, resolves it). If that floor has
 never been published to PyPI — e.g. because epistemic-graph's own release job
 failed on something unrelated to this repo (a wheel-digest mismatch, a flaky
 publish step) — a normal ``pip install``/``uv sync`` of one of those extras
@@ -28,14 +29,12 @@ Only handles the two comparison operators this repo's constraint actually
 uses (``>=`` and ``<``); rejects anything else instead of silently
 approximating.
 
-**Opt-in extras scoping (``--extras``).** A consumer that installs only a
-*subset* of this repo's extras -- e.g. agent-webui's Docker image, which
-installs ``agent-utilities[graph,mcp,metrics]`` and pulls in NO
-epistemic-graph reference at all -- can hit a false positive: with no flag,
-this script scans the WHOLE pyproject (base ``[project.dependencies]`` plus
-**every** ``[project.optional-dependencies]`` entry, including the
-`graphos` extra, GOC-73), so it fails even when the extras actually being
-installed never resolve epistemic-graph. Pass ``--extras a,b,c`` to scope
+**Opt-in extras scoping (``--extras``).** Since epistemic-graph is now a base
+dependency (RF-ADR-009), EVERY install resolves it — the only remaining use
+for `--extras` is a consumer whose own release gate wants an explicit,
+self-documenting scope. With no flag, this script scans the WHOLE pyproject
+(base ``[project.dependencies]`` plus every ``[project.optional-dependencies]``
+entry). Pass ``--extras a,b,c`` to scope
 the scan to the base dependencies plus exactly the transitive closure of
 those named extras (following self-referencing ``agent-utilities[...]``
 entries, e.g. `serving`/`test`/`all`) -- using a real TOML parse
@@ -110,8 +109,8 @@ def _find_constraint() -> tuple[str, str]:
     raise SystemExit(
         "::error::check_eg_pypi_resolvable: no 'epistemic-graph' entry found "
         f"anywhere in {PYPROJECT} (checked [project.dependencies] and every "
-        "[project.optional-dependencies] entry, e.g. GOC-73's `graphos` extra) "
-        "-- cannot verify cross-repo release order."
+        "[project.optional-dependencies] entry) -- cannot verify cross-repo "
+        "release order."
     )
 
 

@@ -267,15 +267,12 @@ def validate(root: Path = ROOT) -> list[str]:
             ):
                 findings.append(f"compatibility-matrix-dependency:{name}")
         engine_version = exact_versions["epistemic-graph"].removeprefix("==")
-        # GOC-73: epistemic-graph[full] lives in the `graphos` optional-dependency
-        # extra, not `[project].dependencies` — a bare `pip install agent-utilities`
-        # no longer pulls the engine (see pyproject.toml's `graphos` extra comment
-        # for the full rationale). Read the requirement from there instead.
-        declarations = (
-            project["project"].get("optional-dependencies", {}).get("graphos", [])
-            if project
-            else []
-        )
+        # RF-ADR-009 SUPERSEDES GOC-73: epistemic-graph[full] lives in
+        # `[project].dependencies` again — a bare `pip install agent-utilities`
+        # pulls the engine unconditionally (see pyproject.toml's base-dependency
+        # comment for the full rationale). `graphos` is now a no-op compatibility
+        # alias extra with nothing in it. Read the requirement from base deps.
+        declarations = project["project"].get("dependencies", []) if project else []
         engine_requirements = []
         for declaration in declarations:
             try:

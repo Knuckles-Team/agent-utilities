@@ -91,7 +91,6 @@ NO_API_CLIENT_MODULE = frozenset(
         "media_downloader",
         "repository_manager",
         "tunnel_manager",
-        "vector_db",
     }
 )
 
@@ -183,6 +182,7 @@ def test_widget_connector_inventory_is_exhaustive() -> None:
         "systems_manager",
         "teleport",
         "tunnel_manager",  # NO_API_CLIENT_MODULE
+        "vector_db",  # RF-ADR-009: reaches vector-mcp over MCP, no package import
     }
 
     for filename in sorted(os.listdir(package_dir)):

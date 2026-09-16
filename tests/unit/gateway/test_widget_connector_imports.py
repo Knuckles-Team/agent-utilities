@@ -44,7 +44,6 @@ from agent_utilities.gateway.widgets import (
     repository_manager,
     sentry,
     tunnel_manager,
-    vector_db,
     zulip,
 )
 
@@ -66,7 +65,6 @@ def _config(service_type: str) -> ServiceConfig:
 _ALL_WIDGETS = [
     (container_manager.Widget, "container_manager_mcp"),
     (arr.Widget, "arr_mcp"),
-    (vector_db.Widget, "vector_mcp"),
     (tunnel_manager.Widget, "tunnel_manager"),
     (atlassian.Widget, "atlassian_agent"),
     (repository_manager.Widget, "repository_manager"),
@@ -127,21 +125,29 @@ def test_arr_imports_real_sonarr_client():
     assert client.base_url
 
 
-def test_vector_db_imports_real_api_facade():
-    if importlib.util.find_spec("vector_mcp") is None:
-        pytest.skip("vector-mcp not installed in this environment")
-    from vector_mcp.vector_api import Api
+def test_vector_db_reaches_vector_mcp_over_mcp_not_a_package_import():
+    """RF-ADR-009: agent-utilities (phase 4) must not import vector-mcp (phase
+    7) -- confirmed by absence, not by a guarded-import skip like the other
+    widgets in this file. ``fetch_data`` must degrade to ``status="error"``
+    against an unreachable MCP endpoint (a transient connection failure,
+    unlike a permanently-missing package -- see
+    ``test_nonexistent_distribution_widgets_skip_not_error`` below for that
+    other case), never raise.
+    """
+    import inspect
 
-    assert hasattr(Api, "list_collections")
-    # The PUBLISHED vector-mcp exposes a REMOTE REST client whose `base_url`
-    # is a REQUIRED positional argument -- this test previously constructed
-    # `Api()` with no arguments (correct only for the unpublished local
-    # sibling checkout's in-process facade) and never ran, because vector-mcp
-    # was not installed in any environment until the `gateway-widgets` extra
-    # declared it. Construct it the way `vector_db.Widget.fetch_data` now
-    # does, so this test and the widget cannot drift apart again.
-    client = Api(base_url=_UNREACHABLE_URL, token=None)
-    assert client is not None
+    from agent_utilities.gateway.widgets import vector_db
+
+    source = inspect.getsource(vector_db)
+    assert "import vector_mcp" not in source
+    assert "from vector_mcp" not in source
+
+    widget = vector_db.Widget()
+    config = _config(widget.service_type)
+
+    data = widget._safe_fetch(config)
+
+    assert data.status == "error"
 
 
 def test_tunnel_manager_imports_real_host_manager():

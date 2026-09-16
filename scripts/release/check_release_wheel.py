@@ -431,14 +431,12 @@ def check_wheel(path: Path) -> None:
                 len(engine_requirements) != 1
                 or engine_requirements[0].extras != {"full"}
                 or engine_requirements[0].url is not None
-                # GOC-73: epistemic-graph[full] moved from a hard base dependency to
-                # the opt-in `graphos` extra (pyproject.toml's `[project.
-                # optional-dependencies].graphos`), so the wheel's own Requires-Dist
-                # now legitimately carries `; extra == "graphos"` rather than no
-                # marker at all -- a wheel built with `[graphos]` (the canonical
-                # wheel-contract profile, see the extra's own docstring) still
-                # resolves this dependency unconditionally for that install.
-                or str(engine_requirements[0].marker) != 'extra == "graphos"'
+                # RF-ADR-009 SUPERSEDES GOC-73: epistemic-graph[full] moved back to a
+                # hard BASE dependency (pyproject.toml's `[project.dependencies]`;
+                # `graphos` is now a no-op compatibility alias extra), so the wheel's
+                # own Requires-Dist must carry NO environment marker at all -- every
+                # install, with or without extras, resolves this dependency.
+                or engine_requirements[0].marker is not None
                 or engine_requirements[0].specifier != SpecifierSet(">=2.27.0,<3.0.0")
             ):
                 raise WheelContractError("full-engine-requirement-invalid")
