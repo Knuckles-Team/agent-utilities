@@ -34,9 +34,27 @@ def _fake_pypdf(
     monkeypatch.syspath_prepend(str(root))
 
 
-def test_engine_reader_always_selects_bounded_pypdf() -> None:
-    reader = engine_tasks._pdf_file_extractor()[".pdf"]
-    assert type(reader).__name__ == "_BoundedPypdfReader"
+def test_engine_reader_always_selects_bounded_pypdf(tmp_path, monkeypatch) -> None:
+    """D2: ``engine_tasks``'s ingest reader (``_read_ingest_file``, replacing
+    the old LlamaIndex ``_pdf_file_extractor``/``_BoundedPypdfReader``) routes
+    ``.pdf`` through ``KBDocumentParser``, which itself calls the SAME
+    single, governed, bounded ``extraction.pdf.read_pdf_text`` this whole
+    test file exercises -- never a second, unbounded PDF path."""
+    calls: list[Path] = []
+
+    def _fake_read_pdf_text(path, **_kwargs):
+        calls.append(Path(path))
+        return "governed text"
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.extraction.pdf.read_pdf_text",
+        _fake_read_pdf_text,
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+
+    assert engine_tasks._read_ingest_file(pdf) == "governed text"
+    assert calls == [pdf]
 
 
 def test_worker_extracts_and_caps_text(tmp_path, monkeypatch) -> None:
