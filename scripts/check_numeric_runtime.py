@@ -8,6 +8,7 @@ import importlib.metadata
 import os
 import stat
 import sys
+import traceback
 from pathlib import Path
 
 from packaging.requirements import Requirement
@@ -50,8 +51,16 @@ def main() -> int:
             and not server.is_symlink()
             and os.access(server, os.X_OK)
         )
-    except Exception:
-        print("numeric_runtime_gate=failed reason=import_or_compute")
+    except Exception as exc:
+        # A missing epistemic-graph install, a missing server binary, and a
+        # broken kernel all used to print this identical line -- the concrete
+        # exception type/message plus a traceback lets a CI log tell them
+        # apart without reproducing locally.
+        print(
+            f"numeric_runtime_gate=failed reason=import_or_compute "
+            f"cause={type(exc).__module__}.{type(exc).__qualname__}: {exc}"
+        )
+        traceback.print_exc()
         return 1
     if not (kernel_ready and computation_ready and release_binding_ready):
         print("numeric_runtime_gate=failed reason=contract")

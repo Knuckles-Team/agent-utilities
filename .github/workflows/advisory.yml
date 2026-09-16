@@ -628,14 +628,39 @@ jobs:
           uv build --wheel --no-build-isolation --out-dir "$RUNNER_TEMP/connector-manifest-wheel"
           WHEEL="$(find "$RUNNER_TEMP/connector-manifest-wheel" -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print -quit)"
           test -n "$WHEEL"
-          python3 -m pip install \
+          # This venv is uv-managed and carries no `pip` module -- `python3 -m
+          # pip install` dies before ever reaching the guard below, so step 6
+          # silently ran against whatever agent_utilities happened to resolve
+          # first on sys.path instead of this built wheel.
+          uv pip install \
             --no-index --no-deps --only-binary=:all: \
             --target "$RUNNER_TEMP/connector-manifest-site" "$WHEEL"
-          if find "$RUNNER_TEMP/connector-manifest-site" -name direct_url.json -print -quit | grep -q .; then
-            echo "editable/direct-reference installation is forbidden" >&2
+          # Every local-path install (editable or not) carries a direct_url.json
+          # per PEP 610 -- rejecting on its mere existence rejected every
+          # install, editable or not. Parse it and reject only dir_info.editable.
+          DIRECT_URL="$(find "$RUNNER_TEMP/connector-manifest-site" -name direct_url.json -print -quit)"
+          if [ -n "$DIRECT_URL" ] && python3 -c "
+          import json, sys
+          with open(sys.argv[1]) as f:
+              data = json.load(f)
+          sys.exit(0 if data.get('dir_info', {}).get('editable') else 1)
+          " "$DIRECT_URL"; then
+            echo "editable installation is forbidden" >&2
             exit 1
           fi
           echo "PYTHONPATH=$RUNNER_TEMP/connector-manifest-site" >> "$GITHUB_ENV"
+
+      - name: Assert the installed location is the built wheel
+        run: |
+          python3 -c "
+          import agent_utilities, pathlib, os, sys
+          installed = pathlib.Path(agent_utilities.__file__).resolve()
+          target = pathlib.Path(os.environ['RUNNER_TEMP']).resolve() / 'connector-manifest-site'
+          if target not in installed.parents:
+              print(f'agent_utilities resolved from {installed}, not the built wheel under {target}', file=sys.stderr)
+              sys.exit(1)
+          print(f'agent_utilities resolved from the built wheel: {installed}')
+          "
 
       - name: Freeze + regenerate (no key, no fleet -- native manifest only)
         id: diff
