@@ -595,6 +595,7 @@ class EphemeralEngine:
             )
             self._wait_for_socket()
             self._bootstrap_identity()
+            self._bootstrap_control_graph()
             self._open_keepalive()
         except Exception:
             # Startup failed — tear the half-started engine down cleanly so we
@@ -675,6 +676,71 @@ class EphemeralEngine:
                 # session; the next tick (or a real test's own client) tries
                 # again / reconnects.
                 pass
+
+    def _bootstrap_control_graph(self) -> None:
+        """Materialize the reserved ``__control__`` system graph up front.
+
+        Unlike ``__commons__`` (unconditionally created by the engine's own
+        ``open()`` -- ``epistemic-graph/src/embedded.rs``), no other system
+        graph is engine-side guaranteed to exist. ``__control__``
+        (``shard_topology.CONTROL_GRAPH_NAME``) -- the sole authority for
+        every WorkItem (``work_durability.py``) -- must be explicitly
+        created. In a real deployment this is a one-time cluster genesis
+        step, outside any client process's lifecycle:
+        ``graph_compute._ensure_local_graph_ready`` deliberately never
+        provisions it either (it only fires for a LOCAL, autostart-allowed
+        engine, and an explicitly configured ``GRAPH_SERVICE_ENDPOINTS`` --
+        this ephemeral test engine's own shape, and every real "remote"
+        deployment's shape -- is never that). ``isolate_graph_compute_engine``
+        (conftest.py) provisions every OTHER process-global default graph
+        (``__commons__``/``__secrets__``) as tests construct them, but
+        ``__control__`` is reached only through
+        ``EpistemicGraphBackend.for_graph()`` -- a lightweight, non-creating
+        VIEW over the one already-constructed transport, never through
+        ``GraphComputeEngine.__init__`` -- so that per-test provisioning path
+        never touches it either.
+
+        Without this, the very first control-plane read/write on a freshly
+        started engine (e.g. ``work_durability.get_work_item``'s idempotency
+        pre-check) fails with the engine's own "Graph '__control__' not
+        found" -- reproduced in isolation with
+        ``tests/unit/core/test_sessions_gateway.py::
+        test_sessions_and_goals_flow`` (AU-CORE-TESTS). Idempotent by the
+        same "already exists" tolerance
+        ``graph_compute._ensure_local_session_graph`` uses for the identical
+        RPC, so a concurrent creator racing this one (another worker's first
+        WorkItem submission) is a no-op, not a crash.
+        """
+
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            _is_graph_already_exists_error,
+        )
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            CONTROL_GRAPH_NAME,
+        )
+
+        client = SyncEpistemicGraphClient.connect(
+            socket_path=self.socket_path,
+            auth_secret=TEST_AUTH_SECRET,
+            # ``bootstrap_context()``'s narrow ``security:bootstrap`` scope is
+            # enough to enroll the signer above but not to create a graph
+            # (measured: "ACCESS_DENIED: verified request context lacks
+            # required scope 'graph:admin'") -- ``request_context()``'s
+            # default wildcard ``scopes=["*"]`` is the same shape every other
+            # per-test client in this suite already authenticates with (e.g.
+            # ``conftest.py``'s ``engine_graph`` actor: ``{"kg:read",
+            # "kg:write", "kg:admin", "*"}``) and is exactly enough.
+            verified_context=request_context(),
+        )
+        try:
+            client.tenants.create(CONTROL_GRAPH_NAME)
+        except Exception as exc:
+            if not _is_graph_already_exists_error(exc, CONTROL_GRAPH_NAME):
+                raise
+        finally:
+            client.close()
 
     def _bootstrap_identity(self) -> None:
         """Enroll the isolated suite signer before ordinary requests run."""

@@ -40,6 +40,16 @@ logger = logging.getLogger(__name__)
 _PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
 _CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
 
+# The engine's own distinguishable, stable response for a missing graph
+# (epistemic-graph ``src/server/access.rs``'s "a distinguishable 'Graph
+# ...  not found' response" contract; also raised by ``src/embedded.rs``).
+# Not an internal panic string — the engine authors designed this exact
+# shape specifically so callers CAN tell "graph absent" apart from other
+# failures. Used only to detect a reserved system graph's cold-start case
+# (see ``_is_unvivified_system_graph`` below); never relied on for any
+# other distinction.
+_GRAPH_NOT_FOUND_RE = re.compile(r"^Graph '(?P<name>.*)' not found$")
+
 
 def _query_reference(query: str) -> str:
     """Return a non-reversible query identifier safe for logs and errors."""
@@ -227,6 +237,65 @@ class EpistemicGraphBackend(GraphBackend):
             include_epistemic=include_epistemic,
         )
 
+    def _is_unvivified_system_graph(self, exc: BaseException) -> bool:
+        """True when *exc* is the engine's own "graph not found" response
+        for THIS backend's own bound reserved (``__…__``) system graph.
+
+        A reserved system graph (``__control__``, ``__commons__``,
+        ``__secrets__``, ...) is shared, always-addressable infrastructure —
+        every caller assumes it exists — but nothing explicitly provisions it
+        ahead of time; today it comes into being only on its first WRITE. A
+        READ that lands before that first write is therefore
+        indistinguishable, in effect, from a read that finds zero matching
+        rows: nothing has ever been written to it yet either way.  Without
+        this, the very first control-plane read on a freshly initialized
+        engine (e.g. the first-ever WorkItem submission's idempotency
+        pre-check, ``work_durability.get_work_item``) raises instead of
+        finding "not found", which is a correctness gap for any genuinely
+        fresh deployment/persist-dir, not just tests.
+
+        This mirrors the SAME established degrade already in place for
+        ``__control__`` specifically (``tenant_registry.py``'s
+        ``_hierarchy_snapshot``: "A read failure (engine down, ``__control__``
+        unreachable, no session) is reported as an EMPTY map ... degrading is
+        logged at WARNING"), generalized to the whole reserved-graph family
+        via the existing ``is_system_graph`` predicate instead of
+        special-casing one name.
+
+        Narrow by construction: only a bare ``RuntimeError`` (never a
+        transport/connection failure, which stays a hard error), only when
+        this backend is itself bound to a system graph, and only when the
+        message is an EXACT match of the engine's own documented
+        "Graph '...' not found" contract (epistemic-graph
+        ``src/server/access.rs`` / ``src/embedded.rs``) naming this exact
+        graph — never a substring/heuristic match, and never applied to a
+        tenant/content graph, where a missing graph is a real error.
+        """
+        if type(exc) is not RuntimeError:
+            return False
+        from ..core.shard_topology import is_system_graph
+
+        if not is_system_graph(self.graph_name):
+            return False
+        match = _GRAPH_NOT_FOUND_RE.match(str(exc))
+        return match is not None and match.group("name") == self.graph_name
+
+    def _read_failure_rows(self, rendered: str, exc: Exception) -> list[dict[str, Any]]:
+        """Resolve a failed read to its degraded rows, or re-raise.
+
+        Split out of :meth:`execute_read` so that method's own branching stays
+        at its pre-existing complexity (complexity-staged gate); this helper
+        carries the one new branch :meth:`_is_unvivified_system_graph` adds.
+        """
+        if self._is_unvivified_system_graph(exc):
+            logger.warning(
+                "read against reserved system graph %r found no graph yet "
+                "(not vivified by a write) -- degrading to zero rows",
+                self.graph_name,
+            )
+            return []
+        raise CypherEngineError(rendered, "read", exc) from None
+
     def execute_read(
         self,
         query: str,
@@ -242,7 +311,7 @@ class EpistemicGraphBackend(GraphBackend):
         try:
             rows = list(self._graph.query_cypher(rendered) or [])
         except Exception as exc:  # noqa: BLE001 - replace unsafe driver details
-            raise CypherEngineError(rendered, "read", exc) from None
+            rows = self._read_failure_rows(rendered, exc)
         if not include_epistemic:
             return rows
         from ..core.epistemic_row import attach_epistemic_rows
