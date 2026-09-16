@@ -791,15 +791,35 @@ def test_resolve_langfuse_host_reads_only_canonical_input(monkeypatch):
 
 @pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_lazy_module_level_getattr():
-    from agent_utilities.core.config import (
-        DEFAULT_HOST,
-        DEFAULT_LLM_PROVIDER,
-        DEFAULT_PORT,
-    )
+    from agent_utilities.core.config import DEFAULT_HOST, DEFAULT_PORT
 
     assert DEFAULT_HOST == "127.0.0.1"
     assert DEFAULT_PORT == 9000
-    assert DEFAULT_LLM_PROVIDER == "openai" or DEFAULT_LLM_PROVIDER is not None
+
+    # DEFAULT_LLM_PROVIDER has no hardcoded fallback any more (CHANGELOG
+    # "BREAKING: Registry-Based Configuration Migration" -- all LLM
+    # configuration routes exclusively through the ``chat_models`` registry;
+    # ``AgentConfig.default_chat_model`` is legitimately ``None`` when
+    # ``chat_models`` is empty, which it always is in a hermetic test process
+    # with no CHAT_MODELS configured -- ``_ensure_env_loaded``'s own
+    # docstring: "Hermetic tests never inherit a host's XDG deployment."
+    # Configure a chat model hermetically to prove the actual thing this test
+    # is named for -- that the module-level lazy ``__getattr__`` (PEP 562)
+    # correctly threads a real AgentConfig through to the projected constant
+    # -- and restore the previous generation so this does not leak into any
+    # other test sharing the process-wide ``_LAZY_CACHE`` singleton (the
+    # pattern established in test_runtime_secret_source.py).
+    previous_lazy_cache = config_module._LAZY_CACHE
+    previous_proxy_target = config_module._CONFIG_PROXY._current()
+    try:
+        cfg = config_module.AgentConfig(
+            CHAT_MODELS=[{"id": "test-model", "provider": "openai"}]
+        )
+        config_module._init_lazy_config(existing=cfg, force=True)
+        assert config_module.DEFAULT_LLM_PROVIDER == "openai"
+    finally:
+        config_module._LAZY_CACHE = previous_lazy_cache
+        config_module._CONFIG_PROXY._swap(previous_proxy_target)
 
 
 _AUTO_FLAG_ENV = (
