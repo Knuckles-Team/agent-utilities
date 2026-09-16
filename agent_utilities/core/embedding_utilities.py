@@ -3,39 +3,70 @@
 
 CONCEPT:AU-KG.memory.auto-similarity-memory-graph
 
-This module provides factory functions for initializing LlamaIndex-compatible
-embedding models. It supports various providers including OpenAI, Ollama,
-HuggingFace, and local models, with robust environment-based configuration.
+This module provides factory functions for initializing embedding model
+clients over plain OpenAI-compatible / Ollama HTTP (D2: no llama-index — see
+:class:`_HttpEmbeddingModel`). Local/HuggingFace inference is not served from
+core; see :func:`_build_huggingface_embedding`.
 """
 
-import asyncio
 import json
 import math
 import threading
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities._version import __version__ as __version__
-from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     import httpx
-    from llama_index.core.embeddings import BaseEmbedding
 
 
 from agent_utilities.core.config import config
-from agent_utilities.core.http_client import (
-    create_async_http_client,
-    create_http_client,
-)
+from agent_utilities.core.http_client import create_http_client
 from agent_utilities.core.model_runtime_auth import (
     resolve_model_api_key,
     resolve_model_headers,
 )
 
-try:
-    from llama_index.embeddings.ollama import OllamaEmbedding
-except ImportError:
-    OllamaEmbedding = None
+EmbedBatchFn = Callable[["httpx.Client", list[str], str], list[list[float]]]
+
+
+class _HttpEmbeddingModel:
+    """Minimal embedding client (D2 — no llama-index import anywhere in core).
+
+    Implements exactly the subset of the BaseEmbedding-shaped interface every
+    AU call site uses: ``model_name``, ``embed_batch_size`` (mutable — a
+    caller may raise it before a bulk embed), ``get_text_embedding``, and
+    ``get_text_embedding_batch``. Every provider (openai/ollama) supplies its
+    own ``embed_fn`` closure; this class owns only sub-batching by
+    ``embed_batch_size`` and the single-text convenience wrapper.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        client: "httpx.Client",
+        embed_fn: EmbedBatchFn,
+        embed_batch_size: int = 10,
+    ) -> None:
+        self.model_name = model_name
+        self.embed_batch_size = embed_batch_size
+        self._client = client
+        self._embed_fn = embed_fn
+
+    def get_text_embedding(self, text: str) -> list[float]:
+        return self.get_text_embedding_batch([text])[0]
+
+    def get_text_embedding_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        out: list[list[float]] = []
+        step = max(1, self.embed_batch_size)
+        for i in range(0, len(texts), step):
+            out.extend(
+                self._embed_fn(self._client, texts[i : i + step], self.model_name)
+            )
+        return out
 
 
 # CONCEPT:AU-KG.compute.config-keyed-embedder-client — process-scoped embedder-client cache.
@@ -54,7 +85,7 @@ except ImportError:
 # is safe to reuse for the whole run. Thread-safe (double-checked under a lock). The
 # fail-loud KG-2.3 contract is unchanged — a missing provider/dep still raises; we
 # only cache successful constructions.
-_EMBED_MODEL_CACHE: dict[tuple[Any, ...], "BaseEmbedding"] = {}
+_EMBED_MODEL_CACHE: dict[tuple[Any, ...], "_HttpEmbeddingModel"] = {}
 _EMBED_MODEL_LOCK = threading.Lock()
 
 # CONCEPT:AU-KG.retrieval.embedding-fast-fail — bound the OpenAI SDK's OWN internal
@@ -305,7 +336,7 @@ def create_embedding_model(
     api_key: str | None = None,
     oauth2: dict[str, Any] | None = None,
     timeout: float = 300.0,
-) -> "BaseEmbedding":
+) -> "_HttpEmbeddingModel":
     """Initialize an embedding model based on provider and environment.
 
     Args:
@@ -320,7 +351,7 @@ def create_embedding_model(
         timeout: Request timeout in seconds.
 
     Returns:
-        An initialized LlamaIndex BaseEmbedding instance.
+        An initialized embedding client (see `_HttpEmbeddingModel`).
 
     Raises:
         ImportError: If a requested provider's dependency is missing.
@@ -429,39 +460,69 @@ def _resolve_embedding_tls_profile() -> Any:
     return tls_profile
 
 
-def _build_openai_embedding_http_clients(
-    tls_profile: Any,
-    timeout: float,
-    oauth2_auth: Any | None,
-    headers: dict[str, str] | None,
-) -> tuple["httpx.Client", "httpx.AsyncClient"]:
-    # OpenAI-compatible embedding requests always use the same DNS-pinned,
-    # finite, redirect-free transport as chat models.  CA/mTLS policy comes
-    # from the runtime TLS profile; no endpoint or certificate material is
-    # copied into durable configuration or traces.
-    http_client = create_http_client(
-        verify=tls_profile.ssl_context,
-        timeout=timeout,
-        auth=oauth2_auth,
-        headers=headers,
-        pin_egress=True,
-        allowed_private_hosts=config.model_http_allowed_private_hosts,
-        allow_loopback=False,
-        trust_env=False,
-        follow_redirects=False,
+def _raise_for_embedding_status(response: "httpx.Response") -> None:
+    if response.status_code >= 400:
+        # Never echo response body: it may carry request text or provider detail.
+        raise ValueError(f"embedding request failed with HTTP {response.status_code}")
+
+
+def _post_with_one_retry(
+    client: "httpx.Client", url: str, payload: dict[str, Any]
+) -> "httpx.Response":
+    import httpx
+
+    attempts = _EMBED_SDK_MAX_RETRIES + 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            response = client.post(url, json=payload)
+            if response.status_code >= 500 and attempt < attempts - 1:
+                continue
+            _raise_for_embedding_status(response)
+            return response
+        except httpx.TransportError as exc:
+            last_exc = exc
+            if attempt >= attempts - 1:
+                raise
+    raise last_exc or RuntimeError("embedding request failed")
+
+
+def _openai_embed_fn(
+    client: "httpx.Client", texts: list[str], model_name: str
+) -> list[list[float]]:
+    response = _post_with_one_retry(
+        client, "/embeddings", {"model": model_name, "input": texts}
     )
-    async_http_client = create_async_http_client(
-        verify=tls_profile.ssl_context,
-        timeout=timeout,
-        auth=oauth2_auth,
-        headers=headers,
-        pin_egress=True,
-        allowed_private_hosts=config.model_http_allowed_private_hosts,
-        allow_loopback=False,
-        trust_env=False,
-        follow_redirects=False,
+    rows = response.json()["data"]
+    return [row["embedding"] for row in sorted(rows, key=lambda r: r["index"])]
+
+
+def _ollama_embed_fn(
+    client: "httpx.Client", texts: list[str], model_name: str
+) -> list[list[float]]:
+    response = _post_with_one_retry(
+        client, "/api/embed", {"model": model_name, "input": texts}
     )
-    return http_client, async_http_client
+    embeddings = response.json().get("embeddings")
+    if embeddings is None:
+        raise ValueError("Ollama embeddings response is missing 'embeddings'")
+    return embeddings
+
+
+def _openai_base_url(base_url_str: str | None) -> str:
+    return (base_url_str or "https://api.openai.com/v1").rstrip("/")
+
+
+def _openai_auth_headers(
+    headers: dict[str, str] | None, api_key_str: str | None, oauth2_auth: Any | None
+) -> dict[str, str]:
+    # oauth2, when configured, is the http_client's own `auth=` -- a static
+    # Authorization header would fight it, so only set one from api_key_str
+    # when oauth2 is absent.
+    request_headers = dict(headers or {})
+    if api_key_str and oauth2_auth is None:
+        request_headers.setdefault("Authorization", f"Bearer {api_key_str}")
+    return request_headers
 
 
 def _build_openai_embedding(
@@ -469,37 +530,43 @@ def _build_openai_embedding(
     api_key_str: str | None,
     base_url_str: str | None,
     timeout: float,
-    http_client: "httpx.Client | None",
-    async_http_client: "httpx.AsyncClient | None",
-) -> "BaseEmbedding":
+    tls_profile: Any,
+    oauth2_auth: Any | None,
+    headers: dict[str, str] | None,
+) -> "_HttpEmbeddingModel":
     import sys
-
-    from llama_index.embeddings.openai import OpenAIEmbedding
 
     # One non-sensitive line per distinct embedder config (cache-miss only).
     # Credentials, endpoints, and filesystem-backed trust material are never logged.
-    print(f"Creating OpenAIEmbedding model={model_str}", file=sys.stderr)
-
-    return OpenAIEmbedding(
-        model_name=model_str,
-        api_key=api_key_str,
-        api_base=base_url_str,
-        timeout=timeout,
-        max_retries=_EMBED_SDK_MAX_RETRIES,
-        http_client=http_client,
-        async_http_client=async_http_client,
+    print(
+        f"Creating OpenAI-compatible embedding client model={model_str}",
+        file=sys.stderr,
     )
 
+    request_headers = _openai_auth_headers(headers, api_key_str, oauth2_auth)
+    client = create_http_client(
+        base_url=_openai_base_url(base_url_str),
+        verify=tls_profile.ssl_context,
+        timeout=timeout,
+        auth=oauth2_auth,
+        headers=request_headers,
+        pin_egress=True,
+        allowed_private_hosts=config.model_http_allowed_private_hosts,
+        allow_loopback=False,
+        trust_env=False,
+        follow_redirects=False,
+    )
+    return _HttpEmbeddingModel(model_str, client, _openai_embed_fn)
 
-def _build_huggingface_embedding(model_str: str, timeout: float) -> "BaseEmbedding":
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-    cache_folder = setting("HF_HOME")
-
-    return HuggingFaceEmbedding(
-        model_name=model_str,
-        cache_folder=cache_folder,
-        request_timeout=timeout,
+def _build_huggingface_embedding(
+    model_str: str, timeout: float
+) -> "_HttpEmbeddingModel":
+    raise ValueError(
+        "Local/HuggingFace embedding inference is not served from agent-utilities "
+        "core (heavy ML deps stay out of the serving plane — see AGENTS.md "
+        "'Dependency discipline'). Use agents/data-science-mcp for local embedding "
+        "inference, or configure a remote OpenAI-compatible/Ollama endpoint instead."
     )
 
 
@@ -514,49 +581,6 @@ def _ollama_auth_headers(
     return ollama_headers
 
 
-def _rewrap_ollama_transports(
-    model_obj: Any,
-    base_url_str: str,
-    tls_profile: Any,
-    timeout: float,
-    ollama_headers: dict[str, str],
-) -> None:
-    # Ollama constructs its own httpx clients. Replace their transports
-    # before first use so local/private endpoints obey the exact AgentConfig
-    # allow-list and every request is DNS-pinned and peer-verified.
-    safe_sync = create_http_client(
-        base_url=base_url_str,
-        verify=tls_profile.ssl_context,
-        timeout=timeout,
-        headers=ollama_headers,
-        pin_egress=True,
-        allowed_private_hosts=config.model_http_allowed_private_hosts,
-        allow_loopback=False,
-        trust_env=False,
-        follow_redirects=False,
-    )
-    safe_async = create_async_http_client(
-        base_url=base_url_str,
-        verify=tls_profile.ssl_context,
-        timeout=timeout,
-        headers=ollama_headers,
-        pin_egress=True,
-        allowed_private_hosts=config.model_http_allowed_private_hosts,
-        allow_loopback=False,
-        trust_env=False,
-        follow_redirects=False,
-    )
-    old_sync = model_obj._client._client  # noqa: SLF001
-    old_async = model_obj._async_client._client  # noqa: SLF001
-    model_obj._client._client = safe_sync  # noqa: SLF001
-    model_obj._async_client._client = safe_async  # noqa: SLF001
-    old_sync.close()
-    try:
-        asyncio.get_running_loop().create_task(old_async.aclose())
-    except RuntimeError:
-        asyncio.run(old_async.aclose())
-
-
 def _build_ollama_embedding(
     model_str: str,
     base_url_str: str | None,
@@ -564,33 +588,32 @@ def _build_ollama_embedding(
     timeout: float,
     tls_profile: Any,
     headers: dict[str, str] | None,
-) -> "BaseEmbedding":
-    if OllamaEmbedding is None:
-        raise ImportError("llama-index-embeddings-ollama is not installed.")
+) -> "_HttpEmbeddingModel":
     if not base_url_str:
         raise ValueError("Ollama embedding endpoint is not configured")
     ollama_headers = _ollama_auth_headers(headers, api_key_str)
-    model_obj = OllamaEmbedding(
-        model_name=model_str,
-        base_url=base_url_str,
-        client_kwargs={
-            "verify": tls_profile.ssl_context,
-            "timeout": timeout,
-            "follow_redirects": False,
-            "trust_env": False,
-            "headers": ollama_headers,
-        },
+    client = create_http_client(
+        base_url=base_url_str.rstrip("/"),
+        verify=tls_profile.ssl_context,
+        timeout=timeout,
+        headers=ollama_headers,
+        pin_egress=True,
+        allowed_private_hosts=config.model_http_allowed_private_hosts,
+        allow_loopback=False,
+        trust_env=False,
+        follow_redirects=False,
     )
-    _rewrap_ollama_transports(
-        model_obj, base_url_str, tls_profile, timeout, ollama_headers
+    return _HttpEmbeddingModel(model_str, client, _ollama_embed_fn)
+
+
+def _build_local_embedding(model_str: str) -> "_HttpEmbeddingModel":
+    raise ValueError(
+        "Local embedding inference is not served from agent-utilities core "
+        "(heavy ML deps stay out of the serving plane — see AGENTS.md "
+        "'Dependency discipline'). Use agents/data-science-mcp for local "
+        "embedding inference, or configure a remote OpenAI-compatible/Ollama "
+        "endpoint instead."
     )
-    return model_obj
-
-
-def _build_local_embedding(model_str: str) -> "BaseEmbedding":
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-
-    return HuggingFaceEmbedding(model_name=model_str)
 
 
 def _build_embedding_model(
@@ -603,7 +626,7 @@ def _build_embedding_model(
     provider: str | None,
     oauth2_cfg: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-) -> "BaseEmbedding":
+) -> "_HttpEmbeddingModel":
     """Construct a fresh embedding client (the un-cached path, CONCEPT:AU-KG.compute.config-keyed-embedder-client).
 
     Split out of :func:`create_embedding_model` so the cache wraps exactly one
@@ -613,21 +636,15 @@ def _build_embedding_model(
     oauth2_auth = _resolve_embedding_oauth2_auth(oauth2_cfg)
     tls_profile = _resolve_embedding_tls_profile()
 
-    http_client: httpx.Client | None = None
-    async_http_client: httpx.AsyncClient | None = None
-    if provider_str == "openai":
-        http_client, async_http_client = _build_openai_embedding_http_clients(
-            tls_profile, timeout, oauth2_auth, headers
-        )
-
     if provider_str == "openai":
         return _build_openai_embedding(
             model_str,
             api_key_str,
             base_url_str,
             timeout,
-            http_client,
-            async_http_client,
+            tls_profile,
+            oauth2_auth,
+            headers,
         )
     elif provider_str == "huggingface":
         return _build_huggingface_embedding(model_str, timeout)

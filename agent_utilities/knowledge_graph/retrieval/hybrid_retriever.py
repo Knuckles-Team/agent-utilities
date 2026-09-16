@@ -408,8 +408,8 @@ class HybridRetriever:
         # definition above for why.
 
         # CONCEPT:AU-KG.memory.auto-similarity-memory-graph: Lazy embedding model — defer HTTP connection to first use
-        # (typed Any to avoid importing the heavy llama_index BaseEmbedding onto the
-        # retrieval path — dependency discipline).
+        # (typed Any to avoid importing the embedding client's private type onto
+        # the retrieval path — dependency discipline).
         self._embed_model: Any = None
         self._embed_model_initialized = False
 

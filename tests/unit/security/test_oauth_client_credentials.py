@@ -632,14 +632,9 @@ class TestBearerAttachedToLLMRequest:
 
 class TestBearerAttachedToEmbeddingRequest:
     def test_embedding_client_carries_oauth2_auth(self, fake_secrets):
-        # ``provider="openai"`` below constructs a REAL llama_index
-        # OpenAIEmbedding client, which needs the optional
-        # `embeddings-openai` extra (`llama-index-embeddings-openai`) --
-        # deliberately NOT part of the `test` extra (see
-        # tests/unit/test_serving_embeddings_dependency.py,
-        # test_serving_does_not_rely_on_bare_embeddings_only): the bare
-        # `embeddings` extra ships only llama-index-core, no provider.
-        pytest.importorskip("llama_index.embeddings.openai")
+        # ``provider="openai"`` below constructs the native, base-dependency-only
+        # OpenAI-compatible HTTP embedding client (D2 — no llama-index in core;
+        # see tests/unit/test_serving_embeddings_dependency.py).
         from agent_utilities.core import embedding_utilities
 
         embedding_utilities.clear_embedding_model_cache()
@@ -653,10 +648,8 @@ class TestBearerAttachedToEmbeddingRequest:
                 base_url="https://embed.example.com/v1",
                 oauth2=OAUTH2_BLOCK,
             )
-        assert mdl._http_client is not None  # noqa: SLF001 - white-box check
-        assert isinstance(mdl._http_client.auth, OAuth2ClientCredentialsAuth)
-        assert mdl._async_http_client is not None  # noqa: SLF001
-        assert isinstance(mdl._async_http_client.auth, OAuth2ClientCredentialsAuth)
+        assert mdl._client is not None  # noqa: SLF001 - white-box check
+        assert isinstance(mdl._client.auth, OAuth2ClientCredentialsAuth)
         embedding_utilities.clear_embedding_model_cache()
 
     def test_embedding_client_rejects_api_key_and_oauth2_together(self, fake_secrets):

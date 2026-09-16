@@ -26,7 +26,7 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # bge-m3 (the deployed embedder) handles large batches per request, so we send a
 # big LIST of inputs in ONE ``/v1/embeddings`` POST rather than re-chunking it into
 # tiny sub-requests. This caps a single POST's payload (and is also the value we
-# pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
+# pin on the embedding model's ``embed_batch_size`` so it stops splitting our
 # chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
 
@@ -307,7 +307,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     embeddings):
 
     * **BATCH** — every request carries a big LIST of inputs (auto-sized up to
-      :data:`_EMBED_MAX_BATCH`), and the underlying llama-index model's
+      :data:`_EMBED_MAX_BATCH`), and the underlying embedding model's
       ``embed_batch_size`` is pinned so it issues ONE POST per chunk instead of
       re-splitting it into ``DEFAULT_EMBED_BATCH_SIZE`` (=10) sub-POSTs.
     * **CONCURRENCY** — chunks are fanned out CONCURRENTLY up to
@@ -397,8 +397,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     except Exception as e:
         # Zero-fabrication compliance (AGENTS.md): NEVER return a degenerate fallback
         # that silently yields 1-dim ``[0.0]`` vectors. That fallback previously masked a
-        # missing-embedder deployment (the serving plane shipped bare ``embeddings``
-        # without ``embeddings-openai`` → ``No module named 'llama_index.embeddings'``):
+        # missing-embedder deployment (an unreachable/unconfigured embedding endpoint):
         # enrichment "succeeded" while writing garbage vectors into a 1024-dim store,
         # so the failure was invisible (embed_calls=0, no real embeddings) instead of
         # loud. Fail loud here; every production caller wraps embedding as best-effort
@@ -406,9 +405,9 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
         # safe — rather than silent vector-store corruption. (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
         logger.error("make_embed_fn unavailable (%s)", e)
         raise RuntimeError(
-            f"embedding model unavailable: {e}. The KG embedding plane requires the "
-            "'embeddings-openai' extra (llama-index-embeddings-openai) and a reachable "
-            "bge-m3 vLLM endpoint."
+            f"embedding model unavailable: {e}. The KG embedding plane requires a "
+            "configured embedding model (AgentConfig `default_embedding_model`) and "
+            "a reachable bge-m3 vLLM (or other OpenAI-compatible) endpoint."
         ) from e
 
 

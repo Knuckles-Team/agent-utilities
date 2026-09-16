@@ -856,13 +856,14 @@ async def test_unmatched_task_type_falls_back_to_document_ingest(task_type):
     fake_doc = SimpleNamespace(
         text="hello world", metadata={"file_path": str(FIXTURE_FILE)}
     )
-    reader_instance = MagicMock()
-    reader_instance.load_data = MagicMock(return_value=[fake_doc])
     embed_model = MagicMock()
     embed_model.get_text_embedding_batch = MagicMock(return_value=[[0.1, 0.2]])
 
     with (
-        patch("llama_index.core.SimpleDirectoryReader", return_value=reader_instance),
+        patch(
+            "agent_utilities.knowledge_graph.core.engine_tasks._load_documents",
+            return_value=[fake_doc],
+        ),
         patch(
             "agent_utilities.core.embedding_utilities.create_embedding_model",
             return_value=embed_model,

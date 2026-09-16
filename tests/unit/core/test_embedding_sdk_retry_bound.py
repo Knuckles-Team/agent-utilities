@@ -1,76 +1,81 @@
-"""CONCEPT:AU-KG.retrieval.embedding-fast-fail — bound the OpenAI SDK's own retry loop.
+"""CONCEPT:AU-KG.retrieval.embedding-fast-fail — bound the embedding HTTP retry loop.
 
-``llama_index.embeddings.openai.OpenAIEmbedding`` defaults to ``max_retries=10``
-with exponential backoff (up to ~8s per retry) when the caller does not pass an
-explicit value. agent-utilities already owns a separate, endpoint-aware
-circuit-breaker/backoff layer, so a second unbounded SDK-internal retry loop
-only adds latency — every embedder construction must pass an explicit, small
-``max_retries`` instead of silently inheriting the SDK default.
+D2 (GHSA-8mgp-746c-j5xp) removed llama-index: embedding requests are now a
+plain HTTP POST (``_post_with_one_retry``) instead of going through
+``llama_index.embeddings.openai.OpenAIEmbedding`` (which defaulted to
+``max_retries=10`` with exponential backoff up to ~8s per retry when the
+caller passed no explicit value). agent-utilities already owns a separate,
+endpoint-aware circuit-breaker/backoff layer, so a second unbounded retry
+loop only adds latency — every embedding request must retry a small, bounded
+number of times, never silently inherit an SDK's larger default.
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import httpx
 import pytest
 
-from agent_utilities.core import embedding_utilities
 from agent_utilities.core.embedding_utilities import (
     _EMBED_SDK_MAX_RETRIES,
-)
-from agent_utilities.core.embedding_utilities import (
-    create_embedding_model as _real_create_embedding_model,
+    _post_with_one_retry,
 )
 
 
-def _stub_config(embed_cfg):
-    return SimpleNamespace(
-        default_embedding_model=embed_cfg,
-        default_chat_model=None,
-        openai_api_key="k",
-        embedding_tls_profile=None,
-        embedding_tls_profile_ref=None,
-        tls_system_trust=True,
-        tls_trust_env=True,
-        model_http_allowed_private_hosts=[],
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict | None = None) -> None:
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def test_max_retries_is_small_and_bounded():
+    """Sanity: we are actually bounding it, not inheriting a large SDK default."""
+    assert 0 < _EMBED_SDK_MAX_RETRIES < 10
+
+
+def test_persistent_5xx_retries_exactly_the_bound_then_fails():
+    calls = {"n": 0}
+
+    class _FakeClient:
+        def post(self, url, json):  # noqa: A002 - matches httpx.Client.post signature
+            calls["n"] += 1
+            return _FakeResponse(503)
+
+    with pytest.raises(ValueError, match="HTTP 503"):
+        _post_with_one_retry(_FakeClient(), "/embeddings", {"model": "m", "input": []})
+
+    # Exactly bound+1 attempts total — never silently retries more.
+    assert calls["n"] == _EMBED_SDK_MAX_RETRIES + 1
+
+
+def test_persistent_transport_error_retries_exactly_the_bound_then_raises():
+    calls = {"n": 0}
+
+    class _FakeClient:
+        def post(self, url, json):  # noqa: A002
+            calls["n"] += 1
+            raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(httpx.ConnectError):
+        _post_with_one_retry(_FakeClient(), "/embeddings", {"model": "m", "input": []})
+
+    assert calls["n"] == _EMBED_SDK_MAX_RETRIES + 1
+
+
+def test_success_after_one_transient_5xx_does_not_over_retry():
+    calls = {"n": 0}
+
+    class _FakeClient:
+        def post(self, url, json):  # noqa: A002
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _FakeResponse(503)
+            return _FakeResponse(200, {"data": []})
+
+    response = _post_with_one_retry(
+        _FakeClient(), "/embeddings", {"model": "m", "input": []}
     )
-
-
-def test_max_retries_is_explicit_and_bounded(monkeypatch):
-    """The constructed OpenAIEmbedding must NOT silently inherit the SDK's
-    default of 10 retries — it must receive our small, explicit bound."""
-    # Needs the optional `embeddings-openai` extra (`llama-index-embeddings-openai`)
-    # -- deliberately NOT part of the `test` extra (see
-    # tests/unit/test_serving_embeddings_dependency.py,
-    # test_serving_does_not_rely_on_bare_embeddings_only).
-    pytest.importorskip("llama_index.embeddings.openai")
-    assert _EMBED_SDK_MAX_RETRIES < 10  # sanity: we are actually bounding it
-
-    captured: dict = {}
-
-    class _FakeOpenAIEmbedding:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-
-    monkeypatch.setattr(
-        "llama_index.embeddings.openai.OpenAIEmbedding", _FakeOpenAIEmbedding
-    )
-
-    embed_cfg = SimpleNamespace(
-        provider="openai",
-        id="bge-m3",
-        base_url="https://embed.example/v1",
-        api_key="ek",
-        api_key_ref=None,
-        oauth2=None,
-        headers=None,
-        headers_ref=None,
-    )
-    monkeypatch.setattr(embedding_utilities, "config", _stub_config(embed_cfg))
-    embedding_utilities.clear_embedding_model_cache()
-
-    _real_create_embedding_model(
-        provider="openai", model="bge-m3", base_url="https://embed.example/v1"
-    )
-
-    assert captured.get("max_retries") == _EMBED_SDK_MAX_RETRIES
+    assert response.status_code == 200
+    assert calls["n"] == 2

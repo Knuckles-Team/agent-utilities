@@ -255,7 +255,8 @@ def daemon_role() -> str:
     return role if role in {"host", "client", "auto"} else "auto"
 
 
-# Supported file extensions for document ingestion (LlamaIndex SimpleDirectoryReader)
+# Supported file extensions for document ingestion (native readers, no
+# LlamaIndex — see _load_documents).
 SUPPORTED_EXTENSIONS: set[str] = {
     ".pdf",
     ".docx",
@@ -277,32 +278,90 @@ SUPPORTED_EXTENSIONS: set[str] = {
     ".ipynb",
 }
 
+# Extensions KBDocumentParser reads natively (bounded pypdf for PDF,
+# python-docx/ebooklib for docx/epub, BeautifulSoup-or-regex for html — every
+# heavy dep import-guarded, degrading to "" rather than raising).
+_KB_PARSER_EXTS = {".pdf", ".docx", ".doc", ".epub", ".html", ".htm", ".md", ".txt"}
 
-class _BoundedPypdfReader:
-    """LlamaIndex file-reader adapter for the governed pypdf path."""
-
-    def load_data(
-        self,
-        file: str | Path | None = None,
-        *,
-        file_path: str | Path | None = None,
-        **_: Any,
-    ) -> list[Any]:
-        from llama_index.core import Document
-
-        from ..extraction.pdf import read_pdf_text
-
-        source = file if file is not None else file_path
-        if source is None:
-            return []
-        text = read_pdf_text(source)
-        return [Document(text=text)] if text else []
+# Extensions with no dedicated reader anywhere in the fleet (no format-aware
+# extractor, and not covered by the readers registry) — plain-text-decodable
+# formats that get a last-resort verbatim UTF-8 read rather than being
+# silently skipped, matching what a generic text reader gave them before.
+_TEXT_FALLBACK_EXTS = {".jsonl", ".xml", ".yaml", ".yml", ".rtf", ".ipynb"}
 
 
-def _pdf_file_extractor() -> dict[str, Any]:
-    """Map ``.pdf`` to the one bounded, license-approved pypdf reader."""
+class _IngestDoc:
+    """Minimal stand-in for the one LlamaIndex ``Document`` shape ``_bg_document``
+    consumes (``.text`` / ``.metadata["file_path"]``) — see D2 (nltk left the lock
+    with llama-index-core; document loading is native now)."""
 
-    return {".pdf": _BoundedPypdfReader()}
+    __slots__ = ("text", "metadata")
+
+    def __init__(self, text: str, file_path: str) -> None:
+        self.text = text
+        self.metadata = {"file_path": file_path}
+
+
+def _read_ingest_file(path: Path) -> str:
+    """Best-effort text extraction for one file, dispatched by extension.
+
+    Mirrors the readers already used elsewhere in this package (never raises,
+    degrades to ``""``): PDF/DOCX/EPUB/HTML/MD/TXT via the native
+    :class:`~agent_utilities.knowledge_graph.kb.parser.KBDocumentParser`;
+    CSV/TSV/PPTX/XLSX/audio/image via the
+    :mod:`~agent_utilities.knowledge_graph.extraction.readers` registry (falls
+    back to the same PDF/MD/TXT/RST/JSON readers for those extensions); any
+    remaining textual format (JSONL/XML/YAML/RTF/IPYNB) is read verbatim as
+    UTF-8, the same degrade-to-plain-text behavior the prior reader used for
+    formats it had no dedicated parser for.
+    """
+    ext = path.suffix.lower()
+    try:
+        if ext in _KB_PARSER_EXTS:
+            from ..kb.parser import SUPPORTED_EXTENSIONS as _KB_EXTS
+            from ..kb.parser import KBDocumentParser
+
+            source_type = _KB_EXTS.get(ext, "txt")
+            return KBDocumentParser()._read_file(path, source_type)  # noqa: SLF001 — the verbatim-per-format reader
+        from ..extraction.readers import read_any
+
+        text = read_any(str(path))
+        if text or ext not in _TEXT_FALLBACK_EXTS:
+            return text
+        return path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001 — ingest readers are best-effort, never raise
+        logger.debug(
+            "ingest reader failed for %s (%s)", path.suffix, type(exc).__name__
+        )
+        return ""
+
+
+def _load_documents(target: Path) -> list[_IngestDoc]:
+    """Load one file, or the non-hidden top-level files of a directory, into
+    :class:`_IngestDoc` objects — the native replacement for LlamaIndex's
+    ``SimpleDirectoryReader`` (D2). Matches its prior call-site semantics:
+    directories are scanned non-recursively, hidden-dir exclusion is OFF (the
+    research store lives under a dotted path), and only ``SUPPORTED_EXTENSIONS``
+    are loaded.
+    """
+    if target.is_dir():
+        paths = sorted(
+            p
+            for p in target.iterdir()
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+        )
+    else:
+        # A single explicit target is always attempted, unfiltered — matches the
+        # prior SimpleDirectoryReader(input_files=[...]) call, which carried no
+        # required_exts filter (only the directory scan did).
+        paths = [target]
+
+    docs: list[_IngestDoc] = []
+    for path in paths:
+        text = _read_ingest_file(path)
+        if text and text.strip():
+            docs.append(_IngestDoc(text, str(path)))
+    return docs
 
 
 def _encode_metadata(data: dict[str, Any]) -> str:
@@ -2459,13 +2518,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             str, tuple[threading.Event, threading.Event]
         ] = {}
         self._work_item_lease_heartbeats_lock = threading.Lock()
-
-        # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
-        try:
-            from llama_index.core import SimpleDirectoryReader  # noqa: F401
-            from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
-        except ImportError as exc:  # noqa: BLE001 — ImportError-guarded optional-dependency pre-import (already labeled 'optional dependency' in the log message); LlamaIndex readers are looked up again, lazily, wherever they're actually used
-            logger.debug("LlamaIndex pre-import skipped (optional dependency): %s", exc)
 
         # Initialize pluggable persistent task queue
         from agent_utilities.core.config import config
@@ -6557,36 +6609,19 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
     async def _bg_document(self, job_id: str, target: Path, task_type: str) -> None:
         import hashlib
 
-        from llama_index.core import SimpleDirectoryReader
-
         from agent_utilities.core.embedding_utilities import (
             create_embedding_model,
         )
 
         embed_model = create_embedding_model()
-        # Override the library default with the governed pypdf adapter,
-        # which enforces file, page, and extracted-character bounds.
-        pdf_extractor = _pdf_file_extractor()
-        if target.is_dir():
-            # exclude_hidden=False is REQUIRED: the research store lives
-            # under ``~/.local/share/...`` and SimpleDirectoryReader treats
-            # any file beneath a dot-dir (``.local``) as hidden, excluding
-            # everything → "No files found" despite PDFs present.
-            # recursive=False skips the ``.metadata`` sidecar dir;
-            # required_exts limits to real documents. (CONCEPT:AU-KG.coordination.embedder-breaker)
-            docs = SimpleDirectoryReader(
-                input_dir=str(target),
-                recursive=False,
-                exclude_hidden=False,
-                required_exts=sorted(SUPPORTED_EXTENSIONS),
-                file_extractor=pdf_extractor,
-            ).load_data()
-        else:
-            docs = SimpleDirectoryReader(
-                input_files=[str(target)],
-                exclude_hidden=False,
-                file_extractor=pdf_extractor,
-            ).load_data()
+        # _load_documents (D2, native — no LlamaIndex) scans non-recursively
+        # with hidden-dir exclusion OFF: the research store lives under
+        # ``~/.local/share/...`` and a dot-dir-excluding walk would treat
+        # everything beneath it as hidden, finding nothing despite real
+        # documents present. recursive=False skips the ``.metadata`` sidecar
+        # dir; SUPPORTED_EXTENSIONS limits a directory scan to real
+        # documents. (CONCEPT:AU-KG.coordination.embedder-breaker)
+        docs = _load_documents(target)
 
         created = []
         skipped = 0

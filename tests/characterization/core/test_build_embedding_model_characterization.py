@@ -1,19 +1,12 @@
 """Characterization test for ``_build_embedding_model`` (CX-AU-07).
 
-Pins the OBSERVED behaviour of the pre-refactor function (CCN 15,
-``agent_utilities/core/embedding_utilities.py``) before it is decomposed
-into per-concern helper functions (oauth2 auth resolution, TLS profile
-resolution, the openai http-client pair, and one builder per provider).
-This test must be green against the unmodified function; if it is not,
-the test is wrong, not the code. It is not touched again in the refactor
-commit.
-
-Every SDK embedding class this function constructs is monkeypatched at
-its IMPORT SOURCE (the deferred ``from llama_index.embeddings.X import Y``
-inside the function grabs the patched attribute) or, for Ollama, at the
-``embedding_utilities`` module level where it is imported eagerly. This
-keeps the test hermetic -- in particular it never lets a real
-``HuggingFaceEmbedding`` attempt a model download.
+Pins the OBSERVED behaviour of the current, native-HTTP function
+(``agent_utilities/core/embedding_utilities.py``) — no llama-index import
+anywhere (D2: GHSA-8mgp-746c-j5xp, nltk had no patched release and was
+pulled in transitively via llama-index-core). Rewritten from the
+llama-index-era version of this test, which characterized SDK classes
+(``OpenAIEmbedding``/``HuggingFaceEmbedding``/``OllamaEmbedding``) that no
+longer exist in this module.
 """
 
 from __future__ import annotations
@@ -37,54 +30,12 @@ def _config(**overrides):
     return SimpleNamespace(**base)
 
 
-class _FakeOpenAIEmbedding:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-
-class _FakeHuggingFaceEmbedding:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-
-class _FakeInnerClient:
-    def __init__(self, name):
-        self.name = name
-        self.closed = False
-
-    def close(self):
-        self.closed = True
-
-    async def aclose(self):
-        self.closed = True
-
-
-class _FakeWrappedClient:
-    def __init__(self, name):
-        self._client = _FakeInnerClient(name)
-
-
-class _FakeOllamaEmbedding:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        self._client = _FakeWrappedClient("sync")
-        self._async_client = _FakeWrappedClient("async")
-
-
 @pytest.fixture(autouse=True)
-def _patch_sdk_classes(monkeypatch):
+def _patch_config(monkeypatch):
     monkeypatch.setattr(eu, "config", _config())
-    monkeypatch.setattr(
-        "llama_index.embeddings.openai.OpenAIEmbedding", _FakeOpenAIEmbedding
-    )
-    monkeypatch.setattr(
-        "llama_index.embeddings.huggingface.HuggingFaceEmbedding",
-        _FakeHuggingFaceEmbedding,
-    )
-    monkeypatch.setattr(eu, "OllamaEmbedding", _FakeOllamaEmbedding)
 
 
-def test_openai_provider_builds_with_both_sync_and_async_http_clients():
+def test_openai_provider_builds_native_http_embedding_model():
     model = eu._build_embedding_model(
         provider_str="openai",
         model_str="text-embedding-3-small",
@@ -93,39 +44,46 @@ def test_openai_provider_builds_with_both_sync_and_async_http_clients():
         timeout=30.0,
         provider="openai",
     )
-    assert isinstance(model, _FakeOpenAIEmbedding)
-    assert model.kwargs["model_name"] == "text-embedding-3-small"
-    assert model.kwargs["api_key"] == "k"
-    assert model.kwargs["http_client"] is not None
-    assert model.kwargs["async_http_client"] is not None
-    assert model.kwargs["max_retries"] == eu._EMBED_SDK_MAX_RETRIES
+    assert isinstance(model, eu._HttpEmbeddingModel)
+    assert model.model_name == "text-embedding-3-small"
+    assert str(model._client.base_url) == "https://embed.invalid/v1/"
+    assert model._client.headers["authorization"] == "Bearer k"
 
 
-def test_huggingface_provider_builds_without_http_clients():
+def test_openai_provider_defaults_base_url_when_unconfigured():
     model = eu._build_embedding_model(
-        provider_str="huggingface",
-        model_str="BAAI/bge-small-en",
+        provider_str="openai",
+        model_str="m",
         base_url_str=None,
-        api_key_str=None,
+        api_key_str="k",
         timeout=30.0,
-        provider="huggingface",
+        provider="openai",
     )
-    assert isinstance(model, _FakeHuggingFaceEmbedding)
-    assert model.kwargs["model_name"] == "BAAI/bge-small-en"
-    assert model.kwargs["request_timeout"] == 30.0
+    assert str(model._client.base_url) == "https://api.openai.com/v1/"
 
 
-def test_local_provider_builds_huggingface_embedding_with_only_model_name():
-    model = eu._build_embedding_model(
-        provider_str="local",
-        model_str="local-model",
-        base_url_str=None,
-        api_key_str=None,
-        timeout=30.0,
-        provider="local",
-    )
-    assert isinstance(model, _FakeHuggingFaceEmbedding)
-    assert model.kwargs == {"model_name": "local-model"}
+def test_huggingface_provider_redirects_to_data_science_mcp():
+    with pytest.raises(ValueError, match="data-science-mcp"):
+        eu._build_embedding_model(
+            provider_str="huggingface",
+            model_str="BAAI/bge-small-en",
+            base_url_str=None,
+            api_key_str=None,
+            timeout=30.0,
+            provider="huggingface",
+        )
+
+
+def test_local_provider_redirects_to_data_science_mcp():
+    with pytest.raises(ValueError, match="data-science-mcp"):
+        eu._build_embedding_model(
+            provider_str="local",
+            model_str="local-model",
+            base_url_str=None,
+            api_key_str=None,
+            timeout=30.0,
+            provider="local",
+        )
 
 
 def test_ollama_provider_requires_base_url():
@@ -140,7 +98,7 @@ def test_ollama_provider_requires_base_url():
         )
 
 
-def test_ollama_provider_builds_and_rewraps_transports():
+def test_ollama_provider_builds_native_http_embedding_model():
     model = eu._build_embedding_model(
         provider_str="ollama",
         model_str="llama3",
@@ -149,13 +107,11 @@ def test_ollama_provider_builds_and_rewraps_transports():
         timeout=30.0,
         provider="ollama",
     )
-    assert isinstance(model, _FakeOllamaEmbedding)
+    assert isinstance(model, eu._HttpEmbeddingModel)
+    assert model.model_name == "llama3"
+    assert str(model._client.base_url) == "http://ollama.invalid:11434"
     # Authorization header injected from api_key_str.
-    assert model.kwargs["client_kwargs"]["headers"]["Authorization"] == "Bearer tok"
-    # Transports were replaced (not the original _FakeInnerClient instances,
-    # which get closed) with real httpx clients.
-    assert not isinstance(model._client._client, _FakeInnerClient)
-    assert not isinstance(model._async_client._client, _FakeInnerClient)
+    assert model._client.headers["authorization"] == "Bearer tok"
 
 
 def test_ollama_provider_does_not_overwrite_explicit_authorization_header():
@@ -168,23 +124,7 @@ def test_ollama_provider_does_not_overwrite_explicit_authorization_header():
         provider="ollama",
         headers={"Authorization": "Bearer explicit-header-wins"},
     )
-    assert (
-        model.kwargs["client_kwargs"]["headers"]["Authorization"]
-        == "Bearer explicit-header-wins"
-    )
-
-
-def test_ollama_dependency_missing_raises_import_error(monkeypatch):
-    monkeypatch.setattr(eu, "OllamaEmbedding", None)
-    with pytest.raises(ImportError, match="llama-index-embeddings-ollama"):
-        eu._build_embedding_model(
-            provider_str="ollama",
-            model_str="llama3",
-            base_url_str="http://ollama.invalid:11434",
-            api_key_str=None,
-            timeout=30.0,
-            provider="ollama",
-        )
+    assert model._client.headers["authorization"] == "Bearer explicit-header-wins"
 
 
 def test_unsupported_provider_raises_with_original_provider_name_in_message():
@@ -214,24 +154,16 @@ def test_oauth2_auth_is_resolved_and_attached_to_openai_http_client(monkeypatch)
     )
     captured = {}
     real_create_http_client = eu.create_http_client
-    real_create_async_http_client = eu.create_async_http_client
 
     def spy_create_http_client(**kwargs):
-        captured["sync_auth"] = kwargs.get("auth")
+        captured["auth"] = kwargs.get("auth")
         # avoid httpx's strict auth-type validation by not forwarding the
         # sentinel further -- this test only needs to prove the VALUE reached
-        # create_http_client/create_async_http_client, not build a real
-        # client with it.
+        # create_http_client, not build a real client with it.
         kwargs["auth"] = None
         return real_create_http_client(**kwargs)
 
-    def spy_create_async_http_client(**kwargs):
-        captured["async_auth"] = kwargs.get("auth")
-        kwargs["auth"] = None
-        return real_create_async_http_client(**kwargs)
-
     monkeypatch.setattr(eu, "create_http_client", spy_create_http_client)
-    monkeypatch.setattr(eu, "create_async_http_client", spy_create_async_http_client)
 
     eu._build_embedding_model(
         provider_str="openai",
@@ -243,8 +175,7 @@ def test_oauth2_auth_is_resolved_and_attached_to_openai_http_client(monkeypatch)
         oauth2_cfg={"token_url": "https://idp.invalid/token", "client_id": "c"},
     )
     assert calls["oauth2_cfg"]["client_id"] == "c"
-    assert captured["sync_auth"] == "SENTINEL_AUTH"
-    assert captured["async_auth"] == "SENTINEL_AUTH"
+    assert captured["auth"] == "SENTINEL_AUTH"
 
 
 def test_proxy_incompatible_tls_profile_raises(monkeypatch):

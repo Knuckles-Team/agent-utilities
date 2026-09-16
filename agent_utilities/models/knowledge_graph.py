@@ -1385,7 +1385,7 @@ class PipelineConfig(BaseModel):
     )
     persist_to_ladybug: bool = True
     ladybug_path: str | None = None
-    embedding_provider: str | None = "llama-index"
+    embedding_provider: str | None = "openai"
     exclude_patterns: list[str] = Field(
         default_factory=lambda: [
             ".git",
