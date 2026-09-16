@@ -24,13 +24,15 @@ from agent_utilities.core.shared_resource_leases import (
 )
 
 
-def _cell(*, device: str = "GPU-uuid/MIG-1g.5gb", epoch: int = 1) -> ResourceCell:
+def _cell(
+    *, device: str = "GPU-uuid/MIG-1g.5gb", epoch: int = 1, capacity: int = 1
+) -> ResourceCell:
     return ResourceCell(
         resource_kind="gpu_concurrency",
         resource_id="gpu-group-a",
         node_id="node-a",
         device_id=device,
-        capacity=1,
+        capacity=capacity,
         epoch=epoch,
         reserved_floor=0,
         policy_digest="policy-v1",
@@ -46,6 +48,7 @@ def _request(
     device: str = "GPU-uuid/MIG-1g.5gb",
     epoch: int = 1,
     priority: str = "interactive",
+    policy_digest: str = "policy-v1",
 ) -> ResourceLeaseRequest:
     return ResourceLeaseRequest(
         resource_kind="gpu_concurrency",
@@ -59,7 +62,7 @@ def _request(
         lease_epoch=epoch,
         ttl_ms=100,
         priority_class=priority,
-        policy_digest="policy-v1",
+        policy_digest=policy_digest,
     )
 
 
@@ -154,11 +157,18 @@ def test_mig_device_change_fences_old_epoch(tmp_path: Path) -> None:
             ttl_ms=100,
             now_ms=2,
         )
+    # ``rebind_device`` fenced the cell onto ``policy-v2`` along with the new
+    # epoch/device (``SQLiteResourceLeaseAuthority.rebind_device`` --
+    # ``_validate_cell_scope`` requires an exact match on ALL THREE: device,
+    # epoch, AND policy digest). A request still carrying the pre-rebind
+    # digest is exactly the "stale policy assumption" this scope check exists
+    # to deny, so the new acquire must present the current digest.
     new = authority.acquire(
         _request(
             key="new-device",
             device="GPU-uuid/MIG-2g.10gb",
             epoch=2,
+            policy_digest="policy-v2",
         ),
         now_ms=3,
     )
@@ -211,7 +221,14 @@ def test_tenant_quota_and_reserved_floor_preserve_fairness(tmp_path: Path) -> No
 
 def test_forged_owner_fence_and_key_are_denied(tmp_path: Path) -> None:
     path = str(tmp_path / "leases.sqlite")
-    authority = SQLiteResourceLeaseAuthority(path, cells=(_cell(),))
+    # capacity=2 (vs. the shared ``_cell()`` default of 1): this test's last
+    # assertion exercises idempotency-key isolation across tenants, not
+    # capacity denial -- tenant-a's lease is still legitimately active
+    # throughout (its forged release/renew attempts are correctly denied and
+    # never mutate state), so a capacity-1 cell would deny tenant-b's later
+    # acquire for a reason unrelated to what this test is checking. Both
+    # tenant quotas (1 each) still cap any single tenant at its own share.
+    authority = SQLiteResourceLeaseAuthority(path, cells=(_cell(capacity=2),))
     lease = authority.acquire(_request(key="original"), now_ms=1)
     with pytest.raises(LeaseScopeMismatch):
         authority.release(
