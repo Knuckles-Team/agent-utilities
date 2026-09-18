@@ -239,14 +239,14 @@ def test_bundle_chat_completion_sends_expected_messages_and_kwargs():
         bundle,
         "What does claim A say?",
         client=client,
-        model="qwen/qwen3.6-27b",
+        model="qwen/qwen3.8-27b",
         max_tokens=16,
         temperature=0.0,
     )
 
     assert len(client.chat.completions.calls) == 1
     call = client.chat.completions.calls[0]
-    assert call["model"] == "qwen/qwen3.6-27b"
+    assert call["model"] == "qwen/qwen3.8-27b"
     assert call["max_tokens"] == 16
     assert call["temperature"] == 0.0
     assert call["messages"] == bundle.as_prompt_messages("What does claim A say?")
@@ -285,7 +285,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
     from agent_utilities.core.config import AgentConfig
 
     class _FakeChatModelConfig:
-        id = "qwen/qwen3.6-27b"
+        id = "qwen/qwen3.8-27b"
         base_url = "http://vllm.example/v1"
         api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
         headers_ref = None
@@ -300,7 +300,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
     )
 
     client, model_id = resolve_bundle_chat_client()
-    assert model_id == "qwen/qwen3.6-27b"
+    assert model_id == "qwen/qwen3.8-27b"
     assert str(client.base_url).rstrip("/") == "http://vllm.example/v1"
     assert client.api_key == "synthetic-runtime-material"
 

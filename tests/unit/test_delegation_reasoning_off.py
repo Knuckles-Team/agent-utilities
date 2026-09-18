@@ -8,7 +8,7 @@ enable_thinking``). Both are required: pydantic-ai's ``Model.prepare_request()``
 forwards ``thinking`` into the actual request when the model's PROFILE is recognized as
 reasoning-capable (``openai_model_profile()`` recognizes only OpenAI's own o-series/
 gpt-5(.1+) naming); a local/custom reasoning model served through the generic ``openai``
-provider — e.g. ``qwen/qwen3.6-27b`` behind vLLM — gets ``supports_thinking=False`` from
+provider — e.g. ``qwen/qwen3.8-27b`` behind vLLM — gets ``supports_thinking=False`` from
 that heuristic, so ``thinking`` silently never reaches the wire regardless of its value,
 and the model's OWN default (thinking ON) always wins. This was a LIVE regression: this
 very test file used to assert ``"reasoning_effort" not in extra_body`` — i.e. it pinned
@@ -125,7 +125,7 @@ def test_default_reasoning_settings_carry_thinking_disable_directive_on_the_wire
     (``reasoning_effort="none"``) must reach the wire via ``extra_body``, not rely on
     ``ModelSettings.thinking`` alone — pydantic-ai silently drops ``thinking`` for a model
     whose profile isn't recognized as reasoning-capable (a custom/local reasoning model
-    like ``qwen/qwen3.6-27b`` via a generic ``openai`` provider is exactly such a model),
+    like ``qwen/qwen3.8-27b`` via a generic ``openai`` provider is exactly such a model),
     which is what made a "reasoning off by default" call measure ~22s instead of ~0.3s."""
     settings = _openai_reasoning_settings("none")
     assert settings["thinking"] is False
@@ -191,7 +191,7 @@ def test_create_agent_threads_reasoning_effort_onto_thinking(monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     common = dict(
         provider="openai",
-        model_id="qwen/qwen3.6-27b",
+        model_id="qwen/qwen3.8-27b",
         base_url="http://vllm.example/v1",
         api_key=None,
         mcp_toolsets=[],
@@ -259,7 +259,7 @@ def _run_single_server(monkeypatch, config: dict) -> dict:
     base = {
         "mcp_toolsets": [object()],  # non-empty so it doesn't fail-loud on "no toolset"
         "provider": "openai",
-        "agent_model": "qwen/qwen3.6-27b",
+        "agent_model": "qwen/qwen3.8-27b",
         "base_url": "http://vllm.example/v1",
         "api_key": None,
     }

@@ -14,7 +14,7 @@ thinking` into the actual outgoing request when the model's PROFILE is
 recognized as reasoning-capable — and `openai_model_profile()` recognizes
 ONLY OpenAI's own o-series/gpt-5(.1+) naming. A local/custom reasoning model
 served through the generic `openai`-compatible provider (the concrete
-example named in the code: `qwen/qwen3.6-27b` behind vLLM) gets
+example named in the code: `qwen/qwen3.8-27b` behind vLLM) gets
 `supports_thinking=False` from that heuristic, so `thinking` — however it was
 set, on the model OR the agent — never reaches the wire. The model's OWN
 default (thinking ON, since it's a reasoning model) always wins instead. The

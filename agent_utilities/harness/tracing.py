@@ -365,7 +365,7 @@ def generation(
 
     Args:
         name: Name of the generation. Defaults to function name.
-        model: LLM model identifier (e.g. ``qwen3.6-27b``).
+        model: LLM model identifier (e.g. ``qwen3.8-27b``).
         tags: Optional tags for Langfuse filtering.
     """
     return trace(

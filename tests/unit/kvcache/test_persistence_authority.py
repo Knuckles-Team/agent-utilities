@@ -82,7 +82,7 @@ TENANT = "t1"
 
 def _key(tenant: str = TENANT, prefix: str = "ctx") -> KVCheckpointKey:
     return KVCheckpointKey(
-        model_identity="qwen3.6-27b",
+        model_identity="qwen3.8-27b",
         quantization="fp16",
         serving_engine="vllm",
         engine_version="0.9.0",
@@ -837,7 +837,7 @@ def _mcp_args(**overrides):
     base = dict(
         graph="",
         data_b64="",
-        model_identity="qwen3.6-27b",
+        model_identity="qwen3.8-27b",
         quantization="fp16",
         serving_engine="vllm",
         engine_version="0.9.0",

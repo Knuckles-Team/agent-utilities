@@ -24,7 +24,7 @@ reference only (see `services/vllm/AGENTS.md`).
 
 What actually shipped, and why it differs from the Compose-era plan those files describe:
 
-- **Connector: `LMCacheMPConnector`, not `LMCacheConnectorV1`.** `nvidia/Qwen3.6-27B-NVFP4`
+- **Connector: `LMCacheMPConnector`, not `LMCacheConnectorV1`.** `nvidia/Qwen3.8-27B-NVFP4`
   (the live chat model) has GDN/Mamba recurrent layers; V1 crash-loops on
   `unify_hybrid_kv_cache_specs` for any hybrid model. The MP connector is not a
   preference here, it is the only connector that boots on this model at all.
@@ -234,7 +234,7 @@ A hybrid model's Mamba/GDN layers keep a **fixed-size recurrent state** (not per
 LMCache reinterprets that state as an opaque page and snapshots it **at block boundaries**.
 For every boundary to be captured, a prefill step must advance **exactly one block**, so
 `--max-num-batched-tokens` must equal the Mamba block size (vLLM derives it — e.g. **1568**
-for Qwen3.6-27B — and pads the attention/Mamba pages to be exactly equal). The
+for Qwen3.8-27B — and pads the attention/Mamba pages to be exactly equal). The
 `lmcache server --chunk-size` must match. LMCache enforces this at init
 (`validate_mamba_step_alignment`).
 
@@ -306,7 +306,7 @@ and `logical_bytes` grow on a first put, and a **repeat-key** put trips `dedup_h
 |------------|-------------|-------|
 | Dense / full-attention | ✅ | one object group; large batched-tokens |
 | Sliding-window hybrid (Gemma-style) | ✅ | per-window groups |
-| **Mamba/GDN hybrid** (Qwen3.6, Nemotron-3-Nano) | ✅ | needs `align` + batched-tokens/chunk = block size |
+| **Mamba/GDN hybrid** (Qwen3.8, Nemotron-3-Nano) | ✅ | needs `align` + batched-tokens/chunk = block size |
 | Compressed-KV (DeepSeek-V4-style) | ❌ | unsupported → native-APC fallback |
 | Vision-language | ✅ **text KV only** | vision KV not cached |
 
@@ -442,7 +442,7 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
    for i in 1 2; do
      curl -s http://10.0.0.18:8000/v1/completions \
        -H 'content-type: application/json' \
-       -d "{\"model\":\"qwen/qwen3.6-27b\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
+       -d "{\"model\":\"qwen/qwen3.8-27b\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
        -o /dev/null -w "run $i: %{time_total}s\n"
    done
    ```
@@ -618,7 +618,7 @@ per-run nonce):
 - **Every warm (same-bundle, different question) call hit a nonzero,
   block-quantized number of prefix-cache tokens** — 1568 for bundles B and C,
   3136 (= 2 × 1568) for bundle A — exact multiples of the documented Mamba/GDN
-  block size for Qwen3.6-27B (see "Why hybrids need the block-aligned
+  block size for Qwen3.8-27B (see "Why hybrids need the block-aligned
   batched-tokens" above), i.e. the reused span is an integer number of KV
   blocks, exactly what block-level prefix-cache reuse produces.
 - **Every warm call was faster than that SAME bundle's own cold call**

@@ -144,7 +144,7 @@ The KG MCP server relies on the unified `agent-utilities` configuration for LLM 
 {
   "chat_models": [
     {
-      "id": "qwen/qwen3.6-27b",
+      "id": "qwen/qwen3.8-27b",
       "provider": "openai",
       "intelligence_level": "normal"
     }

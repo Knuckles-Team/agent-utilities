@@ -71,7 +71,7 @@ def failover_config(monkeypatch):
         "chat_models",
         [
             ChatModelConfig(
-                id="qwen3.6-27b",
+                id="qwen3.8-27b",
                 provider="openai",
                 base_url="https://generation.example.test/v1",
                 gpu_group=_SHARED_GROUP,

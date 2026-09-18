@@ -90,7 +90,7 @@ async def test_openai_compatible_model_merges_governed_and_agent_system_messages
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     wrapped = model_factory.create_model(
         provider="openai",
-        model_id="qwen/qwen3.6-27b",
+        model_id="qwen/qwen3.8-27b",
         base_url="http://vllm.example/v1",
     )
     model = _unwrap_model(wrapped)

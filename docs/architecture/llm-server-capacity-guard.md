@@ -141,7 +141,7 @@ server config must leave room for **both** plus the system. Align the server's
 
 ```bash
 # qwen generator (the 35B MoE) — the latency-sensitive model
-vllm serve qwen/qwen3.6-27b \
+vllm serve qwen/qwen3.8-27b \
   --gpu-memory-utilization 0.55 \   # leave headroom; the embedder + system share the 121 GB
   --max-num-seqs 32 \               # the concurrent-sequence budget; set the client ceiling ≤ this
   --max-model-len 131072            # KV-cache scales with this × max-num-seqs — keep it bounded

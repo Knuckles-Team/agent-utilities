@@ -94,7 +94,7 @@ from tests.unit.kvcache.test_persistence_authority import (  # noqa: E402
 
 def _key(tenant: str = "t1", prefix: str = "ctx") -> KVCheckpointKey:
     return KVCheckpointKey(
-        model_identity="qwen3.6-27b",
+        model_identity="qwen3.8-27b",
         quantization="fp16",
         serving_engine="vllm",
         engine_version="0.9.0",
@@ -910,7 +910,7 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
 
     common = dict(
         graph="",
-        model_identity="qwen3.6-27b",
+        model_identity="qwen3.8-27b",
         quantization="fp16",
         serving_engine="vllm",
         engine_version="0.9.0",
