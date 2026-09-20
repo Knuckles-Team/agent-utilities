@@ -157,6 +157,19 @@ def _is_code_file(path: str) -> bool:
     return ext in CODE_EXTENSIONS
 
 
+def _project_from_row(row: dict[str, Any]) -> GitLabProject:
+    """One project's REST JSON row -> :class:`GitLabProject` (shared by the
+    listing and direct-by-id lookup, which otherwise built the identical
+    object from two independent copies of this field mapping)."""
+    return GitLabProject(
+        id=str(row.get("id")),
+        path_with_namespace=row.get("path_with_namespace", str(row.get("id"))),
+        default_branch=row.get("default_branch") or "main",
+        web_url=row.get("web_url", ""),
+        last_activity_at=row.get("last_activity_at"),
+    )
+
+
 def index_instance(
     *,
     instance: str,
@@ -537,15 +550,7 @@ class GitLabRestSource:
                 "/projects",
                 {"membership": "true", "simple": "false", "archived": "false"},
             ):
-                yield GitLabProject(
-                    id=str(row.get("id")),
-                    path_with_namespace=row.get(
-                        "path_with_namespace", str(row.get("id"))
-                    ),
-                    default_branch=row.get("default_branch") or "main",
-                    web_url=row.get("web_url", ""),
-                    last_activity_at=row.get("last_activity_at"),
-                )
+                yield _project_from_row(row)
 
     def get_project(self, project_id: str) -> GitLabProject | None:
         """Direct-by-id lookup (``GET /projects/:id``) — issues no listing call.
@@ -567,13 +572,7 @@ class GitLabRestSource:
             row = resp.json()
             if not isinstance(row, dict):
                 return None
-            return GitLabProject(
-                id=str(row.get("id")),
-                path_with_namespace=row.get("path_with_namespace", str(row.get("id"))),
-                default_branch=row.get("default_branch") or "main",
-                web_url=row.get("web_url", ""),
-                last_activity_at=row.get("last_activity_at"),
-            )
+            return _project_from_row(row)
 
     def list_files(self, project: GitLabProject) -> Iterable[str]:
         with self._session() as session:
