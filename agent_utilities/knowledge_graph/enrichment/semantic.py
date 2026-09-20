@@ -472,9 +472,22 @@ _ENTITY_SUMMARY_FIELDS: tuple[str, ...] = (
 # Never embed identifiers, timestamps, urls, or other low-signal/high-churn
 # fields even when they happen to be strings — keeps ``derive_entity_text``
 # deterministic and avoids polluting the embedding with noise.
+#
+# "type"/"node_type" are here (EH-269, found while wiring the ingest-time
+# embedding admission classifier) because the fallback loop below ALREADY
+# seeds ``fallback_parts`` with the resolved ``node_type`` before this loop
+# runs — without this exclusion, an entity with no name/summary field re-adds
+# the SAME value a second time by iterating over the "type"/"node_type" key
+# too, producing a nonsense doubled string like ``"Order — Order"`` as the
+# embedded text for every such entity, not just a KG-2.46-shaped few. That
+# doubled string is real (non-token, multi-word) text, so it used to slip
+# past every size/shape check and get embedded — pure noise, exactly what
+# this ledger row exists to stop.
 _ENTITY_TEXT_SKIP_KEYS = frozenset(
     {
         "id",
+        "type",
+        "node_type",
         "embedding",
         "text",
         "tenant_id",

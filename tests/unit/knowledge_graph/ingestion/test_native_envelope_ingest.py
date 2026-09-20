@@ -2156,3 +2156,151 @@ def test_materialization_retries_are_bounded_by_the_shared_max_attempts(
     assert "did not finish materializing" in result["reason"]
     assert len(compute.client.changes.applied) == module._MATERIALIZATION_MAX_ATTEMPTS
     assert len(sleeps) == module._MATERIALIZATION_MAX_ATTEMPTS - 1
+
+
+# ---------------------------------------------------------------------------
+# EH-269: the embedding admission classifier wired into the D-EMB chokepoint.
+# See ``embedding_admission.py`` for the classifier itself (unit-tested in
+# ``test_embedding_admission.py``); these prove it is actually WIRED into
+# ``ingest_envelope``/``ingest_envelopes``, end to end, through the same
+# fakes the rest of this file's D-EMB section uses.
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_envelope_never_embeds_a_lockfile_shaped_entity(_fake_embed_fn) -> None:
+    """A generated/lockfile/vendored/minified/binary unit never reaches the
+    embedder — the cheapest win the design calls out, proven at the real
+    chokepoint, not just in the classifier's own unit tests.
+
+    Uses ``relpath`` (not ``path``/``file_path``): those two are
+    unconditionally redacted to ``"[REDACTED_LOCATION]"`` by the persistence
+    -privacy gate, which runs BEFORE this classifier (correct precedence —
+    privacy wins over economics), so they never carry a usable path signal
+    here. ``relpath`` is what the real ``git_markdown`` connector uses in
+    production for exactly this reason — see
+    ``embedding_admission.py``'s ``_PATH_FIELDS`` docstring."""
+    compute = _Compute("graph-embed-lockfile")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "relpath": "project/package-lock.json",
+            "description": "a long enough description that would otherwise embed fine",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] is None
+    assert _fake_embed_fn == []  # never called
+
+
+def test_ingest_envelope_still_embeds_ordinary_prose(_fake_embed_fn) -> None:
+    """The classifier is a FILTER, not a blanket denial — an ordinary
+    document-shaped entity with no never-embed signal still gets a vector."""
+    compute = _Compute("graph-embed-prose")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Customer refund policy",
+            "description": "Refunds are issued within 14 days of the return being received.",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
+    assert len(_fake_embed_fn) == 1
+
+
+def test_ingest_envelope_cdc_row_skips_enum_and_fk_columns(_fake_embed_fn) -> None:
+    """A CDC/SQL row (``connector="cdc"``) whose only string content is an
+    enum-ish status column and a foreign key never embeds — with those
+    columns filtered out there is no eligible free-text left (just the bare
+    node type name), so the classifier's size-bound rule takes it from
+    there, same as any other too-short candidate."""
+    compute = _Compute("graph-embed-cdc-enum")
+    envelope = _envelope(
+        connector="cdc",
+        typed_payload={
+            "id": "object-1",
+            "node_type": "Order",
+            "customer_id": "cust-42",
+            "status": "SHIPPED",
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] is None
+    assert _fake_embed_fn == []
+
+
+def test_ingest_envelope_cdc_row_embeds_only_the_free_text_column(
+    _fake_embed_fn,
+) -> None:
+    """The SAME CDC row, but with a genuine free-text VARCHAR column added
+    (``notes``) — that column alone is admitted and embedded; the
+    enum/FK/timestamp columns never pollute the derived text."""
+    compute = _Compute("graph-embed-cdc-freetext")
+    envelope = _envelope(
+        connector="cdc",
+        typed_payload={
+            "id": "object-1",
+            "node_type": "Order",
+            "customer_id": "cust-42",
+            "status": "SHIPPED",
+            "created_at": "2026-09-01T00:00:00Z",
+            "notes": "Customer requested gift wrapping and a handwritten card.",
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
+    assert len(_fake_embed_fn) == 1
+    (embedded_text,) = _fake_embed_fn[0]
+    assert "SHIPPED" not in embedded_text
+    assert "cust-42" not in embedded_text
+    assert "gift wrapping" in embedded_text
+
+
+def test_ingest_envelopes_batch_dedupes_identical_text_to_one_embed_call(
+    _fake_embed_fn,
+) -> None:
+    """EH-269's entropy/duplication gate: three envelopes sharing the exact
+    same derived text cost ONE embed call, not three, and all three still
+    receive a vector."""
+    compute = _Compute("graph-embed-dedupe")
+    envelopes = [
+        _envelope(
+            source_object_id=f"object-{i}",
+            source_version=str(i),
+            checkpoint=str(i),
+            typed_payload={
+                "id": f"object-{i}",
+                "type": "FixtureRecord",
+                "name": "Shared boilerplate text",
+                "description": "This exact sentence repeats across every fixture row.",
+            },
+        )
+        for i in range(1, 4)
+    ]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success"] * 3
+    assert len(_fake_embed_fn) == 1  # one call to the embedder
+    assert len(_fake_embed_fn[0]) == 1  # covering exactly one DISTINCT text
+    for i in range(1, 4):
+        stored = compute.client.nodes.properties(f"object-{i}")
+        assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1229
+total_concepts: 1230
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -512,7 +512,7 @@ concepts:
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/harness/memorydata/__init__.py
   - agent_utilities/harness/memorydata/adapter.py
-  - agent_utilities/harness/memorydata/cli.py
+  - agent_utilities/harness/memorydata/bakeoff.py
   - agent_utilities/harness/memorydata/client.py
   doc: a MemoryData-contract agent method over the graph-os
 - id: AU-AHE.harness.harness-evolution
@@ -4003,6 +4003,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: drain a remote session-bundle upload that the
+- id: AU-KG.ingest.embedding-admission
+  name: AU-KG.ingest.embedding-admission
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/embedding_admission.py
+  doc: AU-KG.ingest.embedding-admission
 - id: AU-KG.ingest.engineering-rules
   name: Entity-Claim Extraction / MAGMA Epistemic View
   pillar: AU-KG
@@ -10790,16 +10797,17 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: to turn each project
 - id: EG-KG.compute.type-scope-resolved-call
-  name: one
+  name: so parse and
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/features.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/mcp/kg_server.py
-  doc: one
+  doc: so parse and
 - id: EG-KG.domains.forensic-accounting-kernels
   name: forensic accounting kernels
   pillar: EG-KG

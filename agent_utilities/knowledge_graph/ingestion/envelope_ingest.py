@@ -2857,6 +2857,56 @@ def _generate_pending_vectors(
         return None
 
 
+def _admit_pending_text(
+    *, connector: str, row: dict[str, Any], text: str
+) -> str | None:
+    """The EH-269 admission gate: ``text`` when the deterministic classifier
+    admits it, else ``None``. See ``embedding_admission.py`` for the full
+    decision table and its rationale; this is the one call site that wires
+    it INTO the D-EMB chokepoint rather than around it."""
+    from .embedding_admission import classify_unit
+
+    verdict = classify_unit(connector=connector, row=row, text=text)
+    if verdict.admit:
+        return text
+    logger.debug(
+        "ingest-time embedding admission: skipped class=%s (%s)",
+        verdict.content_class.value,
+        verdict.reason,
+    )
+    return None
+
+
+def _expand_deduplicated_vectors(
+    pending: list[tuple[int, str]],
+    supplied: dict[int, tuple[list[float], str]],
+) -> dict[int, tuple[list[float], str]]:
+    """Batch-generate vectors for DISTINCT pending texts only (EH-269's
+    entropy/duplication gate), then fan each vector back out to every
+    position that shared its exact text — one embed call per distinct
+    string, not one per row."""
+    from .embedding_admission import dedupe_by_content_hash
+
+    unique_pending, alias_map = dedupe_by_content_hash(pending)
+    vectors = _generate_pending_vectors(unique_pending)
+    if vectors is None:
+        return supplied
+
+    embedded = dict(supplied)
+    vector_by_position: dict[int, list[float]] = {}
+    for (position, text), vector in zip(unique_pending, vectors, strict=True):
+        shared = list(vector)
+        embedded[position] = (shared, text)
+        vector_by_position[position] = shared
+    pending_text = dict(pending)
+    for position, representative in alias_map.items():
+        embedded[position] = (
+            vector_by_position[representative],
+            pending_text[position],
+        )
+    return embedded
+
+
 def _prepare_embedding_envelopes(
     client: Any, envelopes: list[ChangeEnvelope]
 ) -> dict[int, tuple[list[float], str]]:
@@ -2868,34 +2918,50 @@ def _prepare_embedding_envelopes(
     while a real text change commits ``embedding = null`` in the source envelope.
     Replacement vectors are returned for a later atomic field+ANN transaction;
     they are deliberately *not* made durable in the source mutation first.
+
+    EH-269: between staging and batching, a candidate's derived text passes
+    the deterministic admission classifier (``embedding_admission.py``) — a
+    generated/lockfile/vendored/minified/binary/never-retrieved-shape unit,
+    a too-short or single-token unit, or (for SQL/CDC rows) an
+    enum/FK/timestamp/bool/numeric column never reaches the embedder. A
+    skip here leaves ``embedding`` exactly as ``_stage_embedding_change``
+    already nulled it — identical to the pre-existing "auto-embed disabled"
+    outcome, never a durability failure.
     """
+    from ..core.ingest_profile import stage as _ingest_stage
+    from .embedding_admission import sql_free_text_fields
+
     primary = _primary_upsert_targets(envelopes)
     existing = _node_properties_batch(client, [node_id for _, node_id, _ in primary])
 
-    supplied: dict[int, tuple[list[float], str]] = {}
-    pending: list[tuple[int, str]] = []
-    for position, node_id, row in primary:
-        payload = envelopes[position].typed_payload
-        assert payload is not None
-        staged = _stage_embedding_change(payload, existing.get(node_id, {}), row)
-        if staged is None:
-            continue
-        vector, new_text = staged
-        if vector is not None:
-            supplied[position] = (vector, new_text)
-        elif new_text:
-            pending.append((position, new_text))
+    with _ingest_stage("embed_admission"):
+        supplied: dict[int, tuple[list[float], str]] = {}
+        pending: list[tuple[int, str]] = []
+        for position, node_id, row in primary:
+            envelope = envelopes[position]
+            payload = envelope.typed_payload
+            assert payload is not None
+            filtered_current = sql_free_text_fields(
+                envelope.connector, existing.get(node_id, {})
+            )
+            filtered_row = sql_free_text_fields(envelope.connector, row)
+            staged = _stage_embedding_change(payload, filtered_current, filtered_row)
+            if staged is None:
+                continue
+            vector, new_text = staged
+            if vector is not None:
+                supplied[position] = (vector, new_text)
+                continue
+            admitted_text = new_text and _admit_pending_text(
+                connector=envelope.connector, row=row, text=new_text
+            )
+            if admitted_text:
+                pending.append((position, admitted_text))
 
     if not pending or not _auto_embed_enabled():
         return supplied
-    vectors = _generate_pending_vectors(pending)
-    if vectors is None:
-        return supplied
-
-    embedded = dict(supplied)
-    for (position, text), vector in zip(pending, vectors, strict=True):
-        embedded[position] = (list(vector), text)
-    return embedded
+    with _ingest_stage("embed"):
+        return _expand_deduplicated_vectors(pending, supplied)
 
 
 def _atomic_embedding_fn(
