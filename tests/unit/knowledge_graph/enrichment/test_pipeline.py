@@ -359,22 +359,33 @@ def _sym(node_id, name, file_path, sym_type="Function"):
     }
 
 
-def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path):
-    """When the engine advertises IndexRepository, the pipeline uses ONE resolver
-    round-trip: symbols + already-bound CALLS/INHERITS edges (with strategy/
-    confidence), bypassing the Python name-only resolver."""
+def _caller_helper_index_fixture(tmp_path, *, with_confidence: bool):
+    """Shared arrange step for the two ``index_fn``-resolver tests below: a
+    caller/helper CALLS pair, a Child(Base) INHERITS pair, and a caller/helper
+    SIMILAR_TO pair. ``with_confidence`` toggles whether the CALLS edge
+    carries the resolver's strategy/confidence properties (one test asserts
+    on those; the other only needs the rung each rel_type gets stamped, and
+    stays confidence-free to prove rung classification doesn't depend on it).
+
+    Logical (repo-relative) identity: both callers drive
+    ``pipe.enrich(tmp_path)``, which always passes ``source_root=tmp_path``
+    (CONCEPT:AU-KG.ingest.logical-identity), so the mocked ``index_fn``
+    response must echo back the SAME logical identity the pipeline computed
+    for its request, not the caller's absolute path.
+    """
     (tmp_path / "app.py").write_text(
         "def caller():\n    return helper()\n\ndef helper():\n    return 1\n"
     )
     (tmp_path / "model.py").write_text(
         "class Base:\n    pass\n\nclass Child(Base):\n    pass\n"
     )
-    # Logical (repo-relative) identity: this test drives ``pipe.enrich(tmp_path)``,
-    # which always passes ``source_root=tmp_path`` (CONCEPT:AU-KG.ingest.logical-identity),
-    # so the mocked index_fn response must echo back the SAME logical identity
-    # the pipeline computed for its request, not the caller's absolute path.
     app = "app.py"
     model = "model.py"
+    calls_props = (
+        {"name": "helper", "strategy": "same_file", "confidence": "0.90"}
+        if with_confidence
+        else {"name": "helper"}
+    )
 
     def index_fn(_files):
         return {
@@ -389,11 +400,7 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
                     "source": "symbol:caller",
                     "target": "symbol:helper",
                     "edge_type": "calls",
-                    "properties": {
-                        "name": "helper",
-                        "strategy": "same_file",
-                        "confidence": "0.90",
-                    },
+                    "properties": calls_props,
                 },
                 {
                     "source": "symbol:Child",
@@ -414,6 +421,14 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
             "files_parsed": 2,
         }
 
+    return index_fn
+
+
+def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path):
+    """When the engine advertises IndexRepository, the pipeline uses ONE resolver
+    round-trip: symbols + already-bound CALLS/INHERITS edges (with strategy/
+    confidence), bypassing the Python name-only resolver."""
+    index_fn = _caller_helper_index_fixture(tmp_path, with_confidence=True)
     backend = PropBackend()
     pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
     summary = pipe.enrich(tmp_path)
@@ -443,46 +458,7 @@ def test_pipeline_index_resolver_stamps_edge_rung(tmp_path):
     Split out from ``test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges``
     (same fixture shape) so that test's own complexity doesn't grow with
     every new EH-274 field it would otherwise need to assert on."""
-    (tmp_path / "app.py").write_text(
-        "def caller():\n    return helper()\n\ndef helper():\n    return 1\n"
-    )
-    (tmp_path / "model.py").write_text(
-        "class Base:\n    pass\n\nclass Child(Base):\n    pass\n"
-    )
-    app = "app.py"
-    model = "model.py"
-
-    def index_fn(_files):
-        return {
-            "nodes": [
-                _sym("symbol:caller", "caller", app),
-                _sym("symbol:helper", "helper", app),
-                _sym("symbol:Base", "Base", model, sym_type="Class"),
-                _sym("symbol:Child", "Child", model, sym_type="Class"),
-            ],
-            "edges": [
-                {
-                    "source": "symbol:caller",
-                    "target": "symbol:helper",
-                    "edge_type": "calls",
-                    "properties": {"name": "helper"},
-                },
-                {
-                    "source": "symbol:Child",
-                    "target": "symbol:Base",
-                    "edge_type": "inherits",
-                    "properties": {"name": "Base"},
-                },
-                {
-                    "source": "symbol:caller",
-                    "target": "symbol:helper",
-                    "edge_type": "similar_to",
-                    "properties": {"score": "0.75"},
-                },
-            ],
-            "files_parsed": 2,
-        }
-
+    index_fn = _caller_helper_index_fixture(tmp_path, with_confidence=False)
     backend = PropBackend()
     pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
     pipe.enrich(tmp_path)

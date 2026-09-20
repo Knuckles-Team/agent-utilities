@@ -49,6 +49,11 @@ from __future__ import annotations
 from typing import Any
 
 from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
+
+# EH-274: this connector mirrors Camunda's own declared BPMN model 1:1 --
+# every edge below is a direct structural fact, not a resolution/statistic/
+# model/embedding/LLM step performed here.
+_CAMUNDA_RUNG = EdgeRung.EXTRACTED
 from ..registry import register_extractor
 
 CATEGORY = "camunda"
@@ -222,7 +227,7 @@ def _lift_process_structure(
         )
         edges.append(
             EnrichmentEdge(
-                rung=EdgeRung.EXTRACTED,
+                rung=_CAMUNDA_RUNG,
                 source=node_id,
                 target=proc_node_id,
                 rel_type="PART_OF",
@@ -247,7 +252,7 @@ def _lift_process_structure(
                     emitted.add((src, tgt))
                     edges.append(
                         EnrichmentEdge(
-                            rung=EdgeRung.EXTRACTED,
+                            rung=_CAMUNDA_RUNG,
                             source=f"bpmn_task:{proc_id}:{src}",
                             target=f"bpmn_task:{proc_id}:{tgt}",
                             rel_type="FLOWS_TO",
@@ -299,7 +304,7 @@ def extract(config: Any) -> ExtractionBatch:
             props["externalToolId"] = egeria_guid
             edges.append(
                 EnrichmentEdge(
-                    rung=EdgeRung.EXTRACTED,
+                    rung=_CAMUNDA_RUNG,
                     source=proc_node_id,
                     target=f"egeria_process:{egeria_guid}",
                     rel_type="ALIGNED_WITH",
@@ -332,7 +337,7 @@ def extract(config: Any) -> ExtractionBatch:
         if proc_ref:
             edges.append(
                 EnrichmentEdge(
-                    rung=EdgeRung.EXTRACTED,
+                    rung=_CAMUNDA_RUNG,
                     source=node_id,
                     target=f"bpmn_process:{proc_ref}",
                     rel_type="PART_OF",
@@ -359,7 +364,7 @@ def extract(config: Any) -> ExtractionBatch:
         if proc_ref:
             edges.append(
                 EnrichmentEdge(
-                    rung=EdgeRung.EXTRACTED,
+                    rung=_CAMUNDA_RUNG,
                     source=node_id,
                     target=f"bpmn_process:{proc_ref}",
                     rel_type="AFFECTS",

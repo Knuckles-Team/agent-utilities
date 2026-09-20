@@ -9,6 +9,7 @@ timings.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -68,6 +69,85 @@ def _parse_result(rel_path: str) -> dict[str, Any]:
     }
 
 
+def _make_fake_parser(calls: list[str], *, raise_if_called: bool = False):
+    """A ``RustASTParser`` double whose ``parse_file`` records every call (or
+    raises, to prove the batch path never falls back to it on the happy
+    path)."""
+
+    class FakeParser:
+        socket_path = "/fake.sock"
+        auth_secret = "s"
+        verified_context: dict[str, Any] = {}
+
+        async def parse_file(self, rel_path: str, source: bytes) -> dict[str, Any]:
+            if raise_if_called:
+                raise AssertionError("per-file path should not run here")
+            calls.append(rel_path)
+            return _parse_result(rel_path)
+
+    return FakeParser()
+
+
+def _make_fake_batch_client(batch_calls: list[list[tuple[str, bytes]]]):
+    """An ``EpistemicGraphClient`` double whose ``.graph.parse_files`` records
+    each batch call and returns one result per requested file."""
+
+    class FakeGraphOps:
+        async def parse_files(
+            self, files: list[tuple[str, bytes]]
+        ) -> list[dict[str, Any]]:
+            batch_calls.append(list(files))
+            return [_parse_result(fp) for fp, _src in files]
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.graph = FakeGraphOps()
+
+        @classmethod
+        async def connect(cls, **kwargs: Any) -> FakeClient:
+            return cls()
+
+        async def close(self) -> None:
+            pass
+
+    return FakeClient
+
+
+def _make_unreachable_client(exc: Exception):
+    """An ``EpistemicGraphClient`` double whose ``.connect`` always fails,
+    simulating an unavailable engine socket."""
+
+    class FakeClient:
+        @classmethod
+        async def connect(cls, **kwargs: Any) -> FakeClient:
+            raise exc
+
+    return FakeClient
+
+
+def _patch_engine(
+    monkeypatch: pytest.MonkeyPatch, parser: Any, client_cls: Any
+) -> None:
+    """Wire ``parser``/``client_cls`` in place of the real
+    ``epistemic_graph.parser``/``epistemic_graph.client`` modules, and stub
+    the ambient ``GraphSession`` this phase reads its ``verified_context``
+    from — the one monkeypatch dance every test in this file needs."""
+    monkeypatch.setitem(
+        sys.modules,
+        "epistemic_graph.parser",
+        SimpleNamespace(RustASTParser=lambda **kw: parser),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "epistemic_graph.client",
+        SimpleNamespace(EpistemicGraphClient=client_cls),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.GraphSession.from_ambient",
+        classmethod(lambda cls: SimpleNamespace(engine_verified_context=lambda: {})),
+    )
+
+
 @pytest.mark.asyncio
 async def test_code_files_use_one_batched_round_trip(tmp_path, monkeypatch):
     """N code files -> ONE `client.graph.parse_files` call, not N `parse_file` calls."""
@@ -76,54 +156,14 @@ async def test_code_files_use_one_batched_round_trip(tmp_path, monkeypatch):
         p = tmp_path / f"m{i}.py"
         p.write_text(f"def fn{i}(): pass\n")
         py_files.append(str(p))
-
     ctx, files = _ctx(tmp_path, py_files)
 
     parse_file_calls: list[str] = []
-
-    class FakeParser:
-        socket_path = "/fake.sock"
-        auth_secret = "s"
-        verified_context = {}
-
-        async def parse_file(self, rel_path, source):
-            parse_file_calls.append(rel_path)
-            return _parse_result(rel_path)
-
     batch_calls: list[list[tuple[str, bytes]]] = []
-
-    class FakeGraphOps:
-        async def parse_files(self, files):
-            batch_calls.append(list(files))
-            return [_parse_result(fp) for fp, _src in files]
-
-    class FakeClient:
-        def __init__(self):
-            self.graph = FakeGraphOps()
-
-        @classmethod
-        async def connect(cls, **kwargs):
-            return cls()
-
-        async def close(self):
-            pass
-
-    monkeypatch.setattr(
-        parse_phase_mod, "_ingest_markdown", parse_phase_mod._ingest_markdown
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.parser",
-        SimpleNamespace(RustASTParser=lambda **kw: FakeParser()),
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.client",
-        SimpleNamespace(EpistemicGraphClient=FakeClient),
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.session.GraphSession.from_ambient",
-        classmethod(lambda cls: SimpleNamespace(engine_verified_context=lambda: {})),
+    _patch_engine(
+        monkeypatch,
+        _make_fake_parser(parse_file_calls, raise_if_called=True),
+        _make_fake_batch_client(batch_calls),
     )
 
     result = await parse_phase_mod.execute_parse(
@@ -148,34 +188,10 @@ async def test_falls_back_to_per_file_when_batch_connection_unavailable(
     ctx, files = _ctx(tmp_path, py_files)
 
     parse_file_calls: list[str] = []
-
-    class FakeParser:
-        socket_path = "/fake.sock"
-        auth_secret = "s"
-        verified_context = {}
-
-        async def parse_file(self, rel_path, source):
-            parse_file_calls.append(rel_path)
-            return _parse_result(rel_path)
-
-    class FakeClient:
-        @classmethod
-        async def connect(cls, **kwargs):
-            raise ConnectionRefusedError("engine down")
-
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.parser",
-        SimpleNamespace(RustASTParser=lambda **kw: FakeParser()),
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.client",
-        SimpleNamespace(EpistemicGraphClient=FakeClient),
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.session.GraphSession.from_ambient",
-        classmethod(lambda cls: SimpleNamespace(engine_verified_context=lambda: {})),
+    _patch_engine(
+        monkeypatch,
+        _make_fake_parser(parse_file_calls),
+        _make_unreachable_client(ConnectionRefusedError("engine down")),
     )
 
     result = await parse_phase_mod.execute_parse(
@@ -196,44 +212,10 @@ async def test_markdown_files_are_never_sent_to_the_batch_rpc(tmp_path, monkeypa
     ctx, files = _ctx(tmp_path, [str(md), str(py)])
 
     batch_calls: list[list[tuple[str, bytes]]] = []
-
-    class FakeGraphOps:
-        async def parse_files(self, files):
-            batch_calls.append(list(files))
-            return [_parse_result(fp) for fp, _src in files]
-
-    class FakeClient:
-        def __init__(self):
-            self.graph = FakeGraphOps()
-
-        @classmethod
-        async def connect(cls, **kwargs):
-            return cls()
-
-        async def close(self):
-            pass
-
-    class FakeParser:
-        socket_path = "/fake.sock"
-        auth_secret = "s"
-        verified_context = {}
-
-        async def parse_file(self, rel_path, source):  # pragma: no cover
-            raise AssertionError("per-file path should not run here")
-
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.parser",
-        SimpleNamespace(RustASTParser=lambda **kw: FakeParser()),
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "epistemic_graph.client",
-        SimpleNamespace(EpistemicGraphClient=FakeClient),
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.session.GraphSession.from_ambient",
-        classmethod(lambda cls: SimpleNamespace(engine_verified_context=lambda: {})),
+    _patch_engine(
+        monkeypatch,
+        _make_fake_parser([], raise_if_called=True),
+        _make_fake_batch_client(batch_calls),
     )
 
     result = await parse_phase_mod.execute_parse(
