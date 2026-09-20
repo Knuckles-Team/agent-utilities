@@ -202,6 +202,12 @@ INFRA_MODULES = frozenset(
         # contain no independently invokable optimizer or operator action.
         "agent_utilities/harness/policy_optimization.py",
         "agent_utilities/knowledge_graph/extraction/extraction_optimizer.py",
+        # EH-274 follow-up: a pure graph-traversal algorithm (pass-through-
+        # collapse BFS) shared by two extractors/ modules (aris.py,
+        # camunda.py, both already covered by PLUGIN_PACKAGES below). It has
+        # no operator-invokable action of its own -- just a helper function
+        # called from within those extractors.
+        "agent_utilities/knowledge_graph/enrichment/graph_collapse.py",
         # D-WD5-RAT-03: not a separate capability — the run_asset_mirror
         # capability itself IS exposed on both surfaces via
         # graph_writeback(asset_mirror=true) + its REST twin. This module is

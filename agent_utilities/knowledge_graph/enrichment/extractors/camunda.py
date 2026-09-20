@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..graph_collapse import collapse_to_lifted_targets
 from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 
 # EH-274: this connector mirrors Camunda's own declared BPMN model 1:1 --
@@ -240,31 +241,16 @@ def _lift_process_structure(
     for src, tgt, condition in flows:
         outgoing.setdefault(src, []).append((tgt, condition))
 
-    emitted: set[tuple[str, str]] = set()
-    for src in sorted(lifted):
-        # BFS forward through non-lifted elements until lifted targets.
-        frontier: list[tuple[str, str | None]] = list(outgoing.get(src, []))
-        visited: set[str] = {src}
-        while frontier:
-            tgt, condition = frontier.pop(0)
-            if tgt in lifted:
-                if (src, tgt) not in emitted:
-                    emitted.add((src, tgt))
-                    edges.append(
-                        EnrichmentEdge(
-                            rung=_CAMUNDA_RUNG,
-                            source=f"bpmn_task:{proc_id}:{src}",
-                            target=f"bpmn_task:{proc_id}:{tgt}",
-                            rel_type="FLOWS_TO",
-                            props={"condition": condition} if condition else {},
-                        )
-                    )
-                continue
-            if tgt in visited:
-                continue  # cycle through pass-through elements — bounded walk
-            visited.add(tgt)
-            for nxt, nxt_condition in outgoing.get(tgt, []):
-                frontier.append((nxt, condition or nxt_condition))
+    for src, tgt, condition in collapse_to_lifted_targets(lifted, outgoing):
+        edges.append(
+            EnrichmentEdge(
+                rung=_CAMUNDA_RUNG,
+                source=f"bpmn_task:{proc_id}:{src}",
+                target=f"bpmn_task:{proc_id}:{tgt}",
+                rel_type="FLOWS_TO",
+                props={"condition": condition} if condition else {},
+            )
+        )
 
 
 def extract(config: Any) -> ExtractionBatch:
