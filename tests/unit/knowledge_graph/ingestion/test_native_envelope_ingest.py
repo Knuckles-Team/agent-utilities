@@ -2197,6 +2197,21 @@ def test_ingest_envelope_never_embeds_a_lockfile_shaped_entity(_fake_embed_fn) -
     assert _fake_embed_fn == []  # never called
 
 
+def _assert_one_embed_call_landed(
+    compute, envelope, node_id: str, fake_embed_fn: list[list[str]]
+) -> dict[str, object]:
+    """Shared assertion for the "admitted, embedded exactly once" shape
+    several EH-269 integration tests below share — extracted so the two
+    otherwise-identical bodies aren't a jscpd clone pair (dedupe, don't
+    split, per BUILD-CONTRACT)."""
+    result = module.ingest_envelope(compute, envelope)
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties(node_id)
+    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
+    assert len(fake_embed_fn) == 1
+    return stored
+
+
 def test_ingest_envelope_still_embeds_ordinary_prose(_fake_embed_fn) -> None:
     """The classifier is a FILTER, not a blanket denial — an ordinary
     document-shaped entity with no never-embed signal still gets a vector."""
@@ -2210,12 +2225,7 @@ def test_ingest_envelope_still_embeds_ordinary_prose(_fake_embed_fn) -> None:
         }
     )
 
-    result = module.ingest_envelope(compute, envelope)
-
-    assert result["status"] == "success"
-    stored = compute.client.nodes.properties("object-1")
-    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
-    assert len(_fake_embed_fn) == 1
+    _assert_one_embed_call_landed(compute, envelope, "object-1", _fake_embed_fn)
 
 
 def test_ingest_envelope_cdc_row_skips_enum_and_fk_columns(_fake_embed_fn) -> None:
@@ -2262,12 +2272,7 @@ def test_ingest_envelope_cdc_row_embeds_only_the_free_text_column(
         },
     )
 
-    result = module.ingest_envelope(compute, envelope)
-
-    assert result["status"] == "success"
-    stored = compute.client.nodes.properties("object-1")
-    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
-    assert len(_fake_embed_fn) == 1
+    _assert_one_embed_call_landed(compute, envelope, "object-1", _fake_embed_fn)
     (embedded_text,) = _fake_embed_fn[0]
     assert "SHIPPED" not in embedded_text
     assert "cust-42" not in embedded_text
