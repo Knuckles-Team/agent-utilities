@@ -92,61 +92,6 @@ def test_pipeline_writes_typed_nodes_edges_and_flags_needs_work(tmp_path):
     assert rel == "COVERS" and src.startswith("test:") and tgt.endswith("::compute")
 
 
-# ── OS-5.72: the code-ingest path is attributable end to end ────────────────
-def test_enrich_records_ingest_profile_stages_on_fallback_path(tmp_path):
-    """EH-272: proves the instrumentation actually records the stages it
-    claims (not just that the ingest still works) on the per-file fallback
-    path (no index_fn/community_fn — the shape every existing test above uses).
-    """
-    from agent_utilities.knowledge_graph.core.ingest_profile import profile_ingest
-
-    (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
-    (tmp_path / "test_x.py").write_text("def test_x():\n    pass\n")
-    backend = FakeBackend()
-    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
-
-    with profile_ingest("test-repo") as prof:
-        pipe.enrich(tmp_path)
-
-    # Every stage this fallback shape (no index_fn resolver, no community_fn,
-    # no capability features) actually exercises must be on the record.
-    assert {
-        "enumerate",
-        "prehash_filter",
-        "parse_resolve",
-        "resolve_calls",
-        "cards",
-        "write",
-    } <= set(prof.stages)
-    assert all(v >= 0.0 for v in prof.stages.values())
-    # community_detection/embed never ran on this shape (no community_fn, no
-    # features), so they must NOT appear -- a stage present means it ran.
-    assert "community_detection" not in prof.stages
-    assert "embed" not in prof.stages
-
-
-def test_enrich_records_community_and_embed_stages(tmp_path):
-    """The community-detection + capability/embedding stages are only timed
-    when the pipeline actually exercises them (community_fn + mint_capabilities)."""
-    from agent_utilities.knowledge_graph.core.ingest_profile import profile_ingest
-
-    (tmp_path / "svc.py").write_text("def orchestrate(): pass\n")
-    backend = FakeBackend()
-    pipe = EnrichmentPipeline(
-        backend,
-        _feature_parse_fn,
-        community_fn=_community_all,
-        min_feature_size=3,
-        mint_capabilities=True,
-    )
-
-    with profile_ingest("test-repo") as prof:
-        summary = pipe.enrich(tmp_path)
-
-    assert summary.features == 1 and summary.capabilities_minted == 1
-    assert {"community_detection", "embed", "write"} <= set(prof.stages)
-
-
 def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
     (tmp_path / "svc.py").write_text("class X: pass\n")
     backend = FakeBackend()
@@ -1053,3 +998,58 @@ def test_idempotent_replay_reproduces_identical_hash_seen(tmp_path):
     assert second.files_parsed == 0
     assert second.files_skipped_unchanged == 1
     assert dict(pipe._hash_seen) == hash_after_first
+
+
+# ── OS-5.72: the code-ingest path is attributable end to end ────────────────
+def test_enrich_records_ingest_profile_stages_on_fallback_path(tmp_path):
+    """EH-272: proves the instrumentation actually records the stages it
+    claims (not just that the ingest still works) on the per-file fallback
+    path (no index_fn/community_fn — the shape most tests above use).
+    """
+    from agent_utilities.knowledge_graph.core.ingest_profile import profile_ingest
+
+    (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
+    (tmp_path / "test_x.py").write_text("def test_x():\n    pass\n")
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+
+    with profile_ingest("test-repo") as prof:
+        pipe.enrich(tmp_path)
+
+    # Every stage this fallback shape (no index_fn resolver, no community_fn,
+    # no capability features) actually exercises must be on the record.
+    assert {
+        "enumerate",
+        "prehash_filter",
+        "parse_resolve",
+        "resolve_calls",
+        "cards",
+        "write",
+    } <= set(prof.stages)
+    assert all(v >= 0.0 for v in prof.stages.values())
+    # community_detection/embed never ran on this shape (no community_fn, no
+    # features), so they must NOT appear -- a stage present means it ran.
+    assert "community_detection" not in prof.stages
+    assert "embed" not in prof.stages
+
+
+def test_enrich_records_community_and_embed_stages(tmp_path):
+    """The community-detection + capability/embedding stages are only timed
+    when the pipeline actually exercises them (community_fn + mint_capabilities)."""
+    from agent_utilities.knowledge_graph.core.ingest_profile import profile_ingest
+
+    (tmp_path / "svc.py").write_text("def orchestrate(): pass\n")
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(
+        backend,
+        _feature_parse_fn,
+        community_fn=_community_all,
+        min_feature_size=3,
+        mint_capabilities=True,
+    )
+
+    with profile_ingest("test-repo") as prof:
+        summary = pipe.enrich(tmp_path)
+
+    assert summary.features == 1 and summary.capabilities_minted == 1
+    assert {"community_detection", "embed", "write"} <= set(prof.stages)
