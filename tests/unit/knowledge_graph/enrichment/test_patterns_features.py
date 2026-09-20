@@ -30,10 +30,12 @@ class _RecordingCompute:
 
 def test_make_community_fn_loads_then_detects():
     # No bulk op on the stand-in → per-element fallback loads the full call graph
-    # (every node + edge) before community detection runs.
+    # (every node + edge) before community detection runs. Edges carry a
+    # (source, target, confidence) shape (EH-284); None here means "no resolver
+    # confidence available", same as the Python name-only fallback resolver.
     gc = _RecordingCompute()
     fn = make_community_fn(gc)
-    result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
+    result = fn(["a", "b", "c"], [("a", "b", None), ("b", "c", None)])
     assert gc.nodes == ["a", "b", "c"]
     assert gc.edges == [("a", "b"), ("b", "c")]
     assert result == [["a", "b"]]
@@ -62,7 +64,8 @@ class _BulkCompute:
 def test_make_community_fn_uses_bulk_load_nodes_before_edges():
     gc = _BulkCompute()
     fn = make_community_fn(gc)
-    result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
+    # A mix: one edge with no resolver confidence, one with (EH-284).
+    result = fn(["a", "b", "c"], [("a", "b", None), ("b", "c", "0.95")])
     assert result == [["a", "b"]]
     assert gc.per_node == 0  # NOT the per-element path
     flat = [op for call in gc.bulk_calls for op in call]
@@ -74,12 +77,52 @@ def test_make_community_fn_uses_bulk_load_nodes_before_edges():
         "id": "a",
         "properties": {"node_type": "Code"},
     }
+    # No confidence supplied → the property is simply absent (the engine's own
+    # missing-confidence default applies), never a fabricated value.
     assert flat[3] == {
         "op": "add_edge",
         "source": "a",
         "target": "b",
         "properties": {"relationship": "CALLS"},
     }
+    # Confidence supplied → carried through under the shared "confidence" key
+    # (EH-284's contract with the epistemic-graph community-detection kernel).
+    assert flat[4] == {
+        "op": "add_edge",
+        "source": "b",
+        "target": "c",
+        "properties": {"relationship": "CALLS", "confidence": "0.95"},
+    }
+
+
+class _EphemeralCompute:
+    """Stand-in advertising ``community_detect_ephemeral`` (the preferred,
+    stateless path) — records exactly what reaches the wire."""
+
+    def __init__(self):
+        self.ephemeral_calls: list[tuple[list[str], list[tuple[str, str]], float]] = []
+
+    def community_detect_ephemeral(self, node_ids, edges, resolution):
+        self.ephemeral_calls.append((node_ids, edges, resolution))
+        return [["a", "b"]]
+
+
+def test_make_community_fn_strips_confidence_before_the_ephemeral_rpc():
+    """EH-284/EH-274: ``CommunityDetectEphemeral``'s wire method has no
+    properties/weight slot (epistemic-graph ``method_02.rs`` /
+    ``handlers/graph_ops/algorithms.rs`` — confirmed by reading both), so
+    confidence must never be sent there; it would either be silently dropped
+    downstream or (worse) raise on an unexpected tuple arity. Prove AU strips
+    it to plain (source, target) pairs before calling this RPC."""
+    gc = _EphemeralCompute()
+    fn = make_community_fn(gc)
+    result = fn(["a", "b", "c"], [("a", "b", "0.95"), ("b", "c", None)])
+    assert result == [["a", "b"]]
+    assert len(gc.ephemeral_calls) == 1
+    node_ids, edges, resolution = gc.ephemeral_calls[0]
+    assert node_ids == ["a", "b", "c"]
+    assert edges == [("a", "b"), ("b", "c")]  # confidence stripped, plain pairs
+    assert resolution == 1.0
 
 
 def _cls(name, bases=None, methods=None, decorators=None, is_abstract=False):
@@ -208,6 +251,33 @@ def test_cluster_features_honors_precomputed_call_edges(monkeypatch):
 
     feat_mod.cluster_features(code, fake_community, min_size=3, call_edges=provided)
     assert called["n"] == 0, "resolve_call_edges recomputed despite provided call_edges"
-    assert seen_edges["e"] == [(a.id, b.id)], (
+    # No confidence on the provided edge → the tuple's third element is None,
+    # never fabricated (EH-284/EH-274).
+    assert seen_edges["e"] == [(a.id, b.id, None)], (
         "community_fn did not get the provided edges"
     )
+
+
+def test_cluster_features_carries_resolver_confidence_through(monkeypatch):
+    """EH-284: when the primary index_repository resolver stamped a per-edge
+    confidence onto an EnrichmentEdge's props, cluster_features must carry it
+    through to community_fn as the tuple's third element — not silently drop
+    it the way this pipeline did before EH-284 was closed on the AU side."""
+    import agent_utilities.knowledge_graph.enrichment.features as feat_mod
+
+    code = [_fn(n) for n in ("a", "b", "c", "d")]
+    a, b = code[0], code[1]
+    provided = [
+        feat_mod.EnrichmentEdge(
+            source=a.id, target=b.id, rel_type="CALLS", props={"confidence": "0.90"}
+        ),
+    ]
+
+    seen_edges = {}
+
+    def fake_community(node_ids, edges):
+        seen_edges["e"] = edges
+        return [node_ids]
+
+    feat_mod.cluster_features(code, fake_community, min_size=3, call_edges=provided)
+    assert seen_edges["e"] == [(a.id, b.id, "0.90")]

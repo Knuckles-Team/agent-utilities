@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 # still amortising the socket round-trip over thousands of writes. (CONCEPT:EG-KG.compute.graph-compute-engine)
 _COMMUNITY_BULK_CHUNK = 10_000
 
-# (node_ids, edges) -> list of communities (each a list of node ids)
-CommunityFn = Callable[[list[str], list[tuple[str, str]]], list[list[str]]]
+# (node_ids, edges) -> list of communities (each a list of node ids). Each edge is
+# (source, target, confidence) -- confidence is the resolver's own per-edge score
+# (CONCEPT:EG-KG.compute.type-scope-resolved-call tiers: 0.95 scoped / 0.90 same_file
+# / 0.70 arity / 0.60 unique) when the primary index_repository path produced it,
+# or None when it is genuinely unknown (the Python-side name-only fallback resolver
+# computes no confidence at all, and never fabricates one -- EH-284/EH-274).
+CommunityFn = Callable[
+    [list[str], list[tuple[str, str, float | str | None]]], list[list[str]]
+]
 
 
 # A callee name resolving to MORE than this many symbols is ambiguous — a common
@@ -76,10 +83,16 @@ def cluster_features(
     fan-out resolution isn't recomputed: the ingest pipeline needs the same edge
     set to WRITE the CALLS relationships, and resolving twice over a big repo is
     pure waste (~5s on egeria). Defaults to resolving here when omitted.
+
+    Each edge's resolver ``confidence`` (EH-284) rides through to
+    ``community_fn`` as the tuple's third element — ``e.props["confidence"]``
+    when the primary ``index_repository`` resolver produced it, ``None`` when
+    it did not (the Python-side name-only fallback in :func:`resolve_call_edges`
+    computes no confidence at all; never fabricated here).
     """
     ids = [c.id for c in code]
     resolved = call_edges if call_edges is not None else resolve_call_edges(code)
-    edges = [(e.source, e.target) for e in resolved]
+    edges = [(e.source, e.target, e.props.get("confidence")) for e in resolved]
     if not ids:
         return []
     communities = community_fn(ids, edges)
@@ -107,6 +120,30 @@ def cluster_features(
     return features
 
 
+def _strip_confidence(
+    edges: list[tuple[str, str, float | str | None]],
+) -> list[tuple[str, str]]:
+    """Plain (source, target) pairs for the ``CommunityDetectEphemeral`` wire
+    method, which has no properties/weight slot at all (EH-284/EH-274) --
+    extracted so ``make_community_fn``'s closure stays at its pre-EH-284
+    complexity (the comprehension itself, not a branch, was the delta)."""
+    return [(src, tgt) for src, tgt, _confidence in edges]
+
+
+def _call_edge_properties(confidence: float | str | None) -> dict[str, Any]:
+    """Properties for one CALLS edge loaded into the community-detection scratch
+    tenant. ``confidence`` (EH-284) is attached under the repo-wide edge-quality
+    convention key only when the resolver actually supplied one -- an absent key
+    is exactly what the engine's own ``resolver_confidence_weight`` already
+    treats as "no recorded confidence" (falls back to its documented uniform
+    weight), so this never fabricates a value for edges that genuinely have none
+    (the Python-side name-only fallback resolver)."""
+    props: dict[str, Any] = {"relationship": "CALLS"}
+    if confidence is not None:
+        props["confidence"] = confidence
+    return props
+
+
 def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityFn:
     """Engine-backed community detection over an isolated scratch tenant.
 
@@ -114,17 +151,30 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
     a dedicated/ephemeral tenant) and runs the Rust community detection.
     """
 
-    def _fn(node_ids: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
+    def _fn(
+        node_ids: list[str], edges: list[tuple[str, str, float | str | None]]
+    ) -> list[list[str]]:
         # Stateless path (preferred): hand the call graph to the engine INLINE so it
         # runs detection on an in-memory throwaway graph — NO bulk-load into a tenant,
         # NO per-job comm-tenant sprawl, NO comm checkpoint. This removes the dominant
         # cost of the community stage (the ~160k-edge bulk load) and the tenant churn
         # the GC/dedicated-engine work was compensating for. Falls back to the
         # tenant-load path below on any error or against an older engine. (KG-2.58)
+        #
+        # EH-284/EH-274: ``CommunityDetectEphemeral``'s wire method is
+        # ``edges: Vec<(String, String)>`` (epistemic-graph
+        # ``eg-types/src/protocol/method/method_02.rs``) with NO properties/weight
+        # slot at all — the handler builds every ephemeral edge with
+        # ``Vec::new()`` properties (``server/handlers/graph_ops/algorithms.rs``).
+        # So confidence CANNOT reach this call without an engine-side wire-protocol
+        # change; it is dropped here, not lost by an AU oversight. This is the path
+        # actually taken whenever the engine advertises it (i.e. almost always in
+        # production), so EH-284's confidence weighting is INERT on this branch
+        # until that protocol gap is closed on the epistemic-graph side.
         ephemeral = getattr(graph_compute, "community_detect_ephemeral", None)
         if ephemeral is not None:
             try:
-                return ephemeral(node_ids, edges, resolution)
+                return ephemeral(node_ids, _strip_confidence(edges), resolution)
             except Exception as e:  # noqa: BLE001 — degrade to the tenant-load path
                 logger.debug(
                     "ephemeral community detect failed (%s); tenant-load fallback", e
@@ -138,6 +188,11 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
         # per-element only while that op stored unreadable bytes. Nodes are loaded
         # before edges so every edge endpoint exists. Falls back to per-element if
         # the engine has no bulk op or a batch fails. (CONCEPT:EG-KG.compute.graph-compute-engine)
+        #
+        # This path DOES reach the engine's persisted-graph ``edge_properties``
+        # (``CommunityDetection { resolution }``, which EH-284's
+        # ``resolver_confidence_weight`` reads) so, unlike the ephemeral path
+        # above, ``confidence`` is attached here when the caller supplied one.
         bulk = getattr(graph_compute, "bulk_mutate", None) or getattr(
             graph_compute, "batch_update", None
         )
@@ -156,9 +211,9 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
                     "op": "add_edge",
                     "source": src,
                     "target": tgt,
-                    "properties": {"relationship": "CALLS"},
+                    "properties": _call_edge_properties(confidence),
                 }
-                for src, tgt in edges
+                for src, tgt, confidence in edges
             ]
             try:
                 for ops in (node_ops, edge_ops):  # all nodes, THEN all edges
@@ -170,8 +225,8 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
         if not loaded:
             for nid in node_ids:
                 graph_compute.add_node(nid, {"node_type": "Code"})
-            for src, tgt in edges:
-                graph_compute.add_edge(src, tgt, {"relationship": "CALLS"})
+            for src, tgt, confidence in edges:
+                graph_compute.add_edge(src, tgt, _call_edge_properties(confidence))
         try:
             return graph_compute.community_detection(resolution)
         except Exception:
