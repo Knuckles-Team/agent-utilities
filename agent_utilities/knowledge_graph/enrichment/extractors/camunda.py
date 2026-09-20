@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "camunda"
@@ -221,7 +221,12 @@ def _lift_process_structure(
             )
         )
         edges.append(
-            EnrichmentEdge(source=node_id, target=proc_node_id, rel_type="PART_OF")
+            EnrichmentEdge(
+                rung=EdgeRung.EXTRACTED,
+                source=node_id,
+                target=proc_node_id,
+                rel_type="PART_OF",
+            )
         )
 
     # FLOWS_TO between lifted elements, collapsing through pass-through
@@ -242,6 +247,7 @@ def _lift_process_structure(
                     emitted.add((src, tgt))
                     edges.append(
                         EnrichmentEdge(
+                            rung=EdgeRung.EXTRACTED,
                             source=f"bpmn_task:{proc_id}:{src}",
                             target=f"bpmn_task:{proc_id}:{tgt}",
                             rel_type="FLOWS_TO",
@@ -293,6 +299,7 @@ def extract(config: Any) -> ExtractionBatch:
             props["externalToolId"] = egeria_guid
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=proc_node_id,
                     target=f"egeria_process:{egeria_guid}",
                     rel_type="ALIGNED_WITH",
@@ -325,6 +332,7 @@ def extract(config: Any) -> ExtractionBatch:
         if proc_ref:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"bpmn_process:{proc_ref}",
                     rel_type="PART_OF",
@@ -351,6 +359,7 @@ def extract(config: Any) -> ExtractionBatch:
         if proc_ref:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"bpmn_process:{proc_ref}",
                     rel_type="AFFECTS",

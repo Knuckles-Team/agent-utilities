@@ -14,6 +14,7 @@ transparently falls back to Python's stdlib ``ast`` (Python sources only) — bu
 never used tree-sitter) and stays here.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -225,10 +226,144 @@ def _replay_parse_result(
     return int(extracted)
 
 
+async def _parse_files_batch(
+    parser: Any, files: list[tuple[str, bytes]]
+) -> list[dict[str, Any]] | None:
+    """One ``ParseFiles`` round-trip for ``files`` (EH-273).
+
+    Reuses the SAME batched mechanism ``core/graph_compute.py``'s
+    ``GraphComputeEngine.parse_files``/``index_repository`` already use --
+    ``EpistemicGraphClient.graph.parse_files`` -- rather than inventing a
+    second batching scheme. ``parser`` is the ``RustASTParser`` the caller
+    already built; its public ``socket_path``/``auth_secret``/
+    ``verified_context`` attributes are reused verbatim so this opens the
+    identical connection ``RustASTParser`` itself would, just once for the
+    whole batch instead of once per file.
+
+    Returns ``None`` (never raises) when the engine connection is
+    unavailable, so the caller can fall back to ``parser.parse_file()``'s
+    own per-file local-``ast`` degradation -- the exact fallback this phase
+    already had, just reached once per batch instead of once per file.
+    """
+    from epistemic_graph.client import EpistemicGraphClient
+
+    try:
+        client = await EpistemicGraphClient.connect(
+            socket_path=parser.socket_path,
+            auth_secret=parser.auth_secret,
+            graph_name="__commons__",
+            verified_context=parser.verified_context,
+        )
+    except (
+        FileNotFoundError,
+        ConnectionRefusedError,
+        ConnectionResetError,
+        OSError,
+        asyncio.IncompleteReadError,
+    ) as exc:
+        logger.warning(
+            "AST batch service unavailable (%s); per-file fallback for this batch",
+            exc,
+        )
+        return None
+    try:
+        return await client.graph.parse_files(files)
+    except Exception as exc:
+        # Deliberately broad: ANY batch-RPC failure degrades to the per-file
+        # fallback rather than raising into the pipeline phase.
+        logger.warning(
+            "Batched parse failed (%s); per-file fallback for this batch", exc
+        )
+        return None
+    finally:
+        await client.close()
+
+
+async def _parse_per_file_fallback(
+    parser: Any,
+    files: list[tuple[str, bytes]],
+    graph: Any,
+    RegistryNodeType: Any,
+) -> int:
+    """The ORIGINAL per-file loop body, kept verbatim as the fallback path
+    when the batch RPC is unavailable or returns a malformed response —
+    ``parser.parse_file()`` still degrades to local Python ``ast`` per file
+    on its own when the engine socket is down, so this preserves the exact
+    pre-EH-273 behavior for that degraded case."""
+    extracted = 0
+    for rel_path, source in files:
+        try:
+            result = await parser.parse_file(rel_path, source)
+            extracted += _replay_parse_result(result, graph, RegistryNodeType)
+        except Exception as e:
+            logger.error("Pipeline source parse failed for %s: %s", rel_path, e)
+    return extracted
+
+
+async def _parse_batch_and_replay(
+    parser: Any,
+    batch: list[tuple[str, bytes]],
+    graph: Any,
+    RegistryNodeType: Any,
+) -> int:
+    """Batch-parse ``batch`` (EH-273), chunked like ``enrichment/pipeline.py``'s
+    ``make_batch_parse_fn`` (same ``KG_PARSE_BATCH`` setting, default 512) so a
+    big scan makes few round-trips instead of one per file. Falls back to the
+    exact previous per-file loop for any chunk whose batch RPC fails or whose
+    response doesn't have exactly one result per requested file — a
+    partial/malformed batch response is never silently mis-mapped to the
+    wrong files (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement)."""
+    from agent_utilities.core.config import setting
+
+    try:
+        chunk_size = max(1, int(setting("KG_PARSE_BATCH", 512)))
+    except (TypeError, ValueError):
+        chunk_size = 512
+
+    extracted = 0
+    for i in range(0, len(batch), chunk_size):
+        chunk = batch[i : i + chunk_size]
+        results = await _parse_files_batch(parser, chunk)
+        if results is None:
+            extracted += await _parse_per_file_fallback(
+                parser, chunk, graph, RegistryNodeType
+            )
+            continue
+        if len(results) != len(chunk):
+            logger.error(
+                "parse_files returned %d result(s) for %d requested file(s); "
+                "falling back to per-file parse for this chunk",
+                len(results),
+                len(chunk),
+            )
+            extracted += await _parse_per_file_fallback(
+                parser, chunk, graph, RegistryNodeType
+            )
+            continue
+        for (rel_path, _source), result in zip(chunk, results, strict=True):
+            try:
+                extracted += _replay_parse_result(result, graph, RegistryNodeType)
+            except Exception as e:
+                logger.error("Pipeline source parse failed for %s: %s", rel_path, e)
+    return extracted
+
+
 async def execute_parse(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
-    """Extract symbols: markdown via regex (here), code via the epistemic-graph engine."""
+    """Extract symbols: markdown via regex (here), code via the epistemic-graph engine.
+
+    EH-273: code files are parsed in ONE batched ``ParseFiles`` round-trip
+    (chunked at ``KG_PARSE_BATCH``) instead of one engine RPC per file — the
+    same mechanism the ``IndexRepository`` path already uses. Markdown files
+    are still handled inline, individually, exactly as before (no engine
+    call involved). NOTE — semantic change: markdown files are now all
+    processed before the code-file batch, rather than interleaved in the
+    scanner's original per-file order; both are purely additive graph
+    writes with no shared ids between the two categories, so this is not
+    expected to be observable, but it IS an ordering change from the
+    literal per-file loop this replaces.
+    """
 
     from ....models.knowledge_graph import (
         RegistryEdgeType,
@@ -254,12 +389,13 @@ async def execute_parse(
         verified_context=GraphSession.from_ambient().engine_verified_context()
     )
 
+    pending: list[tuple[str, bytes]] = []
     for file_path in files:
         try:
             rel_path = os.path.relpath(file_path, ctx.config.workspace_path)
-            file_node_id = f"file:{rel_path}"
 
             if file_path.endswith(".md"):
+                file_node_id = f"file:{rel_path}"
                 symbols_extracted += _ingest_markdown(
                     file_path, file_node_id, graph, RegistryNodeType, RegistryEdgeType
                 )
@@ -272,15 +408,16 @@ async def execute_parse(
 
             with open(file_path, "rb") as rb_f:
                 source = rb_f.read()
-
-            # Delegate to the engine (native tree-sitter; Python `ast` fallback when the
-            # engine socket is down). The returned file_node_id is `file:<rel_path>` since
-            # we pass rel_path — identical to the previous behavior.
-            result = await parser.parse_file(rel_path, source)
-            symbols_extracted += _replay_parse_result(result, graph, RegistryNodeType)
+            pending.append((rel_path, source))
 
         except Exception as e:
             logger.error("Pipeline source parse failed: %s", e)
+
+    # `_parse_batch_and_replay` is a safe no-op (returns 0) on an empty
+    # `pending`, so no guard is needed here.
+    symbols_extracted += await _parse_batch_and_replay(
+        parser, pending, graph, RegistryNodeType
+    )
 
     return {"symbols_extracted": symbols_extracted}
 

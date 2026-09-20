@@ -18,6 +18,7 @@ from typing import Any
 from ..models import (
     Concept,
     Document,
+    EdgeRung,
     EnrichmentEdge,
     Fact,
     Framework,
@@ -315,7 +316,15 @@ def extract_intelligence(
             )
 
     edges = [
-        EnrichmentEdge(source=source_id, target=n.id, rel_type="DERIVED_FROM")
+        EnrichmentEdge(
+            source=source_id,
+            target=n.id,
+            rel_type="DERIVED_FROM",
+            # Every node here (Insight/Fact/Framework/Playbook) is minted
+            # from the LLM's parsed JSON response -- LLM extraction/
+            # generation from unstructured text, ASSERTED (rung 5).
+            rung=EdgeRung.ASSERTED,
+        )
         for n in nodes
     ]
     return nodes, edges
@@ -347,7 +356,13 @@ def extract_document(
     )
     doc.concept_ids = [c.id for c in concepts]
     edges = [
-        EnrichmentEdge(source=doc.id, target=c.id, rel_type="MENTIONS")
+        EnrichmentEdge(
+            source=doc.id,
+            target=c.id,
+            rel_type="MENTIONS",
+            # Concepts are LLM-extracted from the document's text -- ASSERTED.
+            rung=EdgeRung.ASSERTED,
+        )
         for c in concepts
     ]
     return doc, concepts, edges

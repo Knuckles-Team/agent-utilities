@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "egeria"
@@ -308,7 +308,9 @@ def extract(config: Any) -> ExtractionBatch:
 
 def _edge(source: str, target: str, rel_type: str) -> EnrichmentEdge:
     """Construct a typed enrichment edge (keyword-only Pydantic model)."""
-    return EnrichmentEdge(source=source, target=target, rel_type=rel_type)
+    return EnrichmentEdge(
+        rung=EdgeRung.EXTRACTED, source=source, target=target, rel_type=rel_type
+    )
 
 
 # Cross-link labels that denote a structural dependency rather than data movement.

@@ -911,7 +911,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_MIN_KEYWORD_DISCOVER_RELEVANCE_THRESHOLD` | 1 |
 | `KG_MIN_LEXICAL_RELEVANCE_THRESHOLD` | 1 |
 | `KG_MIN_RELEVANCE_THRESHOLD` | 1 |
-| `KG_PARSE_BATCH` | 1 |
+| `KG_PARSE_BATCH` | 2 |
 | `KG_POOL_MEMORY_GEN_CAP` | 1 |
 | `KG_PROVIDER_ADAPTER_BACKEND` | 1 |
 | `KG_RERANK_LOCAL_NEURAL` | 1 |

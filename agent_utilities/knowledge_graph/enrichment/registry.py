@@ -27,7 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .models import ExtractionBatch
+from .models import EnrichmentEdge, ExtractionBatch
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,14 @@ def write_batch(
     path — so materialized sources route into their ``urn:source:<system>`` named
     graph on a SPARQL mirror just like hydration sources. Omit ``source`` for
     internal-fact batches (finance/synthesize) to leave them untagged.
+
+    Edges sharing a ``(source, target, rel_type)`` key within THIS batch are
+    collapsed to the most-certain rung via :func:`.models.dedupe_edges_by_rung`
+    (EH-274 monotone safety) before writing. A conflict against an edge
+    already persisted from a PRIOR call/run is NOT caught here — that needs a
+    conditional write at the storage layer (the operational-authority
+    backend's own upsert), which this function does not perform; tracked as
+    a follow-up, not silently assumed safe.
     """
     # Delegate to the ONE materialization core (CONCEPT:AU-KG.ingest.enterprise-source-extractor): convert the typed
     # ExtractionBatch to standardized entity/relationship dicts and write them
@@ -87,6 +95,7 @@ def write_batch(
     # stamping happens inside ``write_entities`` (a no-op when ``source`` is falsy,
     # so internal finance/synthesize batches stay untagged exactly as before).
     from ..core.materialization import write_entities
+    from .models import dedupe_edges_by_rung
 
     entities = [
         {
@@ -97,16 +106,24 @@ def write_batch(
         for node in batch.nodes
     ]
     relationships = [
-        {
-            "source": edge.source,
-            "target": edge.target,
-            "relationship": edge.rel_type,
-            **{k: v for k, v in edge.props.items() if v is not None},
-        }
-        for edge in batch.edges
+        _relationship_dict(edge) for edge in dedupe_edges_by_rung(batch.edges)
     ]
     result = write_entities(backend, source or "", entities, relationships)
     return int(result.get("nodes", 0)), int(result.get("edges", 0))
+
+
+def _relationship_dict(edge: EnrichmentEdge) -> dict[str, Any]:
+    """One ``batch.edges`` entry as the standardized relationship dict
+    ``write_entities`` expects, stamping EH-274's ``rung`` (and, when
+    present, ``confidence``) alongside the producer's own ``props``."""
+    return {
+        "source": edge.source,
+        "target": edge.target,
+        "relationship": edge.rel_type,
+        "rung": edge.rung.name,
+        **({"confidence": edge.confidence} if edge.confidence is not None else {}),
+        **{k: v for k, v in edge.props.items() if v is not None},
+    }
 
 
 def discover_extractors() -> int:

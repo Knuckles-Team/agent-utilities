@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "grafana"
@@ -145,7 +145,14 @@ def extract(config: Any) -> ExtractionBatch:
                 )
             )
             edges.append(
-                EnrichmentEdge(source=node_id, target=dash_id, rel_type="PART_OF")
+                EnrichmentEdge(
+                    source=node_id,
+                    target=dash_id,
+                    rel_type="PART_OF",
+                    # Panel→dashboard containment, declared in Grafana's own
+                    # model -- EXTRACTED.
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
             service = _service_from_labels(
                 _get(panel, "labels")
@@ -156,6 +163,10 @@ def extract(config: Any) -> ExtractionBatch:
                         source=node_id,
                         target=f"service:{service}",
                         rel_type="MONITORS",
+                        # Heuristic label/title text match to a service name
+                        # -- identifier resolution, not a declared reference
+                        # -- INFERRED.
+                        rung=EdgeRung.INFERRED,
                     )
                 )
 
@@ -184,6 +195,7 @@ def extract(config: Any) -> ExtractionBatch:
                     source=node_id,
                     target=f"service:{service}",
                     rel_type="MONITORS",
+                    rung=EdgeRung.INFERRED,
                 )
             )
 

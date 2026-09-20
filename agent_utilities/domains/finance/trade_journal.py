@@ -356,6 +356,7 @@ class TradeJournalAuditor:
         shape every enrichment source emits, so it persists through ``write_batch``.
         """
         from agent_utilities.knowledge_graph.enrichment.models import (
+            EdgeRung,
             EnrichmentEdge,
             ExtractionBatch,
             GraphNode,
@@ -399,7 +400,14 @@ class TradeJournalAuditor:
                 )
             )
             edges.append(
-                EnrichmentEdge(source=bid, target=pid, rel_type="EXHIBITED_BY")
+                # Statistical bias-pattern detection over trade
+                # history -- DERIVED.
+                EnrichmentEdge(
+                    source=bid,
+                    target=pid,
+                    rel_type="EXHIBITED_BY",
+                    rung=EdgeRung.DERIVED,
+                )
             )
         return ExtractionBatch(category="trade_journal", nodes=nodes, edges=edges)
 

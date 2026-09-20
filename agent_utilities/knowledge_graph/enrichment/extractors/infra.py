@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "infra"
@@ -184,7 +184,12 @@ def extract(config: Any) -> ExtractionBatch:
         if node_name:
             target = f"server:{node_name}"
             edges.append(
-                EnrichmentEdge(source=service_id, target=target, rel_type="RUNS_ON")
+                EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
+                    source=service_id,
+                    target=target,
+                    rel_type="RUNS_ON",
+                )
             )
 
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)

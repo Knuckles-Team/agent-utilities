@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core import owl_bridge
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "wger"
@@ -102,6 +102,7 @@ def extract(config: Any) -> ExtractionBatch:
         if routine is not None:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"wger:routine:{routine}",
                     rel_type="PART_OF",

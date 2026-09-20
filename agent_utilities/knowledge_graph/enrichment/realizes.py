@@ -28,7 +28,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from .models import EnrichmentEdge, GraphNode
+from .models import EdgeRung, EnrichmentEdge, GraphNode
 
 # Optional embedder: text -> vector. When absent we fall back to token overlap.
 EmbedFn = Callable[[str], list[float]]
@@ -124,6 +124,13 @@ def _score(
     return _jaccard(_tokens(feature_text), _tokens(cap_text))
 
 
+def _match_rung(embed_fn: EmbedFn | None) -> EdgeRung:
+    """EH-274: vector-embedding cosine similarity when an embedder is given
+    (EMBEDDED), or the deterministic token-overlap fallback when it isn't (a
+    computed statistical measure, DERIVED, not an embedding)."""
+    return EdgeRung.EMBEDDED if embed_fn is not None else EdgeRung.DERIVED
+
+
 def resolve_realizes(
     features: list[Any],
     capabilities: list[Any] | None = None,
@@ -145,6 +152,9 @@ def resolve_realizes(
     minted_slugs: set[str] = set()
     edges: list[EnrichmentEdge] = []
     cache: dict[str, list[float]] = {}
+    # This function scores every candidate the SAME way for the whole call
+    # (embed_fn either supplied or not the entire time) -- see _match_rung.
+    match_rung = _match_rung(embed_fn)
 
     for feat in features:
         feat_id = feat.get("id") if isinstance(feat, dict) else getattr(feat, "id", "")
@@ -168,7 +178,13 @@ def resolve_realizes(
         if best_cap is not None:
             target = _cap_id(best_cap)
             edges.append(
-                EnrichmentEdge(source=feat_id, target=target, rel_type="REALIZES")
+                EnrichmentEdge(
+                    source=feat_id,
+                    target=target,
+                    rel_type="REALIZES",
+                    rung=match_rung,
+                    confidence=best_score,
+                )
             )
             continue
 
@@ -201,7 +217,18 @@ def resolve_realizes(
                 )
             )
         edges.append(
-            EnrichmentEdge(source=feat_id, target=cap_node_id, rel_type="REALIZES")
+            EnrichmentEdge(
+                source=feat_id,
+                target=cap_node_id,
+                rel_type="REALIZES",
+                # No similarity match involved -- the capability's id is
+                # deterministically derived FROM the feature itself
+                # (`capability:derived:{slug(feature.name)}`), so this edge
+                # is a declared, definitional fact, not a probabilistic
+                # match. EXTRACTED, unlike the matched-capability branch
+                # above (EMBEDDED/DERIVED).
+                rung=EdgeRung.EXTRACTED,
+            )
         )
 
     return minted, edges

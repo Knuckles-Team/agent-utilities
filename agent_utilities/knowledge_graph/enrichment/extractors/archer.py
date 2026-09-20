@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "archer"
@@ -107,6 +107,7 @@ def extract(config: Any) -> ExtractionBatch:
         if risk_ref:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"archer_risk:{risk_ref}",
                     rel_type="MITIGATES",
@@ -132,6 +133,7 @@ def extract(config: Any) -> ExtractionBatch:
         if control_ref:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"archer_control:{control_ref}",
                     rel_type="AFFECTS",

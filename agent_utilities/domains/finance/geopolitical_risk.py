@@ -310,6 +310,7 @@ def geopolitical_facts_batch(
     edge-bearing fact) so "which holdings are exposed to risk X" is a graph query.
     """
     from agent_utilities.knowledge_graph.enrichment.models import (
+        EdgeRung,
         EnrichmentEdge,
         ExtractionBatch,
         GraphNode,
@@ -343,13 +344,24 @@ def geopolitical_facts_batch(
             sid = f"sector:{_slug(sector)}"
             _ensure(sid, "Sector", {"name": sector})
             edges.append(
-                EnrichmentEdge(source=rid, target=sid, rel_type="affectsSector")
+                # Declared field on the GeopoliticalRiskFactor input -- EXTRACTED.
+                EnrichmentEdge(
+                    source=rid,
+                    target=sid,
+                    rel_type="affectsSector",
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
         for region in f.regions:
             reg = f"region:{_slug(region)}"
             _ensure(reg, "Region", {"name": region})
             edges.append(
-                EnrichmentEdge(source=rid, target=reg, rel_type="affectsRegion")
+                EnrichmentEdge(
+                    source=rid,
+                    target=reg,
+                    rel_type="affectsRegion",
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
 
         for asset in holdings or []:
@@ -362,7 +374,20 @@ def geopolitical_facts_batch(
                 "FinancialInstrument",
                 {"ticker": asset.asset_id, "asset_class": asset.asset_class},
             )
-            edges.append(EnrichmentEdge(source=aid, target=rid, rel_type="exposedTo"))
+            # A computed numeric exposure formula (asset_exposure_to_factor) --
+            # a statistical/computed aggregate, DERIVED.
+            edges.append(
+                EnrichmentEdge(
+                    source=aid,
+                    target=rid,
+                    rel_type="exposedTo",
+                    rung=EdgeRung.DERIVED,
+                    # The numeric exposure the docstring promises as "an
+                    # edge-bearing fact" -- a computed magnitude, not a
+                    # [0,1] confidence, so it stays in `props`.
+                    props={"exposure": exposure},
+                )
+            )
 
     return ExtractionBatch(category="geopolitical", nodes=nodes, edges=edges)
 

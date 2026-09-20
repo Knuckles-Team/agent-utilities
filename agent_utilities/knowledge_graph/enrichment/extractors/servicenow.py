@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "servicenow"
@@ -108,7 +108,14 @@ def extract(config: Any) -> ExtractionBatch:
                 ),
             )
         )
-        edges.append(EnrichmentEdge(source=owner_id, target=rid, rel_type="HAS_RISK"))
+        edges.append(
+            EnrichmentEdge(
+                rung=EdgeRung.EXTRACTED,
+                source=owner_id,
+                target=rid,
+                rel_type="HAS_RISK",
+            )
+        )
 
     # --- Incidents / Changes ----------------------------------------------
     for method, label, prefix in (
@@ -137,13 +144,17 @@ def extract(config: Any) -> ExtractionBatch:
             if ci:
                 edges.append(
                     EnrichmentEdge(
-                        source=node_id, target=f"ci:{ci}", rel_type="AFFECTS"
+                        rung=EdgeRung.EXTRACTED,
+                        source=node_id,
+                        target=f"ci:{ci}",
+                        rel_type="AFFECTS",
                     )
                 )
             assignee = _ref(_get(rec, "assigned_to"))
             if assignee:
                 edges.append(
                     EnrichmentEdge(
+                        rung=EdgeRung.EXTRACTED,
                         source=node_id,
                         target=f"person:{assignee}",
                         rel_type="ASSIGNED_TO",
@@ -176,7 +187,10 @@ def extract(config: Any) -> ExtractionBatch:
         if model:
             edges.append(
                 EnrichmentEdge(
-                    source=node_id, target=f"snproduct:{model}", rel_type="INSTANCE_OF"
+                    rung=EdgeRung.EXTRACTED,
+                    source=node_id,
+                    target=f"snproduct:{model}",
+                    rel_type="INSTANCE_OF",
                 )
             )
 
@@ -222,7 +236,10 @@ def extract(config: Any) -> ExtractionBatch:
         if model:
             edges.append(
                 EnrichmentEdge(
-                    source=node_id, target=f"snproduct:{model}", rel_type="INSTANCE_OF"
+                    rung=EdgeRung.EXTRACTED,
+                    source=node_id,
+                    target=f"snproduct:{model}",
+                    rel_type="INSTANCE_OF",
                 )
             )
 

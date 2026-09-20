@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .models import EnrichmentEdge, GraphNode
+from .models import EdgeRung, EnrichmentEdge, GraphNode
 
 _DOCKERFILE_RE = re.compile(r"(^|/)(dockerfile)(\.|$)", re.IGNORECASE)
 _FROM_RE = re.compile(r"^\s*FROM\s+(\S+)", re.IGNORECASE | re.MULTILINE)
@@ -110,6 +110,15 @@ def link_resources_to_service(
     if not service_id:
         return []
     return [
-        EnrichmentEdge(source=r.id, target=service_id, rel_type="PROVISIONS")
+        EnrichmentEdge(
+            source=r.id,
+            target=service_id,
+            rel_type="PROVISIONS",
+            # `service_id` here is the SAME best-effort name-matched id
+            # `routes.resolve_service_id` produces -- identifier resolution,
+            # not a declared reference, so INFERRED (not EXTRACTED even
+            # though the IaC file itself is parsed structurally).
+            rung=EdgeRung.INFERRED,
+        )
         for r in resources
     ]

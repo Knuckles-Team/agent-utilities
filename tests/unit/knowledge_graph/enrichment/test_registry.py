@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agent_utilities.knowledge_graph.enrichment.models import (
+    EdgeRung,
     EnrichmentEdge,
     ExtractionBatch,
     GraphNode,
@@ -59,6 +60,55 @@ def test_write_batch_persists_nodes_and_edges():
         "server:analysis-node-a",
         "RUNS_ON",
     ) in backend.edges
+
+
+def test_write_batch_stamps_rung_and_confidence():
+    """EH-274: write_batch promotes edge.rung/edge.confidence to first-class
+    relationship properties, not left riding only in props."""
+    batch = ExtractionBatch(
+        category="infra",
+        edges=[
+            EnrichmentEdge(
+                source="code:a",
+                target="code:b",
+                rel_type="CALLS",
+                rung=EdgeRung.INFERRED,
+                confidence=0.9,
+            )
+        ],
+    )
+    backend = FakeBackend()
+    write_batch(backend, batch)
+    assert backend.edge_props[0]["rung"] == "INFERRED"
+    assert backend.edge_props[0]["confidence"] == 0.9
+
+
+def test_write_batch_never_lets_a_higher_rung_overwrite_a_lower_one_in_batch():
+    """EH-274 monotone safety, proven against a known-bad input: two edges for
+    the SAME (source, target, rel_type) in one batch, the less-certain one
+    listed SECOND. The write must keep the more-certain (lower-rung) fact,
+    not last-writer-wins."""
+    batch = ExtractionBatch(
+        category="infra",
+        edges=[
+            EnrichmentEdge(
+                source="code:a",
+                target="code:b",
+                rel_type="CALLS",
+                rung=EdgeRung.EXTRACTED,
+            ),
+            EnrichmentEdge(
+                source="code:a",
+                target="code:b",
+                rel_type="CALLS",
+                rung=EdgeRung.ASSERTED,  # a less-certain, later write attempt
+            ),
+        ],
+    )
+    backend = FakeBackend()
+    n, e = write_batch(backend, batch)
+    assert e == 1  # collapsed to one edge, not two
+    assert backend.edge_props[0]["rung"] == "EXTRACTED"
 
 
 def test_discover_extractors_runs():

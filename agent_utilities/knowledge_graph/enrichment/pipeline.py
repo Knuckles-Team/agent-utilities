@@ -44,7 +44,14 @@ from .extractors.document import (
 )
 from .features import CommunityFn, cluster_features, resolve_call_edges
 from .iac import discover_iac_files, extract_iac, link_resources_to_service
-from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
+from .models import (
+    Concept,
+    EdgeRung,
+    EnrichmentEdge,
+    ExtractionResult,
+    GraphNode,
+    dedupe_edges_by_rung,
+)
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
 from .routes import extract_routes, link_routes_to_service, resolve_service_id
@@ -801,7 +808,9 @@ class EnrichmentPipeline:
             self.backend.add_node(rn.id, label="Route", **rn.props)
             summary.routes += 1
         for e in serves_edges:
-            self._write_edge(e.source, e.target, e.rel_type)
+            self._write_edge(
+                e.source, e.target, e.rel_type, _edge_props(e.rung, e.confidence)
+            )
             summary.serves_edges += 1
         service_id = (
             resolve_service_id(service_hint, self._ecosystem_service_ids())
@@ -810,7 +819,9 @@ class EnrichmentPipeline:
         )
         if route_nodes and service_id:
             for e in link_routes_to_service(route_nodes, service_id):
-                self._write_edge(e.source, e.target, e.rel_type)
+                self._write_edge(
+                    e.source, e.target, e.rel_type, _edge_props(e.rung, e.confidence)
+                )
                 summary.served_by_edges += 1
         return service_id
 
@@ -835,7 +846,9 @@ class EnrichmentPipeline:
             summary.resources += 1
         if service_id:
             for e in link_resources_to_service(resource_nodes, service_id):
-                self._write_edge(e.source, e.target, e.rel_type)
+                self._write_edge(
+                    e.source, e.target, e.rel_type, _edge_props(e.rung, e.confidence)
+                )
                 summary.provisions_edges += 1
 
     def _write_capabilities(
@@ -876,7 +889,12 @@ class EnrichmentPipeline:
                 self._write_capability(cap)
                 summary.capabilities_minted += 1
             for e in realizes_edges:
-                self._write_edge(e.source, e.target, e.rel_type)
+                self._write_edge(
+                    e.source,
+                    e.target,
+                    e.rel_type,
+                    _edge_props(e.rung, e.confidence),
+                )
                 summary.realizes_edges += 1
             if minted and self.writeback_fn is not None:
                 result = self.writeback_fn(minted)
@@ -937,16 +955,34 @@ class EnrichmentPipeline:
         Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) come from
         the Rust resolver (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
 
-        Extracted verbatim (pure extract-method, no behaviour change).
+        Extracted verbatim (pure extract-method, no behaviour change), plus
+        EH-274: each edge's own ``rung``/``confidence`` (stamped by its
+        producer — ``resolve_covers``/``code_test.entities_from_index_result``
+        — see the producer→rung table in ``models.EdgeRung``) rides through
+        to the write, and ``call_edges``/``struct_edges`` are each collapsed
+        by :func:`~.models.dedupe_edges_by_rung` first (monotone safety
+        within this one write).
         """
         for e in resolve_covers(results):
-            self._write_edge(e.source, e.target, e.rel_type)
+            self._write_edge(
+                e.source, e.target, e.rel_type, _edge_props(e.rung, e.confidence)
+            )
             summary.covers_edges += 1
-        for e in call_edges:
-            self._write_edge(e.source, e.target, e.rel_type, e.props)
+        for e in dedupe_edges_by_rung(call_edges):
+            self._write_edge(
+                e.source,
+                e.target,
+                e.rel_type,
+                _edge_props(e.rung, e.confidence, e.props),
+            )
             summary.calls_edges += 1
-        for e in struct_edges:
-            self._write_edge(e.source, e.target, e.rel_type, e.props)
+        for e in dedupe_edges_by_rung(struct_edges):
+            self._write_edge(
+                e.source,
+                e.target,
+                e.rel_type,
+                _edge_props(e.rung, e.confidence, e.props),
+            )
             if e.rel_type == "INHERITS":
                 summary.inherits_edges += 1
             elif e.rel_type == "REALIZES":
@@ -962,7 +998,13 @@ class EnrichmentPipeline:
         for f in features:
             self._write_feature(f)
             for mid in f.member_ids:
-                self._write_edge(mid, f.id, "PART_OF_FEATURE")
+                # Cluster membership from community detection over the call
+                # graph -- a statistical/community technique, DERIVED
+                # (rung 2), matching the EH-270 ladder's own naming for this
+                # exact technique.
+                self._write_edge(
+                    mid, f.id, "PART_OF_FEATURE", _edge_props(EdgeRung.DERIVED)
+                )
             summary.features += 1
 
     def _enrich_write_all(
@@ -1160,7 +1202,9 @@ class EnrichmentPipeline:
                 )
                 summary.concepts += 1
             for e in all_edges:
-                self._write_edge(e.source, e.target, e.rel_type)
+                self._write_edge(
+                    e.source, e.target, e.rel_type, _edge_props(e.rung, e.confidence)
+                )
                 summary.mentions_edges += 1
         finally:
             self.backend.flush()
@@ -1243,6 +1287,22 @@ class EnrichmentPipeline:
         except Exception:  # noqa: BLE001 — best-effort; no services -> no servedBy
             return set()
         return {str(r["id"]) for r in (rows or []) if r.get("id")}
+
+
+def _edge_props(
+    rung: EdgeRung,
+    confidence: float | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge EH-274's ``rung`` (and, when present, ``confidence``) into an
+    edge's write-time properties, on top of any producer-supplied ``extra``
+    (e.g. an ``EnrichmentEdge.props`` dict). One helper so every
+    ``_write_edge`` call site stamps these identically."""
+    merged = dict(extra or {})
+    merged["rung"] = rung.name
+    if confidence is not None:
+        merged["confidence"] = confidence
+    return merged
 
 
 def _writeback_count(result: Any) -> int:

@@ -62,7 +62,7 @@ from ..core.formal_reasoning_core import (
     StructuralCausalModel,
 )
 from ..ontology.ops_causal_crosswalk import stage_of
-from .models import EnrichmentEdge, ExtractionBatch
+from .models import EdgeRung, EnrichmentEdge, ExtractionBatch
 from .registry import write_batch
 
 logger = logging.getLogger(__name__)
@@ -106,14 +106,30 @@ class OpsCausalLink:
     def as_enrichment_edge(self) -> EnrichmentEdge:
         """This link as the uniform :class:`EnrichmentEdge` every source
         extractor emits — the shape :func:`materialize_ops_causal_links`
-        persists via the shared writer."""
+        persists via the shared writer.
+
+        EH-274 rung: this joins entities from DIFFERENT connectors onto one
+        chain via ``ops_causal_crosswalk``'s deterministic identifier
+        crosswalk — a resolution step across namespaces, not a raw
+        within-source foreign key, so INFERRED (rung 1). ``strength``
+        (default 1.0, fully confident) is this join's own confidence-like
+        signal, mirrored onto :attr:`EnrichmentEdge.confidence` when it
+        deviates from that default.
+        """
         props = dict(self.props)
+        confidence: float | None = None
         if self.observed_at is not None:
             props.setdefault("observed_at", self.observed_at)
         if self.strength != 1.0:
             props.setdefault("strength", self.strength)
+            confidence = self.strength
         return EnrichmentEdge(
-            source=self.source, target=self.target, rel_type=self.rel_type, props=props
+            source=self.source,
+            target=self.target,
+            rel_type=self.rel_type,
+            rung=EdgeRung.INFERRED,
+            confidence=confidence,
+            props=props,
         )
 
 

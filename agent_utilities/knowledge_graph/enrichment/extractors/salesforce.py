@@ -12,7 +12,7 @@ from typing import Any
 
 from agent_utilities.security.identifiers import validate_identifier
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "salesforce"
@@ -78,6 +78,7 @@ def extract(config: Any) -> ExtractionBatch:
             if acct and sobject in ("Contact", "Opportunity"):
                 edges.append(
                     EnrichmentEdge(
+                        rung=EdgeRung.EXTRACTED,
                         source=node_id,
                         target=f"sfaccount:{acct}",
                         rel_type="PLACED_BY"

@@ -38,6 +38,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from ..knowledge_graph.enrichment.models import (
+    EdgeRung,
     EnrichmentEdge,
     ExtractionBatch,
     GraphNode,
@@ -757,7 +758,13 @@ class UniversalConnector:
         table_id = self._object_id("table", table)
         sink.nodes.append(GraphNode(id=table_id, type="Table", props={"name": table}))
         sink.edges.append(
-            EnrichmentEdge(source=ds_id, target=table_id, rel_type="HAS_TABLE")
+            # SQLite PRAGMA introspection -- a declared schema fact, EXTRACTED.
+            EnrichmentEdge(
+                source=ds_id,
+                target=table_id,
+                rel_type="HAS_TABLE",
+                rung=EdgeRung.EXTRACTED,
+            )
         )
         quoted_table = quote_sql_identifier(table, kind="table")
         field_count = self._introspect_sqlite_columns(
@@ -797,7 +804,12 @@ class UniversalConnector:
                 )
             )
             sink.edges.append(
-                EnrichmentEdge(source=table_id, target=col_id, rel_type="HAS_COLUMN")
+                EnrichmentEdge(
+                    source=table_id,
+                    target=col_id,
+                    rel_type="HAS_COLUMN",
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
         return field_count
 
@@ -825,6 +837,7 @@ class UniversalConnector:
                     source=src_col_id,
                     target=tgt_col_id,
                     rel_type="FOREIGN_KEY",
+                    rung=EdgeRung.EXTRACTED,
                 )
             )
 
@@ -875,7 +888,14 @@ class UniversalConnector:
                 GraphNode(id=table_id, type="Table", props={"name": table})
             )
             sink.edges.append(
-                EnrichmentEdge(source=ds_id, target=table_id, rel_type="HAS_TABLE")
+                # information_schema introspection -- a declared schema fact,
+                # EXTRACTED.
+                EnrichmentEdge(
+                    source=ds_id,
+                    target=table_id,
+                    rel_type="HAS_TABLE",
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
         col_id = self._object_id("column", table, col_name)
         sink.nodes.append(
@@ -886,7 +906,12 @@ class UniversalConnector:
             )
         )
         sink.edges.append(
-            EnrichmentEdge(source=table_id, target=col_id, rel_type="HAS_COLUMN")
+            EnrichmentEdge(
+                source=table_id,
+                target=col_id,
+                rel_type="HAS_COLUMN",
+                rung=EdgeRung.EXTRACTED,
+            )
         )
 
     def _introspect_sql_foreign_keys(self, sink: _SchemaSink) -> None:
@@ -912,7 +937,12 @@ class UniversalConnector:
                 src = self._object_id("column", src_table, src_col)
                 tgt = self._object_id("column", ref_table, ref_col)
                 sink.edges.append(
-                    EnrichmentEdge(source=src, target=tgt, rel_type="FOREIGN_KEY")
+                    EnrichmentEdge(
+                        source=src,
+                        target=tgt,
+                        rel_type="FOREIGN_KEY",
+                        rung=EdgeRung.EXTRACTED,
+                    )
                 )
         except Exception as exc:  # pragma: no cover - dialect variance
             logger.debug(
@@ -950,10 +980,13 @@ class UniversalConnector:
                     )
                 )
                 edges.append(
+                    # The collection itself is a declared fact
+                    # (`list_collection_names()`) -- EXTRACTED.
                     EnrichmentEdge(
                         source=ds_id,
                         target=coll_id,
                         rel_type="HAS_TABLE",
+                        rung=EdgeRung.EXTRACTED,
                     )
                 )
                 sample = db[coll_name].find_one() or {}
@@ -976,10 +1009,16 @@ class UniversalConnector:
                         )
                     )
                     edges.append(
+                        # MongoDB is schemaless: this field is inferred from
+                        # ONE sampled document (`find_one()`), not a declared
+                        # schema -- a statistical inference from a sample,
+                        # DERIVED, unlike the SQL/SQLite HAS_COLUMN edges
+                        # above which read a real declared schema.
                         EnrichmentEdge(
                             source=coll_id,
                             target=field_id,
                             rel_type="HAS_COLUMN",
+                            rung=EdgeRung.DERIVED,
                         )
                     )
         finally:

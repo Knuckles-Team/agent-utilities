@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core import owl_bridge
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "mealie"
@@ -84,6 +84,7 @@ def extract(config: Any) -> ExtractionBatch:
         if recipe:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"mealie:recipe:{recipe}",
                     rel_type="INCLUDES",

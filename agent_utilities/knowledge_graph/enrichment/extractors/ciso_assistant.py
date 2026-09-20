@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "ciso_assistant"
@@ -137,6 +137,7 @@ def extract(config: Any) -> ExtractionBatch:
         if egeria_guid:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"egeria_policy:{egeria_guid}",
                     rel_type="ALIGNED_WITH",
@@ -146,6 +147,7 @@ def extract(config: Any) -> ExtractionBatch:
         if bpmn_id:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"bpmn_process:{bpmn_id}",
                     rel_type="ALIGNED_WITH",
@@ -199,6 +201,7 @@ def extract(config: Any) -> ExtractionBatch:
             if cid:
                 edges.append(
                     EnrichmentEdge(
+                        rung=EdgeRung.EXTRACTED,
                         source=node_id,
                         target=f"ciso_assistant_control:{cid}",
                         rel_type="MITIGATED_BY",
@@ -208,6 +211,7 @@ def extract(config: Any) -> ExtractionBatch:
         if ra:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"ciso_assistant_risk_assessment:{ra}",
                     rel_type="PART_OF",
@@ -227,6 +231,7 @@ def extract(config: Any) -> ExtractionBatch:
         if fw:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"ciso_assistant_framework:{fw}",
                     rel_type="CONFORMS_TO",

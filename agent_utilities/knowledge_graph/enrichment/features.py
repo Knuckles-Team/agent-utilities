@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .models import CodeEntity, EnrichmentEdge, Feature
+from .models import CodeEntity, EdgeRung, EnrichmentEdge, Feature
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ _COMMUNITY_BULK_CHUNK = 10_000
 # or None when it is genuinely unknown (the Python-side name-only fallback resolver
 # computes no confidence at all, and never fabricates one -- EH-284/EH-274).
 CommunityFn = Callable[
-    [list[str], list[tuple[str, str, float | str | None]]], list[list[str]]
+    [list[str], list[tuple[str, str, float | None]]], list[list[str]]
 ]
 
 
@@ -65,7 +65,16 @@ def resolve_call_edges(code: list[CodeEntity]) -> list[EnrichmentEdge]:
                 if key not in seen:
                     seen.add(key)
                     edges.append(
-                        EnrichmentEdge(source=c.id, target=tgt, rel_type="CALLS")
+                        EnrichmentEdge(
+                            source=c.id,
+                            target=tgt,
+                            rel_type="CALLS",
+                            # Pure name-only matching, no type/scope info at
+                            # all -- still symbol resolution -> INFERRED. No
+                            # confidence: this fallback computes none, and
+                            # never fabricates one (EH-284/EH-274).
+                            rung=EdgeRung.INFERRED,
+                        )
                     )
     return edges
 
@@ -85,14 +94,18 @@ def cluster_features(
     pure waste (~5s on egeria). Defaults to resolving here when omitted.
 
     Each edge's resolver ``confidence`` (EH-284) rides through to
-    ``community_fn`` as the tuple's third element — ``e.props["confidence"]``
-    when the primary ``index_repository`` resolver produced it, ``None`` when
+    ``community_fn`` as the tuple's third element — ``e.confidence`` (EH-274:
+    a first-class :class:`~.models.EnrichmentEdge` field, promoted off the
+    pre-EH-274 ``props["confidence"]`` convention) when the primary
+    ``index_repository`` resolver produced it, ``None`` when
     it did not (the Python-side name-only fallback in :func:`resolve_call_edges`
     computes no confidence at all; never fabricated here).
     """
     ids = [c.id for c in code]
     resolved = call_edges if call_edges is not None else resolve_call_edges(code)
-    edges = [(e.source, e.target, e.props.get("confidence")) for e in resolved]
+    # `confidence` is EnrichmentEdge's own modelled field (EH-274) now, not
+    # `props["confidence"]` -- promoted from the pre-EH-274 convention.
+    edges = [(e.source, e.target, e.confidence) for e in resolved]
     if not ids:
         return []
     communities = community_fn(ids, edges)
@@ -121,7 +134,7 @@ def cluster_features(
 
 
 def _strip_confidence(
-    edges: list[tuple[str, str, float | str | None]],
+    edges: list[tuple[str, str, float | None]],
 ) -> list[tuple[str, str]]:
     """Plain (source, target) pairs for the ``CommunityDetectEphemeral`` wire
     method, which has no properties/weight slot at all (EH-284/EH-274) --
@@ -130,7 +143,7 @@ def _strip_confidence(
     return [(src, tgt) for src, tgt, _confidence in edges]
 
 
-def _call_edge_properties(confidence: float | str | None) -> dict[str, Any]:
+def _call_edge_properties(confidence: float | None) -> dict[str, Any]:
     """Properties for one CALLS edge loaded into the community-detection scratch
     tenant. ``confidence`` (EH-284) is attached under the repo-wide edge-quality
     convention key only when the resolver actually supplied one -- an absent key
@@ -152,7 +165,7 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
     """
 
     def _fn(
-        node_ids: list[str], edges: list[tuple[str, str, float | str | None]]
+        node_ids: list[str], edges: list[tuple[str, str, float | None]]
     ) -> list[list[str]]:
         # Stateless path (preferred): hand the call graph to the engine INLINE so it
         # runs detection on an in-memory throwaway graph — NO bulk-load into a tenant,

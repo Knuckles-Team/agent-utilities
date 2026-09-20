@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "odoo"
@@ -111,6 +111,7 @@ def extract(config: Any) -> ExtractionBatch:
         if partner_ref:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"odoo_customer:{partner_ref}",
                     rel_type="BELONGS_TO",

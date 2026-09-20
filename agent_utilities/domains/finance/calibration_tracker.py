@@ -218,6 +218,7 @@ class CalibrationTracker:
     def to_batch(self) -> Any:
         """Build an ``ExtractionBatch`` of ``:AgentCalibration`` nodes (KG-2.27)."""
         from agent_utilities.knowledge_graph.enrichment.models import (
+            EdgeRung,
             EnrichmentEdge,
             ExtractionBatch,
             GraphNode,
@@ -242,7 +243,14 @@ class CalibrationTracker:
                 )
             )
             edges.append(
-                EnrichmentEdge(source=cid, target=agent_id, rel_type="CALIBRATION_OF")
+                # Brier-score-based statistical calibration over
+                # historical call outcomes -- DERIVED.
+                EnrichmentEdge(
+                    source=cid,
+                    target=agent_id,
+                    rel_type="CALIBRATION_OF",
+                    rung=EdgeRung.DERIVED,
+                )
             )
         return ExtractionBatch(category="agent_calibration", nodes=nodes, edges=edges)
 

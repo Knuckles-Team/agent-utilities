@@ -395,6 +395,7 @@ def persona_heuristics_batch() -> Any:
     can answer "what rules does Graham screen on?" and link them to evaluations.
     """
     from agent_utilities.knowledge_graph.enrichment.models import (
+        EdgeRung,
         EnrichmentEdge,
         ExtractionBatch,
         GraphNode,
@@ -423,7 +424,14 @@ def persona_heuristics_batch() -> Any:
                 )
             )
             edges.append(
-                EnrichmentEdge(source=hid, target=persona_node, rel_type="HEURISTIC_OF")
+                # Declared entry in the built-in PERSONA_HEURISTICS
+                # rule table -- a configured fact, EXTRACTED.
+                EnrichmentEdge(
+                    source=hid,
+                    target=persona_node,
+                    rel_type="HEURISTIC_OF",
+                    rung=EdgeRung.EXTRACTED,
+                )
             )
     return ExtractionBatch(category="persona_heuristics", nodes=nodes, edges=edges)
 

@@ -7,6 +7,8 @@ logic lives here.
 
 from __future__ import annotations
 
+from enum import IntEnum
+
 from pydantic import BaseModel, Field
 
 
@@ -71,17 +73,149 @@ class TestEntity(BaseModel):
         return self.assert_count + self.raises_count
 
 
+class EdgeRung(IntEnum):
+    """The EH-270 ingestion cost-ladder position a fact was produced at,
+    stamped onto every :class:`EnrichmentEdge` (EH-274).
+
+    Ordered cheapest/most-certain (0) to most-expensive/least-certain (5),
+    exactly as ruled for EH-270's cost ladder ("a higher rung runs only when
+    every lower rung abstains and may never overwrite a deterministic
+    fact"). Comparisons use plain ``int`` ordering (``IntEnum``), so "a
+    higher rung" has exactly one meaning everywhere it's compared — see
+    :func:`rung_may_overwrite`, the one place that comparison is made.
+
+    ``UNKNOWN`` is a sentinel for edges nobody has classified yet (every
+    edge persisted before EH-274, or a producer this lane's survey missed)
+    — it is deliberately numbered *above* ``ASSERTED``, not below
+    ``EXTRACTED``, so a naive ``rung <= EdgeRung.X`` comparison written
+    elsewhere fails CLOSED (excludes the unclassified edge) rather than
+    open. It must never be used as a stand-in for a real classification —
+    see EH-274's ledger row: "a wrong provenance tag is worse than none."
+
+    This ``rung`` is a DIFFERENT concept from the existing source-system
+    provenance metadata (``source_system``/``domain`` stamped by
+    :func:`.provenance.stamp_source`, or the lineage payload carried on a
+    ``ChangeEnvelope.provenance`` dict) — those answer "which external
+    system did this come from"; ``rung`` answers "how was this EDGE itself
+    produced" (parsed, resolved, computed, modelled, embedded, or
+    asserted).
+    """
+
+    EXTRACTED = 0  # rung 0: AST / a declared structural fact, read verbatim
+    INFERRED = 1  # rung 1: symbol/type/identifier resolution
+    DERIVED = 2  # rung 2: statistical/community/computed-aggregate
+    MODELED = 3  # rung 3: classical ML/NER model output
+    EMBEDDED = 4  # rung 4: vector-embedding similarity
+    ASSERTED = 5  # rung 5: LLM extraction/generation
+    UNKNOWN = (
+        99  # sentinel: not yet classified — NEVER a fallback for real classification
+    )
+
+
+# Rung classification for the engine's type/scope-resolved edge stream
+# (CONCEPT:EG-KG.compute.type-scope-resolved-call), keyed by the RAW WIRE
+# ``edge_type`` string the engine returns. TWO producers consume this SAME
+# engine RPC family independently -- ``extractors/code_test.py``'s
+# ``entities_from_index_result`` (per-repo pipeline) and
+# ``core/gitlab_indexer.py``'s ``map_index_result`` (whole-GitLab-instance
+# sync) -- so this table has exactly ONE owner rather than two copies that
+# could drift. ``calls``/``inherits``/``realizes`` all come out of the SAME
+# cross-file type/scope resolution pass -> INFERRED (rung 1). ``similar_to``
+# is the engine's MinHash code-similarity pass -- a statistical technique,
+# not a resolution one -- so it is DERIVED (rung 2) "at best" per EH-274's
+# own ledger row, never conflated with the resolved-symbol edges it happens
+# to share a wire format with.
+RESOLVED_EDGE_RUNG: dict[str, EdgeRung] = {
+    "calls": EdgeRung.INFERRED,
+    "inherits": EdgeRung.INFERRED,
+    "realizes": EdgeRung.INFERRED,
+    "similar_to": EdgeRung.DERIVED,
+}
+
+
+def rung_may_overwrite(existing: EdgeRung | None, new: EdgeRung) -> bool:
+    """Monotone-safety gate (EH-274): may a write carrying ``new``'s rung
+    replace an already-stored edge whose rung is ``existing``?
+
+    The one rule, expressed exactly once so nothing downstream reimplements
+    it as an if-chain: a fact already recorded at a MORE certain
+    (lower-numbered) rung can never be replaced by one recorded at a LESS
+    certain (higher-numbered) rung — the EH-270 cost-ladder guarantee,
+    applied to edges instead of pipeline stages.
+
+    ``existing=None``/``UNKNOWN`` means "nothing classified is on record
+    yet" (a pre-EH-274 persisted edge, or an unclassified caller) — an
+    explicitly classified incoming rung is always allowed to fill that gap,
+    since a known rung is strictly more informative than none. The reverse
+    is refused: a write must never REGRESS an already-classified edge back
+    to ``UNKNOWN``.
+    """
+    if existing is None or existing is EdgeRung.UNKNOWN:
+        return True
+    if new is EdgeRung.UNKNOWN:
+        return False
+    return new <= existing
+
+
+def dedupe_edges_by_rung(edges: list[EnrichmentEdge]) -> list[EnrichmentEdge]:
+    """Collapse edges sharing a ``(source, target, rel_type)`` key to the
+    single most-certain (lowest-rung) one, per :func:`rung_may_overwrite`.
+
+    This is the monotone-safety guarantee applied at the ONE scope this
+    in-process helper can enforce without a backend read-before-write: two
+    edges for the same key arriving in the SAME write batch/call (e.g. a
+    struct-edge pass and a resolver pass both touching one pair). A
+    conflict against an edge already PERSISTED from a prior ingest run is a
+    separate, larger problem — it needs a conditional write at the storage
+    layer (the operational-authority backend's own upsert), tracked as a
+    follow-up rather than solved here; see ``registry.write_batch``'s
+    docstring. Edges with distinct keys pass through unchanged, in their
+    original relative order.
+    """
+    best: dict[tuple[str, str, str], EnrichmentEdge] = {}
+    order: list[tuple[str, str, str]] = []
+    for e in edges:
+        key = (e.source, e.target, e.rel_type)
+        current = best.get(key)
+        if current is None:
+            order.append(key)
+            best[key] = e
+        elif rung_may_overwrite(current.rung, e.rung):
+            best[key] = e
+    return [best[k] for k in order]
+
+
 class EnrichmentEdge(BaseModel):
     """A typed relationship between two enrichment entities.
 
     ``props`` carries optional scalar edge properties (e.g. the ``condition``
     expression on a BPMN sequence-flow ``FLOWS_TO`` edge, CONCEPT:AU-KG.ontology.descriptive-process-world-gains);
     empty for the common property-less case.
+
+    ``rung`` (EH-274) is the EH-270 cost-ladder tier this edge's fact was
+    produced at — see :class:`EdgeRung`. ``confidence`` is the quality
+    signal for that fact, promoted from the pre-EH-274 convention of riding
+    opportunistically in ``props["confidence"]``
+    (``extractors/code_test.py``'s resolver output) into a first-class,
+    modelled field; ``None`` is an explicit abstain (mirrors
+    ``CandidateClaim.model_confidence`` — never fabricated when the
+    producer has no real signal).
     """
 
     source: str
     target: str
     rel_type: str
+    rung: EdgeRung = Field(
+        default=EdgeRung.UNKNOWN,
+        description="EH-270 cost-ladder rung this edge's fact was produced "
+        "at (EH-274). UNKNOWN is only for producers nobody has classified "
+        "yet — never a substitute for real classification.",
+    )
+    confidence: float | None = Field(
+        default=None,
+        description="Quality/confidence signal for this edge's fact. None "
+        "is an explicit abstain, never fabricated.",
+    )
     props: dict = Field(default_factory=dict)
 
 

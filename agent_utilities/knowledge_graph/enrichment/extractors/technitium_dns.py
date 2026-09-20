@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "technitium_dns"
@@ -84,7 +84,11 @@ def extract(config: Any) -> ExtractionBatch:
                     },
                 )
             )
-            edges.append(EnrichmentEdge(source=zid, target=rid, rel_type="CONTAINS"))
+            edges.append(
+                EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED, source=zid, target=rid, rel_type="CONTAINS"
+                )
+            )
 
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 

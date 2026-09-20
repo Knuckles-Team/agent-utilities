@@ -12,7 +12,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from .models import EnrichmentEdge, ExtractionBatch, GraphNode
+from .models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
+
+# EH-274: every edge below mirrors an already-materialized spec's OWN
+# declared field (evolved_from/goal/prompt_id/tools/skills/model/members/
+# reports_to/orchestrates) verbatim -- a direct structural fact, not a
+# resolution/statistic/model/embedding/LLM-extraction step performed HERE.
+# Whatever produced the spec (an operator, or the synthesis engine this
+# module's docstring names) is a separate concern; this converter itself
+# does no probabilistic reasoning, so EXTRACTED for all of it.
+_SPEC_EDGE_RUNG = EdgeRung.EXTRACTED
 
 
 def _slug(text: str) -> str:
@@ -128,7 +137,12 @@ def prompt_to_batch(p: PromptSpec) -> ExtractionBatch:
     edges = []
     if p.evolved_from:
         edges.append(
-            EnrichmentEdge(source=p.id, target=p.evolved_from, rel_type="EVOLVED_FROM")
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG,
+                source=p.id,
+                target=p.evolved_from,
+                rel_type="EVOLVED_FROM",
+            )
         )
     return ExtractionBatch(category="orchestration", nodes=nodes, edges=edges)
 
@@ -150,25 +164,45 @@ def agent_to_batch(a: AgentSpec) -> ExtractionBatch:
     if a.goal:
         gid = f"goal:{_slug(a.goal)}"
         nodes.append(GraphNode(id=gid, type="Goal", props={"name": a.goal}))
-        edges.append(EnrichmentEdge(source=a.id, target=gid, rel_type="SOLVES"))
+        edges.append(
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG, source=a.id, target=gid, rel_type="SOLVES"
+            )
+        )
     if a.prompt_id:
         edges.append(
-            EnrichmentEdge(source=a.id, target=a.prompt_id, rel_type="HAS_PROMPT")
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG,
+                source=a.id,
+                target=a.prompt_id,
+                rel_type="HAS_PROMPT",
+            )
         )
     for t in a.tools:
         edges.append(
-            EnrichmentEdge(source=a.id, target=f"tool:{_slug(t)}", rel_type="USES_TOOL")
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG,
+                source=a.id,
+                target=f"tool:{_slug(t)}",
+                rel_type="USES_TOOL",
+            )
         )
     for s in a.skills:
         edges.append(
             EnrichmentEdge(
-                source=a.id, target=f"skill:{_slug(s)}", rel_type="HAS_SKILL"
+                rung=_SPEC_EDGE_RUNG,
+                source=a.id,
+                target=f"skill:{_slug(s)}",
+                rel_type="HAS_SKILL",
             )
         )
     if a.model:
         edges.append(
             EnrichmentEdge(
-                source=a.id, target=f"model:{_slug(a.model)}", rel_type="USES_MODEL"
+                rung=_SPEC_EDGE_RUNG,
+                source=a.id,
+                target=f"model:{_slug(a.model)}",
+                rel_type="USES_MODEL",
             )
         )
     return ExtractionBatch(category="orchestration", nodes=nodes, edges=edges)
@@ -191,15 +225,24 @@ def team_to_batch(t: TeamSpec) -> ExtractionBatch:
     if t.goal:
         gid = f"goal:{_slug(t.goal)}"
         nodes.append(GraphNode(id=gid, type="Goal", props={"name": t.goal}))
-        edges.append(EnrichmentEdge(source=t.id, target=gid, rel_type="SOLVES"))
+        edges.append(
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG, source=t.id, target=gid, rel_type="SOLVES"
+            )
+        )
     for m in t.members:
         aid = f"agent:{_slug(m)}"
-        edges.append(EnrichmentEdge(source=aid, target=t.id, rel_type="MEMBER_OF_TEAM"))
+        edges.append(
+            EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG, source=aid, target=t.id, rel_type="MEMBER_OF_TEAM"
+            )
+        )
     # Hierarchy: explicit reports_to, else every non-lead member reports to lead.
     pairs = t.reports_to or [(m, t.lead) for m in t.members if t.lead and m != t.lead]
     for child, parent in pairs:
         edges.append(
             EnrichmentEdge(
+                rung=_SPEC_EDGE_RUNG,
                 source=f"agent:{_slug(child)}",
                 target=f"agent:{_slug(parent)}",
                 rel_type="REPORTS_TO",
@@ -215,7 +258,9 @@ def workflow_to_batch(w: WorkflowSpec) -> ExtractionBatch:
         )
     ]
     edges = [
-        EnrichmentEdge(source=w.id, target=o, rel_type="ORCHESTRATES")
+        EnrichmentEdge(
+            rung=_SPEC_EDGE_RUNG, source=w.id, target=o, rel_type="ORCHESTRATES"
+        )
         for o in w.orchestrates
     ]
     return ExtractionBatch(category="orchestration", nodes=nodes, edges=edges)

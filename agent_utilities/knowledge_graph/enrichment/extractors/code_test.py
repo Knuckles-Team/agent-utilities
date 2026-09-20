@@ -13,7 +13,14 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-from ..models import CodeEntity, EnrichmentEdge, ExtractionResult, TestEntity
+from ..models import (
+    RESOLVED_EDGE_RUNG,
+    CodeEntity,
+    EdgeRung,
+    EnrichmentEdge,
+    ExtractionResult,
+    TestEntity,
+)
 
 
 class IncompleteParse(RuntimeError):
@@ -41,6 +48,10 @@ BatchParseFn = Callable[[list[tuple[str, bytes]]], list[dict[str, Any]]]
 IndexFn = Callable[[list[tuple[str, bytes]]], dict[str, Any]]
 
 # Engine resolved edge types → enrichment rel types (CONCEPT:EG-KG.compute.type-scope-resolved-call/2.101).
+# The rung for each of these (EH-274) is ``models.RESOLVED_EDGE_RUNG``,
+# keyed by the SAME raw wire ``edge_type`` string used below -- shared with
+# ``core/gitlab_indexer.py``'s ``map_index_result``, which consumes the
+# identical engine RPC family, so the classification has exactly one owner.
 _RESOLVED_EDGE_RELS = {
     "calls": "CALLS",
     "inherits": "INHERITS",
@@ -71,6 +82,23 @@ def _int(props: dict[str, Any], key: str) -> int:
 
 def _bool(props: dict[str, Any], key: str) -> bool:
     return str(props.get(key, "")).lower() == "true"
+
+
+def _coerce_confidence(raw: Any) -> float | None:
+    """Coerce a resolver edge's raw ``confidence`` property to ``float``.
+
+    The engine serializes every property as a string, so a real confidence
+    arrives as e.g. ``"0.90"`` (EH-274, promoted off the pre-EH-274
+    ``props["confidence"]`` convention). Never fabricates: a missing or
+    unparsable value stays ``None`` (an explicit abstain), never defaulted
+    to ``0``.
+    """
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _split_decorators(raw: str) -> list[str]:
@@ -256,7 +284,8 @@ def entities_from_index_result(
     edges: list[EnrichmentEdge] = []
     seen: set[tuple[str, str, str]] = set()
     for edge in index.get("edges", []) or []:
-        rel = _RESOLVED_EDGE_RELS.get(edge.get("edge_type", ""))
+        wire_edge_type = edge.get("edge_type", "")
+        rel = _RESOLVED_EDGE_RELS.get(wire_edge_type)
         if rel is None:
             continue
         src = engine_to_entity.get(str(edge.get("source", "")))
@@ -271,12 +300,22 @@ def entities_from_index_result(
         if key in seen:
             continue
         seen.add(key)
-        props = {
-            k: v
-            for k, v in (edge.get("properties") or {}).items()
-            if k in ("strategy", "confidence", "score")
-        }
-        edges.append(EnrichmentEdge(source=src, target=tgt, rel_type=rel, props=props))
+        raw_props = edge.get("properties") or {}
+        # `confidence` is promoted to EnrichmentEdge's own modelled field
+        # (EH-274) rather than riding opportunistically in `props`; `strategy`
+        # (which resolver tier: scoped/same_file/arity/unique) and `score`
+        # stay in `props` as auxiliary resolver detail, not first-class here.
+        props = {k: v for k, v in raw_props.items() if k in ("strategy", "score")}
+        edges.append(
+            EnrichmentEdge(
+                source=src,
+                target=tgt,
+                rel_type=rel,
+                rung=RESOLVED_EDGE_RUNG.get(wire_edge_type, EdgeRung.UNKNOWN),
+                confidence=_coerce_confidence(raw_props.get("confidence")),
+                props=props,
+            )
+        )
     return results, edges
 
 
@@ -357,7 +396,13 @@ def resolve_covers(results: list[ExtractionResult]) -> list[EnrichmentEdge]:
                         seen.add(key)
                         edges.append(
                             EnrichmentEdge(
-                                source=t.id, target=code_id, rel_type="COVERS"
+                                source=t.id,
+                                target=code_id,
+                                rel_type="COVERS",
+                                # Name-only matching is a (weak) form of
+                                # symbol resolution -- INFERRED, same rung
+                                # family as the engine's resolved CALLS.
+                                rung=EdgeRung.INFERRED,
                             )
                         )
     return edges

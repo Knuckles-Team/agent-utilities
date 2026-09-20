@@ -407,6 +407,7 @@ def sentiment_facts_batch(signals: list[SentimentSignal]) -> Any:
     and how credible were they?" is a graph query.
     """
     from agent_utilities.knowledge_graph.enrichment.models import (
+        EdgeRung,
         EnrichmentEdge,
         ExtractionBatch,
         GraphNode,
@@ -457,8 +458,29 @@ def sentiment_facts_batch(signals: list[SentimentSignal]) -> Any:
                 )
             )
             seen_entities.add(ent_id)
-        edges.append(EnrichmentEdge(source=fid, target=src_id, rel_type="DERIVED_FROM"))
-        edges.append(EnrichmentEdge(source=fid, target=ent_id, rel_type="ABOUT"))
+        # `s.polarity`/`s.magnitude` are an upstream classical sentiment
+        # model's output (a NER/classical-ML style signal, not embeddings or
+        # an LLM call this module makes itself) -- MODELED. `s.confidence`
+        # is that upstream model's own confidence, carried through rather
+        # than fabricated.
+        edges.append(
+            EnrichmentEdge(
+                source=fid,
+                target=src_id,
+                rel_type="DERIVED_FROM",
+                rung=EdgeRung.MODELED,
+                confidence=s.confidence,
+            )
+        )
+        edges.append(
+            EnrichmentEdge(
+                source=fid,
+                target=ent_id,
+                rel_type="ABOUT",
+                rung=EdgeRung.MODELED,
+                confidence=s.confidence,
+            )
+        )
 
     return ExtractionBatch(category="sentiment", nodes=nodes, edges=edges)
 

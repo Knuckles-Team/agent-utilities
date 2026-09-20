@@ -259,17 +259,18 @@ def test_cluster_features_honors_precomputed_call_edges(monkeypatch):
 
 
 def test_cluster_features_carries_resolver_confidence_through(monkeypatch):
-    """EH-284: when the primary index_repository resolver stamped a per-edge
-    confidence onto an EnrichmentEdge's props, cluster_features must carry it
-    through to community_fn as the tuple's third element — not silently drop
-    it the way this pipeline did before EH-284 was closed on the AU side."""
+    """EH-284/EH-274: when the primary index_repository resolver stamped a
+    per-edge confidence onto an EnrichmentEdge's own ``confidence`` field
+    (promoted off the pre-EH-274 ``props["confidence"]`` convention),
+    cluster_features must carry it through to community_fn as the tuple's
+    third element — not silently drop it."""
     import agent_utilities.knowledge_graph.enrichment.features as feat_mod
 
     code = [_fn(n) for n in ("a", "b", "c", "d")]
     a, b = code[0], code[1]
     provided = [
         feat_mod.EnrichmentEdge(
-            source=a.id, target=b.id, rel_type="CALLS", props={"confidence": "0.90"}
+            source=a.id, target=b.id, rel_type="CALLS", confidence=0.90
         ),
     ]
 
@@ -280,4 +281,4 @@ def test_cluster_features_carries_resolver_confidence_through(monkeypatch):
         return [node_ids]
 
     feat_mod.cluster_features(code, fake_community, min_size=3, call_edges=provided)
-    assert seen_edges["e"] == [(a.id, b.id, "0.90")]
+    assert seen_edges["e"] == [(a.id, b.id, 0.90)]

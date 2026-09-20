@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core import owl_bridge
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "emerald"
@@ -96,7 +96,12 @@ def extract(config: Any) -> ExtractionBatch:
             )
         )
         edges.append(
-            EnrichmentEdge(source=node_id, target=portfolio_id, rel_type="HELD_IN")
+            EnrichmentEdge(
+                rung=EdgeRung.EXTRACTED,
+                source=node_id,
+                target=portfolio_id,
+                rel_type="HELD_IN",
+            )
         )
 
     owl_bridge.register_promotable_node_types({n.type for n in nodes})

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...ontology.leanix_metamodel import _upper_snake
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "archimate"
@@ -66,6 +66,7 @@ def extract(config: Any) -> ExtractionBatch:
             continue
         edges.append(
             EnrichmentEdge(
+                rung=EdgeRung.EXTRACTED,
                 source=f"archi:{src}",
                 target=f"archi:{tgt}",
                 rel_type=_upper_snake(rel.get("type") or "ASSOCIATION"),

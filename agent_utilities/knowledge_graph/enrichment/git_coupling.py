@@ -12,7 +12,7 @@ from __future__ import annotations
 import subprocess
 from itertools import combinations
 
-from .models import EnrichmentEdge
+from .models import EdgeRung, EnrichmentEdge
 
 # A pair co-changing in fewer than this many commits is noise, not coupling.
 DEFAULT_MIN_SUPPORT = 3
@@ -42,6 +42,10 @@ def parse_change_coupling(
             source=f"file:{a}",
             target=f"file:{b}",
             rel_type="FILE_CHANGES_WITH",
+            # Co-change frequency mined from git history -- a statistical
+            # measure, DERIVED (rung 2), the exact "community/statistical"
+            # category the EH-270 ladder names for this tier.
+            rung=EdgeRung.DERIVED,
             props={"support": str(support)},
         )
         for (a, b), support in pair_support.items()

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "okta"
@@ -104,6 +104,7 @@ def extract(config: Any) -> ExtractionBatch:
             if mid:
                 edges.append(
                     EnrichmentEdge(
+                        rung=EdgeRung.EXTRACTED,
                         source=f"okta_user:{mid}",
                         target=gnode,
                         rel_type="MEMBER_OF_GROUP",

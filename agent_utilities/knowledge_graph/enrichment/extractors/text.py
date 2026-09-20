@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..models import Concept, EnrichmentEdge
+from ..models import Concept, EdgeRung, EnrichmentEdge
 from .document import extract_concepts
 
 LLMFn = Callable[[str], str]
@@ -46,7 +46,13 @@ def extract_text_concepts(
         text, source_id, llm_fn, source_type=source_type, title=title, limit=limit
     )
     edges = [
-        EnrichmentEdge(source=source_id, target=c.id, rel_type="MENTIONS")
+        EnrichmentEdge(
+            source=source_id,
+            target=c.id,
+            rel_type="MENTIONS",
+            # LLM extraction from arbitrary text -- ASSERTED (rung 5).
+            rung=EdgeRung.ASSERTED,
+        )
         for c in concepts
     ]
     return concepts, edges

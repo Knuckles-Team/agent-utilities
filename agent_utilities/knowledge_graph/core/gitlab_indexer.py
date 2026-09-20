@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ..backends.sparql.source_partition import make_source_id
+from ..enrichment.models import RESOLVED_EDGE_RUNG, EdgeRung
 
 logger = logging.getLogger(__name__)
 
@@ -380,7 +381,15 @@ def map_index_result(
                     "instance": instance,
                 }
             )
-            relationships.append({"source": repo_id, "target": fid, "type": "CONTAINS"})
+            relationships.append(
+                {
+                    "source": repo_id,
+                    "target": fid,
+                    "type": "CONTAINS",
+                    # Repo directory listing -- a declared structural fact.
+                    "rung": EdgeRung.EXTRACTED.name,
+                }
+            )
         return fid
 
     # Symbol nodes (functions/classes/methods, with native test-quality metrics).
@@ -400,6 +409,14 @@ def map_index_result(
 
     # Edges: IMPLEMENTS (file→symbol), resolved calls (symbol→symbol), resolved
     # depends_on (file→file). File endpoints are materialized on demand.
+    #
+    # EH-274 rung: IMPLEMENTS is "this symbol is defined in this file" — read
+    # verbatim off the parse, no cross-file resolution at all -- EXTRACTED
+    # (the ticket's own illustrative "certain" example). calls/inherits/
+    # realizes/similar_to share ``RESOLVED_EDGE_RUNG`` with
+    # ``extractors/code_test.py`` (one owner -- see that table's docstring).
+    # depends_on is a resolved file→file import/dependency edge from the SAME
+    # engine RPC family -> INFERRED, same as calls.
     for edge in result.get("edges", []) or []:
         etype = edge.get("edge_type", "")
         src = str(edge.get("source", ""))
@@ -408,7 +425,12 @@ def map_index_result(
             continue
         if etype == "IMPLEMENTS":
             relationships.append(
-                {"source": ensure_file(src), "target": nid(tgt), "type": "IMPLEMENTS"}
+                {
+                    "source": ensure_file(src),
+                    "target": nid(tgt),
+                    "type": "IMPLEMENTS",
+                    "rung": EdgeRung.EXTRACTED.name,
+                }
             )
         elif etype == "calls":
             relationships.append(
@@ -416,6 +438,7 @@ def map_index_result(
                     "source": nid(src),
                     "target": nid(tgt),
                     "type": "calls",
+                    "rung": RESOLVED_EDGE_RUNG["calls"].name,
                     **_edge_props(edge),
                 }
             )
@@ -427,6 +450,7 @@ def map_index_result(
                     "source": nid(src),
                     "target": nid(tgt),
                     "type": etype,
+                    "rung": RESOLVED_EDGE_RUNG[etype].name,
                     **_edge_props(edge),
                 }
             )
@@ -436,6 +460,7 @@ def map_index_result(
                     "source": ensure_file(src),
                     "target": ensure_file(tgt),
                     "type": "depends_on",
+                    "rung": EdgeRung.INFERRED.name,
                     **_edge_props(edge),
                 }
             )

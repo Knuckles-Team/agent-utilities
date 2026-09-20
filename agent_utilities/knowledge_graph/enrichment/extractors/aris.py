@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "aris"
@@ -211,7 +211,12 @@ def _lift_epc_structure(
             )
         )
         edges.append(
-            EnrichmentEdge(source=node_id, target=model_node_id, rel_type="PART_OF")
+            EnrichmentEdge(
+                rung=EdgeRung.EXTRACTED,
+                source=node_id,
+                target=model_node_id,
+                rel_type="PART_OF",
+            )
         )
 
     # Build the directed control-flow adjacency, then FLOWS_TO between lifted
@@ -241,6 +246,7 @@ def _lift_epc_structure(
                     emitted.add((src, tgt))
                     edges.append(
                         EnrichmentEdge(
+                            rung=EdgeRung.EXTRACTED,
                             source=f"aris_object:{model_id}:{src}",
                             target=f"aris_object:{model_id}:{tgt}",
                             rel_type="FLOWS_TO",
@@ -290,6 +296,7 @@ def extract(config: Any) -> ExtractionBatch:
             props["externalToolId"] = camunda_key
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=model_node_id,
                     target=f"bpmn_process:{camunda_key}",
                     rel_type="ALIGNED_WITH",
@@ -299,6 +306,7 @@ def extract(config: Any) -> ExtractionBatch:
             props["externalToolId"] = egeria_guid
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=model_node_id,
                     target=f"egeria_process:{egeria_guid}",
                     rel_type="ALIGNED_WITH",

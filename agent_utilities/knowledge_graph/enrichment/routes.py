@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from .models import CodeEntity, EnrichmentEdge, GraphNode
+from .models import CodeEntity, EdgeRung, EnrichmentEdge, GraphNode
 
 # `<obj>.<verb>("/path"...)` route decorators (Flask `@app.route`, FastAPI/Flask
 # 2.x `@app.get`/`@router.post`, etc.). The verb selects the HTTP method; `route`
@@ -75,7 +75,15 @@ def extract_routes(
                 if key not in seen:
                     seen.add(key)
                     edges.append(
-                        EnrichmentEdge(source=c.id, target=rid, rel_type="SERVES")
+                        EnrichmentEdge(
+                            source=c.id,
+                            target=rid,
+                            rel_type="SERVES",
+                            # Read verbatim off the handler's own route
+                            # decorator -- a declared structural fact,
+                            # EXTRACTED, not a resolution.
+                            rung=EdgeRung.EXTRACTED,
+                        )
                     )
     return list(routes.values()), edges
 
@@ -89,7 +97,14 @@ def link_routes_to_service(
     if not service_id:
         return []
     return [
-        EnrichmentEdge(source=r.id, target=service_id, rel_type="SERVED_BY")
+        EnrichmentEdge(
+            source=r.id,
+            target=service_id,
+            rel_type="SERVED_BY",
+            # `service_id` is a best-effort NAME match (resolve_service_id),
+            # not a declared reference -- identifier resolution, INFERRED.
+            rung=EdgeRung.INFERRED,
+        )
         for r in routes
     ]
 

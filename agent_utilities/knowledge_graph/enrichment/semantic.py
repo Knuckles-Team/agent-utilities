@@ -14,7 +14,7 @@ import math
 from collections.abc import Callable
 from typing import Any
 
-from .models import Concept, EnrichmentEdge
+from .models import Concept, EdgeRung, EnrichmentEdge
 
 logger = logging.getLogger(__name__)
 
@@ -640,7 +640,17 @@ def link_concepts_to_code(
             key = (c.id, tgt, rel)
             if key not in seen:
                 seen.add(key)
-                edges.append(EnrichmentEdge(source=c.id, target=tgt, rel_type=rel))
+                edges.append(
+                    EnrichmentEdge(
+                        source=c.id,
+                        target=tgt,
+                        rel_type=rel,
+                        # Vector-similarity search (embed_fn + cosine) --
+                        # EMBEDDED (rung 4).
+                        rung=EdgeRung.EMBEDDED,
+                        confidence=score,
+                    )
+                )
                 kept += 1
     return edges
 

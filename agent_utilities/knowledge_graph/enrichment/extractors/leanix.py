@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...ontology.leanix_metamodel import _upper_snake, compile_leanix_metamodel
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "leanix"
@@ -196,6 +196,7 @@ def extract(config: Any) -> ExtractionBatch:
                     continue
                 edges.append(
                     EnrichmentEdge(
+                        rung=EdgeRung.EXTRACTED,
                         source=nid,
                         target=_node_id(target_type, tid),
                         rel_type=rel_type,

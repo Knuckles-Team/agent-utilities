@@ -423,13 +423,74 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     assert summary.inherits_edges == 1
     assert summary.similar_edges == 1
     calls = [e for e in backend.edges if e[2] == "CALLS"]
-    # Resolved (not name-only): the strategy/confidence props are persisted.
+    # Resolved (not name-only): the strategy prop is persisted; confidence
+    # (EH-274) is promoted to its own first-class field, coerced to a real
+    # float from the engine's string-serialized property (rung assertions
+    # live in test_pipeline_index_resolver_stamps_edge_rung below).
     assert calls and calls[0][3].get("strategy") == "same_file"
-    assert calls[0][3].get("confidence") == "0.90"
+    assert calls[0][3].get("confidence") == 0.90
     assert any(e[2] == "INHERITS" for e in backend.edges)
     # Model-free similarity edge persisted with its score (CONCEPT:EG-KG.compute.model-free-similar-code).
     sim = [e for e in backend.edges if e[2] == "SIMILAR_TO"]
     assert sim and sim[0][3].get("score") == "0.75"
+
+
+def test_pipeline_index_resolver_stamps_edge_rung(tmp_path):
+    """EH-274: each resolved-edge family gets its own cost-ladder rung —
+    CALLS/INHERITS (type/scope resolution) INFERRED, SIMILAR_TO (MinHash)
+    DERIVED — as a first-class edge property, not left unclassified.
+
+    Split out from ``test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges``
+    (same fixture shape) so that test's own complexity doesn't grow with
+    every new EH-274 field it would otherwise need to assert on."""
+    (tmp_path / "app.py").write_text(
+        "def caller():\n    return helper()\n\ndef helper():\n    return 1\n"
+    )
+    (tmp_path / "model.py").write_text(
+        "class Base:\n    pass\n\nclass Child(Base):\n    pass\n"
+    )
+    app = "app.py"
+    model = "model.py"
+
+    def index_fn(_files):
+        return {
+            "nodes": [
+                _sym("symbol:caller", "caller", app),
+                _sym("symbol:helper", "helper", app),
+                _sym("symbol:Base", "Base", model, sym_type="Class"),
+                _sym("symbol:Child", "Child", model, sym_type="Class"),
+            ],
+            "edges": [
+                {
+                    "source": "symbol:caller",
+                    "target": "symbol:helper",
+                    "edge_type": "calls",
+                    "properties": {"name": "helper"},
+                },
+                {
+                    "source": "symbol:Child",
+                    "target": "symbol:Base",
+                    "edge_type": "inherits",
+                    "properties": {"name": "Base"},
+                },
+                {
+                    "source": "symbol:caller",
+                    "target": "symbol:helper",
+                    "edge_type": "similar_to",
+                    "properties": {"score": "0.75"},
+                },
+            ],
+            "files_parsed": 2,
+        }
+
+    backend = PropBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    pipe.enrich(tmp_path)
+
+    rung_by_rel = {e[2]: e[3].get("rung") for e in backend.edges}
+    assert rung_by_rel.get("CALLS") == "INFERRED"
+    assert rung_by_rel.get("INHERITS") == "INFERRED"
+    assert rung_by_rel.get("SIMILAR_TO") == "DERIVED"
 
 
 def test_pipeline_extracts_routes_from_decorators(tmp_path):

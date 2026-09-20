@@ -20,7 +20,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .models import EnrichmentEdge, ExtractionBatch, GraphNode
+from .models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from .orchestration import AgentSpec, TeamSpec
 from .registry import write_batch
 
@@ -86,7 +86,11 @@ def persist_as_runnable(backend: Any, spec: AgentSpec) -> tuple[int, int]:
     ]
     edges = [
         EnrichmentEdge(
-            source=f"resource:{spec.id}", target=f"tool:{t}", rel_type="USES_TOOL"
+            # Declared field on the already-materialized spec -- EXTRACTED.
+            rung=EdgeRung.EXTRACTED,
+            source=f"resource:{spec.id}",
+            target=f"tool:{t}",
+            rel_type="USES_TOOL",
         )
         for t in spec.tools
     ]
@@ -131,7 +135,13 @@ def persist_skill_as_runnable(
         )
     ]
     edges = [
-        EnrichmentEdge(source=skill_id, target=f"tool:{t}", rel_type="USES_TOOL")
+        EnrichmentEdge(
+            # Declared field on the already-materialized spec -- EXTRACTED.
+            rung=EdgeRung.EXTRACTED,
+            source=skill_id,
+            target=f"tool:{t}",
+            rel_type="USES_TOOL",
+        )
         for t in (tools or [])
         if t
     ]

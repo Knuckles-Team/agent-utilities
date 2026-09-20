@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 
@@ -82,7 +82,12 @@ def extract(config: Any) -> ExtractionBatch:
                     id=org_id, type="OrgUnit", props={"name": department}
                 )
             edges.append(
-                EnrichmentEdge(source=node_id, target=org_id, rel_type="MEMBER_OF")
+                EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
+                    source=node_id,
+                    target=org_id,
+                    rel_type="MEMBER_OF",
+                )
             )
 
     # Customer -> Customer node
@@ -117,6 +122,7 @@ def extract(config: Any) -> ExtractionBatch:
         if customer is not None:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"customer:{customer}",
                     rel_type="PLACED_BY",
@@ -167,13 +173,17 @@ def extract(config: Any) -> ExtractionBatch:
         if item is not None:
             edges.append(
                 EnrichmentEdge(
-                    source=node_id, target=f"item:{item}", rel_type="INSTANCE_OF"
+                    rung=EdgeRung.EXTRACTED,
+                    source=node_id,
+                    target=f"item:{item}",
+                    rel_type="INSTANCE_OF",
                 )
             )
         warehouse = _first(row, "warehouse", "location")
         if warehouse is not None:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"warehouse:{warehouse}",
                     rel_type="LOCATED_IN",
@@ -216,6 +226,7 @@ def extract(config: Any) -> ExtractionBatch:
         if customer is not None:
             edges.append(
                 EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
                     source=node_id,
                     target=f"customer:{customer}",
                     rel_type="RAISED_BY",

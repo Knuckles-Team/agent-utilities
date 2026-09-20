@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
+from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
 CATEGORY = "portainer"
@@ -77,7 +77,14 @@ def extract(config: Any) -> ExtractionBatch:
                     },
                 )
             )
-            edges.append(EnrichmentEdge(source=cid, target=ep_node, rel_type="RUNS_ON"))
+            edges.append(
+                EnrichmentEdge(
+                    rung=EdgeRung.EXTRACTED,
+                    source=cid,
+                    target=ep_node,
+                    rel_type="RUNS_ON",
+                )
+            )
 
     for st in _rows(_call(client, "list_stacks")):
         sid = st.get("Id") or st.get("id")

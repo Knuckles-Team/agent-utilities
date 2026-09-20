@@ -11,6 +11,7 @@ from agent_utilities.knowledge_graph.enrichment.extractors.code_test import (
     entities_from_parse_result,
     resolve_covers,
 )
+from agent_utilities.knowledge_graph.enrichment.models import EdgeRung
 
 
 def _fn(name, is_test, **kw):
@@ -154,8 +155,13 @@ def test_entities_from_index_result_maps_symbols_and_resolved_edges():
     assert len(calls) == 1
     assert calls[0].source == "code:app.py::caller"
     assert calls[0].target == "code:app.py::helper"
-    assert calls[0].props == {"strategy": "same_file", "confidence": "0.90"}
+    # EH-274: `confidence` is a first-class field (coerced from the engine's
+    # string-serialized property), not part of `props` any more.
+    assert calls[0].props == {"strategy": "same_file"}
+    assert calls[0].confidence == 0.90
+    assert calls[0].rung is EdgeRung.INFERRED
 
     inh = [e for e in edges if e.rel_type == "INHERITS"]
     assert len(inh) == 1
     assert inh[0].source == "code:m.py::Child" and inh[0].target == "code:m.py::Base"
+    assert inh[0].rung is EdgeRung.INFERRED
