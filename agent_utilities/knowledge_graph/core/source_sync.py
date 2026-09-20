@@ -2950,12 +2950,23 @@ def _sync_gitlab(
 
     project_ids = {str(i) for i in ids} if ids else None
 
-    results: list[dict[str, Any]] = [
-        _gitlab_instance_summary(
-            engine, inst, client, mode, project_ids, graph_compute.index_repository
-        )
-        for inst in instances
-    ]
+    # OS-5.72: one profile covers every configured instance in this sync, so a
+    # slow whole-fleet GitLab sync is attributable per stage (fetch/parse_resolve/
+    # write — timed inside gitlab_indexer.index_instance, reused, not duplicated
+    # here). Off-queue work (this is a scheduled/webhook-driven sync, not a
+    # per-WorkItem task), so it is recorded the same way as the other off-queue
+    # passes (embed-backfill, assimilation): persisted as a ``:ProfileSpan`` AND
+    # returned inline for a synchronous caller (e.g. the webhook path).
+    from .ingest_profile import profile_ingest, record_offqueue_span
+
+    with profile_ingest("gitlab_sync") as _prof:
+        results: list[dict[str, Any]] = [
+            _gitlab_instance_summary(
+                engine, inst, client, mode, project_ids, graph_compute.index_repository
+            )
+            for inst in instances
+        ]
+    record_offqueue_span(engine, "gitlab_sync", _prof)
 
     totals = _gitlab_totals(results)
     return {
@@ -2968,6 +2979,7 @@ def _sync_gitlab(
         "symbols": totals["symbols"],
         "calls_resolved": totals["calls_resolved"],
         "failed": totals["failed"],
+        "profile": _prof.to_dict(),
     }
 
 

@@ -183,43 +183,46 @@ def index_instance(
     - ``since`` (a watermark) skips projects whose ``last_activity_at`` is not newer
       (delta sync); ``None`` indexes all (full sync).
     """
+    from .ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
     summary = IndexSummary(instance=instance)
     domain = make_source_id("gitlab", instance)
     watermark = since
 
     projects: list[GitLabProject] = []
     enumeration_complete = True
-    if project_ids is not None:
-        # Direct-by-id retrieval only — no membership/listing call is issued.
-        # An id that doesn't exist or isn't authorized resolves to `None` and is
-        # recorded as a skip, never silently dropped and never distinguished
-        # from "not found" (fail-closed: this must not become an oracle for
-        # probing which project ids exist/are accessible).
-        for pid in sorted(project_ids):
-            try:
-                project = source.get_project(pid)
-            except Exception as exc:  # noqa: BLE001 - one bad id must not abort the batch
-                summary.errors.append(f"project {pid}: direct fetch failed: {exc}")
-                continue
-            if project is None:
-                summary.projects_skipped += 1
-                continue
-            projects.append(project)
-    else:
-        # Enumerate defensively, then process oldest-first. A newer project's
-        # native cursor must never commit before an older project that can still
-        # fail. Only reached for an intentional unscoped full/delta-by-watermark
-        # sync — never when the caller already has explicit project ids.
-        project_iter = iter(source.list_projects())
-        while True:
-            try:
-                projects.append(next(project_iter))
-            except StopIteration:
-                break
-            except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
-                summary.errors.append(f"project enumeration stopped early: {exc}")
-                enumeration_complete = False
-                break
+    with _pstage("enumerate"):
+        if project_ids is not None:
+            # Direct-by-id retrieval only — no membership/listing call is issued.
+            # An id that doesn't exist or isn't authorized resolves to `None` and is
+            # recorded as a skip, never silently dropped and never distinguished
+            # from "not found" (fail-closed: this must not become an oracle for
+            # probing which project ids exist/are accessible).
+            for pid in sorted(project_ids):
+                try:
+                    project = source.get_project(pid)
+                except Exception as exc:  # noqa: BLE001 - one bad id must not abort the batch
+                    summary.errors.append(f"project {pid}: direct fetch failed: {exc}")
+                    continue
+                if project is None:
+                    summary.projects_skipped += 1
+                    continue
+                projects.append(project)
+        else:
+            # Enumerate defensively, then process oldest-first. A newer project's
+            # native cursor must never commit before an older project that can still
+            # fail. Only reached for an intentional unscoped full/delta-by-watermark
+            # sync — never when the caller already has explicit project ids.
+            project_iter = iter(source.list_projects())
+            while True:
+                try:
+                    projects.append(next(project_iter))
+                except StopIteration:
+                    break
+                except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
+                    summary.errors.append(f"project enumeration stopped early: {exc}")
+                    enumeration_complete = False
+                    break
     projects.sort(key=lambda item: str(item.last_activity_at or ""))
 
     for project in projects:
@@ -229,7 +232,8 @@ def index_instance(
             continue
 
         try:
-            files = _collect_code_files(source, project, max_file_bytes)
+            with _pstage("enumerate"):
+                files = _collect_code_files(source, project, max_file_bytes)
         except Exception as exc:  # noqa: BLE001 - one bad project must not abort the sweep
             summary.errors.append(
                 f"{project.path_with_namespace}: list/fetch failed: {exc}"
@@ -240,7 +244,12 @@ def index_instance(
             continue
 
         try:
-            result = index_fn(files)
+            # Fused parse + type/scope resolution: one engine round trip
+            # (CONCEPT:EG-KG.compute.turn-each-project); not separable into a
+            # "parse" vs "symbol/type resolution" wall-clock stage from this
+            # side of the RPC.
+            with _pstage("parse_resolve"):
+                result = index_fn(files)
         except Exception as exc:  # noqa: BLE001
             summary.errors.append(
                 f"{project.path_with_namespace}: index_repository failed: {exc}"
@@ -258,7 +267,8 @@ def index_instance(
                 if entity.get("type") == "Repository":
                     entity["updatedAt"] = None
         try:
-            ingest(domain, entities, relationships)
+            with _pstage("write"):
+                ingest(domain, entities, relationships)
         except Exception as exc:  # noqa: BLE001
             summary.errors.append(
                 f"{project.path_with_namespace}: ingest failed: {exc}"

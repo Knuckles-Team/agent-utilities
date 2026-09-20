@@ -22,12 +22,16 @@ from agent_utilities.knowledge_graph.enrichment.extractors.code_test import (
 )
 from agent_utilities.knowledge_graph.enrichment.pipeline import (
     EnrichmentPipeline,
+    EnrichmentSummary,
     logical_file_identity,
     make_batch_parse_fn,
 )
+from agent_utilities.knowledge_graph.ingestion import ContentType
 from agent_utilities.knowledge_graph.ingestion.engine import (
+    IngestionManifest,
     _changed_source_files,
     _git_head_sha,
+    _structural_result,
 )
 
 
@@ -554,3 +558,37 @@ class TestPipelineBatchRouting:
         parse_calls: list[str] = []
         s = self._pipe(None, parse_calls, {}).enrich_files([f1])
         assert s.files_parsed == 1 and parse_calls == [str(f1)]
+
+
+# ── OS-5.72: the code-ingest path's IngestProfile is actually surfaced ──────
+class TestStructuralIngestProfileEmission:
+    """EH-272: a structural (code/repository) ingest must answer "where did
+    the hour go?" -- proves the per-stage/token breakdown built by
+    ``_run_codebase_structural`` actually reaches the operator through
+    ``IngestionResult.details``, not just that it was computed somewhere.
+    """
+
+    def test_structural_result_surfaces_the_ingest_profile(self):
+        manifest = IngestionManifest(
+            content_type=ContentType.CODEBASE, source_uri="/tmp/repo"
+        )
+        summary = EnrichmentSummary(code=3, tests=1, features=0)
+        profile = {
+            "stages_ms": {"enumerate": 1.0, "parse_resolve": 12.3, "write": 4.5},
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "embed_tokens": 0,
+            "total_tokens": 0,
+            "llm_calls": 0,
+            "embed_calls": 0,
+            "cost": 0.0,
+        }
+
+        result = _structural_result(manifest, summary, "/tmp/repo", {}, profile)
+
+        assert result.details["profile"] == profile
+        assert set(result.details["profile"]["stages_ms"]) == {
+            "enumerate",
+            "parse_resolve",
+            "write",
+        }

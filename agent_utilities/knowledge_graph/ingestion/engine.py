@@ -120,6 +120,7 @@ def _structural_result(
     summary: Any,
     source_path: str,
     history: dict[str, Any],
+    profile: dict[str, Any],
 ) -> IngestionResult:
     """Assemble the codebase structural ingest's ``IngestionResult``.
 
@@ -128,11 +129,17 @@ def _structural_result(
     (CONCEPT:AU-KG.ingest.over-same-tree-fan/2.283) over this tree AFTER the
     structural pass and fans each artifact out to its native adaptor (specs
     included, now covering ``*.spec.md`` as well as ``.specify/**``).
+
+    ``profile`` (OS-5.72) is the ``IngestProfile.to_dict()`` per-stage/token
+    breakdown for the whole structural ingest — surfaced in ``details`` so an
+    operator can see exactly where an hour-long ingest went without a
+    separate query.
     """
     nodes = summary.code + summary.tests + summary.features
     details = summary.model_dump()
     details["cards_pending"] = max(0, summary.code - summary.cards_generated)
     details["source_path"] = source_path
+    details["profile"] = profile
     if history:
         details["commit_history"] = history
         nodes += (
@@ -2314,7 +2321,20 @@ class IngestionEngine:
     def _run_codebase_structural(
         self, manifest: IngestionManifest, graph_compute: Any, source_path: str
     ) -> IngestionResult:
-        """Blocking structural enrichment (runs in a worker thread)."""
+        """Blocking structural enrichment (runs in a worker thread).
+
+        OS-5.72: the whole repo ingest runs under ONE ``IngestProfile`` so an
+        hour-long ingest is attributable — the heavy inner phases (file
+        enumeration, the pre-hash filter, parse/resolve, community detection,
+        embedding, the graph write) are timed inside ``EnrichmentPipeline``
+        itself (reused, not duplicated here); this method times the
+        surrounding phases it owns directly (hash-manifest I/O, git-diff
+        enumeration, commit-history ingest) so the profile covers the entire
+        method end to end, not just the pipeline call.
+        """
+        from ..core.ingest_profile import profile_ingest
+        from ..core.ingest_profile import stage as _pstage
+
         # CONCEPT:AU-KG.ingest.unified-query-routing — route this repo's durable structural writes to a
         # per-repo graph (``code:<repo>``) when graph routing is on, so they hash
         # to their own redb shard writer instead of all landing on ``__commons__``.
@@ -2328,38 +2348,49 @@ class IngestionEngine:
         route_repo = (manifest.metadata or {}).get("route_repo") or Path(
             source_path
         ).name
-        write_graph, backend = self._structural_backend(graph_compute, route_repo)
-        community_fn, community = self._structural_community(
-            graph_compute, write_graph, manifest
-        )
-        hash_seen = self._load_file_hashes(write_graph)
-        # Heavy parse/community operations use graph-scoped views on the ONE
-        # process transport. The engine's internal lanes/shards provide
-        # isolation; opening a private second socket here defeated request-local
-        # GraphSession authority and doubled resident resources.
-        pipe = self._build_enrichment_pipeline(
-            backend, graph_compute, source_path, hash_seen, community_fn
-        )
+        with profile_ingest(f"codebase:{route_repo}") as _prof:
+            write_graph, backend = self._structural_backend(graph_compute, route_repo)
+            community_fn, community = self._structural_community(
+                graph_compute, write_graph, manifest
+            )
+            with _pstage("hash_load"):
+                hash_seen = self._load_file_hashes(write_graph)
+            # Heavy parse/community operations use graph-scoped views on the ONE
+            # process transport. The engine's internal lanes/shards provide
+            # isolation; opening a private second socket here defeated request-local
+            # GraphSession authority and doubled resident resources.
+            pipe = self._build_enrichment_pipeline(
+                backend, graph_compute, source_path, hash_seen, community_fn
+            )
 
-        # Caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): when the manifest declares
-        # an explicit ``only_files`` list (e.g. the agent-utilities self-ingest
-        # scoping a DIRTY tree to its git-status-modified files), honor it verbatim
-        # — parse/chunk only those files instead of falling back to the full walk a
-        # dirty tree would otherwise force. Takes precedence over the git-diff path.
-        explicit = manifest.metadata.get("only_files") if manifest.metadata else None
-        head_sha = _git_head_sha(source_path)
-        changed_files, prior_sha = self._structural_delta_files(
-            source_path, write_graph, head_sha, explicit
-        )
-        summary = self._run_enrichment_pipeline(
-            pipe, source_path, changed_files, prior_sha, community
-        )
+            # Caller-scoped file subset (CONCEPT:AU-KG.ingest.agent-utilities-checkout): when the manifest declares
+            # an explicit ``only_files`` list (e.g. the agent-utilities self-ingest
+            # scoping a DIRTY tree to its git-status-modified files), honor it verbatim
+            # — parse/chunk only those files instead of falling back to the full walk a
+            # dirty tree would otherwise force. Takes precedence over the git-diff path.
+            explicit = (
+                manifest.metadata.get("only_files") if manifest.metadata else None
+            )
+            head_sha = _git_head_sha(source_path)
+            with _pstage("enumerate"):
+                changed_files, prior_sha = self._structural_delta_files(
+                    source_path, write_graph, head_sha, explicit
+                )
+            summary = self._run_enrichment_pipeline(
+                pipe, source_path, changed_files, prior_sha, community
+            )
 
-        if head_sha and not explicit:
-            self._record_structural_watermarks(write_graph, source_path, head_sha)
-        self._persist_file_hashes(write_graph, hash_seen)
-        history = self._ingest_commit_history(manifest, backend, source_path, head_sha)
-        return _structural_result(manifest, summary, source_path, history)
+            if head_sha and not explicit:
+                self._record_structural_watermarks(write_graph, source_path, head_sha)
+            with _pstage("hash_persist"):
+                self._persist_file_hashes(write_graph, hash_seen)
+            with _pstage("commit_history"):
+                history = self._ingest_commit_history(
+                    manifest, backend, source_path, head_sha
+                )
+        return _structural_result(
+            manifest, summary, source_path, history, _prof.to_dict()
+        )
 
     def _structural_backend(
         self, graph_compute: Any, route_repo: str

@@ -450,15 +450,18 @@ class EnrichmentPipeline:
         self.writeback_fn = writeback_fn
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
-        files = discover_source_files(target_path)
-        # IaC files alongside the code (CONCEPT:AU-KG.enrichment.read-them-here-so): read them here so the
-        # pipeline writes Resource nodes in the same batched pass.
-        iac: list[tuple[str, str]] = []
-        for p in discover_iac_files(target_path):
-            try:
-                iac.append((str(p), p.read_text(encoding="utf-8", errors="ignore")))
-            except OSError:
-                continue
+        from ..core.ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
+        with _pstage("enumerate"):
+            files = discover_source_files(target_path)
+            # IaC files alongside the code (CONCEPT:AU-KG.enrichment.read-them-here-so): read them here so the
+            # pipeline writes Resource nodes in the same batched pass.
+            iac: list[tuple[str, str]] = []
+            for p in discover_iac_files(target_path):
+                try:
+                    iac.append((str(p), p.read_text(encoding="utf-8", errors="ignore")))
+                except OSError:
+                    continue
         # The ingest root's name is the best-effort hint for the deployed service a
         # route is servedBy (CONCEPT:AU-KG.enrichment.http-route-extraction).
         return self.enrich_files(
@@ -520,6 +523,8 @@ class EnrichmentPipeline:
         it was never actually verified under the new identity scheme — the
         transition can only cost an extra parse, never a missed one.
         """
+        from ..core.ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
         summary = EnrichmentSummary()
         root_real: Path | None = None
         if source_root is not None:
@@ -528,11 +533,22 @@ class EnrichmentPipeline:
             except OSError:
                 root_real = Path(source_root)
 
-        pending, pending_hashes = self._enrich_prehash_filter(files, root_real, summary)
+        with _pstage("prehash_filter"):
+            pending, pending_hashes = self._enrich_prehash_filter(
+                files, root_real, summary
+            )
 
-        results, struct_edges, call_edges = self._enrich_parse_and_resolve(
-            pending, pending_hashes, summary
-        )
+        # Parse + symbol/type resolution: on the primary path this is ONE fused
+        # engine round trip (``index_repository``, CONCEPT:EG-KG.compute.type-scope-resolved-call), so parse and
+        # resolution are not separable wall-clock stages from here — the Rust
+        # engine's own instrumentation would have to split them. Only the
+        # per-file fallback (no index_fn / a failed RPC) does pure parsing with
+        # no resolution; its Python-side name-only call resolution is timed
+        # separately below as "resolve_calls" when it actually runs.
+        with _pstage("parse_resolve"):
+            results, struct_edges, call_edges = self._enrich_parse_and_resolve(
+                pending, pending_hashes, summary
+            )
 
         all_code = [c for r in results for c in r.code]
         all_tests = [t for r in results for t in r.tests]
@@ -543,19 +559,22 @@ class EnrichmentPipeline:
         # them and the write section below persists the same set. The resolver path
         # already produced them in Rust; only the fallback resolves names here.
         if call_edges is None:
-            call_edges = resolve_call_edges(all_code)
+            with _pstage("resolve_calls"):
+                call_edges = resolve_call_edges(all_code)
 
         # Features: cluster the call graph via the engine's community detection.
         features = []
         if self.community_fn is not None:
-            features = cluster_features(
-                all_code,
-                self.community_fn,
-                self.min_feature_size,
-                call_edges=call_edges,
-            )
+            with _pstage("community_detection"):
+                features = cluster_features(
+                    all_code,
+                    self.community_fn,
+                    self.min_feature_size,
+                    call_edges=call_edges,
+                )
 
-        cards_by_id = self._generate_capability_cards(all_code, summary)
+        with _pstage("cards"):
+            cards_by_id = self._generate_capability_cards(all_code, summary)
 
         self._enrich_write_all(
             all_code,
@@ -829,6 +848,8 @@ class EnrichmentPipeline:
 
         Extracted verbatim (pure extract-method, no behaviour change).
         """
+        from ..core.ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
         if not (
             features
             and (
@@ -839,22 +860,27 @@ class EnrichmentPipeline:
         ):
             return
         capabilities = self.capability_provider() if self.capability_provider else []
-        minted, realizes_edges = resolve_realizes(
-            features,
-            capabilities,
-            registry=self.capability_registry,
-            mint_missing=self.mint_capabilities,
-            embed_fn=self.realizes_embed_fn,
-        )
-        for cap in minted:
-            self._write_capability(cap)
-            summary.capabilities_minted += 1
-        for e in realizes_edges:
-            self._write_edge(e.source, e.target, e.rel_type)
-            summary.realizes_edges += 1
-        if minted and self.writeback_fn is not None:
-            result = self.writeback_fn(minted)
-            summary.capabilities_pushed = _writeback_count(result)
+        # Semantic realizes-matching embeds each feature/capability when
+        # ``realizes_embed_fn`` is set — timed separately from the write below
+        # so the embedding cost is never hidden inside "write".
+        with _pstage("embed"):
+            minted, realizes_edges = resolve_realizes(
+                features,
+                capabilities,
+                registry=self.capability_registry,
+                mint_missing=self.mint_capabilities,
+                embed_fn=self.realizes_embed_fn,
+            )
+        with _pstage("write"):
+            for cap in minted:
+                self._write_capability(cap)
+                summary.capabilities_minted += 1
+            for e in realizes_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.realizes_edges += 1
+            if minted and self.writeback_fn is not None:
+                result = self.writeback_fn(minted)
+                summary.capabilities_pushed = _writeback_count(result)
 
     def _enrich_write_routes_iac_capabilities(
         self,
@@ -871,8 +897,13 @@ class EnrichmentPipeline:
         Extracted verbatim from ``_enrich_write_all`` (pure extract-method, no
         behaviour change).
         """
-        service_id = self._write_routes(all_code, service_hint, summary)
-        self._write_iac_resources(iac_files, service_id, summary)
+        from ..core.ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
+        with _pstage("write"):
+            service_id = self._write_routes(all_code, service_hint, summary)
+        with _pstage("write"):
+            self._write_iac_resources(iac_files, service_id, summary)
+        # _write_capabilities times its own "embed"/"write" split internally.
         self._write_capabilities(features, summary)
 
     def _write_code_and_tests(
@@ -958,17 +989,23 @@ class EnrichmentPipeline:
         # is tens of thousands of nodes, and each per-node write is a socket
         # round-trip. The buffer flushes via the engine's bulk op (nodes before
         # edges). Reads (e.g. capability_provider) still hit the real backend. (#1)
+        from ..core.ingest_profile import stage as _pstage  # OS-5.72 per-stage timing
+
         real_backend = self.backend
         self.backend = _BatchedBackend(real_backend, source_system=self.source_system)
         try:
-            self._write_code_and_tests(all_code, all_tests, cards_by_id, summary)
-            self._write_resolved_edges(results, call_edges, struct_edges, summary)
-            self._write_features(features, summary)
+            with _pstage("write"):
+                self._write_code_and_tests(all_code, all_tests, cards_by_id, summary)
+            with _pstage("write"):
+                self._write_resolved_edges(results, call_edges, struct_edges, summary)
+            with _pstage("write"):
+                self._write_features(features, summary)
             self._enrich_write_routes_iac_capabilities(
                 all_code, features, service_hint, iac_files, summary
             )
         finally:
-            self.backend.flush()
+            with _pstage("write"):
+                self.backend.flush()
             self.backend = real_backend
 
     # ── writers (GraphBackend single interface) ──────────────────────────

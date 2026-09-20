@@ -168,6 +168,35 @@ def test_index_instance_filters_code_and_maps_resolved_graph():
     ]
 
 
+# ── OS-5.72: the GitLab code-ingest path is attributable end to end ─────────
+def test_index_instance_records_ingest_profile_stages():
+    """EH-272: an hour-long whole-instance sync must be attributable per
+    stage. Proves index_instance actually records "enumerate"/"parse_resolve"/
+    "write" into the ambient IngestProfile (reused, not a parallel mechanism)
+    when one is active, and stays a no-op (existing behaviour, untouched)
+    when none is."""
+    from agent_utilities.knowledge_graph.core.ingest_profile import profile_ingest
+
+    def index_fn(files):
+        return INDEX_RESULT
+
+    def ingest(domain, entities, relationships):
+        pass
+
+    with profile_ingest("gitlab:test") as prof:
+        index_instance(
+            instance="test", source=_source(), index_fn=index_fn, ingest=ingest
+        )
+
+    assert {"enumerate", "parse_resolve", "write"} <= set(prof.stages)
+    assert all(v >= 0.0 for v in prof.stages.values())
+
+    # No active profile → stays the pre-existing zero-cost no-op.
+    index_instance(
+        instance="test", source=_source(), index_fn=index_fn, ingest=ingest
+    )
+
+
 def test_no_dangling_edge_endpoints_and_namespacing():
     entities, rels = map_index_result(INDEX_RESULT, project=_proj("7"), instance="acme")
     ids = {e["id"] for e in entities}
@@ -300,6 +329,25 @@ class _FakeEngine:
         return {"status": "success"}
 
 
+class _FakeOffqueueSpanView:
+    """Minimal ``for_graph(...)`` result -- accepts and discards ``add_node``."""
+
+    def add_node(self, node_id, **props):
+        pass
+
+
+class _FakeEpistemicGraphBackendForOffqueueSpan:
+    """Stands in for ``EpistemicGraphBackend`` so ``record_offqueue_span`` (a
+    best-effort telemetry write, OS-5.72) never touches a real graph engine --
+    same shape as ``test_ingest_profile.py``'s ``_FakeEpistemicGraphBackend``."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def for_graph(self, graph_name):
+        return _FakeOffqueueSpanView()
+
+
 def test_sync_source_routes_to_gitlab_handler(monkeypatch: pytest.MonkeyPatch):
     def capture(engine, connector, entities, relationships=None, **_kwargs):
         engine.ingest_external_batch(connector, entities, relationships)
@@ -316,6 +364,13 @@ def test_sync_source_routes_to_gitlab_handler(monkeypatch: pytest.MonkeyPatch):
         "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
         lambda _source: {"checked": True, "ok": True},
     )
+    # record_offqueue_span is best-effort and swallows any failure, but with no
+    # live engine it would otherwise try (and fail slowly) to stand up a real
+    # EpistemicGraphBackend -- stub it the same way test_ingest_profile.py does.
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.backends.epistemic_graph_backend.EpistemicGraphBackend",
+        _FakeEpistemicGraphBackendForOffqueueSpan,
+    )
     engine = _FakeEngine()
     res = sync_source(engine, "gitlab", mode="full", client=_source())
     assert res["status"] == "ok"
@@ -323,6 +378,11 @@ def test_sync_source_routes_to_gitlab_handler(monkeypatch: pytest.MonkeyPatch):
     assert res["details"]["calls_resolved"] == 1
     assert res["details"]["projects_indexed"] == 1
     assert engine.batches and engine.batches[0][0] == "gitlab"
+    # OS-5.72: the whole-sync IngestProfile (fetch/parse_resolve/write) is
+    # surfaced on the ETL result, not just persisted off-queue -- an operator
+    # calling sync_source synchronously can see it too.
+    profile = res["details"]["profile"]
+    assert {"enumerate", "parse_resolve", "write"} <= set(profile["stages_ms"])
 
 
 def test_sync_source_fails_when_engine_lacks_index_repository(
