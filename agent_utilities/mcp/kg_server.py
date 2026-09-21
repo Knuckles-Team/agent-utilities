@@ -1515,28 +1515,16 @@ async def tabular_query_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(exc)
 
 
-async def graph_search_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool("graph_search", **body)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except UnsupportedToolFieldError as e:
-        # U-74: same deterministic-4xx treatment as `_make_tool_endpoint` —
-        # this hand-written endpoint predates that factory and was never
-        # updated to catch this exception subclass specially, so a caller
-        # field the `graph_search` tool doesn't accept fell through to the
-        # generic 500 below instead. `graph_search`'s own wire field names
-        # (`query`, `mode`, `top_k`, ...) already match its documented tool
-        # parameters 1:1 — see `graph_search`'s signature in
-        # `agent_utilities/mcp/tools/query_tools.py` — so unlike
-        # the canonical `graph_query` field there is no latent mismatch; only
-        # the missing status-code mapping needed fixing.
-        return _external_error_response(e, status_code=400, code="invalid_request")
-    except Exception as e:
-        return _external_error_response(e)
+# U-74: `graph_search`'s own wire field names (`query`, `mode`, `top_k`, ...)
+# already match its documented tool parameters 1:1 — see `graph_search`'s
+# signature in `agent_utilities/mcp/tools/query_tools.py` — so unlike
+# `graph_query` there is no latent field-name mismatch requiring bespoke
+# parsing; the deterministic-4xx `UnsupportedToolFieldError` treatment it
+# needs is exactly `_make_tool_endpoint`'s. This used to be its own
+# hand-written async function predating that factory (CX-DUP-ENFORCE: it was
+# a 100% structural duplicate of the other now-factory-backed endpoints
+# below, e.g. `graph_analyze_endpoint`); migrating it here is the fix.
+graph_search_endpoint = _make_tool_endpoint("graph_search")
 
 
 async def graph_write_endpoint(request: Request) -> JSONResponse:

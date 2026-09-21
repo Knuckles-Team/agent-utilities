@@ -174,6 +174,30 @@ strip_inherited_git_repository_env()
 
 _CONFIG_PATH = _AU_ROOT / "pyproject.toml"
 
+# CX-DUP-ENFORCE's `git commit-tree` call below writes a throwaway,
+# unreferenced commit object purely so `git worktree add` has a commit-ish
+# to check out (see the comment at that call site). `commit-tree` refuses to
+# run with "Author identity unknown" unless SOME identity is resolvable, and
+# `_run_git`'s `env=sanitized_git_env()` deliberately strips inherited
+# `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (BUG-180's quieter sibling leak — see
+# scripts/_git_subprocess_env.py) so a real `git commit`'s author never
+# leaks into this gate's throwaway object. That left this call dependent on
+# a HOST gitconfig identity existing at all, which a bare `HOME` (a fresh CI
+# runner, or any sandboxed check) does not have — confirmed:
+# `HOME=$(mktemp -d) git commit-tree ...` fails with exactly this error even
+# though `sanitized_git_env` is doing exactly what it is documented to do.
+# Fix: pass an explicit, neutral identity via `git -c user.name=... -c
+# user.email=...` on THIS call only (never `claude` — see AGENTS.md/CLAUDE.md
+# "never commit as user.name claude") so the gate never depends on host
+# gitconfig. Global `-c` flags, not `GIT_AUTHOR_*` env vars, so they cannot
+# leak into any OTHER git call this process makes.
+_JSCPD_GATE_IDENTITY: tuple[str, ...] = (
+    "-c",
+    "user.name=jscpd-gate",
+    "-c",
+    "user.email=jscpd-gate@example.invalid",
+)
+
 # Directory NAMES that are never product source anywhere in this workspace.
 # Matched by exact basename during the (shallow, one-level) decomposition in
 # _repo_scan_targets — NOT a substitute for TRAP-J3's fix, which is never
@@ -1342,6 +1366,7 @@ def cmd_enforce(base_ref: str) -> int:
     # CLAUDE.md-endorsed way to get a throwaway clean tree).
     synth_commit = _git(
         [
+            *_JSCPD_GATE_IDENTITY,
             "commit-tree",
             merged_tree,
             "-p",

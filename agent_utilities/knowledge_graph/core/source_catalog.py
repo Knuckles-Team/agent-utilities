@@ -490,9 +490,19 @@ def _registry_spec_items(registry: Any) -> list[Mapping[str, Any]]:
         return []
 
 
-def _registry_status_record(item: Mapping[str, Any]) -> dict[str, Any] | None:
+def _registry_item_name(item: Mapping[str, Any]) -> str | None:
+    """The named-reference guard both registry projections share
+    (CX-DUP-ENFORCE): ``None`` for an unnamed or ``"default"`` entry, else
+    the stripped name."""
     name = str(item.get("name") or "").strip()
     if not name or name.casefold() == "default":
+        return None
+    return name
+
+
+def _registry_status_record(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    name = _registry_item_name(item)
+    if name is None:
         return None
     backend = item.get("backend_type")
     return {
@@ -505,8 +515,8 @@ def _registry_status_record(item: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _registry_spec_record(item: Mapping[str, Any]) -> dict[str, Any] | None:
-    name = str(item.get("name") or "").strip()
-    if not name or name.casefold() == "default":
+    name = _registry_item_name(item)
+    if name is None:
         return None
     backend = item.get("backend_type") or item.get("backend")
     # Only named references survive this projection.  Never copy
