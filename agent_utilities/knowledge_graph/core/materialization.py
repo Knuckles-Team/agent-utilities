@@ -302,21 +302,27 @@ def _write_ladybug(
     entities: list[dict[str, Any]],
     relationships: list[dict[str, Any]],
 ) -> int:
-    """Write one row at a time for Ladybug's non-UNWIND dialect."""
+    """Write one-row batches through Ladybug's supported backend path.
+
+    Ladybug translates the shared ``execute_batch`` contract into one native
+    operation per row. Keeping this projection on that path avoids routing a
+    Ladybug-only multi-clause edge statement through ``execute`` (the native
+    engine write API accepts a narrower Cypher subset).
+    """
     for row in entities:
         node_type = safe_label(row.get("node_type"))
-        backend.execute(
+        backend.execute_batch(
             f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
-            row,
+            [row],
         )
     for row in relationships:
         # Use the REAL rel type so Kuzu builds a typed table, not a generic
         # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
         rtype = safe_label(row.get("relationship") or "RELATED")
-        backend.execute(
+        backend.execute_batch(
             f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
             f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
-            row,
+            [row],
         )
     return len(relationships)
 
