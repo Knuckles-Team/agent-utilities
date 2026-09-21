@@ -6,6 +6,7 @@ import hashlib
 from typing import Any
 
 import pytest
+from _test_engine import TEST_AGENT_ID, TEST_TENANT
 
 from agent_utilities.knowledge_graph.core.placement_catalog import (
     PlacementAuthorityError,
@@ -48,10 +49,20 @@ def _digest(value: str) -> str:
 
 def _context(
     *,
-    tenant: str = "tenant",
-    principal: str = "principal",
-    agent_id: str = "agent",
+    tenant: str = TEST_TENANT,
+    principal: str = TEST_AGENT_ID,
+    agent_id: str = TEST_AGENT_ID,
 ) -> dict[str, str]:
+    # A placed route's discovery lookup binds to the caller's REAL ambient
+    # verified identity (``_resolve_query_identity`` -> ``_request_authority``
+    # -> ``GraphSession.engine_verified_context()``), never to whatever the
+    # injected test client happens to report — that is the whole point of the
+    # fail-closed contract this module tests. The autouse
+    # ``isolate_graph_compute_engine`` fixture (tests/conftest.py) scopes
+    # every test to a `GraphSession` built from these exact
+    # `tests/_test_engine.py` constants, so a fixture's `auth_binding` must be
+    # computed against THIS identity or `_validate_context_matches_binding`
+    # fails closed with "ClusterMembers request context does not match".
     return {"tenant": tenant, "principal": principal, "agent_id": agent_id}
 
 

@@ -97,12 +97,20 @@ def _make_app(status=200, route_template=None, raises=None):
 
 class TestFallback:
     def test_noop_metric_chains(self):
+        # CONCEPT:AU-OS.observability.no-op-without-metrics — `.labels(...)`
+        # returns a per-labelset child (cached on repeat calls with the same
+        # labels), not the parent itself: callers assert on recorded state
+        # (test_workitem_claim_metrics.py) so distinct label combinations must
+        # track independently, exactly like a real prometheus_client series.
         m = _NoopMetric()
-        assert m.labels(route="/x", method="GET") is m
-        m.inc()
-        m.dec()
-        m.observe(1.5)
-        m.set(2.0)  # nothing raises
+        child = m.labels(route="/x", method="GET")
+        assert m.labels(route="/x", method="GET") is child
+        assert m.labels(route="/y", method="GET") is not child
+        child.inc()
+        child.dec()
+        child.observe(1.5)
+        child.set(2.0)  # nothing raises
+        assert child._value.get() == 2.0
 
     def test_render_metrics_without_prometheus(self, monkeypatch):
         monkeypatch.setattr(gm, "PROMETHEUS_AVAILABLE", False)

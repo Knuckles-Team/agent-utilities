@@ -131,23 +131,64 @@ __all__ = [
 ]
 
 
+class _NoopMetricValue:
+    """Stand-in for ``prometheus_client``'s internal ``metric._value`` accessor.
+
+    A real Counter/Gauge exposes its current sample as ``._value`` (a
+    ``ValueClass`` with ``.get()``/``.set()``/``.inc()``). Callers that assert
+    on recorded state (CONCEPT:AU-OS.observability.no-op-without-metrics —
+    the business-logic contract must be testable, not merely non-crashing)
+    need the same accessor when the ``metrics`` extra is absent.
+    """
+
+    __slots__ = ("_amount",)
+
+    def __init__(self) -> None:
+        self._amount = 0.0
+
+    def get(self) -> float:
+        return self._amount
+
+    def set(self, amount: float) -> None:
+        self._amount = float(amount)
+
+    def inc(self, amount: float = 1.0) -> None:
+        return self.set(self._amount + float(amount))
+
+
 class _NoopMetric:
-    """Shared no-op stand-in for Counter/Gauge/Histogram (metrics extra absent)."""
+    """No-op stand-in for Counter/Gauge/Histogram (metrics extra absent).
 
-    def labels(self, *args: Any, **kwargs: Any) -> _NoopMetric:  # noqa: ARG002
-        return self
+    Tracks its own value per label combination with a plain dict (cheap —
+    no real Prometheus registry, no export) so callers that assert on
+    recorded state see the same behaviour with or without the ``metrics``
+    extra installed. Each distinct ``labels(...)`` call site gets its own
+    independent child, matching real Prometheus label-series isolation.
+    """
 
-    def inc(self, amount: float = 1.0) -> None:  # noqa: ARG002
-        return None
+    def __init__(self) -> None:
+        self._value = _NoopMetricValue()
+        self._children: dict[tuple[Any, ...], _NoopMetric] = {}
 
-    def dec(self, amount: float = 1.0) -> None:  # noqa: ARG002
-        return None
+    def labels(self, *args: Any, **kwargs: Any) -> _NoopMetric:
+        key = (args, tuple(sorted(kwargs.items())))
+        child = self._children.get(key)
+        if child is None:
+            child = _NoopMetric()
+            self._children[key] = child
+        return child
 
-    def observe(self, value: float) -> None:  # noqa: ARG002
-        return None
+    def inc(self, amount: float = 1.0) -> None:
+        self._value.set(self._value.get() + float(amount))
 
-    def set(self, value: float) -> None:  # noqa: ARG002
-        return None
+    def dec(self, amount: float = 1.0) -> None:
+        self._value.inc(-amount)
+
+    def observe(self, value: float) -> None:
+        self._value.set(value)
+
+    def set(self, value: float) -> None:
+        self._value.set(value)
 
 
 try:  # pragma: no cover - exercised only when the extra is installed
