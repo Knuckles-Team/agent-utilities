@@ -1939,6 +1939,7 @@ def validate_prebundled_skill_matrix(
                 "traceRef",
                 "langfuse",
                 "parentKnowledgeGraph",
+                "architecture",
                 "errorCodes",
             },
             field="skill validation case",

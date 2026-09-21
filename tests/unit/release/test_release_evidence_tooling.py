@@ -570,6 +570,67 @@ def _source_freeze_evidence(path: Path) -> dict[str, str]:
     return check_compatibility.validate_source_freeze_evidence(path.read_bytes())
 
 
+def _architecture_evidence_for_case(skill: str, opaque: str) -> dict[str, object]:
+    """Build the per-case `architecture` block the evidence schema requires.
+
+    CONCEPT:AU-OS.orchestration.eg-ontology-answers-agent-planning (2026-09-12):
+    the `agent-utilities-development` skill's validation case must prove it
+    actually exercised the KG-query architecture-answering contract (a
+    `graph_query` registry lookup, a `graph_search` discovery pass, and a
+    `graph_code` caller-impact check, plus all 12 named regression scenarios).
+    Every other skill/case carries the empty (not-applicable) shape.
+    """
+    if skill != "agent-utilities-development":
+        return {"candidateRef": None, "operations": [], "scenarios": []}
+    digest = "sha256:" + "9" * 64
+    return {
+        "candidateRef": f"pref_candidate_{opaque}",
+        "operations": [
+            {
+                "phase": "registry_lookup",
+                "operation": "graph_query",
+                "status": "verified",
+                "requestDigest": digest,
+                "responseDigest": digest,
+                "matchedRecordCount": 1,
+            },
+            {
+                "phase": "discovery",
+                "operation": "graph_search",
+                "status": "advisory",
+                "requestDigest": digest,
+                "responseDigest": digest,
+                "matchedRecordCount": 1,
+            },
+            {
+                "phase": "caller_impact",
+                "operation": "graph_code",
+                "status": "grounded",
+                "requestDigest": digest,
+                "responseDigest": digest,
+                "matchedRecordCount": 1,
+            },
+        ],
+        "scenarios": [
+            {"scenario": "registry_unavailable", "outcome": "available"},
+            {"scenario": "registry_outdated", "outcome": "current"},
+            {"scenario": "owner_manifest_identity_disagreement", "outcome": "matched"},
+            {"scenario": "regeneration_reingestion", "outcome": "not_required"},
+            {"scenario": "finite_exception_metadata", "outcome": "verified"},
+            {"scenario": "caller_deletion_evidence", "outcome": "verified"},
+            {"scenario": "concept_discovery_only", "outcome": "discovery_only"},
+            {"scenario": "plans_cutover", "outcome": "authoritative"},
+            {
+                "scenario": "layer_boundary_vs_component",
+                "outcome": "implementation_component",
+            },
+            {"scenario": "parent_layer_no_signature_match", "outcome": "verified"},
+            {"scenario": "component_owned_roots", "outcome": "verified"},
+            {"scenario": "worker_lane_shared_file_exception", "outcome": "verified"},
+        ],
+    }
+
+
 def _skill_validation_evidence(
     *,
     release_id: str,
@@ -621,6 +682,9 @@ def _skill_validation_evidence(
                     "readbackMethod": "exact-trace-name",
                     "matchCount": 1,
                 },
+                "architecture": _architecture_evidence_for_case(
+                    contract["skill"], opaque
+                ),
                 "errorCodes": [],
             }
         )

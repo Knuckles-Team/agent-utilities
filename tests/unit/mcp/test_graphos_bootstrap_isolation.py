@@ -1039,8 +1039,21 @@ def test_boot_ontology_sync_reports_missing_bound_capability() -> None:
         kg_server._sync_ontologies_at_boot(SimpleNamespace())
 
 
-def test_materialization_gate_precedes_skill_and_background_bootstrap() -> None:
+def test_materialization_gate_precedes_skill_and_background_bootstrap(
+    monkeypatch,
+) -> None:
     from agent_utilities.mcp import kg_server
+
+    # tests/conftest.py forces KNOWLEDGE_GRAPH_SYNC_BACKGROUND=False process-wide
+    # so unrelated tests never spawn a real background-sync thread; this test's
+    # `Engine` has a non-client `_daemon_role` and asserts the hydration PHASE
+    # runs, so it must opt back in explicitly — matching
+    # test_client_role_never_starts_daemons_workers_or_hydration's host leg and
+    # test_host_with_background_sync_runs_boot_hydration_once below.
+    monkeypatch.setattr(
+        "agent_utilities.core.config.config",
+        SimpleNamespace(knowledge_graph_sync_background=True),
+    )
 
     session = _verified_session()
     calls: list[str] = []
@@ -1313,6 +1326,14 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
             },
         ),
         patch.object(kg_server, "_run_boot_hydration_plan", plan),
+        # tests/conftest.py forces KNOWLEDGE_GRAPH_SYNC_BACKGROUND=False process-
+        # wide; this test's Engine has no client `_daemon_role`, so it must opt
+        # back in explicitly for the hydration plan to run at all — matching
+        # test_host_with_background_sync_runs_boot_hydration_once below.
+        patch(
+            "agent_utilities.core.config.config",
+            SimpleNamespace(knowledge_graph_sync_background=True),
+        ),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
@@ -1591,11 +1612,18 @@ async def test_self_tool_surface_work_item_materializes_and_completes() -> None:
     )
     ingestion = MagicMock()
     ingestion._ingest_self_tools = AsyncMock(return_value=result)
-    worker = SimpleNamespace(
-        _update_task_status=MagicMock(),
-        _fail_or_retry_task=MagicMock(),
-        _checkpoint_db=MagicMock(),
-    )
+    # `_run_background_task` dispatches through the CLASS-level
+    # `_EARLY_TASK_HANDLERS`/`_LATE_TASK_HANDLERS` tables and then
+    # `getattr(self, handler_name)` to reach the bound `_bg_self_tool_surface`
+    # method — a bare `SimpleNamespace` has neither, so dispatch raises
+    # `AttributeError` before `IngestionEngine` is ever constructed (silently
+    # swallowed by `_run_background_task`'s own `except Exception`). Use the
+    # same `TaskManagerMixin.__new__(TaskManagerMixin)` stand-in the sibling
+    # tests above (lines 91/151/201/247) already use for exactly this reason.
+    worker = TaskManagerMixin.__new__(TaskManagerMixin)
+    worker._update_task_status = MagicMock()
+    worker._fail_or_retry_task = MagicMock()
+    worker._checkpoint_db = MagicMock()
 
     with patch(
         "agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine",
