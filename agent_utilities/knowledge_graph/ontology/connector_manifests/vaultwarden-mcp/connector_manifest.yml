@@ -2,14 +2,6 @@ connector: vaultwarden-mcp
 ontology_source: vaultwarden
 schema_version: '1'
 resources:
-- name: VaultwardenAccount
-  label: Vaultwarden Account
-  id_prefix: vaultwardenaccount
-  relations:
-  - name: vaultwardenHostedOn
-    label: hosted on
-    target: VaultwardenServer
-    lpg_rel_type: ''
 - name: VaultwardenCardItem
   label: Vaultwarden Card Item
   id_prefix: vaultwardencarditem
@@ -22,10 +14,6 @@ resources:
     label: collection of
     target: VaultwardenOrganization
     lpg_rel_type: ''
-- name: VaultwardenDevice
-  label: Vaultwarden Device
-  id_prefix: vaultwardendevice
-  relations: []
 - name: VaultwardenFolder
   label: Vaultwarden Folder
   id_prefix: vaultwardenfolder
@@ -50,10 +38,6 @@ resources:
     label: in organization
     target: VaultwardenOrganization
     lpg_rel_type: ''
-  - name: vaultwardenOwnedBy
-    label: owned by
-    target: VaultwardenAccount
-    lpg_rel_type: ''
 - name: VaultwardenLoginItem
   label: Vaultwarden Login Item
   id_prefix: vaultwardenloginitem
@@ -65,10 +49,6 @@ resources:
 - name: VaultwardenSecureNoteItem
   label: Vaultwarden Secure Note Item
   id_prefix: vaultwardensecurenoteitem
-  relations: []
-- name: VaultwardenSend
-  label: Vaultwarden Send
-  id_prefix: vaultwardensend
   relations: []
 - name: VaultwardenServer
   label: Vaultwarden Server
@@ -102,187 +82,81 @@ actions:
   approval_class: unclassified
   effects: []
 events:
-- name: vaultwarden-ciphers.updated
-  resource: vaultwarden_cipher
-  description: "Watermark event for 'vaultwarden-ciphers' \u2014 advances on revisionDate (mcp_source_presets.json)."
+- name: vaultwarden-metadata.updated
+  resource: vaultwarden_metadata
+  description: "Watermark event for 'vaultwarden-metadata' \u2014 advances on vaultwardenRevisionDate\
+    \ (mcp_source_presets.json)."
 identity:
   id_field:
-    vaultwarden_cipher: id
+    vaultwarden_metadata: id
   title_field: {}
-  text_field: {}
+  text_field:
+    vaultwarden_metadata: __metadata_entity_has_no_document_text__
   updated_field:
-    vaultwarden_cipher: revisionDate
+    vaultwarden_metadata: vaultwardenRevisionDate
 permissions:
   acl_fields: []
   tenant_field: null
   read_roles: []
 schema_mappings:
-  VaultwardenAccount:
-    ontology_class: null
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenCardItem:
     ontology_class: VaultwardenItem
     fields:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenCollection:
-    ontology_class: null
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
-  VaultwardenDevice:
-    ontology_class: null
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
+    ontology_class: VaultwardenCollection
+    fields: {}
   VaultwardenFolder:
-    ontology_class: null
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
+    ontology_class: VaultwardenFolder
+    fields: {}
   VaultwardenIdentityItem:
     ontology_class: VaultwardenItem
     fields:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenItem:
-    ontology_class: null
+    ontology_class: VaultwardenItem
     fields:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenLoginItem:
     ontology_class: VaultwardenItem
     fields:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
       vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenOrganization:
-    ontology_class: Organization
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
+    ontology_class: VaultwardenOrganization
+    fields: {}
   VaultwardenSecureNoteItem:
     ontology_class: VaultwardenItem
     fields:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
-  VaultwardenSend:
-    ontology_class: null
-    fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
   VaultwardenServer:
-    ontology_class: Server
+    ontology_class: VaultwardenServer
     fields:
-      vaultwardenAttachmentCount: xsd:integer
-      vaultwardenCreationDate: xsd:dateTime
-      vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
-      vaultwardenItemType: xsd:integer
-      vaultwardenReprompt: xsd:boolean
-      vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
       vaultwardenServerVersion: xsd:string
       vaultwardenWebVaultVersion: xsd:string
   VaultwardenSshKeyItem:
@@ -291,51 +165,74 @@ schema_mappings:
       vaultwardenAttachmentCount: xsd:integer
       vaultwardenCreationDate: xsd:dateTime
       vaultwardenDeletedDate: xsd:dateTime
-      vaultwardenDeviceType: xsd:integer
-      vaultwardenHasPasskey: xsd:boolean
       vaultwardenItemType: xsd:integer
       vaultwardenReprompt: xsd:boolean
       vaultwardenRevisionDate: xsd:dateTime
-      vaultwardenSendType: xsd:integer
-      vaultwardenServerVersion: xsd:string
-      vaultwardenWebVaultVersion: xsd:string
 sync:
-- preset: vaultwarden-ciphers
+- preset: vaultwarden-metadata
   server: vaultwarden-mcp
-  tool: vaultwarden_ciphers
-  action: sync
-  records_path: ciphers
+  tool: vaultwarden_metadata
+  action: metadata_snapshot
+  records_path: entities
   id_field: id
   title_field: null
-  text_field: null
-  updated_field: revisionDate
+  text_field: __metadata_entity_has_no_document_text__
+  updated_field: vaultwardenRevisionDate
   pagination: null
-  doc_type: vaultwarden_cipher
-  tool_schema_sha256: 32378a28d056458c37fb0571e62a41064d051c98a0135ac10f5e2854a023aba9
+  doc_type: vaultwarden_metadata
+  tool_schema_sha256: 0f091aeb0384fbc36a7d29e40b06d10d5a8afd77f0a47388e878886043014c6c
   raw:
     server: vaultwarden-mcp
-    tool: vaultwarden_ciphers
-    action: sync
-    records_path: ciphers
+    tool: vaultwarden_metadata
+    action: metadata_snapshot
+    params_style: json
+    params:
+      mode: delta
+    record_mode: typed_entities
+    records_path: entities
+    relationships_path: relationships
     id_field: id
-    updated_field: revisionDate
-    doc_type: vaultwarden_cipher
+    node_type_field: node_type
+    updated_field: vaultwardenRevisionDate
+    updated_since_param: checkpoint
+    checkpoint_path: checkpoint
+    reconcile_path: reconcile.live_ids
+    authoritative_path: reconcile.authoritative
+    strict_schema: true
+    content_fields: []
+    metadata_fields:
+    - id
+    - node_type
+    - externalToolId
+    - vaultwardenItemType
+    - vaultwardenRevisionDate
+    - vaultwardenCreationDate
+    - vaultwardenDeletedDate
+    - vaultwardenAttachmentCount
+    - vaultwardenReprompt
+    - vaultwardenHasPasskey
+    - vaultwardenWebVaultVersion
+    - vaultwardenServerVersion
+    text_field: __metadata_entity_has_no_document_text__
+    doc_type: vaultwarden_metadata
+    read_only: true
+    backfeed_supported: false
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-09-14T18:46:34Z'
+  generated_at: '2026-09-21T18:35:00Z'
   source_artifacts:
   - vaultwarden_mcp/connectors/mcp_source_presets.json
   - vaultwarden_mcp/connectors/tool_schema_fingerprints.json
   - vaultwarden_mcp/ontology/vaultwarden.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 9600594a66b77690efad64583dedce9cd613b2706a78325c85f8090c7da39f71
-    triple_count: 107
+    hash: 92d0512d15c6dc31f29214d7c8a3d4caa3287aa15cf49b05d286a64803f6115a
+    triple_count: 87
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: c6da979559b2200787202c1cc5c5354336233e80
+  source_commit: 971d9ffc693cfdb743e93379955a587f1ca2c2f2
 policy:
   pii_fields: {}
   tenant_boundary: null
@@ -343,31 +240,3 @@ policy:
 review_todos:
 - "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
   \ for this connector."
-- "schema_mappings.VaultwardenAccount.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenCardItem.ontology_class = 'VaultwardenItem' [source ttl rdfs:subClassOf]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenCollection.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
-  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenDevice.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenFolder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenIdentityItem.ontology_class = 'VaultwardenItem' [source ttl rdfs:subClassOf]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenItem.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenLoginItem.ontology_class = 'VaultwardenItem' [source ttl rdfs:subClassOf]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenOrganization.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
-  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
-  \ on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenSecureNoteItem.ontology_class = 'VaultwardenItem' [source ttl rdfs:subClassOf]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenSend.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenServer.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name\
-  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
-  \ on this crosswalk for reasoning/joins."
-- "schema_mappings.VaultwardenSshKeyItem.ontology_class = 'VaultwardenItem' [source ttl rdfs:subClassOf]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

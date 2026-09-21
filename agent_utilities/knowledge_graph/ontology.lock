@@ -768,15 +768,15 @@ agents/uptime-kuma-agent/connector_manifest.yml:
   triple_count: 63
 agents/vaultwarden-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 616fe8aef0d9b0df12d345bcc3dadac6a8f99aedea14dbbd5007c7c26ad1055b
-  certification_hash: 108ef711687c9a56c90e63e987817875c2db92106f786ce58a636517d894ab68
-  hash: 9600594a66b77690efad64583dedce9cd613b2706a78325c85f8090c7da39f71
-  manifest_hash: d5a78016720d59b1bdc60d63c1776221fa7ee8d3a2b17411c791db08a37d5ba5
+  certification_file_sha256: 6f7e89b391c32b05bd28e287c1876b7ad5063ff9f14959d485695e53912afaab
+  certification_hash: e5f33faf9fc58662016c0278dd56a46f1d1f78394453ac578209104c94c64959
+  hash: 92d0512d15c6dc31f29214d7c8a3d4caa3287aa15cf49b05d286a64803f6115a
+  manifest_hash: 209775e5751d947e54d38e2c6ae1a4f4ef5fda86bbb96b2ec6266e6322125433
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
-  triple_count: 107
+  triple_count: 87
 agents/vector-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
   certification_file_sha256: 0e820ede5d4355fb166d651bee4e44be3c71e294bebef21ddb8d2e7538326cb3
