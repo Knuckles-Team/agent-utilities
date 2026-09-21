@@ -25,8 +25,8 @@ vars, `config.json`, secrets, database choice) lives in [`docs/recipes/`](../doc
 
 | File | Builds | Role |
 |---|---|---|
-| `Dockerfile` | the **agent-utilities** image (`graph-os` MCP server + KG engine + built-in MCP fleet gateway) | the one image every deployment runs |
-| `graphos-unified.Dockerfile` | the **`knucklessg1/graph-os-unified`** image — the ONE self-contained image (editable-source au + engine wheel + langfuse-agent + messaging backends) that both non-init containers (`graph-os`, `metrics-proxy`) in the live `platform/graph-os` Kubernetes Deployment actually run | see **§5 below** for how it's built — prefer the real CI pipeline; `graphos-unified-kaniko-job.yaml` remains for local/dev rebuilds |
+| `Dockerfile` | the **agent-utilities** image (legacy AU-hosted MCP server + KG engine + built-in MCP fleet gateway) | retained while deployment consumers cut over to the graph-os distribution |
+| `graphos-unified.Dockerfile` | the **`knucklessg1/graph-os-unified`** image — the ONE self-contained image (editable-source graph-os + AU agent plane + engine wheel + langfuse-agent + messaging backends) that the live `platform/graph-os` Kubernetes Deployment runs | graph-os owns the `graph-os`/`graph-os-daemon` entry points; see **§5 below** for the build path |
 
 ## 3. The tiers (compose files)
 
@@ -96,8 +96,12 @@ current manifest — it is the file `graphos-unified.Dockerfile`'s own header ha
 named, it supersedes every dated one-off variant, and it remains the current path for a
 local/dev rebuild that must not go through GitLab CI (see
 `inventory/k8s-migration/GRAPHOS-LOCAL-REDEPLOY.md` in the workspace root for the full
-`envsubst | kubectl apply` sequence). Prefer the CI pipeline below for anything that will
-be rolled out; use this file directly only for local iteration.
+`envsubst | kubectl apply` sequence). The rendered job requires both `SOURCE_DIR` for AU
+and `GRAPH_OS_DIR` for the native composition, plus their independently recorded
+`SOURCE_REVISION` and `GRAPH_OS_REVISION`; the image build fails unless the installed
+`graph-os` distribution owns the `graph-os` console entry point. Prefer the CI pipeline
+below for anything that will be rolled out; use this file directly only for local
+iteration.
 
 **The real, parameterized, digest-pinned, checksum-verified GitLab CI pipeline now lives
 at `homelab/containers/images/graph-os-unified`** on the internal GitLab instance

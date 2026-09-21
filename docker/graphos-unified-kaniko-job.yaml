@@ -14,6 +14,7 @@
 #
 #   export BUILD_NODE=<node hosting the paths below, e.g. the workspace NFS server>
 #   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
+#   export GRAPH_OS_DIR=<agent-packages/graph-os checkout>
 #   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
 #   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
 #   export REGISTRY_CA_CONFIGMAP=<ConfigMap holding the registry's CA, see below>
@@ -21,6 +22,7 @@
 #   export CACHE_REPO=<repository for kaniko's layer cache, alongside IMAGE_REPO>
 #   export IMAGE_TAG=<destination tag, e.g. a short git rev — never `latest`>
 #   export SOURCE_REVISION=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+#   export GRAPH_OS_REVISION=$(git -C "$GRAPH_OS_DIR" rev-parse HEAD)
 #   envsubst < docker/graphos-unified-kaniko-job.yaml | kubectl apply -f -
 #   kubectl -n image-build logs -f job/graphos-unified-image-build
 #
@@ -95,7 +97,7 @@ spec:
         purpose: graphos-unified
     spec:
       restartPolicy: Never
-      # All three hostPaths below live on this node, so the build must land there.
+      # All source/artifact hostPaths below live on this node, so the build must land there.
       nodeSelector:
         kubernetes.io/hostname: ${BUILD_NODE}
       containers:
@@ -106,6 +108,7 @@ spec:
             - --dockerfile=/workspace/docker/graphos-unified.Dockerfile
             - --destination=${IMAGE_REPO}:${IMAGE_TAG}
             - --build-arg=SOURCE_REVISION=${SOURCE_REVISION}
+            - --build-arg=GRAPH_OS_REVISION=${GRAPH_OS_REVISION}
             - --cache=true
             - --cache-repo=${CACHE_REPO}
             - --verbosity=info
@@ -123,6 +126,8 @@ spec:
               mountPath: /workspace
             - name: eg-wheel
               mountPath: /workspace/build-artifacts/eg-wheel
+            - name: graph-os-src
+              mountPath: /workspace/build-artifacts/graph-os-src
             - name: langfuse-agent-src
               mountPath: /workspace/build-artifacts/langfuse-agent-src
             - name: docker-config
@@ -146,6 +151,10 @@ spec:
         - name: eg-wheel
           hostPath:
             path: ${EG_WHEEL_DIR}
+            type: Directory
+        - name: graph-os-src
+          hostPath:
+            path: ${GRAPH_OS_DIR}
             type: Directory
         - name: langfuse-agent-src
           hostPath:
