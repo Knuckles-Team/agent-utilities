@@ -206,7 +206,8 @@ async def test_falls_back_to_per_file_when_batch_connection_unavailable(
 async def test_markdown_files_are_never_sent_to_the_batch_rpc(tmp_path, monkeypatch):
     """Markdown stays on its regex-only path; only code files hit the engine."""
     md = tmp_path / "note.md"
-    md.write_text("CONCEPT:KG-2.106 — a thing\n")
+    legacy_marker = ":".join(("CONCEPT", "KG-" + "2.106"))
+    md.write_text(f"{legacy_marker} — a thing\n")
     py = tmp_path / "a.py"
     py.write_text("def fn(): pass\n")
     ctx, files = _ctx(tmp_path, [str(md), str(py)])

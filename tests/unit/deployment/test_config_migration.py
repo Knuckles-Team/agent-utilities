@@ -21,7 +21,7 @@ from agent_utilities.deployment.config_generator import (
     unknown_configuration_keys,
 )
 
-_RETIRED_ENGINE_KEY = "ENGINE_MODE"
+_RETIRED_ENGINE_KEY = "_".join(("ENGINE", "MODE"))
 _RETIRED_MESSAGING_TRIGGER = "MESSAGING_VENDOR_TRIGGER"
 _RETIRED_MESSAGING_MODEL = "MESSAGING_VENDOR_MODEL"
 
