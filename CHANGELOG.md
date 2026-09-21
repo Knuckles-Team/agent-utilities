@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Obsolete compatibility and executable-plugin facades.** The current-only public
+  paths are now `agent_utilities` for package exports,
+  `agent_utilities.core.decorators` for `require_auth`, and
+  `agent_utilities.graph` for graph orchestration. The retired
+  `agent_utilities.agent_utilities`, `agent_utilities.decorators`,
+  `agent_utilities.graph_orchestration`, and
+  `agent_utilities.graph.adapters.external_plugin_adapter` modules have been
+  deleted. `AU-ORCH.execution.subgraph-synthesis` is retired with the no-op legacy
+  node hierarchy that solely declared it; governed MCP servers, skills, and bundles
+  remain the supported plugin surfaces.
+
 ## [2.5.0] - 2026-08-14 — Fleet-wide phased minor bump
 
 ### Added

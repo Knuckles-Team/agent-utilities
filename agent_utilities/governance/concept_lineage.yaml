@@ -392,6 +392,9 @@ retired:
       with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy), and had
       zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit). No successor
       marker inherits this decision -- the module itself was the retired surface.'
+  AU-ORCH.execution.subgraph-synthesis:
+    reason: Named only a no-op node hierarchy in the deleted graph_orchestration compatibility facade;
+      it described a legacy import shim rather than a live architectural decision or implementation.
   AU-ORCH.routing.fallback-logic:
     reason: Names nothing in shipped source. git grep finds it only at docs/examples/graph-os-mcp-examples.md:123,
       as an illustrative "target" placeholder in a graph_analyze deep_extract JSON example, alongside

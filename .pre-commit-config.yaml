@@ -152,13 +152,11 @@ repos:
     #     exact same shim limitation, one dependency hop removed. Confirmed
     #     by direct traceback on 2026-08-13 (not assumed): the failure
     #     bottoms out at that guarded line, not an unconditional import.
-    #   * agent_utilities.agent_utilities, knowledge_graph.adaptation.
-    #     trace_distiller -- two PRE-EXISTING broken imports (missing
-    #     memory_compaction.py / adaptation/synthesis.py modules),
+    #   * knowledge_graph.adaptation.trace_distiller -- one PRE-EXISTING broken
+    #     import (missing adaptation/synthesis.py),
     #     discovered BY this gate, reproducible on main with NO simulation
-    #     at all (plain `import agent_utilities` fails the same way natively
-    #     -- see `python3 scripts/check_import_safety.py --package
-    #     agent_utilities` with no flag), unrelated to Windows/fcntl. Left
+    #     at all (plain import of that exact module fails the same way),
+    #     unrelated to Windows/fcntl. Left
     #     for separate triage so this gate's signal stays specific to
     #     cross-platform import safety.
     #
@@ -227,7 +225,6 @@ repos:
       --exclude agent_utilities.mcp.tools
       --exclude agent_utilities.mcp.verbose_tools
       --exclude agent_utilities.patterns
-      --exclude agent_utilities.agent_utilities
       --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
       --exclude agent_utilities.cli
       --exclude agent_utilities.core.unified_install

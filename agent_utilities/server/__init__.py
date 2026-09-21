@@ -776,7 +776,7 @@ def create_agent_server(
             from agent_utilities.core.workspace import resolve_mcp_config_path
             from agent_utilities.mcp.agent_manager import should_sync
 
-            from ..graph_orchestration import initialize_graph_from_workspace
+            from ..graph import initialize_graph_from_workspace
 
             _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "")
 

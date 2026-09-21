@@ -40,7 +40,6 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.3**: Execution Budgets & State Safety
 - **AU-ORCH.planning.spec-driven-pipeline**: Spec-Driven Development
 - **AU-ORCH.planning.journey-milestone**: Learned Agent Routing
-- **ORCH-1.19**: Subgraph Synthesis (Legacy Compat)
 - **AU-ORCH.execution.service-registry-initialization**: KG-Driven Graph Factory — materializes pydantic-graph topologies from AgentTemplate nodes
 - **ORCH-1.21**: Agent Runner — KG-to-LLM execution bridge with dynamic tool binding and provenance tracking
 - **ORCH-1.22**: RecursiveMAS Latent Orchestrator 🔬 — continuous latent loop or simulated semantic collaboration
