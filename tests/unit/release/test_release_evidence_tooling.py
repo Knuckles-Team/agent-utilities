@@ -36,7 +36,11 @@ from scripts.release import (
 from scripts.release.generate_index_migration_catalog import render_catalog
 
 ROOT = Path(__file__).resolve().parents[3]
-CONNECTOR_COUNT = 71
+CONNECTOR_COUNT = json.loads(
+    (ROOT / "deploy/release/connector-bundles.catalog.json").read_text(
+        encoding="utf-8"
+    )
+)["entryCount"]
 
 
 def _connector_ledger_entries(count: int = CONNECTOR_COUNT) -> list[dict[str, str]]:
@@ -1219,7 +1223,9 @@ def test_current_release_matrix_schema_is_exact_and_current_only() -> None:
         "ontology-lock",
         "index-migrations",
     )
-    assert matrix["components"]["connector-bundles"]["exactEntries"] == 71
+    assert (
+        matrix["components"]["connector-bundles"]["exactEntries"] == CONNECTOR_COUNT
+    )
     assert matrix["components"]["index-migrations"]["exactEntries"] == 1
 
     runtime_drift = json.loads(json.dumps(matrix))

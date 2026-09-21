@@ -208,7 +208,7 @@
         "epistemic-graph": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.27.0"}, "kind": {"const": "oci"}}}]},
         "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.5.0"}, "kind": {"const": "oci"}}}]},
         "langfuse-agent": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.0.3"}, "kind": {"const": "oci"}}}]},
-        "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 71}}}]},
+        "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 72}}}]},
         "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 13}}}]},
         "ontology-lock": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]},
         "index-migrations": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]}
