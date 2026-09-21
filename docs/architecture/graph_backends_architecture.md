@@ -363,12 +363,14 @@ third-party graph as a data source — not just for mirroring:
   list to `config.json` (survives restart). `profile_connection`
   introspects a foreign graph's schema and writes a self-describing
   `ExternalGraphReference` catalog node, mapping its labels onto our ontology.
-- **Generic live config:** `graph_configure get_config|set_config|list_config`
-  read/update/list **any** config option (validated against `config_reference`),
-  persisted to config.json and applied live; engine-rebuild settings come back with
-  `restart_required: true`. The doctor's `graph_connections` check reports each
-  connection's role + flags stalled mirrors. All of this is exposed on **MCP and the
-  API gateway** (`POST /api/graph/configure`).
+- **Generic live config:** legacy `graph_configure get_config|list_config` remains
+  read-only; updates use `graph_config action=set`, the sole governed mutation path.
+  It validates against `AgentConfig`, passes the ActionPolicy approval gate, persists
+  to config.json, records provenance, and reconciles the served catalog; engine-rebuild
+  settings come back with `restart_required: true`. The doctor's `graph_connections`
+  check reports each connection's role + flags stalled mirrors. Both surfaces have MCP
+  and API gateway parity: legacy reads use `POST /graph/configure`; governed generic
+  config administration uses `POST /graph/config`.
 
 ## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 

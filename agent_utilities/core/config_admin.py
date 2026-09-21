@@ -440,9 +440,8 @@ def set_value(key: str, value: Any, *, reason: str = "") -> dict[str, Any]:
     parsed = _coerce_input(value)
 
     # A sensitive setting may only ever be given a REFERENCE, and only on a
-    # field whose contract is to hold one. This mirrors the pre-existing
-    # graph_configure(set_config) rule; graph_config must not be the easier
-    # door into the same disclosure.
+    # field whose contract is to hold one. The governed graph_config surface
+    # is the sole generic AgentConfig mutation authority.
     if configuration_key_is_sensitive(env_key):
         if not env_key.endswith("_REF") or not runtime_reference(parsed):
             raise ConfigAdminError(

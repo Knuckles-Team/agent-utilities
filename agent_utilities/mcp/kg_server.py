@@ -3508,7 +3508,7 @@ def bound_to_graph(graph: str) -> Any:
 
 #: Per-target wall-clock budget (seconds) for a fan-out (``target='all'`` or a
 #: multi-target list). One slow/unreachable backend must not stall the whole set;
-#: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
+#: override live via ``graph_config set GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
 DEFAULT_FANOUT_TIMEOUT_S = 30.0
 
 #: Per-target wall-clock budget (seconds) for an IMPLICIT-default read fan-out —

@@ -525,7 +525,7 @@ class GraphConfigureRequest(BaseModel):
         "uninstall_hooks, doctor (note: handled but NOT listed in the "
         "tool's own description string — a minor doc gap found while "
         "deriving this model), config_doctor, system_doctor, health, "
-        "preflight, generate_config, get_config, set_config, list_config, "
+        "preflight, generate_config, get_config, list_config, "
         "add_connection, remove_connection, list_connections, "
         "discover_connection_schema, and the Stardog "
         "push_to_stardog/pull_from_stardog/stardog_sparql/"
