@@ -75,6 +75,8 @@ __all__ = [
     "collect_health",
     "collect_health_async",
     "is_overall_healthy",
+    "claim_readiness_authority",
+    "release_readiness_authority",
 ]
 
 # The outer async route hop has its OWN reserved lane. asyncio.to_thread() uses
@@ -335,27 +337,41 @@ def _check_state_store(cfg: Any) -> dict[str, Any]:
 
 
 _READINESS_AUTHORITY: Any = None
+_READINESS_AUTHORITY_OWNER: object | None = None
 _READINESS_AUTHORITY_LOCK = threading.Lock()
 
 
-def set_readiness_authority(session: Any) -> None:
-    """Register the process's own session for readiness probes only.
+def claim_readiness_authority(session: Any) -> object:
+    """Claim the process readiness authority for one serving owner.
 
-    Readiness is a PROCESS control decision, so its probes must run under the
-    process's own verified authority.  On a network transport the server
-    deliberately publishes no ambient process session -- that fallback exists
-    for stdio and must never become a way for a request path to acquire
-    identity it did not authenticate.  This is a separate, narrowly named seam
-    with exactly one consumer (:func:`_check_fleet_supervision`), so readiness
-    can probe the live authority without widening that bypass surface.
+    A token is returned instead of exposing ownership as a caller-controlled
+    boolean.  Only the owner holding that opaque token may release the session;
+    a second graph-os composition fails closed rather than clobbering the
+    authority used by an already-serving process.
     """
 
-    global _READINESS_AUTHORITY
+    global _READINESS_AUTHORITY, _READINESS_AUTHORITY_OWNER
     with _READINESS_AUTHORITY_LOCK:
+        if _READINESS_AUTHORITY is not None or _READINESS_AUTHORITY_OWNER is not None:
+            raise RuntimeError("readiness authority is already claimed")
+        owner = object()
         _READINESS_AUTHORITY = session
-    # A new authority invalidates any snapshot computed under the OLD one --
-    # never let a cache entry outlive the identity it was read under.
+        _READINESS_AUTHORITY_OWNER = owner
     _FLEET_SUPERVISION_CACHE.invalidate()
+    return owner
+
+
+def release_readiness_authority(owner: object) -> bool:
+    """Release readiness only when ``owner`` is the active opaque token."""
+
+    global _READINESS_AUTHORITY, _READINESS_AUTHORITY_OWNER
+    with _READINESS_AUTHORITY_LOCK:
+        if owner is not _READINESS_AUTHORITY_OWNER:
+            return False
+        _READINESS_AUTHORITY = None
+        _READINESS_AUTHORITY_OWNER = None
+    _FLEET_SUPERVISION_CACHE.invalidate()
+    return True
 
 
 # --------------------------------------------------------------------------- #

@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -2154,7 +2155,75 @@ async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) ->
         await asyncio.sleep(interval)
 
 
-def _fleet_registration_lifespan_factory(args: argparse.Namespace, name: str):
+@contextlib.asynccontextmanager
+async def _lifespan_extension_scope(extension: Callable[[Any], Any] | None, app: Any):
+    """Run an optional public serving extension around the transport body."""
+
+    if extension is None:
+        yield
+        return
+    async with extension(app):
+        yield
+
+
+def _start_fleet_registration_heartbeat(
+    args: argparse.Namespace, name: str
+) -> asyncio.Task[None] | None:
+    """Start this process's registry heartbeat when fleet registration is enabled."""
+
+    if not to_boolean(setting("MCP_FLEET_REGISTRATION", "True")):
+        return None
+    url = _fleet_registration_endpoint_reference(args, name)
+    ttl_secs = _fleet_registration_ttl_secs()
+    return asyncio.create_task(_register_and_heartbeat_forever(name, url, ttl_secs))
+
+
+async def _stop_fleet_registration_heartbeat(
+    task: asyncio.Task[None] | None,
+) -> None:
+    """Cancel and await a registry heartbeat during transport teardown."""
+
+    if task is None:
+        return
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await task
+
+
+async def _shutdown_fleet_engine(manage_engine_shutdown: bool) -> None:
+    """Drain and close the process-owned engine when the factory owns shutdown."""
+
+    if not manage_engine_shutdown:
+        return
+    try:
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
+
+        engine = GraphComputeEngine.get_active()
+        if engine is not None:
+            status = await asyncio.to_thread(engine.drain)
+            if status is not None and getattr(status, "timed_out", False):
+                logger.error(
+                    "GraphOS transport drain timed out with %s active request(s); "
+                    "continuity is not claimed",
+                    getattr(status, "active_requests", "unknown"),
+                )
+            engine.close()
+    except Exception as exc:  # noqa: BLE001 - lifecycle teardown must continue
+        logger.error(
+            "GraphOS transport drain failed; continuity is not claimed (%s)",
+            type(exc).__name__,
+        )
+
+
+def _fleet_registration_lifespan_factory(
+    args: argparse.Namespace,
+    name: str,
+    *,
+    lifespan_extension: Callable[[Any], Any] | None = None,
+    manage_engine_shutdown: bool = True,
+):
     """Build the ``FastMCP(..., lifespan=...)`` ASGI lifespan that starts/stops
     the self-registration heartbeat task (CONCEPT:EG-KG.sharding.server-registry, W2.5).
 
@@ -2166,46 +2235,23 @@ def _fleet_registration_lifespan_factory(args: argparse.Namespace, name: str):
 
     @contextlib.asynccontextmanager
     async def _fleet_registration_lifespan(_app: Any):
-        task: asyncio.Task[None] | None = None
-        if to_boolean(setting("MCP_FLEET_REGISTRATION", "True")):
-            url = _fleet_registration_endpoint_reference(args, name)
-            ttl_secs = _fleet_registration_ttl_secs()
-            task = asyncio.create_task(
-                _register_and_heartbeat_forever(name, url, ttl_secs)
-            )
+        task = _start_fleet_registration_heartbeat(args, name)
         try:
-            yield
+            # The extension is nested inside the factory-owned heartbeat
+            # context.  Its teardown therefore runs before the base transport
+            # drain, which is the only safe order for a public composition
+            # that owns co-services and fleet children.
+            async with _lifespan_extension_scope(lifespan_extension, _app):
+                yield
         finally:
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
+            await _stop_fleet_registration_heartbeat(task)
             # GraphOS owns one process transport shared by all graph-scoped
             # views.  A pod/process drain must stop new admissions, wait only
             # the configured bounded interval for in-flight calls, and then
             # close the transport.  A timeout is visible and is never
             # presented as session continuity; a restarted pod must mint a
             # fresh GraphSession and re-read ClusterMembers.
-            try:
-                from agent_utilities.knowledge_graph.core.graph_compute import (
-                    GraphComputeEngine,
-                )
-
-                engine = GraphComputeEngine.get_active()
-                if engine is not None:
-                    status = await asyncio.to_thread(engine.drain)
-                    if status is not None and getattr(status, "timed_out", False):
-                        logger.error(
-                            "GraphOS transport drain timed out with %s active request(s); "
-                            "continuity is not claimed",
-                            getattr(status, "active_requests", "unknown"),
-                        )
-                    engine.close()
-            except Exception as exc:  # noqa: BLE001 - lifecycle teardown must continue
-                logger.error(
-                    "GraphOS transport drain failed; continuity is not claimed (%s)",
-                    type(exc).__name__,
-                )
+            await _shutdown_fleet_engine(manage_engine_shutdown)
 
     return _fleet_registration_lifespan
 
@@ -2356,6 +2402,9 @@ def create_mcp_server(
     instructions: str = "",
     command_args: list[str] | None = None,
     transport_choices: tuple[str, ...] = _ALL_TRANSPORTS,
+    *,
+    lifespan_extension: Callable[[Any], Any] | None = None,
+    manage_engine_shutdown: bool = True,
 ):
     """Initialize a FastMCP server with a standard middleware and auth stack.
 
@@ -2372,6 +2421,11 @@ def create_mcp_server(
             tools, providing context for the LLM.
         command_args: Optional list of CLI arguments (default: sys.argv).
         transport_choices: Current transports exposed by this server.
+        lifespan_extension: Optional application lifespan nested inside the
+            factory-owned registration context.
+        manage_engine_shutdown: Whether this factory context owns the active
+            engine drain/close.  Public composition surfaces set this false
+            and perform the gated finalization themselves.
 
     Returns:
         A tuple containing:
@@ -2418,7 +2472,12 @@ def create_mcp_server(
         version=version,
         auth=auth,
         instructions=instructions,
-        lifespan=_fleet_registration_lifespan_factory(args, name),
+        lifespan=_fleet_registration_lifespan_factory(
+            args,
+            name,
+            lifespan_extension=lifespan_extension,
+            manage_engine_shutdown=manage_engine_shutdown,
+        ),
         # `tasks=` only sets the DEFAULT task-mode for individual `@mcp.tool()`
         # registrations (fastmcp.utilities.tasks.TaskConfig) -- it does not by
         # itself mount the `io.modelcontextprotocol/tasks` extension's

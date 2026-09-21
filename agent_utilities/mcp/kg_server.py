@@ -45,6 +45,7 @@ import asyncio
 import contextlib
 import contextvars
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -98,6 +99,67 @@ _PROCESS_SESSION: Any = None
 _PROCESS_SESSION_REFRESH_LOCK = threading.Lock()
 _PROCESS_AUTHORITY_STOP = threading.Event()
 _PROCESS_AUTHORITY_THREAD: threading.Thread | None = None
+
+# A graph-os process owns one composition transaction.  The process-global
+# readiness authority and native engine are not safely multiplexed between two
+# independent serving lifecycles, so a second public surface fails closed.
+_GRAPHOS_SURFACE_LOCK = threading.Lock()
+_GRAPHOS_SURFACE_ACTIVE = False
+
+
+class _GraphOSSurfaceState:
+    """Ownership ledger for one public graph-os serving composition."""
+
+    def __init__(self) -> None:
+        self.engine: Any = None
+        self.engine_acquired = False
+        self.bootstrap_thread: threading.Thread | None = None
+        self.process_session: Any = None
+        self.fleet_mux: Any = None
+        self.fleet_cleanup_attempted = False
+        self.fleet_closed = False
+        self.supervisor: Any = None
+        self.services_cleanup_attempted = False
+        self.services_closed = True
+        self.extension_entered = False
+        self.readiness_owner: object | None = None
+        self.readiness_released = True
+        self.process_authority_started = False
+        self.process_authority_stopped = True
+        self.cleanup_error: BaseException | None = None
+        self.cancelled_during_cleanup = False
+
+
+class _GraphOSSurface:
+    """Immutable handle yielded by :func:`open_graphos_mcp_surface`."""
+
+    __slots__ = ("args", "mcp", "middlewares", "_frozen")
+
+    def __init__(self, args: Any, mcp: Any, middlewares: list[Any]) -> None:
+        object.__setattr__(self, "args", args)
+        object.__setattr__(self, "mcp", mcp)
+        object.__setattr__(self, "middlewares", tuple(middlewares))
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError("graph-os surface is immutable")
+        object.__setattr__(self, name, value)
+
+
+def _claim_graphos_surface() -> None:
+    global _GRAPHOS_SURFACE_ACTIVE
+    with _GRAPHOS_SURFACE_LOCK:
+        if _GRAPHOS_SURFACE_ACTIVE:
+            raise RuntimeError("graph-os serving surface is already active")
+        _GRAPHOS_SURFACE_ACTIVE = True
+
+
+def _release_graphos_surface() -> None:
+    global _GRAPHOS_SURFACE_ACTIVE
+    with _GRAPHOS_SURFACE_LOCK:
+        _GRAPHOS_SURFACE_ACTIVE = False
+
 
 # D-SNV-5 follow-up: guards :func:`authority_keepalive_scope` against starting a
 # second renewal loop for the same lease when one guarded scope nests inside
@@ -4616,12 +4678,24 @@ def _sync_ontologies_at_boot(engine: Any) -> None:
         )
 
 
-def _set_readiness_authority(session: Any) -> None:
+def _set_readiness_authority(session: Any) -> object:
     """Hand the readiness probe the process's own verified authority."""
 
-    from agent_utilities.observability.runtime_health import set_readiness_authority
+    from agent_utilities.observability.runtime_health import (
+        claim_readiness_authority,
+    )
 
-    set_readiness_authority(session)
+    return claim_readiness_authority(session)
+
+
+def _release_readiness_authority(owner: object | None) -> bool:
+    if owner is None:
+        return True
+    from agent_utilities.observability.runtime_health import (
+        release_readiness_authority,
+    )
+
+    return release_readiness_authority(owner)
 
 
 def _mint_process_session(transport: str) -> Any:
@@ -4921,7 +4995,7 @@ def _process_authority_refresh_loop(session: Any) -> None:
 def _start_process_authority_supervisor(session: Any) -> None:
     """Start the sole external-authority renewal supervisor when required."""
     global _PROCESS_AUTHORITY_THREAD
-    _stop_process_authority_supervisor()
+    _require_process_authority_supervisor_stopped()
     _PROCESS_AUTHORITY_STOP.clear()
     if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
         return
@@ -4935,14 +5009,29 @@ def _start_process_authority_supervisor(session: Any) -> None:
     thread.start()
 
 
-def _stop_process_authority_supervisor() -> None:
-    """Stop and forget the process-authority supervisor."""
+def _stop_process_authority_supervisor() -> bool:
+    """Stop the process-authority supervisor and report real closure."""
     global _PROCESS_AUTHORITY_THREAD
     _PROCESS_AUTHORITY_STOP.set()
     thread = _PROCESS_AUTHORITY_THREAD
+    if not _join_process_authority_thread(thread):
+        logger.critical("Graph process authority supervisor did not stop")
+        return False
+    _PROCESS_AUTHORITY_THREAD = None
+    return True
+
+
+def _require_process_authority_supervisor_stopped() -> None:
+    """Refuse a new supervisor while a previous one is still live."""
+    if not _stop_process_authority_supervisor():
+        raise RuntimeError("previous graph process authority supervisor is still live")
+
+
+def _join_process_authority_thread(thread: threading.Thread | None) -> bool:
+    """Join an old authority thread and report whether it really stopped."""
     if thread is not None and thread is not threading.current_thread():
         thread.join(timeout=2.0)
-    _PROCESS_AUTHORITY_THREAD = None
+    return thread is None or not thread.is_alive()
 
 
 _BUNDLED_SKILL_READINESS: dict[str, Any] = {}
@@ -5262,7 +5351,9 @@ def _run_enabled_boot_hydration(
     _run_boot_hydration_plan(engine, skip_skill_names=skip_skill_names)
 
 
-def _start_engine_bootstrap(session: Any) -> None:
+def _start_engine_bootstrap(
+    session: Any, *, engine: Any | None = None
+) -> threading.Thread | None:
     """Establish engine/skill readiness, then start noncritical services."""
     from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -5279,7 +5370,7 @@ def _start_engine_bootstrap(session: Any) -> None:
         use_actor(verified_session.actor),
         use_session(verified_session),
     ):
-        engine = _get_engine()
+        engine = _resolve_bootstrap_engine(engine)
         # Correctness gate: unlike missing packaged skills, a partially
         # materialized graph cannot safely accept one-shot boot hydration or
         # worker claims.  Let this failure stop startup so the orchestrator can
@@ -5322,7 +5413,7 @@ def _start_engine_bootstrap(session: Any) -> None:
                 "error": type(exc).__name__,
             }
         )
-        return
+        return None
 
     _set_bundled_skill_readiness(readiness)
     if readiness.get("not_ready"):
@@ -5396,15 +5487,51 @@ def _start_engine_bootstrap(session: Any) -> None:
             logger.error("KG engine background bootstrap failed: %s", exc)
 
     try:
-        _authorized_background_thread(
+        thread = _authorized_background_thread(
             verified_session,
             _bootstrap_engine,
             name="KGEngineBootstrap",
-        ).start()
+        )
+        thread.start()
+        return thread
     except Exception as exc:
         # Packaged delegation is already ready. Optional workers, provider
         # discovery, and ontology federation remain retryable operational work.
         logger.error("GraphOS noncritical bootstrap launch failed: %s", exc)
+        return None
+
+
+def _resolve_bootstrap_engine(engine: Any | None) -> Any:
+    """Use a supplied engine or resolve the process-owned singleton."""
+    return engine if engine is not None else _get_engine()
+
+
+def _create_graphos_mcp_server(
+    *,
+    bootstrap: bool,
+    command_args: list[str] | None,
+    instructions: str,
+    lifespan_extension: Callable[[Any], Any] | None,
+    manage_engine_shutdown: bool,
+):
+    """Create the factory server while keeping lifecycle knobs centralized."""
+
+    from agent_utilities.mcp.server_factory import create_mcp_server
+
+    factory_kwargs: dict[str, Any] = {
+        "name": "graph-os",
+        "instructions": instructions,
+        "command_args": command_args
+        if command_args is not None
+        else (None if bootstrap else []),
+        "transport_choices": ("stdio", "streamable-http"),
+    }
+    if bootstrap and (lifespan_extension is not None or not manage_engine_shutdown):
+        factory_kwargs.update(
+            lifespan_extension=lifespan_extension,
+            manage_engine_shutdown=manage_engine_shutdown,
+        )
+    return create_mcp_server(version=__version__, **factory_kwargs)
 
 
 def _build_server(
@@ -5412,6 +5539,9 @@ def _build_server(
     *,
     tool_profile: str | None = None,
     canonical_surface: bool = False,
+    command_args: list[str] | None = None,
+    lifespan_extension: Callable[[Any], Any] | None = None,
+    manage_engine_shutdown: bool = True,
 ):
     """Build the KG MCP server with all tools registered.
 
@@ -5427,9 +5557,13 @@ def _build_server(
         canonical_surface: Register every condensed domain regardless of
             deployment toggles. This is reserved for catalog/gate construction;
             served processes continue to honor their configured toggles.
+        command_args: Optional command line for the factory. Embedded callers
+            continue to receive an empty command line by default.
+        lifespan_extension: Optional public serving extension. It is ignored
+            for embedded registration-only builds.
+        manage_engine_shutdown: Whether the factory owns engine shutdown for a
+            directly served build.
     """
-    from agent_utilities.mcp.server_factory import create_mcp_server
-
     is_readonly = False
 
     def _check_readonly():
@@ -5446,42 +5580,43 @@ def _build_server(
     # REGISTERED_TOOLS) do NOT parse the host process's argv — pass an empty
     # command line so the factory uses defaults instead of choking on unrelated
     # flags (pytest/uvicorn args) with SystemExit.
-    args, mcp, middlewares = create_mcp_server(
-        name="graph-os",
-        version=__version__,
-        instructions=(
-            "Knowledge Graph MCP Server for agent-utilities. "
-            "Provides access to the shared unified Knowledge Graph that powers "
-            "the 5-pillar agent architecture (ORCH, KG, AHE, ECO, OS). "
-            "Use kg_query for Cypher queries, kg_search for semantic search, "
-            "kg_analyze for LLM-powered cross-reference analysis, "
-            "and kg_ingest_* for adding data.\n\n"
-            "graph-os is ALSO the MCP fleet gateway: its own KG/engine tools are "
-            "always on, and it can load ANY other MCP server (declared in "
-            "mcp_config.json) ON DEMAND. Hundreds more tools across dozens of "
-            "servers exist but are NOT loaded yet — so when you need a capability "
-            "you don't see, do NOT assume it's unavailable; use the fleet meta-tools:\n"
-            "  • find_tools(query) — semantic search for the right tool by intent\n"
-            "  • list_catalog() — browse every mountable server and its tools\n"
-            "  • load_tools(tools=[...] or servers=[...]) — mount them; they become "
-            "directly callable immediately (the tool list updates live)\n"
-            "  • unload_tools(...) — retract tools to reclaim context\n"
-            "  • multiplexer_status — health of mounted children\n"
-            "Always discover (find_tools/list_catalog) before concluding a tool "
-            "doesn't exist.\n\n"
-            "EXCEPTION — the always-load set (MCP_ALWAYS_LOAD / "
-            "MCP_ALWAYS_LOAD_TOOLS): a short operator-chosen list of core servers "
-            "and individual tools is mounted EAGERLY on your first request, so it "
-            "is already in your tool list and needs no find_tools/load_tools hop. "
-            "Its absence is therefore meaningful — if an always-load tool is NOT "
-            "listed, that server is genuinely degraded (eager mounting fails soft), "
-            "not merely undiscovered; multiplexer_status says which and why. "
-            "Everything OUTSIDE that set still follows the discover-first rule "
-            "above. Inspect or change the set with "
-            "graph_config(action='get'/'describe'/'set', key='MCP_ALWAYS_LOAD')."
-        ),
-        command_args=None if bootstrap else [],
-        transport_choices=("stdio", "streamable-http"),
+    instructions = (
+        "Knowledge Graph MCP Server for agent-utilities. "
+        "Provides access to the shared unified Knowledge Graph that powers "
+        "the 5-pillar agent architecture (ORCH, KG, AHE, ECO, OS). "
+        "Use kg_query for Cypher queries, kg_search for semantic search, "
+        "kg_analyze for LLM-powered cross-reference analysis, "
+        "and kg_ingest_* for adding data.\n\n"
+        "graph-os is ALSO the MCP fleet gateway: its own KG/engine tools are "
+        "always on, and it can load ANY other MCP server (declared in "
+        "mcp_config.json) ON DEMAND. Hundreds more tools across dozens of "
+        "servers exist but are NOT loaded yet — so when you need a capability "
+        "you don't see, do NOT assume it's unavailable; use the fleet meta-tools:\n"
+        "  • find_tools(query) — semantic search for the right tool by intent\n"
+        "  • list_catalog() — browse every mountable server and its tools\n"
+        "  • load_tools(tools=[...] or servers=[...]) — mount them; they become "
+        "directly callable immediately (the tool list updates live)\n"
+        "  • unload_tools(...) — retract tools to reclaim context\n"
+        "  • multiplexer_status — health of mounted children\n"
+        "Always discover (find_tools/list_catalog) before concluding a tool "
+        "doesn't exist.\n\n"
+        "EXCEPTION — the always-load set (MCP_ALWAYS_LOAD / "
+        "MCP_ALWAYS_LOAD_TOOLS): a short operator-chosen list of core servers "
+        "and individual tools is mounted EAGERLY on your first request, so it "
+        "is already in your tool list and needs no find_tools/load_tools hop. "
+        "Its absence is therefore meaningful — if an always-load tool is NOT "
+        "listed, that server is genuinely degraded (eager mounting fails soft), "
+        "not merely undiscovered; multiplexer_status says which and why. "
+        "Everything OUTSIDE that set still follows the discover-first rule "
+        "above. Inspect or change the set with "
+        "graph_config(action='get'/'describe'/'set', key='MCP_ALWAYS_LOAD')."
+    )
+    args, mcp, middlewares = _create_graphos_mcp_server(
+        bootstrap=bootstrap,
+        command_args=command_args,
+        instructions=instructions,
+        lifespan_extension=lifespan_extension,
+        manage_engine_shutdown=manage_engine_shutdown,
     )
 
     # Unauthenticated liveness + readiness for HTTP deployments (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
@@ -6270,95 +6405,288 @@ async def _write_refreshed_fleet_catalog(
     )
 
 
-def mcp_server() -> None:
-    """``graph-os`` MCP server entry point (registered as console_scripts).
+async def _await_cleanup(awaitable: Any) -> tuple[Any, bool, BaseException | None]:
+    """Finish one cleanup awaitable even when its caller is cancelled."""
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            return result, cancelled, None
+        except asyncio.CancelledError:
+            if task.done():
+                try:
+                    return task.result(), True, None
+                except BaseException as exc:  # noqa: BLE001 - report cleanup failure
+                    return None, True, exc
+            cancelled = True
+        except BaseException as exc:  # noqa: BLE001 - preserve the primary failure
+            return None, cancelled, exc
 
-    Thin FastMCP wrapper following the standard ``mcp_server.py`` template: it
-    serves ONLY the MCP tool surface, over ``stdio`` or ``streamable-http``,
-    selected by the standard ``--transport/--host/--port`` args
-    from :func:`create_mcp_server`. The REST API (``/graph/*``, ``/sessions``,
-    ``/goals``, ``/tools``) is centralized in the API gateway
-    (``agent_utilities.gateway``) — see :func:`_mount_rest_routes`.
+
+async def _close_surface_children(state: _GraphOSSurfaceState) -> None:
+    """Stop co-services before closing the fleet child, exactly once each."""
+    await _close_surface_services(state)
+    await _close_surface_fleet(state)
+
+
+async def _close_surface_services(state: _GraphOSSurfaceState) -> None:
+    """Stop composed co-services once and record whether every thread closed."""
+    if not state.services_cleanup_attempted:
+        state.services_cleanup_attempted = True
+        if state.supervisor is None:
+            state.services_closed = True
+            return
+        result, cancelled, error = await _await_cleanup(
+            asyncio.to_thread(state.supervisor.stop_all)
+        )
+        state.cancelled_during_cleanup |= cancelled
+        if error is not None:
+            state.services_closed = False
+            state.cleanup_error = state.cleanup_error or error
+            return
+        state.services_closed = result is True
+        if not state.services_closed:
+            state.cleanup_error = state.cleanup_error or RuntimeError(
+                "graph-os co-service shutdown did not close every thread"
+            )
+
+
+async def _close_surface_fleet(state: _GraphOSSurfaceState) -> None:
+    """Close the fleet child once and preserve cleanup failures."""
+    if not state.fleet_cleanup_attempted:
+        state.fleet_cleanup_attempted = True
+        if state.fleet_mux is None:
+            state.fleet_closed = True
+        else:
+            await _finish_surface_fleet_close(state)
+
+
+async def _finish_surface_fleet_close(state: _GraphOSSurfaceState) -> None:
+    """Invoke the fleet close operation and retain cancellation/error state."""
+    close = getattr(state.fleet_mux, "aclose", None)
+    if not callable(close):
+        state.fleet_closed = False
+        state.cleanup_error = state.cleanup_error or RuntimeError(
+            "graph-os fleet loader has no async close operation"
+        )
+        return
+    try:
+        close_awaitable = close()
+    except BaseException as exc:  # noqa: BLE001 - fail closed
+        state.fleet_closed = False
+        state.cleanup_error = state.cleanup_error or exc
+        return
+    if inspect.isawaitable(close_awaitable):
+        _result, cancelled, error = await _await_cleanup(close_awaitable)
+        state.cancelled_during_cleanup |= cancelled
+        state.fleet_closed = error is None
+        if error is not None:
+            state.cleanup_error = state.cleanup_error or error
+    else:
+        state.fleet_closed = True
+
+
+async def _finalize_graphos_surface(state: _GraphOSSurfaceState) -> None:
+    """Close owned children and engine only when every ownership gate is true."""
+    global _PROCESS_SESSION
+
+    await _close_surface_children(state)
+    _PROCESS_SESSION = None
+    _stop_surface_process_authority(state)
+    _release_surface_readiness(state)
+    bootstrap_closed = _join_surface_bootstrap(state)
+
+    engine_close_allowed = (
+        state.engine_acquired
+        and state.services_closed
+        and state.fleet_closed
+        and state.process_authority_stopped
+        and state.readiness_released
+        and bootstrap_closed
+    )
+    if state.engine_acquired and state.engine is not None:
+        await _close_surface_engine(state, engine_close_allowed)
+
+
+def _stop_surface_process_authority(state: _GraphOSSurfaceState) -> None:
+    """Stop process-authority renewal and preserve a truthful gate result."""
+    try:
+        state.process_authority_stopped = _stop_process_authority_supervisor()
+    except BaseException as exc:  # noqa: BLE001 - fail closed below
+        state.process_authority_stopped = False
+        state.cleanup_error = state.cleanup_error or exc
+
+
+def _release_surface_readiness(state: _GraphOSSurfaceState) -> None:
+    """Release readiness only through the opaque owner token."""
+    try:
+        state.readiness_released = _release_readiness_authority(state.readiness_owner)
+    except BaseException as exc:  # noqa: BLE001 - fail closed below
+        state.readiness_released = False
+        state.cleanup_error = state.cleanup_error or exc
+
+
+def _join_surface_bootstrap(state: _GraphOSSurfaceState) -> bool:
+    """Join the noncritical bootstrap thread before allowing engine close."""
+    thread = state.bootstrap_thread
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=2.0)
+    return thread is None or not thread.is_alive()
+
+
+async def _close_surface_engine(
+    state: _GraphOSSurfaceState,
+    close_allowed: bool,
+) -> None:
+    """Drain and close the engine only after all child ownership gates close."""
+    if not close_allowed:
+        logger.critical(
+            "GraphOS engine close withheld: owned lifecycle gates are not closed"
+        )
+        return
+    drain = getattr(state.engine, "drain", None)
+    close = getattr(state.engine, "close", None)
+    if not callable(drain) or not callable(close):
+        state.cleanup_error = state.cleanup_error or RuntimeError(
+            "graph-os engine does not expose drain/close lifecycle methods"
+        )
+        logger.critical(
+            "GraphOS engine close withheld: drain/close methods are unavailable"
+        )
+        return
+    if not await _drain_surface_engine(state, drain):
+        return
+    await _finish_surface_engine_close(state, close)
+
+
+async def _drain_surface_engine(
+    state: _GraphOSSurfaceState,
+    drain: Callable[[], Any],
+) -> bool:
+    """Drain the engine and return whether a close is safe."""
+    result, cancelled, error = await _await_cleanup(asyncio.to_thread(drain))
+    state.cancelled_during_cleanup |= cancelled
+    timed_out = result is not None and getattr(result, "timed_out", False)
+    if error is not None or timed_out:
+        state.cleanup_error = (
+            state.cleanup_error
+            or error
+            or RuntimeError("graph-os engine drain timed out; engine close withheld")
+        )
+        logger.critical("GraphOS engine close withheld after unsuccessful drain")
+        return False
+    return True
+
+
+async def _finish_surface_engine_close(
+    state: _GraphOSSurfaceState,
+    close: Callable[[], Any],
+) -> None:
+    """Close a successfully drained engine and preserve close failures."""
+    _result, cancelled, error = await _await_cleanup(asyncio.to_thread(close))
+    state.cancelled_during_cleanup |= cancelled
+    if error is not None:
+        state.cleanup_error = state.cleanup_error or error
+
+
+@contextlib.asynccontextmanager
+async def open_graphos_mcp_surface(
+    command_args: list[str] | None = None,
+):
+    """Open the real graph-os MCP surface and own its complete lifecycle.
+
+    The returned immutable handle contains the actual ``FastMCP`` instance and
+    parsed arguments.  Its factory lifespan starts co-services only after the
+    server enters serving, then tears them down before the outer transaction
+    considers the fleet and engine safe to close.
     """
     global _PROCESS_SESSION
     from agent_utilities.core.config import load_config
 
-    load_config()  # resolve settings through the one shared XDG config.json
-    _preflight_mcp_sdk_floor()
-    _configure_graphos_otel()
-    _configure_telemetry_engine_otel()
-    os.environ["IS_KG_SERVER"] = "true"
-    args, mcp, middlewares = _build_server()
-
-    # Apply the middleware stack assembled by the factory.
-    for middleware in middlewares:
-        mcp.add_middleware(middleware)
-
-    # Fold in the MCP fleet-loader (retires the standalone mcp-multiplexer): graph-os's
-    # own tools stay always-on; this adds find_tools/load_tools/... so the SAME server
-    # reaches the rest of the MCP fleet on demand. Attached AFTER the factory middlewares
-    # so per-session tool visibility runs with identity/auth already applied. Only for a
-    # directly-served process — the embedded API-gateway build owns no serving loop.
-    # The eight meta-tools this attaches (find_tools/list_catalog/load_tools/
-    # unload_tools/catalog_refresh/catalog_dispatch/catalog_session_resume/
-    # multiplexer_status) plus the
-    # session-visibility middleware are
-    # MODE-INDEPENDENT infrastructure — they are the only way to reach anything
-    # the active MCP_TOOL_MODE holds back, so they must be present under intent,
-    # condensed, verbose AND both. A failure here is therefore NOT survivable:
-    # the previous `except Exception: logger.error(...)` downgraded it to a log
-    # line and served a silently wrong surface (an SDK-rename ImportError in
-    # child_resilience left graph-os exposing 118 ungated tools with no
-    # load_tools at all). Fail loud, preserving __cause__.
-    # CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
+    state = _GraphOSSurfaceState()
+    _claim_graphos_surface()
+    primary_exception: BaseException | None = None
     try:
-        from agent_utilities.mcp.multiplexer import attach_fleet_loader
+        load_config()  # resolve settings through the one shared XDG config.json
+        _preflight_mcp_sdk_floor()
+        _configure_graphos_otel()
+        _configure_telemetry_engine_otel()
+        os.environ["IS_KG_SERVER"] = "true"
 
-        # Inject graph-os's own embedding model so find_tools ranks fleet tools by
-        # query↔description MEANING (semantic), not just literal token overlap.
-        fleet_mux = attach_fleet_loader(
-            mcp,
-            embed_fn=_fleet_embed_fn(),
-            authority_scope=verified_tool_session_scope,
-            catalog_writer=_write_refreshed_fleet_catalog,
+        @contextlib.asynccontextmanager
+        async def _composition_lifespan(_app: Any):
+            from agent_utilities.core.config import config
+            from agent_utilities.knowledge_graph.core.session import use_session
+            from agent_utilities.mcp.co_service_supervisor import start_co_services
+            from agent_utilities.security.brain_context import use_actor
+
+            state.extension_entered = True
+            state.services_closed = False
+            try:
+                with (
+                    use_actor(state.process_session.actor),
+                    use_session(state.process_session),
+                ):
+                    start_co_services(
+                        state.process_session,
+                        state.engine,
+                        messaging_intake_enabled=config.messaging_intake_enabled,
+                        supervisor=state.supervisor,
+                    )
+            except BaseException:
+                # start_co_services owns transactional rollback of a partial
+                # acquisition.  Mark the attempt so the extension does not
+                # issue a second stop call while unwinding the same failure.
+                state.services_cleanup_attempted = True
+                state.services_closed = not bool(state.supervisor.running())
+                raise
+            try:
+                yield
+            finally:
+                await _close_surface_children(state)
+
+        args, mcp, middlewares = _build_server(
+            bootstrap=True,
+            command_args=command_args,
+            lifespan_extension=_composition_lifespan,
+            manage_engine_shutdown=False,
         )
-    except Exception as exc:
-        raise RuntimeError(
-            "graph-os fleet loader attach failed: the fleet meta-tools "
-            "(find_tools/list_catalog/load_tools/unload_tools/catalog_refresh/"
-            "catalog_dispatch/catalog_session_resume/multiplexer_status) "
-            "and the session-visibility middleware could not be registered, so the "
-            "served tool surface would be wrong under every MCP_TOOL_MODE."
-        ) from exc
+        for middleware in middlewares:
+            mcp.add_middleware(middleware)
 
-    transport = getattr(args, "transport", "stdio")
-    host = getattr(args, "host", "127.0.0.1")
-    port = int(getattr(args, "port", 8000))
+        # This attachment is owned by the same transaction as the server, so
+        # failures after it are always paired with an async close attempt.
+        try:
+            from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
-    bootstrap_session = _mint_process_session(transport)
-    _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
-    _start_process_authority_supervisor(bootstrap_session)
-    # Readiness probes the live fleet/goal authority, which is a real graph read
-    # and therefore needs a bound session. `_PROCESS_SESSION` is deliberately
-    # None on network transports (it is a stdio fallback, and must not become a
-    # way for a request path to pick up identity it never authenticated), so
-    # readiness gets its own narrowly-scoped handle on the process authority.
-    # Without this the probe measured its own missing identity instead of the
-    # authority, reported the goal store `unavailable`, and held /health/ready
-    # at 503 forever on every served deployment.
-    _set_readiness_authority(bootstrap_session)
+            state.fleet_mux = attach_fleet_loader(
+                mcp,
+                embed_fn=_fleet_embed_fn(),
+                authority_scope=verified_tool_session_scope,
+                catalog_writer=_write_refreshed_fleet_catalog,
+            )
+            state.fleet_closed = state.fleet_mux is None
+        except Exception as exc:
+            raise RuntimeError(
+                "graph-os fleet loader attach failed: the fleet meta-tools "
+                "and session-visibility middleware could not be registered"
+            ) from exc
 
-    co_service_supervisor = None
-    try:
-        logger.info("Starting graph-os MCP server (transport=%s)", transport)
+        transport = getattr(args, "transport", "stdio")
+        bootstrap_session = _mint_process_session(transport)
+        state.process_session = bootstrap_session
+        _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
+        _start_process_authority_supervisor(bootstrap_session)
+        state.process_authority_started = True
+        state.process_authority_stopped = False
+        state.readiness_owner = _set_readiness_authority(bootstrap_session)
+        state.readiness_released = False
 
-        from agent_utilities.mcp.server_factory import mcp_network_run_kwargs
         from agent_utilities.security.request_identity import (
             apply_served_security_profile,
         )
 
-        # Network transports serve many clients at once: enforce server-validated
-        # identity + tenant scoping, or fail loud (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). No-op for stdio.
         apply_served_security_profile(
             transport,
             transport_auth_configured=(
@@ -6366,65 +6694,64 @@ def mcp_server() -> None:
             ),
         )
 
-        # Stdout purity on the stdio transport needs no call here: it is owned
-        # fd-level by the MCP SDK's own ``stdio_server()`` for the scope of the
-        # later stdio-serve call below (see the "Stdio JSON-RPC purity" note in
-        # server_factory.py) — that covers every co-service thread started
-        # below too, since they share this process's file-descriptor table for
-        # as long as serving blocks. The residual window before that call
-        # claims fd 1 (engine bootstrap, co-service startup, this function
-        # itself) is covered by the static "no print() in the served package"
-        # gate (``scripts/check_no_stdout_writes.py``), not a runtime patch.
-        # No-op for network transports either way (they don't own stdout as a
-        # protocol channel).
-
-        # Bind the minted process session (+ its verified actor) as ambient
-        # authority before engine bootstrap. An explicit client role remains a
-        # hard serving-plane boundary; this entrypoint never promotes itself to
-        # the host that owns maintenance, workers, or autonomous loops.
-        from agent_utilities.core.config import config
+        # Capture the engine before materialization/readiness can raise.  The
+        # outer transaction therefore retains ownership even when bootstrap
+        # returns no thread or fails in its foreground gate.
+        state.engine = _get_engine()
+        state.engine_acquired = state.engine is not None
         from agent_utilities.knowledge_graph.core.session import use_session
-        from agent_utilities.mcp.co_service_supervisor import start_co_services
         from agent_utilities.security.brain_context import use_actor
 
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
-            _start_engine_bootstrap(bootstrap_session)
-
-            # Self-composing co-services, phase 2: messaging now that a real engine
-            # exists. Credentials keep outbound sending available, but the explicit
-            # MESSAGING_INTAKE_ENABLED deployment intent (false by default) is the
-            # only way this request container may enter the shared native lease
-            # boundary. When ENABLE_WEB_UI is true, the packaged agent-webui is
-            # started in-process by this same supervisor as a separately bound,
-            # independently restartable co-service.
-            co_service_supervisor = start_co_services(
+            state.bootstrap_thread = _start_engine_bootstrap(
                 bootstrap_session,
-                _get_engine(),
-                messaging_intake_enabled=config.messaging_intake_enabled,
+                engine=state.engine,
             )
 
+        from agent_utilities.mcp.co_service_supervisor import CoServiceSupervisor
+
+        state.supervisor = CoServiceSupervisor()
+        surface = _GraphOSSurface(args, mcp, middlewares)
+        yield surface
+    except BaseException as exc:
+        primary_exception = exc
+        raise
+    finally:
+        try:
+            await _finalize_graphos_surface(state)
+        finally:
+            _release_graphos_surface()
+        if state.cancelled_during_cleanup and primary_exception is None:
+            raise asyncio.CancelledError
+        if primary_exception is None and state.cleanup_error is not None:
+            raise RuntimeError(
+                "graph-os lifecycle cleanup was incomplete"
+            ) from state.cleanup_error
+
+
+async def _serve_graphos_mcp(command_args: list[str] | None = None) -> None:
+    from agent_utilities.mcp.server_factory import mcp_network_run_kwargs
+
+    async with open_graphos_mcp_surface(command_args) as surface:
+        transport = getattr(surface.args, "transport", "stdio")
         if transport == "stdio":
-            mcp.run(transport="stdio")
+            result = surface.mcp.run_async(transport="stdio")
         elif transport == "streamable-http":
-            mcp.run(
+            result = surface.mcp.run_async(
                 transport="streamable-http",
-                host=host,
-                port=port,
-                **mcp_network_run_kwargs(args),
+                host=getattr(surface.args, "host", "127.0.0.1"),
+                port=int(getattr(surface.args, "port", 8000)),
+                **mcp_network_run_kwargs(surface.args),
             )
         else:
             raise ValueError("graph-os transport must be 'stdio' or 'streamable-http'")
-    finally:
-        if co_service_supervisor is not None:
-            co_service_supervisor.stop_all()
-        _PROCESS_SESSION = None
-        _stop_process_authority_supervisor()
-        # Best-effort teardown of any lazily-mounted fleet children.
-        if fleet_mux is not None:
-            try:
-                asyncio.run(fleet_mux.aclose())
-            except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
-                logger.debug("fleet loader close failed: %s", type(exc).__name__)
+        if inspect.isawaitable(result):
+            await result
+
+
+def mcp_server() -> None:
+    """Serve the graph-os MCP surface over stdio or streamable HTTP."""
+    asyncio.run(_serve_graphos_mcp())
 
 
 if __name__ == "__main__":

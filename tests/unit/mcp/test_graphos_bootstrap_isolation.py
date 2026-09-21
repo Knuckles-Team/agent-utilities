@@ -561,8 +561,6 @@ def test_graphos_entrypoint_activates_configured_otel_live_path() -> None:
         kg_server._configure_graphos_otel()
 
     setup.assert_called_once_with(service_name="graph-os")
-    source = inspect.getsource(kg_server.mcp_server)
-    assert source.index("load_config()") < source.index("_configure_graphos_otel()")
 
 
 def test_packaged_skill_readiness_blocks_background_bootstrap_and_preserves_authority(
@@ -1682,13 +1680,13 @@ def test_graphos_self_tool_surface_reads_registered_tools_in_process() -> None:
     ]
 
 
-def test_graphos_listener_starts_only_after_readiness_barrier() -> None:
+def test_graphos_public_surface_is_an_async_lifecycle_context() -> None:
     from agent_utilities.mcp import kg_server
 
-    source = inspect.getsource(kg_server.mcp_server)
-    assert source.index("_start_engine_bootstrap(bootstrap_session)") < source.index(
-        'mcp.run(transport="stdio")'
-    )
+    # The serving entry point is now an async context so FastMCP's own lifespan
+    # can own co-service acquisition and unwind it before the outer engine gate.
+    assert hasattr(kg_server.open_graphos_mcp_surface, "__wrapped__")
+    assert inspect.iscoroutinefunction(kg_server._serve_graphos_mcp)
 
 
 def test_graphos_stdio_uses_private_local_process_authority() -> None:
@@ -1751,6 +1749,18 @@ def test_graphos_network_transport_never_uses_private_local_authority() -> None:
     minted_actor = mint_session.call_args.args[0]
     assert minted_actor.credential_lease is not None
     assert minted_actor.credential_lease.expires_at == actor.credential_expires_at
+
+
+def test_readiness_authority_has_one_opaque_owner() -> None:
+    from agent_utilities.observability import runtime_health
+
+    owner = runtime_health.claim_readiness_authority(object())
+    try:
+        with pytest.raises(RuntimeError, match="already claimed"):
+            runtime_health.claim_readiness_authority(object())
+        assert runtime_health.release_readiness_authority(object()) is False
+    finally:
+        assert runtime_health.release_readiness_authority(owner) is True
 
 
 def test_tiny_process_authority_remints_bounded_proof_after_expiry() -> None:
@@ -2293,7 +2303,7 @@ def test_background_worker_observes_shared_process_lease_rollover() -> None:
     assert observations == ["expired", "renewed"]
 
 
-@pytest.mark.parametrize("failure_point", ["security", "readiness"])
+@pytest.mark.parametrize("failure_point", ["security", "bootstrap"])
 def test_graphos_startup_failure_releases_process_authority(failure_point: str) -> None:
     """Every post-mint startup failure tears down renewable authority state."""
     from agent_utilities.mcp import kg_server
@@ -2307,14 +2317,18 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
     session = _verified_session("graphos-bootstrap")
     fleet = MagicMock()
     fleet.aclose = AsyncMock()
+    engine = MagicMock()
+    engine.drain.return_value = None
     security = MagicMock()
-    readiness = MagicMock()
+    bootstrap = MagicMock()
     failure = RuntimeError(f"{failure_point} failed")
-    (security if failure_point == "security" else readiness).side_effect = failure
+    (security if failure_point == "security" else bootstrap).side_effect = failure
 
     with (
         patch("agent_utilities.core.config.load_config"),
+        patch.object(kg_server, "_preflight_mcp_sdk_floor"),
         patch.object(kg_server, "_configure_graphos_otel"),
+        patch.object(kg_server, "_configure_telemetry_engine_otel"),
         patch.object(kg_server, "_build_server", return_value=(args, mcp, [])),
         patch(
             "agent_utilities.mcp.multiplexer.attach_fleet_loader",
@@ -2327,7 +2341,8 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
             "agent_utilities.security.request_identity.apply_served_security_profile",
             security,
         ),
-        patch.object(kg_server, "_start_engine_bootstrap", readiness),
+        patch.object(kg_server, "_start_engine_bootstrap", bootstrap),
+        patch.object(kg_server, "_get_engine", return_value=engine),
         patch.object(kg_server, "_PROCESS_SESSION", None),
     ):
         with pytest.raises(RuntimeError) as captured:
@@ -2337,7 +2352,7 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
         start.assert_called_once_with(session)
         stop.assert_called_once_with()
         fleet.aclose.assert_awaited_once_with()
-        mcp.run.assert_not_called()
+        mcp.run_async.assert_not_called()
         assert kg_server._PROCESS_SESSION is None
 
 
@@ -2353,10 +2368,23 @@ def test_mcp_server_passes_explicit_messaging_intake_intent_to_co_services(
     )
     mcp = MagicMock()
     session = _verified_session("messaging-intake-wiring")
-    engine = SimpleNamespace()
+    engine = MagicMock()
+    engine.drain.return_value = None
     fleet = MagicMock()
     fleet.aclose = AsyncMock()
     supervisor = MagicMock()
+    supervisor.stop_all.return_value = True
+    build_kwargs: dict[str, Any] = {}
+
+    def _build(*_build_args, **kwargs):
+        build_kwargs.update(kwargs)
+        return args, mcp, []
+
+    async def _run_async(**_kwargs):
+        async with build_kwargs["lifespan_extension"](mcp):
+            return None
+
+    mcp.run_async = _run_async
 
     with (
         patch("agent_utilities.core.config.load_config"),
@@ -2367,18 +2395,22 @@ def test_mcp_server_passes_explicit_messaging_intake_intent_to_co_services(
         patch.object(kg_server, "_preflight_mcp_sdk_floor"),
         patch.object(kg_server, "_configure_graphos_otel"),
         patch.object(kg_server, "_configure_telemetry_engine_otel"),
-        patch.object(kg_server, "_build_server", return_value=(args, mcp, [])),
+        patch.object(kg_server, "_build_server", side_effect=_build),
         patch(
             "agent_utilities.mcp.multiplexer.attach_fleet_loader",
             return_value=fleet,
         ),
         patch.object(kg_server, "_mint_process_session", return_value=session),
         patch.object(kg_server, "_start_process_authority_supervisor"),
+        patch(
+            "agent_utilities.mcp.co_service_supervisor.CoServiceSupervisor",
+            return_value=supervisor,
+        ),
         patch.object(kg_server, "_stop_process_authority_supervisor"),
         patch(
             "agent_utilities.security.request_identity.apply_served_security_profile"
         ),
-        patch.object(kg_server, "_start_engine_bootstrap"),
+        patch.object(kg_server, "_start_engine_bootstrap", return_value=None),
         patch.object(kg_server, "_get_engine", return_value=engine),
         patch(
             "agent_utilities.mcp.co_service_supervisor.start_co_services",
@@ -2392,6 +2424,7 @@ def test_mcp_server_passes_explicit_messaging_intake_intent_to_co_services(
         session,
         engine,
         messaging_intake_enabled=intake_enabled,
+        supervisor=supervisor,
     )
     supervisor.stop_all.assert_called_once_with()
 
@@ -2430,7 +2463,7 @@ def test_mcp_server_selects_local_engine_path_for_both_transports(
         cfg = AgentConfig()
         seen_endpoints_configured.append(bool(cfg.graph_service_endpoints))
         resolved_calls.append(real_resolve_engine(cfg, "__commons__"))
-        return SimpleNamespace(backend=None)
+        return SimpleNamespace(backend=None, drain=lambda: None, close=lambda: None)
 
     args = MagicMock()
     args.transport = transport
@@ -2452,7 +2485,9 @@ def test_mcp_server_selects_local_engine_path_for_both_transports(
         ),
         patch.object(kg_server, "_mint_process_session", return_value=session),
         patch.object(kg_server, "_start_process_authority_supervisor"),
-        patch.object(kg_server, "_stop_process_authority_supervisor"),
+        patch.object(
+            kg_server, "_stop_process_authority_supervisor", return_value=True
+        ),
         patch(
             "agent_utilities.security.request_identity.apply_served_security_profile"
         ),
@@ -2473,7 +2508,11 @@ def test_mcp_server_selects_local_engine_path_for_both_transports(
         ),
         patch(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
-            return_value=MagicMock(),
+            return_value=SimpleNamespace(
+                start=lambda: None,
+                is_alive=lambda: False,
+                join=lambda timeout=None: None,
+            ),
         ),
         patch.object(kg_server, "_PROCESS_SESSION", None),
     ):
@@ -2491,8 +2530,8 @@ def test_mcp_server_selects_local_engine_path_for_both_transports(
     )
 
     if transport == "stdio":
-        mcp.run.assert_called_once_with(transport="stdio")
+        mcp.run_async.assert_called_once_with(transport="stdio")
     else:
-        mcp.run.assert_called_once_with(
+        mcp.run_async.assert_called_once_with(
             transport="streamable-http", host="127.0.0.1", port=8000
         )

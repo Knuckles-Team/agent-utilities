@@ -142,13 +142,11 @@ def _isolated_fleet_supervision_cache():
     """The ``fleet_supervision`` readiness cache is a process-wide singleton
     (CONCEPT: this is exactly why it saves the expensive query) — reset it
     around every test so one test's cached verdict can never leak into the
-    next, and reset the readiness authority to the un-set default too.
+    next. Tests that claim readiness release their opaque owner explicitly.
     """
     rh._FLEET_SUPERVISION_CACHE.invalidate()
-    rh.set_readiness_authority(None)
     yield
     rh._FLEET_SUPERVISION_CACHE.invalidate()
-    rh.set_readiness_authority(None)
 
 
 # --------------------------------------------------------------------------- #
@@ -234,7 +232,9 @@ def test_engine_open_breaker_is_unhealthy_even_when_transport_reachable(
 # 2. co-service semantics: not_configured (healthy) vs configured-but-down
 # --------------------------------------------------------------------------- #
 def test_kg_host_daemon_not_configured_for_remote_engine(monkeypatch):
-    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "tcp://example-remote-engine.internal:9100")
+    monkeypatch.setenv(
+        "GRAPH_SERVICE_ENDPOINTS", "tcp://example-remote-engine.internal:9100"
+    )
     result = rh._check_kg_host_daemon(AgentConfig())
     assert result["status"] == "not_configured"
 
@@ -914,7 +914,9 @@ def test_fleet_supervision_cache_expires_and_staleness_is_bounded_and_observable
     deadline = time.monotonic() + 2.0
     while calls["n"] < 2 and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert calls["n"] == 2, "a stale-but-live entry never triggered its background refresh"
+    assert calls["n"] == 2, (
+        "a stale-but-live entry never triggered its background refresh"
+    )
 
     # A verdict is never served forever: past max_staleness a caller forces a
     # synchronous recompute rather than trusting arbitrarily old data.
@@ -977,11 +979,8 @@ def test_collect_health_wires_the_fleet_supervision_timeout_override(monkeypatch
     assert report["checks"][0]["status"] == "ok"
 
 
-def test_set_readiness_authority_invalidates_the_cache(monkeypatch):
-    """A cache entry computed under one authority must never be served after
-    the process's readiness authority changes — otherwise readiness could
-    keep answering for an identity that is no longer bound.
-    """
+def test_readiness_authority_owner_transition_invalidates_the_cache(monkeypatch):
+    """A cache entry never survives an opaque readiness-owner transition."""
     from agent_utilities.orchestration import fleet_health as fh
 
     calls = {"n": 0}
@@ -996,7 +995,8 @@ def test_set_readiness_authority_invalidates_the_cache(monkeypatch):
     rh._check_fleet_supervision(None)
     assert calls["n"] == 1  # second call served from cache
 
-    rh.set_readiness_authority(None)  # simulate a (re)bind -- invalidates
+    owner = rh.claim_readiness_authority(None)
+    assert rh.release_readiness_authority(owner) is True
 
     rh._check_fleet_supervision(None)
     assert calls["n"] == 2, "the cache survived a readiness-authority change"

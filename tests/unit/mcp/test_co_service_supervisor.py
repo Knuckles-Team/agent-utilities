@@ -205,6 +205,75 @@ def test_supervisor_clean_shutdown_joins_a_well_behaved_service():
     assert supervisor.running() == ()
 
 
+def test_supervisor_retains_live_handle_after_bounded_stop():
+    release = threading.Event()
+
+    def _stubborn(stop_event: threading.Event) -> None:
+        del stop_event
+        release.wait()
+
+    supervisor = cosvc.CoServiceSupervisor()
+    supervisor.start_service("stubborn", _stubborn, _verified_session())
+    deadline = time.monotonic() + 5.0
+    while "stubborn" not in supervisor.running() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert supervisor.running() == ("stubborn",)
+
+    assert supervisor.stop_all(timeout=0.01) is False
+    assert supervisor.running() == ("stubborn",)
+
+    release.set()
+    assert supervisor.stop_all(timeout=5.0) is True
+    assert supervisor.running() == ()
+
+
+def test_start_co_services_rolls_back_a_partial_composition(monkeypatch):
+    """A later co-service failure cannot orphan an earlier started thread."""
+    monkeypatch.setattr(
+        cosvc,
+        "detect_composition",
+        lambda *args, **kwargs: cosvc.CompositionPlan(
+            messaging_platforms=("fake",),
+            web_ui_enabled=True,
+            messaging_intake_enabled=True,
+        ),
+    )
+
+    started = threading.Event()
+
+    def _fake_run(_engine, _platforms, stop_event: threading.Event, **_kwargs) -> None:
+        started.set()
+        stop_event.wait()
+
+    monkeypatch.setattr(messaging_daemon, "run_forever", _fake_run)
+    monkeypatch.setitem(
+        sys.modules,
+        "agent_utilities.server.webui_co_service",
+        type("_WebUI", (), {"run_web_ui": lambda _stop_event: None})(),
+    )
+    original_start = cosvc.CoServiceSupervisor.start_service
+
+    def _fail_webui(self, name, run, session):
+        if name == "agent-webui":
+            assert started.wait(timeout=5.0)
+            raise RuntimeError("web UI failed during startup")
+        return original_start(self, name, run, session)
+
+    monkeypatch.setattr(cosvc.CoServiceSupervisor, "start_service", _fail_webui)
+    supervisor = cosvc.CoServiceSupervisor()
+
+    with pytest.raises(RuntimeError, match="web UI failed"):
+        cosvc.start_co_services(
+            _verified_session(),
+            object(),
+            messaging_intake_enabled=True,
+            supervisor=supervisor,
+        )
+
+    # The rollback waits for the real messaging thread and leaves no orphan.
+    assert supervisor.running() == ()
+
+
 def test_supervisor_thread_carries_the_verified_session(monkeypatch):
     """The co-service thread must run under the SAME verified actor/session for
     its whole lifetime (via ``_authorized_background_thread``), including

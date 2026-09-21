@@ -6,6 +6,7 @@ Concept: building-mcp-servers
 Tests for MCP utilities.
 """
 
+import contextlib
 import json
 import os
 import tempfile
@@ -59,6 +60,36 @@ def test_create_mcp_server_basic(mock_fastmcp):
         assert call_kwargs["tasks"] is False
         assert callable(call_kwargs["lifespan"])
         assert len(middlewares) >= 2  # Default middlewares
+
+
+def test_factory_lifespan_extension_unwinds_before_managed_engine(monkeypatch):
+    """The optional child lifespan is nested inside the factory context."""
+    events: list[str] = []
+    monkeypatch.setattr(server_factory, "to_boolean", lambda _value: False)
+
+    @contextlib.asynccontextmanager
+    async def extension(_app):
+        events.append("extension-enter")
+        try:
+            yield
+        finally:
+            events.append("extension-exit")
+
+    lifespan = server_factory._fleet_registration_lifespan_factory(
+        object(),
+        "test",
+        lifespan_extension=extension,
+        manage_engine_shutdown=False,
+    )
+
+    async def exercise():
+        async with lifespan(object()):
+            events.append("body")
+
+    import asyncio
+
+    asyncio.run(exercise())
+    assert events == ["extension-enter", "body", "extension-exit"]
 
 
 def test_create_mcp_server_exposes_metrics_health_and_tool_middleware(monkeypatch):

@@ -178,8 +178,27 @@ class CoServiceSupervisor:
                 args=(name, run, stop_event),
             )
             self._services[name] = (stop_event, thread)
-            thread.start()
+        self._start_registered_thread(name, thread)
         logger.info("co-service %s started.", name)
+
+    def _start_registered_thread(
+        self,
+        name: str,
+        thread: threading.Thread,
+    ) -> None:
+        """Start a registered thread and retain any genuinely live failure."""
+        try:
+            thread.start()
+        except BaseException:
+            # A thread can be materialized and registered before its underlying
+            # start call fails. Retain a genuinely live handle so shutdown can
+            # still signal it; discard only a thread that never ran.
+            if not thread.is_alive():
+                with self._lock:
+                    current = self._services.get(name)
+                    if current is not None and current[1] is thread:
+                        self._services.pop(name, None)
+            raise
 
     def _run_supervised(
         self,
@@ -228,23 +247,42 @@ class CoServiceSupervisor:
             backoff = min(2.0 ** len(restarts), _MAX_BACKOFF_SECONDS)
             stop_event.wait(backoff)
 
-    def stop_all(self, timeout: float = 10.0) -> None:
-        """Signal every co-service to stop and join its thread (clean shutdown)."""
+    def stop_all(self, timeout: float = 10.0) -> bool:
+        """Signal every co-service and report whether all threads stopped.
+
+        Stopped handles are removed, while live handles remain owned by this
+        supervisor for a later retry.  Clearing a timed-out handle would make
+        ``running()`` falsely report a clean shutdown and could allow the
+        engine to drain while a co-service still uses it.
+        """
         with self._lock:
             services = list(self._services.items())
-            self._services.clear()
         for name, (stop_event, thread) in services:
             stop_event.set()
         for name, (_stop_event, thread) in services:
-            thread.join(timeout=timeout)
-            if thread.is_alive():
-                logger.error(
-                    "co-service %s did not stop within %.0fs of shutdown.",
-                    name,
-                    timeout,
-                )
-            else:
-                logger.info("co-service %s stopped.", name)
+            self._finish_service_stop(name, thread, timeout)
+        return not self.running()
+
+    def _finish_service_stop(
+        self,
+        name: str,
+        thread: threading.Thread,
+        timeout: float,
+    ) -> None:
+        """Join one service and remove its handle only after it stopped."""
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            logger.error(
+                "co-service %s did not stop within %.0fs of shutdown.",
+                name,
+                timeout,
+            )
+            return
+        logger.info("co-service %s stopped.", name)
+        with self._lock:
+            current = self._services.get(name)
+            if current is not None and current[1] is thread:
+                self._services.pop(name, None)
 
     def running(self) -> tuple[str, ...]:
         with self._lock:
@@ -258,6 +296,7 @@ def start_co_services(
     engine: Any,
     *,
     messaging_intake_enabled: bool | None = None,
+    supervisor: CoServiceSupervisor | None = None,
 ) -> CoServiceSupervisor:
     """Bring up every remaining configured co-service for THIS ``graph-os`` process.
 
@@ -269,8 +308,49 @@ def start_co_services(
         engine,
         messaging_intake_enabled=messaging_intake_enabled,
     )
-    supervisor = CoServiceSupervisor()
+    supervisor = supervisor or CoServiceSupervisor()
 
+    # Resolve optional code before starting any service.  If a real startup
+    # failure occurs after one service has started, the pre-owned supervisor
+    # remains the single rollback owner and can truthfully report live handles.
+    web_ui_runner = _resolve_web_ui_runner(plan)
+
+    try:
+        _start_messaging_service(plan, session, engine, supervisor)
+        _start_web_ui_service(web_ui_runner, session, supervisor)
+    except BaseException:
+        _rollback_co_service_startup(supervisor)
+        raise
+
+    return supervisor
+
+
+def _resolve_web_ui_runner(
+    plan: CompositionPlan,
+) -> Callable[[threading.Event], None] | None:
+    """Resolve the optional AU WebUI co-service before acquiring any service."""
+    if not plan.web_ui_enabled:
+        return None
+    try:
+        from agent_utilities.server.webui_co_service import run_web_ui
+    except ImportError:
+        logger.error(
+            "agent-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
+            "is not installed, so it cannot be served in-process. Install "
+            "`agent-utilities[ag-ui]`, or run agent-webui as its own "
+            "deployment."
+        )
+        return None
+    return run_web_ui
+
+
+def _start_messaging_service(
+    plan: CompositionPlan,
+    session: Any,
+    engine: Any,
+    supervisor: CoServiceSupervisor,
+) -> None:
+    """Start messaging only when the composition explicitly owns intake."""
     if plan.messaging_intake_configured:
         from agent_utilities.messaging.daemon import run_forever
 
@@ -285,11 +365,7 @@ def start_co_services(
                 intake_intent=True,
             )
 
-        supervisor.start_service(
-            "messaging",
-            _run_messaging,
-            session,
-        )
+        supervisor.start_service("messaging", _run_messaging, session)
     elif plan.messaging_configured:
         logger.info(
             "messaging credentials are present but inbound intake is disabled; "
@@ -302,27 +378,30 @@ def start_co_services(
             "messaging co-service not configured — no platform tokens present."
         )
 
-    if plan.web_ui_enabled:
-        # agent-webui IS startable in-process: it ships a FastAPI application
-        # factory and serves its built Vite bundle as SPA static files, so it is
-        # an ASGI app like any other. (This branch used to decline on the premise
-        # that it was "a separate Node/Vite frontend, not a Python asyncio task".)
-        # `agent_utilities[ag-ui]` already declares the dependency and
-        # `server.app.build_agent_app` already mounts it, so this is the last wire.
-        #
-        # Running it here is also what makes engine admission work: a co-service
-        # inherits this process's verified session, and graph-os is the principal
-        # the engine's signer registry trusts. See `server.webui_co_service`.
-        try:
-            from agent_utilities.server.webui_co_service import run_web_ui
 
-            supervisor.start_service("agent-webui", run_web_ui, session)
-        except ImportError:
-            logger.error(
-                "agent-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
-                "is not installed, so it cannot be served in-process. Install "
-                "`agent-utilities[ag-ui]`, or run agent-webui as its own "
-                "deployment."
+def _start_web_ui_service(
+    runner: Callable[[threading.Event], None] | None,
+    session: Any,
+    supervisor: CoServiceSupervisor,
+) -> None:
+    """Start the optional WebUI after all preceding service setup succeeds."""
+    if runner is not None:
+        supervisor.start_service("agent-webui", runner, session)
+
+
+def _rollback_co_service_startup(supervisor: CoServiceSupervisor) -> None:
+    """Rollback a partial composition while retaining any live handles."""
+    try:
+        stopped = supervisor.stop_all()
+    except BaseException as cleanup_exc:
+        logger.critical(
+            "co-service startup rollback raised %s: %s; live services remain owned",
+            type(cleanup_exc).__name__,
+            cleanup_exc,
+        )
+    else:
+        if not stopped:
+            logger.critical(
+                "co-service startup rollback incomplete; live services remain owned: %s",
+                supervisor.running(),
             )
-
-    return supervisor
