@@ -31,9 +31,6 @@ from .semantic_event_model import (
     ProcessPerspective,
 )
 
-EventObjectReference = EventObjectParticipation
-EventRecord = ProcessEvent
-
 
 def _case_notion(perspective: ProcessPerspective) -> str:
     """The single object type a classical (per-object) flattening groups by.
@@ -103,17 +100,17 @@ def _parse_timestamp(value: object) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _parse_object(value: object) -> EventObjectReference:
+def _parse_object(value: object) -> EventObjectParticipation:
     if not isinstance(value, Mapping):
         raise ValueError("each event object reference must be an object")
-    return EventObjectReference(
+    return EventObjectParticipation(
         object_id=_required_text(value.get("id"), "objects[].id"),
         object_type=_required_text(value.get("type"), "objects[].type"),
         qualifier=str(value.get("qualifier") or "").strip(),
     )
 
 
-def _parse_event(value: object) -> EventRecord:
+def _parse_event(value: object) -> ProcessEvent:
     if not isinstance(value, Mapping):
         raise ValueError("each event must be an object")
     raw_objects = value.get("objects")
@@ -127,7 +124,7 @@ def _parse_event(value: object) -> EventRecord:
     tiebreaker = value.get("sequence_tiebreaker", "")
     if not isinstance(tiebreaker, str | int):
         raise ValueError("event sequence_tiebreaker must be a string or integer")
-    return EventRecord(
+    return ProcessEvent(
         event_id=_required_text(value.get("event_id"), "event_id"),
         activity=_required_text(value.get("activity"), "activity"),
         occurred_at=_parse_timestamp(value.get("occurred_at")),
@@ -173,7 +170,7 @@ def project_object_centric_events(
     if len(set(event_ids)) != len(event_ids):
         raise ValueError("event_id values must be unique within one projection")
 
-    timelines: dict[str, list[EventRecord]] = {}
+    timelines: dict[str, list[ProcessEvent]] = {}
     lineage_rows: list[dict[str, Any]] = []
     for event in parsed:
         matching = [ref for ref in event.objects if ref.object_type == case_notion]

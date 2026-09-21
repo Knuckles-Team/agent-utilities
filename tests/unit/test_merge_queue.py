@@ -541,9 +541,7 @@ def test_prune_without_repository_manager_refuses_an_unknown_branch(
     it never invents a way to prune something it cannot verify."""
     _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(canonical))
-    result = mq.prune_landed(
-        candidate, repo_name="canonical", base="main", repo=canonical
-    )
+    result = mq.prune_landed(candidate, base="main", repo=canonical)
     assert result["pruned"] is False
     assert (
         result["accelerator"]
@@ -567,9 +565,7 @@ def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
 
     _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
-    result = mq.prune_landed(
-        candidate, repo_name="canonical", base="main", repo=canonical
-    )
+    result = mq.prune_landed(candidate, base="main", repo=canonical)
 
     assert result["pruned"] is True
     assert (
@@ -596,9 +592,7 @@ def test_prune_without_repository_manager_refuses_unmerged_commits(
 
     _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
-    result = mq.prune_landed(
-        candidate, repo_name="canonical", base="main", repo=canonical
-    )
+    result = mq.prune_landed(candidate, base="main", repo=canonical)
 
     assert result["pruned"] is False
     assert "not (or no longer) reachable" in result["reason"]
@@ -620,9 +614,7 @@ def test_prune_without_repository_manager_skips_a_worktree_still_dirty(
 
     _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
-    result = mq.prune_landed(
-        candidate, repo_name="canonical", base="main", repo=canonical
-    )
+    result = mq.prune_landed(candidate, base="main", repo=canonical)
 
     assert result["pruned"] is False
     assert "uncommitted work" in result["reason"]

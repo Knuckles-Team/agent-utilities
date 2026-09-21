@@ -40,7 +40,7 @@ from ..base_utilities import (
     is_loopback_url,
 )
 from ..knowledge_graph.core.engine import IntelligenceGraphEngine
-from ..knowledge_graph.pipeline import RegistryPipeline
+from ..knowledge_graph.pipeline import IntelligencePipeline
 from ..models import GraphResponse
 from ..models.knowledge_graph import PipelineConfig
 from .executor import (
@@ -454,7 +454,7 @@ def _initialize_registry_engine() -> Any:
     """Initialize the optional engine-backed registry graph."""
     knowledge_engine = None
     try:
-        if not all([IntelligenceGraphEngine, PipelineConfig, RegistryPipeline]):
+        if not all([IntelligenceGraphEngine, PipelineConfig, IntelligencePipeline]):
             raise ImportError("Registry Graph dependencies missing")
 
         if DEFAULT_VALIDATION_MODE:
@@ -479,7 +479,7 @@ def _initialize_registry_engine() -> Any:
                 workspace_path=str(ws),
                 persist_to_ladybug=False,
             )
-            reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
+            reg_pipeline = IntelligencePipeline(reg_config, backend=active_backend)
             logger.debug(
                 "Registry Graph: engine-backed via %s",
                 type(active_backend).__name__,
@@ -499,7 +499,7 @@ def _initialize_registry_engine() -> Any:
             except RuntimeError:
                 # No running loop, safe to run blocking
                 try:
-                    logger.info("Running RegistryPipeline sync...")
+                    logger.info("Running IntelligencePipeline sync...")
                     asyncio.run(reg_pipeline.run())
                     knowledge_engine = IntelligenceGraphEngine.get_or_create(
                         backend=active_backend

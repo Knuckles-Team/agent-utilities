@@ -4,7 +4,7 @@ from __future__ import annotations
 """Embedding versioning — a vector from model A must never be silently compared
 against model B's (CONCEPT:AU-KG.retrieval.embedding-version-identity).
 
-**The problem this closes.** `CapabilityIndex` (the HNSW/numpy ANN index behind
+**The problem this closes.** `CapabilityIndex` (the HNSW/native ANN index behind
 `designate`/`retrieve_hybrid`) previously stored *only* the raw vector per id —
 no record of which embedding model produced it. Re-pointing
 `default_embedding_model` at a new model (a routine operational change — model

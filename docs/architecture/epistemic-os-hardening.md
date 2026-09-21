@@ -185,7 +185,7 @@ preference order:
 
 Both tiers return `None` when no engine vector surface is reachable, signalling the
 caller to fall back further. `knowledge_graph/retrieval/capability_index.py`'s
-`CapabilityIndex` (the in-process hnswlib/numpy structure) is now, **by design**, a
+`CapabilityIndex` (the in-process hnswlib/native structure) is now, **by design**, a
 *bounded, non-authoritative cache* — LRU-evicted, kept fresh by CDC deltas — used
 only as the dev/lean-engine fallback and for reward write-back
 (`record_outcome`/`record_capability_outcome`).

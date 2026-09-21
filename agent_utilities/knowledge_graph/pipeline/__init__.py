@@ -56,7 +56,7 @@ class IntelligencePipeline:
             logger.info("Pipeline profile=%s (%d phases)", _profile, len(_phases))
         runner = PipelineRunner(_phases)
 
-        # D-CDX-70: RegistryPipeline intentionally targets ITS OWN shared
+        # D-CDX-70: IntelligencePipeline intentionally targets ITS OWN shared
         # ``self.graph_name`` graph (default "__commons__",
         # CONCEPT:AU-KG.query.vendor-agnostic-traversal) — deliberately isolated from
         # whatever graph a caller's ambient verified GraphSession happens to be
@@ -122,6 +122,3 @@ class IntelligencePipeline:
                 logger.info("Resumed background plan watcher after ingestion.")
             except Exception as e:  # noqa: BLE001 — this is a plain module-attribute assignment guarded only because the import above it could fail; the import already succeeded once in the pause block earlier in this same run, so this branch is effectively unreachable in practice, and any failure here would be a genuinely exceptional environment issue, not a normal best-effort miss
                 logger.debug(f"Could not resume watcher: {e}")
-
-
-RegistryPipeline = IntelligencePipeline

@@ -526,7 +526,9 @@ def test_installed_client_invokes_producer_capability_gate(tmp_path: Path) -> No
     calls: list[tuple[str, ...]] = []
     bytecode_policy: list[bool] = []
     previous_bytecode_policy = sys.dont_write_bytecode
-    module.WORK_ITEM_METADATA_CAS_CAPABILITY = preflight.REQUIRED_CAPABILITY
+    module.WORK_ITEM_METADATA_CAS_CAPABILITY = (
+        preflight.WORK_ITEM_METADATA_CAS_CAPABILITY
+    )
     module.CONSENSUS_GET_IDENTITY_CAPABILITY = (
         preflight.CONSENSUS_GET_IDENTITY_CAPABILITY
     )

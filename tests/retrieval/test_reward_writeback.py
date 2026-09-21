@@ -10,7 +10,7 @@ from agent_utilities.knowledge_graph.retrieval.capability_index import Capabilit
 
 
 def _idx() -> CapabilityIndex:
-    idx = CapabilityIndex(dim=3, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=3, prefer_backend="native")
     # Two entities with the SAME capability and nearly-identical embeddings, so
     # similarity alone barely separates them — reward must break the tie.
     idx.add("tool_a", [1.0, 0.0, 0.02], capabilities={"search"})

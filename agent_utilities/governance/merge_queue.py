@@ -2967,7 +2967,6 @@ def _prune_landed_inline(
 def prune_landed(
     candidate: Candidate,
     *,
-    repo_name: str,
     base: str,
     repo: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -2999,11 +2998,8 @@ def prune_landed(
     caller, or a direct test), it is reconstructed by walking up from the
     candidate's own worktree looking for a ``.git`` — correct whenever that
     worktree still exists, since branch refs are shared repo-wide regardless
-    of which of its worktrees a git command runs from. *repo_name* is kept in
-    the signature for call-site compatibility; it named the repository for
-    the now-unused accelerator and no longer does anything.
+    of which of its worktrees a git command runs from.
     """
-    del repo_name  # kept for call-site compatibility; see docstring
     if repo is not None:
         repo_path = Path(repo).resolve()
     else:
@@ -3267,7 +3263,6 @@ def _record_batch_outcome(
     by_branch: dict[str, Candidate],
     *,
     prune: bool,
-    repo_name: str,
     base: str,
     repo: Path,
     tree: Path,
@@ -3278,9 +3273,7 @@ def _record_batch_outcome(
     if outcome["landed"]:
         _record_state(candidate, LANDED, "", tree)
         if prune:
-            outcome["prune"] = prune_landed(
-                candidate, repo_name=repo_name, base=base, repo=repo
-            )
+            outcome["prune"] = prune_landed(candidate, base=base, repo=repo)
     else:
         _record_state(candidate, REJECTED, outcome["reason"], tree)
 
@@ -3311,7 +3304,6 @@ def run_queue(
     """
     scope = lane_scope(path)
     repo = scope.main_tree
-    repo_name = repo.name
     started = time.monotonic()
     with hold_lease(MERGE_LEASE, operation="drain the merge queue", path=scope.tree):
         batch = queued(scope.tree)[:batch_size]
@@ -3324,7 +3316,6 @@ def run_queue(
                 outcome,
                 by_branch,
                 prune=prune,
-                repo_name=repo_name,
                 base=base,
                 repo=repo,
                 tree=scope.tree,

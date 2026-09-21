@@ -117,7 +117,7 @@ def test_selective_erasure_live_path_forgets_superseded_rewards():
         CapabilityIndex,
     )
 
-    idx = CapabilityIndex(dim=4, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=4, prefer_backend="native")
     idx.add("tool:old_a", [1.0, 0.0, 0.0, 0.0], ["web"])
     idx.add("tool:old_b", [0.0, 1.0, 0.0, 0.0], ["web"])
     idx.add("tool:keep", [0.0, 0.0, 1.0, 0.0], ["web"])

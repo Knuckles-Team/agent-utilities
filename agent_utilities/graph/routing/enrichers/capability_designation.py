@@ -5,7 +5,7 @@ filtered ANN (:mod:`agent_utilities.knowledge_graph.retrieval.engine_capability_
 — a ``query.unified`` ``Scan``/``Filter``/``Rank``/``Limit`` plan, or the native
 ``semantic_search`` primitive) is now the DEFAULT, authoritative candidate-selection
 path: policy/tenant/capability filters are pushed down to the engine and composed
-with the vector ``Rank`` in one round-trip, instead of an in-process hnswlib/numpy
+with the vector ``Rank`` in one round-trip, instead of an in-process hnswlib/native
 scan.
 
 The in-process :class:`~agent_utilities.knowledge_graph.retrieval.capability_index.

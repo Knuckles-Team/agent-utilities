@@ -188,7 +188,7 @@ just not optimal).
 ## The capability designation index stays in-RAM — and why
 
 `retrieval/capability_index.py` (`CapabilityIndex`) keeps its **own** small
-HNSW/numpy index over *callable* nodes (tools / skills / agents) for
+HNSW/native index over *callable* nodes (tools / skills / agents) for
 `designate()`. It is **deliberately NOT retired** to the engine's ANN, because it
 is a different primitive with stateful semantics the engine vector search does not
 provide:
@@ -197,16 +197,16 @@ provide:
   O(1) set-intersection over `providesCapability` *before* ranking. HNSW (and the
   engine ANN) cannot pre-filter a kNN query by an id set; the only correct way to
   rank a capability-restricted candidate subset is a bounded scan over **that
-  subset** (`_rank`'s numpy branch — O(|filtered candidates|), not O(N) over the
-  graph). This is why the numpy path stays: it is the filtered-rank, not a brute
-  scan of all nodes.
+  subset** (`_rank`'s native bounded-cosine branch — O(|filtered candidates|),
+  not O(N) over the graph). This is why the native path stays: it ranks the
+  filtered candidates without scanning every node.
 - **Reward-EMA blending** — `record_outcome()` trains a per-entity reward EMA that
   blends into the designation score, mutated live by the feedback / step-credit /
   reasoner / outcome-router / variant-pool loops. No engine-side equivalent.
 - **Ontology-type prior + `swappableWith` alternatives** — re-projection toward the
   modal ontology type and the swappable adjacency surfaced in provenance.
 
-The index is tiny (the callable subset), dependency-discipline-clean (hnswlib is an
-optional dep with a numpy fallback), and stateful — so it is a genuinely distinct
-in-RAM structure, not a redundant second copy of the engine's retrieval ANN. The
-*general retrieval* vector index is, and remains, the engine's.
+The index is tiny (the callable subset), dependency-discipline-clean (hnswlib is
+an optional dep with a native numeric fallback), and stateful — so it is a
+genuinely distinct in-RAM structure, not a redundant second copy of the engine's
+retrieval ANN. The *general retrieval* vector index is, and remains, the engine's.

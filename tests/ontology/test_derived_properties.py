@@ -36,7 +36,7 @@ class _FakeFacade:
     def __init__(self, rows=None, index=None):
         self._rows = rows or []
         self.retrieval = (
-            index if index is not None else CapabilityIndex(prefer_backend="numpy")
+            index if index is not None else CapabilityIndex(prefer_backend="native")
         )
         self.queries = []
 
@@ -46,7 +46,7 @@ class _FakeFacade:
 
 
 def _unit_index(dim=8):
-    idx = CapabilityIndex(dim=dim, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=dim, prefer_backend="native")
     a = [0.0] * dim
     a[0] = 1.0
     b = [0.0] * dim
@@ -148,7 +148,7 @@ def test_embedding_backing_similarity_and_precomputed_vector():
 
 
 def test_embedding_backing_degrades_with_empty_index():
-    facade = _FakeFacade(index=CapabilityIndex(prefer_backend="numpy"))
+    facade = _FakeFacade(index=CapabilityIndex(prefer_backend="native"))
     engine = DerivedPropertyEngine(
         registry=DerivedPropertyRegistry(),
         embedding_fn=lambda _t: [1.0] * 8,

@@ -424,6 +424,23 @@ def _validate_metadata_shape(meta: dict[str, Any]) -> None:
         raise ValueError("capability index dimension is invalid")
 
 
+def _select_backend(prefer_backend: str | None) -> str:
+    """Resolve the one requested backend name or select the available default."""
+    if prefer_backend is None:
+        return "hnsw" if _HNSW_AVAILABLE else "native"
+    if prefer_backend == "native":
+        return "native"
+    if prefer_backend != "hnsw":
+        raise ValueError(
+            f"prefer_backend must be 'hnsw', 'native', or None; got {prefer_backend!r}"
+        )
+    if not _HNSW_AVAILABLE:
+        raise UnsupportedNumericOperationError(
+            "CapabilityIndex hnsw backend is unavailable; use the native backend"
+        )
+    return "hnsw"
+
+
 class CapabilityIndex:
     """Capability-filtered ANN index over entity embeddings.
 
@@ -434,9 +451,7 @@ class CapabilityIndex:
 
     The vector backend is selected automatically: HNSW via ``hnswlib`` if it is
     importable, else the native bounded cosine ranker. The active backend is
-    exposed via :attr:`backend` for introspection and tests. ``"numpy"`` is
-    accepted as a historical constructor alias for ``"native"``; it never
-    imports or invokes that runtime.
+    exposed via :attr:`backend` for introspection and tests.
 
     Args:
         dim: Dimensionality of the embeddings. May be ``None`` and inferred
@@ -444,9 +459,8 @@ class CapabilityIndex:
         space: Distance space — only ``"cosine"`` is supported (vectors are
             L2-normalized so inner product equals cosine similarity).
         prefer_backend: Force a backend (``"hnsw"`` or ``"native"``) instead of
-            auto-selection. ``"numpy"`` remains an accepted compatibility alias
-            for ``"native"``. Requesting HNSW without its optional dependency is
-            an explicit unsupported-operation error.
+            auto-selection. Requesting HNSW without its optional dependency is
+            an explicit unsupported-operation error; any other name is rejected.
         max_elements: Initial capacity hint for the HNSW backend (grows
             automatically as needed).
         bounded_cache_size: Caps the number of resident ids —
@@ -478,18 +492,7 @@ class CapabilityIndex:
         # GraphSchema projection. A standalone cache has literal matching only.
         self._hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
 
-        # Choose backend.
-        if prefer_backend in {"numpy", "native"}:
-            self._backend = "native"
-        elif prefer_backend == "hnsw":
-            if not _HNSW_AVAILABLE:
-                raise UnsupportedNumericOperationError(
-                    "CapabilityIndex hnsw backend is unavailable; use the native backend"
-                )
-            else:
-                self._backend = "hnsw"
-        else:
-            self._backend = "hnsw" if _HNSW_AVAILABLE else "native"
+        self._backend = _select_backend(prefer_backend)
 
         # capability -> set[id]
         self._cap_to_ids: dict[str, set[str]] = {}

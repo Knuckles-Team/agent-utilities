@@ -1,7 +1,7 @@
-"""D-CDX-70: RegistryPipeline must not retarget a verified GraphSession.
+"""D-CDX-70: IntelligencePipeline must not retarget a verified GraphSession.
 
-``IntelligencePipeline`` (aliased ``RegistryPipeline``) intentionally targets its
-OWN shared ``graph_name`` (default ``"__commons__"``,
+``IntelligencePipeline`` intentionally targets its OWN shared ``graph_name``
+(default ``"__commons__"``,
 CONCEPT:AU-KG.query.vendor-agnostic-traversal) — a graph that legitimately
 differs from whatever graph a CALLER's ambient verified ``GraphSession`` happens
 to be scoped to (e.g. a live delegation's tenant graph). Before this fix, running
@@ -97,7 +97,7 @@ def _stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_registry_pipeline_retargets_a_mismatched_ambient_session(
+async def test_intelligence_pipeline_retargets_a_mismatched_ambient_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The pipeline transitions into ITS OWN graph instead of crashing."""
@@ -126,7 +126,7 @@ async def test_registry_pipeline_retargets_a_mismatched_ambient_session(
 
 
 @pytest.mark.asyncio
-async def test_registry_pipeline_restores_the_callers_session_on_failure(
+async def test_intelligence_pipeline_restores_the_callers_session_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A phase failure inside the pipeline must not leak the retargeted session."""
@@ -161,7 +161,7 @@ async def test_registry_pipeline_restores_the_callers_session_on_failure(
 
 
 @pytest.mark.asyncio
-async def test_registry_pipeline_is_a_noop_retarget_when_already_on_its_graph(
+async def test_intelligence_pipeline_is_a_noop_retarget_when_already_on_its_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No session swap is needed (or performed) when the ambient graph already matches."""

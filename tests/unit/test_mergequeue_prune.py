@@ -137,9 +137,7 @@ def test_prune_refuses_outright_when_a_sibling_worktree_is_dirty(
     candidate = mq.Candidate(
         branch="lane-a", lane="lane-a", worktree=str(candidate_lane)
     )
-    result = mq.prune_landed(
-        candidate, repo_name="canonical", base="main", repo=canonical
-    )
+    result = mq.prune_landed(candidate, base="main", repo=canonical)
 
     assert result["pruned"] is False
     assert "uncommitted work" in result["reason"]
@@ -162,7 +160,6 @@ def test_prune_refuses_when_worktree_registry_cannot_be_read(
     monkeypatch.setattr(mq, "_worktree_registrations", lambda repo: None)
     result = mq.prune_landed(
         mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(candidate_lane)),
-        repo_name="canonical",
         base="main",
         repo=canonical,
     )

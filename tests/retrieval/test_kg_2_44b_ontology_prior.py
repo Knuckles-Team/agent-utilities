@@ -10,14 +10,14 @@ pure cosine (parity).
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
-
-from agent_utilities.numeric import xp as np
 
 pytestmark = pytest.mark.concept("AU-KG.ontology.optional-populated-from")
 
@@ -27,11 +27,14 @@ DIM = 8
 def _index_with_interleaved_types() -> tuple[CapabilityIndex, list[str]]:
     """Three 'Document' + two 'Widget' candidates, with one Widget interleaved
     between the Documents on cosine to the query."""
-    e = np.eye(DIM, dtype=np.float32)
+    query = [1.0, *([0.0] * (DIM - 1))]
 
-    def vec(tilt_dim: int, tilt: float) -> np.ndarray:
-        v = e[0] + tilt * e[tilt_dim]
-        return v / np.linalg.norm(v)
+    def vec(tilt_dim: int, tilt: float) -> list[float]:
+        values = [0.0] * DIM
+        norm = math.sqrt(1.0 + tilt * tilt)
+        values[0] = 1.0 / norm
+        values[tilt_dim] = tilt / norm
+        return values
 
     spec = [
         ("doc-1", "Document", 1, 0.10),
@@ -40,10 +43,10 @@ def _index_with_interleaved_types() -> tuple[CapabilityIndex, list[str]]:
         ("doc-3", "Document", 4, 0.16),
         ("wid-2", "Widget", 5, 0.40),
     ]
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     for cid, ctype, td, tilt in spec:
         idx.add(cid, vec(td, tilt), capabilities=["answer"], node_type=ctype)
-    return idx, e[0].tolist()
+    return idx, query
 
 
 def test_prior_recovers_type_coherent_topk():
@@ -69,14 +72,17 @@ def test_prior_off_is_pure_cosine_parity():
 
 def test_neutral_when_no_types_stored():
     """No node types ⇒ no structured signal ⇒ identical to pure cosine (parity)."""
-    e = np.eye(DIM, dtype=np.float32)
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
-    idx.add("a", (e[0] + 0.1 * e[1]), capabilities=["x"])  # no node_type
-    idx.add("b", (e[0] + 0.2 * e[2]), capabilities=["x"])
-    default = [d.id for d in idx.designate(e[0].tolist(), k=2)]
+    query = [1.0, *([0.0] * (DIM - 1))]
+    a = list(query)
+    a[1] = 0.1
+    b = list(query)
+    b[2] = 0.2
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
+    idx.add("a", a, capabilities=["x"])  # no node_type
+    idx.add("b", b, capabilities=["x"])
+    default = [d.id for d in idx.designate(query, k=2)]
     flat = [
-        d.id
-        for d in idx.designate(e[0].tolist(), k=2, reward_weight=0.0, prior_weight=0.0)
+        d.id for d in idx.designate(query, k=2, reward_weight=0.0, prior_weight=0.0)
     ]
     assert default == flat == ["a", "b"]
 

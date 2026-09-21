@@ -49,10 +49,6 @@ REQUIRED_CAPABILITIES: Final = (
     WORK_ITEM_METADATA_CAS_CAPABILITY,
     CONSENSUS_GET_IDENTITY_CAPABILITY,
 )
-# Keep the singular name as a compatibility alias for callers that only need
-# to identify the original CAS capability.  Validation always uses the full
-# capability set above.
-REQUIRED_CAPABILITY: Final = WORK_ITEM_METADATA_CAS_CAPABILITY
 CAPABILITIES_MODULE: Final = "epistemic_graph.client_capabilities"
 CLIENT_MODULE_PATH: Final = "epistemic_graph/client_capabilities.py"
 _WHEEL_FILENAME = re.compile(

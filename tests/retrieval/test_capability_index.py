@@ -81,6 +81,12 @@ def test_backend_is_reported():
     assert idx.backend in {"hnsw", "native"}
 
 
+@pytest.mark.parametrize("backend", ["numpy", "unsupported"])
+def test_removed_or_unknown_backend_name_is_rejected(backend: str) -> None:
+    with pytest.raises(ValueError, match="prefer_backend must be"):
+        CapabilityIndex(dim=DIM, prefer_backend=backend)
+
+
 # ---------------------------------------------------------------------------
 # 1. Capability filtering reduces the candidate set
 # ---------------------------------------------------------------------------
@@ -105,14 +111,14 @@ def test_capability_filter_shrinks_results(prefer):
 
 
 def test_required_caps_with_no_provider_returns_empty():
-    idx = _populated_index("numpy")
+    idx = _populated_index("native")
     assert idx.designate(_basis(0), required_caps=["nonexistent"], k=5) == []
     # Conjunction that no single entity satisfies.
     assert idx.designate(_basis(0), required_caps=["math", "web"], k=5) == []
 
 
 def test_default_hierarchy_matches_declared_subtype():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add("mtls_tool", _basis(0), ["EncryptedTransport"])
 
     out = idx.designate(
@@ -156,7 +162,7 @@ def test_ranking_returns_planted_top1(prefer):
 # 3. alternatives() returns a swappableWith partner
 # ---------------------------------------------------------------------------
 def test_alternatives_returns_swappable_partner():
-    idx = _populated_index("numpy")
+    idx = _populated_index("native")
     assert idx.alternatives("web_search") == ["serp_api"]
     # Symmetric edge.
     assert idx.alternatives("serp_api") == ["web_search"]
@@ -167,7 +173,7 @@ def test_alternatives_returns_swappable_partner():
 
 
 def test_build_from_edges_dicts():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.build_from_edges(
         [
             {
@@ -220,7 +226,7 @@ def test_save_load_roundtrip_identical_topk(prefer, tmp_path):
 
 def test_persistence_uses_non_executable_metadata(tmp_path):
     save_dir = tmp_path / "capidx"
-    _populated_index("numpy").save(save_dir)
+    _populated_index("native").save(save_dir)
 
     assert (save_dir / "capability_index.json").is_file()
     assert not (save_dir / "capability_index.pkl").exists()
@@ -228,7 +234,7 @@ def test_persistence_uses_non_executable_metadata(tmp_path):
 
 def test_tampered_embedding_artifact_fails_closed(tmp_path):
     save_dir = tmp_path / "capidx"
-    _populated_index("numpy").save(save_dir)
+    _populated_index("native").save(save_dir)
     with (save_dir / "embeddings.json").open("ab") as handle:
         handle.write(b"tampered")
 
@@ -240,7 +246,7 @@ def test_tampered_embedding_artifact_fails_closed(tmp_path):
 # 5. Facade designate() delegates correctly
 # ---------------------------------------------------------------------------
 def test_facade_designate_delegates():
-    idx = _populated_index("numpy")
+    idx = _populated_index("native")
     kg = KnowledgeGraph(retrieval=idx)
 
     # Same index object is exposed.
@@ -268,7 +274,7 @@ def test_facade_lazy_retrieval_when_none_provided():
 
 def test_facade_construction_is_side_effect_free():
     # Constructing the facade must not require any running service.
-    kg = KnowledgeGraph(retrieval=_populated_index("numpy"))
+    kg = KnowledgeGraph(retrieval=_populated_index("native"))
     assert kg is not None
     _grant_public("web_search", "serp_api", "web_fetch", "calculator", "python_exec")
     # retrieval works without ever touching store/compute/semantic.
@@ -303,7 +309,7 @@ def test_material_reembed_erases_stale_reward(prefer):
 # CONCEPT:AU-P1-3 — bounded cache (LRU eviction)
 # ---------------------------------------------------------------------------
 def test_bounded_cache_evicts_oldest_beyond_the_cap():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy", bounded_cache_size=3)
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native", bounded_cache_size=3)
     idx.add("a", _basis(0), ["web"])
     idx.add("b", _basis(1), ["web"])
     idx.add("c", _basis(2), ["web"])
@@ -317,7 +323,7 @@ def test_bounded_cache_evicts_oldest_beyond_the_cap():
 
 
 def test_bounded_cache_re_add_refreshes_recency():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy", bounded_cache_size=2)
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native", bounded_cache_size=2)
     idx.add("a", _basis(0), ["web"])
     idx.add("b", _basis(1), ["web"])
     # Touch "a" again — it should now outlive "b".
@@ -329,7 +335,7 @@ def test_bounded_cache_re_add_refreshes_recency():
 
 
 def test_default_cache_is_finite():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     for i in range(20):
         idx.add(f"id{i}", _basis(i % DIM), ["web"])
     assert len(idx) == 20
@@ -341,13 +347,13 @@ def test_cache_bound_must_be_positive(invalid):
     with pytest.raises(ValueError, match="positive integer"):
         CapabilityIndex(
             dim=DIM,
-            prefer_backend="numpy",
+            prefer_backend="native",
             bounded_cache_size=invalid,
         )
 
 
 def test_remove_cleans_up_capability_and_swappable_state():
-    idx = _populated_index("numpy")
+    idx = _populated_index("native")
     assert idx.remove("web_search") is True
     assert "web_search" not in idx
     # The reverse capability index no longer points at the removed id.
@@ -362,7 +368,7 @@ def test_remove_cleans_up_capability_and_swappable_state():
 # CONCEPT:AU-P1-3 — tenant/policy filters at candidate selection
 # ---------------------------------------------------------------------------
 def test_policy_filter_excludes_ineligible_candidate():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add("cleared", _basis(0), ["web"], policy_tags=["gpu_allowed"])
     idx.add("uncleared", _basis(0, scale=0.99), ["web"])  # no policy tags at all
 
@@ -375,7 +381,7 @@ def test_policy_filter_excludes_ineligible_candidate():
 
 
 def test_tenant_filter_scopes_candidates_but_admits_unscoped():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add("tenant_a_tool", _basis(0), ["web"], tenant="tenant-a")
     idx.add("tenant_b_tool", _basis(0, scale=0.99), ["web"], tenant="tenant-b")
     idx.add("global_tool", _basis(0, scale=0.98), ["web"])  # unscoped -> visible to all
@@ -387,7 +393,7 @@ def test_tenant_filter_scopes_candidates_but_admits_unscoped():
 
 
 def test_combined_capability_tenant_policy_filters():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add(
         "eligible",
         _basis(0),
@@ -423,7 +429,7 @@ def test_combined_capability_tenant_policy_filters():
 # CONCEPT:AU-P1-3 — explainable routing
 # ---------------------------------------------------------------------------
 def test_explain_reports_eligible_candidate_features():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add(
         "tool", _basis(0), ["web", "search"], tenant="tenant-a", policy_tags=["cleared"]
     )
@@ -444,7 +450,7 @@ def test_explain_reports_eligible_candidate_features():
 
 
 def test_explain_reports_why_an_ineligible_candidate_was_excluded():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add("tool", _basis(0), ["web"], tenant="tenant-b")
 
     report = idx.explain(
@@ -458,7 +464,7 @@ def test_explain_reports_why_an_ineligible_candidate_was_excluded():
 
 
 def test_designate_provenance_carries_eligibility_when_filters_applied():
-    idx = _populated_index("numpy")
+    idx = _populated_index("native")
     out = idx.designate(_basis(0), required_caps=["web", "search"], k=5)
     assert all("eligibility" in d.provenance for d in out)
     assert all(d.provenance["eligibility"]["eligible"] for d in out)
@@ -469,7 +475,7 @@ def test_designate_provenance_carries_eligibility_when_filters_applied():
 
 
 def test_selective_erase_rewards_is_targeted_and_order_independent():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     idx.add("a", _basis(0), ["web"])
     idx.add("b", _basis(1), ["web"])
     idx.add("c", _basis(2), ["web"])

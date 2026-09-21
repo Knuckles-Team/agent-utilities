@@ -8,7 +8,7 @@ selection is now performed by the engine's own vector index — the SAME
 ``query.unified`` cross-modal plan (``Scan``/``Filter``/``Rank``/``Limit``)
 and native ``semantic_search`` ANN primitive that
 :mod:`agent_utilities.knowledge_graph.retrieval.hybrid_retriever` already uses for
-general retrieval — instead of the in-process hnswlib/numpy scan in
+general retrieval — instead of the in-process hnswlib/native scan in
 :mod:`.capability_index`. That module is now a *bounded, non-authoritative cache*;
 this module is the designation authority.
 

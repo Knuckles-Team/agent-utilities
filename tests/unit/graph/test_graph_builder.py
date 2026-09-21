@@ -59,7 +59,7 @@ def test_build_discovery_metadata_does_not_create_empty_server_keys():
 @patch("agent_utilities.graph.builder.GraphBuilder")
 @patch("agent_utilities.graph.builder.ingest_prompts_to_graph")
 @patch("agent_utilities.graph.builder.get_agent_workspace")
-@patch("agent_utilities.graph.builder.RegistryPipeline")
+@patch("agent_utilities.graph.builder.IntelligencePipeline")
 @patch("agent_utilities.graph.builder.IntelligenceGraphEngine")
 @patch("agent_utilities.graph.builder.PipelineConfig")
 @patch("agent_utilities.graph.builder.sync_mcp_agents")
@@ -106,10 +106,10 @@ def test_initialize_graph_from_workspace(
             "agent_utilities.graph.builder.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
             False,
         ),
-        # RegistryPipeline is already mocked above, but builder.py's registry-graph
+        # IntelligencePipeline is already mocked above, but builder.py's registry-graph
         # init block resolves its `backend=` kwarg through a bare
         # require_engine_authority_backend(...) call BEFORE constructing
-        # RegistryPipeline — a real (if unused, since RegistryPipeline is a
+        # IntelligencePipeline — a real (if unused, since IntelligencePipeline is a
         # MagicMock) engine-authority resolution that reaches for the shared
         # tenant-derived operational graph. In a full-batch run alongside other
         # engine-backed tests that collide on that same fixed graph identity,

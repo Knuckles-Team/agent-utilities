@@ -46,19 +46,12 @@ def __getattr__(name: str):
 
         return tgn
 
-    if name in ("IntelligencePipeline", "RegistryPipeline"):
+    if name == "IntelligencePipeline":
         from .pipeline import (
             IntelligencePipeline as ip,
         )
-        from .pipeline import (
-            RegistryPipeline as rp,
-        )
 
-        mapping_pipelines: dict[str, Any] = {
-            "IntelligencePipeline": ip,
-            "RegistryPipeline": rp,
-        }
-        return mapping_pipelines[name]
+        return ip
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -70,6 +63,5 @@ __all__ = [
     "MemoryNode",
     "CodeNode",
     "IntelligencePipeline",
-    "RegistryPipeline",
     "IntelligenceGraphEngine",
 ]

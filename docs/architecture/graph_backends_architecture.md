@@ -125,7 +125,7 @@ subset can't do `WHERE … IN $list` / unscoped `MATCH`).
 | Store | Engine surface (the only store) | Node id / scan | Concept |
 |---|---|---|---|
 | LLM card cache (`CardStore`) | `:CardCache` nodes | `cardcache:<ast_hash>` (keyed) | AU-KG.backend.cache-lives-as |
-| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | AU-KG.compute.graph-builder |
+| Registry graph (`IntelligencePipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | AU-KG.compute.graph-builder |
 | Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | series ids | AU-KG.memory.time-series-lives-one |
 | Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `wbp:<target>:<seq>` + label scan | AU-KG.enrichment.proposals-live-as |
 | Code-health baselines | `:CodeHealthBaseline` nodes | `codehealthbaseline:<repo>` (keyed) | AU-KG.maintenance.only-no-file-cache |

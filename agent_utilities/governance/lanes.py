@@ -104,7 +104,6 @@ _HOST_CAPABILITY_LIGHT_ONLY = "light-only"
 _HOST_CAPABILITY_GPU_GUARDED = "gpu-guarded"
 LIGHT_LANE_RESOURCE = "light-check"
 LIGHT_LANE_COUNT = 32
-LIGHT_LANE_CAPACITY = LIGHT_LANE_COUNT
 _HOST_HEAVY_LEASE_NAME = "host-heavy"
 _HOST_HEAVY_RESOURCES = frozenset(
     {"cpu-heavy", "memory-heavy", "gpu-heavy", "global-scanner-build"}

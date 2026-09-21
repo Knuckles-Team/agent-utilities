@@ -240,7 +240,7 @@ re-implementing compute the engine can do:
 
 | Python compute | Where | Offload to engine |
 |---|---|---|
-| numpy brute-force cosine ranker | `retrieval/capability_index.py` (`backend == "numpy"`) | `semantic_search` (ANN) — already the HNSW path; make numpy a last-resort only. |
+| native bounded cosine ranker | `retrieval/capability_index.py` (`backend == "native"`) | `semantic_search` (ANN) — already the HNSW path; keep the in-process ranker bounded. |
 | `np.argsort(-sims)` / `np.linalg.norm` ranking | `retrieval/generative_recommender.py` | engine top-k similarity + ranking. |
 | Router `find_agent_for_tool` **per word** (N+1) | `graph/_router_impl.py` | one engine call: batch the keyword set → matched agents in a single round-trip; fold into `semantic_search`/capability designation. |
 | `find_relevant_policies` / `find_relevant_processes` / `search_hybrid` (sequential, sync) | `graph/_router_impl.py` | one combined discovery query; run via the engine and `to_thread` until then. |

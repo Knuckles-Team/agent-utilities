@@ -11,6 +11,7 @@ that drift, and tombstone compaction physically evicting deletes.
 Self-contained against existing stable code (CapabilityIndex) only.
 """
 
+import random
 import types
 
 import pytest
@@ -26,14 +27,12 @@ from agent_utilities.knowledge_graph.ontology.indexing import (
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
-
 DIM = 8
 
 
 def _vec(seed: int) -> list[float]:
-    rng = np.random.default_rng(seed)
-    return rng.random(DIM).astype(np.float32).tolist()
+    rng = random.Random(seed)
+    return rng.choices((0.11, 0.23, 0.37, 0.41, 0.53, 0.67, 0.79), k=DIM)
 
 
 def _node(nid: str, seed: int, caps=None, node_type="tool", **extra):
@@ -49,7 +48,7 @@ def _node(nid: str, seed: int, caps=None, node_type="tool", **extra):
 
 # ── batch ────────────────────────────────────────────────────────────────────
 def test_batch_sync_full_build() -> None:
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     nodes = [_node(f"t{i}", seed=i, caps=["search"]) for i in range(5)]
     result = funnel.batch_sync(nodes)
 
@@ -65,7 +64,7 @@ def test_batch_sync_full_build() -> None:
 
 # ── incremental upsert + delete, no full rebuild ─────────────────────────────
 def test_incremental_upsert_and_delete_live() -> None:
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     funnel.batch_sync([_node(f"t{i}", seed=i, caps=["search"]) for i in range(3)])
     index_obj_before = funnel.index
 
@@ -102,7 +101,7 @@ def test_incremental_delete_on_hnsw_if_available() -> None:
     )
 
     if not _HNSW_AVAILABLE:
-        pytest.skip("hnswlib not installed; numpy delete path covered elsewhere")
+        pytest.skip("hnswlib not installed; native delete path covered elsewhere")
 
     funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="hnsw")
     funnel.batch_sync([_node(f"t{i}", seed=i, caps=["search"]) for i in range(6)])
@@ -119,7 +118,9 @@ def test_data_restriction_excludes_objects() -> None:
         denied_types={"secret"},
         predicate=lambda n: n.get("classification") != "restricted",
     )
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy", restriction=restriction)
+    funnel = ObjectIndexFunnel(
+        dim=DIM, prefer_backend="native", restriction=restriction
+    )
     nodes = [
         _node("ok", seed=1, caps=["search"], node_type="tool"),
         _node("wrong_type", seed=2, node_type="dataset"),  # not allowed type
@@ -142,7 +143,7 @@ def test_data_restriction_excludes_objects() -> None:
 
 # ── staleness drift detection + reindex clears it ────────────────────────────
 def test_staleness_detects_drift_and_reindex_clears() -> None:
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     source = [_node(f"t{i}", seed=i, caps=["search"]) for i in range(3)]
     funnel.batch_sync(source)
 
@@ -162,7 +163,7 @@ def test_staleness_detects_drift_and_reindex_clears() -> None:
 
 
 def test_reconcile_handles_new_and_orphaned() -> None:
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     funnel.batch_sync([_node(f"t{i}", seed=i) for i in range(3)])
 
     # Source drops t0 (orphan) and adds t9 (new).
@@ -177,18 +178,18 @@ def test_reconcile_handles_new_and_orphaned() -> None:
 
 
 # ── delete eviction semantics per backend ────────────────────────────────────
-def test_numpy_delete_is_immediate_physical_eviction() -> None:
-    # The numpy backend supports true single-vector removal, so deletes are
+def test_native_delete_is_immediate_physical_eviction() -> None:
+    # The native backend supports true single-vector removal, so deletes are
     # physically evicted at once — no tombstone residue, no compaction needed.
     funnel = ObjectIndexFunnel(
-        dim=DIM, prefer_backend="numpy", compaction_threshold=0.25
+        dim=DIM, prefer_backend="native", compaction_threshold=0.25
     )
     funnel.batch_sync([_node(f"t{i}", seed=i) for i in range(8)])
     index_before = funnel.index
 
     result = funnel.incremental_sync(FunnelDelta(deletes=["t0", "t1", "t2"]))
     assert result.deleted == 3
-    assert result.rebuilt is False  # numpy needs no compaction
+    assert result.rebuilt is False  # Native storage needs no compaction.
     assert funnel.index is index_before
     assert funnel.tombstone_count == 0
     assert funnel.live_ids() == {f"t{i}" for i in range(3, 8)}
@@ -204,7 +205,7 @@ def test_hnsw_tombstone_compaction_rebuilds() -> None:
     )
 
     if not _HNSW_AVAILABLE:
-        pytest.skip("hnswlib not installed; numpy eviction covered separately")
+        pytest.skip("hnswlib not installed; native eviction covered separately")
 
     funnel = ObjectIndexFunnel(
         dim=DIM, prefer_backend="hnsw", compaction_threshold=0.25
@@ -323,7 +324,7 @@ def test_bind_engine_bootstraps_once_via_full_scan() -> None:
     graph = _CdcCapableGraph(_engine_nodes(3), streaming)
     engine = types.SimpleNamespace(graph=graph)
 
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     result = funnel.bind_engine(engine)
 
     assert result.mode == "batch"
@@ -339,7 +340,7 @@ def test_poll_delivers_cdc_upsert_without_a_full_rescan() -> None:
     graph = _CdcCapableGraph(_engine_nodes(3), streaming)
     engine = types.SimpleNamespace(graph=graph)
 
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     funnel.bind_engine(engine)
     assert graph.node_ids_calls == 1
 
@@ -373,7 +374,7 @@ def test_poll_delivers_cdc_delete_without_a_full_rescan() -> None:
     graph = _CdcCapableGraph(_engine_nodes(3), streaming)
     engine = types.SimpleNamespace(graph=graph)
 
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     funnel.bind_engine(engine)
 
     streaming.events.append(
@@ -396,7 +397,9 @@ def test_poll_respects_data_restriction_on_cdc_events() -> None:
     engine = types.SimpleNamespace(graph=graph)
 
     restriction = DataRestriction(allowed_types={"tool"})
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy", restriction=restriction)
+    funnel = ObjectIndexFunnel(
+        dim=DIM, prefer_backend="native", restriction=restriction
+    )
     funnel.bind_engine(engine)
     assert graph.node_ids_calls == 1
 
@@ -425,7 +428,7 @@ def test_poll_without_cdc_surface_falls_back_to_reconcile() -> None:
     graph = _PlainGraph(_engine_nodes(2))
     engine = types.SimpleNamespace(graph=graph)
 
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     funnel.bind_engine(engine)
     assert funnel.cdc_available is False
     assert graph.node_ids_calls == 1
@@ -436,6 +439,6 @@ def test_poll_without_cdc_surface_falls_back_to_reconcile() -> None:
 
 
 def test_poll_before_bind_engine_raises() -> None:
-    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy")
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="native")
     with pytest.raises(RuntimeError):
         funnel.poll()

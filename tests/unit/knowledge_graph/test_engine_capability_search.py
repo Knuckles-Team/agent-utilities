@@ -2,7 +2,7 @@
 
 Verifies capability/tenant/policy-restricted candidate selection is pushed down to
 the engine's own vector index (a ``query.unified`` ``Filter``+``Rank`` plan, or a
-native ``semantic_search`` + bounded post-filter) — NOT an in-process hnswlib/numpy
+native ``semantic_search`` + bounded post-filter) — NOT an in-process hnswlib/native
 scan. The engine client is mocked throughout; these are pure unit tests.
 """
 

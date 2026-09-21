@@ -17,7 +17,7 @@ half, see :mod:`.staleness`).
 
 This module is that funnel on top of the existing
 :class:`~agent_utilities.knowledge_graph.retrieval.capability_index.CapabilityIndex`
-(the live HNSW/numpy search structure the router already calls via
+(the live HNSW/native search structure the router already calls via
 ``KnowledgeGraph.designate``). It does **not** reinvent the index; it drives it:
 
 * :class:`DataRestriction` — a composable predicate over a node's type/props that
@@ -26,8 +26,7 @@ This module is that funnel on top of the existing
   :class:`~...staleness.StalenessLedger` and exposes:
     - :meth:`batch_sync` — full rebuild via ``CapabilityIndex.build_from_edges``.
     - :meth:`incremental_sync` — apply an upsert/delete delta to the live index.
-      Upserts use the index's native in-place ``add`` (HNSW ``add_items`` when
-      that backend is active, else the numpy map). Deletes are applied as a real
+      Upserts use the index's in-place ``add``. Deletes are applied as a real
       delta overlay: a tombstone set that filters live ``designate`` results and
       drops the vector/capability/ledger entries, with automatic compaction
       (a real rebuild) once the tombstone ratio crosses a threshold so HNSW does
@@ -290,7 +289,7 @@ class ObjectIndexFunnel:
             omitted, inheriting ``dim``/``prefer_backend``).
         restriction: Index-eligibility gate (open default if omitted).
         dim: Embedding dimensionality for a freshly created index.
-        prefer_backend: Force ``"hnsw"``/``"numpy"`` for a created index.
+        prefer_backend: Force ``"hnsw"``/``"native"`` for a created index.
         compaction_threshold: When tombstoned-fraction of the live index exceeds
             this, an incremental sync triggers a real compacting rebuild that
             physically evicts deleted objects from the underlying ANN structure.
@@ -451,7 +450,7 @@ class ObjectIndexFunnel:
     def _evict_from_index(self, object_id: str) -> None:
         """Drop an id from the index's maps; tombstone its HNSW label if present.
 
-        For the numpy backend this fully removes the vector (no residue). For the
+        For the native backend this fully removes the vector (no residue). For the
         HNSW backend the vector map and capability maps are removed immediately
         (so ranking can never return it), and the underlying hnsw label is
         marked for compaction — hnswlib cannot cheaply delete a single label, so
@@ -463,7 +462,7 @@ class ObjectIndexFunnel:
         idx._reward.pop(object_id, None)
         idx._id_to_type.pop(object_id, None)  # KG-2.44b ontology-type map
         _mark_hnsw_tombstone(idx, object_id, self._tombstones)
-        # Remove the vector last (source of truth for numpy ranking + rebuilds).
+        # Remove the vector last because it is the source of truth for rebuilds.
         idx._id_to_vec.pop(object_id, None)
 
     def incremental_sync(self, delta: FunnelDelta) -> SyncResult:
