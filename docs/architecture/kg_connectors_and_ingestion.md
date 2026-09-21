@@ -63,9 +63,12 @@ Three things are deliberately **uniform** across every connector:
    delta, and typed-label batching are implemented once. Since `execute` /
    `execute_batch` are `@abstractmethod` on `GraphBackend` (every backend provides
    them), the writer has just two branches: **UNWIND MERGE** (all backends) and a
-   **per-row MERGE** variant for Ladybug (Kuzu has no UNWIND). The schema helpers
-   (`normalize_label` / `schema_valid_keys` / `set_clause`) also live here once —
-   the engine's `_normalize_label` / `_get_set_clause` delegate to them.
+   **per-row MERGE** variant for Ladybug (Kuzu has no UNWIND). Ladybug receives
+   those one-row operations through `execute_batch`, whose backend implementation
+   translates them into native Ladybug calls; the native engine authority remains
+   on its separate `ChangeEnvelope` path. The schema helpers (`normalize_label` /
+   `schema_valid_keys` / `set_clause`) also live here once — the engine's
+   `_normalize_label` / `_get_set_clause` delegate to them.
 
 ---
 
