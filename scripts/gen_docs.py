@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-"""Regenerate the README.md concept block from docs/concepts.yaml.
+"""Regenerate the README.md concept summary from docs/concepts.yaml.
 
 The authoritative concept count lives in ``docs/concepts.yaml`` (produced by
 ``scripts/build_concepts_yaml.py``). This script renders that data into
 README.md between the markers::
 
     <!-- BEGIN GENERATED: concepts -->
-    ... generated count line + compact 5-pillar table ...
+    ... generated count line + links to the authoritative registries ...
     <!-- END GENERATED: concepts -->
 
-The table is intentionally scoped to the **5 pillars agent-utilities itself
-owns** (AU-ORCH/AU-KG/AU-AHE/AU-ECO/AU-OS) — one row each, matching
-``docs/pillars/{1..5}_*.md``. The remaining 4 pillars (EG-AHE/EG-KG/EG-ORCH/
-EG-OS) belong to the epistemic-graph engine's own pillar set and are noted,
-not tabulated, here; the full per-concept breakdown across all 9 pillars
-stays in ``docs/concepts.yaml`` / ``docs/status.md``.
+The README deliberately does not reproduce the large pillar inventory. The full
+per-concept breakdown and release status stay in ``docs/concepts.yaml`` and
+``docs/status.md``.
 
 Modes:
   --write   Rewrite the generated block in README.md in place.
   --check   Exit non-zero if README.md differs from a fresh generation.
 
-Output is deterministic (rows are in fixed pillar order).
+Output is deterministic.
 """
 
 from __future__ import annotations
@@ -45,48 +42,6 @@ from agent_utilities.governance.concept_hierarchy import total_concept_count  # 
 BEGIN = "<!-- BEGIN GENERATED: concepts -->"
 END = "<!-- END GENERATED: concepts -->"
 
-# The 5 pillars agent-utilities itself owns, in canonical pillar-number
-# order, with the doc each one links to and a one-line focus blurb.
-# (pillar_prefix, number, name, doc_path, focus)
-AU_PILLARS: list[tuple[str, int, str, str, str]] = [
-    (
-        "AU-ORCH",
-        1,
-        "Graph Orchestration",
-        "docs/pillars/1_graph_orchestration.md",
-        "Planning, SDD lifecycle, dynamic multi-layer execution",
-    ),
-    (
-        "AU-KG",
-        2,
-        "Epistemic Knowledge Graph",
-        "docs/pillars/2_epistemic_knowledge_graph.md",
-        "The one engine authority — ingestion, ontology, ETL, reasoning",
-    ),
-    (
-        "AU-AHE",
-        3,
-        "Agentic Harness Engineering",
-        "docs/pillars/3_agentic_harness_engineering.md",
-        "Self-models, evaluation, governed self-evolution",
-    ),
-    (
-        "AU-ECO",
-        4,
-        "Ecosystem & Peripherals",
-        "docs/pillars/4_ecosystem_peripherals.md",
-        "MCP fleet, messaging, connectors, UI surfaces",
-    ),
-    (
-        "AU-OS",
-        5,
-        "Agent OS Infrastructure",
-        "docs/pillars/5_agent_os_infrastructure.md",
-        "Auth, governance, deployment, scaling",
-    ),
-]
-
-
 def load_concepts() -> dict:
     with CONCEPTS_PATH.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -102,10 +57,6 @@ def render_block(data: dict) -> str:
         by_pillar.setdefault(c["pillar"], []).append(c)
     pillar_count = len(by_pillar)
 
-    au_total = sum(len(by_pillar.get(prefix, [])) for prefix, *_ in AU_PILLARS)
-    other_pillars = pillar_count - len(AU_PILLARS)
-    other_total = total - au_total
-
     lines: list[str] = []
     lines.append(BEGIN)
     lines.append("")
@@ -118,18 +69,10 @@ def render_block(data: dict) -> str:
     )
     lines.append("")
     lines.append(
-        "> This count is generated from `docs/concepts.yaml` by "
-        "`scripts/gen_docs.py` — do not edit by hand. The table below covers "
-        f"the 5 pillars agent-utilities itself owns; the other {other_pillars} "
-        f"({other_total} concepts) belong to the epistemic-graph engine's own "
-        "pillar set. Live per-pillar status: [docs/status.md](docs/status.md)."
+        "> Generated from [`docs/concepts.yaml`](docs/concepts.yaml); "
+        "see [`docs/status.md`](docs/status.md) for the release-aware breakdown "
+        "and [`docs/pillars/`](docs/pillars/) for the architecture map."
     )
-    lines.append("")
-    lines.append("| # | Pillar | Focus | Concepts | Docs |")
-    lines.append("|:-:|:-------|:------|:--------:|:-----|")
-    for prefix, num, name, path, focus in AU_PILLARS:
-        count = len(by_pillar.get(prefix, []))
-        lines.append(f"| {num} | {name} | {focus} | {count} | [{path}]({path}) |")
     lines.append("")
     lines.append(END)
     return "\n".join(lines)
