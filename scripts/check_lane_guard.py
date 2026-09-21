@@ -26,9 +26,10 @@ enforces:
    precedence lets an exported env var beat a repo's ``.cargo/config.toml``, so a
    stray global export (the exact hazard PARTITION exists to prevent — see
    CONCEPT:AU-OS.governance.lane-partitioned-resources) would silently re-share
-   the target dir. This cannot be *prevented* from here (a lease only binds
-   actors that take it — same residual gap ``lanes.hold_lease`` documents), so it
-   is *detected* loudly instead: refuse the commit rather than let it pass quietly.
+   the target dir. When ``AU_LANE_TEMP_ROOT`` selects an external lane root,
+   omitting the export is also unsafe because cargo would fall back to the
+   worktree's default target. The guard detects both cases loudly instead of
+   letting a commit pass quietly.
 
 Exit code 1 = refused. Run it directly to check the repo containing the cwd
 (the same contract pre-commit itself uses — it always runs hooks with cwd at the
@@ -153,20 +154,34 @@ def _check_generated_view(tree: Path, staged: list[str]) -> str | None:
     )
 
 
-def _check_cargo_target_override(scope: lanes.LaneScope) -> str | None:
-    """Refuse a commit made with a stray ``CARGO_TARGET_DIR`` env override.
-
-    Only fires when this repo actually builds with cargo (a ``Cargo.toml`` at the
-    tree root) — every other repo skips this check entirely. See module docstring
-    point 3: this is DETECTION, not prevention (a lease only binds actors that
-    take it; an exported env var is never "taken").
-    """
-    override = os.environ.get("CARGO_TARGET_DIR", "")
-    if not override or not (scope.tree / "Cargo.toml").is_file():
+def _cargo_target_policy_message(
+    expected: str, expected_path: Path, default_target: Path, override: str
+) -> str | None:
+    """Return the Cargo partition refusal, if the current export is unsafe."""
+    if not override:
+        if expected_path == default_target:
+            return None
+        return (
+            f"REFUSED: {lanes.LANE_TEMP_ROOT_ENV} is configured, but "
+            "CARGO_TARGET_DIR is not exported for this cargo project.\n"
+            f"  expected: {expected}\n"
+            "  Export the exact path from `agent-utilities lane env`; without "
+            "it cargo falls back to the worktree target and defeats the "
+            "disk-backed lane partition."
+        )
+    if Path(override).expanduser().resolve() == expected_path:
         return None
-    expected = str(lanes.partitioned_paths(scope.tree).cargo_target_dir)
-    if Path(override).expanduser().resolve() == Path(expected).resolve():
-        return None
+    if expected_path == default_target:
+        binding_advice = (
+            'Unset it — `.cargo/config.toml` (target-dir = "target-isolated") '
+            "already gives this worktree its own target dir with no export needed."
+        )
+    else:
+        binding_advice = (
+            f"{lanes.LANE_TEMP_ROOT_ENV} is configured, so keep the export equal "
+            "to this lane's path from `agent-utilities lane env`; do not replace "
+            "it with a shared/global target."
+        )
     return (
         "REFUSED: CARGO_TARGET_DIR is exported to a path that is NOT this lane's\n"
         f"  own partitioned target dir:\n"
@@ -175,9 +190,28 @@ def _check_cargo_target_override(scope: lanes.LaneScope) -> str | None:
         "  A shared/global CARGO_TARGET_DIR both serializes and CORRUPTS concurrent\n"
         "  cargo builds across worktrees (CONCEPT:AU-OS.governance.lane-partitioned-resources).\n"
         "  cargo's env var always wins over this repo's .cargo/config.toml, so this\n"
-        "  export would silently defeat the per-worktree binding. Unset it —\n"
-        '  `.cargo/config.toml` (target-dir = "target-isolated") already gives this\n'
-        "  worktree its own target dir with no export needed."
+        "  export would silently defeat the per-worktree binding. "
+        f"{binding_advice}"
+    )
+
+
+def _check_cargo_target_override(scope: lanes.LaneScope) -> str | None:
+    """Refuse a stray Cargo target override or a missing configured-root export.
+
+    Only fires when this repo actually builds with cargo (a ``Cargo.toml`` at the
+    tree root) — every other repo skips this check entirely. See module docstring
+    point 3: the default worktree target remains valid with no export, while a
+    configured external lane root requires the exact target emitted by ``lane
+    env``.
+    """
+    if not (scope.tree / "Cargo.toml").is_file():
+        return None
+    expected = str(lanes.partitioned_paths(scope.tree).cargo_target_dir)
+    default_target = (scope.tree / "target-isolated").resolve()
+    expected_path = Path(expected).resolve()
+    override = os.environ.get("CARGO_TARGET_DIR", "")
+    return _cargo_target_policy_message(
+        expected, expected_path, default_target, override
     )
 
 

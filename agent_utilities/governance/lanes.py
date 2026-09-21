@@ -82,6 +82,7 @@ RESOURCE_OUTPUT_TRUNCATE = True
 _LANE_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _HOST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOST_INVENTORY_ENV = "AGENT_UTILITIES_HOST_INVENTORY"
+LANE_TEMP_ROOT_ENV = "AU_LANE_TEMP_ROOT"
 _UNKNOWN_HOST_IDS = frozenset(
     {
         "",
@@ -358,6 +359,64 @@ class PartitionedPaths:
 LANE_TEMP_DIRNAME = ".al"
 
 
+def _configured_lane_temp_root() -> Path | None:
+    """Return the operator-selected lane root, or ``None`` for the default.
+
+    The override is intentionally one absolute path. A relative value would
+    resolve differently when callers launch from different worktrees and could
+    silently defeat the per-lane partition.
+    """
+    raw = setting(LANE_TEMP_ROOT_ENV)
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        raise LaneArbitrationError(
+            f"{LANE_TEMP_ROOT_ENV} must be an absolute directory path when set"
+        )
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        raise LaneArbitrationError(
+            f"{LANE_TEMP_ROOT_ENV} must be an absolute directory path; got {value!r}"
+        )
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise LaneArbitrationError(
+            f"{LANE_TEMP_ROOT_ENV} is not a usable directory path: {value!r}"
+        ) from exc
+    if resolved.exists() and not resolved.is_dir():
+        raise LaneArbitrationError(
+            f"{LANE_TEMP_ROOT_ENV} must name a directory (or a directory that "
+            f"can be created); got {resolved}"
+        )
+    return resolved
+
+
+def _lane_storage_root(scope: LaneScope) -> tuple[Path, Path]:
+    """Return ``(lane_root, cargo_target)`` from one shared path calculation."""
+    configured_root = _configured_lane_temp_root()
+    base = configured_root or (Path.home() / LANE_TEMP_DIRNAME)
+    token = hashlib.sha1(
+        f"{scope.common_dir}:{scope.lane}".encode(), usedforsecurity=False
+    ).hexdigest()[:12]
+    lane_root = base / token
+    cargo_target = (
+        lane_root / "cargo"
+        if configured_root is not None
+        else scope.tree / "target-isolated"
+    )
+    return lane_root, cargo_target
+
+
+def _ensure_lane_directory(path: Path, label: str) -> None:
+    """Create one lane-owned directory, converting storage errors to refusal."""
+    try:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise LaneArbitrationError(f"could not create {label} {path}: {exc}") from exc
+
+
 def _lane_temp_root(scope: LaneScope) -> Path:
     """Where this lane's pytest basetemp / scratch (``TMPDIR``) live (D-ORC-16).
 
@@ -372,11 +431,16 @@ def _lane_temp_root(scope: LaneScope) -> Path:
     remote get-url origin`` resolved to the **canonical repo's own origin**,
     leaking its identity into tests that believed themselves isolated.
 
-    ``~/.al/<token>`` fixes both — short (~35-45 chars total, comfortably
-    inside ``sun_path``) and outside every repo's ``.git``. ``/home`` was
-    chosen over ``/tmp`` because ``/tmp`` here is a RAM-backed ``tmpfs`` that
-    has already hit 100% swap under concurrent lane load; keeping pytest's
-    temp-file volume on disk avoids compounding that.
+    The default ``~/.al/<token>`` fixes both — short (~35-45 chars total,
+    comfortably inside ``sun_path``) and outside every repo's ``.git``.
+    Operators that need the lane volume on another disk-backed filesystem may
+    set ``AU_LANE_TEMP_ROOT`` to one short absolute directory (for example,
+    ``/var/tmp/al-<uid>``). The same token is appended to that root, so the
+    override changes placement without changing lane identity or isolation.
+    ``/home`` was chosen for the default over ``/tmp`` because ``/tmp`` here
+    is a RAM-backed ``tmpfs`` that has already hit 100% swap under concurrent
+    lane load; a configured root is the explicit escape hatch for hosts where
+    the default filesystem is constrained.
 
     ``token`` hashes ``(common_dir, lane)``, **not** ``lane`` alone: every
     repo's canonical checkout is independently named lane ``"canonical"``, so
@@ -385,10 +449,7 @@ def _lane_temp_root(scope: LaneScope) -> Path:
     collision this module exists to prevent. This changes **where** the
     per-lane resource lives, never **whether** it is per-lane.
     """
-    token = hashlib.sha1(
-        f"{scope.common_dir}:{scope.lane}".encode(), usedforsecurity=False
-    ).hexdigest()[:12]
-    return Path.home() / LANE_TEMP_DIRNAME / token
+    return _lane_storage_root(scope)[0]
 
 
 def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
@@ -400,10 +461,13 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     the blanket never-stash rule can ever be relaxed.
 
     ``pytest_basetemp``/``scratch_dir``/``precommit_home`` resolve under
-    ``_lane_temp_root()``, a short ``~/.al/<token>`` path outside any repo's
-    ``.git`` — see that function's docstring for why (D-ORC-16: AF_UNIX
-    ``sun_path`` overflow + a git-identity leak that both traced to the same
-    `.git`-nested location).
+    ``_lane_temp_root()``, a short default ``~/.al/<token>`` path (or the
+    configured ``AU_LANE_TEMP_ROOT/<token>``) outside any repo's ``.git`` —
+    see that function's docstring for why (D-ORC-16: AF_UNIX ``sun_path``
+    overflow + a git-identity-leak that both traced to the same `.git`-nested
+    location). When the override is configured, Cargo uses that same lane root
+    under ``cargo/``; this keeps every high-volume partition on the selected
+    disk-backed filesystem.
 
     ``temp_root`` is created here (``mkdir(parents=True, exist_ok=True)``),
     mirroring :func:`workspace_arbitration_dir`'s same pattern for the other
@@ -435,16 +499,16 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
     missing directory as the genuine "this lane has never run pre-commit".
     """
     scope = lane_scope(path)
-    temp_root = _lane_temp_root(scope)
-    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_root, cargo_target = _lane_storage_root(scope)
+    _ensure_lane_directory(temp_root, "lane partition root")
     scratch_dir = temp_root / "scratch"
     # Unlike pytest_basetemp (pytest creates that leaf itself, exist_ok=True,
     # once its parent exists), TMPDIR has no such self-creating consumer —
     # every ordinary tempfile.mkstemp()/mkdtemp() caller assumes the
     # directory it names already exists.
-    scratch_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_lane_directory(scratch_dir, "lane scratch directory")
     return PartitionedPaths(
-        cargo_target_dir=scope.tree / "target-isolated",
+        cargo_target_dir=cargo_target,
         pytest_basetemp=temp_root / "pytest",
         scratch_dir=scratch_dir,
         precommit_home=temp_root / "precommit",
@@ -644,6 +708,20 @@ def orphaned_precommit_patches(path: Path | str | None = None) -> list[dict[str,
 CARGO_CONFIG_MARKER = "# CONCEPT:AU-OS.governance.lane-partitioned-resources"
 
 
+def _require_default_cargo_binding() -> None:
+    """Refuse a committed Cargo binding when the target root is lane-configured."""
+    if _configured_lane_temp_root() is None:
+        return
+    raise LaneArbitrationError(
+        f"{LANE_TEMP_ROOT_ENV} is configured, so Cargo uses an absolute "
+        "per-lane target derived from that root; `lane bind-cargo` cannot "
+        "commit a lane-specific target path. Export the lane's "
+        "`CARGO_TARGET_DIR` from `agent-utilities lane env` instead, or "
+        f"unset {LANE_TEMP_ROOT_ENV} before binding the default relative "
+        "target-dir."
+    )
+
+
 def write_cargo_partition_config(
     path: Path | str | None = None, *, force: bool = False
 ) -> dict[str, Any]:
@@ -661,6 +739,12 @@ def write_cargo_partition_config(
     still wins over this file. That case is *detected* loudly by
     ``scripts/check_lane_guard.py``'s cargo-target-override check, not solved here.
 
+    When ``AU_LANE_TEMP_ROOT`` is configured, the target directory is an
+    absolute per-lane path derived from that root. A committed ``.cargo`` file
+    cannot safely encode that value: it would bind every future worktree to
+    the lane that generated the file. ``lane bind-cargo`` therefore refuses in
+    that mode; use the per-lane ``CARGO_TARGET_DIR`` export from ``lane env``.
+
     Never clobbers unrelated existing cargo config (e.g. a repo's target-cpu
     notes) — refuses when ``.cargo/config.toml`` already exists with different
     content unless ``force=True``, in which case the partition block is appended.
@@ -670,6 +754,7 @@ def write_cargo_partition_config(
         raise LaneArbitrationError(
             f"{scope.tree} has no Cargo.toml at its root — not a cargo project"
         )
+    _require_default_cargo_binding()
     rel_target = partitioned_paths(scope.tree).cargo_target_dir.relative_to(scope.tree)
     config_path = scope.tree / ".cargo" / "config.toml"
     block = (

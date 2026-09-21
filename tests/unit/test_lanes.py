@@ -86,6 +86,7 @@ def _isolate_workspace_arbitration_dir(
     real lease file, since they all pass through the same un-isolated function.
     """
     workspace_dir = tmp_path / "workspace-arbitration"
+    monkeypatch.delenv(lanes.LANE_TEMP_ROOT_ENV, raising=False)
     monkeypatch.setenv(
         lanes.HOST_INVENTORY_ENV,
         '{"host-primary":["heavy"],"host-secondary":["heavy"],'
@@ -561,6 +562,49 @@ def test_partitioned_paths_creates_the_temp_root_on_disk(canonical: Path) -> Non
     # parent is genuinely walkable and not merely reported as existing.
     parts.pytest_basetemp.mkdir(mode=0o700, exist_ok=True)
     assert parts.pytest_basetemp.is_dir()
+
+
+def test_configured_lane_root_keeps_all_partitions_on_one_disk_root(
+    canonical: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "lane-root"
+    lane_one = _add_worktree(canonical, "lane-configured-one")
+    monkeypatch.delenv(lanes.LANE_TEMP_ROOT_ENV, raising=False)
+    default_one = lanes.partitioned_paths(lane_one)
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, str(root))
+    one = lanes.partitioned_paths(lane_one)
+    two = lanes.partitioned_paths(_add_worktree(canonical, "lane-configured-two"))
+
+    one_root = one.scratch_dir.parent
+    two_root = two.scratch_dir.parent
+    assert one_root.parent == root
+    assert two_root.parent == root
+    assert one_root.name == default_one.scratch_dir.parent.name
+    assert one_root != two_root
+    assert one.cargo_target_dir == one_root / "cargo"
+    assert two.cargo_target_dir == two_root / "cargo"
+    assert one.pytest_basetemp == one_root / "pytest"
+    assert one.precommit_home == one_root / "precommit"
+    assert one.scratch_dir.is_dir()
+    assert two.scratch_dir.is_dir()
+
+
+def test_configured_lane_root_requires_an_absolute_path(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, "relative-lane-root")
+    with pytest.raises(lanes.LaneArbitrationError, match="absolute"):
+        lanes.partitioned_paths(canonical)
+
+
+def test_configured_lane_root_refuses_a_file(
+    canonical: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "lane-root-file"
+    root.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, str(root))
+    with pytest.raises(lanes.LaneArbitrationError, match="directory"):
+        lanes.partitioned_paths(canonical)
 
 
 def test_park_gives_a_clean_tree_without_touching_refs_stash(canonical: Path) -> None:
@@ -1635,12 +1679,82 @@ def test_gate_detects_a_stray_cargo_target_dir_export_in_a_foreign_cargo_repo(
     assert "target-isolated" in proc.stderr
 
 
+def test_gate_allows_unset_cargo_target_dir_for_default_partition(
+    tmp_path: Path,
+) -> None:
+    foreign = _init_foreign_repo(tmp_path / "foreign-cargo-default", with_cargo=True)
+    lane = _add_worktree(foreign, "cargo-default-lane")
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    env.pop(lanes.LANE_TEMP_ROOT_ENV, None)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_gate_refuses_missing_cargo_target_dir_for_configured_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    foreign = _init_foreign_repo(tmp_path / "foreign-cargo-missing", with_cargo=True)
+    lane = _add_worktree(foreign, "cargo-missing-lane")
+    root = tmp_path / "lane-root"
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, str(root))
+    expected = lanes.partitioned_paths(lane).cargo_target_dir
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 1
+    assert lanes.LANE_TEMP_ROOT_ENV in proc.stderr
+    assert str(expected) in proc.stderr
+
+
 def test_gate_accepts_the_lanes_own_cargo_target_dir_export(tmp_path: Path) -> None:
     """The lane's OWN partitioned dir, if exported, is not flagged as an override."""
     foreign = _init_foreign_repo(tmp_path / "foreign-cargo-ok", with_cargo=True)
     lane = _add_worktree(foreign, "cargo-lane-ok")
     own_target = lanes.partitioned_paths(lane).cargo_target_dir
     env = dict(os.environ)
+    env["CARGO_TARGET_DIR"] = str(own_target)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_gate_accepts_the_configured_lane_cargo_target_dir_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    foreign = _init_foreign_repo(tmp_path / "foreign-cargo-configured", with_cargo=True)
+    lane = _add_worktree(foreign, "cargo-configured-lane")
+    root = tmp_path / "lane-root"
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, str(root))
+    own_target = lanes.partitioned_paths(lane).cargo_target_dir
+    env = dict(os.environ)
+    env["CARGO_TARGET_DIR"] = str(tmp_path / "other-target")
+    refused = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert refused.returncode == 1
+    assert lanes.LANE_TEMP_ROOT_ENV in refused.stderr
     env["CARGO_TARGET_DIR"] = str(own_target)
     proc = subprocess.run(
         ["python3", str(GUARD_SCRIPT)],
@@ -1660,6 +1774,15 @@ def test_write_cargo_partition_config_refuses_a_non_cargo_tree(tmp_path: Path) -
     plain = _init_foreign_repo(tmp_path / "not-cargo")
     with pytest.raises(lanes.LaneArbitrationError, match="Cargo.toml"):
         lanes.write_cargo_partition_config(plain)
+
+
+def test_write_cargo_partition_config_refuses_a_configured_external_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_foreign_repo(tmp_path / "cargo-configured", with_cargo=True)
+    monkeypatch.setenv(lanes.LANE_TEMP_ROOT_ENV, str(tmp_path / "lane-root"))
+    with pytest.raises(lanes.LaneArbitrationError, match="bind-cargo"):
+        lanes.write_cargo_partition_config(repo)
 
 
 def test_write_cargo_partition_config_refuses_to_clobber_existing_config(

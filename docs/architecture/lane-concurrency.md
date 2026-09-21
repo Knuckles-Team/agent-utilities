@@ -252,6 +252,16 @@ agent-utilities lane park     # clean tree now, nothing lost, refs/stash untouch
 agent-utilities lane unpark   # put it back
 ```
 
+The default lane root is the short `~/.al/<hash(common_dir, lane)>` path.
+On a host where the home filesystem is constrained, set
+`AU_LANE_TEMP_ROOT` to one short, absolute, disk-backed directory such as
+`/var/tmp/al-<uid>`. The same `hash(common_dir, lane)` is appended to the
+configured root, and `partitioned_paths()` places Cargo under `cargo/`, pytest
+under `pytest/`, ordinary scratch under `scratch/`, and pre-commit under
+`precommit/` below that one lane directory. Relative or file-valued
+configuration fails closed; an unset value keeps the default. `lane env`
+remains the authority for exporting the resulting paths to child processes.
+
 Untracked files are deliberately *not* captured: `reset --hard` does not remove
 them, so nothing has to be captured to survive — and nothing can be lost by a bug
 in the capture.
@@ -267,7 +277,8 @@ silently serialized/corrupted every other worktree's build — found and removed
 while closing this gap). Two different mechanisms are at work here, and they are
 not the same strength:
 
-* **Structural (binds, prevention).** `agent-utilities lane bind-cargo` writes
+* **Structural (binds, prevention; default root only).**
+  `agent-utilities lane bind-cargo` writes
   `.cargo/config.toml` with a **relative** `target-dir`:
   ```toml
   [build]
@@ -283,6 +294,11 @@ not the same strength:
   a build tool instead of a git verb. Never clobbers unrelated existing cargo
   config (e.g. a repo's `target-cpu` notes) — refuses unless `--force`, which
   appends rather than overwrites.
+  When `AU_LANE_TEMP_ROOT` is configured, `bind-cargo` refuses: a committed
+  `.cargo/config.toml` cannot encode one lane's absolute hash path without
+  binding every worktree to that lane. Export the configured lane's
+  `CARGO_TARGET_DIR` from `lane env` instead; the cargo-target guard accepts
+  that exact path, refuses a missing export, and rejects all other overrides.
 * **Residual gap (detection only) — stated plainly, not recorded as solved.**
   cargo's own precedence lets an **exported `CARGO_TARGET_DIR` env var win over
   the config file**. That is not preventable from here — same shape as the LEASE

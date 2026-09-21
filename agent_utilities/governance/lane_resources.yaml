@@ -27,7 +27,9 @@ resources:
     evidence: >-
       A shared CARGO_TARGET_DIR both serialises and CORRUPTS concurrent
       epistemic-graph worktree builds. The per-lane target dir was a convention
-      nothing enforced.
+      nothing enforced. It remains worktree-local by default; when
+      `AU_LANE_TEMP_ROOT` is configured, `partitioned_paths()` places Cargo
+      under that lane's hashed disk-backed root alongside the other partitions.
 
   - name: pytest-tmp
     class: partition
@@ -43,9 +45,10 @@ resources:
       on path length alone -- and being nested inside .git let a supposedly
       hermetic `git -C <tmp_path> remote get-url origin` resolve to the
       CANONICAL repo's own origin. Fixed by moving the per-lane instance to
-      `~/.al/<hash(common_dir, lane)>/pytest` (see `_lane_temp_root()`) --
-      short, outside any .git, still per-lane. The class stays PARTITION;
-      only the location changed.
+      the default `~/.al/<hash(common_dir, lane)>/pytest` (or
+      `$AU_LANE_TEMP_ROOT/<hash(common_dir, lane)>/pytest` when the operator
+      selects another short absolute, disk-backed root; see `_lane_temp_root()`).
+      The class stays PARTITION; only the location changes.
 
   - name: git-stash
     class: partition
@@ -87,7 +90,8 @@ resources:
       each other's intermediate state. D-ORC-16: this is also the `TMPDIR`
       `lane env` exports, and it shared the pytest-tmp row's AF_UNIX
       sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
-      relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
+      relocation to `~/.al/<hash(common_dir, lane)>/scratch` by default, or
+      `$AU_LANE_TEMP_ROOT/<hash(common_dir, lane)>/scratch` when configured).
 
   - name: precommit-home
     class: partition
@@ -97,8 +101,9 @@ resources:
       XDG_CACHE_HOME/pre-commit) doubles as BOTH the patch_dir
       `staged_files_only._unstaged_changes_cleared()` writes unstaged changes to
       (commands/run.py:421 passes `store.directory` as patch_dir) and the directory
-      holding the SQLite `db.db` (store.py:64). PRE_COMMIT_HOME is exported
-      NOWHERE in agent-utilities, so every lane shared ONE `~/.cache/pre-commit`.
+      holding the SQLite `db.db` (store.py:64). `lane env` exports
+      PRE_COMMIT_HOME to this partition; without that export every lane shares
+      ONE `~/.cache/pre-commit`.
       Two distinct hazards from that one shared dir: (1) a killed/OOMed/power-lost
       pre-commit leaves the unstaged work ONLY as an orphaned patch file that
       nobody ever replays back -- pre-commit never deletes a patch file even on

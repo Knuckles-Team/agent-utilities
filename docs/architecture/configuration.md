@@ -59,6 +59,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Postgres schema |
 | `AGENT_UTILITIES_{CONFIG,DATA,CACHE,LOG,MEMORY,RUNTIME}_DIR` | XDG | Path overrides (resolved in `core/paths.py`) |
 | `AGENT_UTILITIES_HOST_INVENTORY` | unset | JSON object mapping exact canonical host identities to abstract capability roles for host-scoped resource admission; malformed, missing, or unknown identities fail closed. Read live via `setting()` in `governance/lanes.py`. |
+| `AU_LANE_TEMP_ROOT` | unset | Short absolute disk-backed root for per-lane Cargo, pytest, scratch, and pre-commit partitions; unset keeps the default `~/.al/<hash(common_dir, lane)>`. Relative or file-valued roots fail closed; Cargo projects must export their exact `CARGO_TARGET_DIR` from `lane env` when this is set. |
 | `AGENT_UTILITIES_TOKEN_SECRET` | — | Run-scoped tool-token secret |
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
 | `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
