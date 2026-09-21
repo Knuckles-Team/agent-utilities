@@ -691,10 +691,10 @@ agents/spark-mcp/connector_manifest.yml:
   triple_count: 41
 agents/sql-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: cfa57e3c40febca830eb4df7d03361873ee86a3c7da96d530495ed10e32d38de
-  certification_hash: 4ef1b022de182aaef33ae2b46bae4f3aea24b19f9d065c9bf053dadf753fee9d
+  certification_file_sha256: 3d668f4c4b1a80dbd8c31c48764c640a3cdc56cfcaa8bd24c2e314273dbfe8cb
+  certification_hash: 06e0aab6b4208a6b70d720807b073f0d14c4827615048b0fb0bf0df85b56cfa5
   hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
-  manifest_hash: ffa314287cea6464f4909c5e02ce5db0deca7040eb9aa775e3b4489446ff726f
+  manifest_hash: 30db375dc486c6394a3165dcab94f129e8c4cf0b637426fe72ef123e84362375
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW
