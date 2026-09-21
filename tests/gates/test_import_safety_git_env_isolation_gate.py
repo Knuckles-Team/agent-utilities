@@ -41,7 +41,6 @@ _EXCLUDES = [
     "agent_utilities.mcp.tools",
     "agent_utilities.mcp.verbose_tools",
     "agent_utilities.patterns",
-    "agent_utilities.agent_utilities",
     "agent_utilities.knowledge_graph.adaptation.trace_distiller",
     "agent_utilities.cli",
     "agent_utilities.core.unified_install",
