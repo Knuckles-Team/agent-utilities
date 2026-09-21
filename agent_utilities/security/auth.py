@@ -155,8 +155,8 @@ def _decode_jwt(
     except ImportError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="joserfc is required for JWT authentication. "
-            "Install it with: pip install agent-utilities[auth]",
+            detail="The base installation is incomplete: joserfc is required "
+            "for JWT authentication.",
         ) from exc
 
     try:

@@ -42,6 +42,15 @@ from scripts.release.generate_connector_bundle_catalog import (
 from scripts.release.generate_connector_bundle_catalog import (
     render_catalog as render_connector_catalog,
 )
+from scripts.release.generate_dependency_license_catalog import (  # noqa: E402
+    DEFAULT_OUTPUT as DEPENDENCY_LICENSE_OUTPUT,
+)
+from scripts.release.generate_dependency_license_catalog import (  # noqa: E402
+    DEFAULT_PYPROJECT,
+)
+from scripts.release.generate_dependency_license_catalog import (
+    render_catalog as render_dependency_license_catalog,
+)
 from scripts.release.generate_prebundled_skill_catalog import (  # noqa: E402
     DEFAULT_OUTPUT as SKILL_OUTPUT,
 )
@@ -345,6 +354,10 @@ def main(argv: list[str] | None = None) -> int:
             skills_root=DEFAULT_SKILLS_ROOT,
             matrix_path=DEFAULT_MATRIX,
         )
+        dependency_licenses = render_dependency_license_catalog(
+            pyproject_path=DEFAULT_PYPROJECT,
+            catalog_path=DEPENDENCY_LICENSE_OUTPUT,
+        )
         _validate_release_resources()
         _validate_release_documents()
         _validate_acquisition_surface()
@@ -354,9 +367,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"CatalogInputInvalid: {exc!r}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return 1
-    if (
-        read_retained_bytes(CONNECTOR_OUTPUT) != connector
-        or read_retained_bytes(SKILL_OUTPUT) != skill
+    if any(
+        (
+            read_retained_bytes(CONNECTOR_OUTPUT) != connector,
+            read_retained_bytes(SKILL_OUTPUT) != skill,
+            read_retained_bytes(DEPENDENCY_LICENSE_OUTPUT) != dependency_licenses,
+        )
     ):
         print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
         return 1
@@ -369,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                         matrix_digest,
                         content_digest(connector),
                         content_digest(skill),
+                        content_digest(dependency_licenses),
                     ]
                 ),
                 "entries": sum(

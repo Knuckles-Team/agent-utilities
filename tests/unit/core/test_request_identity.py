@@ -568,8 +568,8 @@ class TestActorIdentityMiddleware:
         async def dependency_missing(_token):
             raise HTTPException(
                 status_code=500,
-                detail="joserfc is required for JWT authentication. "
-                "Install it with: pip install agent-utilities[auth]",
+                detail="The base installation is incomplete: joserfc is required "
+                "for JWT authentication.",
             )
 
         with (

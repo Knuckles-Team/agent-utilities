@@ -16,8 +16,8 @@ python3 scripts/uv_workspace.py run --all-extras ruff format --check agent_utili
 # Type check
 python3 scripts/uv_workspace.py run --all-extras mypy agent_utilities/
 
-# Run the server (development)
-python3 scripts/uv_workspace.py run python -m agent_utilities --debug --provider openai --model-id llama-3.2-3b-instruct
+# Run the server with the configured model registry
+python3 scripts/uv_workspace.py run python -m agent_utilities --debug
 
 # Install with all optional dependencies
 uv pip install -e ".[all]"
@@ -34,11 +34,11 @@ Default: `pytest -m "not live"` runs unit + integration.
 
 ## Runtime Prerequisites
 
-**Core runtime settings:**
+**Core runtime settings are model-registry entries, not package defaults:**
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `PROVIDER` | LLM provider name (e.g., `openai`, `anthropic`, `groq`) | `openai` |
+| `CHAT_MODELS` | Operator-owned model and adapter catalog | `[]` |
 
 **Optional Variables:**
 

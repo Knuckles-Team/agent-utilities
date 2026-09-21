@@ -121,6 +121,49 @@ def test_dependency_extra_gate_rejects_stale_ephemeral_lock_extra(
         )
 
 
+def test_release_gate_rejects_dependency_license_catalog_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    connector = tmp_path / "connectors.json"
+    skill = tmp_path / "skills.json"
+    licenses = tmp_path / "licenses.json"
+    connector.write_bytes(b"connector")
+    skill.write_bytes(b"skill")
+    licenses.write_bytes(b"stale")
+
+    monkeypatch.setattr(release_gate, "CONNECTOR_OUTPUT", connector)
+    monkeypatch.setattr(release_gate, "SKILL_OUTPUT", skill)
+    monkeypatch.setattr(release_gate, "DEPENDENCY_LICENSE_OUTPUT", licenses)
+    monkeypatch.setattr(release_gate, "_validate_dependency_extras", lambda: None)
+    monkeypatch.setattr(release_gate, "_validate_matrix", lambda: "sha256:matrix")
+    monkeypatch.setattr(
+        release_gate, "render_connector_catalog", lambda **_kwargs: b"connector"
+    )
+    monkeypatch.setattr(
+        release_gate, "render_skill_catalog", lambda **_kwargs: b"skill"
+    )
+    monkeypatch.setattr(
+        release_gate,
+        "render_dependency_license_catalog",
+        lambda **_kwargs: b"current",
+    )
+    for name in (
+        "_validate_release_resources",
+        "_validate_release_documents",
+        "_validate_acquisition_surface",
+        "_validate_certification_surface",
+    ):
+        monkeypatch.setattr(release_gate, name, lambda: None)
+
+    assert release_gate.main([]) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "CatalogDrift",
+        "ok": False,
+    }
+
+
 def _load(name: str) -> dict[str, Any]:
     value = json.loads((RELEASE_ROOT / name).read_text(encoding="utf-8"))
     assert isinstance(value, dict)

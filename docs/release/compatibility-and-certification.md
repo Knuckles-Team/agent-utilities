@@ -131,6 +131,14 @@ skill-body change cannot reuse evidence from another release.
 python scripts/release/generate_prebundled_skill_catalog.py --check
 ```
 
+Reconcile the curated dependency-license catalog after package metadata changes. The
+generator can remove stale entries, but fails closed when a dependency has no reviewed
+SPDX expression; it never guesses a license.
+
+```sh
+python scripts/release/generate_dependency_license_catalog.py --check
+```
+
 Generate and check the executable one-time migration catalog from the runtime registry:
 
 ```sh

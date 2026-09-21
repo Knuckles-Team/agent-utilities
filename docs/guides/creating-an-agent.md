@@ -171,17 +171,16 @@ my-agent-mcp = "my_agent.mcp_server:mcp_server"
 ## Step 5: Run Your Agent
 
 ```bash
-# Development
-uv run my-agent --provider openai --model-id llama-3.2-3b-instruct --base-url http://localhost:1234/v1 --debug
+# Development (uses the default entry in the configured model registry)
+uv run my-agent --debug
 
 # With web UI
 uv run my-agent --web --port 8080
 
-# Using environment variables
-export PROVIDER=openai
-export MODEL_ID=gpt-4o-mini
+# Override with any registered adapter/model identity
 export LLM_API_KEY_REF=vault://platform/llm#api_key
-uv run my-agent --api-key-ref "$LLM_API_KEY_REF"
+uv run my-agent --provider provider-z --model-id operator/model-v1 \
+  --base-url https://models.example.test/v1 --api-key-ref "$LLM_API_KEY_REF"
 ```
 
 ### CLI Flags Reference
@@ -190,10 +189,10 @@ All agents inherit these flags from `create_agent_parser()`:
 
 | Flag | Description | Default |
 |---|---|---|
-| `--provider` | LLM provider | `openai` |
-| `--model-id` | Model identifier | `llama-3.2-3b-instruct` |
-| `--base-url` | LLM API base URL | `http://host.docker.internal:1234/v1` |
-| `--api-key-ref` | Runtime reference for the LLM API key (`env://`, `vault://`, or `secret://`) | None |
+| `--provider` | Registered model adapter identity | Default registry entry |
+| `--model-id` | Model identifier | Default registry entry |
+| `--base-url` | Model endpoint override | Default registry entry |
+| `--api-key-ref` | Runtime reference for the model API key (`env://`, `vault://`, or `secret://`) | Default registry entry or none |
 | `--host` | Server bind address | `0.0.0.0` |
 | `--port` | Server port | `8000` |
 | `--mcp-config` | MCP config file path | `mcp_config.json` |

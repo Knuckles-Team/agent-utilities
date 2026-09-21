@@ -73,27 +73,12 @@ def test_parser_custom_host_port() -> None:
     assert args.port == 9999
 
 
-def test_parser_valid_providers() -> None:
-    """Parser accepts all valid provider choices."""
+def test_parser_accepts_provider_registered_by_the_operator() -> None:
+    """The CLI does not own a static provider allowlist."""
     parser = agent_factory.create_agent_parser()
-    for provider in [
-        "openai",
-        "anthropic",
-        "google",
-        "huggingface",
-        "groq",
-        "mistral",
-        "ollama",
-    ]:
-        args = parser.parse_args(["--provider", provider])
-        assert args.provider == provider
+    args = parser.parse_args(["--provider", "operator-registered-provider"])
 
-
-def test_parser_invalid_provider_raises() -> None:
-    """Parser rejects unknown provider."""
-    parser = agent_factory.create_agent_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--provider", "not-real"])
+    assert args.provider == "operator-registered-provider"
 
 
 def test_parser_debug_boolean_optional() -> None:

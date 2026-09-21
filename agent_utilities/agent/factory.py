@@ -124,17 +124,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--provider",
         default=DEFAULT_LLM_PROVIDER,
-        choices=[
-            "openai",
-            "anthropic",
-            "google",
-            "huggingface",
-            "groq",
-            "mistral",
-            "ollama",
-            "deepseek",
-        ],
-        help="LLM Provider",
+        help="Registered model provider",
     )
     parser.add_argument("--model-id", default=DEFAULT_LLM_MODEL_ID, help="LLM Model ID")
     parser.add_argument(

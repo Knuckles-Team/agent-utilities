@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 import yaml
 from jsonschema import Draft202012Validator
-from packaging.requirements import Requirement
 
 import build_backend
+from agent_utilities import release_catalogs
 from agent_utilities._version import __version__ as agent_utilities_version
 from agent_utilities.knowledge_graph.index_migrations import (
     index_migration_catalog,
@@ -29,6 +29,7 @@ from scripts.release import (
     assemble_manifest,
     check_compatibility,
     connector_ledger,
+    generate_dependency_license_catalog,
     generate_oci_vulnerability_scan_evidence,
     generate_release_assembly,
     generate_release_inputs,
@@ -37,9 +38,7 @@ from scripts.release.generate_index_migration_catalog import render_catalog
 
 ROOT = Path(__file__).resolve().parents[3]
 CONNECTOR_COUNT = json.loads(
-    (ROOT / "deploy/release/connector-bundles.catalog.json").read_text(
-        encoding="utf-8"
-    )
+    (ROOT / "deploy/release/connector-bundles.catalog.json").read_text(encoding="utf-8")
 )["entryCount"]
 
 
@@ -69,18 +68,6 @@ def _license_catalog(
         encoding="utf-8",
     )
     return path
-
-
-def _project_requirement_names(pyproject: dict) -> set[str]:
-    declarations = list(pyproject["project"].get("dependencies") or ())
-    for values in pyproject["project"].get("optional-dependencies", {}).values():
-        declarations.extend(values)
-    for values in pyproject.get("dependency-groups", {}).values():
-        declarations.extend(values)
-    return {
-        build_backend._normalized_name(Requirement(value).name)
-        for value in declarations
-    } | {build_backend._normalized_name(pyproject["project"]["name"])}
 
 
 def _project_metadata(pyproject: dict) -> bytes:
@@ -309,11 +296,63 @@ def test_wheel_build_backend_rejects_invalid_spdx_entry(tmp_path: Path) -> None:
 
 
 def test_actual_catalog_covers_runtime_optional_and_development_declarations() -> None:
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    catalog = build_backend._license_catalog(
-        ROOT / "agent_utilities/dependency-license-catalog.json"
+    path = ROOT / "agent_utilities/dependency-license-catalog.json"
+    assert (
+        generate_dependency_license_catalog.render_catalog(
+            pyproject_path=ROOT / "pyproject.toml",
+            catalog_path=path,
+        )
+        == path.read_bytes()
     )
-    assert set(catalog) == _project_requirement_names(pyproject)
+
+
+def test_dependency_license_generator_prunes_only_stale_entries(tmp_path: Path) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """[project]
+name = "fixture-package"
+version = "1.0.0"
+dependencies = ["PyYAML>=6"]
+""",
+        encoding="utf-8",
+    )
+    catalog = _license_catalog(
+        tmp_path / "licenses.json",
+        {"fixture-package": "MIT", "pyyaml": "MIT", "stale": "Apache-2.0"},
+    )
+    payload = json.loads(
+        generate_dependency_license_catalog.render_catalog(
+            pyproject_path=pyproject,
+            catalog_path=catalog,
+        )
+    )
+    assert payload == {
+        "version": 1,
+        "licenses": {"fixture-package": "MIT", "pyyaml": "MIT"},
+    }
+
+
+def test_dependency_license_generator_refuses_to_invent_licenses(
+    tmp_path: Path,
+) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """[project]
+name = "fixture-package"
+version = "1.0.0"
+dependencies = ["missing-license>=1"]
+""",
+        encoding="utf-8",
+    )
+    catalog = _license_catalog(tmp_path / "licenses.json", {"fixture-package": "MIT"})
+    with pytest.raises(
+        release_catalogs.ReleaseCatalogError,
+        match="dependency_license_catalog_missing_entries",
+    ):
+        generate_dependency_license_catalog.render_catalog(
+            pyproject_path=pyproject,
+            catalog_path=catalog,
+        )
 
 
 def test_actual_generated_sbom_passes_strict_license_policy(tmp_path: Path) -> None:
@@ -1287,9 +1326,7 @@ def test_current_release_matrix_schema_is_exact_and_current_only() -> None:
         "ontology-lock",
         "index-migrations",
     )
-    assert (
-        matrix["components"]["connector-bundles"]["exactEntries"] == CONNECTOR_COUNT
-    )
+    assert matrix["components"]["connector-bundles"]["exactEntries"] == CONNECTOR_COUNT
     assert matrix["components"]["index-migrations"]["exactEntries"] == 1
 
     runtime_drift = json.loads(json.dumps(matrix))

@@ -244,12 +244,7 @@ class TestDecodeJWT:
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_missing_joserfc_dependency_raises_loud_500_not_401(self, monkeypatch):
-        """A missing JWT dependency (the historical defect: a runtime image
-        installed without ``[auth]`` had no ``joserfc``) must raise a distinct,
-        loud 500 identifying the missing dependency — never the generic 401
-        ``Token validation failed`` a real invalid credential produces. This is
-        the failure mode a no-extras install can no longer hit (``joserfc`` is
-        now a base dependency), but the distinction must hold regardless."""
+        """An incomplete base install must fail loudly, never look like a bad JWT."""
         import sys
 
         from fastapi import HTTPException
@@ -263,6 +258,7 @@ class TestDecodeJWT:
                 audience=None,
             )
         assert exc_info.value.status_code == 500
+        assert "base installation is incomplete" in exc_info.value.detail
         assert "joserfc" in exc_info.value.detail
         assert exc_info.value.detail != "Token validation failed"
 
