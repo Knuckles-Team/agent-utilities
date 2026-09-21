@@ -559,14 +559,20 @@ def _append_proof_edge(
     dst: str,
     relation: str,
 ) -> None:
-    """Append one non-empty, de-duplicated proof edge."""
-    if not src or not dst:
-        return
+    """Append one non-empty, de-duplicated proof edge.
+
+    CX-DUP-ENFORCE: this is the module-level helper the removed
+    ``_proof_graph``-local ``_add`` closure was hoisted into (now shared by
+    both :func:`_proof_graph` and :func:`_append_epistemic_view_edges`) — a
+    single-exit "collect the endpoints, act only when they're both usable
+    and new" shape instead of ``_add``'s two early returns, since the two
+    guards are one no-op decision, not two.
+    """
+    both_present = bool(src) and bool(dst)
     key = (src, dst, relation)
-    if key in seen:
-        return
-    seen.add(key)
-    edges.append(ProofEdge(src=src, dst=dst, relation=relation))
+    if both_present and key not in seen:
+        seen.add(key)
+        edges.append(ProofEdge(src=src, dst=dst, relation=relation))
 
 
 def _candidate_proof_edges(

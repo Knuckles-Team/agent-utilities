@@ -100,6 +100,18 @@ class FakeSnowApi:
         self.created.append((className, attributes.get("name")))
 
 
+class FlakySnowApi(FakeSnowApi):
+    def create_cmdb_instance(self, className, attributes, source):
+        action = {"broken": self._raise_synthetic_failure}.get(
+            attributes.get("name"), super().create_cmdb_instance
+        )
+        action(className, attributes, source)
+
+    @staticmethod
+    def _raise_synthetic_failure(*_args):
+        raise RuntimeError("synthetic ServiceNow failure")
+
+
 class FakeErpApi:
     def __init__(self):
         self.created = []
@@ -139,6 +151,25 @@ def test_servicenow_sink_refused_without_flag(monkeypatch):
         dry_run=False,
     )
     assert out["status"] == "refused"
+
+
+def test_servicenow_sink_records_client_error_and_continues(monkeypatch):
+    monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
+    api = FlakySnowApi()
+
+    out = run_writeback(
+        "servicenow",
+        client=api,
+        creations=[
+            {"type": "service", "name": "broken"},
+            {"type": "service", "name": "healthy"},
+        ],
+        dry_run=False,
+    )
+
+    assert out["errors"] == 1
+    assert out["created"] == 1
+    assert api.created == [("cmdb_ci_service", "healthy")]
 
 
 def test_erpnext_sink_live_create(monkeypatch):

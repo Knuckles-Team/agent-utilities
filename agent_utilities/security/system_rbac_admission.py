@@ -201,7 +201,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from ..knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
-from .tenant_rbac_admission import _identity_store_scope
+from .tenant_rbac_admission import (
+    _identity_store_scope,
+    _record_fixture_identity_registration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -435,15 +438,14 @@ class FixtureSystemAdmissionClient:
         signer_id: str,
         signer_key: str,
     ) -> str:
-        self.calls.append(
-            ("register_identity", (agent_id, role, tuple(teams), tuple(roles)))
+        return _record_fixture_identity_registration(
+            self.calls,
+            self.identities,
+            agent_id=agent_id,
+            role=role,
+            teams=teams,
+            roles=roles,
         )
-        self.identities[agent_id] = {
-            "role": role,
-            "teams": list(teams),
-            "roles": list(roles),
-        }
-        return "registered"
 
     def get_identity(self, agent_id: str) -> Mapping[str, Any] | None:
         """Return the same complete shape as the engine's read-only RPC."""

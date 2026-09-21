@@ -314,6 +314,30 @@ def _identity_store_scope() -> Any:
             yield
 
 
+def _record_fixture_identity_registration(
+    calls: list[tuple[str, tuple[Any, ...]]],
+    identities: dict[str, dict[str, Any]],
+    *,
+    agent_id: str,
+    role: Any,
+    teams: list[str],
+    roles: list[str],
+) -> str:
+    """Shared in-memory bookkeeping for an admission fixture's
+    ``register_identity`` (CX-DUP-ENFORCE): record the call, then store the
+    identity dict shape both :class:`FixtureEngineIdentityClient` here and
+    :class:`~agent_utilities.security.system_rbac_admission.FixtureSystemAdmissionClient`
+    need. Each domain keeps its OWN class, docstring, and ``role`` type
+    annotation (``str`` here, ``IdentityRole`` there) — the WIRE-FIRST
+    per-domain fixture separation those classes document is intentional and
+    unchanged; only this literal bookkeeping body was duplicated, not the
+    fixtures themselves.
+    """
+    calls.append(("register_identity", (agent_id, role, tuple(teams), tuple(roles))))
+    identities[agent_id] = {"role": role, "teams": list(teams), "roles": list(roles)}
+    return "registered"
+
+
 class FixtureEngineIdentityClient:
     """In-memory :class:`EngineIdentityClient` double — every test in
     ``tests/unit/security/test_tenant_rbac_admission.py`` drives this, never a
@@ -338,15 +362,14 @@ class FixtureEngineIdentityClient:
         signer_id: str,
         signer_key: str,
     ) -> str:
-        self.calls.append(
-            ("register_identity", (agent_id, role, tuple(teams), tuple(roles)))
+        return _record_fixture_identity_registration(
+            self.calls,
+            self.identities,
+            agent_id=agent_id,
+            role=role,
+            teams=teams,
+            roles=roles,
         )
-        self.identities[agent_id] = {
-            "role": role,
-            "teams": list(teams),
-            "roles": list(roles),
-        }
-        return "registered"
 
 
 class LiveEngineIdentityClient:

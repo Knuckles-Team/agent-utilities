@@ -5265,7 +5265,14 @@ class MCPMultiplexer:
     async def _read_resource_body(
         session: Any, uri: str, deadline: float, resource_kind: str
     ) -> str:
-        """Read one body with bounded retries, deadline, and original errors."""
+        """Read one body with bounded retries, deadline, and original errors.
+
+        CX-DUP-ENFORCE: the one canonical bounded-retry implementation both
+        :meth:`_read_skill_body` and :meth:`_read_prompt_body` delegate to —
+        each used to carry its own copy of this loop; a single-``if`` "should
+        this attempt retry" merge (final-attempt-OR-out-of-time) replaces the
+        prior two-stage ``break`` shape those copies had.
+        """
         delay = _SKILL_HARVEST_BACKOFF_SEC
         last: Exception | None = None
         for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
@@ -5273,13 +5280,12 @@ class MCPMultiplexer:
                 return _resource_body_text(await session.read_resource(uri))
             except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
                 last = exc
-                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
-                    break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                await asyncio.sleep(min(delay, remaining))
-                delay *= 2
+            is_final_attempt = attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1
+            remaining = deadline - time.monotonic()
+            if is_final_attempt or remaining <= 0:
+                break
+            await asyncio.sleep(min(delay, remaining))
+            delay *= 2
         if last is None:  # pragma: no cover — the loop only exits via a failure
             raise RuntimeError(
                 f"{resource_kind} body read failed without a recorded cause"

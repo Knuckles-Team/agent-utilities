@@ -11,6 +11,7 @@ the ``servicenow-api`` CMDB write surface (``create/patch_cmdb_instance``,
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from ..core import (
@@ -24,6 +25,7 @@ from ..core import (
 logger = logging.getLogger(__name__)
 
 _SOURCE = "agent-utilities"
+_ATTEMPT_FAILED = object()
 
 # KG node type → ServiceNow CMDB class for created inventory. Covers the fleet's
 # emitted infra/container/host types (see INVENTORY_TYPES), not just the generic
@@ -90,6 +92,26 @@ class ServiceNowSink(WritebackClientMixin):
     client_module = "servicenow_api"
     client_label = "servicenow"
 
+    def _attempt(
+        self,
+        result: WritebackResult,
+        action: str,
+        call: Callable[..., Any],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Run one ServiceNow client call, sharing the try/except/log/count
+        shape every op kind below needs (CX-DUP-ENFORCE: dupehound flagged
+        this repeated try/except-log-count block across ``_run``'s five op
+        loops as a structural duplicate; this is the extracted helper)."""
+        try:
+            return call(*args, **kwargs)
+        except Exception:  # noqa: BLE001
+            logger.debug("servicenow %s failed", action, exc_info=True)
+            result.errors += 1
+            return _ATTEMPT_FAILED
+
     def _run(self, invocation: WritebackInvocation) -> WritebackResult:
         ctx, ops, client, result, dry_run = invocation.unpack()
 
@@ -107,21 +129,24 @@ class ServiceNowSink(WritebackClientMixin):
                     {"op": "create_cmdb_instance", "class": class_name, "name": name}
                 )
                 continue
-            try:
-                res = client.create_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
-                    className=class_name, attributes=attrs, source=_SOURCE
-                )
+
+            response = self._attempt(
+                result,
+                "create_cmdb_instance",
+                client.create_cmdb_instance,  # type: ignore[union-attr]  # client None-checked above
+                className=class_name,
+                attributes=attrs,
+                source=_SOURCE,
+            )
+            if response is not _ATTEMPT_FAILED:
                 result.created += 1
                 # Round-trip the sys_id back onto the source node → idempotent re-runs.
                 ctx.stamp_external_id(
                     c.get("node"),
                     self.domain,
-                    _extract_sys_id(res),
+                    _extract_sys_id(response),
                     node_type=c.get("type", ""),
                 )
-            except Exception:  # noqa: BLE001
-                logger.debug("servicenow create_cmdb_instance failed", exc_info=True)
-                result.errors += 1
 
         # enrichments — patch attributes onto existing CIs.
         for item in ops.get("enrichments") or []:
@@ -136,17 +161,17 @@ class ServiceNowSink(WritebackClientMixin):
                     {"op": "patch_cmdb_instance", "class": class_name, "sys_id": sys_id}
                 )
                 continue
-            try:
-                client.patch_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
-                    className=class_name,
-                    sys_id=sys_id,
-                    attributes=attrs,
-                    source=_SOURCE,
-                )
+            response = self._attempt(
+                result,
+                "patch_cmdb_instance",
+                client.patch_cmdb_instance,  # type: ignore[union-attr]  # client None-checked above
+                className=class_name,
+                sys_id=sys_id,
+                attributes=attrs,
+                source=_SOURCE,
+            )
+            if response is not _ATTEMPT_FAILED:
                 result.enriched += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("servicenow patch_cmdb_instance failed", exc_info=True)
-                result.errors += 1
 
         # inferred relations — between existing CIs.
         for edge in ops.get("inferences") or []:
@@ -168,17 +193,17 @@ class ServiceNowSink(WritebackClientMixin):
                     }
                 )
                 continue
-            try:
-                client.create_cmdb_relation(  # type: ignore[union-attr]  # client None-checked above
-                    className=class_name,
-                    sys_id=src,
-                    outbound_relations=[{"type": rel, "target": tgt}],
-                    source=_SOURCE,
-                )
+            response = self._attempt(
+                result,
+                "create_cmdb_relation",
+                client.create_cmdb_relation,  # type: ignore[union-attr]  # client None-checked above
+                className=class_name,
+                sys_id=src,
+                outbound_relations=[{"type": rel, "target": tgt}],
+                source=_SOURCE,
+            )
+            if response is not _ATTEMPT_FAILED:
                 result.relations_written += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("servicenow create_cmdb_relation failed", exc_info=True)
-                result.errors += 1
 
         # work_notes — append a review note to an existing ticket/demand record
         # (e.g. a TRM u_trm_request, an incident) WITHOUT touching CMDB CI
@@ -205,16 +230,16 @@ class ServiceNowSink(WritebackClientMixin):
                     {"op": "work_notes", "table": table, "sys_id": sys_id, "note": note}
                 )
                 continue
-            try:
-                client.patch_table_record(  # type: ignore[union-attr]  # client None-checked above
-                    table=table,
-                    table_record_sys_id=sys_id,
-                    data={"work_notes": note},
-                )
+            response = self._attempt(
+                result,
+                "work_notes patch",
+                client.patch_table_record,  # type: ignore[union-attr]  # client None-checked above
+                table=table,
+                table_record_sys_id=sys_id,
+                data={"work_notes": note},
+            )
+            if response is not _ATTEMPT_FAILED:
                 result.enriched += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("servicenow work_notes patch failed", exc_info=True)
-                result.errors += 1
 
         # retirements — mark CIs retired (install_status=7).
         for item in ops.get("retirements") or []:
@@ -228,17 +253,17 @@ class ServiceNowSink(WritebackClientMixin):
                     {"op": "retire", "class": class_name, "sys_id": sys_id}
                 )
                 continue
-            try:
-                client.patch_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
-                    className=class_name,
-                    sys_id=sys_id,
-                    attributes={"install_status": "7"},
-                    source=_SOURCE,
-                )
+            response = self._attempt(
+                result,
+                "retire",
+                client.patch_cmdb_instance,  # type: ignore[union-attr]  # client None-checked above
+                className=class_name,
+                sys_id=sys_id,
+                attributes={"install_status": "7"},
+                source=_SOURCE,
+            )
+            if response is not _ATTEMPT_FAILED:
                 result.retired += 1
-            except Exception:  # noqa: BLE001
-                logger.debug("servicenow retire failed", exc_info=True)
-                result.errors += 1
 
         return result
 
