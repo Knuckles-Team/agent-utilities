@@ -5,7 +5,9 @@
 #   - the Rust epistemic-graph engine: epistemic-graph-server (+ lake-fixture-export /
 #     restore / migrate-shards) and the epistemic_graph.numeric kernel, both bundled in
 #     the staged, already-injected wheel (passes scripts/check_wheel_completeness.py).
-#   - the au serving plane (graph-os / kg_server), installed EDITABLE from local source.
+#   - the AU agent plane, installed EDITABLE from local source.
+#   - the graph-os deployable composition, installed EDITABLE from its own local source;
+#     this distribution, not AU's transitional console entry, owns `graph-os`.
 #   - messaging platforms (Telegram + Mattermost) + backends (neo4j/falkordb/postgres/redis).
 #   - langfuse-agent (deployment-composed workspace source) for LLM observability — dropped
 #     from an earlier build of this image (PyPI tops out below au's floor), restored here.
@@ -22,10 +24,11 @@
 # `pip download --only-binary=:all:` against this exact base image — no compiler needed,
 # hence no build-essential / multi-stage compile split.
 #
-# Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl and
-# build-artifacts/langfuse-agent-src/ are git-ignored, build-time-only paths — each
-# populated by its own hostPath/NFS mount at build time (see the kaniko Job manifests
-# alongside this file), never committed to git. Both live at the context ROOT, not under
+# Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl,
+# build-artifacts/graph-os-src/, and build-artifacts/langfuse-agent-src/ are
+# git-ignored, build-time-only paths — each populated by its own hostPath/NFS mount at
+# build time (see the kaniko Job manifest alongside this file), never committed to git.
+# All live at the context ROOT, not under
 # docker/ — this repo's .dockerignore excludes `docker/*` wholesale (the published-wheel
 # Dockerfile builds from no local source), which would silently drop anything staged under
 # docker/ from the kaniko build context too.
@@ -68,6 +71,9 @@ ARG AUTH_TYPE="none"
 # thread the real revision through, as opposed to a pre-U-26 image that
 # predates the marker file entirely.
 ARG SOURCE_REVISION="unknown"
+ARG GRAPH_OS_REVISION="unknown"
+LABEL io.knuckles.agent-utilities.revision="${SOURCE_REVISION}" \
+      io.knuckles.graph-os.revision="${GRAPH_OS_REVISION}"
 ENV DEBIAN_FRONTEND=noninteractive \
     HOST=${HOST} \
     PORT=${PORT} \
@@ -151,6 +157,13 @@ COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
 # runtime reader strips whitespace regardless.
 RUN printf '%s' "${SOURCE_REVISION}" > /opt/agent-utilities/agent_utilities/.source-revision
 
+# 2a) graph-os — the deployable composition owns the `graph-os` and
+# `graph-os-daemon` console scripts after RF-ADR-009's extraction. Install it after AU
+# so its entry points deterministically replace AU's transitional duplicates. The
+# source is retained because this validation image deliberately uses editable installs.
+COPY build-artifacts/graph-os-src/pyproject.toml build-artifacts/graph-os-src/README.md /opt/graph-os/
+COPY build-artifacts/graph-os-src/graph_os/ /opt/graph-os/graph_os/
+
 # 2b) langfuse-agent — deployment-composed separately from AU's SDK-only [langfuse]
 #     extra. It is a SIBLING repo (agent-packages/agents/langfuse-agent), not part of
 #     this Dockerfile's own worktree, so — exactly like build-artifacts/eg-wheel above —
@@ -221,7 +234,9 @@ RUN uv pip install --system --break-system-packages --no-cache \
         "fasta2a[pydantic-ai]>=0.6.1" \
     && python3 /tmp/check_epistemic_graph_client_preflight.py \
         --wheel-dir /tmp/wheels --require-installed \
-    && chmod -R a+rX /opt/agent-utilities \
+    && uv pip install --system --break-system-packages --no-cache --no-deps \
+        -e /opt/graph-os \
+    && chmod -R a+rX /opt/agent-utilities /opt/graph-os \
     && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt \
         /tmp/check_epistemic_graph_client_preflight.py
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
@@ -252,7 +267,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; from agent_utilities.mcp.multiplexer import attach_fleet_loader; from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 
