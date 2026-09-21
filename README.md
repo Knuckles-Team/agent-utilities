@@ -13,22 +13,22 @@ contracts.
 [![Python versions](https://img.shields.io/pypi/pyversions/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://img.shields.io/github/actions/workflow/status/Knuckles-Team/agent-utilities/release.yml?branch=main&label=build)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://knuckles-team.github.io/agent-utilities/)
-[![GitHub stars](https://img.shields.io/github/stars/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/stargazers)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/forks)
 [![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/graphs/contributors)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/agent-utilities)](LICENSE)
-[![GitHub last commit](https://img.shields.io/github/last-commit/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/commits/main)
+[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/commits/main)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/pulls)
 [![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/pulls?q=is%3Apr+is%3Aclosed)
 [![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/issues)
 [![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
 [![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
 [![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
-[![GitHub repo file count](https://img.shields.io/github/directory-file-count/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
+[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
 
 *Version: 2.5.0*
 
-## What Agent Utilities owns
+## Overview
 
 Agent Utilities is the **agent control plane and harness**. It owns the runtime
 that turns an authenticated goal into model and agent work:
@@ -105,7 +105,7 @@ authority.
 For an end-to-end walkthrough, continue with
 [Quick Start](https://knuckles-team.github.io/agent-utilities/guides/quick-start/).
 
-## How execution fits together
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -125,7 +125,7 @@ persists, queries, and reasons over committed state. Public transports do not
 reimplement the control plane, and the control plane does not become a second
 database or connector stack.
 
-## Core capabilities
+## Key capabilities
 
 - **Agent runtime** — Pydantic-AI construction, provider selection, structured
   outputs, content guardrails, toolsets, and reusable skills.
@@ -159,8 +159,8 @@ the [status registry](https://knuckles-team.github.io/agent-utilities/status/).
 
 ## Documentation
 
-- [Start here](https://knuckles-team.github.io/agent-utilities/start-here/) —
-  choose a consumption model and understand the runtime.
+- [Documentation home](https://knuckles-team.github.io/agent-utilities) —
+  start here, choose a consumption model, and understand the runtime.
 - [Architecture](https://knuckles-team.github.io/agent-utilities/architecture/)
   — current component boundaries and flows.
 - [Guides and recipes](https://knuckles-team.github.io/agent-utilities/guides/)
@@ -180,7 +180,7 @@ the [status registry](https://knuckles-team.github.io/agent-utilities/status/).
 Operational explanations live on the documentation site so this README remains
 a stable entry page.
 
-## Contributing
+## Development
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) before making
 changes. Add tests at the appropriate unit, wiring, contract, or live-path

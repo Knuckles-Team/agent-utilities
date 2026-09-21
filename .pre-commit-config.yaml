@@ -85,6 +85,10 @@ repos:
     entry: python3 scripts/uv_workspace.py lock
     args: ["--locked"]
     stages: [pre-push, manual]
+- repo: https://github.com/Knuckles-Team/pipelines
+  rev: 35209bf6d85569a3c1fe3d5cd31771cacfdc3731 # public-surface contract
+  hooks:
+  - id: public-surface
 - repo: local
   hooks:
   - id: dependency-readiness

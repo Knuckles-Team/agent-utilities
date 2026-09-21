@@ -1268,6 +1268,15 @@ build = [
 ]
 
 
+# Public README/AGENTS policy is implemented by the immutable shared pipelines
+# hook pinned in .pre-commit-config.yaml.
+[tool.pipelines_hooks.public_surface]
+repository = "Knuckles-Team/agent-utilities"
+distribution = "agent-utilities"
+pages_url = "https://knuckles-team.github.io/agent-utilities/"
+mcp_server = false
+
+
 # Pytest configuration lives in pytest.ini, not here. Both files used to carry
 # a [tool.pytest.ini_options]/[pytest] block that silently disagreed (timeout
 # 30 vs 300, testpaths tests/unit+tests/integration vs the whole tests/ tree)
