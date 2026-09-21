@@ -1513,11 +1513,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
-        "action": "set_config",
-        "name": "graph_configure_set_config",
-    },
-    {
-        "tool": "graph_configure",
         "action": "set_role_routing",
         "name": "graph_configure_set_role_routing",
     },

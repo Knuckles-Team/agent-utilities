@@ -230,8 +230,9 @@ def _is_secret(env_key: str) -> bool:
     return any(up.endswith(suffix) for suffix in _SECRET_SUFFIXES)
 
 
-#: Settings that only take effect on an engine/daemon rebuild — a live `set_config`
-#: persists + updates the value but cannot apply it to the running process; callers
+#: Settings that only take effect on an engine/daemon rebuild — a live
+#: ``graph_config(action="set")`` persists + updates the value but cannot apply it to
+#: the running process; callers
 #: should restart the daemon (CONCEPT:AU-KG.backend.connection-registry).
 _RESTART_REQUIRED: frozenset[str] = frozenset(
     {

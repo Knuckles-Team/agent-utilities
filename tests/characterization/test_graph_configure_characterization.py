@@ -79,10 +79,9 @@ async def test_get_config_requires_config_key():
     assert payload == {"error": "config_key (env name) required for get_config"}
 
 
-async def test_set_config_requires_config_key():
-    out = await _call("set_config")
-    payload = json.loads(out)
-    assert payload == {"error": "config_key (env name) required for set_config"}
+async def test_set_config_is_not_a_legacy_graph_configure_action():
+    out = await _call("set_config", config_key="MCP_ALWAYS_LOAD", config_value="[]")
+    assert json.loads(out) == {"error": "unknown configuration action"}
 
 
 async def test_get_config_unknown_key_is_rejected():

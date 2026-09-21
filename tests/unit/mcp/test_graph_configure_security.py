@@ -379,49 +379,10 @@ def test_database_action_rejects_inline_endpoint() -> None:
     assert "inline database endpoints" in result
 
 
-def test_bug065_set_config_reports_process_scoped_field_not_fleet_wide_applied_live(
+def test_legacy_set_config_cannot_bypass_governed_config_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """BUG-065, second site: the `graph_configure(action='set_config')` twin of
-    `config_admin.set_value` carried the identical overclaim — `applied_live`
-    computed from `is_restart_required`, which can only ever know about THIS
-    process. Fixed the same way, at both sites (this codebase's own
-    documented recurring failure mode: a guard/rename at one site while a
-    sibling site keeps the old shape)."""
-    import agent_utilities.deployment as deployment
-    from agent_utilities.core import config
-
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    monkeypatch.setattr(
-        deployment,
-        "config_reference",
-        lambda: [
-            {
-                "section": "test",
-                "fields": [{"env": "TEST_HARMLESS_SETTING", "secret": False}],
-            }
-        ],
-    )
-    monkeypatch.setattr(deployment, "is_restart_required", lambda key: False)
-    monkeypatch.setattr(config, "save_config_item", lambda key, value: None)
-
-    result = fake.tools["graph_configure"](
-        action="set_config",
-        config_key="TEST_HARMLESS_SETTING",
-        config_value="42",
-    )
-    payload = json.loads(result)
-
-    assert "applied_live" not in payload
-    assert payload["applied_in_this_process"] is True
-    assert payload["restart_required"] is False
-
-
-def test_engine_startup_timeout_set_config_reports_restart_semantics(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The served configuration path must not claim a cached timeout is live."""
+    """The retired synchronous alias must never reach ``save_config_item``."""
     from agent_utilities.core import config
 
     persisted: list[tuple[str, object]] = []
@@ -435,53 +396,14 @@ def test_engine_startup_timeout_set_config_reports_restart_semantics(
 
     result = fake.tools["graph_configure"](
         action="set_config",
-        config_key="EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS",
-        config_value="600",
+        config_key="MCP_ALWAYS_LOAD",
+        config_value='["synthetic-mcp"]',
     )
     payload = json.loads(result)
 
-    assert persisted == [("EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS", "600")]
-    assert payload["applied_in_this_process"] is False
-    assert payload["restart_required"] is True
-
-
-def test_set_config_rejects_inline_sensitive_value(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import agent_utilities.deployment as deployment
-    from agent_utilities.core import config
-
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    monkeypatch.setattr(
-        deployment,
-        "config_reference",
-        lambda: [
-            {
-                "section": "test",
-                "fields": [
-                    {
-                        "env": "GRAPH_SERVICE_ENDPOINTS",
-                        "secret": False,
-                    }
-                ],
-            }
-        ],
-    )
-    persisted: list[tuple[str, object]] = []
-    monkeypatch.setattr(
-        config, "save_config_item", lambda key, value: persisted.append((key, value))
-    )
-
-    result = fake.tools["graph_configure"](
-        action="set_config",
-        config_key="GRAPH_SERVICE_ENDPOINTS",
-        config_value="tcp://synthetic.invalid:9000",
-    )
-
-    assert "synthetic.invalid" not in result
-    assert "cannot be persisted inline" in result
     assert persisted == []
+    assert payload == {"error": "unknown configuration action"}
+    assert "set_config" not in analysis_tools._CONFIGURE_ACTION_DISPATCH
 
 
 def test_get_config_redacts_endpoint_and_path_values(

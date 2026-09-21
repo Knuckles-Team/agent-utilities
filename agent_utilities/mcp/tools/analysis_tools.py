@@ -4033,7 +4033,7 @@ def _configure_action_generate_config(action, config_key, config_value):
 
 
 def _configure_known_env_fields():
-    # extracted from 'get_config'/'set_config'/'list_config' (CX-AU-03: split for CCN)
+    # extracted from 'get_config'/'list_config' (CX-AU-03: split for CCN)
     from agent_utilities.deployment import config_reference
 
     known: dict[str, dict] = {}
@@ -4071,50 +4071,8 @@ def _configure_get_config_value(env_key, meta):
     )
 
 
-def _configure_set_config_value(env_key, meta, config_value):
-    # action(s): 'set_config'
-    from agent_utilities.deployment import is_restart_required
-
-    if _configuration_key_is_sensitive(env_key, meta):
-        if not env_key.endswith("_REF") or not _runtime_reference(config_value):
-            return json.dumps(
-                {
-                    "error": (
-                        "sensitive settings cannot be persisted inline; "
-                        "use the secret store and a reference-capable setting"
-                    )
-                }
-            )
-    parsed = config_value
-    if config_value and config_value.strip()[:1] in '[{"':
-        try:
-            parsed = json.loads(config_value)
-        except Exception:
-            parsed = config_value
-    from agent_utilities.core.config import save_config_item
-
-    save_config_item(env_key, parsed)
-    restart = is_restart_required(env_key)
-    return json.dumps(
-        {
-            "status": "success",
-            "key": env_key,
-            # BUG-065: renamed from ``applied_live`` — see the
-            # identical field on ``config_admin.set_value``
-            # (the ``graph_config`` twin of this
-            # ``graph_configure`` action) for why: this process
-            # has no evidence about any OTHER replica having
-            # picked up the write, only that ITS OWN cached
-            # fields do or don't need a restart to see it.
-            "applied_in_this_process": not restart,
-            "restart_required": restart,
-        },
-        default=str,
-    )
-
-
 def _configure_action_get_config(action, config_key, config_value):
-    # action(s): 'get_config', 'set_config', 'list_config'
+    # action(s): 'get_config', 'list_config'
     known = _configure_known_env_fields()
     if action == "list_config":
         return _configure_list_config(known)
@@ -4123,9 +4081,7 @@ def _configure_action_get_config(action, config_key, config_value):
     env_key = config_key.upper()
     if env_key not in known:
         return json.dumps({"error": "Unknown config key (see config_reference)"})
-    if action == "get_config":
-        return _configure_get_config_value(env_key, known[env_key])
-    return _configure_set_config_value(env_key, known[env_key], config_value)
+    return _configure_get_config_value(env_key, known[env_key])
 
 
 def _configure_action_frontend_contributions(action, config_key, config_value):
@@ -4401,7 +4357,6 @@ _CONFIGURE_ACTION_DISPATCH = {
     "config_doctor": _configure_action_generate_config,
     "config_reference": _configure_action_generate_config,
     "get_config": _configure_action_get_config,
-    "set_config": _configure_action_get_config,
     "list_config": _configure_action_get_config,
     "frontend_contributions": _configure_action_frontend_contributions,
     "health": _configure_action_health,
@@ -4720,7 +4675,7 @@ def register_analysis_tools(mcp):
                 "schema_pack, schema_candidates, add_connection, remove_connection, "
                 "list_connections, mirror_status, reconcile, "
                 "generate_config, config_doctor, config_reference, get_config, "
-                "set_config, list_config, system_doctor, health, preflight, and "
+                "list_config, system_doctor, health, preflight, and "
                 "doctor (hook-installer self-check; distinct from config_doctor/"
                 "system_doctor). set_role_routing persists a role's model "
                 "registry routing entry (config_value is the JSON RoleSpec "
