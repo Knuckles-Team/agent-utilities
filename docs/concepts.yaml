@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1230
+total_concepts: 1229
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -784,7 +784,6 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
-  - agent_utilities/control_plane/agents/models.py
   - agent_utilities/knowledge_graph/research/evolution_state.py
   - agent_utilities/models/knowledge_graph.py
   doc: skill
@@ -1262,7 +1261,6 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
-  - agent_utilities/control_plane/connectors/models.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
@@ -4231,7 +4229,6 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/control_plane/sources/models.py
   - agent_utilities/gateway/registry_api.py
   - agent_utilities/knowledge_graph/core/discovery_authority.py
   - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
@@ -9221,13 +9218,6 @@ concepts:
   code_paths:
   - agent_utilities/nested_context.py
   doc: Nested Subfolder Instructions
-- id: AU-OS.control-plane.economics
-  name: auditable usage, pricing, and SLO read
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/control_plane/economics/models.py
-  doc: auditable usage, pricing, and SLO read
 - id: AU-OS.deployment.agent-factory-autoload
   name: the agent factory loads flat
   pillar: AU-OS
@@ -10013,7 +10003,6 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
-  - agent_utilities/control_plane/foundation/models.py
   - agent_utilities/security/tenant_rbac_admission.py
   doc: root-cause fix for the P0
 - id: AU-OS.identity.tenant-rbac-admission-deploy-bridge

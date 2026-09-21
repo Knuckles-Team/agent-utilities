@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-416 publishable pages · 96 direct nav targets · 133 public capabilities · 883 action rows · 574 typed configuration fields · 375 runtime-only call-site inputs.
+406 publishable pages · 96 direct nav targets · 133 public capabilities · 883 action rows · 574 typed configuration fields · 375 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -149,7 +149,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — catalog
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — catalog
-- [Agent control-plane release admission](../architecture/agent-control-plane.md) — catalog
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — catalog
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — catalog
 - [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — catalog
@@ -171,14 +170,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Cross-host concept reservation authority](../architecture/concept-reservation-authority.md) — catalog
 - [Knowledge Graph Ingestion — Concept Extraction Standards](../architecture/concept_extraction_standards.md) — catalog
 - [Configuration Reference & Flag Audit](../architecture/configuration.md) — catalog
-- [Connector control-plane contract](../architecture/connector-control-plane.md) — catalog
 - [Containerized deployment](../architecture/containerized-deployment.md) — catalog
 - [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — catalog
-- [Control-plane foundation contracts](../architecture/control-plane-foundation.md) — catalog
-- [Governed control-plane migrations](../architecture/control-plane-migrations.md) — catalog
-- [Control-plane Web UI authority](../architecture/control-plane-webui.md) — catalog
-- [Policy-bound resolved runs](../architecture/control_plane_policy_runs.md) — catalog
-- [Immutable workflow control plane](../architecture/control_plane_workflows.md) — catalog
 - [NE-115 real data-preparation acceptance](../architecture/data-prep-acceptance.md) — catalog
 - [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — catalog
 - [Optional operator data-quality certification](../architecture/data-quality-certification.md) — catalog
@@ -188,7 +181,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Drift-proof release & versioning](../architecture/drift_proof_release.md) — catalog
 - [Durable Execution — the unified plane (supersedes restate natively)](../architecture/durable-execution.md) — catalog
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
-- [Economics and SLO control-plane contract](../architecture/economics-control-plane.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — catalog
 - [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — catalog
 - [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — catalog
@@ -274,7 +266,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — catalog
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — catalog
 - [Relational authority and registry read model](../architecture/relational-authority.md) — catalog
-- [Relational control-plane authority and placement](../architecture/relational-control-plane.md) — catalog
 - [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — catalog
 - [Resource-pool capability authority](../architecture/resource-pool-authority.md) — catalog
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — catalog
@@ -289,7 +280,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
 - [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — catalog
-- [Source authority and evidence-gated checkpoints](../architecture/source-control-plane.md) — catalog
 - [Durable-State Externalization & Multi-Host Operation](../architecture/state_externalization.md) — catalog
 - [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — catalog
 - [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — catalog

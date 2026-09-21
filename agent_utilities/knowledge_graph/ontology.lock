@@ -548,10 +548,10 @@ agents/owncast-agent/connector_manifest.yml:
   triple_count: 59
 agents/paperless-ngx-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 0d16a4d37fb3788dff516ae3164ac238f443821dd0b1e33b9824a5f996069bc0
-  certification_hash: 643801a9b5b24e7d04712d66d90d359ed1ad27d6cb18d304d21fcce1b53a5ef9
+  certification_file_sha256: c3eba282b37d28c725c2956711d7f9a2153f717d22db906e0317bfb6e08b2b0a
+  certification_hash: 38176ae2cf47285d6f95cdc3376ca5aa6f1193e7c814c7d1feffdee07b19a308
   hash: b23d9d6d30379acaafa964fb47a13097010dfd70f7decc48cef1ef004f50849f
-  manifest_hash: 00c1c875bf625458620ec71412edbd081a7ff0a9624cd52ee500229522afc0f7
+  manifest_hash: b319782ab11a001ee2910606b7a795a7bf73b122c67ecd91f9e1f705b5710675
   signature: null
   signature_algorithm: none
   signer: UNSIGNED-PREVIEW

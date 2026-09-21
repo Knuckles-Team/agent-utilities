@@ -517,6 +517,108 @@ def test_differential_gate_does_not_treat_a_cross_file_copy_as_a_rename(tmp_path
     ) != check_wiring._finding_key(head)
 
 
+def _commit_differential_fixture(root: Path) -> None:
+    for args in (
+        ("init", "-q"),
+        ("config", "user.name", "Wire First Test"),
+        ("config", "user.email", "wire-first@example.invalid"),
+        ("add", "--", "agent_utilities", "tests"),
+        ("commit", "-qm", "baseline"),
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True)
+
+
+def test_differential_gate_accounts_for_test_only_method_unmasked_by_removal(
+    tmp_path,
+):
+    """Deleting an unrelated same-name caller must not manufacture new debt."""
+    source = tmp_path / "agent_utilities"
+    tests = tmp_path / "tests"
+    source.mkdir()
+    tests.mkdir()
+    (source / "__init__.py").write_text("")
+    (source / "target.py").write_text(
+        "class Target:\n    def retire(self):\n        return True\n"
+    )
+    (source / "legacy.py").write_text(
+        "class Legacy:\n    def retire(self):\n        return True\n"
+    )
+    (source / "service.py").write_text(
+        "from agent_utilities.legacy import Legacy\n\n"
+        "def run():\n    return Legacy().retire()\n"
+    )
+    (tests / "test_target.py").write_text(
+        "from agent_utilities.target import Target\n\n"
+        "def test_target():\n    assert Target().retire()\n"
+    )
+    _commit_differential_fixture(tmp_path)
+    (source / "legacy.py").unlink()
+    (source / "service.py").unlink()
+    subprocess.run(
+        ["git", "add", "-u", "--", "agent_utilities"], cwd=tmp_path, check=True
+    )
+    assert _differential_findings(tmp_path) == []
+
+
+def test_differential_gate_still_finds_method_whose_real_caller_was_removed(
+    tmp_path,
+):
+    """A removed caller importing the surviving definition remains new debt."""
+    source = tmp_path / "agent_utilities"
+    tests = tmp_path / "tests"
+    source.mkdir()
+    tests.mkdir()
+    (source / "__init__.py").write_text("")
+    (source / "target.py").write_text(
+        "class Target:\n    def retire(self):\n        return True\n"
+    )
+    (source / "service.py").write_text(
+        "from agent_utilities.target import Target\n\n"
+        "def run():\n    return Target().retire()\n"
+    )
+    (tests / "test_target.py").write_text(
+        "from agent_utilities.target import Target\n\n"
+        "def test_target():\n    assert Target().retire()\n"
+    )
+    _commit_differential_fixture(tmp_path)
+    (source / "service.py").unlink()
+    subprocess.run(
+        ["git", "add", "-u", "--", "agent_utilities"], cwd=tmp_path, check=True
+    )
+
+    assert {entry["symbol"] for entry in _differential_findings(tmp_path)} == {
+        "Target",
+        "Target.retire",
+    }
+
+
+def test_differential_gate_accounts_for_function_unmasked_by_removed_attribute(
+    tmp_path,
+):
+    """An unrelated attribute token must not mask old function debt forever."""
+    source = tmp_path / "agent_utilities"
+    tests = tmp_path / "tests"
+    source.mkdir()
+    tests.mkdir()
+    (source / "__init__.py").write_text("")
+    (source / "target.py").write_text("def comparison():\n    return True\n")
+    (source / "legacy.py").write_text(
+        "class Legacy:\n    comparison: str\n\n"
+        "def read(value):\n    return value.comparison\n"
+    )
+    (tests / "test_target.py").write_text(
+        "from agent_utilities.target import comparison\n\n"
+        "def test_target():\n    assert comparison()\n"
+    )
+    _commit_differential_fixture(tmp_path)
+    (source / "legacy.py").unlink()
+    subprocess.run(
+        ["git", "add", "-u", "--", "agent_utilities"], cwd=tmp_path, check=True
+    )
+
+    assert _differential_findings(tmp_path) == []
+
+
 # ---------------------------------------------------------------------------
 # Regression lock — the real repo must stay green with nothing new since HEAD
 # ---------------------------------------------------------------------------
@@ -688,3 +790,38 @@ def test_snapshot_symbol_scan_survives_ambient_git_dir_env(tmp_path, monkeypatch
     assert "Foo.bar" in symbols, (
         "ambient GIT_DIR/GIT_INDEX_FILE must not blank out the snapshot scan"
     )
+
+
+def test_snapshot_unmasking_context_survives_ambient_git_dir_env(
+    tmp_path, monkeypatch
+):
+    """Deletion accounting must read the same bare snapshot safely."""
+    snapshot = tmp_path / "snapshot"
+    src_dir = snapshot / "agent_utilities"
+    src_dir.mkdir(parents=True)
+    (src_dir / "target.py").write_text("def comparison():\n    return True\n")
+    tests_dir = snapshot / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_target.py").write_text(
+        "import agent_utilities.target as target\n\n"
+        "def test_target():\n    assert target.comparison()\n"
+    )
+
+    real_git_dir = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    monkeypatch.setenv("GIT_DIR", real_git_dir)
+    monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
+
+    sources, (idents, calls, imports, _, _) = (
+        check_wiring._read_head_snapshot_context(snapshot)
+    )
+
+    assert "agent_utilities/target.py" in sources
+    assert idents["tests/test_target.py"]["comparison"] > 0
+    assert calls["tests/test_target.py"]["comparison"] > 0
+    assert "agent_utilities.target" in imports["tests/test_target.py"]

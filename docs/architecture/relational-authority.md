@@ -96,7 +96,7 @@ python3 scripts/security/check_relational_authority.py
 ## Transactional outbox and GraphOS projection
 
 Control-plane state that is authoritative outside GraphOS uses the typed
-`agent_utilities.control_plane.projection` seam.  A repository commits the
+`graph_os.control_plane.projection` seam.  A repository commits the
 authoritative mutation and exactly one versioned `OutboxEnvelope` in the same
 transaction.  The envelope contains a stable aggregate/event identity, a
 monotonic per-aggregate sequence, exact SHA-256 digests, a bounded redacted

@@ -5,10 +5,9 @@ registry.  ``graph_configure`` owns named graph connections and
 ``source_connectors.registry`` owns executable source adapters; this module
 only projects those existing registries together with the reference-only
 ``AgentConfig`` declarations into a bounded, provider-oriented view for Atlas.
-The typed ``control_plane.connectors``/``control_plane.sources`` packages are
-repository protocols in this process, not live registries, so this projection
-does not invent control-plane observations until an approved runtime adapter
-exists.
+Graph OS owns the typed connector/source control-plane contracts. They are not
+live registries in this process, so this projection does not invent
+control-plane observations until an approved runtime adapter exists.
 
 No provider client is opened here.  In particular, the connection registry's
 ``connected`` bit means that a named adapter is already cached, not that this

@@ -1,6 +1,6 @@
 # Architecture Reference
 
-This is the curated entry point to the **151 architecture documents** in this repository — deep dives on one subsystem, one seam, or one hardening incident each. Start with **North-Star Architecture** for the whole-program view, then drop into whichever group matches what you're touching. Every file here is also reachable through MkDocs Material's site search if you already know its name.
+This is the curated entry point to the **141 architecture documents** in this repository — deep dives on one subsystem, one seam, or one hardening incident each. Start with **North-Star Architecture** for the whole-program view, then drop into whichever group matches what you're touching. Every file here is also reachable through MkDocs Material's site search if you already know its name.
 
 > New to the codebase? [`docs/pillars/index.md`](../pillars/index.md) is the 5-pillar concept map these documents implement; this page is the implementation detail underneath it.
 
@@ -11,7 +11,6 @@ The north star, the operating model, and the standards every other document here
 - [North-Star Architecture (the whole program)](north-star-architecture.md)
 - [Delegation-First Operating Model (orchestrate + resolve)](delegation-first-operating-model.md)
 - [agent-utilities-expert (KG-bound delegate)](agent-utilities-expert.md)
-- [Source Authority and Evidence-Gated Checkpoints](source-control-plane.md)
 - [Epistemic Operations Protocol](epistemic-operations-protocol.md)
 - [Empirical Development Standards — the incidents behind the rules](empirical-development-standards.md)
 - [Troubleshooting (cross-layer diagnose)](troubleshooting.md)
@@ -22,7 +21,6 @@ Who is acting, on whose behalf, with what authority — from the first request t
 
 - [Graph Authority Convergence (session, client, work state)](graph-authority-convergence.md)
 - [Per-Agent On-Behalf-Of Identity (delegation chain, ceiling, revocation)](per-agent-delegation.md)
-- [Agent Control-Plane Release Admission](agent-control-plane.md)
 - [Verified Identity Carrier Contract (GOC-15)](verified-identity-carrier-contract.md)
 - [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](identity-inheritance.md)
 - [MCP Fleet Authentication (JWT + Eunomia)](mcp_auth.md)
@@ -33,16 +31,7 @@ Who is acting, on whose behalf, with what authority — from the first request t
 
 ## Control-plane suite
 
-The governed control plane that resolves runs, workflows, migrations, connectors, economics, and the web UI against one authority.
-
-- [Control-plane foundation contracts](control-plane-foundation.md)
-- [Connector control-plane contract](connector-control-plane.md)
-- [Governed control-plane migrations](control-plane-migrations.md)
-- [Control-plane Web UI authority](control-plane-webui.md)
-- [Policy-bound resolved runs](control_plane_policy_runs.md)
-- [Immutable workflow control plane](control_plane_workflows.md)
-- [Economics and SLO control-plane contract](economics-control-plane.md)
-- [Relational control-plane authority and placement](relational-control-plane.md)
+The remaining runtime authority and resource-management seams.
 - [Relational Authority & Registry Read Model](relational-authority.md)
 - [Resource-pool capability authority](resource-pool-authority.md)
 - [Native WorkItem resource-reservation boundary](native-resource-reservation.md)

@@ -1427,19 +1427,218 @@ def _scan_snapshot_for_test_only_symbols(dest: Path) -> list[dict]:
         os.environ.update(ambient)
 
 
-def _head_symbol_context(
-    root: str,
-) -> tuple[set[str], dict[str, str]] | None:
-    """Return immutable HEAD finding keys plus proven current-path renames."""
-    renames = _current_to_head_renames(root)
-    if renames is None:
-        return None
-    with tempfile.TemporaryDirectory(prefix="au-wire-first-head-") as tmp:
-        dest = Path(tmp)
-        if not _materialize_head_snapshot(root, dest):
-            return None
-        head_symbols = _scan_snapshot_for_test_only_symbols(dest)
-    return {_finding_key(entry) for entry in head_symbols}, renames
+def _source_imports(au_sources: dict[str, str]) -> dict[str, set[str]]:
+    """Return import targets for each parseable production source file."""
+    imports: dict[str, set[str]] = {}
+    for rel, source in au_sources.items():
+        try:
+            tree = ast.parse(source, filename=rel)
+        except SyntaxError:
+            continue
+        imports[rel] = collect_imports(rel, tree)
+    return imports
+
+
+def _read_head_snapshot_context(
+    snapshot: Path,
+) -> tuple[
+    dict[str, str],
+    tuple[
+        dict[str, Counter],
+        dict[str, Counter],
+        dict[str, set[str]],
+        Counter,
+        Counter,
+    ],
+]:
+    """Read a bare HEAD extraction without inheriting hook Git identity.
+
+    The snapshot is not a worktree. An ambient ``GIT_DIR``/``GIT_INDEX_FILE``
+    otherwise makes its filesystem walks resolve against the live repository,
+    the same hook-only failure shape guarded by
+    :func:`_scan_snapshot_for_test_only_symbols`.
+    """
+    ambient = {
+        key: os.environ.pop(key)
+        for key in _AMBIENT_GIT_IDENTITY_VARS
+        if key in os.environ
+    }
+    try:
+        sources = _read_au_sources(snapshot / "agent_utilities", snapshot)
+        tests = _index_test_sources(snapshot / "tests", snapshot)
+        return sources, tests
+    finally:
+        os.environ.update(ambient)
+
+
+def _method_modules_by_name(
+    methods_by_file: dict[str, list[tuple[str, str, int, bool]]],
+) -> dict[str, set[str]]:
+    """Index the HEAD modules defining each public method name."""
+    modules: dict[str, set[str]] = defaultdict(set)
+    for rel, methods in methods_by_file.items():
+        for _class_name, method_name, _line, _is_property in methods:
+            modules[method_name].add(path_to_module_name(rel))
+    return modules
+
+
+def _candidate_had_head_test(
+    entry: dict,
+    *,
+    defining_module: str,
+    head_test_idents: dict[str, Counter],
+    head_test_calls: dict[str, Counter],
+    head_test_imports: dict[str, set[str]],
+) -> bool:
+    """Return whether HEAD already exercised the surviving candidate."""
+    name = entry["symbol"].rsplit(".", 1)[-1]
+    if entry["kind"] == "method":
+        return any(
+            calls.get(name, 0) > 0
+            and defining_module in head_test_imports.get(test_rel, set())
+            for test_rel, calls in head_test_calls.items()
+        )
+    if any(
+        idents.get(name, 0) > 0
+        and defining_module in head_test_imports.get(test_rel, set())
+        for test_rel, idents in head_test_idents.items()
+    ):
+        return True
+    # A unique top-level name uses the census's pooled test counter. Preserve
+    # that accounting: an existing same-token test mention proves the newly
+    # surfaced result is pooled-name noise rather than new debt.
+    return any(idents.get(name, 0) > 0 for idents in head_test_idents.values())
+
+
+def _lost_symbol_sources(
+    *,
+    rel: str,
+    name: str,
+    head_counts: dict[str, Counter],
+    current_counts: dict[str, Counter],
+) -> set[str]:
+    """Return files whose occurrences of ``name`` decreased since HEAD."""
+    return {
+        source_rel
+        for source_rel, counts in head_counts.items()
+        if source_rel != rel
+        and counts.get(name, 0)
+        > current_counts.get(source_rel, Counter()).get(name, 0)
+    }
+
+
+def _losses_belong_to_other_symbol(
+    *,
+    entry: dict,
+    defining_module: str,
+    lost_from: set[str],
+    head_imports: dict[str, set[str]],
+    method_modules: dict[str, set[str]],
+) -> bool:
+    """Prove every lost occurrence belonged to an unrelated definition."""
+    if not lost_from or any(
+        defining_module in head_imports.get(source_rel, set())
+        for source_rel in lost_from
+    ):
+        return False
+    if entry["kind"] != "method":
+        return True
+    name = entry["symbol"].rsplit(".", 1)[-1]
+    collision_modules = method_modules.get(name, set()) - {defining_module}
+    return bool(collision_modules) and all(
+        head_imports.get(source_rel, set()) & collision_modules
+        for source_rel in lost_from
+    )
+
+
+def _preexisting_findings_unmasked_by_removal(
+    *, snapshot: Path, current_root: Path, candidates: list[dict]
+) -> set[str]:
+    """Find old debt exposed only by removing an unrelated same-name masker.
+
+    The live census intentionally uses pooled production-name counts because
+    dependency-injected callers often do not import the concrete class.  The
+    trade-off is that a call to ``A.retire`` also masks an unrelated, already
+    test-only ``B.retire``.  Removing ``A`` must not manufacture new debt on
+    unchanged ``B``.  This accounting is deliberately narrow and fail-closed:
+
+    * the surviving definition must be byte-identical to HEAD;
+    * its own importing test must already exist at HEAD; and
+    * every production occurrence lost since HEAD must be attributable to a
+      file that does not import the surviving definition.  For methods, that
+      file must instead import another HEAD module defining the same method.
+
+    A removed real caller that imports the surviving module therefore remains
+    a new finding and still fails the gate.
+    """
+    head_sources, head_test_context = _read_head_snapshot_context(snapshot)
+    current_sources = _read_au_sources(current_root / "agent_utilities", current_root)
+    head_idents, head_calls, _, _ = _index_au_sources(head_sources)
+    current_idents, current_calls, _, _ = _index_au_sources(current_sources)
+    head_imports = _source_imports(head_sources)
+    _head_trees, _head_top_defs, head_methods = _collect_definitions(head_sources)
+    method_modules = _method_modules_by_name(head_methods)
+
+    head_test_idents, head_test_calls, head_test_imports, _, _ = head_test_context
+
+    accounted: set[str] = set()
+    for entry in candidates:
+        rel = entry["file"]
+        symbol = entry["symbol"]
+        head_source = head_sources.get(rel)
+        if head_source is None or head_source != current_sources.get(rel):
+            continue
+        defining_module = path_to_module_name(rel)
+        is_method = entry["kind"] == "method"
+        name = symbol.rsplit(".", 1)[-1]
+        if not _candidate_had_head_test(
+            entry,
+            defining_module=defining_module,
+            head_test_idents=head_test_idents,
+            head_test_calls=head_test_calls,
+            head_test_imports=head_test_imports,
+        ):
+            continue
+        head_counts = head_calls if is_method else head_idents
+        current_counts = current_calls if is_method else current_idents
+        lost_from = _lost_symbol_sources(
+            rel=rel,
+            name=name,
+            head_counts=head_counts,
+            current_counts=current_counts,
+        )
+        if _losses_belong_to_other_symbol(
+            entry=entry,
+            defining_module=defining_module,
+            lost_from=lost_from,
+            head_imports=head_imports,
+            method_modules=method_modules,
+        ):
+            accounted.add(_finding_key(entry))
+    return accounted
+
+
+def _new_findings_from_head_snapshot(
+    *,
+    snapshot: Path,
+    current_root: Path,
+    current_symbols: list[dict],
+    renames: dict[str, str],
+) -> list[dict]:
+    """Compare current findings with one already-materialized HEAD tree."""
+    head_symbols = _scan_snapshot_for_test_only_symbols(snapshot)
+    head_keys = {_finding_key(entry) for entry in head_symbols}
+    new_findings = [
+        entry
+        for entry in current_symbols
+        if _finding_key_at_head(entry, renames) not in head_keys
+    ]
+    preexisting = _preexisting_findings_unmasked_by_removal(
+        snapshot=snapshot,
+        current_root=current_root,
+        candidates=new_findings,
+    )
+    return [entry for entry in new_findings if _finding_key(entry) not in preexisting]
 
 
 def _new_symbol_findings_vs_head(
@@ -1452,15 +1651,19 @@ def _new_symbol_findings_vs_head(
     nothing this gate's findings could depend on has changed since HEAD."""
     if not _relevant_wire_first_files_changed(root):
         return []
-    context = _head_symbol_context(root)
-    if context is None:
+    renames = _current_to_head_renames(root)
+    if renames is None:
         return None
-    head_keys, renames = context
-    return [
-        entry
-        for entry in current_symbols
-        if _finding_key_at_head(entry, renames) not in head_keys
-    ]
+    with tempfile.TemporaryDirectory(prefix="au-wire-first-head-") as tmp:
+        snapshot = Path(tmp)
+        if not _materialize_head_snapshot(root, snapshot):
+            return None
+        return _new_findings_from_head_snapshot(
+            snapshot=snapshot,
+            current_root=Path(root),
+            current_symbols=current_symbols,
+            renames=renames,
+        )
 
 
 def _report_orphan_zero(orphans: list[str]) -> bool:

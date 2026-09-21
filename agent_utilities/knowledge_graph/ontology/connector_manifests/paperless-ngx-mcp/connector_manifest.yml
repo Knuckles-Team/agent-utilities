@@ -44,9 +44,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field:
@@ -86,7 +100,7 @@ sync:
   updated_field: null
   pagination: null
   doc_type: paperless-document-reference
-  tool_schema_sha256: 03ec5eaab6d51c0db66889da13114a6d7d33c90f1a6e8b4c2606ef1131a27d92
+  tool_schema_sha256: 61f929ad0314d5eb30bb1e6519aee91ec95f0ed8a810e88c36fed344fc24a0ae
   raw:
     server: paperless-ngx-mcp
     tool: paperless_ingestion_projection
@@ -98,7 +112,7 @@ sync:
     doc_type: paperless-document-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-09-20T00:00:00Z'
   source_artifacts:
   - paperless_ngx_mcp/connectors/mcp_source_presets.json
   - paperless_ngx_mcp/connectors/tool_schema_fingerprints.json
@@ -111,7 +125,7 @@ provenance:
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 9e794167c4a3c788a6bfe9cbed760596e623e9ef
+  source_commit: 685f8f64c8cd6759407c1ad64c915f960cdf9ca1
 policy:
   pii_fields: {}
   tenant_boundary: null

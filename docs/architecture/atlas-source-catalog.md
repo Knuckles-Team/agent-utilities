@@ -32,7 +32,7 @@ The `querySurfaces` projection points Atlas at the existing `graph_ask`/`nl_quer
 natural-language paths and the `engine_query(action="uql")` path. Provider
 catalogue discovery reuses `graph_configure`'s process-owned connection
 registry and the executable source-connector registry; it does not maintain a
-WebUI-local provider list. The typed `control_plane.connectors` and
-`control_plane.sources` packages currently expose repository protocols rather
-than a live process registry, so no unbacked control-plane state is claimed;
-their runtime adapter remains a follow-up integration seam.
+WebUI-local provider list. Graph OS owns the typed connector/source
+control-plane contracts, which are not a live process registry here, so no
+unbacked control-plane state is claimed; their runtime adapter remains a
+follow-up integration seam.
