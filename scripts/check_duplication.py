@@ -1132,62 +1132,44 @@ def _clone_keys(doc: dict, worktree_root: Path) -> set[tuple]:
     Cross-file pairs use only their two worktree-relative paths, so a line
     shift elsewhere in either file (or the fact that before/after live in two
     different temp dirs) does not produce a spurious NEW/GONE pair.  An
-    intra-file pair also carries each location's range: a set of filenames
-    cannot distinguish two legitimate occurrences in the same file.
+    intra-file pairs use a stable ordinal per ``(format, fragment, path)``.
+    Absolute line ranges are deliberately excluded from identity: inserting an
+    unrelated line above both occurrences must not turn one existing pair into
+    one resolved plus one new pair. The ordinal retains multiplicity, so adding
+    another same-file pair still produces a new key.
 
     The third tuple member always contains two ``(path, range)`` locations.
-    ``range`` is ``None`` for cross-file pairs and a canonical, displayable
-    range tuple for intra-file pairs.  Keeping both locations, rather than a
-    set of paths, preserves same-file findings for the enforce renderer.
+    ``range`` is ``None`` for cross-file pairs and a stable pair ordinal for
+    intra-file pairs. Keeping both locations, rather than a set of paths,
+    preserves same-file findings for the enforce renderer.
     """
     keys = set()
+    intra_file_counts: dict[tuple[str, str, str], int] = {}
     for c in doc.get("duplicates", []):
         format_name = c["format"]
         first_name = _report_file_path(c["firstFile"]["name"], format_name)
         second_name = _report_file_path(c["secondFile"]["name"], format_name)
         f1 = _relative_clone_path(first_name, worktree_root)
         f2 = _relative_clone_path(second_name, worktree_root)
-        same_file = f1 == f2
-        first_location = _clone_location_key(
-            c["firstFile"], f1, include_range=same_file
-        )
-        second_location = _clone_location_key(
-            c["secondFile"], f2, include_range=same_file
-        )
         digest = hashlib.sha256(
             c["fragment"].encode("utf-8", "surrogatepass")
         ).hexdigest()
+        if f1 == f2:
+            group = (format_name, digest, f1)
+            intra_file_counts[group] = intra_file_counts.get(group, 0) + 1
+            continue
         keys.add(
-            (c["format"], digest, tuple(sorted((first_location, second_location))))
+            (
+                format_name,
+                digest,
+                tuple(sorted(((f1, None), (f2, None)))),
+            )
         )
+    for (format_name, digest, path), count in intra_file_counts.items():
+        for ordinal in range(1, count + 1):
+            marker = ("pair", ordinal, ordinal)
+            keys.add((format_name, digest, ((path, marker), (path, marker))))
     return keys
-
-
-def _clone_location_key(
-    location: dict, path: str, *, include_range: bool
-) -> tuple[str, tuple[str, int, int] | None]:
-    if not include_range:
-        return path, None
-    range_payload = {
-        "start": location.get("start"),
-        "end": location.get("end"),
-        "startLoc": location["startLoc"],
-        "endLoc": location["endLoc"],
-    }
-    range_key = json.dumps(
-        range_payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return (
-        path,
-        (
-            range_key,
-            location["startLoc"]["line"],
-            location["endLoc"]["line"],
-        ),
-    )
 
 
 def _format_clone_location(location: object) -> str:
@@ -1196,6 +1178,9 @@ def _format_clone_location(location: object) -> str:
     path, range_key = _clone_location_parts(location)
     if range_key is None:
         return path
+    if isinstance(range_key, tuple) and range_key[0] == "pair":
+        _identity, ordinal, _end = range_key
+        return f"{path} [intra-file pair {ordinal}]"
     start_line, end_line = _clone_range_lines(range_key, location)
     return f"{path}:{start_line}-{end_line}"
 

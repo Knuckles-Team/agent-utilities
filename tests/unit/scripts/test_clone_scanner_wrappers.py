@@ -250,10 +250,16 @@ def test_jscpd_report_parser_keeps_different_range_intra_file_clone(tmp_path):
     assert len(keys) == 1
     _format, _digest, locations = next(iter(keys))
     assert {location[0] for location in locations} == {"src/first.py"}
-    assert {location[1][1:] for location in locations} == {(2, 2), (4, 4)}
     assert (
-        jscpd._format_clone_pair(locations) == "src/first.py:2-2  <->  src/first.py:4-4"
+        jscpd._format_clone_pair(locations) == "src/first.py [intra-file pair 1]  <->  "
+        "src/first.py [intra-file pair 1]"
     )
+
+    shifted = deepcopy(report)
+    for side in ("firstFile", "secondFile"):
+        shifted["duplicates"][0][side]["startLoc"]["line"] += 20
+        shifted["duplicates"][0][side]["endLoc"]["line"] += 20
+    assert jscpd._clone_keys(shifted, root) == keys
 
 
 def test_jscpd_clone_keys_distinguish_same_file_ranges(tmp_path):
