@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 29 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+407 publishable pages · 31 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -436,8 +436,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Exact release train and production certification](../release/compatibility-and-certification.md) — direct nav
 - [Connector live certification](../release/connector-live-certification.md) — direct nav
 - [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — catalog
-- [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — catalog
-- [Exact installed local certification](../release/exact-local-gates.md) — catalog
+- [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — direct nav
+- [Exact installed local certification](../release/exact-local-gates.md) — direct nav
 - [Exact local GraphOS releases](../release/exact-local-release.md) — catalog
 - [Exact OCI-layout export](../release/oci-layout-export.md) — catalog
 - [Exact OCI vulnerability scanning](../release/oci-vulnerability-scanning.md) — catalog

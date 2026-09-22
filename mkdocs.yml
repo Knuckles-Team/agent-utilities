@@ -45,6 +45,8 @@ nav:
       - Observability: guides/observability-usage-tracking.md
       - Connector certification: release/connector-live-certification.md
       - Compatibility and certification: release/compatibility-and-certification.md
+      - Exact-artifact closure evidence: release/exact-artifact-closure.md
+      - Exact Installed Local Certification: release/exact-local-gates.md
   - Architecture:
       - Overview: architecture/index.md
       - Runtime authority: architecture/graph-authority-convergence.md

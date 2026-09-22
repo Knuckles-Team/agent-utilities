@@ -115,7 +115,8 @@ jobs:
           path: .uv-workspace-siblings/langfuse-agent
           persist-credentials: false
 
-      - name: Checkout pinned Agent Connector SDK source
+      - &sdk-checkout
+        name: Checkout pinned Agent Connector SDK source
         uses: ./.github/actions/checkout-agent-connector-sdk
 
       - name: Sync advisory environment (source contracts, no native engine build)
@@ -566,9 +567,13 @@ jobs:
 
       - *setup-uv-locked
 
+      - *sdk-checkout
+
       # Same pattern release.yml's `gates` job uses for its static/test-suite
       # lane: no native engine (Linux-built binary; not what this job is
-      # proving), test extras + guardrails group only.
+      # proving), test extras + guardrails group only. agent-connector-sdk is
+      # a hard base dependency (not excludable like epistemic-graph/
+      # langfuse-agent) so its editable sibling must be checked out above.
       - name: Sync test environment (no native engine)
         id: sync
         continue-on-error: true
@@ -659,9 +664,16 @@ jobs:
 
       - *setup-uv-locked
 
-      - name: Sync environment (owl extra for manifest compile)
+      - *sdk-checkout
+
+      # RF-ADR-009 (43197d7c6) deleted the `owl` extra (owlready2/pyshacl full
+      # OWL-DL reasoning) when semantic authority moved to epistemic-graph;
+      # scripts/generate_connector_manifests.py and
+      # scripts/generate_native_connector_manifest.py only ever imported
+      # rdflib for manifest compilation, which is the narrower `rdf` extra.
+      - name: Sync environment (rdf extra for manifest compile)
         run: |
-          uv sync --frozen --extra test --extra owl \
+          uv sync --frozen --extra test --extra rdf \
             --no-install-package epistemic-graph \
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"

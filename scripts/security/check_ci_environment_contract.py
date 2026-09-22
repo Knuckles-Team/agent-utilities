@@ -53,12 +53,26 @@ import argparse
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 WORKFLOW_DIR = Path(".github/workflows")
+
+#: The composite action every job MUST run before a `uv sync` that does not
+#: `--no-install-package agent-connector-sdk` (it is a hard base dependency,
+#: never excludable — see `agent-connector-sdk` in `[tool.uv.sources]`,
+#: pyproject.toml). Unlike epistemic-graph/langfuse-agent (excluded from
+#: resolution entirely via `--no-install-package`, so their untracked sibling
+#: directory is never needed), this package's editable path source MUST exist
+#: on disk for `uv sync --frozen` to resolve at all — real CI provisions it
+#: with this action; a tracked-files-only export never has it materialized.
+SDK_CHECKOUT_ACTION = "./.github/actions/checkout-agent-connector-sdk"
+SDK_SIBLING_DIR = Path(".uv-workspace-siblings/agent-connector-sdk")
 
 #: Commands that build a job's environment. ``uv sync`` is enforced (it is
 #: fully offline-resolvable from ``uv.lock`` and is what has actually broken);
@@ -83,14 +97,80 @@ class EnvBuild:
     workflow: str
     command: str
     enforced: bool
+    job: str = ""
 
     @property
     def argv(self) -> list[str]:
         return shlex.split(self.command)
 
 
-def _run_blocks(text: str) -> list[str]:
-    """Every shell body under a ``run:`` key in *text*.
+def _job_of_line(text: str) -> list[str]:
+    """The enclosing top-level job name for every line index in *text*.
+
+    A minimal companion scan to :func:`_run_blocks`: job keys are exactly
+    2-space-indented under a top-level ``jobs:`` key in every workflow this
+    repository writes. Kept as its own tiny regex pass rather than folded
+    into the YAML load below, so a schema change elsewhere still cannot break
+    command extraction -- only the job *label* attached to it degrades to
+    ``""``, which is handled explicitly by callers.
+    """
+    lines = text.splitlines()
+    result: list[str] = [""] * len(lines)
+    in_jobs = False
+    current = ""
+    for i, line in enumerate(lines):
+        if re.match(r"^jobs:\s*(#.*)?$", line):
+            in_jobs = True
+            current = ""
+        elif in_jobs:
+            m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*(#.*)?$", line)
+            if m:
+                current = m.group(1)
+        result[i] = current
+    return result
+
+
+_RUN_KEY = re.compile(r"^(\s*)-?\s*run:\s*(\|-?|>-?|)\s*(.*)$")
+
+
+def _block_body(lines: list[str], start: int, base: int) -> tuple[list[str], int]:
+    """Stripped lines of the block scalar starting at *start*, and the next index."""
+    body: list[str] = []
+    i = start
+    while i < len(lines):
+        nxt = lines[i]
+        if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= base:
+            break
+        body.append(nxt.strip())
+        i += 1
+    return body, i
+
+
+def _fold_continuations(body: list[str]) -> list[str]:
+    """Fold shell line-continuations back into single commands."""
+    folded: list[str] = []
+    acc = ""
+    for raw in body:
+        if raw.endswith("\\"):
+            acc += raw[:-1].rstrip() + " "
+            continue
+        folded.append((acc + raw).strip())
+        acc = ""
+    if acc.strip():
+        folded.append(acc.strip())
+    return folded
+
+
+def _block_commands(style: str, body: list[str]) -> list[str]:
+    """Commands of one block scalar; a ``>`` folded scalar joins with spaces."""
+    folded = _fold_continuations(body)
+    if style.startswith(">"):
+        return [" ".join(folded)]
+    return folded
+
+
+def _run_blocks(text: str) -> list[tuple[str, str]]:
+    """Every ``(job, shell body)`` pair under a ``run:`` key in *text*.
 
     Deliberately a scanner rather than a YAML load: the workflows use block
     scalars (``run: |`` and ``run: >-``) whose bodies are plain shell, and a
@@ -98,46 +178,54 @@ def _run_blocks(text: str) -> list[str]:
     file. Continuation backslashes are folded so a command split across lines
     is recovered whole -- which is how *both* real sync steps are written.
     """
-    blocks: list[str] = []
+    blocks: list[tuple[str, str]] = []
     lines = text.splitlines()
+    job_of_line = _job_of_line(text)
     i = 0
     while i < len(lines):
-        line = lines[i]
-        m = re.match(r"^(\s*)-?\s*run:\s*(\|-?|>-?|)\s*(.*)$", line)
+        m = _RUN_KEY.match(lines[i])
         if not m:
             i += 1
             continue
+        job = job_of_line[i]
         indent, style, inline = m.group(1), m.group(2), m.group(3)
         if not style and inline:
-            blocks.append(inline)
+            blocks.append((job, inline))
             i += 1
             continue
-        body: list[str] = []
-        base = len(indent)
-        i += 1
-        while i < len(lines):
-            nxt = lines[i]
-            if nxt.strip() and (len(nxt) - len(nxt.lstrip())) <= base:
-                break
-            body.append(nxt.strip())
-            i += 1
-        # Fold shell line-continuations back into single commands.
-        folded: list[str] = []
-        acc = ""
-        for raw in body:
-            if raw.endswith("\\"):
-                acc += raw[:-1].rstrip() + " "
-                continue
-            folded.append((acc + raw).strip())
-            acc = ""
-        if acc.strip():
-            folded.append(acc.strip())
-        # A `>-` folded scalar joins every line with spaces, not newlines.
-        if style.startswith(">"):
-            blocks.append(" ".join(folded))
-        else:
-            blocks.extend(folded)
+        body, i = _block_body(lines, i + 1, len(indent))
+        blocks.extend((job, command) for command in _block_commands(style, body))
     return blocks
+
+
+def sdk_checkout_jobs(text: str) -> set[str]:
+    """Job names in *text* whose steps run :data:`SDK_CHECKOUT_ACTION`.
+
+    A real (alias-resolving) YAML load, deliberately scoped to the ``uses:``
+    field alone -- the one place a full parse is safe, since GitHub Actions
+    jobs commonly share this exact step via a YAML anchor/alias (``&sdk-
+    checkout`` / ``*sdk-checkout``) that a plain-text scan cannot follow.
+    Malformed/unparseable YAML degrades to "no job provisions it", which
+    makes every enforced build in that file MORE strict, never less.
+    """
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return set()
+    if not isinstance(doc, dict):
+        return set()
+    jobs = doc.get("jobs")
+    if not isinstance(jobs, dict):
+        return set()
+    provisioned: set[str] = set()
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and step.get("uses") == SDK_CHECKOUT_ACTION:
+                provisioned.add(name)
+                break
+    return provisioned
 
 
 def discover(repo_root: Path) -> list[EnvBuild]:
@@ -146,12 +234,12 @@ def discover(repo_root: Path) -> list[EnvBuild]:
     wf_dir = repo_root / WORKFLOW_DIR
     for path in sorted(wf_dir.glob("*.yml")) + sorted(wf_dir.glob("*.yaml")):
         text = path.read_text(encoding="utf-8")
-        for block in _run_blocks(text):
+        for job, block in _run_blocks(text):
             cmd = block.strip()
             if ENFORCED.search(cmd):
-                found.append(EnvBuild(path.name, cmd, enforced=True))
+                found.append(EnvBuild(path.name, cmd, enforced=True, job=job))
             elif REPORTED.search(cmd):
-                found.append(EnvBuild(path.name, cmd, enforced=False))
+                found.append(EnvBuild(path.name, cmd, enforced=False, job=job))
     return found
 
 
@@ -214,6 +302,57 @@ def replay(tree: Path, build: EnvBuild) -> tuple[bool, str]:
     return False, "\n".join(tail.splitlines()[-4:])
 
 
+def _provisioned_jobs_by_workflow(repo_root: Path) -> dict[str, set[str]]:
+    """``{workflow filename: {job names that run SDK_CHECKOUT_ACTION}}``."""
+    wf_dir = repo_root / WORKFLOW_DIR
+    out: dict[str, set[str]] = {}
+    for path in sorted(wf_dir.glob("*.yml")) + sorted(wf_dir.glob("*.yaml")):
+        out[path.name] = sdk_checkout_jobs(path.read_text(encoding="utf-8"))
+    return out
+
+
+#: Just enough of a `pyproject.toml`/package for `uv sync --frozen --dry-run`
+#: to resolve a path-source dependency -- NOT a stand-in for the real SDK's
+#: content (this gate has no business validating agent-connector-sdk's own
+#: code; that is that repository's contract, not this one's). It models
+#: exactly the one real-CI-observable fact this gate can assert offline: the
+#: job provisions *some* directory there via SDK_CHECKOUT_ACTION before `uv
+#: sync` runs, so a tracked-files-only export must do the same to reproduce
+#: CI's actual resolvable state instead of manufacturing a failure CI never
+#: has.
+_SDK_STUB_PYPROJECT = """\
+[project]
+name = "agent-connector-sdk"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+"""
+
+
+def _set_sdk_stub_present(tree: Path, present: bool) -> None:
+    """Materialize or remove the placeholder SDK sibling directory in *tree*.
+
+    Toggled per-build (not once for the whole tree) because whether it should
+    exist is itself the thing under test: a job that omits
+    SDK_CHECKOUT_ACTION must still see "Distribution not found" here, exactly
+    as its real CI run would.
+    """
+    sibling = tree / SDK_SIBLING_DIR
+    if present:
+        if sibling.is_dir():
+            return
+        pkg = sibling / "agent_connector_sdk"
+        pkg.mkdir(parents=True, exist_ok=True)
+        (pkg / "__init__.py").touch()
+        (sibling / "pyproject.toml").write_text(_SDK_STUB_PYPROJECT, encoding="utf-8")
+    elif sibling.is_dir():
+        shutil.rmtree(sibling)
+
+
 def load_baseline(repo_root: Path) -> set[tuple[str, str]]:
     """``{(workflow, command)}`` already known not to resolve.
 
@@ -254,6 +393,7 @@ def check(repo_root: Path) -> tuple[int, dict]:
         }
 
     baseline = load_baseline(repo_root)
+    provisioned = _provisioned_jobs_by_workflow(repo_root)
     with tempfile.TemporaryDirectory(prefix="ci-env-contract-") as tmp:
         tree = Path(tmp) / "tracked"
         export_tracked_tree(repo_root, tree)
@@ -261,6 +401,9 @@ def check(repo_root: Path) -> tuple[int, dict]:
         failures = 0
         stale: list[dict] = []
         for build in enforced:
+            _set_sdk_stub_present(
+                tree, build.job in provisioned.get(build.workflow, set())
+            )
             ok, detail = replay(tree, build)
             key = (build.workflow, build.command)
             baselined = key in baseline
