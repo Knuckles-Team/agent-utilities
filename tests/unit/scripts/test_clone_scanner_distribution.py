@@ -45,6 +45,10 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     assert "github.event.pull_request.head.sha" in workflow
     assert "github.event.before" in workflow
     assert 'git cat-file -e "$base^{commit}"' in workflow
+    assert workflow.count("Checkout pinned Agent Connector SDK source") == 1
+    assert workflow.count("- *sdk-checkout") == 2
+    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in workflow
+    assert "path: .uv-workspace-siblings/agent-connector-sdk" in workflow
 
 
 def test_source_distribution_carries_the_clone_scanner_surface() -> None:
