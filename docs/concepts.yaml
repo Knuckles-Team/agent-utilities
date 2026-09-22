@@ -5401,7 +5401,6 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/pipeline/phases/parse.py
   - agent_utilities/models/knowledge_graph.py
   doc: emits database-ontology entities
 - id: AU-KG.ontology.enterprise-governance-validation
@@ -6111,7 +6110,6 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/document_ingestion.py
   - agent_utilities/knowledge_graph/pipeline/document_update.py
   - agent_utilities/knowledge_graph/pipeline/phases/parse.py
-  - agent_utilities/knowledge_graph/pipeline/phases/resolve.py
   - agent_utilities/knowledge_graph/pipeline/phases/sync.py
   - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
   - agent_utilities/models/codemap.py

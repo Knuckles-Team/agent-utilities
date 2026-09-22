@@ -74,7 +74,7 @@ class PipelineRunner:
                 "scan",
                 "registry",
             ],
-            "Stage 2: Structural Extraction": ["parse", "resolve", "mro", "reference"],
+            "Stage 2: Structural Extraction": ["parse"],
             "Stage 3: Topological & Semantic Enrichment": [
                 "communities",
                 "centrality",

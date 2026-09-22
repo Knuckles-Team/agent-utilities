@@ -297,6 +297,9 @@ async def execute_shacl_gate(
 shacl_gate_phase = PipelinePhase(
     name="shacl_gate",
     # Runs after nodes are resolved/built, before the sync (commit) phase.
-    deps=["resolve"],
+    # RF-031: was ["resolve"] -- that phase wrote no content anything else
+    # read and is deleted; "parse" is the actual upstream node/edge-writing
+    # phase this gate validates.
+    deps=["parse"],
     execute_fn=execute_shacl_gate,
 )

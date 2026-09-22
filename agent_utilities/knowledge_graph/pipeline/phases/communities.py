@@ -32,6 +32,10 @@ async def execute_communities(
 
 communities_phase = PipelinePhase(
     name="communities",
-    deps=["resolve", "mro", "reference"],
+    # RF-031: was ["resolve", "mro", "reference"] -- those phases wrote no
+    # content anything else read (see parse.py's module docstring) and are
+    # deleted; "parse" is the actual upstream phase whose graph writes this
+    # phase's whole-graph community_detection() operates over.
+    deps=["parse"],
     execute_fn=execute_communities,
 )
