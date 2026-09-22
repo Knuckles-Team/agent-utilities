@@ -1438,13 +1438,6 @@ class PipelineConfig(BaseModel):
     kb_extraction_model: str | None = None  # None = use default provider model
     kb_archive_age_days: int = 180
     kb_archive_importance_threshold: float = 0.3
-    enable_workspace_sync: bool = Field(
-        default_factory=lambda: (
-            __import__("os").getenv("ENABLE_KG_WORKSPACE_SYNC", "true").lower()
-            in ("true", "1", "yes")
-        )
-    )
-    kb_auto_ingest_cloned_repos: bool = True
     # External Graph Endpoints settings
     enable_external_graphs: bool = Field(
         default_factory=lambda: (

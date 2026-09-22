@@ -72,7 +72,6 @@ class PipelineRunner:
             "Stage 1: Context Hydration": [
                 "memory",
                 "scan",
-                "workspace_sync",
                 "registry",
             ],
             "Stage 2: Structural Extraction": ["parse", "resolve", "mro", "reference"],

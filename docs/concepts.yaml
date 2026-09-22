@@ -6113,7 +6113,6 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/parse.py
   - agent_utilities/knowledge_graph/pipeline/phases/resolve.py
   - agent_utilities/knowledge_graph/pipeline/phases/sync.py
-  - agent_utilities/knowledge_graph/pipeline/phases/workspace_sync.py
   - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
   - agent_utilities/models/codemap.py
   - agent_utilities/models/knowledge_base.py

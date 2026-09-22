@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleted. `AU-ORCH.execution.subgraph-synthesis` is retired with the no-op legacy
   node hierarchy that solely declared it; governed MCP servers, skills, and bundles
   remain the supported plugin surfaces.
+- **Dead `workspace_sync` pipeline phase (RF-031).** `agent_utilities.knowledge_graph.
+  pipeline.phases.workspace_sync` (Phase 14: clone workspace.yml projects via
+  `repository_manager` then auto-ingest them) was never registered in `PHASES`/
+  `STRUCTURAL_PHASES`, so it could never run. Deleted along with its dead
+  `PipelineConfig.enable_workspace_sync`/`.kb_auto_ingest_cloned_repos` fields and
+  the `ENABLE_KG_WORKSPACE_SYNC` env var.
 
 ## [2.5.0] - 2026-08-14 — Fleet-wide phased minor bump
 
