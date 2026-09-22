@@ -318,10 +318,12 @@ class AGEBackend(PostgreSQLBackend):
                 )
                 if cur.fetchone() is None:
                     cur.execute("SELECT ag_catalog.create_graph(%s)", (graph_name,))
-                # Embedding dim from the unified XDG config (kg_embedding_dim).
+                # Embedding dim from the CONFIGURED embedder (EH-277: fail-loud
+                # resolver, derives from e.g. bge-m3 -> 1024 instead of
+                # silently defaulting to 768).
                 from agent_utilities.core.config import config
 
-                dim = int(config.kg_embedding_dim or "768")
+                dim = config.resolved_kg_embedding_dim()
                 cur.execute(
                     "CREATE TABLE IF NOT EXISTS kg_embeddings "
                     f"(node_id TEXT PRIMARY KEY, embedding vector({dim}))"

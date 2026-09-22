@@ -72,11 +72,14 @@ from agent_utilities.security.log_redaction import redact_for_log
 
 logger = logging.getLogger(__name__)
 
-# Default per-chunk embedding dimensionality — driven by the unified XDG config
-# (config.kg_embedding_dim) so it tracks the configured embedding model; ties to
-# create_embedding_model() and the ontology ``embedding`` PropertyType
-# (CONCEPT:AU-KG.ingest.chunk-overlap-stage). 768 is only a last-resort fallback.
-DEFAULT_EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
+# Default per-chunk embedding dimensionality — driven by the CONFIGURED
+# embedding model (EH-277: `resolved_kg_embedding_dim` derives this from the
+# embedder, e.g. bge-m3 -> 1024, and fails loudly on a real mismatch, instead
+# of the raw field's silent 768 default) so it tracks create_embedding_model()
+# and the ontology ``embedding`` PropertyType
+# (CONCEPT:AU-KG.ingest.chunk-overlap-stage). 768 is only a last-resort
+# fallback when no embedder is configured at all.
+DEFAULT_EMBEDDING_DIM = config.resolved_kg_embedding_dim()
 
 # Ontology object/link type names. ``Document`` already exists as a first-class
 # node label in the ingestion fabric; ``Chunk`` is the per-chunk object this

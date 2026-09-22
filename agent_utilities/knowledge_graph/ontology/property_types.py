@@ -53,10 +53,12 @@ XSD = "http://www.w3.org/2001/XMLSchema#"
 KG = "http://knuckles.team/kg#"
 GEO = "http://www.opengis.net/ont/geosparql#"
 
-# Default embedding dimensionality — ties to create_embedding_model()'s 768
-# default and config.kg_embedding_dim (CONCEPT:AU-KG.ontology.ontology-property-types).
+# Default embedding dimensionality — derived from the CONFIGURED embedder
+# (CONCEPT:AU-KG.ontology.ontology-property-types). EH-277: use the fail-loud
+# resolver, not the raw field, which used to silently default to 768 even
+# when a configured embedder (e.g. bge-m3) emits a different dimension.
 try:
-    DEFAULT_VECTOR_DIM: int = int(config.kg_embedding_dim or "768")
+    DEFAULT_VECTOR_DIM: int = config.resolved_kg_embedding_dim()
 except (TypeError, ValueError):  # pragma: no cover - defensive
     DEFAULT_VECTOR_DIM = 768
 

@@ -1638,10 +1638,55 @@ class ChatModelConfig(BaseModel):
         return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
 
 
+# Known embedding-model output dimensions (id -> dim), keyed on a lowercased,
+# path-stripped model id. Used to DERIVE ``kg_embedding_dim`` from the
+# configured embedder instead of silently defaulting to 768 (EH-277: the live
+# deployment configures ``bge-m3`` -- a fixed 1024-dim model -- but never sets
+# ``KG_EMBEDDING_DIM``, so every KG backend silently ran its vector columns at
+# the 768 default: a real, live dimension mismatch, not a hypothetical one).
+# Extend this table as new embedders are adopted, or set ``dimension``
+# explicitly on that model's :class:`EmbeddingModelConfig` entry for anything
+# not listed here (a custom/self-hosted model, a fine-tune, etc.).
+KNOWN_EMBEDDING_MODEL_DIMENSIONS: dict[str, int] = {
+    "bge-m3": 1024,
+    "bge-large-en-v1.5": 1024,
+    "bge-base-en-v1.5": 768,
+    "bge-small-en-v1.5": 384,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+    "nomic-embed-text": 768,
+    "nomic-embed-text-v1.5": 768,
+    "all-minilm-l6-v2": 384,
+}
+
+
+def _known_embedding_dimension(model_id: str) -> int | None:
+    """Look up ``model_id`` in :data:`KNOWN_EMBEDDING_MODEL_DIMENSIONS`.
+
+    Matches case-insensitively and against the trailing path segment, so a
+    ``served-model-name``/repo-qualified id like ``BAAI/bge-m3`` or a
+    provider-prefixed id like ``openai/bge-m3`` still resolves.
+    """
+    if not model_id:
+        return None
+    key = model_id.strip().lower()
+    if key in KNOWN_EMBEDDING_MODEL_DIMENSIONS:
+        return KNOWN_EMBEDDING_MODEL_DIMENSIONS[key]
+    tail = key.rsplit("/", 1)[-1]
+    return KNOWN_EMBEDDING_MODEL_DIMENSIONS.get(tail)
+
+
 class EmbeddingModelConfig(BaseModel):
     id: str
     provider: str
     base_url: str | None = None
+    dimension: int | None = None
+    """Explicit vector output dimension for this embedder, when known. Takes
+    priority over :data:`KNOWN_EMBEDDING_MODEL_DIMENSIONS` lookup by ``id``
+    (EH-277) -- set this for a custom/self-hosted/fine-tuned model that isn't
+    in that table, so ``AgentConfig.resolved_kg_embedding_dim`` can still
+    derive the right value instead of falling back to a guess."""
     api_key_ref: str | None = None
     """Runtime reference for this embedder's API key."""
     oauth2: dict[str, Any] | None = None
@@ -3182,6 +3227,70 @@ class AgentConfig(BaseSettings):
     def default_embedding_model(self) -> EmbeddingModelConfig | None:
         """Primary embedding model (first in list)."""
         return self.embedding_models[0] if self.embedding_models else None
+
+    def resolved_kg_embedding_dim(self) -> int:
+        """The KG vector dimension every backend/schema MUST use.
+
+        (EH-277) Fixes a real, live source defect: every KG-vector consumer
+        used to read ``kg_embedding_dim`` directly (``int(config.kg_embedding_dim
+        or "768")``), which silently returns the field's literal ``768``
+        default whenever ``KG_EMBEDDING_DIM`` isn't set -- even when a
+        configured embedder (e.g. ``bge-m3``, fixed at 1024-dim) implies a
+        different value. That is exactly how a live deployment ran with a
+        768-dim schema against a 1024-dim embedder with no error anywhere.
+
+        Resolution order, all three cases now impossible to get silently wrong:
+
+        1. Derive ``derived`` from :pyattr:`default_embedding_model`: its own
+           explicit :pyattr:`EmbeddingModelConfig.dimension` if set, else a
+           :data:`KNOWN_EMBEDDING_MODEL_DIMENSIONS` lookup by ``id``.
+        2. If ``KG_EMBEDDING_DIM`` was EXPLICITLY set (checked against the real
+           process environment, not the field's post-default value, so an
+           unset env var is never confused with someone literally typing
+           ``768``) and ``derived`` is known and they disagree: FAIL LOUD.
+           A silent mismatch is exactly the defect this method exists to close.
+        3. If ``KG_EMBEDDING_DIM`` was explicitly set and there is no known
+           derived dimension to cross-check against (an unlisted custom
+           model, or no embedder configured at all): trust the explicit
+           override.
+        4. If ``KG_EMBEDDING_DIM`` was NOT explicitly set and ``derived`` is
+           known: use ``derived`` -- the fix for the live case above.
+        5. Otherwise (nothing explicit, nothing derivable -- e.g. a minimal
+           profile with no embedding model configured at all): fall back to
+           the field's own literal default (``768``), preserved for
+           backward compatibility with profiles that never touch embeddings.
+        """
+        model = self.default_embedding_model
+        derived: int | None = None
+        if model is not None:
+            derived = model.dimension or _known_embedding_dimension(model.id)
+
+        env_raw = os.environ.get("KG_EMBEDDING_DIM")
+        if env_raw is not None and env_raw.strip():
+            try:
+                explicit = int(env_raw.strip())
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"KG_EMBEDDING_DIM={env_raw!r} is not a valid integer"
+                ) from exc
+            if derived is not None and explicit != derived:
+                model_id = model.id if model is not None else "<unknown>"
+                raise RuntimeError(
+                    f"KG_EMBEDDING_DIM is explicitly set to {explicit}, but the configured "
+                    f"embedding model {model_id!r} emits {derived}-dim vectors. This is a "
+                    "genuine configuration mismatch (EH-277) -- fix KG_EMBEDDING_DIM (or the "
+                    "model's `dimension` override) to agree with the real embedder instead of "
+                    "silently truncating/refusing vector writes."
+                )
+            return explicit
+        if derived is not None:
+            return derived
+        try:
+            return int(self.kg_embedding_dim or "768")
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"kg_embedding_dim={self.kg_embedding_dim!r} is not a valid integer"
+            ) from exc
 
     # --- Parallel-call capacity resolution (CONCEPT:AU-KG.compute.concurrency-controller-sizing) ---
 

@@ -10,7 +10,11 @@ from agent_utilities.core.config import config
 
 from .knowledge_graph import GraphSchemaDefinition, RelDefinition, TableDefinition
 
-EMBEDDING_DIM = config.kg_embedding_dim or "768"
+# EH-277: derive from the configured embedder (e.g. bge-m3 -> 1024) instead of
+# the raw field, which silently defaults to 768 whenever KG_EMBEDDING_DIM isn't
+# set -- see AgentConfig.resolved_kg_embedding_dim for the fail-loud-on-mismatch
+# resolution order.
+EMBEDDING_DIM = str(config.resolved_kg_embedding_dim())
 EMBEDDING_TYPE = f"FLOAT[{EMBEDDING_DIM}]"
 
 # Canonical column set for an UNKNOWN-label node on a strict-schema backend

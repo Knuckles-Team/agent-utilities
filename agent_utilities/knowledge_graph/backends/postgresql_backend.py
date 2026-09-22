@@ -34,8 +34,11 @@ logger = logging.getLogger(__name__)
 # names none (CONCEPT:AU-KG.backend.mirror-target-graph).
 DEFAULT_GRAPH_NAME = "agent_graph"
 
-# Embedding dimension from env (must match model output)
-_EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
+# Embedding dimension from the CONFIGURED embedder (EH-277: fail-loud
+# resolver -- derives from the embedding model, e.g. bge-m3 -> 1024, and
+# raises if an explicit KG_EMBEDDING_DIM disagrees, instead of the raw field's
+# silent 768 default).
+_EMBEDDING_DIM = config.resolved_kg_embedding_dim()
 
 
 def _require_sql_identifier(value: object) -> str:

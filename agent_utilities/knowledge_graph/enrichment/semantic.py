@@ -150,13 +150,17 @@ def embedding_backfill_type_scope_clause(
 
 
 def configured_embedding_dimension() -> int:
-    """Return the positive vector dimension declared for the active KG schema."""
+    """Return the positive vector dimension declared for the active KG schema.
+
+    EH-277: delegates to ``AgentConfig.resolved_kg_embedding_dim`` (the single
+    source of truth every KG-vector consumer now shares) instead of reading
+    the raw ``kg_embedding_dim`` field directly, so this also fails loudly on
+    a real KG_EMBEDDING_DIM-vs-configured-embedder mismatch, not just on a
+    non-positive/unparseable value.
+    """
     from agent_utilities.core.config import config
 
-    try:
-        dimension = int(config.kg_embedding_dim or 0)
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError("KG embedding dimension is not a valid integer") from exc
+    dimension = config.resolved_kg_embedding_dim()
     if dimension <= 0:
         raise RuntimeError("KG embedding dimension must be positive")
     return dimension

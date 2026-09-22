@@ -328,12 +328,14 @@ class Neo4jBackend(GraphBackend):
         # with (see add_embedding). The old index targeted a ``:Chunk`` label that
         # no node ever carries, so vector search silently returned nothing.
         logger.info("Creating Neo4j vector index for embeddings (:Embeddable).")
-        # Embedding dimensionality is driven by the unified XDG config
-        # (config.kg_embedding_dim) — never hardcoded — so every backend agrees with
-        # the configured embedding model; 768 is only a last-resort fallback.
+        # Embedding dimensionality is driven by the CONFIGURED embedding model
+        # — never hardcoded — so every backend agrees with the real embedder.
+        # EH-277: use the fail-loud resolver (derives from bge-m3 etc., or
+        # raises on a genuine KG_EMBEDDING_DIM-vs-embedder mismatch) instead of
+        # the raw field, which used to silently default to 768.
         from agent_utilities.core.config import config
 
-        dim = int(config.kg_embedding_dim or "768")
+        dim = config.resolved_kg_embedding_dim()
         query = f"""
         CREATE VECTOR INDEX idx_embedding IF NOT EXISTS
         FOR (n:Embeddable) ON (n.embedding)
