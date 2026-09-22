@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 31 direct nav targets · 128 public capabilities · 826 action rows · 575 typed configuration fields · 372 runtime-only call-site inputs.
+408 publishable pages · 31 direct nav targets · 128 public capabilities · 826 action rows · 575 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -150,6 +150,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — catalog
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — catalog
+- [Agent control plane](../architecture/agent-control-plane.md) — catalog
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — catalog
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — catalog
 - [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — catalog
