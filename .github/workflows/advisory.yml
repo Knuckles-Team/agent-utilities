@@ -19,17 +19,15 @@ name: Advisory
 # the redesign's handoff notes / PR description for the full old-check ->
 # new-home mapping).
 #
-# Also carries the `pages` job (formerly the standalone pages.yml). Pages was
-# NOT genuinely independent of the release: it ran `pip install -e .`, which
-# resolves the SAME `epistemic-graph[full]>=2.23.2,<3.0.0` floor release.yml's
-# `gates` job checks — the exact deadlock in problem #2 (eg 2.23.0 is newest
-# on PyPI; au needs >=2.23.2) was Pages' actual failure mode ("Deploy-Pages
-# failure"). Docs deploy has no business blocking a package release either
-# way, so it belongs here: it reports its own failure (a red job, visible in
-# the Actions UI) without gating anything. It intentionally does not carry
-# per-job path filtering (GitHub Actions triggers are workflow-scoped, not
-# job-scoped, and this workflow's own `push` trigger is unconditional) — it
-# simply runs a cheap `mkdocs build` on every push to `main`.
+# Also carries the `pages` job (formerly the standalone pages.yml). Pages is a
+# static documentation pipeline: it checks out the shared theme, installs only
+# pinned documentation tooling, validates the committed docs, and deploys the
+# generated site. It deliberately never installs this package or resolves any
+# Agent Utilities runtime dependency. Documentation publication therefore stays
+# independent of the epistemic-graph / Agent Utilities package release order.
+# It intentionally does not carry per-job path filtering (GitHub Actions
+# triggers are workflow-scoped, not job-scoped, and this workflow's own `push`
+# trigger is unconditional), so it runs on every push to `main`.
 # ─────────────────────────────────────────────────────────────────────────
 
 on:
@@ -461,21 +459,24 @@ jobs:
           # reason every other job here does.
           python-version: '3.12'
 
-      - name: Install package and MkDocs
-        id: install
+      - name: Install static documentation tooling
+        id: docs_tooling
         continue-on-error: true
         run: |
-          pip install -e .
-          pip install mkdocs-material mkdocs-awesome-pages-plugin
+          python -m pip install --disable-pip-version-check \
+            "mkdocs-material==9.7.6" \
+            "mkdocs-awesome-pages-plugin==2.10.1" \
+            "platformdirs==4.11.0" \
+            "PyYAML==6.0.3"
 
       - name: Build Docs
-        if: steps.install.outcome == 'success'
+        id: build
+        if: steps.docs_tooling.outcome == 'success'
         continue-on-error: true
         env:
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
           python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
-          python3 scripts/docs_contract.py --check
           test -n "$PROHIBITED_IDENTITY_CATALOG"
           policy="$RUNNER_TEMP/prohibited-identities.json"
           printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
@@ -483,12 +484,12 @@ jobs:
           mkdocs build --strict
 
       - name: Setup Pages
-        if: steps.install.outcome == 'success'
+        if: steps.build.outcome == 'success'
         continue-on-error: true
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Upload artifact
-        if: steps.install.outcome == 'success'
+        if: steps.build.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
@@ -496,14 +497,14 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        if: steps.install.outcome == 'success'
+        if: steps.build.outcome == 'success'
         continue-on-error: true
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
 
-      - name: Report install failure (cross-repo release-order deadlock)
-        if: steps.install.outcome != 'success'
+      - name: Report static documentation preparation failure
+        if: always() && (steps.docs_tooling.outcome != 'success' || steps.build.outcome != 'success')
         run: |
-          echo "::warning::pages job could not install agent-utilities -- most likely the same cross-repo epistemic-graph release-order deadlock release.yml's 'gates' job checks for (see scripts/release/check_eg_pypi_resolvable.py). This does not block any release; docs redeploy automatically once installable again."
+          echo "::warning::pages job could not install its isolated documentation tooling or build the static site. No Agent Utilities runtime dependency is installed by this job."
           exit 0
 
   # ── Windows coverage (report only, never blocks) ──────────────────────────

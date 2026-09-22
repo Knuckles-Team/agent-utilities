@@ -199,6 +199,41 @@ def test_windows_and_pages_jobs_are_reported_not_silently_dropped():
         assert all(p["mode"] == "SKIP_LOUD" for p in rows)
 
 
+def test_pages_job_builds_static_docs_without_runtime_dependencies():
+    """Pages must remain publishable before sibling runtime wheels exist."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    steps = doc["jobs"]["pages"]["steps"]
+    by_name = {step["name"]: step for step in steps}
+
+    theme = by_name["Checkout shared documentation theme"]
+    assert theme["with"]["ref"] == "444b232c7975e125a24b17d53ff615f5ad26a4cd"
+
+    install = by_name["Install static documentation tooling"]
+    assert install["id"] == "docs_tooling"
+    command = install["run"]
+    for prohibited in ("pip install -e", "uv sync", "agent-utilities", "epistemic-graph"):
+        assert prohibited not in command
+    for requirement in (
+        "mkdocs-material==9.7.6",
+        "mkdocs-awesome-pages-plugin==2.10.1",
+        "platformdirs==4.11.0",
+        "PyYAML==6.0.3",
+    ):
+        assert requirement in command
+
+    build = by_name["Build Docs"]
+    assert build["id"] == "build"
+    assert build["if"] == "steps.docs_tooling.outcome == 'success'"
+    assert "sync_mkdocs_theme.py check" in build["run"]
+    assert "scripts/docs_contract.py" not in build["run"]
+    assert "scripts/check_tracked_privacy.py" in build["run"]
+    assert "mkdocs build --strict" in build["run"]
+
+    for name in ("Setup Pages", "Upload artifact", "Deploy to GitHub Pages"):
+        assert by_name[name]["if"] == "steps.build.outcome == 'success'"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # GAP 2 — external build-tool dependency check. This repo has no
 # .cargo/config.toml and no workflow step invokes cargo, so the proof here
