@@ -101,9 +101,9 @@ def test_present_but_invalid_private_helper_remains_fail_closed(tmp_path):
 # `_PLACEHOLDER_RE` matches raw text; these tests prove `_placeholder_ids` no
 # longer counts a hit sitting in docstring prose or in a non-marker comment,
 # while still catching a real stub (`raise NotImplementedError`, a bare
-# `pass`/`...` body, or a leading `TODO`/`FIXME`/`XXX`/`HACK` tag) — using the
+# `pass`/`...` body, or a leading work-marker tag) — using the
 # REAL vendored `_PLACEHOLDER_RE` (copied verbatim) and a real
-# `_decorator_names`, not the minimal ``"TODO"``-only fixture above, so the
+# `_decorator_names`, not the minimal single-marker fixture above, so the
 # masking logic is exercised against the actual trigger phrases.
 
 
