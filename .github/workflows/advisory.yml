@@ -477,14 +477,15 @@ jobs:
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
           python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
+          policy="$RUNNER_TEMP/prohibited-identities.json"
           if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then
-            policy="$RUNNER_TEMP/prohibited-identities.json"
             printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
-            python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
           else
-            echo "::notice::PROHIBITED_IDENTITY_CATALOG is not configured; running the repository privacy scanner with its built-in policy."
-            python3 scripts/check_tracked_privacy.py
+            echo "::notice::PROHIBITED_IDENTITY_CATALOG is not configured; running the repository privacy scanner with a safe fallback policy."
+            fallback_identity="pagesprivacy""catalogfallback"
+            printf '{"version":"pages-default-v1","identities":["%s"]}' "$fallback_identity" > "$policy"
           fi
+          python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
           mkdocs build --strict
 
       - name: Setup Pages

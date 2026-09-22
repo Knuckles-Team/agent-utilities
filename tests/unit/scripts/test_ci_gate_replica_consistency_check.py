@@ -233,7 +233,9 @@ def test_pages_job_builds_static_docs_without_runtime_dependencies():
         'scripts/check_tracked_privacy.py --identity-catalog "$policy"'
         in build["run"]
     )
-    assert "python3 scripts/check_tracked_privacy.py\n" in build["run"]
+    assert 'fallback_identity="pagesprivacy""catalogfallback"' in build["run"]
+    assert '"version":"pages-default-v1"' in build["run"]
+    assert "python3 scripts/check_tracked_privacy.py\n" not in build["run"]
     assert "mkdocs build --strict" in build["run"]
 
     for name in ("Setup Pages", "Upload artifact", "Deploy to GitHub Pages"):
