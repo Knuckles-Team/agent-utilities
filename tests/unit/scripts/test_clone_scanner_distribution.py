@@ -32,6 +32,9 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     advisory = (ROOT / ".github" / "workflows" / "advisory.yml").read_text(
         encoding="utf-8"
     )
+    sdk_checkout = (
+        ROOT / ".github" / "actions" / "checkout-agent-connector-sdk" / "action.yml"
+    ).read_text(encoding="utf-8")
     pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
     assert profile["dupehound_version"] == "0.1.2"
@@ -50,11 +53,11 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     assert 'git cat-file -e "$base^{commit}"' in workflow
     assert workflow.count("Checkout pinned Agent Connector SDK source") == 1
     assert workflow.count("- *sdk-checkout") == 2
-    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in workflow
-    assert "path: .uv-workspace-siblings/agent-connector-sdk" in workflow
+    assert workflow.count("uses: ./.github/actions/checkout-agent-connector-sdk") == 1
     assert advisory.count("Checkout pinned Agent Connector SDK source") == 1
-    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in advisory
-    assert "path: .uv-workspace-siblings/agent-connector-sdk" in advisory
+    assert advisory.count("uses: ./.github/actions/checkout-agent-connector-sdk") == 1
+    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in sdk_checkout
+    assert "path: .uv-workspace-siblings/agent-connector-sdk" in sdk_checkout
 
 
 def test_source_distribution_carries_the_clone_scanner_surface() -> None:

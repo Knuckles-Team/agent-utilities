@@ -117,12 +117,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout pinned Agent Connector SDK source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: Knuckles-Team/agent-connector-sdk
-          ref: 50d0ba5360407c2f6395a39bc5e8608d42fc365b
-          path: .uv-workspace-siblings/agent-connector-sdk
-          persist-credentials: false
+        uses: ./.github/actions/checkout-agent-connector-sdk
 
       - name: Sync full advisory environment (runtime engine + test extras)
         run: |
