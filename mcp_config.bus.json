@@ -29,7 +29,6 @@
         "JOBTOOL": "false",
         "MEDIA_SIDECARTOOL": "false",
         "ONTOLOGYTOOL": "false",
-        "OPS_CAUSALTOOL": "false",
         "QUERYTOOL": "false",
         "REACHTOOL": "true",
         "SECRETTOOL": "false",

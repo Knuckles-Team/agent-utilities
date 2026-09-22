@@ -800,7 +800,7 @@ def _derive_toggle_vars(root: Path) -> set[str]:
         except (OSError, UnicodeDecodeError):
             continue
     # The shared surface helpers match the pattern but are not domain registrars.
-    tags -= {"verbose", "tool_surface"}
+    tags -= {"verbose", "tool_surface", "conditional"}
     return {f"{t.upper()}TOOL" for t in tags}
 
 
