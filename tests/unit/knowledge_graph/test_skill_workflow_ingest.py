@@ -701,31 +701,23 @@ def test_ingest_atomic_skills_is_idempotent(tmp_path, authority):
     assert len(eng.of_type("CallableResource")) == 1
 
 
-def test_local_runnable_skill_relational_row_uses_verified_tenant_binding(
-    authority, monkeypatch
+def test_local_runnable_skill_ingest_does_not_touch_the_deleted_relational_writer(
+    authority,
 ):
-    """A local install remains visible without pretending it has OAuth authority."""
-    from agent_utilities.knowledge_graph.core import fleet_catalog_tables as catalog
-
-    captured: dict = {}
-
-    def _record_write(_engine, **kwargs):
-        captured.update(kwargs)
-        return True
-
-    monkeypatch.setattr(catalog, "write_skill_row", _record_write)
-
-    ingest_runnable_skill(
+    """EH-345: the relational-row write (``fleet_catalog_tables.write_skill_row``,
+    which used to mint a ``TenantLocalDiscoveryBinding`` here) is deleted from
+    ``ingest_runnable_skill`` -- the KG ``Skill``/``CallableResource`` upserts
+    are the whole effect now. Proven by absence: importing
+    ``fleet_catalog_tables`` at all is itself the old behaviour, so this just
+    confirms the call succeeds with no such module involved."""
+    resource_id = ingest_runnable_skill(
         _RunnableEngine(),
         name="local-skill",
         description="Local skill.",
         instructions="Perform one bounded action.",
         provider="local-provider",
     )
-
-    binding = captured["discovery_binding"]
-    assert isinstance(binding, catalog.TenantLocalDiscoveryBinding)
-    assert binding.tenant_id == "tenant_test"
+    assert resource_id == "resource:skill:local-skill"
 
 
 # --------------------------------------------------------------------------- #

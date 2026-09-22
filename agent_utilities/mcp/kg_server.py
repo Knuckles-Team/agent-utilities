@@ -842,95 +842,44 @@ class _ToolsPayload(TypedDict):
     section_status: dict[str, str]
 
 
-# Bound on how many pages of one fleet-catalog ``kind`` this route will drain
-# via registry_api's own keyset-paginated ``_authorized_page`` (100 rows per
-# page, see ``registry_api._MAX_LIMIT``) before giving up on that section for
-# this request. Mirrors the same defensive drain-cap idea
-# ``agent_webui.api_extensions._read_fleet_catalog`` already applies to the
-# identical read path (its own comment there measured ~9 pages to drain 841
-# ``skills`` rows) — 25 pages is headroom above that observed size without
-# letting one pathological catalog hang this request forever.
-_TOOLS_CATALOG_DRAIN_MAX_PAGES = 25
-
-
-def _read_catalog_kind_sync(
-    kind: str, *, require_discovery_binding: bool
-) -> list[dict[str, Any]]:
-    """Drain one fleet-catalog ``kind`` through registry_api's OWN
-    tenant/principal-scoped, fail-closed authorized-read path — the exact
-    same private functions ``agent_webui.api_extensions._read_fleet_catalog``
-    already reuses in-process for ``/api/enhanced/tools`` (see that
-    function's docstring). This never re-derives tenant scoping, redaction,
-    or SQL construction; it is a thin synchronous drain loop on top of
-    ``_authorized_page``.
-
-    Synchronous and blocking (a unix-socket engine RPC per page) by design:
-    the caller, :func:`_build_tools_payload_sync`, already runs entirely
-    inside a worker thread via ``asyncio.to_thread`` from
-    :func:`get_tools_endpoint` — calling registry_api's own ASYNC wrapper
-    (``_offload_catalog_call``, which itself does ``asyncio.to_thread``)
-    from here would require a running event loop that this thread does not
-    have. Calling the sync ``_authorized_page``/``_authorized_count``
-    directly is therefore both correct and simpler here.
-
-    Raises whatever ``_require_catalog_authority``/``_authorized_page``
-    raise (``PermissionError``, ``registry_api.CatalogUnavailable``, or any
-    other exception the engine surfaces) — the caller is responsible for
-    catching this per-section and recording ``section_status``, matching
-    every other section's independent-degrade contract in this function.
-    """
-    from ..gateway.registry_api import (
-        _KIND_SPECS,
-        _MAX_LIMIT,
-        _authorized_page,
-        _get_catalog_engine,
-        _require_catalog_authority,
-        _row_key,
-    )
-
-    tenant, principal, grant_digests = _require_catalog_authority(
-        require_discovery_binding=require_discovery_binding
-    )
-    engine = _get_catalog_engine()
-    spec = _KIND_SPECS[kind]
-    rows: list[dict[str, Any]] = []
-    after: tuple[str, str] | None = None
-    for _page_num in range(_TOOLS_CATALOG_DRAIN_MAX_PAGES):
-        page = _authorized_page(
-            kind,
-            tenant=tenant,
-            principal=principal,
-            grant_digests=grant_digests,
-            query="",
-            after=after,
-            limit=_MAX_LIMIT,
-            engine=engine,
-        )
-        if not page:
-            break
-        rows.extend(page)
-        if len(page) < _MAX_LIMIT:
-            break
-        after = _row_key(spec, page[-1])
-    return rows
-
-
 def _gather_mcp_catalog_entries() -> tuple[list[tuple[str, dict[str, Any]]], str]:
     """Gather (name, catalog_row) pairs for the fleet catalog's ``servers`` kind.
 
     Section 1 of :func:`_build_tools_payload_sync` — see that function's
-    docstring for why ``mcp_tools`` reads the SQL fleet catalog now.
+    docstring for why ``mcp_tools`` reads the fleet catalog now.
+
+    EH-345: replaces the deleted ``registry_api``-drain path
+    (``_read_catalog_kind_sync`` + ``_authorized_page`` over the SQL
+    ``mcp_servers`` table) with one direct
+    ``ServerRegistryClient.list_all()`` call — server liveness/registration
+    has no tenant/principal/grant visibility predicate to authorize against
+    (unlike fleet-catalog CONTENT rows), so there is no authority function to
+    reuse here; it is simply the same typed read
+    ``core/engine_ingestion.py``'s reconciler already performs. One engine
+    round trip (paginated internally, ≤256 servers/page), preserving the
+    180 s-incident fix this section exists for (no per-item RPC).
     """
     try:
-        server_rows = _read_catalog_kind_sync(
-            "servers", require_discovery_binding=False
-        )
+        gc = getattr(_get_engine(), "graph_compute", None)
+        server_registry = getattr(getattr(gc, "client", None), "server_registry", None)
+        if server_registry is None:
+            return [], "unavailable"
+        views = server_registry.list_all()
         mcp_entries = [
-            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
+            (
+                str(view.name),
+                {
+                    "name": view.name,
+                    "transport": str(getattr(view, "transport", "") or ""),
+                    "enabled": str(getattr(view, "desired", "")) == "enabled",
+                },
+            )
+            for view in views
+            if getattr(view, "name", None)
         ]
         return mcp_entries, "ok"
     except Exception as e:
-        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
+        logger.error("Failed to read the server registry: %s", e)
         return [], "unavailable"
 
 
@@ -1057,8 +1006,10 @@ def _mcp_tools_section(
                 "type": "MCP Server",
                 "launch_mode": "subprocess" if is_stdio else "remote",
                 # The catalog never stores the raw command/args (privacy —
-                # see fleet_catalog_tables' module docstring); these stayed
-                # opaque presence markers even before this migration.
+                # a discipline the deleted fleet_catalog_tables SQL tier
+                # documented first, still true of EG's ServerRegistry);
+                # these stayed opaque presence markers even before this
+                # migration.
                 "command": "[configured]" if is_stdio else "",
                 "args": ["[configured]"] if is_stdio else [],
                 "status": "active" if mcp_enabled else "disabled",
@@ -1093,24 +1044,25 @@ def _build_tools_payload_sync(
        FIRST, then resolves every toggle state in ONE
        :func:`get_toggle_states_batch` call instead of N per-item calls.
 
-    FIX LANE (collapse-tool-endpoints) — SQL fleet catalog as the single
+    FIX LANE (collapse-tool-endpoints) — the fleet catalog as the single
     source of truth: this used to build every section from a fresh
     config/filesystem scan, a second inventory of the SAME MCP/skill fleet
-    that ``/api/registry/*`` and the webui BFF already read from the SQL
-    fleet-catalog tables (``agent_utilities.knowledge_graph.core.
-    fleet_catalog_tables``). Evidence-based per section:
+    that ``/api/registry/*`` and the webui BFF already read. EH-345
+    (2026-09-22) moved that shared catalog from an AU SQL tier
+    (``fleet_catalog_tables``, deleted) to EG's typed
+    ``ServerRegistry``/``FleetCatalog`` contract; the section-by-section
+    reasoning below is otherwise unchanged. Evidence-based per section:
 
     - ``mcp_tools`` (despite the key name, this has always been a list of
       *servers*, one per configured ``mcpServers`` entry — never individual
-      MCP tools) now reads the catalog's ``servers`` kind
-      (``mcp_servers`` table). That table is written from the SAME
-      multiplexer config map (``MCPMultiplexer.load_catalog()``) this used
-      to re-parse from ``mcp_config.json`` directly
-      (:func:`~..knowledge_graph.core.fleet_catalog_tables.
-      write_fleet_catalog`), so this is a genuine single-source collapse
-      with no fidelity loss: ``command``/``args`` were already opaque
+      MCP tools) now reads ``ServerRegistryClient.list_all()`` directly
+      (see :func:`_gather_mcp_catalog_entries`). Every fleet MCP server
+      self-registers at startup and renews its lease periodically
+      (CONCEPT:EG-KG.sharding.server-registry), so this is the SAME live
+      registration state the multiplexer config map used to mirror into
+      SQL, with no fidelity loss: ``command``/``args`` were already opaque
       presence markers (``"[configured]"``), never real values, and the
-      catalog derives the same ``launch_mode`` split from ``transport``
+      registry's ``transport`` field derives the same ``launch_mode`` split
       that this used to derive from ``cfg.get("command")``.
     - ``skills``/``skill_workflows``/``skill_graphs``/``builtin_tools``
       stay on their existing filesystem/KG-native sources — investigated

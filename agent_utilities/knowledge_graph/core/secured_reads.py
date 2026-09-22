@@ -148,13 +148,62 @@ def _ambient_tenant_id() -> str:
 def _catalog_acl_hits(
     active: Any, node_ids: list[str], tenant_id: str
 ) -> dict[str, dict[str, Any]]:
-    """Best-effort SQL ACL projection; an unavailable projection is a miss."""
-    from .fleet_catalog_tables import catalog_acl_rows
+    """Best-effort EG fleet-catalog ACL projection; an unavailable/miss row
+    is simply absent, never an error — Cypher remains the authoritative
+    fallback for anything not returned here.
 
+    EH-345 replacement for the deleted ``fleet_catalog_tables.catalog_acl_rows``.
+    ``node_ids`` are AU's existing node ids (e.g. ``tool_<server>_<name>``);
+    the fleet catalog's own ids are pack component ids
+    (``mcp:<connector>/<kind>/<name>``) once a ConnectorPack import covers
+    them (AU-CUTOVER.md §2.4) — until that id convergence happens, every
+    lookup here misses and every node ACL-hydrates via the Cypher fallback
+    exactly as it did when the SQL tier had no row, so this degrades safely
+    rather than silently dropping ACL enforcement.
+    """
+    del tenant_id  # EG binds tenant from the verified request context, not this arg
+    fleet_catalog = getattr(
+        getattr(getattr(active, "graph_compute", None), "client", None),
+        "fleet_catalog",
+        None,
+    )
+    if fleet_catalog is None or not node_ids:
+        return {}
     try:
-        return catalog_acl_rows(active, node_ids, tenant_id)
+        answer = fleet_catalog.lookup(node_ids)
     except Exception:  # noqa: BLE001 — Cypher remains the authoritative fallback
         return {}
+    hits: dict[str, dict[str, Any]] = {}
+    for entry in getattr(answer, "rows", None) or ():
+        row_id, acl = _fleet_row_id_and_acl(entry)
+        if row_id is None or acl is None:
+            continue
+        scope = getattr(acl, "visibility", None)
+        is_tenant_scope = getattr(scope, "scope", None) == "tenant"
+        hits[row_id] = {
+            "tenant_id": getattr(acl, "tenant_id", ""),
+            "classification": "PUBLIC" if is_tenant_scope else "CONFIDENTIAL",
+            "external_access": None,
+            "owner_id": (
+                getattr(acl, "publisher", "")
+                if is_tenant_scope
+                else getattr(scope, "principal", "")
+            ),
+            "shared_scope": "org" if is_tenant_scope else "private",
+        }
+    return hits
+
+
+def _fleet_row_id_and_acl(entry: Any) -> tuple[str | None, Any]:
+    """``(row's node id, its FleetRowAcl)`` for one ``FleetCatalogRow``, or
+    ``(None, None)`` for a shape this caller does not recognize."""
+    body = getattr(entry, "row", None)
+    component = getattr(body, "component", None)
+    if component is not None:
+        return getattr(component, "id", None), getattr(component, "acl", None)
+    if getattr(entry, "kind", None) == "discovery":
+        return getattr(body, "id", None), getattr(body, "acl", None)
+    return None, None
 
 
 def _selected_hydration_authority(active: Any) -> Any:
@@ -327,28 +376,27 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     backend is a configuration failure, not permission to fall back to N
     per-node reads.
 
-    **SQL-authoritative fast path first** (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
+    **EG fleet-catalog fast path first** (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
     The production incident this closes measured two *unlabeled* Cypher full
     scans per fleet tool (1-4s each, ~12/min) — the label-scoped candidates
     below already fixed the "unlabeled" half; this fixes the "at all" half
-    for the common case. ``fleet_catalog_tables.catalog_acl_rows`` carries a
-    durable ACL stamp written from the SAME policy
-    (``tenant_sharing.stamp_ownership``/``stamp_classification``) the
-    matching KG node write uses, so for any id it can fully answer for, the
-    Cypher round trip below is skipped entirely. It answers ONLY for an id
-    whose catalog row was written with a real ACL stamp; every other id —
-    not a fleet node, a fleet node the (possibly still-empty, see
-    ``fleet_catalog_tables`` module docstring) catalog hasn't synced yet, or
-    a legacy/un-stamped catalog row — falls through to the Cypher path
+    for the common case. EH-345: ``FleetCatalogClient.lookup`` (was
+    ``fleet_catalog_tables.catalog_acl_rows``) carries a durable ACL stamp
+    the engine computes from the same visibility the projection enforces, so
+    for any id it can fully answer for, the Cypher round trip below is
+    skipped entirely. It answers ONLY for an id whose fleet-catalog row
+    exists and is visible; every other id — not a fleet node, a fleet node
+    whose ConnectorPack hasn't been imported yet (see
+    ``_catalog_acl_hits``'s docstring), or an id in AU's old scheme the new
+    projection does not (yet) share — falls through to the Cypher path
     below completely unchanged, so this can only ever make an id resolve
     FASTER, never resolve to something the Cypher path would not have
     granted.
 
-    The SQL query's tenant scope is resolved from the SAME ambient
-    :func:`~...security.brain_context.current_actor` every write-time stamp
-    (:func:`~.fleet_catalog_tables._stamped_acl_fields`) and every other
-    read helper in this module reads — never a caller-suppliable parameter
-    (this function keeps the exact ``(node_ids)`` signature it always had:
+    The tenant/visibility scope is resolved by EG from the verified request
+    context of the client making the call — never a caller-suppliable
+    parameter (this function keeps the exact ``(node_ids)`` signature it
+    always had:
     a graph, tenant, or actor is never accepted as a raw argument here, only
     ever resolved from verified ambient/session state). No bound actor (an
     unauthenticated context, or none at all) simply skips the fast path —

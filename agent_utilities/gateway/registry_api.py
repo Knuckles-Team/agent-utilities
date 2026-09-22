@@ -1,11 +1,18 @@
-"""Tenant/principal-scoped read-only registry over the native fleet catalog.
+"""Tenant/principal-scoped read-only registry over EG's typed fleet catalog.
 
-The catalog writer is :mod:`agent_utilities.knowledge_graph.core.fleet_catalog_tables`;
-this module is deliberately a reader.  It never starts MCP children, probes a
-live server, writes a row, or falls back to a second store.  Authorization is
-resolved from the ambient verified :class:`GraphSession` plus the
-process-owned broker's current exact OAuth-grant fingerprints, then embedded in
-the catalog SQL predicate before filtering, sorting, pagination, or counts.
+EH-345 (2026-09-22): the catalog writer used to be
+:mod:`agent_utilities.knowledge_graph.core.fleet_catalog_tables` (an AU SQL
+tier); it is now EG's own ``ServerRegistry``/``FleetCatalog`` contract
+(``client.server_registry``/``client.fleet_catalog``), reached the same way
+``core/engine_ingestion.py``'s reconciler and ``source_sync.py``'s writer
+reach it. This module is deliberately a reader either way. It never starts
+MCP children, probes a live server, writes a row, or falls back to a second
+store. Authorization is resolved from the ambient verified
+:class:`GraphSession` plus the process-owned broker's current exact
+OAuth-grant fingerprints, then passed to EG as ``grant_digests`` — the
+tenant/principal/grant visibility predicate is evaluated ENGINE-side now
+(EG binds tenant/principal from the verified request context itself), not
+built into a caller-side SQL WHERE clause the way it used to be.
 
 CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables
 CONCEPT:AU-OS.state.unified-durable-state-externalization
@@ -16,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
@@ -25,15 +32,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
-
-from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
-    DISCOVERY_AUTHORITY_OAUTH_GRANT,
-    DISCOVERY_AUTHORITY_TENANT_LOCAL,
-)
-from agent_utilities.knowledge_graph.core.table_ingest import (
-    _safe_ident,
-    _sql_literal,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -187,197 +185,34 @@ class RegistryMultiKindPage(BaseModel):
     kinds: dict[str, RegistryKindResult]
 
 
-class _KindSpec:
-    __slots__ = (
-        "table",
-        "columns",
-        "model",
-        "name_column",
-        "authority_column",
-        "principal_column",
-        "grant_column",
-    )
-
-    def __init__(
-        self,
-        table: str,
-        columns: tuple[str, ...],
-        model: type[BaseModel],
-        *,
-        name_column: str = "name",
-        authority_column: str | None = None,
-        principal_column: str | None = None,
-        grant_column: str | None = None,
-    ) -> None:
-        self.table = _safe_ident(table)
-        self.columns = tuple(_safe_ident(column) for column in columns)
-        self.model = model
-        self.name_column = _safe_ident(name_column)
-        self.authority_column = (
-            _safe_ident(authority_column) if authority_column else None
-        )
-        self.principal_column = (
-            _safe_ident(principal_column) if principal_column else None
-        )
-        self.grant_column = _safe_ident(grant_column) if grant_column else None
-
-
 #
 # PHASE A investigation — three sections `/api/enhanced/tools` still serves
 # from the filesystem/KG (`builtin_tools`, `skill_graphs`, `skill_workflows`,
 # see `agent_utilities.mcp.kg_server._build_tools_payload_sync`'s own
 # docstring, "FIX LANE (collapse-tool-endpoints)") were evaluated as
-# candidate additional `_KindSpec` entries here. None were added. Evidence:
+# candidate additional catalog kinds here. None were added — same evidence as
+# before EH-345 (a `builtin_tool` is never MCP-discovered/cataloged at all; a
+# `skill_graph`/`skill_workflow` has real gaps — no automatic ingester for the
+# former, no domain/tags fields for the latter — that switching sources would
+# silently blank or empty). They remain reachable only through the existing
+# filesystem/KG path (`GET /tools` / `/api/enhanced/tools`).
 #
-# * ``builtin_tools`` — no SQL table exists at all. These are native,
-#   in-process Python callables under ``agent_utilities/tools/*.py``, never
-#   MCP-discovered and never written to any fleet-catalog table. Adding a
-#   `_KindSpec` for this would require fabricating a table, which is exactly
-#   what this task was told not to do.
-# * ``skill_graphs`` — the ``skills`` table's schema *can* represent a
-#   skill-graph row (``skill_type='graph'``), but
-#   ``knowledge_graph/ingestion/skill_workflow_ingest.py`` explicitly SKIPS
-#   ``skill_type: graph`` files during ingestion ("left for its own
-#   ingester"), and nothing schedules that ingester automatically (only a
-#   manual, explicit-``root`` on-demand action reaches it). In a typical
-#   deployment the catalog rows for this kind are simply absent even though
-#   the on-disk ``skill-graphs`` corpus is real and populated — serving this
-#   kind from the catalog would silently show an empty page for a genuinely
-#   non-empty corpus, the "losing freshness" failure mode this task called
-#   out by name. Left out.
-# * ``skill_workflows`` — the ``skills`` table CAN represent
-#   id/name/description/enabled for a ``skill_type='workflow'`` row (these
-#   DO get ingested on the automatic ``package_install`` tick, unlike
-#   ``skill_graphs``), but the table itself
-#   (``knowledge_graph/core/fleet_catalog_tables.py``'s ``TABLE_SKILLS`` DDL)
-#   has no ``domain``/``tags`` columns at all — real fields on the existing
-#   filesystem-sourced payload, parsed from each ``SKILL.md``'s frontmatter.
-#   Adding this kind would silently blank those two fields for every caller
-#   that switches to it. A prior lane evaluated this EXACT trade-off for
-#   this EXACT data (`_build_tools_payload_sync`'s own docstring, "Moving
-#   these two sections would silently blank domain/tags ... exactly the
-#   'fabricate or silently drop' failure mode this fix lane was told to
-#   avoid") and chose to keep it filesystem-sourced; no new evidence here
-#   overturns that call, so it stays out too.
-#
-# All three remain reachable only through the existing filesystem/KG path
-# (`GET /tools` / `/api/enhanced/tools`) until a real ingester exists for
-# skill-graphs and the `skills` table grows `domain`/`tags` columns.
-#
-_KIND_SPECS: dict[str, _KindSpec] = {
-    "servers": _KindSpec(
-        "mcp_servers",
-        ("id", "tenant_id", "name", "transport", "url", "enabled"),
-        RegistryServer,
-    ),
-    "discoveries": _KindSpec(
-        "mcp_server_discovery",
-        (
-            "id",
-            "tenant_id",
-            "server_id",
-            "server_name",
-            "reachable",
-            "last_error",
-            "tool_count",
-            "skill_count",
-            "prompt_count",
-            "resource_count",
-            "observed_at",
-            "discovery_authority_kind",
-            "discovery_principal",
-            "discovery_grant_digest",
-        ),
-        RegistryDiscovery,
-        name_column="server_name",
-        authority_column="discovery_authority_kind",
-        principal_column="discovery_principal",
-        grant_column="discovery_grant_digest",
-    ),
-    "tools": _KindSpec(
-        "mcp_tools",
-        (
-            "id",
-            "tenant_id",
-            "server_id",
-            "server_name",
-            "name",
-            "description",
-            "schema_digest",
-            "tool_mode",
-            "enabled",
-            "discovery_authority_kind",
-            "discovery_principal",
-            "discovery_grant_digest",
-        ),
-        RegistryTool,
-        authority_column="discovery_authority_kind",
-        principal_column="discovery_principal",
-        grant_column="discovery_grant_digest",
-    ),
-    "prompts": _KindSpec(
-        "mcp_prompts",
-        (
-            "id",
-            "tenant_id",
-            "server_id",
-            "server_name",
-            "name",
-            "description",
-            "uri",
-            "discovery_authority_kind",
-            "discovery_principal",
-            "discovery_grant_digest",
-        ),
-        RegistryPrompt,
-        authority_column="discovery_authority_kind",
-        principal_column="discovery_principal",
-        grant_column="discovery_grant_digest",
-    ),
-    "resources": _KindSpec(
-        "mcp_resources",
-        (
-            "id",
-            "tenant_id",
-            "server_id",
-            "server_name",
-            "uri",
-            "name",
-            "description",
-            "mime_type",
-            "resource_kind",
-            "discovery_authority_kind",
-            "discovery_principal",
-            "discovery_grant_digest",
-        ),
-        RegistryResource,
-        authority_column="discovery_authority_kind",
-        principal_column="discovery_principal",
-        grant_column="discovery_grant_digest",
-    ),
-    "skills": _KindSpec(
-        "skills",
-        (
-            "id",
-            "tenant_id",
-            "name",
-            "description",
-            "uri",
-            "skill_type",
-            "classification",
-            "provider",
-            "mcp_server",
-            "enabled",
-            "discovery_authority_kind",
-            "discovery_principal",
-            "discovery_grant_digest",
-        ),
-        RegistrySkill,
-        authority_column="discovery_authority_kind",
-        principal_column="discovery_principal",
-        grant_column="discovery_grant_digest",
-    ),
+# EH-345 (2026-09-22): "servers" reads ServerRegistryClient; every other kind
+# reads FleetCatalogClient (kinds: "discoveries"|"tools"|"prompts"|
+# "resources"|"skills" — see AU-CUTOVER.md §0). Only the latter five carry a
+# discovery/grant visibility predicate — "servers" (liveness/registration) is
+# tenant-scoped by the engine but has no per-principal/grant dimension.
+_KIND_MODELS: dict[str, type[BaseModel]] = {
+    "servers": RegistryServer,
+    "discoveries": RegistryDiscovery,
+    "tools": RegistryTool,
+    "prompts": RegistryPrompt,
+    "resources": RegistryResource,
+    "skills": RegistrySkill,
 }
+_DISCOVERY_BOUND_KINDS = frozenset(
+    {"discoveries", "tools", "prompts", "resources", "skills"}
+)
 
 _RESPONSE_MODELS: dict[str, tuple[Any, Any]] = {
     "servers": (RegistryPage[RegistryServer], RegistryItemEnvelope[RegistryServer]),
@@ -413,7 +248,7 @@ async def _offload_catalog_call(
     """Run one blocking catalog SQL call off the ASGI event loop, bounded by
     ``_CATALOG_READ_TIMEOUT_S``.
 
-    ``_authorized_count``/``_authorized_page``/``_authorized_item`` each make
+    ``_authorized_page``/``_authorized_item`` each make
     a synchronous unix-socket engine RPC. Calling one of them directly from
     an ``async def`` route handler blocks the single gateway event loop for
     the RPC's full duration: one slow registry read then stalls *every*
@@ -438,10 +273,8 @@ async def _offload_catalog_call(
 def _resolve_current_discovery_grants(actor: Any) -> tuple[str, ...]:
     """Resolve current grant fingerprints from the process-owned broker set."""
 
-    from agent_utilities.knowledge_graph.core.discovery_authority import (
-        OAuthGrantBinding,
-    )
     from agent_utilities.mcp.multiplexer import current_remote_oauth_grant_bindings
+    from agent_utilities.mcp.remote_oauth_broker import OAuthGrantBinding
 
     return tuple(
         sorted(
@@ -473,9 +306,11 @@ def _require_catalog_authority(
     if require_discovery_binding:
         grant_digests = _resolve_current_discovery_grants(actor)
         # A verified tenant may read process-owned local/stdio discovery even
-        # when no provider OAuth grant is present.  The SQL predicate below
-        # keeps that tenant-local scope disjoint from OAuth rows; an empty
-        # grant set therefore removes only the provider-grant branch.
+        # when no provider OAuth grant is present. EG's own visibility
+        # predicate (FleetCatalogListRequest.grant_digests — evaluated
+        # engine-side, never a caller-built WHERE clause) keeps that
+        # tenant-local scope disjoint from OAuth rows; an empty grant set
+        # therefore removes only the provider-grant branch.
     return tenant, principal, grant_digests
 
 
@@ -503,7 +338,7 @@ def _parse_multi_kind_request(
     request: Request,
 ) -> tuple[list[str], int, str, dict[str, str], bool]:
     """Parse the bounded multi-kind controls: ``kinds`` (required,
-    comma-separated, validated against ``_KIND_SPECS``), a ``limit``/``q``
+    comma-separated, validated against ``_KIND_MODELS``), a ``limit``/``q``
     shared across every requested kind (same bounds as the single-kind
     route), one cursor PER kind via ``cursor_<kind>`` query parameters (e.g.
     ``?kinds=tools,skills&cursor_tools=...&cursor_skills=...`` — never a
@@ -526,13 +361,13 @@ def _parse_multi_kind_request(
 
 def _parse_registry_kinds(raw_kinds: str) -> list[str]:
     """Validate and dedupe the comma-separated ``kinds`` parameter against
-    ``_KIND_SPECS``."""
+    ``_KIND_MODELS``."""
     kinds: list[str] = []
     for token in raw_kinds.split(","):
         kind = token.strip()
         if not kind:
             continue
-        if kind not in _KIND_SPECS:
+        if kind not in _KIND_MODELS:
             raise HTTPException(
                 status_code=422, detail=f"unknown registry kind: {kind}"
             )
@@ -581,13 +416,23 @@ def _cursor_token(
     *,
     kind: str,
     query: str,
-    after: tuple[str, str],
+    after: Mapping[str, Any],
     tenant: str,
     principal: str,
     grant_digests: tuple[str, ...] = (),
     grant_digest: str | None = None,
 ) -> str:
-    """Mint an existing HMAC run token bound to the registry read scope."""
+    """Mint an existing HMAC run token bound to the registry read scope.
+
+    EH-345: ``after`` is now EG's own opaque page-position object — a
+    ``RegisteredServerCursor`` (``after_name``/``registry_digest``/
+    ``registry_revision``) for ``kind="servers"``, a ``FleetCatalogCursor``
+    (``after_name``/``after_id``/``snapshot_digest``) for every other kind —
+    JSON-dumped verbatim (``model_dump(mode="json")``) rather than the old
+    fixed 2-tuple keyset position, since the two cursor shapes differ. This
+    HMAC wrapper still fences it to tenant/principal/kind/query/grants
+    exactly as before; only what it opaquely carries changed.
+    """
 
     from agent_utilities.security.run_token import mint_token
 
@@ -598,7 +443,7 @@ def _cursor_token(
         {
             "kind": kind,
             "query": query,
-            "after": list(after),
+            "after": dict(after),
             "grant_digests": list(grant_digests),
         },
         separators=(",", ":"),
@@ -623,7 +468,7 @@ def _decode_cursor(
     tenant: str,
     principal: str,
     grant_digests: tuple[str, ...],
-) -> tuple[str, str]:
+) -> dict[str, Any]:
     """Verify cursor integrity and bind it to this tenant/principal/filter."""
 
     from agent_utilities.security.run_token import TokenError, validate_token
@@ -669,17 +514,17 @@ def _check_cursor_binding(
         raise TokenError("cursor query mismatch")
 
 
-def _cursor_after_position(payload: dict[str, Any]) -> tuple[str, str]:
+def _cursor_after_position(payload: dict[str, Any]) -> dict[str, Any]:
     from agent_utilities.security.run_token import TokenError
 
     after = payload.get("after")
     if (
-        not isinstance(after, list)
-        or len(after) != 2
-        or any(not isinstance(value, str) for value in after)
+        not isinstance(after, dict)
+        or not after
+        or any(not isinstance(value, (str, int)) for value in after.values())
     ):
         raise TokenError("cursor position is malformed")
-    return after[0], after[1]
+    return dict(after)
 
 
 def _redact_text(value: Any) -> Any:
@@ -736,7 +581,7 @@ def _url_safe_to_disclose(parsed: Any) -> bool:
 def _normalize_row(kind: str, row: Mapping[str, Any]) -> dict[str, Any]:
     """Shape a catalog row without exposing tenant/principal or raw secrets."""
 
-    fields = _KIND_SPECS[kind].model.model_fields
+    fields = _KIND_MODELS[kind].model_fields
     result = {field: row[field] for field in fields if field in row}
     if kind == "servers":
         result["url"] = _safe_url(result.get("url"))
@@ -783,474 +628,199 @@ def _validate_item(
         ) from exc
 
 
-def _rows_from_engine(raw: Any) -> list[dict[str, Any]]:
-    if isinstance(raw, dict):
-        if raw.get("error"):
-            raise CatalogUnavailable("catalog query returned an error")
-        raw = raw.get("rows", [])
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise CatalogUnavailable("catalog query returned an invalid shape")
-    rows: list[dict[str, Any]] = []
-    for row in raw:
-        if isinstance(row, Mapping):
-            rows.append(dict(row))
-        else:
-            raise CatalogUnavailable("catalog query returned an invalid row")
-    return rows
+def _fleet_catalog_clients(engine: Any) -> tuple[Any, Any]:
+    """``(server_registry, fleet_catalog)`` typed EG clients, or ``None``
+    for either not yet available on this deployment's client.
 
-
-def _catalog_service_session() -> Any:
-    """The fixed identity this deployment's catalog SQL RPC must run as.
-
-    ROOT CAUSE (measured live 2026-08-25, D-catalog-503-human): the engine's
-    native ``Method::Sql`` RPC (``epistemic-graph``
-    ``src/server/handlers/query.rs``) resolves an **owner-scoped** redb
-    table store keyed by the CALLING actor's own verified tenant+principal
-    (``src/server/sql_tables.rs::user_table_store`` /
-    ``owner_filename`` — "every owner receives a distinct redb database").
-    There is no catalog shared across actors on this path — that sharing
-    (``src/server/sql_catalog_acl.rs``, legacy engine work item ``NE-003``) exists only for the
-    wire-protocol adapters (pgwire/mysql/sqlite) that delegate through
-    ``WireSession``; the native RPC AU's Python client uses never opts into
-    it. ``fleet_catalog_tables.py`` writes the ``mcp_servers``/``mcp_tools``/
-    ``skills``/... tables once, under this process's own fixed
-    ``automated_service`` identity (whatever actor is ambient when the
-    scheduled ``fleet-tool-schema-sync`` job runs — which resolves through
-    the SAME :func:`~agent_utilities.security.request_identity.
-    system_write_session` this function calls). Any OTHER verified actor —
-    including a fully authorized human carrying ``kg:admin`` — therefore
-    opens its OWN, always-empty private catalog on read and gets
-    ``SQL error: ... table 'X' not found``, which was surfacing as a bare,
-    cause-less 503 (see :func:`_log_catalog_exception`). Confirmed live:
-    the writer's own identity reads the table fine (count=66); a distinct,
-    fully-admitted actor gets ``table not found`` on the identical query.
-
-    This module's own ``tenant_id``/principal predicate (:func:`_build_where`,
-    built from the REAL calling actor via :func:`_require_catalog_authority`)
-    is already the entire authorization boundary for this store — the engine
-    enforces no RLS of its own on a plain user table (see
-    ``fleet_catalog_tables`` module docstring: "gated only on authentication
-    ... never on the named-graph Read/Write Pattern grant"). So running the
-    already-correctly-scoped SQL under the fixed writer identity changes only
-    WHICH physical catalog file is opened, never WHAT rows a caller may see.
-
-    ``suspend_session()`` is required, not a bare call to
-    ``system_write_session()``: that helper *prefers* an already-bound
-    ambient session (by design, for the different "attribute an
-    unauthenticated background write" problem it was built for, BUG-033/
-    BUG-039) — inside a served request there always IS one (the caller's
-    own), so an unguarded call would just hand back the caller's own session
-    and fix nothing.
+    Same resolution path ``core/engine_ingestion.py``'s reconciler and
+    ``source_sync.py``'s writer use — ``GraphComputeEngine.client`` is the
+    process's own sync-wrapped ``SyncEpistemicGraphClient`` view.
     """
-    from agent_utilities.knowledge_graph.core.session import suspend_session
-    from agent_utilities.security.request_identity import system_write_session
-
-    with suspend_session():
-        return system_write_session()
-
-
-def _log_catalog_exception(action: str, exc: BaseException) -> None:
-    """Log a catalog RPC failure with its real message and full cause chain.
-
-    Previously these call sites logged only ``type(exc).__name__`` (e.g. a
-    bare ``RuntimeError``), discarding the engine's own error text — exactly
-    the detail that distinguishes WHY a call failed (a missing-table SQL
-    plan error vs. an ACCESS_DENIED principal/graph mismatch vs. a network
-    fault) from merely THAT it failed. That gap is what made the
-    owner-scoped-SQL-catalog root cause (see :func:`_catalog_service_session`)
-    take a live in-pod repro to uncover instead of one log line. Server-side
-    log only — the HTTP response stays the generic ``catalog_unavailable``
-    body; this never reaches the client.
-    """
-    chain: list[str] = []
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        chain.append(f"{type(current).__name__}: {current}")
-        current = current.__cause__
-    logger.warning(
-        "authoritative registry catalog %s failed: %s", action, " <- ".join(chain)
-    )
-
-
-def _require_sql_exec(engine: Any) -> Callable[[str], Any]:
-    """Resolve the engine's write-capable SQL surface or fail closed.
-
-    The returned callable executes under this deployment's fixed
-    catalog-service identity (:func:`_catalog_service_session`), never the
-    caller's own ambient session — see that function's docstring for why.
-    """
-
-    graph_compute = getattr(engine, "graph_compute", None)
-    sql_exec = getattr(graph_compute, "sql_exec", None)
-    if not callable(sql_exec):
-        raise CatalogUnavailable("authoritative catalog SQL is unavailable")
-
-    def _run_as_catalog_service(statement: str) -> Any:
-        from agent_utilities.knowledge_graph.core.session import use_session
-
-        with use_session(_catalog_service_session()):
-            return sql_exec(statement)
-
-    return _run_as_catalog_service
-
-
-def _search_columns(spec: _KindSpec) -> list[str]:
-    """Columns eligible for the ``q`` substring filter, in ``_matches`` order."""
-
-    candidates = (spec.name_column, "name", "server_name", "description")
-    found: list[str] = []
-    for column in candidates:
-        if column in spec.columns and column not in found:
-            found.append(column)
-    return found
-
-
-def _build_where(
-    spec: _KindSpec,
-    *,
-    tenant: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-    query: str,
-) -> str:
-    """Compose the tenant/authorization/filter predicate for one catalog read.
-
-    These identifiers are module constants validated at construction. The
-    only interpolated values are escaped SQL literals (:func:`_sql_literal`);
-    caller-supplied filter text never enters the statement unescaped.
-    """
-
-    where = f"tenant_id = {_sql_literal(tenant)}"
-    if spec.authority_column and spec.principal_column and spec.grant_column:
-        local_scope = (
-            f"({spec.authority_column} = "
-            f"{_sql_literal(DISCOVERY_AUTHORITY_TENANT_LOCAL)} AND "
-            f"{spec.principal_column} = {_sql_literal('')} AND "
-            f"{spec.grant_column} = {_sql_literal('')})"
-        )
-        scope_terms = [local_scope]
-        if grant_digests:
-            grants_sql = ", ".join(_sql_literal(digest) for digest in grant_digests)
-            scope_terms.append(
-                f"({spec.authority_column} = "
-                f"{_sql_literal(DISCOVERY_AUTHORITY_OAUTH_GRANT)} AND "
-                f"{spec.principal_column} = {_sql_literal(principal)} AND "
-                f"{spec.grant_column} IN ({grants_sql}))"
-            )
-        where += " AND (" + " OR ".join(scope_terms) + ")"
-    if query:
-        search_columns = _search_columns(spec)
-        if not search_columns:
-            # No searchable column exists for this kind; an unmatchable
-            # predicate keeps the count and page pushdown honest instead of
-            # silently ignoring the caller's filter.
-            return where + " AND FALSE"
-        needle = _sql_literal(query)
-        # strpos(...) > 0 is a plain case-insensitive substring test (the
-        # exact `needle in haystack` semantics `_matches` used to apply in
-        # Python) with no LIKE wildcard-escaping pitfall for a `%`/`_` in
-        # the caller's filter text.
-        terms = " OR ".join(
-            f"strpos(LOWER({column}), LOWER({needle})) > 0" for column in search_columns
-        )
-        where += f" AND ({terms})"
-    return where
-
-
-def _keyset_predicate(spec: _KindSpec, after: tuple[str, str]) -> str:
-    """The keyset-pagination predicate for rows strictly after ``after``.
-
-    Mirrors the ``(casefold(name), id)`` ordering :func:`_row_key` already
-    encodes into the cursor. ``LOWER()`` is SQL's nearest portable
-    equivalent to Python's ``str.casefold()`` — not byte-identical on every
-    Unicode edge case, but the two agree on the ASCII identifiers this
-    catalog's names/ids are drawn from.
-    """
-
-    after_name, after_id = after
-    name_literal = _sql_literal(after_name)
-    id_literal = _sql_literal(after_id)
+    gc = getattr(engine, "graph_compute", None)
+    client = getattr(gc, "client", None)
     return (
-        f"(LOWER({spec.name_column}) > LOWER({name_literal}) OR "
-        f"(LOWER({spec.name_column}) = LOWER({name_literal}) AND "
-        f"id > {id_literal}))"
+        getattr(client, "server_registry", None),
+        getattr(client, "fleet_catalog", None),
     )
 
 
-def _validate_scope(
-    spec: _KindSpec,
-    rows: list[dict[str, Any]],
-    *,
-    tenant: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-) -> None:
-    """Defence in depth: reject any row a misconfigured engine projection
-    returned outside the tenant/principal contract the WHERE clause already
-    encodes, before it reaches filtering, ordering, or response shaping."""
+def _row_from_server_view(view: Any) -> dict[str, Any]:
+    """One ``RegisteredServerView`` as a plain dict matching ``RegistryServer``."""
+    return {
+        "id": f"mcp_server_{view.name}",
+        "name": view.name,
+        "transport": str(getattr(view, "transport", "") or ""),
+        "url": str(getattr(view, "url", "") or ""),
+        "enabled": str(getattr(view, "desired", "enabled")) != "disabled",
+    }
 
-    required_columns = set(spec.columns)
-    for row in rows:
-        _validate_row_scope(
-            spec,
-            row,
-            required_columns,
-            tenant=tenant,
-            principal=principal,
-            grant_digests=grant_digests,
+
+def _discovery_outcome_fields(outcome: Any) -> tuple[bool, str]:
+    """``(reachable, last_error)`` from one ``DiscoveryOutcome`` tagged union."""
+    status = str(getattr(outcome, "status", "") or "")
+    if status == "reachable":
+        return True, ""
+    return False, str(getattr(outcome, "error", "") or "")
+
+
+def _row_from_fleet_row(entry: Any) -> dict[str, Any]:
+    """One ``FleetCatalogRow`` (tagged union) as a plain dict matching this
+    route's public field names.
+
+    Field map (AU-CUTOVER.md §2.2): ``schema_digest`` <- ``input_schema_digest``
+    (now ``sha256:<hex>`` of the served schema, not AU's own JSON digest);
+    ``tool_mode``/``mime_type``(<- ``media_type``)/``classification``/``uri``/
+    ``resource_kind``/``skill_type``/``enabled`` map by name or 1:1 rename.
+    EG has no separate ``server_id`` -- ``server_name`` is the only join key
+    to a registered server now, so ``server_id`` is populated from it too
+    (a display-continuity best-effort, not a distinct identity).
+    """
+    body = getattr(entry, "row", None)
+    if hasattr(body, "outcome"):  # FleetDiscoveryRow
+        reachable, last_error = _discovery_outcome_fields(
+            getattr(body, "outcome", None)
         )
-
-
-def _validate_row_scope(
-    spec: _KindSpec,
-    row: dict[str, Any],
-    required_columns: set[str],
-    *,
-    tenant: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-) -> None:
-    if not required_columns.issubset(row):
-        raise CatalogUnavailable("authoritative catalog row is malformed")
-    row_tenant = row.get("tenant_id")
-    if not isinstance(row_tenant, str) or row_tenant != tenant:
-        raise CatalogUnavailable("authoritative catalog scope is malformed")
-    if spec.authority_column and spec.principal_column and spec.grant_column:
-        _validate_row_authority(
-            row,
-            authority_column=spec.authority_column,
-            principal_column=spec.principal_column,
-            grant_column=spec.grant_column,
-            principal=principal,
-            grant_digests=grant_digests,
-        )
-
-
-def _validate_row_authority(
-    row: dict[str, Any],
-    *,
-    authority_column: str,
-    principal_column: str,
-    grant_column: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-) -> None:
-    row_authority = row.get(authority_column)
-    row_principal = row.get(principal_column)
-    row_grant = row.get(grant_column)
-    if row_authority == DISCOVERY_AUTHORITY_TENANT_LOCAL:
-        if row_principal != "" or row_grant != "":
-            raise CatalogUnavailable("authoritative catalog scope is malformed")
-    elif row_authority == DISCOVERY_AUTHORITY_OAUTH_GRANT:
-        if (
-            not isinstance(row_principal, str)
-            or row_principal != principal
-            or not isinstance(row_grant, str)
-            or row_grant not in grant_digests
-        ):
-            raise CatalogUnavailable("authoritative catalog scope is malformed")
-    else:
-        raise CatalogUnavailable("authoritative catalog scope is malformed")
-
-
-def _authorized_count(
-    kind: str,
-    *,
-    tenant: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-    query: str,
-    engine: Any,
-) -> int:
-    """``SELECT COUNT(*)`` for the total matching the same predicate as the
-    page read, instead of counting a materialized Python list.
-
-    ⚠ An aggregate has no rows, so :func:`_validate_scope` cannot judge it —
-    this function validates only the SHAPE of the returned value, never its
-    scope. Callers MUST NOT serve this number on its own: route it through
-    :func:`_reconciled_total`, and prefer :func:`_page_is_the_whole_result`,
-    which derives the total from the already-scope-validated page instead of
-    asking the engine at all (BUG-CX-118).
-    """
-
-    spec = _KIND_SPECS[kind]
-    sql_exec = _require_sql_exec(engine)
-    where = _build_where(
-        spec,
-        tenant=tenant,
-        principal=principal,
-        grant_digests=grant_digests,
-        query=query,
-    )
-    statement = f"SELECT COUNT(*) AS row_count FROM {spec.table} WHERE {where}"
-    try:
-        rows = _rows_from_engine(sql_exec(statement))
-    except CatalogUnavailable:
-        raise
-    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        _log_catalog_exception("count", exc)
-        raise CatalogUnavailable("authoritative catalog read failed") from exc
-    if len(rows) != 1:
-        raise CatalogUnavailable("authoritative catalog count is malformed")
-    value = rows[0].get("row_count")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise CatalogUnavailable("authoritative catalog count is malformed")
-    return value
-
-
-def _page_is_the_whole_result(has_more: bool, after: tuple[str, str] | None) -> bool:
-    """Is this page the COMPLETE authorized result set for the caller?
-
-    True only for an uncursored page that did not trip the ``limit + 1``
-    over-fetch. In that case ``len(page_rows)`` is itself the total, and it is
-    already scope-validated by :func:`_validate_scope` — so the engine's
-    ``SELECT COUNT(*)`` is neither needed nor trusted (BUG-CX-118: the count
-    is the one value on this route that no row-level check can reach, and a
-    measured probe showed an engine honoring the WHERE on the page but not on
-    the aggregate returns ``count`` including another tenant's rows while
-    ``items`` correctly shows none of them).
-    """
-
-    return not has_more and after is None
-
-
-async def _page_total(
-    page_rows: list[dict[str, Any]],
-    *,
-    has_more: bool,
-    after: tuple[str, str] | None,
-    count: Callable[[], Awaitable[int]],
-) -> int:
-    """The authorized total for one page, derived from the page where possible.
-
-    Prefers :func:`_page_is_the_whole_result` — a total taken from rows that
-    :func:`_validate_scope` has already judged — and only falls back to the
-    engine's unvalidatable ``SELECT COUNT(*)`` (via ``count``) when the page is
-    genuinely incomplete, reconciling it against the page even then.
-    """
-
-    if _page_is_the_whole_result(has_more, after):
-        return len(page_rows)
-    return _reconciled_total(await count(), page_rows)
-
-
-def _reconciled_total(total: int, page_rows: list[dict[str, Any]]) -> int:
-    """Reject a catalog count that contradicts the page it describes.
-
-    The only invariant an aggregate can be held to from here: it can never be
-    smaller than the scope-validated rows already in hand. Weaker than
-    :func:`_validate_scope`, and deliberately not a substitute for it — this
-    is the residual path, taken only when the page is incomplete and the total
-    genuinely cannot be derived from it.
-    """
-
-    if total < len(page_rows):
-        raise CatalogUnavailable("authoritative catalog count is malformed")
-    return total
+        counts = getattr(body, "counts", None)
+        return {
+            "id": str(getattr(body, "id", "") or ""),
+            "server_id": str(getattr(body, "server_name", "") or ""),
+            "server_name": str(getattr(body, "server_name", "") or ""),
+            "name": str(getattr(body, "server_name", "") or ""),
+            "reachable": reachable,
+            "last_error": last_error,
+            "tool_count": int(getattr(counts, "tools", 0) or 0),
+            "skill_count": int(getattr(counts, "skills", 0) or 0),
+            "prompt_count": int(getattr(counts, "prompts", 0) or 0),
+            "resource_count": int(getattr(counts, "resources", 0) or 0),
+            "observed_at": str(getattr(body, "observed_at_ms", "") or ""),
+            "tenant_id": str(
+                getattr(getattr(body, "acl", None), "tenant_id", "") or ""
+            ),
+        }
+    component = getattr(body, "component", None)
+    row = {
+        "id": str(getattr(component, "id", "") or ""),
+        "server_id": str(getattr(component, "server_name", "") or ""),
+        "server_name": str(getattr(component, "server_name", "") or ""),
+        "name": str(getattr(component, "name", "") or ""),
+        "description": str(getattr(component, "description", "") or ""),
+        "enabled": bool(getattr(component, "enabled", True)),
+        "tenant_id": str(
+            getattr(getattr(component, "acl", None), "tenant_id", "") or ""
+        ),
+        "provider": str(getattr(component, "connector", "") or ""),
+        "mcp_server": str(getattr(component, "server_name", "") or ""),
+    }
+    if hasattr(body, "tool_mode"):  # FleetToolRow
+        row["schema_digest"] = str(getattr(body, "input_schema_digest", "") or "")
+        row["tool_mode"] = str(getattr(body, "tool_mode", "") or "")
+    elif hasattr(body, "resource_kind"):  # FleetResourceRow
+        row["uri"] = str(getattr(body, "uri", "") or "")
+        row["mime_type"] = str(getattr(body, "media_type", "") or "")
+        row["resource_kind"] = str(getattr(body, "resource_kind", "") or "")
+    elif hasattr(body, "skill_type"):  # FleetSkillRow
+        row["uri"] = str(getattr(body, "uri", "") or "")
+        row["skill_type"] = str(getattr(body, "skill_type", "") or "")
+        row["classification"] = str(getattr(body, "classification", "") or "")
+    elif hasattr(body, "uri"):  # FleetPromptRow
+        row["uri"] = str(getattr(body, "uri", "") or "")
+    return row
 
 
 def _authorized_page(
     kind: str,
     *,
-    tenant: str,
-    principal: str,
     grant_digests: tuple[str, ...],
     query: str,
-    after: tuple[str, str] | None,
+    after: dict[str, Any] | None,
     limit: int,
     engine: Any,
-) -> list[dict[str, Any]]:
-    """Read one keyset-paginated page: LIMIT/keyset/filter/authz all pushed
-    into SQL, so a page of N rows transfers N rows over the wire, never the
-    whole table."""
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int]:
+    """Read one page directly from EG: ``(rows, next_cursor_json, total)``.
 
-    spec = _KIND_SPECS[kind]
-    sql_exec = _require_sql_exec(engine)
-    where = _build_where(
-        spec,
-        tenant=tenant,
-        principal=principal,
-        grant_digests=grant_digests,
-        query=query,
-    )
-    if after is not None:
-        where += f" AND {_keyset_predicate(spec, after)}"
-    # Fetch one extra row to detect "there is a next page" without a second
-    # round trip. `_MAX_CATALOG_ROWS` remains a defence-in-depth ceiling on
-    # the fetch itself (unreachable in practice since `_parse_request` already
-    # bounds `limit` to `_MAX_LIMIT`) so a pathological request still cannot
-    # pull the whole table even if that bound were ever raised.
-    fetch = min(min(limit, _MAX_LIMIT) + 1, _MAX_CATALOG_ROWS + 1)
-    columns = ", ".join(spec.columns)
-    statement = (
-        f"SELECT {columns} FROM {spec.table} WHERE {where} "
-        f"ORDER BY LOWER({spec.name_column}), id LIMIT {fetch}"
-    )
-    try:
-        rows = _rows_from_engine(sql_exec(statement))
-    except CatalogUnavailable:
-        raise
-    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        _log_catalog_exception("page read", exc)
-        raise CatalogUnavailable("authoritative catalog read failed") from exc
-    if len(rows) > fetch:
-        raise CatalogUnavailable(
-            "authoritative catalog page exceeds the requested bound"
+    EH-345: tenant/principal/grant visibility, substring filtering, keyset
+    ordering and the total are ALL computed engine-side now (one round trip)
+    -- there is no local WHERE-clause construction, no local scope
+    validation, and no separate untrusted-COUNT reconciliation to perform
+    (the deleted ``_build_where``/``_validate_scope*``/``_authorized_count``/
+    ``_page_total`` apparatus existed only because the old SQL tier's count
+    and row-scope were each independently untrustworthy; EG's page read is
+    the single source for both).
+    """
+    server_registry, fleet_catalog = _fleet_catalog_clients(engine)
+    if kind == "servers":
+        if server_registry is None:
+            raise CatalogUnavailable("authoritative server registry is unavailable")
+        cursor = None
+        if after:
+            from epistemic_graph.generated.server_registry import (
+                RegisteredServerCursor,
+            )
+
+            cursor = RegisteredServerCursor(**after)
+        page = server_registry.page(limit=limit, cursor=cursor)
+        rows = [_row_from_server_view(view) for view in page.entries]
+        next_cursor = (
+            page.next_cursor.model_dump(mode="json") if page.next_cursor else None
         )
-    _validate_scope(
-        spec, rows, tenant=tenant, principal=principal, grant_digests=grant_digests
+        return rows, next_cursor, int(page.total_live)
+    if fleet_catalog is None:
+        raise CatalogUnavailable("authoritative fleet catalog is unavailable")
+    from epistemic_graph.generated.fleet_catalog import (
+        FleetCatalogCursor,
+        FleetCatalogListRequest,
     )
-    return rows
+
+    cursor = FleetCatalogCursor(**after) if after else None
+    try:
+        page = fleet_catalog.page(
+            FleetCatalogListRequest(
+                kind=kind,
+                query=query or None,
+                grant_digests=list(grant_digests),
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
+        logger.warning("authoritative registry catalog page read failed: %s", exc)
+        raise CatalogUnavailable("authoritative catalog read failed") from exc
+    rows = [_row_from_fleet_row(entry) for entry in page.rows]
+    next_cursor = page.next_cursor.model_dump(mode="json") if page.next_cursor else None
+    return rows, next_cursor, int(page.total)
 
 
 def _authorized_item(
     kind: str,
     *,
-    tenant: str,
-    principal: str,
     grant_digests: tuple[str, ...],
     item_id: str,
     engine: Any,
 ) -> dict[str, Any] | None:
-    """Read at most one row by id, with the id predicate pushed into SQL
-    rather than fetching the authorized set and filtering it in Python."""
+    """Read at most one row by id."""
 
-    spec = _KIND_SPECS[kind]
-    sql_exec = _require_sql_exec(engine)
-    where = _build_where(
-        spec, tenant=tenant, principal=principal, grant_digests=grant_digests, query=""
-    )
-    where += f" AND id = {_sql_literal(item_id)}"
-    columns = ", ".join(spec.columns)
-    statement = f"SELECT {columns} FROM {spec.table} WHERE {where} LIMIT 1"
-    try:
-        rows = _rows_from_engine(sql_exec(statement))
-    except CatalogUnavailable:
-        raise
-    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        _log_catalog_exception("item read", exc)
-        raise CatalogUnavailable("authoritative catalog read failed") from exc
-    if len(rows) > 1:
-        raise CatalogUnavailable("authoritative catalog item lookup is malformed")
-    if not rows:
-        # The same response is used for an absent row and another tenant's
-        # row (the tenant predicate is already embedded in `where`).
+    server_registry, fleet_catalog = _fleet_catalog_clients(engine)
+    if kind == "servers":
+        if server_registry is None:
+            raise CatalogUnavailable("authoritative server registry is unavailable")
+        for view in server_registry.list_all():
+            if _row_from_server_view(view)["id"] == item_id:
+                return _row_from_server_view(view)
         return None
-    _validate_scope(
-        spec, rows, tenant=tenant, principal=principal, grant_digests=grant_digests
-    )
-    return rows[0]
-
-
-def _row_key(spec: _KindSpec, row: Mapping[str, Any]) -> tuple[str, str]:
-    return (
-        str(row.get(spec.name_column) or "").casefold(),
-        str(row.get("id") or ""),
-    )
+    if fleet_catalog is None:
+        raise CatalogUnavailable("authoritative fleet catalog is unavailable")
+    try:
+        answer = fleet_catalog.lookup([item_id], grant_digests=grant_digests)
+    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
+        logger.warning("authoritative registry catalog item read failed: %s", exc)
+        raise CatalogUnavailable("authoritative catalog read failed") from exc
+    for entry in answer.rows:
+        row = _row_from_fleet_row(entry)
+        if row.get("id") == item_id:
+            return row
+    # The same response is used for an absent row and another tenant's row
+    # (the engine's own visibility predicate already filtered both alike).
+    return None
 
 
 async def _list_kind(
@@ -1268,11 +838,11 @@ async def _list_kind(
     limit, query, cursor = _parse_request(request)
     try:
         tenant, principal, grant_digests = _require_catalog_authority(
-            require_discovery_binding=_KIND_SPECS[kind].principal_column is not None
+            require_discovery_binding=kind in _DISCOVERY_BOUND_KINDS
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="registry access denied") from exc
-    after: tuple[str, str] | None = None
+    after: dict[str, Any] | None = None
     if cursor:
         after = _decode_cursor(
             cursor,
@@ -1282,38 +852,16 @@ async def _list_kind(
             principal=principal,
             grant_digests=grant_digests,
         )
-    spec = _KIND_SPECS[kind]
     engine = _get_catalog_engine()
     try:
-        # The page is read FIRST so its scope-validated length can supply the
-        # total whenever it is the complete result set — the engine's
-        # unvalidatable COUNT is then never issued at all (BUG-CX-118).
-        rows = await _offload_catalog_call(
+        page_rows, eg_next_cursor, total = await _offload_catalog_call(
             _authorized_page,
             kind,
-            tenant=tenant,
-            principal=principal,
             grant_digests=grant_digests,
             query=query,
             after=after,
             limit=limit,
             engine=engine,
-        )
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
-        total = await _page_total(
-            page_rows,
-            has_more=has_more,
-            after=after,
-            count=lambda: _offload_catalog_call(
-                _authorized_count,
-                kind,
-                tenant=tenant,
-                principal=principal,
-                grant_digests=grant_digests,
-                query=query,
-                engine=engine,
-            ),
         )
     except CatalogUnavailable as exc:
         logger.warning("registry %s unavailable: %s", kind, exc)
@@ -1328,12 +876,11 @@ async def _list_kind(
             status_code=503,
         )
     next_cursor = None
-    if has_more and page_rows:
-        last = _row_key(spec, page_rows[-1])
+    if eg_next_cursor is not None:
         next_cursor = _cursor_token(
             kind=kind,
             query=query,
-            after=last,
+            after=eg_next_cursor,
             tenant=tenant,
             principal=principal,
             grant_digests=grant_digests,
@@ -1365,8 +912,8 @@ async def _get_kind(
     this annotation only makes that documented, doubly-typed return honest
     for static analysis — it changes no wire behavior)."""
     try:
-        tenant, principal, grant_digests = _require_catalog_authority(
-            require_discovery_binding=_KIND_SPECS[kind].principal_column is not None
+        _tenant, _principal, grant_digests = _require_catalog_authority(
+            require_discovery_binding=kind in _DISCOVERY_BOUND_KINDS
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="registry access denied") from exc
@@ -1374,8 +921,6 @@ async def _get_kind(
         row = await _offload_catalog_call(
             _authorized_item,
             kind,
-            tenant=tenant,
-            principal=principal,
             grant_digests=grant_digests,
             item_id=item_id,
             engine=_get_catalog_engine(),
@@ -1482,11 +1027,11 @@ def _iter_toggleable_items(
 async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
     """``GET /api/registry?kinds=a,b,c[&limit=][&q=][&cursor_<kind>=][&include=toggle]``.
 
-    Reuses ``_authorized_page``/``_authorized_count``/``_build_where`` — the
-    EXACT same predicate the single-kind ``GET /api/registry/{kind}`` route
-    uses — via the same ``_offload_catalog_call`` off-loop wrapper, so there
-    is exactly one predicate implementation for both surfaces (no forked
-    second copy to drift out of sync).
+    Reuses ``_authorized_page`` — the EXACT same EG read the single-kind
+    ``GET /api/registry/{kind}`` route uses — via the same
+    ``_offload_catalog_call`` off-loop wrapper, so there is exactly one read
+    implementation for both surfaces (no forked second copy to drift out of
+    sync).
 
     Every requested kind is read CONCURRENTLY, each on its own worker thread
     (``asyncio.gather`` over per-kind coroutines that each call
@@ -1505,9 +1050,7 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
     """
 
     kinds, limit, query, cursors, include_toggle = _parse_multi_kind_request(request)
-    require_discovery_binding = any(
-        _KIND_SPECS[kind].principal_column is not None for kind in kinds
-    )
+    require_discovery_binding = any(kind in _DISCOVERY_BOUND_KINDS for kind in kinds)
     try:
         tenant, principal, grant_digests = _require_catalog_authority(
             require_discovery_binding=require_discovery_binding
@@ -1519,7 +1062,7 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
     # expired cursor for one kind 400s the whole request early, exactly like
     # the single-kind route -- a caller cannot silently keep paginating past
     # a rejected cursor for just that one kind.
-    afters: dict[str, tuple[str, str] | None] = {}
+    afters: dict[str, dict[str, Any] | None] = {}
     for kind in kinds:
         cursor = cursors.get(kind)
         afters[kind] = (
@@ -1538,36 +1081,15 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
     engine = _get_catalog_engine()
 
     async def _read_one(kind: str) -> tuple[str, RegistryKindResult]:
-        spec = _KIND_SPECS[kind]
         try:
-            # Page first, then a count only if the page is not the whole
-            # result set — same BUG-CX-118 reasoning as the single-kind route.
-            rows = await _offload_catalog_call(
+            page_rows, eg_next_cursor, total = await _offload_catalog_call(
                 _authorized_page,
                 kind,
-                tenant=tenant,
-                principal=principal,
                 grant_digests=grant_digests,
                 query=query,
                 after=afters[kind],
                 limit=limit,
                 engine=engine,
-            )
-            has_more = len(rows) > limit
-            page_rows = rows[:limit]
-            total = await _page_total(
-                page_rows,
-                has_more=has_more,
-                after=afters[kind],
-                count=lambda: _offload_catalog_call(
-                    _authorized_count,
-                    kind,
-                    tenant=tenant,
-                    principal=principal,
-                    grant_digests=grant_digests,
-                    query=query,
-                    engine=engine,
-                ),
             )
         except Exception as exc:  # noqa: BLE001 - explicit per-kind unavailable
             logger.warning("registry %s unavailable (multi-kind): %s", kind, exc)
@@ -1576,18 +1098,17 @@ async def _list_multi_kind(request: Request) -> RegistryMultiKindPage:
             )
 
         next_cursor = None
-        if has_more and page_rows:
-            last = _row_key(spec, page_rows[-1])
+        if eg_next_cursor is not None:
             next_cursor = _cursor_token(
                 kind=kind,
                 query=query,
-                after=last,
+                after=eg_next_cursor,
                 tenant=tenant,
                 principal=principal,
                 grant_digests=grant_digests,
             )
         try:
-            items = [_validate_item(kind, spec.model, row) for row in page_rows]
+            items = [_validate_item(kind, _KIND_MODELS[kind], row) for row in page_rows]
         except CatalogUnavailable as exc:
             logger.warning(
                 "registry %s response shape unavailable (multi-kind): %s", kind, exc
@@ -1635,8 +1156,7 @@ registry_router.add_api_route(
 )
 
 
-for _kind, _spec in _KIND_SPECS.items():
-    _model = _spec.model
+for _kind, _model in _KIND_MODELS.items():
     _page_response_model, _item_response_model = _RESPONSE_MODELS[_kind]
     _list_handler = _make_list_handler(_kind, _model)
     _get_handler = _make_get_handler(_kind, _model)

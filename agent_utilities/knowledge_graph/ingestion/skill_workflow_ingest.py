@@ -123,6 +123,30 @@ def runnable_skill_digest(instructions: str) -> str:
     return hashlib.sha256(instructions.strip().encode("utf-8")).hexdigest()
 
 
+# EG's ``SkillType`` (crates/eg-types/src/fleet_catalog/vocabulary.rs) is this
+# exact closed set; anything outside it is undeclared, not an error.
+_KNOWN_SKILL_TYPES = frozenset({"skill", "workflow", "graph", "mcp_skill"})
+
+
+def classify_skill_type(skill_type: str | None) -> tuple[str, str]:
+    """Normalize a raw ``skill_type`` declaration to EG's closed vocabulary.
+
+    EH-345: replaces the deleted ``fleet_catalog_tables.classify_skill_type``.
+    That version also computed a display ``classification`` label for AU's
+    own SQL row; EG now computes that label server-side
+    (``SkillType::label``, ``FleetSkillRow.classification``) from the typed
+    value alone, so this returns the type unchanged as the second element —
+    kept as a 2-tuple only so existing ``_normalized, _label = ...`` call
+    sites need no shape change. Never returns a blank type: an absent/blank/
+    undeclared value defaults to ``"skill"`` (an ordinary atomic skill),
+    matching the deleted function's own documented default.
+    """
+    normalized = str(skill_type or "").strip().lower()
+    if normalized not in _KNOWN_SKILL_TYPES:
+        normalized = "skill"
+    return normalized, normalized
+
+
 def ingest_runnable_skill(
     engine: _EngineProtocol | IntelligenceGraphEngine,
     *,
@@ -151,11 +175,10 @@ def ingest_runnable_skill(
     ``skill_type`` is the corpus's own frontmatter self-declaration
     (``skill``/``workflow``/``graph``) or a caller-assigned kind
     (``mcp_skill`` for a fleet-harvested skill) — CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables.
-    It is stored BOTH on the ``Skill`` node and, via
-    :func:`~..core.fleet_catalog_tables.write_skill_row`, as a stored column
-    in the relational ``skills`` table (never left to fall back to
-    "Unclassified" at read time — see that module for why). This call is
-    best-effort and never allowed to fail the KG write above it.
+    It is stored on the ``Skill`` node. EH-345: it no longer also lands in a
+    relational ``skills`` row here — that row now comes from EG's fleet
+    catalog once a ConnectorPack import covers this skill (see the return
+    statement's comment below).
 
     Returns the runnable resource id.
     """
@@ -185,8 +208,6 @@ def ingest_runnable_skill(
     skill_id = f"skill:{slug}"
     resource_id = f"resource:{skill_id}"
     provenance_id = f"provenance:skill:{digest}"
-    from ..core.fleet_catalog_tables import classify_skill_type
-
     normalized_skill_type, _classification = classify_skill_type(skill_type)
     governance = {
         "tenant_id": session.tenant,
@@ -242,35 +263,13 @@ def ingest_runnable_skill(
         engine.link_nodes(skill_id, provenance_id, "DERIVED_FROM", session=session)
         engine.link_nodes(resource_id, provenance_id, "DERIVED_FROM", session=session)
 
-    from ..core.fleet_catalog_tables import (
-        TenantLocalDiscoveryBinding,
-        write_skill_row,
-    )
-
-    try:
-        write_skill_row(
-            engine,
-            skill_id=skill_id,
-            name=normalized_name,
-            description=safe_description,
-            uri=source_ref,
-            provider=safe_provider,
-            mcp_server=str(common.get("mcp_server", "")),
-            skill_type=normalized_skill_type,
-            disabled=bool(disabled),
-            # This is an in-process, locally installed skill, not a child MCP
-            # observation.  Mint the separate tenant-local visibility
-            # contract from the already verified write session above; never
-            # derive or accept an OAuth grant identity from skill material.
-            discovery_binding=TenantLocalDiscoveryBinding(tenant_id=session.tenant),
-        )
-    except Exception as exc:  # noqa: BLE001 — relational write is best-effort,
-        # never allowed to fail a runnable-skill KG write that already succeeded.
-        logger.warning(
-            "skill relational row write failed for %s (%s)",
-            source_ref,
-            type(exc).__name__,
-        )
+    # EH-345: the relational ``skills`` row write (``write_skill_row``) is
+    # deleted, not replaced here. A locally-installed skill becomes visible
+    # in EG's fleet catalog by importing the ``universal-skills`` corpus as a
+    # ConnectorPack (connector ``universal-skills``) plus one tenant-local
+    # ``FleetCatalogClient.record_discovery`` call — that is source-sync/
+    # eg-pack-lane territory (AU-CUTOVER.md §2.6), not this KG-write helper.
+    # The KG ``Skill``/``CallableResource`` upserts above are unaffected.
     return resource_id
 
 

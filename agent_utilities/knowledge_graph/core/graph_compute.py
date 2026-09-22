@@ -5145,20 +5145,25 @@ class GraphComputeEngine:
 
         **Why no row-policy pass belongs here.** ``filter_rows()``/``visible()``
         judge governed KG nodes by their ACL. Every ``SELECT`` this method
-        serves reads plain user tables (``information_schema`` schema probes,
-        the ``fleet_catalog_tables`` migration ledger, and ``mcp_servers``/
-        ``mcp_tools``/``skills`` rows that are not KG nodes), so a row pass
-        would deny the fleet-catalog bootstrap outright rather than close a gap
-        — it would break real callers, which is a different thing from failing
-        closed. This is a deliberately TRUSTED-INTERNAL DDL/ETL primitive.
+        serves reads plain user tables (``information_schema`` schema probes
+        and connector/ETL mirror tables that are not KG nodes), so a row pass
+        would break real callers rather than close a gap, which is a
+        different thing from failing closed. This is a deliberately
+        TRUSTED-INTERNAL DDL/ETL primitive.
 
-        **What actually bounds it (verified 2026-08-28, 22 call sites in
-        3 modules).** Every ``SELECT`` reaching here is one of: schema-only
-        (``information_schema``); explicitly ``tenant_id``-predicated from the
-        ambient verified actor (``fleet_catalog_tables._select_existing_chunk``,
-        ``catalog_acl_rows``); or a boot-time migration read confined to this
-        process's own owner-scoped store (``_backfill_legacy_rows``,
-        ``_read_ledger_row``). Nothing here returns rows to an external caller.
+        **What actually bounds it.** EH-345 (2026-09-22) deleted the
+        ``fleet_catalog_tables`` module and its migration ledger — the
+        6-table ``mcp_servers``/``mcp_tools``/``mcp_server_discovery``/
+        ``mcp_prompts``/``mcp_resources``/``skills`` SQL tier this method
+        used to serve for the fleet catalog no longer exists; that authority
+        is now EG's own typed ``FleetCatalog``/``ServerRegistry`` contract,
+        reached through ``client.fleet_catalog``/``client.server_registry``,
+        never through this raw SQL surface. Every remaining ``SELECT``
+        reaching here is schema-only (``information_schema``) or a
+        connector/ETL mirror table read confined to ``table_ingest``'s own
+        write-then-read pattern. Nothing here returns rows to an external
+        caller (see the next paragraph — ``registry_api.py`` no longer uses
+        ``sql_exec`` either, as of the same change).
 
         * ``table_ingest`` reaches this method ONLY with ``CREATE TABLE`` /
           ``INSERT`` / ``DROP TABLE`` — write shapes that return no rows. Its
@@ -5171,22 +5176,16 @@ class GraphComputeEngine:
           action='query'`` with a caller-supplied ``SELECT``, routes to
           ``QueryMixin.sql`` → ``_governed_engine_surface_rows`` (fail-closed),
           never here.
-        * ``gateway/registry_api.py`` is the one externally-reachable path that
-          returns ``sql_exec`` ROWS to a caller, and it does not rely on this
-          method for authorization at all. It pushes
-          ``tenant_id``/authority/principal/grant into the WHERE clause
-          (``_build_where``, from the real caller via
-          ``_require_catalog_authority``) and then RE-VALIDATES every returned
-          row against that same contract (``_validate_scope``), denying the
-          WHOLE read on any row outside it. Note that it deliberately runs the
-          RPC under a fixed catalog-service session
-          (``_catalog_service_session``), so the engine's per-owner store is
-          opened as the SYSTEM writer — the caller gets NO engine-side
-          isolation from that call, and ``_build_where`` + ``_validate_scope``
-          is the entire boundary. Pinned by
-          ``tests/unit/gateway/test_registry_api.py::
-          test_malformed_catalog_scope_is_explicitly_unavailable`` and by
-          ``tests/unit/knowledge_graph/test_sql_exec_trusted_boundary.py``.
+        * EH-345 (2026-09-22): ``gateway/registry_api.py`` used to be the one
+          externally-reachable path that returned ``sql_exec`` ROWS to a
+          caller (pushing ``tenant_id``/authority/principal/grant into a
+          hand-built WHERE clause and re-validating every returned row). It
+          no longer does — its fleet-catalog reads now go through EG's typed
+          ``FleetCatalogClient``/``ServerRegistryClient``, which enforce
+          tenant/principal/grant visibility engine-side, not via a
+          caller-built predicate this method would otherwise have to trust.
+          As of this change, no externally-reachable path returns
+          ``sql_exec`` rows to a caller at all.
 
         The ambient ACTOR is NOT suspended by ``registry_api`` (only the
         session is), so the audit entry below attributes the read to the real

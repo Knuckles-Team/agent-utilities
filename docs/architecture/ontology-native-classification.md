@@ -32,37 +32,38 @@
 > ```
 
 > **Addendum (relational tier, `CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables`):**
-> the KG write above (`:MCPServer`/`:Tool`/`:Skill` via Cypher) was, until now, the
-> **only** persisted shape of the fleet catalog — no relational table existed, so a
-> frontend wanting "list the servers/tools" had nothing cheap to read and instead
-> live-probed the multiplexer across the whole fleet on every request (slow, and a
-> stdio-child-spawn cost risk at scale). `agent_utilities/knowledge_graph/core/
-> fleet_catalog_tables.py` adds the missing relational read model — ordinary
-> Postgres-style tables (`mcp_servers`, `mcp_tools`, `mcp_prompts`, `mcp_resources`,
-> `skills`), written through the engine's own SQL surface
-> (`GraphComputeEngine.sql_exec`, the same primitive `knowledge_graph/core/
-> table_ingest.py` already established for connector mirroring) — and it is now
-> the **primary, cheap read path**; the KG nodes above and any vectorization are
-> secondary enrichment. `source_sync._write_fleet_nodes` calls the relational write
-> FIRST, from the same probed catalog, so the two representations can never diverge;
-> the relational write is independently wrapped so it is unaffected by the KG
-> write's own engine-side ACL gate (`IsolationLayer::check_access` on
-> `tenant__homelab____commons__` — a SEPARATE gate the owner-scoped SQL user-table
-> surface does not share; see that module's docstring). Unlike the KG write (which
-> skips an unreachable server entirely), the relational `mcp_servers` row is written
-> for EVERY probed server, honestly marked `reachable=false` with `last_error` —
-> "unavailable" is never indistinguishable from "empty". `skills.skill_type` /
-> `skills.classification` are also now a **stored column**, populated at every
-> `ingest_runnable_skill` call site (boot ingest, atomic-skill sweep, fleet-skill
-> harvest) from the corpus's own frontmatter — closing the "256/324 skills render
-> Unclassified" gap without a runtime KG-dependent lookup.
+> the KG write above (`:MCPServer`/`:Tool`/`:Skill` via Cypher) is not the only
+> persisted shape of the fleet catalog — a frontend wanting "list the
+> servers/tools" needs something cheaper than live-probing the multiplexer
+> across the whole fleet on every request (slow, and a stdio-child-spawn cost
+> risk at scale). That cheap read model used to be an AU-owned SQL projection
+> (`agent_utilities/knowledge_graph/core/fleet_catalog_tables.py`); **EH-345
+> (2026-09-22) deleted that module** and moved the same responsibility into
+> EG itself, behind its typed `ServerRegistryClient`/`FleetCatalogClient`
+> contract (`GraphComputeEngine.client.server_registry` /
+> `.fleet_catalog`; see `/var/tmp/l9/finish/eg-fleet-catalog/AU-CUTOVER.md`
+> and `DESIGN.md`). `source_sync._write_fleet_relational` still runs FIRST,
+> from the same probed catalog the KG entities below are built from, so the
+> two representations can never diverge, and it is still independently
+> wrapped so it is unaffected by the KG write's own engine-side ACL gate
+> (`IsolationLayer::check_access` on `tenant__homelab____commons__`) — but it
+> now calls `server_registry.register(...)` + `fleet_catalog.record_discovery(...)`
+> instead of an AU SQL write. Unlike the KG write (which skips an unreachable
+> server entirely), the registered server row is written for EVERY probed
+> server, honestly marked with a `reachable=false`/`error` discovery outcome —
+> "unavailable" is never indistinguishable from "empty". `skill_type`
+> classification is likewise no longer an AU-written SQL column: it is set
+> through `fleet_catalog.set_override` (`skill_classification.reclassify_skill`,
+> EH-345) and applied by EG's own projection at read time, closing the
+> "256/324 skills render Unclassified" gap without a runtime KG-dependent
+> lookup.
 > ```mermaid
 > flowchart LR
->   cat["probed catalog\n(servers/tools/skills/prompts)"] --> rel["fleet_catalog_tables.write_fleet_catalog\n(engine.sql_exec — cheap, sync)"]
+>   cat["probed catalog\n(servers/tools/skills/prompts)"] --> rel["source_sync._write_fleet_relational\n(EG server_registry.register +\nfleet_catalog.record_discovery)"]
 >   cat --> kg["_write_fleet_nodes entities loop\n(Cypher ApplyChangeEnvelope)"]
->   rel --> tabs[("mcp_servers / mcp_tools / mcp_prompts\nmcp_resources / skills")]
+>   rel --> tabs[("EG ServerRegistry / FleetCatalog\n(servers / tools / prompts / resources / skills)")]
 >   kg --> nodes[(":MCPServer / :Tool / :Skill")]
->   tabs -.->|"primary read path\n(sibling lane: API + frontend)"| ui["agent-webui"]
+>   tabs -.->|"primary read path\n(registry_api.py + agent-webui)"| ui["agent-webui"]
 >   nodes -.->|"secondary enrichment\n(KG queries, reasoning)"| enrich["KG / vector enrichment"]
 > ```
 

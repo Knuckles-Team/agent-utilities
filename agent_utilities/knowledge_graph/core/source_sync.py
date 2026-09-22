@@ -756,6 +756,56 @@ def _fresh_write_authority() -> Iterator[None]:
         yield
 
 
+def _fleet_catalog_clients(engine: Any) -> tuple[Any, Any]:
+    """``(server_registry, fleet_catalog)`` typed EG clients, or ``(None, None)``.
+
+    EH-345: the engine-native replacement for the deleted
+    ``fleet_catalog_tables`` SQL tier. Both are read off the SAME
+    ``GraphComputeEngine.client`` sync-wrapped handle
+    ``core/engine_ingestion.py``'s ``_reconcile_server_registration`` already
+    uses for ``server_registry`` (CONCEPT:EG-KG.sharding.server-registry) —
+    no second client construction. ``fleet_catalog`` does not exist on
+    ``SyncEpistemicGraphClient`` until the ``eg-fleet-catalog`` lane's work
+    lands on EG main; until then this returns ``None`` for it and every
+    caller below degrades to "unavailable", never raises.
+    """
+    gc = getattr(engine, "graph_compute", None)
+    client = getattr(gc, "client", None)
+    return (
+        getattr(client, "server_registry", None),
+        getattr(client, "fleet_catalog", None),
+    )
+
+
+def _discovery_scope_payload(binding: Any) -> dict[str, str] | None:
+    """The EG ``DiscoveryScope`` JSON shape for one multiplexer-minted binding.
+
+    Mirrors the deleted ``fleet_catalog_tables._binding_scope``'s discipline
+    exactly: only a typed, process-owned binding (never catalog payload data)
+    decides scope, and an untyped/missing binding means "no verified
+    authority to record this observation under" (``None`` — the caller must
+    skip the write, not guess a scope). ``binding`` is either
+    ``mcp.remote_oauth_broker.OAuthGrantBinding`` or
+    ``mcp.multiplexer.TenantLocalDiscoveryBinding`` — both live in the
+    ``mcp`` (adapters) layer, one layer above this ``knowledge_graph.core``
+    (application) module in ``scripts/layer_direction``'s ordering, so this
+    duck-types on shape (``.authority``) rather than importing either type —
+    an `application` module must not import an `adapters` module (the
+    original ``discovery_authority.py`` existed specifically to give
+    ``OAuthGrantBinding`` a layer both sides could import; EH-345 retires
+    that module, so the dependency direction is inverted here instead of
+    reintroduced).
+    """
+    if getattr(binding, "authority", None) == "tenant_local":
+        return {"authority": "tenant_local"}
+    # OAuthGrantBinding has no ``.authority`` field (it predates the EG scope
+    # vocabulary) -- its own ``.fingerprint`` property is the discriminator.
+    fingerprint = getattr(binding, "fingerprint", None)
+    if isinstance(fingerprint, str) and fingerprint.strip():
+        return {"authority": "oauth_grant", "grant_digest": fingerprint.strip()}
+    return None
+
+
 def _write_fleet_relational(
     engine: Any,
     catalog: dict[str, dict],
@@ -763,36 +813,108 @@ def _write_fleet_relational(
     configs: dict[str, dict] | None = None,
     discovery_bindings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Mirror the probed ``catalog`` into the relational fleet-catalog tables.
+    """Register each probed server's desired state and record its discovery
+    observation through EG's typed fleet-catalog surface (EH-345 cutover).
 
     CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables. Runs FIRST, from the
     SAME probed ``catalog`` the KG entities below are built from, so the
-    relational rows and the KG nodes can never observe a different fleet
-    state. This is the cheap, synchronous half the frontend should read —
-    best-effort and independently wrapped so a failure here (e.g. the engine
-    SQL surface is unavailable) is reported but never blocks the KG write
-    that follows, and — just as important — the reverse: the KG write's own
-    ACL gate (``IsolationLayer::check_access`` on
-    ``tenant__homelab____commons__``) is a SEPARATE, currently-broken gate
-    this write does not share (see ``fleet_catalog_tables`` module docstring),
-    so this table gets populated even while that Cypher write is denied.
-    """
-    from .fleet_catalog_tables import write_fleet_catalog
+    registry/catalog rows and the KG nodes can never observe a different
+    fleet state. Best-effort and independently wrapped — a failure here never
+    blocks the KG write that follows.
 
-    try:
-        return write_fleet_catalog(
-            engine,
-            catalog,
-            configs=configs,
-            discovery_bindings=discovery_bindings,
+    Content (tools/prompts/resources/skills) is deliberately NOT written
+    here: EH-345's design routes that through a ConnectorPack import (SDK
+    path, `eg-pack` lane, not an AU SQL/RPC write — see AU-CUTOVER.md §1).
+    Until a pack import has happened for a connector, EG's own content pages
+    for it are honestly empty (``total: 0``), not missing — the same
+    "unavailable is not empty" discipline this module already applied to an
+    unreachable server.
+    """
+    from ...core.config import setting
+
+    server_registry, fleet_catalog = _fleet_catalog_clients(engine)
+    if server_registry is None:
+        return {"status": "skipped", "reason": "no engine client"}
+
+    configs = configs or {}
+    discovery_bindings = discovery_bindings or {}
+    servers_written = 0
+    servers_unreachable: list[str] = []
+    discovery_written = 0
+    discovery_status = "unavailable"
+
+    for server_name, info in (catalog or {}).items():
+        if not isinstance(info, dict):
+            continue
+        cfg = configs.get(server_name) or {}
+        transport = "stdio" if cfg.get("command") else "streamable_http"
+        try:
+            server_registry.register(
+                server_name,
+                str(cfg.get("url") or f"stdio://{server_name}"),
+                ttl_secs=3 * int(setting("KG_FLEET_SYNC_INTERVAL_SECS", 3600) or 3600),
+                transport=transport,
+                desired="disabled" if cfg.get("disabled") else "enabled",
+            )
+            servers_written += 1
+        except Exception as exc:  # noqa: BLE001 — registration is best-effort
+            logger.error(
+                "fleet server registration failed for %s (%s: %s)",
+                server_name,
+                type(exc).__name__,
+                exc,
+            )
+
+        if fleet_catalog is None:
+            continue
+        scope = _discovery_scope_payload(discovery_bindings.get(server_name))
+        if scope is None:
+            continue
+        discovery_status = "bound"
+        err = info.get("error")
+        outcome = (
+            {"status": "unreachable", "error": _privacy_safe(str(err))[:2000]}
+            if err
+            else {"status": "reachable"}
         )
-    except Exception as exc:  # noqa: BLE001 — relational write is best-effort
-        logger.error(
-            "fleet catalog relational write failed (%s: %s)",
-            type(exc).__name__,
-            exc,
-        )
-        return {"status": "error", "reason": str(exc)}
+        if err:
+            servers_unreachable.append(server_name)
+        try:
+            from epistemic_graph.generated.fleet_catalog import (
+                DiscoveryCounts,
+                FleetDiscoveryRecordRequest,
+            )
+
+            fleet_catalog.record_discovery(
+                FleetDiscoveryRecordRequest(
+                    server_name=server_name,
+                    scope=scope,
+                    connector=server_name,
+                    outcome=outcome,
+                    counts=DiscoveryCounts(
+                        tools=len(info.get("tools") or []),
+                        skills=len(info.get("skills") or []),
+                        prompts=len(info.get("prompts") or []),
+                        resources=0,
+                    ),
+                )
+            )
+            discovery_written += 1
+        except Exception as exc:  # noqa: BLE001 — discovery write is best-effort
+            logger.error(
+                "fleet discovery record failed for %s (%s: %s)",
+                server_name,
+                type(exc).__name__,
+                exc,
+            )
+
+    return {
+        "status": "ok",
+        "servers_written": servers_written,
+        "servers_unreachable": servers_unreachable,
+        "discovery_status": discovery_status,
+        "discovery_written": discovery_written,
+    }
 
 
 def _fleet_tool_entity(
