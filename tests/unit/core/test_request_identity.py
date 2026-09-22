@@ -39,6 +39,9 @@ def _make_config(**overrides):
     cfg = MagicMock()
     cfg.kg_auth_token_ref = overrides.get("kg_auth_token_ref", None)
     cfg.kg_identity_oauth2 = overrides.get("kg_identity_oauth2", None)
+    cfg.kg_local_process_admin_scope = overrides.get(
+        "kg_local_process_admin_scope", False
+    )
     cfg.auth_jwt_jwks_uri = overrides.get("auth_jwt_jwks_uri", None)
     cfg.auth_jwt_issuer = overrides.get("auth_jwt_issuer", None)
     cfg.auth_jwt_audience = overrides.get("auth_jwt_audience", "agent-services")
@@ -887,7 +890,11 @@ class TestStdioProcessIdentity:
         assert session.actor.actor_id == "graph-os:local-process"
         assert session.actor.tenant_id == "local"
         assert session.actor.authenticated is True
-        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        # CONCEPT:X1 -- least-privilege by default: kg:read/kg:write only,
+        # never kg:admin. See test_tiny_local_process_session_default_has_no_admin_or_control_scope
+        # and test_tiny_local_process_session_admin_opt_in_grants_exactly_kg_admin
+        # below for the mutation-proof coverage of this specific fix.
+        assert session.scopes == frozenset({"kg:read", "kg:write"})
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
         assert session.actor.credential_expires_at is not None
@@ -896,6 +903,93 @@ class TestStdioProcessIdentity:
             session.actor.credential_lease.expires_at
             == session.actor.credential_expires_at
         )
+
+    def test_tiny_local_process_session_default_has_no_admin_or_control_scope(self):
+        """CONCEPT:X1 (a): the default tiny-profile local process must never be
+        able to pass an admin/security/control gate. Checks both the aggregate
+        scope set directly (mutation-proof against a changed default role) and
+        that the coarse ``require_scope`` gate itself refuses ``kg:admin``."""
+        from agent_utilities.knowledge_graph.core.session import ScopeError
+        from agent_utilities.security.request_identity import (
+            mint_local_process_session,
+        )
+
+        cfg = _make_config()
+        assert cfg.kg_local_process_admin_scope is False
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            session = mint_local_process_session()
+
+        assert "kg:admin" not in session.scopes
+        assert not any(
+            scope == "*"
+            or scope.startswith("admin:")
+            or scope.startswith("security:")
+            or scope.endswith(":control")
+            for scope in session.scopes
+        )
+        with pytest.raises(ScopeError):
+            session.require_scope("kg:admin")
+        # The narrower scopes a normal local tool call/background write needs
+        # must still be granted -- this is a least-privilege narrowing, not an
+        # outage.
+        session.require_scope("kg:read")
+        session.require_scope("kg:write")
+
+    def test_tiny_local_process_session_admin_opt_in_grants_exactly_kg_admin(self):
+        """CONCEPT:X1 (b): KG_LOCAL_PROCESS_ADMIN_SCOPE=true is the only way a
+        tiny-profile local process gets kg:admin, and it grants exactly the
+        documented set (read+write+admin via the coarse-scope hierarchy) --
+        never more, never less."""
+        from agent_utilities.security.request_identity import (
+            mint_local_process_session,
+        )
+
+        cfg = _make_config(kg_local_process_admin_scope=True)
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            session = mint_local_process_session()
+
+        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        session.require_scope("kg:admin")
+
+    def test_local_process_bootstrap_authority_is_a_distinct_narrow_admin_mint(self):
+        """CONCEPT:X1 (c): first-run local graph provisioning gets its own
+        one-shot kg:admin authority, independent of both the default (no
+        admin) and the opt-in flag -- and it is not the ambient subject used
+        for ordinary tool calls, so it can never be mistaken for one in a
+        provenance/audit trail."""
+        from agent_utilities.security.request_identity import (
+            mint_local_process_bootstrap_authority,
+            mint_local_process_session,
+        )
+
+        cfg = _make_config()  # opt-in left at its default (False)
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            ordinary = mint_local_process_session()
+            bootstrap = mint_local_process_bootstrap_authority()
+
+        assert bootstrap.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        bootstrap.require_scope("kg:admin")
+        assert "kg:admin" not in ordinary.scopes
+        assert bootstrap.actor.actor_id != ordinary.actor.actor_id
+        assert bootstrap.actor.actor_id == "graph-os:local-process-bootstrap"
+
+    @pytest.mark.parametrize(
+        "value",
+        ["not-a-bool", "True", "1", "yes", "TRUE"],
+    )
+    def test_kg_local_process_admin_scope_env_rejects_non_canonical_values(self, value):
+        """Matches the ``messaging_intake_enabled`` fail-closed validator
+        convention: only canonical lowercase 'true'/'false' are accepted from
+        the environment."""
+        from agent_utilities.core.config import AgentConfig
+
+        with pytest.raises(ValueError):
+            AgentConfig(KG_LOCAL_PROCESS_ADMIN_SCOPE=value)
+
+    def test_kg_local_process_admin_scope_defaults_false(self):
+        from agent_utilities.core.config import AgentConfig
+
+        assert AgentConfig().kg_local_process_admin_scope is False
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),

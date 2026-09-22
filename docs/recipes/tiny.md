@@ -56,7 +56,13 @@ unset. The resulting tiny packaged-local GraphOS stdio boundary creates and
 validates a neutral short-lived JWT with an in-memory key as a one-time proof,
 then destroys the key and token before returning a process-lifetime session. It
 persists no personal identity, host name, endpoint, filesystem path, credential,
-or proof material. Verify that boundary before launch:
+or proof material. That session — the identity every stdio tool call runs
+under — is minted least-privilege (`kg:read`/`kg:write`, never `kg:admin`) by
+default; set `KG_LOCAL_PROCESS_ADMIN_SCOPE=true` only to explicitly opt every
+local call into ambient `kg:admin` (default `false`, fail closed). First-run
+provisioning of the local engine's own tenant graph does not need that opt-in —
+it uses a separate, one-shot admin proof scoped to just that call. Verify that
+boundary before launch:
 
 ```bash
 agent-utilities-doctor --only graph_identity auth
