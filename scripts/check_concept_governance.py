@@ -2,7 +2,7 @@
 """Extend-Before-Invent concept governance gate.
 
 Local mirror of the ``concept-governance.yml`` CI workflow so that
-``pre-commit run --all-files`` catches a governance violation BEFORE a push —
+``pre-commit run --config .config/pre-commit.yaml --all-files`` catches a governance violation BEFORE a push —
 no more push-then-discover.
 
 The CI workflow scans the PR diff (``git diff origin/main...HEAD``) for newly

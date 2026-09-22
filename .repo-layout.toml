@@ -15,11 +15,12 @@
 #
 # Every tracked root directory, and every tracked non-dot root file, must have
 # a line here. Conventional, self-describing dot-FILES (.gitignore,
-# .pre-commit-config.yaml, ...) are instead enumerated in
+# ...) are instead enumerated in
 # scripts/check_root_hygiene.py's ALLOWED_DOTFILES -- see that module's
 # docstring for why the split.
 
 [dirs]
+".config" = "tracked tool configuration with explicit paths, including pre-commit and codespell"
 architecture = "owner-authored architecture component manifests consumed by the validation generator"
 agent_utilities = "the importable library package itself (kg_server.py MCP entry point, agent.py, skills/, core/, ...)"
 deploy = "k8s/Compose deployment manifests, the fleet MCP registry, action-policy defaults, and release/schedule config read by the deploy tooling"
@@ -54,4 +55,4 @@ tests = "the test suite"
 "mkdocs.yml" = "mkdocs site config"
 "opencode.json" = "opencode tool config"
 "pytest.ini" = "pytest configuration"
-"vulture_whitelist.py" = "vulture dead-code false-positive whitelist, referenced by .pre-commit-config.yaml"
+"vulture_whitelist.py" = "vulture dead-code false-positive whitelist, referenced by .config/pre-commit.yaml"

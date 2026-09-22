@@ -49,10 +49,15 @@ def main():
 
     count = 0
     for root, dirs, files in os.walk(scan_dir):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") or d == ".config"]
         for file in files:
             if file == ".pre-commit-config.yaml":
                 filepath = os.path.join(root, file)
+            elif os.path.basename(root) == ".config" and file == "pre-commit.yaml":
+                filepath = os.path.join(root, file)
+            else:
+                continue
+            if filepath:
                 if fix_hook_in_file(filepath):
                     count += 1
 

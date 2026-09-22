@@ -53,7 +53,7 @@ on:
       - '**/*compose*.yaml'
       - '**/*.stack.yml'
       - '**/*.stack.yaml'
-      - '.pre-commit-config.yaml'
+      - '.config/pre-commit.yaml'
       - '.github/**'
   push:
     branches:

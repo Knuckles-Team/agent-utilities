@@ -378,7 +378,7 @@ The script exits with code 1 if the health score is below 60, making it suitable
 for use as a pre-commit check or CI gate:
 
 ```yaml
-# .pre-commit-config.yaml
+# .config/pre-commit.yaml
 - repo: local
   hooks:
     - id: wiring-sweep

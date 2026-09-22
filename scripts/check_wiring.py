@@ -67,7 +67,7 @@ independently runnable and combined by ``--wire-first-report``:
 * ``--check-test-collection`` — test files under ``tests/`` that
   ``pytest.ini``'s ``testpaths`` does not collect AND no pre-commit hook /
   CI workflow explicitly points ``pytest`` at (parsed out of
-  ``.pre-commit-config.yaml`` / ``.github/workflows/*.yml`` by regex, so
+  ``.config/pre-commit.yaml`` / ``.github/workflows/*.yml`` by regex, so
   this can't silently drift from what those files actually run). Enforced
   as an ABSOLUTE ZERO (D-OB-13a) — the repo is measured at zero orphans
   today (see "NO BASELINE HERE ANY MORE" below), so any orphan fails.
@@ -149,7 +149,7 @@ SRC_DIR = ROOT / "agent_utilities"
 TESTS_DIR = ROOT / "tests"
 PYPROJECT = ROOT / "pyproject.toml"
 PYTEST_INI = ROOT / "pytest.ini"
-PRECOMMIT_CONFIG = ROOT / ".pre-commit-config.yaml"
+PRECOMMIT_CONFIG = ROOT / ".config" / "pre-commit.yaml"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 
 
@@ -534,7 +534,7 @@ def find_orphaned_test_files(
     are all overridable (default: the real repo) so
     ``tests/gates/test_wire_first_gate.py`` can prove this trips on a fully
     synthetic fixture, isolated from whatever this repo's OWN live
-    ``pytest.ini``/``.pre-commit-config.yaml``/``.github/workflows`` happen
+    ``pytest.ini``/``.config/pre-commit.yaml``/``.github/workflows`` happen
     to say — "a gate that can't fail is not a gate"."""
     if not tests_dir.exists():
         return []

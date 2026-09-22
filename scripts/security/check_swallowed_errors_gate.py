@@ -5,7 +5,7 @@ Delegates, unmodified, to ``scripts/check_swallowed_errors.py`` — the
 ratchet gate for a handler that discards *why* an operation failed (see that
 script's own module docstring: "Every major blocker in [the 2026-07-22/23
 debugging session] hid behind one of these shapes"). It was wired into
-``.pre-commit-config.yaml`` (``check-swallowed-errors``, ``always_run: true``)
+``.config/pre-commit.yaml`` (``check-swallowed-errors``, ``always_run: true``)
 but had **no** forwarder here in ``scripts/security/`` — the one directory
 ``agent_utilities/governance/merge_queue.py``'s fast tier actually discovers
 (``CONTRACT_CHECK_GLOB = "scripts/security/check_*.py"``, see
@@ -20,7 +20,7 @@ the same night violations landed through the queue.
 Follows the same forward-and-relay contract as every other
 ``scripts/security/check_*_gate.py`` in this directory (see
 ``_fast_tier_forward.py``): the canonical script stays exactly where
-``.pre-commit-config.yaml`` and every human invocation already expect it, and
+``.config/pre-commit.yaml`` and every human invocation already expect it, and
 this thin file gives the fast tier a ``check_*.py`` it can discover.
 
 Usage:

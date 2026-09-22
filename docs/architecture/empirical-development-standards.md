@@ -217,9 +217,9 @@ Two live examples:
   skipping it, which is the failure mode the hook exists to prevent.
 
 **The rule:** treat cost as a correctness property. Stage gates by price — the
-`stages:` key already exists in `.pre-commit-config.yaml`, so the cheap checks run on
-every commit and the expensive ones on push or in CI. Split an expensive check out of
-the hot path. And make scary-but-correct output legible (emit a summary, normalise
+`stages:` key in `.config/pre-commit.yaml` separates bounded pre-push checks from
+exhaustive manual or hosted-CI validation. Split an expensive check out of the
+automatic push path. And make scary-but-correct output legible (emit a summary, normalise
 before diffing) so nobody has to disprove it by hand.
 
 ---
@@ -243,7 +243,7 @@ your work recoverable by someone who is not you.
 
 ### 3.2 Do not re-launch a long hook in a loop
 
-One lane restarted `pre-commit run --all-files` three times, each time discarding a run
+One lane restarted `pre-commit run --config .config/pre-commit.yaml --all-files` three times, each time discarding a run
 that was minutes from completing, and finished with less information than a single
 uninterrupted run would have produced. The retry instinct is calibrated for cheap
 operations and mis-fires badly on expensive ones.

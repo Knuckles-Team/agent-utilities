@@ -3,7 +3,7 @@
 
 Delegates, unmodified, to ``scripts/check_tool_refs.py`` — dark under the
 merge queue (D-ORC-5's audit): wired into neither
-``.github/workflows/guardrails.yml`` nor ``.pre-commit-config.yaml``, and
+``.github/workflows/guardrails.yml`` nor ``.config/pre-commit.yaml``, and
 ``CONTRACT_CHECK_GLOB`` only discovers ``scripts/security/check_*.py``, one
 directory up from where the canonical script lives. See
 ``scripts/security/_fast_tier_forward.py`` for why a forwarder lives here

@@ -35,7 +35,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 git -C "$REPO_ROOT" status --short
 git -C "$REPO_ROOT" pull --ff-only
 uv --directory "$REPO_ROOT" sync --locked
-uv --directory "$REPO_ROOT" run pre-commit run --all-files
+uv --directory "$REPO_ROOT" run pre-commit run --config .config/pre-commit.yaml --all-files
 uv --directory "$REPO_ROOT" run python scripts/docs_contract.py --check
 ```
 

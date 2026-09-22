@@ -1248,7 +1248,7 @@ build = [
 
 
 # Public README/AGENTS policy is implemented by the immutable shared pipelines
-# hook pinned in .pre-commit-config.yaml.
+# hook pinned in .config/pre-commit.yaml.
 [tool.pipelines_hooks.public_surface]
 repository = "Knuckles-Team/agent-utilities"
 distribution = "agent-utilities"

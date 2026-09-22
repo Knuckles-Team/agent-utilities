@@ -4,7 +4,8 @@
 D-CP-3 (reports/deferred/lane-concurrency-protocol.md): the lane-arbitration
 library is installed only in agent-utilities. This script is the mechanical
 reach — it does NOT vendor a copy of the guard anywhere; every touched repo's
-`.pre-commit-config.yaml` gains one `lane-guard` local hook that shells out to
+tracked pre-commit config (root `.pre-commit-config.yaml` or
+`.config/pre-commit.yaml`) gains one `lane-guard` local hook that shells out to
 agent-utilities' own, unmodified `scripts/check_lane_guard.py` via an upward
 ancestor search for the `agent-utilities` checkout (see `_hook_block` below),
 honouring `AGENT_UTILITIES_ROOT` when set — no new dependency, no relock of
@@ -19,7 +20,7 @@ Safety, matching the protocol's own rules (docs/architecture/lane-concurrency.md
 * **Never edits the canonical checkout directly.** Every change is made in a
   fresh worktree on its own branch, committed there, then fast-merged back into
   that repo's own canonical `main` — never in the shared working tree.
-* **Idempotent by default.** A repo whose `.pre-commit-config.yaml` already
+* **Idempotent by default.** A repo whose pre-commit config already
   declares `id: lane-guard` is reported unchanged, not re-edited — even if its
   block is stale (RMDD-D1: fixing the generator alone repairs zero already-
   rolled-out repos). Pass ``--force``/``--rewrite`` to replace an existing
@@ -48,6 +49,12 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+
+def _precommit_config(repo: Path) -> Path:
+    """Return the canonical config path, supporting moved and legacy repos."""
+    moved = repo / ".config" / "pre-commit.yaml"
+    return moved if moved.is_file() else repo / ".pre-commit-config.yaml"
 
 
 def _workspace_root() -> Path:
@@ -229,7 +236,7 @@ def _classify(repo: Path, text: str) -> str:
 
 def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
     name = repo.name
-    config = repo / ".pre-commit-config.yaml"
+    config = _precommit_config(repo)
     if not config.is_file():
         return Outcome(name, "skipped-no-config")
     text = config.read_text(encoding="utf-8")
@@ -276,7 +283,7 @@ def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
             ["git", "worktree", "add", str(worktree), "-b", branch, default_branch],
             repo,
         )
-    wt_config = worktree / ".pre-commit-config.yaml"
+    wt_config = _precommit_config(worktree)
     wt_text = wt_config.read_text(encoding="utf-8")
     if is_insert:
         wt_match = ANCHOR_RE.search(wt_text)
@@ -319,7 +326,7 @@ def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
             "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
         )
     wt_config.write_text(new_text, encoding="utf-8")
-    _run(["git", "add", ".pre-commit-config.yaml"], worktree)
+    _run(["git", "add", str(wt_config.relative_to(worktree))], worktree)
     _run(["git", "commit", "-q", "-m", commit_message], worktree)
     default_branch = (
         _run(["git", "symbolic-ref", "--short", "HEAD"], repo, check=False) or "main"

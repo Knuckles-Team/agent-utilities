@@ -31,8 +31,8 @@ let a real tracked artifact sit unchallenged at a repo root:
    with '.' is conventional config"). That is what let a tracked
    ``.liveness_baseline.json`` -- a self-writing ratchet, not a convention --
    sit at agent-utilities' root unchallenged. Dotfiles are now split: a
-   conventional, self-describing dot-FILE (``.gitignore``,
-   ``.pre-commit-config.yaml``, ...) is enumerated in ``ALLOWED_DOTFILES``
+   conventional, self-describing dot-FILE (``.gitignore``, ...) is enumerated
+   in ``ALLOWED_DOTFILES``
    below; a dot-DIRECTORY (``.github``, ``.security``, ...) is repo-specific
    enough to need a stated reason, so it is declared in the manifest's
    ``[dirs]`` table like any other directory.
@@ -86,13 +86,11 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".repo-layout.toml",
         ".bumpversion.cfg",  # release version bump config (bump2version)
         ".cccc.toml",  # cccc complexity-metric config (hand-set caps, not a baseline)
-        ".codespellignore",  # codespell false-positive word list
         ".dockerignore",  # Docker build-context exclusions
         ".env.example",  # non-secret catalog of explicit process-env keys
         ".gitattributes",  # git attributes (line endings, diff drivers, ...)
         ".gitignore",  # git exclusion patterns
         ".mergequeue.yaml",  # merge-queue config
-        ".pre-commit-config.yaml",  # pre-commit hook config
         ".security-audit-allow.txt",  # risk-accepted CVE ledger (OSV gate)
     }
 )

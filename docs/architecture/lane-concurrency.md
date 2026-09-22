@@ -161,7 +161,7 @@ agent-utilities lane lease \
 The lease and the wrapper solve **different** problems, and both are required.
 The lease serialises lanes; the wrapper protects unstaged work from the hooks.
 
-Under the hood, `pre-commit run --all-files` `git stash`es every **unstaged** change
+Under the hood, `pre-commit run --config .config/pre-commit.yaml --all-files` `git stash`es every **unstaged** change
 before running hooks and restores it after. When a **file-rewriting** hook
 (`ruff-format`, `turtle-format`, `guardrail-docs-contract --write`, …) touches a path
 that also had unstaged edits, the restore can **silently drop those edits instead of
@@ -176,8 +176,9 @@ careless `--all-files` run can destroy another session's in-flight reservations.
 before the run, warns if a known shared-ledger file is unstaged going in, and verifies
 afterward that your unstaged changes still apply — pointing at the backup and the exact
 `git apply --3way` recovery command if a hook altered or dropped them. A **targeted**
-bare `pre-commit run` against specific files/hooks does not carry this risk the same way;
-prefer that narrower form whenever you do not need every hook re-run.
+`pre-commit run --config .config/pre-commit.yaml <hook> --files <paths>` does not carry
+this risk the same way; prefer that narrower form whenever you do not need every hook
+re-run.
 
 ## PARTITION — supply the affordance, don't just ban the verb
 
@@ -405,7 +406,7 @@ explicit; the CLI exits **75** so a shell `&&` chain actually stops.
 > actually removed from disk in any observed occurrence — this is the index,
 > not the tree — and `git reset` (mixed, no `--hard`, no `checkout .`)
 > reliably restores it with zero data loss, both times observed here. Root
-> cause NOT isolated: a single isolated `pre-commit run guardrail-gate-meta-
+> cause NOT isolated: a single isolated `pre-commit run --config .config/pre-commit.yaml guardrail-gate-meta-
 > tests` (not a full `git commit`) did not reproduce it in one attempt here,
 > and index-mtime instrumentation across every sibling worktree during that
 > attempt found only one correlated change, independently explained by that

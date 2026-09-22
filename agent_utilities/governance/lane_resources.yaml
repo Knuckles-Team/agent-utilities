@@ -146,7 +146,7 @@ resources:
     class: lease
     mechanism: hold_lease("precommit-all-files")
     evidence: >-
-      `pre-commit run --all-files` can destroy unstaged work (D-OB-12) and
+      `pre-commit run --config .config/pre-commit.yaml --all-files` can destroy unstaged work (D-OB-12) and
       concurrent runs contend for the same caches; the safe wrapper existed but
       nothing forced its use.
 

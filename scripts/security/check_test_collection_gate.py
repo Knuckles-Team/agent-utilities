@@ -6,7 +6,7 @@ Delegates, unmodified, to ``scripts/check_wiring.py --check-test-collection``
 here instead of moving or duplicating that script: the canonical sweep
 (``find_orphaned_test_files``) is shared with the developer-facing
 ``--wire-first-report`` / ``--update-wire-first-baseline`` workflow described
-in ``AGENTS.md``'s Wire-First step 4, and ``.pre-commit-config.yaml``'s
+in ``AGENTS.md``'s Wire-First step 4, and ``.config/pre-commit.yaml``'s
 ``check-wire-first`` hook already runs it locally. Neither the pre-commit
 hook nor a push-triggered workflow is wired into the merge queue's fast tier
 (``agent_utilities/governance/merge_queue.py`` discovers gates by globbing
@@ -15,7 +15,7 @@ the check actually gates every merge, not just a developer's local commit.
 
 **What this catches.** A ``test_*.py`` file under ``tests/`` that neither
 ``pytest.ini``'s ``testpaths`` covers nor an explicit ``pytest ...`` in
-``.pre-commit-config.yaml`` / ``.github/workflows/*.yml`` points at — i.e. a
+``.config/pre-commit.yaml`` / ``.github/workflows/*.yml`` points at — i.e. a
 test nothing ever runs, so "the suite passes" says nothing about it (the
 defect this gate exists to keep from reopening). As of the D-RG2-1/D-WS-3
 audit (``reports/test-collection-audit.md``), ``pytest.ini``'s ``testpaths``

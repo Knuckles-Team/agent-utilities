@@ -250,7 +250,7 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     "Cargo.toml",
     "Cargo.lock",
     ".github/workflows/**",
-    ".pre-commit-config.yaml",
+    ".config/pre-commit.yaml",
 )
 
 

@@ -35,7 +35,7 @@
 # `-n auto` (pytest-xdist, perf/au-test-runtime, in flight on a sibling
 # branch) is NOT assumed live here -- this repo's checked-out `main` runs
 # pytest single-process (confirmed: no `-n auto`/`--dist` in pytest.ini,
-# pyproject.toml, .pre-commit-config.yaml, or the GitHub workflows). When
+# pyproject.toml, .config/pre-commit.yaml, or the GitHub workflows). When
 # xdist does land, re-verify this gate under it too: a 2-core runner has far
 # fewer xdist workers than a dev host, which is exactly the kind of
 # worker-count assumption this edict exists to catch (see

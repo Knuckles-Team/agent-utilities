@@ -4,7 +4,7 @@ Git-state dependency"?
 
 ``723f85ed`` fixed a DIFFERENT class of environment dependency for this gate
 -- which INTERPRETER runs it (bare ``python3`` on PATH vs the repo's own
-``.venv``), wired via ``.pre-commit-config.yaml``'s ``uv_workspace.py run``
+``.venv``), wired via ``.config/pre-commit.yaml``'s ``uv_workspace.py run``
 wrapper, not a git-state dependency. This file proves the git-state half of
 the "no ambient dependency" requirement holds too: unlike
 ``check_tracked_privacy.py``/``check_current_only_contract.py``
@@ -27,7 +27,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MODULE = _REPO_ROOT / "scripts" / "check_import_safety.py"
 
-# The exact --exclude list .pre-commit-config.yaml's check-import-safety
+# The exact --exclude list .config/pre-commit.yaml's check-import-safety
 # hook uses (minus --simulate-windows, which only changes WHICH modules are
 # blocked, not the git-env-isolation question this file is scoped to) --
 # kept in sync manually; a drift here would only make this test's own

@@ -33,7 +33,7 @@ that ever changes.
 Wired into pre-commit as the ``guardrails-lean-parity`` hook
 (``stages: [pre-push, manual]`` — it builds a venv, too slow for every commit)::
 
-    pre-commit run guardrails-lean-parity --hook-stage manual --all-files
+    pre-commit run --config .config/pre-commit.yaml guardrails-lean-parity --hook-stage manual --all-files
     # or, directly:
     python3 scripts/run_guardrails_lean.py
 

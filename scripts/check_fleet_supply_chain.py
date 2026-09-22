@@ -694,7 +694,11 @@ def _workflow_findings(
 
 
 def _is_precommit(relative: pathlib.PurePath) -> bool:
-    return relative.name == ".pre-commit-config.yaml"
+    parts = relative.parts
+    return relative.name == ".pre-commit-config.yaml" or parts[-2:] == (
+        ".config",
+        "pre-commit.yaml",
+    )
 
 
 def _precommit_findings(

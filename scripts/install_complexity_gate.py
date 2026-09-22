@@ -93,7 +93,9 @@ def main() -> int:
 
     installed = skipped = failed = 0
     for repo in repos:
-        cfg = repo / ".pre-commit-config.yaml"
+        cfg = repo / ".config" / "pre-commit.yaml"
+        if not cfg.is_file():
+            cfg = repo / ".pre-commit-config.yaml"
         base = repo / ".complexity-baseline.json"
 
         if args.verify:
@@ -109,7 +111,7 @@ def main() -> int:
             continue
 
         if not cfg.is_file():
-            print(f"  SKIP {repo.relative_to(args.root)}: no .pre-commit-config.yaml")
+            print(f"  SKIP {repo.relative_to(args.root)}: no tracked pre-commit config")
             skipped += 1
             continue
         text = cfg.read_text(encoding="utf-8")

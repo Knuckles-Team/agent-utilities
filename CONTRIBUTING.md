@@ -9,7 +9,7 @@ out-of-process over MessagePack/UDS (no PyO3).
 
 ```bash
 pip install -e ".[all]"
-pre-commit install
+pre-commit install --config .config/pre-commit.yaml --hook-type pre-commit --hook-type pre-push
 ```
 
 The default knowledge-graph backend is zero-infra: the epistemic-graph engine is
@@ -34,15 +34,22 @@ locally when done. Push only when asked.
 
 ## Before you push
 
+The installed pre-push gate is deliberately bounded for a sub-10-minute
+publication cycle: lint/format/type checks, lockfile consistency, public-surface
+and fast contract checks, plus targeted smoke coverage. Full pytest/integration
+suites, workflow replay, wheel builds, and repository-wide scans are manual or
+hosted-CI validations; they are not run automatically by `git push`.
+
 ```bash
 python -m pytest                              # unit suite (keep it green)
-python3 scripts/safe_precommit_all_files.py   # NOT bare `pre-commit run --all-files` — see below
+python3 scripts/safe_precommit_all_files.py   # use this instead of direct `pre-commit run --config .config/pre-commit.yaml --all-files`
 ```
 
-Note: the `pre-commit` pytest hook can fail repo-wide due to an unrelated
-egeria/py3.12 dependency pin — validate with the system `python -m pytest` if so.
+Note: the full pytest hook is manual-only and can fail repo-wide due to an
+unrelated egeria/py3.12 dependency pin — validate with the system
+`python -m pytest` if so.
 
-⚠ **Use the safe wrapper, not bare `pre-commit run --all-files` (D-OB-12).**
+⚠ **Use the safe wrapper, not direct `pre-commit run --config .config/pre-commit.yaml --all-files` (D-OB-12).**
 `--all-files` stashes every unstaged change before running hooks and restores it
 after; a file-rewriting hook (`ruff-format`, `turtle-format`, …) touching the same
 path can make that restore silently drop the unstaged edit — and
@@ -54,7 +61,8 @@ the full explanation and recovery steps.
 
 ### Guardrail ENV parity (passes-local / fails-CI)
 
-`pre-commit run --all-files` runs the guardrail gates in your **full** install.
+`pre-commit run --config .config/pre-commit.yaml --all-files` runs the
+guardrail gates in your **full** install.
 CI's `release.yml` `gates` job runs them in a deliberately **lean** install
 (`uv sync --frozen --extra test --group guardrails --no-install-package
 epistemic-graph --no-install-package langfuse-agent` — no `[agent-runtime]`/`[all]`
@@ -63,7 +71,7 @@ extras). A gate that transitively imports an extra-only dependency (`pydantic_ai
 class locally, reproduce CI's lean env and run every gate inside it:
 
 ```bash
-pre-commit run guardrails-lean-parity --hook-stage manual --all-files
+pre-commit run --config .config/pre-commit.yaml guardrails-lean-parity --hook-stage manual --all-files
 # or directly (requires `uv`):
 python scripts/run_guardrails_lean.py            # --list to preview, --keep-venv to debug
 ```
@@ -71,7 +79,7 @@ python scripts/run_guardrails_lean.py            # --list to preview, --keep-ven
 `scripts/run_guardrails_lean.py` builds a throwaway lean venv with the **exact**
 install from `.github/workflows/release.yml`'s `gates` job and runs the gate list
 **derived from the same job** in it (so it can't drift from CI). It builds a venv,
-so it is staged `pre-push`/`manual` (not every commit). Heavy/extra imports on a
+so it is manual-only locally. Heavy/extra imports on a
 gate path must be lazy + guarded (see *Dependency discipline* in `AGENTS.md`) so
 the package imports clean in the lean env.
 

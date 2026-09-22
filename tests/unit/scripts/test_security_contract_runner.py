@@ -135,7 +135,7 @@ def test_unknown_exclusion_fails_closed(tmp_path: Path) -> None:
 
 def test_queue_and_contributor_hook_use_the_shared_runner() -> None:
     queue_config = (REPOSITORY_ROOT / ".mergequeue.yaml").read_text(encoding="utf-8")
-    hook_config = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(
+    hook_config = (REPOSITORY_ROOT / ".config" / "pre-commit.yaml").read_text(
         encoding="utf-8"
     )
 

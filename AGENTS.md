@@ -101,7 +101,7 @@ python3 scripts/build_concepts_yaml.py
 python3 scripts/gen_docs.py --write
 python3 scripts/gen_agents_md.py
 python3 scripts/docs_contract.py --check
-pre-commit run public-surface --all-files
+pre-commit run --config .config/pre-commit.yaml public-surface --all-files
 ```
 
 Run the normal all-files gate only through the shared lease and safety wrapper:

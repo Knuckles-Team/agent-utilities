@@ -9,7 +9,7 @@ same fail-closed contract :mod:`scripts.check_connector_manifests` enforces
 fleet-wide, wired in per-repo the same way ``env-var-drift`` already is (one
 ``repo: local`` hook block, triggered only when ontology-relevant files change).
 
-Idempotent (skips a repo whose ``.pre-commit-config.yaml`` already has the hook)
+Idempotent (skips a repo whose tracked pre-commit config already has the hook)
 and scoped to connector repos that actually ship a ``connector_manifest.yml`` — a
 repo with no manifest yet has nothing to gate, so it is left untouched (never
 adds a hook that would always no-op).
@@ -88,7 +88,9 @@ def main() -> int:
         if not (connector_dir / "connector_manifest.yml").exists():
             skipped_no_manifest.append(connector_dir.name)
             continue
-        precommit = connector_dir / ".pre-commit-config.yaml"
+        precommit = connector_dir / ".config" / "pre-commit.yaml"
+        if not precommit.is_file():
+            precommit = connector_dir / ".pre-commit-config.yaml"
         if not precommit.exists():
             skipped_no_precommit.append(connector_dir.name)
             continue
@@ -102,7 +104,7 @@ def main() -> int:
     print(f"skipped (already present): {len(skipped_already)}")
     print(f"skipped (no connector_manifest.yml): {len(skipped_no_manifest)}")
     print(
-        f"skipped (no .pre-commit-config.yaml): {len(skipped_no_precommit)} -> {skipped_no_precommit}"
+        f"skipped (no pre-commit config): {len(skipped_no_precommit)} -> {skipped_no_precommit}"
     )
     return 0
 

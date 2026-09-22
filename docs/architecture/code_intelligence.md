@@ -142,8 +142,7 @@ uses two complementary scanners, with their exact versions and thresholds in
   extension-backed `txt` format.
   It recomputes the base and merged clone sets in throwaway worktrees and fails
   only on new pairs. The `census` mode is all-format, full-tree, and advisory;
-  it is manual/pre-push only so a whole-repository report never becomes a
-  per-commit tax.
+  it is manual-only so a whole-repository report never adds automatic push time.
 
 Both wrappers read the same exclusion list for generated/vendor/build output,
 lockfiles, fixtures, snapshots, and examples. The dupehound wrapper mirrors the
@@ -159,9 +158,9 @@ junk plus Git metadata. Malformed or missing reports, non-regular report files,
 clone locations outside the scan roots, inconsistent counts, and incomplete
 throwaway-worktree cleanup all return exit 2 rather than a false green. Live
 binary/workdir overrides are read through the repository config abstraction,
-not directly from `os.environ`. Dupehound runs during pre-commit and jscpd
-during pre-push, so the complementary signals do not produce two simultaneous
-blocking hook failures.
+not directly from `os.environ`. Dupehound runs during pre-commit; the targeted
+jscpd differential remains available manually so the automatic push gate stays
+bounded.
 The differential list is an explicit, reviewable allowlist; formats not yet
 mapped there remain visible to the manual all-format census rather than
 silently expanding the blocking scope.
@@ -173,7 +172,7 @@ flowchart LR
     Select --> Blocks["jscpd\ncode + non-code blocks"]
     Functions -->|"new duplicate"| Block["exit 1: block"]
     Blocks -->|"new clone pair"| Block
-    Census["manual/pre-push census\nall formats, advisory"] --> Report["real clone counts"]
+    Census["manual census\nall formats, advisory"] --> Report["real clone counts"]
     Blocks -->|"pre-existing pair"| Report
 ```
 

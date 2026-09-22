@@ -15,7 +15,7 @@ violation as "already there": every bare env read outside the allowed files is a
 
 ``MAX`` is a module-level constant rather than a ``--max``/CLI flag because both callers
 of this script invoke it with **zero arguments**: pre-commit's ``check-no-env-sprawl``
-hook (``.pre-commit-config.yaml``, default/blocking stage, ``pass_filenames: false``, no
+hook (``.config/pre-commit.yaml``, default/blocking stage, ``pass_filenames: false``, no
 extra ``args:``) and CI's ``advisory.yml`` (``python3 scripts/check_no_env_sprawl.py``). A
 CLI flag would never be passed by either caller, so the threshold has to live in code.
 

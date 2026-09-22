@@ -106,10 +106,15 @@ def main():
 
     count = 0
     for root, dirs, files in os.walk(scan_dir):
-        # Skip hidden directories like .git
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        # Skip hidden directories like .git, but include the tracked tool-config
+        # directory so repositories using the explicit-path layout are covered.
+        dirs[:] = [d for d in dirs if not d.startswith(".") or d == ".config"]
         for file in files:
             if file == ".pre-commit-config.yaml":
+                filepath = os.path.join(root, file)
+                if inject_hook_to_file(filepath):
+                    count += 1
+            elif os.path.basename(root) == ".config" and file == "pre-commit.yaml":
                 filepath = os.path.join(root, file)
                 if inject_hook_to_file(filepath):
                     count += 1

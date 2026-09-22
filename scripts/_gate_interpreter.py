@@ -8,7 +8,7 @@ That import is only satisfiable under this repository's declared dependency
 floor (``pyproject.toml``: ``fastmcp>=4.0.0b1``), which lives in the
 uv-managed ``<root>/.venv``.
 
-``.pre-commit-config.yaml`` runs those hooks with ``language: system`` and a
+``.config/pre-commit.yaml`` runs those hooks with ``language: system`` and a
 bare ``python3``, so on a box whose ``PATH`` python is the host interpreter
 (with, say, an old ``fastmcp`` in ``~/.local/lib``) the gates ran against a
 dependency set the project does not support. The observable result was not a

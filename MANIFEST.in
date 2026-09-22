@@ -10,7 +10,8 @@ include scripts/__init__.py
 # the same reviewed quality surface. They are source tooling, not runtime
 # wheel/package data; native scanners are never installed by a hook or by the
 # installed Agent Utilities package.
-include .pre-commit-config.yaml
+include .config/pre-commit.yaml
+include .config/codespell.ignore
 include .cccc.toml
 include .kiss/kiss.toml
 include .github/workflows/release.yml

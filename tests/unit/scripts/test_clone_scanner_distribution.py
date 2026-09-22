@@ -35,14 +35,14 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     sdk_checkout = (
         ROOT / ".github" / "actions" / "checkout-agent-connector-sdk" / "action.yml"
     ).read_text(encoding="utf-8")
-    pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    pre_commit = (ROOT / ".config" / "pre-commit.yaml").read_text(encoding="utf-8")
 
     assert profile["dupehound_version"] == "0.1.2"
     assert profile["jscpd_version"] == "5.0.16"
     assert "entry: python3 scripts/check_dupehound.py" in pre_commit
     assert "stages: [pre-commit]" in pre_commit
     assert "scripts/check_duplication.py enforce --base-ref" in pre_commit
-    assert "stages: [manual, pre-push]" in pre_commit
+    assert "stages: [manual]" in pre_commit
     assert "cargo install dupehound --version 0.1.2 --locked" in workflow
     assert "npm install --global jscpd@5.0.16" in workflow
     assert "needs: [gates, clone-scanners]" in workflow
@@ -63,7 +63,8 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
 def test_source_distribution_carries_the_clone_scanner_surface() -> None:
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines()
     required = (
-        ".pre-commit-config.yaml",
+        ".config/pre-commit.yaml",
+        ".config/codespell.ignore",
         ".cccc.toml",
         ".kiss/kiss.toml",
         ".github/workflows/release.yml",

@@ -49,7 +49,7 @@ SAMPLE_CONSTITUTION = textwrap.dedent("""\
     - All features MUST be implemented with corresponding Pytests.
     - Integration tests MUST pass before merge.
     ### Verification Loop
-    - After any code change, `pre-commit run --all-files` MUST be executed.
+    - After any code change, `pre-commit run --config .config/pre-commit.yaml --all-files` MUST be executed.
     ### Prohibited Uses
     - Do NOT use for UI development.
     - Do NOT use for SaaS integrations.

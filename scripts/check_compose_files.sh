@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Schema-validate compose files with inert placeholder values.
-# See the docker-compose-check hook comment in .pre-commit-config.yaml.
+# See the docker-compose-check hook comment in .config/pre-commit.yaml.
 set -euo pipefail
 
 env_file="docker/.env.validation"

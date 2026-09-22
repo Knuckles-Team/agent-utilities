@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Safe wrapper for ``pre-commit run --all-files`` (D-OB-12).
+"""Safe wrapper for ``pre-commit run --config .config/pre-commit.yaml --all-files`` (D-OB-12).
 
 CONCEPT:AU-OS.governance.precommit-all-files-safety.
 
-``pre-commit run --all-files`` internally ``git stash``es every UNSTAGED
+``pre-commit run --config .config/pre-commit.yaml --all-files`` internally ``git stash``es every UNSTAGED
 change before running hooks and restores it after. When a file-rewriting
 hook (``ruff-format``, ``turtle-format``, ``guardrail-docs-contract --write``,
 ...) touches a path that ALSO had unstaged edits, the restore can silently
@@ -23,13 +23,13 @@ This wrapper is the mechanical guard (a guard beats a paragraph):
 2. Prints an explicit, named warning when ``docs/concept_reservations.yaml``
    (or another tracked file matching a known shared-ledger pattern) is
    unstaged, since that is the highest-risk case this exists to catch.
-3. Runs ``pre-commit run --all-files`` (forwarding any extra CLI args).
+3. Runs ``pre-commit run --config .config/pre-commit.yaml --all-files`` (forwarding any extra CLI args).
 4. Verifies afterward that the backed-up diff still applies — i.e. nothing
    was silently dropped — and loudly points at the recovery command if not.
 
 Usage: ``python3 scripts/safe_precommit_all_files.py [-- pre-commit args...]``
-mirrors ``pre-commit run --all-files [args...]`` and exits with the same
-status pre-commit would have.
+mirrors ``pre-commit run --config .config/pre-commit.yaml --all-files [args...]``
+and exits with the same status pre-commit would have.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ def _diff_still_applies(root: Path, backup: Path) -> bool:
 def _run_precommit(root: Path, argv: list[str]) -> int:
     """Isolated so tests can stub the actual ``pre-commit`` invocation."""
     return subprocess.run(
-        ["pre-commit", "run", "--all-files", *argv], cwd=root
+        ["pre-commit", "run", "--config", ".config/pre-commit.yaml", "--all-files", *argv], cwd=root
     ).returncode
 
 

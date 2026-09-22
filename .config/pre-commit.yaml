@@ -1,5 +1,6 @@
-# Without this, `pre-commit install` wires ONLY the pre-commit hook, so `git push`
-# runs nothing and every hook staged pre-push is silently dead code.
+# Install with `pre-commit install --config .config/pre-commit.yaml`; without
+# the configured hook types, `git push` runs nothing and every pre-push hook is
+# silently dead code.
 default_install_hook_types: [pre-commit, pre-push]
 exclude: ^scripts/
 # Phase 0 dev-velocity contract (graph-os-completion-program): a hook with no
@@ -34,9 +35,12 @@ repos:
   rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c # v0.16.0
   hooks:
   - id: ruff-check
-    args: ["--fix", "--unsafe-fixes", "--ignore=E402"]
+    args: ["--ignore=E402"]
+    stages: [pre-commit, pre-push, manual]
     exclude: ^(tests/|test/|scripts/|script/)
   - id: ruff-format
+    args: ["--check"]
+    stages: [pre-commit, pre-push, manual]
     exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
@@ -44,6 +48,7 @@ repos:
   - id: mypy
     additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518]
     args: ["--ignore-missing-imports"]
+    stages: [pre-commit, pre-push, manual]
     # Align with ruff/bandit/codespell, which all exclude tests — the repo does
     # not statically type-check test code (validated at runtime by pytest).
     exclude: ^(tests/|test/|scripts/|script/)
@@ -58,11 +63,11 @@ repos:
   rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
-    args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.codespellignore"]
+    args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.config/codespell.ignore"]
     # style_lint.py's _COMMON_TYPOS dict is DATA — the misspelled forms (teh,
     # wich, recieve, ...) are its dictionary keys by design (it's the ontology
     # naming-style linter's own typo table). Whitelisting those words globally
-    # in .codespellignore would blind codespell to the same real typos anywhere
+    # in .config/codespell.ignore would blind codespell to the same real typos anywhere
     # else in the tree, so exclude this one file by path instead.
     exclude: ^(tests/|test/|scripts/|script/|\.specify/|agent_utilities/knowledge_graph/ontology/style_lint\.py$)
 - repo: https://github.com/PyCQA/bandit
@@ -76,21 +81,23 @@ repos:
   hooks:
   - id: nbqa-ruff
     args: ["--fix"]
-- repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 6a280ba12b7901e47757c868c8c13c6a624c9ecb # 0.11.7
-  hooks:
-  # --locked: fail (don't silently rewrite) if uv.lock is out of sync with
-  # pyproject.toml — keeps the committed lock authoritative and never stale.
-  - id: uv-lock
-    entry: python3 scripts/uv_workspace.py lock
-    args: ["--locked"]
-    stages: [pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
   rev: 64e34ca63385200f5ddfef5286e6886bf7dc80b4 # public docs contract
   hooks:
   - id: public-surface
+    stages: [pre-commit, pre-push, manual]
 - repo: local
   hooks:
+  # --locked: report lock drift without rewriting uv.lock or provisioning
+  # dependencies. Keeping this as a system hook prevents hook-environment
+  # installation on the automatic pre-push path.
+  - id: uv-lock
+    name: uv lock consistency (no install, no rewrite)
+    entry: python3 scripts/uv_workspace.py lock --locked
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
   - id: dependency-readiness
     name: Dependency readiness — every declared intra-fleet constraint is installable
     # Prefer the local repository-manager checkout, fall back to PyPI (CI).
@@ -103,7 +110,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: dependency-audit
     name: audit dependencies for known CVEs (OSV)
     entry: python3 scripts/audit_dependencies.py uv.lock
@@ -324,7 +331,7 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit]
-  # jscpd's differential mode is deliberately pre-push/manual: it materializes
+  # jscpd's differential mode is manual-only: it materializes
   # base + merged trees and detects copied blocks in code, templates, and
   # configuration. Dupehound runs at pre-commit, so structural whole-function
   # reuse and token-block cloning do not create two simultaneous hook failures.
@@ -343,17 +350,17 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # The all-format jscpd census is informational by design. It reports real
   # counts and pre-existing debt but never fails on findings; keep it out of
-  # the staged pre-commit path and expose it only at manual/pre-push tiers.
+  # the staged pre-commit path and expose it only at the manual tier.
   - id: clone-jscpd-census
     name: Clone census — full tree (jscpd, advisory)
     entry: python3 scripts/check_duplication.py census
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: complexity-staged
     name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
     entry: python3 scripts/check_complexity_staged.py
@@ -473,7 +480,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
+  # Anti-drift check for the ci-gate-replica hook (manual-only, below) —
   # pure YAML parse, no venv sync/build, <1s, so it runs on EVERY commit
   # rather than waiting for a push to discover a workflow grew a job
   # ci_gate_replica.py doesn't know how to classify. Covers EVERY workflow
@@ -515,13 +522,13 @@ repos:
     types: [python]
     pass_filenames: false
     always_run: false
-    # D-ORC-48: moved off the pre-commit stage to [manual, pre-push], matching
+    # D-ORC-48: moved off automatic hooks to manual-only, matching
     # the convention this file already uses for every other heavy CI-parity
     # suite (check-security-parser-fuzz, check-security-identity-isolation,
     # check-security-tenant-identity, ...).
     #
-    # This is NOT a weakening. The same suite still runs on push, still runs on
-    # demand (`pre-commit run pytest --hook-stage manual`), and -- critically --
+    # This is NOT a weakening. Hosted CI still runs the full suite; run it locally
+    # on demand with `pre-commit run --config .config/pre-commit.yaml pytest --hook-stage manual`, and -- critically --
     # the merge queue gates every candidate against the full suite
     # DIFFERENTIALLY before it lands, which is the standard that actually
     # governs `main`. `main` is legitimately red, so an absolute green at commit
@@ -535,7 +542,7 @@ repos:
     # staged_files_only patch-file window, which is the mechanism behind this
     # program's pre-commit data-loss incidents (one lane emptied its own working
     # tree today and recovered only via `git fsck`).
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: constrained-parallelism
     name: pytest concurrency-sensitive tests under 2-core CPU affinity (GOC-70)
     # See scripts/constrained_parallelism_gate.sh's header for the full
@@ -545,7 +552,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: check-agent-standards
     name: check agent standards
     entry: |-
@@ -778,7 +785,7 @@ repos:
     # destroying a worker's live diff. This is an investigative check ("is it
     # currently safe to touch the cache"), not a per-commit invariant, so it is
     # staged manual/pre-push rather than run on every commit. Run it via:
-    #   pre-commit run guardrail-pre-commit-patch-safety --hook-stage manual --all-files
+    #   pre-commit run --config .config/pre-commit.yaml guardrail-pre-commit-patch-safety --hook-stage manual --all-files
     # ALWAYS run it (or `python3 scripts/check_pre_commit_patch_safety.py`)
     # before any $PRE_COMMIT_HOME/~/.cache/pre-commit reclaim.
     entry: python3 scripts/check_pre_commit_patch_safety.py
@@ -794,13 +801,13 @@ repos:
     # checkout prints "Provider assets unavailable (error_code=
     # source_unresolved)" for each source) -- same heavy/env-infra class as
     # docs-build/wheel-build/backend-parity/guardrails-lean-parity above.
-    # Staged manual/pre-push. Run it via:
-    #   pre-commit run guardrail-kg-skill-coverage --hook-stage manual --all-files
+    # Manual-only because it needs a reachable Graph-OS/engine. Run it via:
+    #   pre-commit run --config .config/pre-commit.yaml guardrail-kg-skill-coverage --hook-stage manual --all-files
     entry: python3 -m agent_utilities.mcp.skill_coverage
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: guardrail-prebundled-skills
     name: Guardrail — consolidated pre-bundled skills stay valid
     entry: python3 scripts/check_prebundled_skills.py
@@ -953,7 +960,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: guardrail-gate-meta-tests
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
@@ -978,12 +985,10 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
 # ── CI parity: gates that live in a CI workflow but had no pre-commit mirror ──
-# These close the remaining CI<->pre-commit parity gaps so that
-# `pre-commit run --all-files` (default stage) == the union of the non-deploy,
-# non-nightly CI gates, and `--hook-stage manual` adds the deploy/nightly build
-# gates. Nothing CI checks is left out; heavy gates are staged (not omitted).
+# These close CI<->pre-commit parity gaps. Exhaustive checks remain available
+# through the manual stage and hosted CI; only the automatic push tier is bounded.
 - repo: local
   hooks:
   # concept-governance.yml — Extend-Before-Invent gate. New CONCEPT: tags must
@@ -1000,19 +1005,19 @@ repos:
   # EVERY live CONCEPT id in the tree (not just the diff), ratcheted against
   # scripts/concept_design_doc_baseline.txt. This scans the whole repo tree
   # (~9s), heavier than the diff-based hook above, so it is staged
-  # manual/pre-push rather than added to every default --all-files run:
-  #   pre-commit run check-concept-governance-merged --hook-stage manual --all-files
+  # manual-only rather than added to every automatic push:
+  #   pre-commit run --config .config/pre-commit.yaml check-concept-governance-merged --hook-stage manual --all-files
   - id: check-concept-governance-merged
     name: CI parity — concept governance (merged-but-undocumented audit, D-RG2-3)
     entry: python3 scripts/check_concept_governance.py --audit-merged
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # pages.yml — `mkdocs build` (the docs build step of the GitHub Pages deploy
-  # workflow). Staged manual/pre-push: it provisions an isolated mkdocs env and
-  # is heavier than a per-commit gate, and the deploy itself is push-to-main
-  # only. Run it via:  pre-commit run docs-build --hook-stage manual --all-files
+  # workflow). Manual-only: it provisions an isolated mkdocs env and is heavier
+  # than an automatic push gate; the deploy itself is push-to-main
+  # only. Run it via:  pre-commit run --config .config/pre-commit.yaml docs-build --hook-stage manual --all-files
   - id: docs-build
     name: CI parity — strict mkdocs docs build (pages.yml)
     entry: bash -c 'mkdocs build --strict --site-dir "$(mktemp -d)/site"'
@@ -1020,18 +1025,18 @@ repos:
     additional_dependencies: [mkdocs-material==9.7.6, mkdocs-awesome-pages-plugin==2.10.1]
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # pipeline.yml — `uv build` (the wheel/sdist build step of the PyPI release
   # workflow). Mirrors the packaging build so a broken pyproject/packaging is
-  # caught locally instead of on the release push. Staged manual/pre-push.
-  # Run it via:  pre-commit run wheel-build --hook-stage manual --all-files
+  # caught locally. Manual-only because the build/reproducibility path is expensive.
+  # Run it via:  pre-commit run --config .config/pre-commit.yaml wheel-build --hook-stage manual --all-files
   - id: wheel-build
     name: CI parity — package build (pipeline.yml uv build)
     entry: bash -c 'uv build --out-dir "$(mktemp -d)/dist"'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # perf/gate-dedup (2026-08-15): the standalone `wheel-build-reproducibility`
   # hook that used to live here ran scripts/release/check_wheel_build_
   # reproducibility.py — build the wheel TWICE with `uv build --wheel
@@ -1076,32 +1081,31 @@ repos:
   # `scripts/ci_gate_replica.sh --dry-run` to see the full plan without
   # executing anything.
   - id: ci-gate-replica
-    name: CI gate replica — parses every workflow file, runs its executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    name: CI gate replica — exhaustive workflow replay (manual only)
     entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # D-CIP-13: the not-yet-pushed commit range is public the moment it is
   # pushed, and git history is not a hiding place — a credential deleted in a
   # later commit is still leaked. This was scratchpad tooling a human had to
   # remember to re-run by hand before the (deliberately deferred) push; now a
-  # standing gate. Scoped to pre-push (not every commit): it scans the full
+  # standing gate. Manual-only: it scans the full
   # origin/main..HEAD patch text, which grows with every commit, so running it
   # per-commit would mean re-scanning an ever-larger range on every single
   # `git commit` for no new signal until the next push.
-  # Run it via:  pre-commit run check-secret-history --hook-stage manual --all-files
+  # Run it via:  pre-commit run --config .config/pre-commit.yaml check-secret-history --hook-stage manual --all-files
   - id: check-secret-history
     name: CI parity — credential-shaped content in the unpushed range (D-CIP-13)
     entry: python3 scripts/security/check_secret_history.py --base origin/main
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # w5-ci-gates-local (D-W5CG-1): mirrors `.mergequeue.yaml`'s `contract-checks`
-  # gate (same glob, same bare-invocation shape) so a local `pre-commit run
-  # --hook-stage pre-push` reproduces the queue verdict instead of only
-  # discovering a contract regression after landing. Two exclusions from the
+  # gate (same glob, same invocation shape) so the local fast contract tier
+  # catches its scoped checks before push. Two exclusions from the
   # queue's literal glob, both verified live in this worktree, neither this
   # lane's to fix:
   #   * check_current_only_contract_gate.py — see the dedicated hook below.
@@ -1141,9 +1145,9 @@ repos:
   # pre-existing debt this lane does not own paying down — the same
   # false-green-vs-blocks-everyone tradeoff D-CIP-11 already named once for
   # this repo. `manual` only (not even pre-push) is the honest answer: run it
-  # on purpose (`pre-commit run check-current-only-contract-debt --hook-stage
-  # manual --all-files`) when you want the current backlog count, same as
-  # `pre-commit run --all-files` already surfaces via the queue/CI path.
+  # on purpose (`pre-commit run --config .config/pre-commit.yaml
+  # check-current-only-contract-debt --hook-stage manual --all-files`) when you
+  # want the current backlog count, same as hosted CI surfaces it.
   - id: check-current-only-contract-debt
     name: Current-only contract debt (retired-surface references) — informational, manual-only
     entry: python3 scripts/security/check_current_only_contract_gate.py
@@ -1172,21 +1176,21 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: check-security-identity-isolation
     name: CI parity — security.yml identity/graphos-isolation/cli-secret-refs suite
     entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: check-security-tenant-identity
     name: CI parity — security.yml tenant-identity-contract suite
     entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # D-CIP-17: 2 tests in this group (test_promote_local_release.py) are
   # EXPECTED to fail with `ReleaseError: unsupported-platform` when the
   # project's own sanctioned local interpreter (a uv-managed
@@ -1202,7 +1206,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # backend-parity (replaces the deleted backend-parity-nightly.yml). That nightly
   # ran the LIVE cross-backend conformance matrix, which needs a running engine +
   # Docker testcontainers (pggraph/AGE, Neo4j, FalkorDB, Fuseki) and so could never
@@ -1228,7 +1232,7 @@ repos:
     stages: [manual, pre-push]
   # 2. The LIVE behavioral matrix stays available on demand — staged manual only
   #    (needs Docker + a running engine; never on a normal commit/push).
-  #    Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
+  #    Run it via:  pre-commit run --config .config/pre-commit.yaml backend-parity --hook-stage manual --all-files
   - id: backend-parity
     name: CI parity — live backend conformance matrix (manual; Docker + engine)
     entry: bash -c 'AGENT_UTILITIES_TESTING=true AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
@@ -1240,14 +1244,15 @@ repos:
   # docs/concepts.yaml, AGENTS.md regenerated + under its size ceiling, no cache
   # dirs leaked into the project tree. NOT run by the unit-pytest scope (tests/unit)
   # NOR by CI, yet it catches real doc drift on every concept change — so mirror it
-  # here (fast, ~7s). Default stage so it runs on every --all-files.
+  # here (fast, ~7s). Manual-only locally because its uv-managed runner may
+  # synchronize dependencies; hosted CI remains authoritative.
   - id: docs-consistency
     name: CI parity — docs consistency (README/AGENTS vs concepts.yaml)
     entry: bash -c 'if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else python3 -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   # release.yml `gates` job ENVIRONMENT parity — the highest-value parity closure.
   # The gates above run in the developer's FULL install; CI's release.yml `gates`
   # job runs them in a deliberately LEAN install (`uv sync --frozen --extra test
@@ -1256,9 +1261,9 @@ repos:
   # imports an extra-only dep (pydantic_ai, httpx, fastmcp, …) passes locally but
   # dies in CI. This hook reproduces CI's lean env in a throwaway venv and runs
   # EVERY blocking gate inside it (install + gate list both derived from
-  # release.yml's `gates` job, so it can't drift). It builds a venv → staged
-  # manual/pre-push, too slow for every commit. Run it via:
-  #   pre-commit run guardrails-lean-parity --hook-stage manual --all-files
+  # release.yml's `gates` job, so it can't drift). It builds a venv → manual-only
+  # because CI covers this exhaustive lane and local push must stay bounded. Run it via:
+  #   pre-commit run --config .config/pre-commit.yaml guardrails-lean-parity --hook-stage manual --all-files
   # perf/gate-dedup (2026-08-15): the standalone `guardrails-lean-parity` hook
   # that used to live here (scripts/run_guardrails_lean.py) ALSO parses
   # .github/workflows/release.yml's `gates` job at run time (its own module
