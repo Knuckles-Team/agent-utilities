@@ -26,6 +26,7 @@ deploy = "k8s/Compose deployment manifests, the fleet MCP registry, action-polic
 docker = "Dockerfile + docker-compose stacks (graph-os, engine-shards, falkordb, jena_fuseki, kafka, egeria, ...) for image build and local dev"
 docs = "mkdocs documentation source"
 examples = "runnable reference material: action-policies, an ontology workflow, and a reference agent"
+overrides = "MkDocs Material template overrides synchronized from the pinned shared ecosystem documentation theme"
 scripts = "gate scripts (check_*.py) and release tooling invoked by pre-commit/CI"
 tests = "the test suite"
 ".github" = "GitHub Actions workflow definitions"

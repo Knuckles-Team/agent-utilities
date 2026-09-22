@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-406 publishable pages · 96 direct nav targets · 133 public capabilities · 868 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+407 publishable pages · 29 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -12,21 +12,22 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Naming Conventions](../NAMING.md) — catalog
 - [Agent Utilities Documentation](../README.md) — catalog
 - [graph-os Capability Power Descriptors (generated)](../capabilities-power.md) — direct nav
-- [Capabilities — What an Agent Can Do](../capabilities.md) — direct nav
+- [Capabilities — What an Agent Can Do](../capabilities.md) — catalog
 - [Centralized knowledge-graph coordination](../centralized_kg_coordination.md) — catalog
 - [Comparative Analysis: agent-utilities Ontology vs. Palantir Foundry](../comparative_analysis_palantir_aip.md) — catalog
 - [Comparative Analysis — Quant Agentic Frameworks vs agent-utilities](../comparative_analysis_quant_frameworks.md) — catalog
-- [Concept-ID coordination](../concept_coordination.md) — direct nav
-- [agent-utilities Canonical Concept Registry](../concept_map.md) — direct nav
-- [One-link self-deploy](../deploy.md) — direct nav
+- [Concept-ID coordination](../concept_coordination.md) — catalog
+- [agent-utilities Canonical Concept Registry](../concept_map.md) — catalog
+- [One-link self-deploy](../deploy.md) — catalog
 - [Ecosystem capability and skill fleet](../ecosystem-capability-fleet.md) — direct nav
-- [The Ecosystem — How agent-utilities Fits](../ecosystem.md) — direct nav
+- [The Ecosystem — How agent-utilities Fits](../ecosystem.md) — catalog
 - [For AI Agents](../for-ai-agents.md) — direct nav
-- [Agent Utilities](../index.md) — direct nav
-- [The Journey of Agent Utilities: From Spark to Living Organizational Intelligence](../journey.md) — direct nav
+- [Ecosystem glossary](../glossary.md) — direct nav
+- [Index](../index.md) — direct nav
+- [The Journey of Agent Utilities: From Spark to Living Organizational Intelligence](../journey.md) — catalog
 - [Legal Automation Roadmap: Trust & LLC Creation](../legal_automation_roadmap.md) — catalog
 - [OKF-CIS concept IDs](../okf-cis.md) — catalog
-- [Agent Utilities — Concept Overview](../overview.md) — direct nav
+- [Agent Utilities — Concept Overview](../overview.md) — catalog
 - [Complete OWL Ontology Sweep & Cross-Domain Synergy Blueprint](../owl_kg_synergies.md) — catalog
 - [Project Structure](../project_structure.md) — catalog
 - [Reliability / Chaos Matrix](../reliability_matrix.md) — catalog
@@ -41,24 +42,24 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [CONCEPT:AU-OS.safety.doom-loop-detection — Agent Registry](../guides/agent-registry.md) — catalog
 - [Agents & Orchestration](../guides/agents.md) — catalog
 - [AgentSpecs Catalog (CONCEPT:AU-AHE.evaluation.backtest-harness)](../guides/agentspec-catalog.md) — catalog
-- [AGI→ASI Implementation Guide](../guides/agi-to-asi-implementation.md) — direct nav
+- [AGI→ASI Implementation Guide](../guides/agi-to-asi-implementation.md) — catalog
 - [Architecture](../guides/architecture.md) — catalog
-- [Enabling Autonomous Evolution](../guides/autonomous-evolution.md) — direct nav
+- [Enabling Autonomous Evolution](../guides/autonomous-evolution.md) — catalog
 - [Backend parity & deployment-profile testing](../guides/backend-parity-and-profile-testing.md) — catalog
-- [Building Fleet API Clients](../guides/building-fleet-api-clients.md) — direct nav
+- [Building Fleet API Clients](../guides/building-fleet-api-clients.md) — catalog
 - [Building MCP Servers & API Wrappers](../guides/building-mcp-servers.md) — catalog
 - [Capabilities (Self-Healing Patterns)](../guides/capabilities.md) — catalog
 - [Capability-Based Architecture Guide](../guides/capability_architecture.md) — catalog
-- [CMDB / ERP Bidirectional Integration — ServiceNow & ERPNext (CONCEPT:AU-KG.ingest.enterprise-source-extractor)](../guides/cmdb-bidirectional-integration.md) — direct nav
+- [CMDB / ERP Bidirectional Integration — ServiceNow & ERPNext (CONCEPT:AU-KG.ingest.enterprise-source-extractor)](../guides/cmdb-bidirectional-integration.md) — catalog
 - [CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler](../guides/cognitive-scheduler.md) — catalog
 - [Company Bootstrap Deployment Guide](../guides/company-bootstrap.md) — catalog
 - [Conductor Orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth to CONCEPT:AU-ORCH.planning.recursion-nesting-depth)](../guides/conductor-orchestration.md) — catalog
 - [Configuration Reference](../guides/configuration.md) — catalog
 - [Consumption Models — Library vs MCP vs REST](../guides/consumption-models.md) — direct nav
-- [Creating an Agent with Python](../guides/creating-an-agent.md) — catalog
-- [Day-0 deployment](../guides/day0.md) — direct nav
+- [Creating an Agent with Python](../guides/creating-an-agent.md) — direct nav
+- [Day-0 deployment](../guides/day0.md) — catalog
 - [Supported Deployment Configurations](../guides/deployment-configurations.md) — direct nav
-- [Deploying agent-utilities](../guides/deployment.md) — direct nav
+- [Deploying agent-utilities](../guides/deployment.md) — catalog
 - [Agentic Design Patterns — Architecture Alignment](../guides/design-patterns-alignment.md) — catalog
 - [Development Guide](../guides/development.md) — catalog
 - [Graph-Native Durable Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../guides/durable-execution.md) — catalog
@@ -67,12 +68,12 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Enterprise enablement runbook](../guides/enterprise-enablement-runbook.md) — catalog
 - [Universal Enterprise Entities (CONCEPT:AU-KG.research.research-pipeline-runner)](../guides/enterprise_entities.md) — catalog
 - [Enterprise Ingestion Architecture (Hub-and-Spoke)](../guides/enterprise_ingestion.md) — catalog
-- [Epistemic Audit & Compliance (CONCEPT:AU-KG.enrichment.compliance-posture-rollup)](../guides/epistemic-audit-compliance.md) — direct nav
+- [Epistemic Audit & Compliance (CONCEPT:AU-KG.enrichment.compliance-posture-rollup)](../guides/epistemic-audit-compliance.md) — catalog
 - [Features](../guides/features.md) — catalog
 - [First Principles Architecture](../guides/first-principles.md) — catalog
-- [Genesis standard private repos + CI (per profile)](../guides/genesis-private-repos.md) — direct nav
+- [Genesis standard private repos + CI (per profile)](../guides/genesis-private-repos.md) — catalog
 - [Graph Database Deployment & Multi-Backend Guide](../guides/graph-db-deployment.md) — catalog
-- [Graph Engine: One Authority + Mirrors](../guides/graph_engine.md) — direct nav
+- [Graph Engine: One Authority + Mirrors](../guides/graph_engine.md) — catalog
 - [Hierarchical State Machine (HSM) Infrastructure](../guides/hsm.md) — catalog
 - [Guides & Recipes](../guides/index.md) — direct nav
 - [Installation Guide](../guides/installation.md) — direct nav
@@ -81,69 +82,69 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [KG Schema Extensions: Research Assimilation](../guides/kg_schema_extensions.md) — catalog
 - [Universal Knowledge Assimilation Engine](../guides/knowledge-assimilation.md) — catalog
 - [Knowledge Graph](../guides/knowledge-graph.md) — catalog
-- [KV-Cache Layering: vLLM → LMCache → epistemic-graph](../guides/kvcache-vllm-lmcache.md) — direct nav
+- [KV-Cache Layering: vLLM → LMCache → epistemic-graph](../guides/kvcache-vllm-lmcache.md) — catalog
 - [Lossless Context Management (LCM) Guide](../guides/lcm_memory.md) — catalog
-- [LeanIX ⇄ Knowledge Graph Integration (CONCEPT:AU-KG.ingest.enterprise-source-extractor)](../guides/leanix-integration.md) — direct nav
+- [LeanIX ⇄ Knowledge Graph Integration (CONCEPT:AU-KG.ingest.enterprise-source-extractor)](../guides/leanix-integration.md) — catalog
 - [Loop Engine — running the self-improvement / research / goal loop](../guides/loop-engine.md) — catalog
 - [Mathematical Foundations & Financial Engineering Reference](../guides/mathematical_foundations.md) — catalog
-- [MCP fleet authentication and monitoring runbook](../guides/mcp-fleet-auth-and-monitoring-runbook.md) — direct nav
-- [MCP Tool Modes — intent, condensed, verbose, or both](../guides/mcp-tool-modes.md) — direct nav
+- [MCP fleet authentication and monitoring runbook](../guides/mcp-fleet-auth-and-monitoring-runbook.md) — catalog
+- [MCP Tool Modes — intent, condensed, verbose, or both](../guides/mcp-tool-modes.md) — catalog
 - [Multi-Model Registry & Configuration](../guides/models.md) — catalog
 - [AU native numeric call-site gap report](../guides/numeric-kernel-callsite-gaps.md) — catalog
-- [Native numeric kernel contract](../guides/numeric-kernel.md) — direct nav
+- [Native numeric kernel contract](../guides/numeric-kernel.md) — catalog
 - [OAuth 2.0 / OIDC SSO Authentication Guide](../guides/oauth_sso.md) — catalog
 - [Usage, Cost & Observability](../guides/observability-usage-tracking.md) — direct nav
 - [CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel](../guides/permissions-kernel.md) — catalog
 - [Process Lifecycle Management](../guides/process-lifecycle.md) — catalog
 - [Quick Start](../guides/quick-start.md) — direct nav
-- [Safely Redeploying graph-os](../guides/redeploy_kg_server.md) — direct nav
+- [Safely Redeploying graph-os](../guides/redeploy_kg_server.md) — catalog
 - [Registry Hot Cache](../guides/registry-cache.md) — catalog
-- [Recursive Language Models (RLM)](../guides/rlm.md) — direct nav
+- [Recursive Language Models (RLM)](../guides/rlm.md) — catalog
 - [Scalable Frontends — one shared backend, many thin instances](../guides/scalable-frontends.md) — catalog
 - [Scoring Methodology & Retrieval Semantics](../guides/scoring_methodology.md) — catalog
 - [Spec-Driven Development (SDD) Orchestrator](../guides/sdd.md) — catalog
 - [Secrets & Authentication](../guides/secrets-auth.md) — catalog
 - [Secure Jupyter Sandbox (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../guides/secure-sandbox.md) — catalog
-- [Self-Setup: deploy agent-utilities with every option considered](../guides/self-setup.md) — direct nav
+- [Self-Setup: deploy agent-utilities with every option considered](../guides/self-setup.md) — catalog
 - [Single-GPU LLM serving — tuning for extraction throughput](../guides/single-gpu-llm-serving.md) — catalog
 - [Skill-Graph Migration Plan — updating all existing graphs to the KG-driven format](../guides/skill-graph-migration-plan.md) — catalog
 - [Skill-Graph Migration Runbook (legacy → unified KG-2.7 contract)](../guides/skill-graph-migration.md) — catalog
 - [Skill-Graph Acquisition — Robustness Ledger](../guides/skill-graph-robustness-ledger.md) — catalog
-- [Sovereign / Self-Hosted Epistemic Memory (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision)](../guides/sovereign-self-hosted.md) — direct nav
+- [Sovereign / Self-Hosted Epistemic Memory (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision)](../guides/sovereign-self-hosted.md) — catalog
 - [Squeeze Evolve: Confidence-Gated Routing & Evolutionary Aggregation](../guides/squeeze-evolve-routing.md) — catalog
 - [Structured Prompts](../guides/structured-prompts.md) — catalog
 - [System Integration Architecture](../guides/system_integration.md) — catalog
 - [Tools Registry](../guides/tools.md) — catalog
-- [workspace.yml — the repository manifest](../guides/workspace-config.md) — direct nav
+- [workspace.yml — the repository manifest](../guides/workspace-config.md) — catalog
 - [X Personal Assistant & Social Content Ingestion Guide](../guides/x-assistant.md) — catalog
 
 ## Recipes
 
-- [Recipe: Stardog + pg-age database environments](../recipes/databases.md) — direct nav
-- [Recipe — Delta-based KG ingestion via the backends](../recipes/delta-ingestion.md) — direct nav
-- [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — direct nav
-- [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — direct nav
-- [Recipe — Single-node prod](../recipes/single-node-prod.md) — direct nav
-- [Recipe — Split-storage engine (fast-storage flavor)](../recipes/split-storage-engine.md) — direct nav
-- [Recipe — Tiny (all-local, zero-infra)](../recipes/tiny.md) — direct nav
-- [Recipe — Unified RSS ingestion (native RSS + FreshRSS + ScholarX arXiv)](../recipes/unified-feeds.md) — direct nav
-- [Recipe — Unified scheduling, the priority queue, and the ScholarX RSS research feed](../recipes/unified-scheduling.md) — direct nav
-- [Recipe — Unified self-contained graph-os (both MCP transports)](../recipes/unified-self-contained.md) — direct nav
+- [Recipe: Stardog + pg-age database environments](../recipes/databases.md) — catalog
+- [Recipe — Delta-based KG ingestion via the backends](../recipes/delta-ingestion.md) — catalog
+- [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — catalog
+- [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — catalog
+- [Recipe — Single-node prod](../recipes/single-node-prod.md) — catalog
+- [Recipe — Split-storage engine (fast-storage flavor)](../recipes/split-storage-engine.md) — catalog
+- [Recipe — Tiny (all-local, zero-infra)](../recipes/tiny.md) — catalog
+- [Recipe — Unified RSS ingestion (native RSS + FreshRSS + ScholarX arXiv)](../recipes/unified-feeds.md) — catalog
+- [Recipe — Unified scheduling, the priority queue, and the ScholarX RSS research feed](../recipes/unified-scheduling.md) — catalog
+- [Recipe — Unified self-contained graph-os (both MCP transports)](../recipes/unified-self-contained.md) — catalog
 
 ## Examples
 
-- [Worked Example: ActionPolicy Postures](../examples/action-policy-postures.md) — direct nav
-- [Worked Example: Autoscaling Signals and Target Tracking](../examples/autoscaling-signals.md) — direct nav
-- [Worked Example: Publishing an Evolution Proposal as a Reviewable Branch](../examples/evolution-publication.md) — direct nav
-- [Worked Example: Wiring Monitoring into Fleet Events](../examples/fleet-events-wiring.md) — direct nav
-- [Graph-OS MCP Server Examples](../examples/graph-os-mcp-examples.md) — direct nav
-- [Worked Example: Minting and Validating a JWT for KGAUTHREQUIRED Mode](../examples/identity-jwt.md) — direct nav
-- [Worked Example: Consuming GraphOS over MCP](../examples/mcp-consumption.md) — direct nav
-- [Orchestration, Workflows & Ingestion Examples](../examples/mcp-orchestration-examples.md) — direct nav
-- [Worked Example: Scraping and Dashboarding the Platform](../examples/observability.md) — direct nav
-- [Worked Example: BPMN Process to Executable Workflow](../examples/ontology-to-workflow.md) — direct nav
-- [Worked Example: Queue-Driven Agent Dispatch (enqueue → worker → writeback)](../examples/queue-dispatch-walkthrough.md) — direct nav
-- [Engine-authoritative placement walkthrough](../examples/sharding-walkthrough.md) — direct nav
+- [Worked Example: ActionPolicy Postures](../examples/action-policy-postures.md) — catalog
+- [Worked Example: Autoscaling Signals and Target Tracking](../examples/autoscaling-signals.md) — catalog
+- [Worked Example: Publishing an Evolution Proposal as a Reviewable Branch](../examples/evolution-publication.md) — catalog
+- [Worked Example: Wiring Monitoring into Fleet Events](../examples/fleet-events-wiring.md) — catalog
+- [Graph-OS MCP Server Examples](../examples/graph-os-mcp-examples.md) — catalog
+- [Worked Example: Minting and Validating a JWT for KGAUTHREQUIRED Mode](../examples/identity-jwt.md) — catalog
+- [Worked Example: Consuming GraphOS over MCP](../examples/mcp-consumption.md) — catalog
+- [Orchestration, Workflows & Ingestion Examples](../examples/mcp-orchestration-examples.md) — catalog
+- [Worked Example: Scraping and Dashboarding the Platform](../examples/observability.md) — catalog
+- [Worked Example: BPMN Process to Executable Workflow](../examples/ontology-to-workflow.md) — catalog
+- [Worked Example: Queue-Driven Agent Dispatch (enqueue → worker → writeback)](../examples/queue-dispatch-walkthrough.md) — catalog
+- [Engine-authoritative placement walkthrough](../examples/sharding-walkthrough.md) — catalog
 
 ## Architecture
 
@@ -157,7 +158,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — catalog
 - [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — catalog
 - [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — catalog
-- [Atlas source catalogue](../architecture/atlas-source-catalog.md) — direct nav
+- [Atlas source catalogue](../architecture/atlas-source-catalog.md) — catalog
 - [Autonomous Governance & Zero-Trust Consensus](../architecture/autonomous_governance_and_zero_trust.md) — catalog
 - [Camunda + ARIS ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/camunda_aris_kg_integration.md) — catalog
 - [Chunked async drain — one big sourcesync(full) → capacity-guarded waves](../architecture/chunked-async-drain.md) — catalog
@@ -188,7 +189,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — catalog
 - [Epistemic-columns currency (Seam 1) — consuming epistemic-graph's KnowledgeBatch](../architecture/epistemic-columns-currency.md) — catalog
 - [Epistemic Operations Protocol](../architecture/epistemic-operations-protocol.md) — catalog
-- [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — direct nav
+- [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — catalog
 - [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — catalog
 - [Event Sourcing and Query Routing Architecture](../architecture/event_sourcing_and_routing.md) — catalog
 - [Evidence spine — Artifact → addressable Fragment](../architecture/evidence-spine.md) — catalog
@@ -201,7 +202,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — catalog
 - [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — catalog
 - [Scaling the Gateway](../architecture/gateway_scaling.md) — catalog
-- [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — direct nav
+- [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — catalog
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — catalog
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
 - [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — catalog
@@ -387,7 +388,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Pillar 5: Agent OS Infrastructure](../pillars/5_agent_os_infrastructure.md) — catalog
 - [Pillar 6: GeniusBot Desktop Cockpit (GBOT)](../pillars/6_geniusbot_cockpit.md) — catalog
 - [agent-utilities C4 Architecture](../pillars/architecture_c4.md) — catalog
-- [Pillar Reference](../pillars/index.md) — direct nav
+- [Pillar Reference](../pillars/index.md) — catalog
 - [Ecosystem Integration & Concept Wiring](../pillars/master_integration.md) — catalog
 - [Unified Memory Architecture](../pillars/memory_architecture.md) — catalog
 
@@ -414,32 +415,32 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Scaling
 
-- [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — direct nav
-- [Live workload certification contract](../scaling/live-loadgen-certification.md) — direct nav
-- [Agent-utilities scale claim register](../scaling/scale_claims.md) — direct nav
+- [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — catalog
+- [Live workload certification contract](../scaling/live-loadgen-certification.md) — catalog
+- [Agent-utilities scale claim register](../scaling/scale_claims.md) — catalog
 
 ## Learn
 
-- [Ontology School](../learn/index.md) — direct nav
-- [Interfaces, Object Types, and Links](../learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md) — direct nav
-- [Your First UQL Pipeline](../learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md) — direct nav
+- [Ontology School](../learn/index.md) — catalog
+- [Interfaces, Object Types, and Links](../learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md) — catalog
+- [Your First UQL Pipeline](../learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md) — catalog
 
 ## Operations
 
-- [Backup, restore and cross-cell recovery](../operations/disaster-recovery.md) — direct nav
-- [Phase-10 cutover runbook — au 638ea524 + eg 2595a24 → live RKE2](../operations/phase10-cutover-runbook.md) — direct nav
+- [Backup, restore and cross-cell recovery](../operations/disaster-recovery.md) — catalog
+- [Phase-10 cutover runbook — au 638ea524 + eg 2595a24 → live RKE2](../operations/phase10-cutover-runbook.md) — catalog
 - [Production cell runbook](../operations/production-cell-runbook.md) — direct nav
 
 ## Release
 
 - [Exact release train and production certification](../release/compatibility-and-certification.md) — direct nav
 - [Connector live certification](../release/connector-live-certification.md) — direct nav
-- [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — direct nav
-- [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — direct nav
-- [Exact installed local certification](../release/exact-local-gates.md) — direct nav
-- [Exact local GraphOS releases](../release/exact-local-release.md) — direct nav
-- [Exact OCI-layout export](../release/oci-layout-export.md) — direct nav
-- [Exact OCI vulnerability scanning](../release/oci-vulnerability-scanning.md) — direct nav
-- [Exact skill-validation certification](../release/skill-validation-certification.md) — direct nav
-- [Source-freeze gate](../release/source-freeze-gates.md) — direct nav
-- [Software supply-chain hardening](../release/supply-chain-hardening.md) — direct nav
+- [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — catalog
+- [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — catalog
+- [Exact installed local certification](../release/exact-local-gates.md) — catalog
+- [Exact local GraphOS releases](../release/exact-local-release.md) — catalog
+- [Exact OCI-layout export](../release/oci-layout-export.md) — catalog
+- [Exact OCI vulnerability scanning](../release/oci-vulnerability-scanning.md) — catalog
+- [Exact skill-validation certification](../release/skill-validation-certification.md) — catalog
+- [Source-freeze gate](../release/source-freeze-gates.md) — catalog
+- [Software supply-chain hardening](../release/supply-chain-hardening.md) — catalog

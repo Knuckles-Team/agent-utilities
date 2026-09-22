@@ -24,6 +24,8 @@
 
 Agent Utilities is the Python control plane for building, coordinating, evaluating, and improving AI agents. It provides agent and workflow execution while relying on GraphOS for public service composition and epistemic-graph for durable knowledge.
 
+A typical developer loop is concrete and reviewable: admit a goal with scoped context, select an agent and its tools, execute under budgets and policy, inspect the result and run evidence, then evaluate before proposing an improvement. The point is not another chat surface; it is making agent work observable enough to reproduce, diagnose, and improve.
+
 *Version: 2.5.0*
 
 ## Key Capabilities
@@ -41,6 +43,10 @@ Start at the [Agent Utilities documentation](https://knuckles-team.github.io/age
 
 GraphOS owns public MCP, REST, and A2A composition. Agent Utilities owns agent and workflow behavior. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
 
+![Agent platform runtime architecture](docs/assets/runtime-architecture.svg)
+
+People enter through Agent Web UI, Agent Terminal UI, Geniusbot, or messaging; MCP/REST/A2A clients enter through Graph OS. Both paths reach Agent Utilities and then Epistemic Graph. External source systems reach Epistemic Graph through Agent Connector SDK. Agent Terminal UI currently uses REST capabilities only; ACP chat remains a tracked gap, not a supported path.
+
 ## Quick Start
 
 Python 3.12 or newer is required. Install the serving extra, generate and check a local profile, then launch the local MCP server:
@@ -51,6 +57,8 @@ uvx --from "agent-utilities[serving]" graph-os --transport stdio
 ```
 
 The [quick start guide](https://knuckles-team.github.io/agent-utilities/guides/quick-start/) covers provider configuration and other deployment profiles.
+
+For the first development cycle, configure a provider, run a small goal, inspect its output and evidence, then adjust the agent or skill and repeat with the relevant tests. Keep durable facts in Epistemic Graph and public hosting in Graph OS; Agent Utilities owns the behavior between them.
 
 ## Contributing
 

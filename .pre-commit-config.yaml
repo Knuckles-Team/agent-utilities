@@ -86,7 +86,7 @@ repos:
     args: ["--locked"]
     stages: [pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: 35209bf6d85569a3c1fe3d5cd31771cacfdc3731 # public-surface contract
+  rev: 64e34ca63385200f5ddfef5286e6886bf7dc80b4 # public docs contract
   hooks:
   - id: public-surface
 - repo: local

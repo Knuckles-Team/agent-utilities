@@ -1,56 +1,126 @@
-# Agent Utilities
+<section class="site-hero" aria-labelledby="agent-utilities-title">
+  <p class="site-hero__eyebrow">Knuckles Team agent platform</p>
+  <h1 id="agent-utilities-title" class="site-hero__title">Coordinate AI agents without blurring system boundaries</h1>
+  <p class="site-hero__summary">
+    Agent Utilities is the Python control plane for model selection, skills,
+    teams, workflows, governed execution, evaluation, and outcome-driven
+    improvement.
+  </p>
+  <div class="site-hero__actions">
+    <a class="md-button md-button--primary" href="guides/quick-start/">Run the quick start</a>
+    <a class="md-button" href="architecture/">Explore the architecture</a>
+  </div>
+</section>
 
-agent-utilities is a Python harness for building, orchestrating, and running AI
-agents against a shared knowledge graph. Install it, point it at a task, and it
-plans, executes, and remembers — backed by epistemic-graph or an in-process
-store, your choice. This page gets you running in 5 minutes; the architecture,
-concept registry, and full pillar reference are one click away.
+<div class="site-card-grid">
+  <article class="site-card">
+    <h2 class="site-card__title">Build an agent</h2>
+    <p class="site-card__body">Create a provider-aware agent, attach typed tools and reusable skills, and run it through one governed harness.</p>
+    <a href="guides/creating-an-agent/">Create your first agent →</a>
+  </article>
+  <article class="site-card">
+    <h2 class="site-card__title">Coordinate work</h2>
+    <p class="site-card__body">Route goals through planners, teams, durable loops, budgets, checkpoints, approvals, and observable execution.</p>
+    <a href="guides/kg_native_orchestration/">Understand orchestration →</a>
+  </article>
+  <article class="site-card">
+    <h2 class="site-card__title">Operate the control plane</h2>
+    <p class="site-card__body">Configure identity, policies, providers, health checks, metrics, and deployment profiles without embedding environment secrets.</p>
+    <a href="guides/deployment-configurations/">Choose a deployment →</a>
+  </article>
+</div>
 
-## Stand it up
+## Runtime map
 
-```bash
-pip install agent-utilities          # zero external *service* deps to start
-```
+![Agent platform runtime architecture](assets/runtime-architecture.svg)
 
-```bash
-setup-config generate --profile tiny     # complete config.json (every option)
-graph-os &                                # KG MCP server — no database needed
-agent-utilities-doctor                    # one health sweep across every subsystem
-```
+Agent Utilities occupies the agent-control boundary in the shared runtime. It
+coordinates model and worker activity, reads and writes committed state through
+Epistemic Graph contracts, and is exposed to clients through GraphOS. Connector
+adapters reach external systems through the Agent Connector SDK, while Agent
+WebUI presents the browser experience.
 
-Or let the installer do all three plus skill wiring in one shot:
+<div class="site-ownership">
+  <div class="site-ownership__grid">
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">Agent Utilities</div>
+      <div class="site-ownership__value">Agents, routing, skills, workflows, execution policy, evaluation, and control-plane telemetry.</div>
+    </div>
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">Epistemic Graph</div>
+      <div class="site-ownership__value">Durable graph, GraphSchema, ontology and SHACL authority, query, reasoning, provenance, and work state.</div>
+    </div>
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">GraphOS</div>
+      <div class="site-ownership__value">Public MCP, REST, and A2A runtime; identity, deployment, and service composition.</div>
+    </div>
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">Connector SDK and WebUI</div>
+      <div class="site-ownership__value">Governed source integration and the browser-facing application experience.</div>
+    </div>
+  </div>
+</div>
 
-```bash
-curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh
-```
+!!! info "One contract at each boundary"
+    The control plane does not become a second graph engine, public gateway,
+    connector framework, or frontend. Typed contracts keep each authority
+    independently testable and replaceable.
 
-## Choose your path
+## How work moves
 
-| Path | Where to go |
-|:-----|:-------------|
-| 🚀 **Try it in 5 minutes** | [Start Here](start-here.md) / [Quick Start](guides/quick-start.md) |
-| 📦 **Deploy it** | [Supported Deployment Configurations (the ladder)](guides/deployment-configurations.md) |
-| 🤖 **I'm an AI agent integrating with this repo** | [For AI Agents](for-ai-agents.md) → `AGENTS.md` |
-| 🏛️ **Understand the architecture** | [Pillar Reference](pillars/index.md) |
+<ol class="site-flow">
+  <li class="site-flow__step">
+    <strong class="site-flow__title">Admit a goal.</strong>
+    <span class="site-flow__body">GraphOS authenticates the caller and passes a scoped request into the control plane.</span>
+  </li>
+  <li class="site-flow__step">
+    <strong class="site-flow__title">Compile context.</strong>
+    <span class="site-flow__body">Agent Utilities selects models, skills, tools, and bounded graph evidence for the task.</span>
+  </li>
+  <li class="site-flow__step">
+    <strong class="site-flow__title">Execute under policy.</strong>
+    <span class="site-flow__body">Planners, agents, teams, and workflows operate within budgets, approvals, and safety constraints.</span>
+  </li>
+  <li class="site-flow__step">
+    <strong class="site-flow__title">Commit and learn.</strong>
+    <span class="site-flow__body">Outcomes, traces, and approved state changes return through authoritative contracts for replay and evaluation.</span>
+  </li>
+</ol>
 
-## The 5-Pillar Architecture
+## Explore the platform
 
-The entire ecosystem is organized into five foundational pillars, each handling a distinct layer of organizational intelligence.
+| I want to… | Start here |
+|---|---|
+| Install and run a local evaluation | [Quick start](guides/quick-start.md) |
+| Build an agent in Python | [Creating an agent](guides/creating-an-agent.md) |
+| Choose library, service, or remote consumption | [Consumption models](guides/consumption-models.md) |
+| Understand control-plane internals | [Architecture](architecture/index.md) |
+| Configure a deployment | [Deployment configurations](guides/deployment-configurations.md) |
+| Operate and observe the runtime | [Observability and usage](guides/observability-usage-tracking.md) |
+| Browse generated Python APIs | [API reference](reference/api.md) |
+| Check what ships in this release | [Status](status.md) |
 
-| # | Pillar | Summary | Key Capability |
-|:-:|:-------|:--------|:---------------|
-| **1** | **[Graph Orchestration](pillars/1_graph_orchestration.md)** | Routing, planning, execution, and state management via directed acyclic graphs. | Routes work to the right agent/model |
-| **2** | **[Epistemic Knowledge Graph](pillars/2_epistemic_knowledge_graph.md)** | The Single Company Brain: Memory, ontology, retrieval, and structural reasoning. | Maintains organizational state with provenance |
-| **3** | **[Agentic Harness](pillars/3_agentic_harness_engineering.md)** | Continuous evaluation, interpretability, and self-improvement loops. | Makes the system smarter over time |
-| **4** | **[Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md)** | Dynamic capability discovery, MCP servers, the hardened multiplexer, connectors, and governance policy. | Connects to external systems securely |
-| **5** | **[Agent OS Infrastructure](pillars/5_agent_os_infrastructure.md)** | Kernel, server-minted identity, externalized state, engine sharding, fleet autonomy, Prometheus observability, and safety sandboxes. | Wraps everything in policy and compliance |
+!!! tip "Using the whole ecosystem?"
+    Start with [GraphOS](https://knuckles-team.github.io/graph-os/) for the
+    composed public runtime. Use these Agent Utilities docs when you are
+    building or extending agent behavior inside that runtime.
 
-→ Full curated reference (grouped by subsystem, not a flat list): **[Architecture Reference](architecture/index.md)** · **[Pillar Reference](pillars/index.md)**.
+## Control-plane capabilities
 
-## Go deeper
+The implementation is organized around five practical areas rather than one
+monolithic agent loop:
 
-- **[Company Brain Architecture](pillars/2_epistemic_knowledge_graph/company_brain/architecture.md)** — the operational state layer deep-dive: how the Epistemic Knowledge Graph becomes a multi-writer, multi-reader, multi-tenant organizational memory.
-- **[Read the story](journey.md)** — *The Narrative Journey*, an optional technical novel tracing all 5 pillars through a real end-to-end scenario. Not required reading — a way in if you learn better from a worked example than a reference table.
-- **[Status — the Codex](status.md)** — the generated, honesty-first concept/capability registry. Every concept/capability count on this site is computed from here, never hand-typed; if a claim elsewhere disagrees, this page is the one to trust.
-- **[Documentation Catalog](reference/documentation-catalog.md)** — every publishable page in this site, generated, including the ones not promoted into the left nav.
-- **[The wider ecosystem](ecosystem.md)** — agent-utilities is the entrypoint/harness for the wider `agent-packages` ecosystem: 65 connector packages, three frontends (geniusbot, agent-webui, agent-terminal-ui), a skill library, and ontologies.
+- **Agent runtime** — model providers, structured output, toolsets, skills, and
+  guardrails.
+- **Orchestration** — routing, planning, teams, workflows, loops, checkpoints,
+  and scheduling.
+- **Context coordination** — bounded retrieval and typed interaction with
+  committed graph state.
+- **Evaluation and improvement** — replay, scoring, failure analysis, and
+  review-gated proposals.
+- **Operations and governance** — identity, policy, tenant isolation, metrics,
+  health checks, and runtime configuration.
+
+Continue to the [architecture reference](architecture/index.md) for the module
+map, or browse the [documentation catalog](reference/documentation-catalog.md)
+when you need a specialized operational guide.

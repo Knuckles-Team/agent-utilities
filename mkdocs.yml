@@ -1,171 +1,63 @@
-site_name: "agent-utilities"
-repo_name: "Knuckles-Team/agent-utilities"
-repo_url: "https://github.com/Knuckles-Team/agent-utilities"
-# GOC-59-W08/B6: docs/README.md is the folder's GitHub-browsing landing page
-# (a different, longer "complete technical documentation" index than
-# docs/index.md, mkdocs' own site homepage) — not referenced from `nav:` or
-# any other doc. MkDocs otherwise builds BOTH to the same site path
-# (`index.html`), which strict mode aborts on: "Excluding 'README.md' from
-# the site because it conflicts with 'index.md'." `exclude_docs` is MkDocs'
-# own documented mechanism for exactly this: keep a file in docs_dir for
-# GitHub's folder view, exclude it from the built site.
+INHERIT: .pipeline-theme/templates/mkdocs-theme/base.mkdocs.yml
+
+site_name: Agent Utilities
+site_url: https://knuckles-team.github.io/agent-utilities/
+site_description: Governed Python control plane for AI agents, workflows, and evaluation.
+repo_name: Knuckles-Team/agent-utilities
+repo_url: https://github.com/Knuckles-Team/agent-utilities
+
 exclude_docs: |
   /README.md
-theme:
-  name: material
-  features:
-    - navigation.sections
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - content.code.copy
-    - content.code.annotate
-  palette:
-    - scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
-  icon:
-    repo: fontawesome/brands/github
+
 plugins:
   - search
+
 validation:
   nav:
     omitted_files: ignore
   links:
-    # Repository-relative source/config links live outside docs_dir and are
-    # validated by scripts/docs_contract.py. Keep MkDocs focused on rendering.
     not_found: info
     absolute_links: info
     unrecognized_links: info
     anchors: info
-markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.tabbed:
-      alternate_style: true
-  - admonition
-  - pymdownx.details
-  - attr_list
-  - tables
-  - toc:
-      permalink: true
+
+extra:
+  ecosystem:
+    current: agent-utilities
+
 nav:
   - Home: index.md
-  - Status: status.md
-  - Get Started:
-      - Start Here: start-here.md
-      - Quick Start: guides/quick-start.md
+  - Get started:
+      - Start here: start-here.md
+      - Quick start: guides/quick-start.md
       - Installation: guides/installation.md
-  - Deploy:
-      - One-link self-deploy: deploy.md
-      - Supported Configurations (the ladder): guides/deployment-configurations.md
-      - Self-Setup (config-complete): guides/self-setup.md
-      - Day-0 Deployment: guides/day0.md
-      - Standard Private Repos + CI (per profile): guides/genesis-private-repos.md
-      - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
-      - Genesis k8s Deployment Inputs + Named Environment Profiles: architecture/genesis-environment-profiles.md
-      - Recipe — Tiny (all-local): recipes/tiny.md
-      - Recipe — Unified self-contained (both MCP transports): recipes/unified-self-contained.md
-      - Recipe — Single-node prod: recipes/single-node-prod.md
-      - Recipe — Enterprise: recipes/enterprise.md
-      - Recipe — Stardog + pg-age databases: recipes/databases.md
-      - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
-      - Recipe — Unified scheduling + RSS research feed: recipes/unified-scheduling.md
-      - Recipe — Unified RSS ingestion (native + FreshRSS + ScholarX): recipes/unified-feeds.md
-      - Recipe — Enable the shared KV-cache (recommended): recipes/kv-caching.md
-      - Recipe — Split-storage engine: recipes/split-storage-engine.md
-      - Deploying agent-utilities: guides/deployment.md
-      - Safe Redeploy Runbook: guides/redeploy_kg_server.md
-      - Production Cell Runbook: operations/production-cell-runbook.md
-      - Backup, Restore & Cross-Cell DR: operations/disaster-recovery.md
-      - Phase 10 Cutover Runbook: operations/phase10-cutover-runbook.md
-      - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
-      - Workspace Manifest (workspace.yml): guides/workspace-config.md
-  - Guides & Recipes:
-      - Overview: guides/index.md
-      - Capabilities Overview: capabilities.md
-      - Capability & Action Catalog (generated): capabilities-power.md
-      - Consumption Models: guides/consumption-models.md
-      - Pre-bundled Workflow Skill Suite: guides/kg-skill-suite.md
-      - Ecosystem Capability and Skill Fleet: ecosystem-capability-fleet.md
-      - Ecosystem: ecosystem.md
-      - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
-      - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
-      - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
-      - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
-      - Enabling Autonomous Evolution: guides/autonomous-evolution.md
-      - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
-      - Graph Engine (Authority + Mirrors): guides/graph_engine.md
-      - KV-Cache Layering (vLLM → LMCache → engine): guides/kvcache-vllm-lmcache.md
-      - KG-Native Orchestration: guides/kg_native_orchestration.md
-      - Recursive Language Models (RLM): guides/rlm.md
-      - Building Fleet API Clients: guides/building-fleet-api-clients.md
-      - MCP Tool Modes (condensed/verbose/both): guides/mcp-tool-modes.md
-      - Native Numeric Kernel: guides/numeric-kernel.md
-      - The Narrative Journey (optional deep read): journey.md
-      - Worked Examples:
-          - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
-          - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md
-          - Engine Sharding Walkthrough: examples/sharding-walkthrough.md
-          - Fleet Events Wiring: examples/fleet-events-wiring.md
-          - ActionPolicy Postures: examples/action-policy-postures.md
-          - Autoscaling Signals & Math: examples/autoscaling-signals.md
-          - Evolution Publication: examples/evolution-publication.md
-          - Observability Setup: examples/observability.md
-          - Identity & JWT Auth: examples/identity-jwt.md
-          - MCP Consumption & Multiplexer Tuning: examples/mcp-consumption.md
-          - MCP Orchestration Examples: examples/mcp-orchestration-examples.md
-          - Graph-OS MCP Tool Examples: examples/graph-os-mcp-examples.md
-  - Concepts & Ontology School:
-      - Overview: learn/index.md
-      - Intro to the Ontology Model: learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md
-      - Querying with UQL: learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md
-  - Architecture Reference:
+      - Consumption models: guides/consumption-models.md
+  - Build:
+      - Guides overview: guides/index.md
+      - Create an agent: guides/creating-an-agent.md
+      - Graph-native orchestration: guides/kg_native_orchestration.md
+      - Workflow skill suite: guides/kg-skill-suite.md
+      - Ecosystem capability fleet: ecosystem-capability-fleet.md
+      - Capability and action catalog: capabilities-power.md
+  - Operate:
+      - Deployment configurations: guides/deployment-configurations.md
+      - Production operations: operations/production-cell-runbook.md
+      - Observability: guides/observability-usage-tracking.md
+      - Connector certification: release/connector-live-certification.md
+      - Compatibility and certification: release/compatibility-and-certification.md
+  - Architecture:
       - Overview: architecture/index.md
-      - Pillar Reference: pillars/index.md
-      - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
-      - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
-      - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
-      - Privacy-safe External Graph Ingestion: architecture/privacy-safe-external-ingestion.md
-      - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
-      - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
-      - Atlas Source Catalogue: architecture/atlas-source-catalog.md
-      - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
-      - Documentation Catalog (generated): reference/documentation-catalog.md
-      - API Reference (generated): reference/api.md
-      - Metrics Reference: reference/metrics.md
-      - Historical Hardening Audit (non-authoritative): architecture/epistemic-os-hardening.md
-      - Capacity Model: scaling/capacity_model.md
-      - Live Loadgen Certification: scaling/live-loadgen-certification.md
-      - AU Scale Claim Register: scaling/scale_claims.md
-  - Concept Registry:
-      - Canonical Concept Map: concept_map.md
-      - Concept Overview: overview.md
-      - Multi-Session Coordination: concept_coordination.md
-  - For AI Agents: for-ai-agents.md
-  - Release Notes:
-      - Compatibility & Production Certification: release/compatibility-and-certification.md
-      - Connector Live Certification: release/connector-live-certification.md
-      - Exact Installed Local Certification: release/exact-local-gates.md
-      - Exact-Artifact Closure Evidence: release/exact-artifact-closure.md
-      - Pre-bundled Skill Certification: release/skill-validation-certification.md
-      - Software Supply-Chain Hardening: release/supply-chain-hardening.md
-      - Exact OCI Vulnerability Scanning: release/oci-vulnerability-scanning.md
-      - Exact OCI-layout Export: release/oci-layout-export.md
-      - Exact Local GraphOS Releases: release/exact-local-release.md
-      - Source-Freeze Release Gate: release/source-freeze-gates.md
-      - Connector-Manifest Signing Custody: release/connector-manifest-signing-custody.md
+      - Runtime authority: architecture/graph-authority-convergence.md
+      - Context boundary: architecture/mandatory-context-compiler.md
+      - Observability model: architecture/observability.md
+      - Privacy-safe ingestion: architecture/privacy-safe-external-ingestion.md
+      - Improvement lifecycle: architecture/self-evolution-flywheel.md
+      - External connectors: architecture/universal-external-graph-connectors.md
+  - Reference:
+      - API: reference/api.md
+      - Runtime configuration: reference/runtime-configuration.md
+      - Metrics: reference/metrics.md
+      - Glossary: glossary.md
+      - Documentation catalog: reference/documentation-catalog.md
+  - Status: status.md
+  - For AI agents: for-ai-agents.md

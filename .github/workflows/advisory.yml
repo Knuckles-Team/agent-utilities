@@ -416,6 +416,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Checkout shared documentation theme
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/pipelines
+          ref: 64e34ca63385200f5ddfef5286e6886bf7dc80b4
+          path: .pipeline-theme
+          persist-credentials: false
+
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -437,6 +445,7 @@ jobs:
         env:
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
+          python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
           python3 scripts/docs_contract.py --check
           test -n "$PROHIBITED_IDENTITY_CATALOG"
           policy="$RUNNER_TEMP/prohibited-identities.json"
