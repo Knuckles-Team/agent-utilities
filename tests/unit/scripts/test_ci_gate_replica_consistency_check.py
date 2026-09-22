@@ -158,6 +158,37 @@ def test_advisory_job_is_now_covered():
     assert m.WORKFLOW_REGISTRY["release.yml"].blocking is True
 
 
+def test_advisory_source_contract_lane_never_rebuilds_native_siblings():
+    """Report-only source checks must start before the native build timeout."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    steps = doc["jobs"]["advisory"]["steps"]
+    sync_steps = [step for step in steps if "uv sync" in (step.get("run") or "")]
+
+    assert len(sync_steps) == 1
+    sync = sync_steps[0]
+    assert sync["name"] == (
+        "Sync advisory environment (source contracts, no native engine build)"
+    )
+    command = sync["run"]
+    assert "--no-install-package epistemic-graph" in command
+    assert "--no-install-package langfuse-agent" in command
+
+    engine_installs = [
+        step
+        for step in steps
+        if step.get("name") == "Install published Epistemic Graph wheel"
+    ]
+    assert len(engine_installs) == 1
+    engine_install = engine_installs[0]
+    assert engine_install["continue-on-error"] is True
+    assert 'tomllib.load(stream)["project"]["dependencies"]' in engine_install["run"]
+    assert "--no-deps" in engine_install["run"]
+    assert "--only-binary=:all:" in engine_install["run"]
+    assert 'row.startswith("epistemic-graph[")' in engine_install["run"]
+    assert '"$EG_REQUIREMENT"' in engine_install["run"]
+
+
 def test_windows_and_pages_jobs_are_reported_not_silently_dropped():
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")

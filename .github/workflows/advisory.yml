@@ -100,10 +100,11 @@ jobs:
           cache-dependency-glob: uv.lock
 
       # D-CIP-2: uv.lock pins epistemic-graph/langfuse-agent as editable workspace
-      # siblings at .uv-workspace-siblings/<name> -- materialize them here exactly
-      # where uv.lock expects them so the SBOM/license audit below can audit their
-      # real license metadata instead of a stub (unlike every other job, which
-      # excludes them because it needs no runtime engine).
+      # siblings at .uv-workspace-siblings/<name>. Materialize their real source
+      # trees for lock/source-policy inspection, but do not compile/install them in
+      # this report-only source-contract lane. Native EG build and wheel execution
+      # belong to release.yml; rebuilding the database here exceeded the job's
+      # 25-minute budget before any advisory gate could run.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/epistemic-graph
@@ -119,10 +120,35 @@ jobs:
       - name: Checkout pinned Agent Connector SDK source
         uses: ./.github/actions/checkout-agent-connector-sdk
 
-      - name: Sync full advisory environment (runtime engine + test extras)
+      - name: Sync advisory environment (source contracts, no native engine build)
         run: |
-          uv sync --frozen --extra test --group guardrails --extra agent-runtime
+          uv sync --frozen --extra test --group guardrails --extra agent-runtime \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # Install a published wheel satisfying Agent Utilities' declared runtime
+      # contract rather than compiling the sibling Rust checkout. Until the floor
+      # is published this one advisory step is visibly red, but continue-on-error
+      # lets engine-independent source gates run. release.yml remains the blocking
+      # owner of floor availability, wheel completeness, and native execution.
+      - name: Install published Epistemic Graph wheel
+        id: published-engine
+        continue-on-error: true
+        run: |
+          EG_REQUIREMENT="$(python3 - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as stream:
+              dependencies = tomllib.load(stream)["project"]["dependencies"]
+          print(next(row for row in dependencies if row.startswith("epistemic-graph[")))
+          PY
+          )"
+          uv pip install \
+            --python "$PWD/.venv/bin/python" \
+            --no-deps \
+            --only-binary=:all: \
+            "$EG_REQUIREMENT"
 
       # ── formerly guardrails.yml's one already-advisory gate ──────────────
       - name: Coupling gate (geniusbot -> agent_utilities adapter seam)
