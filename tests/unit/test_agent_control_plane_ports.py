@@ -282,6 +282,7 @@ def test_operation_descriptors_are_typed_and_public_modules_have_no_legacy_engin
         "get_work_item",
         "list_work_items",
         "cancel_work_item",
+        "get_run_output",
     }
     assert descriptors["submit_agent_task"].required_scope == "kg:write"
     assert descriptors["graph_rlm"].action_scopes == (("evolve_prompt", "kg:write"),)

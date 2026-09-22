@@ -439,17 +439,32 @@ def candidates_from_entries(entries: Sequence[Any]) -> tuple[CapabilityCandidate
     )
 
 
+#: Bound on catalog pages walked to resolve an explicitly named agent.
+MAX_NAME_LOOKUP_PAGES = 16
+
+
 class EgCapabilitySearch:
-    """``CapabilitySearchPort`` over EG's typed ``AgentComponent.Search``."""
+    """``CapabilitySearchPort`` over EG's typed ``AgentComponent.Search``.
+
+    Free text never reaches EG as a task term. A request carrying a typed
+    ``task_iri`` (one of EG's five native task terms) is searched through the
+    ontology; a request naming an agent is resolved by walking the bounded,
+    kind-scoped catalog; anything else has no authorized match.
+    """
 
     def __init__(self, eg_client: Any) -> None:
         if eg_client is None:
             raise ValueError("an epistemic-graph client is required")
         self._client = eg_client
 
-    async def search(
-        self, request: CapabilitySearchRequest, *, session: GraphSession
-    ) -> Sequence[CapabilityCandidate]:
+    async def _page(
+        self,
+        session: GraphSession,
+        *,
+        task_iri: str | None,
+        limit: int,
+        cursor: str | None = None,
+    ) -> Any:
         from epistemic_graph.generated.agent_component import (
             AgentComponentKind,
             AgentComponentSearchRequest,
@@ -458,19 +473,50 @@ class EgCapabilitySearch:
 
         typed = AgentComponentSearchRequest(
             tenant_id=session.tenant,
-            task=request.task,
+            task=task_iri,
             kinds=[AgentComponentKind.SKILL, AgentComponentKind.A2A_AGENT_CARD],
-            limit=request.limit,
+            limit=limit,
+            cursor=cursor,
         )
         try:
-            page = await send_agent_component_search(
+            return await send_agent_component_search(
                 self._client, typed, _session_graph(session)
             )
         except ValueError as exc:
             raise AgentControlPlaneUnavailable(
                 "the epistemic-graph client does not serve typed task-capability search"
             ) from exc
+
+    async def _by_task(
+        self, task_iri: str, limit: int, session: GraphSession
+    ) -> tuple[CapabilityCandidate, ...]:
+        page = await self._page(session, task_iri=task_iri, limit=limit)
         return candidates_from_entries(page.entries)
+
+    async def _by_name(
+        self, name: str | None, session: GraphSession
+    ) -> tuple[CapabilityCandidate, ...]:
+        """Walk the bounded catalog for ``name``; no name has no match."""
+        cursor: str | None = None
+        pages = MAX_NAME_LOOKUP_PAGES if name is not None else 0
+        for _page_index in range(pages):
+            page = await self._page(session, task_iri=None, limit=256, cursor=cursor)
+            found = tuple(
+                candidate
+                for candidate in candidates_from_entries(page.entries)
+                if candidate.name == name
+            )
+            if found or page.next_cursor is None:
+                return found
+            cursor = page.next_cursor
+        return ()
+
+    async def search(
+        self, request: CapabilitySearchRequest, *, session: GraphSession
+    ) -> Sequence[CapabilityCandidate]:
+        if request.task_iri is not None:
+            return await self._by_task(request.task_iri, request.limit, session)
+        return await self._by_name(request.agent_name, session)
 
 
 # ---------------------------------------------------------------------------

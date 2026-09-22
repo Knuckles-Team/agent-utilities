@@ -334,9 +334,47 @@ async def test_task_search_fails_closed_until_eg_serves_typed_task_search() -> N
     client = _Client()
     with pytest.raises(AgentControlPlaneUnavailable, match="task-capability"):
         await EgCapabilitySearch(client).search(
-            CapabilitySearchRequest(task="review a PR"), session=_session()
+            CapabilitySearchRequest(task="review a PR", task_iri="eg:task/review"),
+            session=_session(),
         )
     assert client.sent == []
+
+
+async def test_free_text_is_never_sent_to_eg_as_a_task() -> None:
+    client = _Client()
+    result = await EgCapabilitySearch(client).search(
+        CapabilitySearchRequest(task="review a PR"), session=_session()
+    )
+    assert result == ()
+    assert client.sent == []
+
+
+def test_task_iri_is_the_closed_native_vocabulary() -> None:
+    with pytest.raises(ValueError):
+        CapabilitySearchRequest(task="t", task_iri="eg:task/anything")
+
+
+async def test_named_agent_walks_the_kind_scoped_catalog(monkeypatch) -> None:
+    from epistemic_graph.generated import storage
+
+    requests: list[Any] = []
+
+    async def served(client, request, graph=None, *, idempotency_key=None):
+        requests.append(request)
+        from epistemic_graph.generated.agent_component import AgentComponentSearchPage
+
+        return AgentComponentSearchPage(
+            entries=[], next_cursor="c2" if len(requests) == 1 else None
+        )
+
+    monkeypatch.setattr(storage, "send_agent_component_search", served)
+    result = await EgCapabilitySearch(_Client()).search(
+        CapabilitySearchRequest(task="free text", agent_name="expert"),
+        session=_session(),
+    )
+    assert result == ()
+    assert [r.task for r in requests] == [None, None]
+    assert requests[1].cursor == "c2"
 
 
 async def test_task_search_sends_the_typed_request_when_served(monkeypatch) -> None:
@@ -352,12 +390,13 @@ async def test_task_search_sends_the_typed_request_when_served(monkeypatch) -> N
 
     monkeypatch.setattr(storage, "send_agent_component_search", served)
     result = await EgCapabilitySearch(_Client()).search(
-        CapabilitySearchRequest(task="review a PR", limit=5), session=_session()
+        CapabilitySearchRequest(task="review a PR", limit=5, task_iri="eg:task/review"),
+        session=_session(),
     )
     assert result == ()
     request = captured["request"]
     assert request.tenant_id == "tenant:test"
-    assert request.task == "review a PR"
+    assert request.task == "eg:task/review"
     assert request.limit == 5
     assert captured["graph"] == "tenant-test"
 
