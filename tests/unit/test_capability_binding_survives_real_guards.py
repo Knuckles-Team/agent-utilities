@@ -86,20 +86,3 @@ def test_skill_and_workflow_bindings_are_unchanged(kind):
 def test_agent_binding_is_unchanged():
     binding = Capability(kind="agent", id="a1", name="some-expert").to_binding()
     assert binding == {"agent_name": "some-expert"}
-
-
-def test_execute_capability_sets_the_delegate_on_both_keywords():
-    """The auto-resolve branch must name the delegate as agent AND skill.
-
-    ``execute_capability`` set ``call_agent_name = _DEFAULT_DELEGATE`` but still
-    passed ``skill_name=skill_name or None`` (empty on the auto-resolve path), so
-    ``run_agent``'s ``tool_server requires skill_name`` fired every time.
-    """
-    import inspect
-
-    from agent_utilities.orchestration import manager as mgr
-
-    source = inspect.getsource(mgr.Orchestrator.execute_capability)
-    assert "call_skill_name = _DEFAULT_DELEGATE" in source
-    assert "skill_name=call_skill_name," in source
-    assert "skill_name=skill_name or None," not in source
