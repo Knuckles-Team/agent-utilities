@@ -341,6 +341,51 @@ def test_symbol_gate_still_trips_on_a_genuine_test_only_method(tmp_path):
     assert "OrphanPolicy.evaluate_distinctively" in symbols
 
 
+def test_symbol_gate_accepts_methods_on_explicitly_reexported_public_classes(
+    tmp_path,
+):
+    """A public cross-repository class port needs no AU-local caller.
+
+    The class is explicitly exported through a thin adapter module and the
+    package API's ``__all__``. Its public methods are therefore callable by a
+    consumer outside this repository. An unexported sibling remains subject
+    to D-OB-9 even when a test invokes it.
+    """
+    src_dir = tmp_path / "agent_utilities"
+    api_dir = src_dir / "api"
+    api_dir.mkdir(parents=True)
+    (api_dir / "__init__.py").write_text(
+        "from .ports import CatalogPort\n__all__ = ['CatalogPort']\n"
+    )
+    (api_dir / "ports.py").write_text(
+        "from ._implementation import CatalogPort\n__all__ = ['CatalogPort']\n"
+    )
+    (api_dir / "_implementation.py").write_text(
+        "class CatalogPort:\n"
+        "    def read_current_records(self):\n"
+        "        return ()\n\n"
+        "class UnexportedHelper:\n"
+        "    def unused_helper_operation(self):\n"
+        "        return None\n"
+    )
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_public_port.py").write_text(
+        "from agent_utilities.api import CatalogPort\n"
+        "from agent_utilities.api._implementation import UnexportedHelper\n\n"
+        "def test_ports():\n"
+        "    CatalogPort().read_current_records()\n"
+        "    UnexportedHelper().unused_helper_operation()\n"
+    )
+
+    findings = check_wiring.find_test_only_symbols(
+        src_dir=src_dir, tests_dir=tests_dir, display_root=tmp_path
+    )
+    symbols = {f["symbol"] for f in findings}
+    assert "CatalogPort.read_current_records" not in symbols
+    assert "UnexportedHelper.unused_helper_operation" in symbols
+
+
 def test_symbol_gate_does_not_cross_attribute_a_same_named_method_in_another_file(
     tmp_path,
 ):
@@ -792,9 +837,7 @@ def test_snapshot_symbol_scan_survives_ambient_git_dir_env(tmp_path, monkeypatch
     )
 
 
-def test_snapshot_unmasking_context_survives_ambient_git_dir_env(
-    tmp_path, monkeypatch
-):
+def test_snapshot_unmasking_context_survives_ambient_git_dir_env(tmp_path, monkeypatch):
     """Deletion accounting must read the same bare snapshot safely."""
     snapshot = tmp_path / "snapshot"
     src_dir = snapshot / "agent_utilities"
@@ -817,8 +860,8 @@ def test_snapshot_unmasking_context_survives_ambient_git_dir_env(
     monkeypatch.setenv("GIT_DIR", real_git_dir)
     monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
 
-    sources, (idents, calls, imports, _, _) = (
-        check_wiring._read_head_snapshot_context(snapshot)
+    sources, (idents, calls, imports, _, _) = check_wiring._read_head_snapshot_context(
+        snapshot
     )
 
     assert "agent_utilities/target.py" in sources

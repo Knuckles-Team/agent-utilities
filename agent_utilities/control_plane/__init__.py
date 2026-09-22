@@ -1,6 +1,12 @@
-"""Stable AU application/API adapters."""
+"""AU control-plane application adapters."""
 
-from .catalog import (
+from agent_utilities.api.provisioning import (
+    PackImportAuthorityResolver,
+    ProvisioningAuthorityError,
+    pack_import_authority,
+)
+
+from .catalogs import (
     AgentCatalogReadPort,
     AgentCatalogRecord,
     CatalogReadAuthority,
@@ -10,11 +16,6 @@ from .catalog import (
     WorkflowCatalogRecord,
     catalog_read_ports,
 )
-from .provisioning import (
-    PackImportAuthorityResolver,
-    ProvisioningAuthorityError,
-    pack_import_authority,
-)
 
 __all__ = [
     "AgentCatalogReadPort",
@@ -22,10 +23,10 @@ __all__ = [
     "CatalogReadAuthority",
     "CatalogReadError",
     "CatalogStatus",
+    "WorkflowCatalogReadPort",
+    "WorkflowCatalogRecord",
     "catalog_read_ports",
     "PackImportAuthorityResolver",
     "ProvisioningAuthorityError",
     "pack_import_authority",
-    "WorkflowCatalogReadPort",
-    "WorkflowCatalogRecord",
 ]

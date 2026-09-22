@@ -90,7 +90,12 @@ independently runnable and combined by ``--wire-first-report``:
   ONLY from test files (zero non-test, non-defining-file references) is a
   "public capability entrypoint with no non-test caller" — exactly the
   D-OB-9 shape (``PolicyEngine``, KV-fork ``snapshot``/``fork``/
-  ``branch_get``/``branch_put``, ``AdmissionPolicy.decide``, …).
+  ``branch_get``/``branch_put``, ``AdmissionPolicy.decide``, …). Public
+  methods on classes that are explicitly exported through module-level
+  ``__all__`` imports are exempt: an exported class is a supported external
+  composition port even when its consumer is in another repository. The
+  export must resolve through explicit re-exports to a local class definition;
+  unexported classes retain the normal D-OB-9 check.
   DIFF-SCOPED against HEAD (see "NO BASELINE HERE ANY MORE" below) — new
   test-only symbols since HEAD fail, the existing backlog does not.
 
@@ -786,7 +791,9 @@ def find_test_only_symbols(
     by import, never invoked by any live (non-test) caller. This is the
     D-OB-9 shape: unit-tested, never wired. See the module docstring for the
     heuristic's known blind spots (word-boundary token counting, not a
-    type-resolved call graph).
+    type-resolved call graph). Methods on classes explicitly exported through
+    ``__all__`` are treated as supported external ports; non-exported methods
+    remain subject to the live-caller check.
 
     Indexed in one pass per file (identifier counts + ``.name(``-call
     counts) rather than re-scanning every file's text once per candidate
@@ -861,6 +868,9 @@ def find_test_only_symbols(
     # code it explains). The production (``other_au``) side deliberately
     # stays pooled/unscoped even for colliding names — see those functions.
     au_trees, top_level_defs_by_file, methods_by_file = _collect_definitions(au_sources)
+    exported_classes = _declared_public_class_definitions(
+        au_sources, top_level_defs_by_file
+    )
     colliding_top_level_names, colliding_method_names = _colliding_names(
         top_level_defs_by_file, methods_by_file
     )
@@ -892,6 +902,7 @@ def find_test_only_symbols(
                 test_imports_by_file,
                 total_test_calls,
                 ordinals,
+                exported_classes,
             )
         )
     return findings
@@ -963,6 +974,152 @@ def _declared_reexports(rel: str, text: str) -> Counter[str]:
     for value in _all_assignment_values(tree):
         names.update(_string_elements(value))
     return names
+
+
+def _declared_public_class_definitions(
+    au_sources: dict[str, str],
+    top_level_defs_by_file: dict[str, list[tuple[str, str, int]]],
+) -> set[tuple[str, str]]:
+    """Resolve explicitly exported classes to their defining source modules.
+
+    A class placed in a module's literal ``__all__`` and imported by that
+    module is a deliberate public API surface; its public methods are
+    externally callable even when their only implementation caller lives in
+    another repository. Follow chains of explicit ``__all__`` re-exports so
+    a public package can expose a class through a thin adapter module.
+    Unexported classes remain under ordinary D-OB-9 checking.
+    """
+    modules = set(au_sources)
+    classes_by_file = {
+        rel: {name for kind, name, _lineno in definitions if kind == "class"}
+        for rel, definitions in top_level_defs_by_file.items()
+    }
+    imported_exports = _declared_class_imports(au_sources)
+    return _resolved_public_class_definitions(
+        imported_exports, classes_by_file, modules
+    )
+
+
+def _declared_class_imports(
+    au_sources: dict[str, str],
+) -> dict[str, dict[str, list[tuple[str, str]]]]:
+    """Map module exports to explicitly imported class targets."""
+    imported_exports: dict[str, dict[str, list[tuple[str, str]]]] = {}
+    for rel, source in au_sources.items():
+        for local_name, targets in _module_declared_class_imports(rel, source).items():
+            imported_exports.setdefault(rel, {}).setdefault(local_name, []).extend(
+                targets
+            )
+    return imported_exports
+
+
+def _module_declared_class_imports(
+    rel: str, source: str
+) -> dict[str, list[tuple[str, str]]]:
+    """Resolve one module's literal ``__all__`` imports."""
+    try:
+        tree = ast.parse(source, filename=rel)
+    except (SyntaxError, ValueError):
+        return {}
+    declared = {
+        name
+        for value in _all_assignment_values(tree)
+        for name in _string_elements(value)
+    }
+    if not declared:
+        return {}
+    imports: dict[str, list[tuple[str, str]]] = {}
+    for node in tree.body:
+        for local_name, targets in _public_import_targets(rel, node, declared).items():
+            imports.setdefault(local_name, []).extend(targets)
+    return imports
+
+
+def _public_import_targets(
+    rel: str, node: ast.stmt, declared: set[str]
+) -> dict[str, list[tuple[str, str]]]:
+    """Return imported targets explicitly named in one module's ``__all__``."""
+    if not isinstance(node, ast.ImportFrom):
+        return {}
+    base_module = resolve_relative(rel, node) if node.level else node.module
+    if not base_module:
+        return {}
+    imports: dict[str, list[tuple[str, str]]] = {}
+    for alias in node.names:
+        local_name = alias.asname or alias.name
+        if local_name not in declared:
+            continue
+        target_module = (
+            f"{base_module}.{alias.name}" if node.module is None else base_module
+        )
+        imports.setdefault(local_name, []).append((target_module, alias.name))
+    return imports
+
+
+def _resolved_public_class_definitions(
+    imported_exports: dict[str, dict[str, list[tuple[str, str]]]],
+    classes_by_file: dict[str, set[str]],
+    modules: set[str],
+) -> set[tuple[str, str]]:
+    exported: set[tuple[str, str]] = set()
+    for exports in imported_exports.values():
+        for targets in exports.values():
+            exported.update(
+                _resolve_public_class_targets(
+                    targets, imported_exports, classes_by_file, modules
+                )
+            )
+    return exported
+
+
+def _resolve_public_class_targets(
+    targets: list[tuple[str, str]],
+    imported_exports: dict[str, dict[str, list[tuple[str, str]]]],
+    classes_by_file: dict[str, set[str]],
+    modules: set[str],
+) -> set[tuple[str, str]]:
+    resolved: set[tuple[str, str]] = set()
+    for target_module, target_name in targets:
+        target_rel = module_name_to_path(target_module, modules)
+        if target_rel is None:
+            continue
+        definition = _resolve_public_class_definition(
+            target_rel,
+            target_name,
+            imported_exports,
+            classes_by_file,
+            modules,
+            set(),
+        )
+        if definition is not None:
+            resolved.add(definition)
+    return resolved
+
+
+def _resolve_public_class_definition(
+    rel: str,
+    name: str,
+    imported_exports: dict[str, dict[str, list[tuple[str, str]]]],
+    classes_by_file: dict[str, set[str]],
+    modules: set[str],
+    seen: set[tuple[str, str]],
+) -> tuple[str, str] | None:
+    identity = (rel, name)
+    if identity in seen:
+        return None
+    seen.add(identity)
+    if name in classes_by_file.get(rel, set()):
+        return identity
+    for target_module, target_name in imported_exports.get(rel, {}).get(name, []):
+        target_rel = module_name_to_path(target_module, modules)
+        if target_rel is None:
+            continue
+        definition = _resolve_public_class_definition(
+            target_rel, target_name, imported_exports, classes_by_file, modules, seen
+        )
+        if definition is not None:
+            return definition
+    return None
 
 
 def _index_au_sources(
@@ -1174,6 +1331,15 @@ def _method_is_skippable(meth_name: str, is_property: bool) -> bool:
     return meth_name in _GENERIC_METHOD_STOPLIST or is_property
 
 
+def _methods_requiring_local_wire_check(
+    rel: str,
+    methods: list[tuple[str, str, int, bool]],
+    exported_classes: set[tuple[str, str]],
+) -> list[tuple[str, str, int, bool]]:
+    """Exclude methods exposed by explicitly exported public classes."""
+    return [method for method in methods if (rel, method[0]) not in exported_classes]
+
+
 def _method_symbol_findings(
     rel: str,
     methods_by_file: dict[str, list[tuple[str, str, int, bool]]],
@@ -1184,9 +1350,13 @@ def _method_symbol_findings(
     test_imports_by_file: dict[str, set[str]],
     total_test_calls: Counter[str],
     ordinals: dict[tuple[str, str], int],
+    exported_classes: set[tuple[str, str]],
 ) -> list[dict]:
     findings: list[dict] = []
-    for cls_name, meth_name, m_lineno, is_property in methods_by_file.get(rel, []):
+    methods = _methods_requiring_local_wire_check(
+        rel, methods_by_file.get(rel, []), exported_classes
+    )
+    for cls_name, meth_name, m_lineno, is_property in methods:
         if _method_is_skippable(meth_name, is_property):
             continue
         other_au = total_au_calls.get(meth_name, 0) - au_calls[rel].get(meth_name, 0)
@@ -1522,8 +1692,7 @@ def _lost_symbol_sources(
         source_rel
         for source_rel, counts in head_counts.items()
         if source_rel != rel
-        and counts.get(name, 0)
-        > current_counts.get(source_rel, Counter()).get(name, 0)
+        and counts.get(name, 0) > current_counts.get(source_rel, Counter()).get(name, 0)
     }
 
 
