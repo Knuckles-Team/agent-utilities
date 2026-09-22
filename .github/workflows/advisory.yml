@@ -449,7 +449,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 73915f29ae672003a0bed287f85e19390d55f4d0
+          ref: 444b232c7975e125a24b17d53ff615f5ad26a4cd
           path: .pipeline-theme
           persist-credentials: false
 

@@ -21,15 +21,15 @@
     <rect class="entry" x="415" y="135" width="170" height="90" rx="16"/><text class="label" x="500" y="172">Geniusbot</text><text class="role" x="500" y="198">desktop cockpit</text>
     <rect class="entry" x="605" y="135" width="175" height="90" rx="16"/><text class="label" x="692" y="169">Messaging</text><text class="role" x="692" y="194">chat + voice channels</text><text class="small" x="692" y="214">hosted by Graph OS</text>
     <rect class="box" x="415" y="245" width="365" height="80" rx="16"/><text class="label" x="597.5" y="280">MCP / REST / A2A clients</text><text class="role" x="597.5" y="305">external agents and applications</text>
-    <rect class="gateway" x="825" y="145" width="450" height="160" rx="22"/><text class="label" x="1050" y="198">Graph OS</text><text class="role" x="1050" y="230">governed runtime gateway</text><text class="role" x="1050" y="255">and composition host</text>
+    <rect class="gateway" x="825" y="135" width="450" height="170" rx="22"/><text class="label" x="1050" y="198">Graph OS</text><text class="role" x="1050" y="230">governed runtime gateway</text><text class="role" x="1050" y="255">and composition host</text>
     <rect class="core" x="825" y="335" width="450" height="100" rx="18"/><text class="label" x="1050" y="376">Agent Utilities</text><text class="role" x="1050" y="405">agent control plane</text>
     <rect class="core" x="825" y="485" width="450" height="125" rx="18"/><text class="label" x="1050" y="528">Epistemic Graph</text><text class="role" x="1050" y="558">durable multimodal knowledge, evidence,</text><text class="role" x="1050" y="582">provenance, and reasoning engine</text>
     <rect class="box" x="35" y="520" width="220" height="90" rx="16"/><text class="label" x="145" y="557">Source systems</text><text class="role" x="145" y="583">governed external data</text>
     <rect class="box" x="445" y="520" width="260" height="90" rx="16"/><text class="label" x="575" y="557">Agent Connector SDK</text><text class="role" x="575" y="583">typed source integration</text>
   </g>
   <g class="connections">
-    <path class="bus" d="M120 90V110H692"/>
-    <path class="arrow" d="M120 110V135"/><path class="arrow" d="M310 110V135"/><path class="arrow" d="M500 110V135"/><path class="arrow" d="M692 110V135"/>
+    <path class="bus" d="M120 90V100H692"/>
+    <path class="arrow" d="M120 100V135"/><path class="arrow" d="M310 100V135"/><path class="arrow" d="M500 100V135"/><path class="arrow" d="M692 100V135"/>
     <path class="arrow" d="M780 180H825"/><path class="arrow" d="M780 285H825"/>
     <path class="arrow" d="M1050 305V335"/><path class="arrow" d="M1050 435V485"/>
     <path class="arrow" d="M255 565H445"/><path class="arrow" d="M705 565H825"/>
