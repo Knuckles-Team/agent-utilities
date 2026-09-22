@@ -1,5 +1,14 @@
 # Agent Utilities
 
+<p align="center">
+  <img src="docs/assets/brands/agent-utilities-logo-v1.png" alt="Agent Utilities logo" width="240">
+</p>
+
+<p align="center">
+  <b>The Python control plane for observable, governed agent work.</b><br>
+  <sub>Build agents, coordinate workflows, carry execution policy, and evaluate outcomes through explicit ecosystem contracts.</sub>
+</p>
+
 [![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/forks)
 [![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/graphs/contributors)
@@ -18,7 +27,14 @@
 [![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
-[![Documentation](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/pages.yml/badge.svg)](https://knuckles-team.github.io/agent-utilities/)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://knuckles-team.github.io/agent-utilities/)
+
+<p align="center">
+  <a href="https://knuckles-team.github.io/agent-utilities/">Documentation</a> ·
+  <a href="https://knuckles-team.github.io/agent-utilities/capabilities/">Capabilities</a> ·
+  <a href="https://knuckles-team.github.io/agent-utilities/guides/consumption-models/">Interfaces</a> ·
+  <a href="https://knuckles-team.github.io/agent-utilities/status/">Status</a>
+</p>
 
 ## Overview
 
