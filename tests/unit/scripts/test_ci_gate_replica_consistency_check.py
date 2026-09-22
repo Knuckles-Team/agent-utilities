@@ -227,7 +227,13 @@ def test_pages_job_builds_static_docs_without_runtime_dependencies():
     assert build["if"] == "steps.docs_tooling.outcome == 'success'"
     assert "sync_mkdocs_theme.py check" in build["run"]
     assert "scripts/docs_contract.py" not in build["run"]
-    assert "scripts/check_tracked_privacy.py" in build["run"]
+    assert 'test -n "$PROHIBITED_IDENTITY_CATALOG"' not in build["run"]
+    assert 'if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then' in build["run"]
+    assert (
+        'scripts/check_tracked_privacy.py --identity-catalog "$policy"'
+        in build["run"]
+    )
+    assert "python3 scripts/check_tracked_privacy.py\n" in build["run"]
     assert "mkdocs build --strict" in build["run"]
 
     for name in ("Setup Pages", "Upload artifact", "Deploy to GitHub Pages"):
