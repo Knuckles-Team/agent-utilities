@@ -29,6 +29,9 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
+    advisory = (ROOT / ".github" / "workflows" / "advisory.yml").read_text(
+        encoding="utf-8"
+    )
     pre_commit = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
     assert profile["dupehound_version"] == "0.1.2"
@@ -49,6 +52,9 @@ def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
     assert workflow.count("- *sdk-checkout") == 2
     assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in workflow
     assert "path: .uv-workspace-siblings/agent-connector-sdk" in workflow
+    assert advisory.count("Checkout pinned Agent Connector SDK source") == 1
+    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in advisory
+    assert "path: .uv-workspace-siblings/agent-connector-sdk" in advisory
 
 
 def test_source_distribution_carries_the_clone_scanner_surface() -> None:
