@@ -1,4 +1,4 @@
-"""graph_ops_causal — Enterprise Operations Causal Graph MCP tool (Codex X-2).
+"""Internal ops-causal graph algorithms retained after retiring the MCP wrapper.
 
 CONCEPT:AU-KG.enrichment.ops-causal-graph
 
@@ -10,9 +10,8 @@ policy/control/evidence, plus the analyses built on top of the causal-
 reasoning engine already shipped
 (:mod:`agent_utilities.knowledge_graph.core.formal_reasoning_core`).
 
-Mirrors the ``graph_mine``/``graph_code`` action-router shape (single
-``@mcp.tool``, an ``action`` enum, JSON payload fields, registered into
-``kg_server.REGISTERED_TOOLS``) rather than inventing a new tool convention.
+The legacy ``graph_ops_causal`` registrar and served tool were removed because
+GraphOS no longer exposes this AU-local engine-bound surface.
 
 W3.5 — ``as_claim`` (CONCEPT:AU-KG.enrichment.ops-causal-graph,
 CONCEPT:AU-KG.evolution.mining-flywheel): ``materialize_claims`` above
@@ -55,9 +54,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import Field
-
-from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_json
 
@@ -793,134 +789,3 @@ def _execute_ops_causal(request: _OpsCausalRequest) -> str:
         return _execute_related_incidents(engine, request)
     actions = _load_ops_causal_actions()
     return _execute_ops_causal_analysis(engine, request, actions)
-
-
-def register_ops_causal_tools(mcp: Any) -> None:
-    """Register the ``graph_ops_causal`` group on the given FastMCP server."""
-
-    @mcp.tool(
-        name="graph_ops_causal",
-        description=(
-            "Enterprise operations causal graph (Codex X-2): joins Langfuse traces -> "
-            "agent/tool/model -> service -> deployment/container -> commit/merge-"
-            "request -> incident/change -> capability/owner -> policy/control/"
-            "evidence into one causal chain, and runs root-cause/blast-radius/"
-            "change-risk/control-evidence analyses on it. Reuses the causal-"
-            "reasoning engine already shipped (StructuralCausalModel + "
-            "CausalVerifier + SpuriousnessDetector) — no new traversal algorithm. "
-            "Actions: 'root_cause' (rank probable root-cause changes/services for "
-            "a failure node_id, upstream), 'blast_radius' (downstream impact of a "
-            "change node_id), 'change_risk' (predict risk of a proposed change "
-            "node_id from its blast radius + incident_history_json), "
-            "'control_evidence' (gather + verify the evidence chain for a control "
-            "node_id), 'join' (materialize links_json as real graph edges via the "
-            "shared enrichment writer — no new nodes, only edges between ids that "
-            "already exist). Supply the causal edges explicitly via links_json "
-            "([{source,target,rel_type,strength,observed_at}, ...] or "
-            "[[source,rel_type,target], ...]) for an offline/test-friendly model, "
-            "or omit it with an active engine + node_id to load the neighborhood "
-            "live from the KG. 'root_cause' additionally MATERIALIZES each "
-            "above-floor finding as a reviewable ``:Claim`` (status='proposal', "
-            "never auto-verified — CONCEPT:AU-KG.enrichment.ops-causal-graph) "
-            "when an engine is active, so a root-cause finding becomes queryable/"
-            "citable instead of a one-off JSON answer; set materialize_claims=false "
-            "to skip the write for a pure read. 'root_cause'/'blast_radius' also "
-            "accept as_claim=true: propose ONE structured finding through the SAME "
-            "governed ClaimFlywheel lifecycle `graph_claims propose` uses, gated by "
-            "the SAME ActionPolicy claim.propose decision — a denial never blocks "
-            "this read-only answer, it only adds a claim_denied note; on success "
-            "the minted claim_id is returned alongside the analysis. "
-            "'related_incidents' (B17 bridge, CONCEPT:AU-KG.enrichment."
-            "cross-layer-incident-correlation): node_id -> the graph_incident "
-            ":Incident nodes (agent_utilities.observability.incidents' "
-            "cross-layer health correlation) that concern the same asset(s) as "
-            "this ops-causal Claim id or seed node — bridges the two "
-            "subsystems' different id spaces via exact-id-then-shared-asset-key "
-            "matching; see graph_incident's 'related_claims' action for the "
-            "reverse direction."
-        ),
-        tags=["graph-os", "ops", "causal", "root-cause", "blast-radius"],
-    )
-    async def graph_ops_causal(
-        action: str = Field(
-            default="root_cause",
-            description=(
-                "root_cause | blast_radius | change_risk | control_evidence | "
-                "join | related_incidents"
-            ),
-        ),
-        node_id: str = Field(
-            default="",
-            description="Seed node id: the failure/trace (root_cause), the "
-            "change/commit (blast_radius, change_risk), the control "
-            "(control_evidence), or an ops-causal Claim id / bare causal-chain "
-            "node id (related_incidents).",
-        ),
-        links_json: str = Field(
-            default="[]",
-            description="JSON array of ops-causal edges: "
-            '[{"source":..,"target":..,"rel_type":..,"strength":1.0,'
-            '"observed_at":null}, ...] or [[source,rel_type,target], ...]. '
-            "Empty + an active engine ⇒ load the neighborhood live from the KG "
-            "around node_id (join, root_cause, blast_radius, control_evidence).",
-        ),
-        depth: int = Field(default=6, description="Traversal depth bound."),
-        max_results: int = Field(
-            default=10, description="Result cap (root_cause / blast_radius)."
-        ),
-        incident_history_json: str = Field(
-            default="[]",
-            description='JSON array of {"node_id":..,"severity":0..1} historical '
-            "incidents (change_risk).",
-        ),
-        now: float = Field(
-            default=0.0,
-            description="Unix seconds 'current time' for recency weighting "
-            "(root_cause); 0 ⇒ no recency weighting.",
-        ),
-        materialize_claims: bool = Field(
-            default=True,
-            description="root_cause only: persist each above-floor finding as a "
-            "reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph), proposed "
-            "through the ClaimFlywheel and gated by the unified promotion gate "
-            "(ActionPolicy kind=promote_mined_claim, shipped default "
-            "approval_required) — a deny retracts the claim's lifecycle state, it "
-            "never blocks the write itself (the proposal is always recorded, "
-            "matching every other mined-claim producer). Default-on when an "
-            "engine is active; set False for a pure read with no graph write.",
-        ),
-        as_claim: bool = Field(
-            default=False,
-            description="root_cause/blast_radius only: propose this call's finding "
-            "through the SAME governed ClaimFlywheel lifecycle `graph_claims "
-            "propose` uses (CONCEPT:AU-KG.evolution.mining-flywheel), gated by the "
-            "SAME fail-closed ActionPolicy claim.propose decision. Off by default "
-            "— the read-only analysis is returned either way; a denied gate adds "
-            "a claim_denied note instead of blocking the answer. On success, "
-            "returns claim_id (+ claim_transition) alongside the analysis.",
-        ),
-    ) -> str:
-        """Ops causal graph: join + root-cause/blast-radius/change-risk/control-evidence."""
-        action = (action or "root_cause").strip().lower()
-        request = _OpsCausalRequest(
-            action=action,
-            node_id=node_id,
-            links_json=links_json,
-            depth=depth,
-            max_results=max_results,
-            incident_history_json=incident_history_json,
-            now=now,
-            materialize_claims=materialize_claims,
-            as_claim=as_claim,
-        )
-        return await run_blocking_ordered(
-            _execute_ops_causal,
-            request,
-        )
-
-    kg_server.REGISTERED_TOOLS["graph_ops_causal"] = graph_ops_causal
-    # No bespoke endpoint needed — the generic REST-twin factory in
-    # kg_server._build_server (CONCEPT:AU-KG.coordination.engine-message-broker)
-    # mounts POST /ops/causal for every ACTION_TOOL_ROUTES entry without a
-    # bespoke handler, dispatching through the SAME _execute_tool core.
-    kg_server.ACTION_TOOL_ROUTES["graph_ops_causal"] = "/ops/causal"

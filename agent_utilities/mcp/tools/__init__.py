@@ -36,10 +36,8 @@ from agent_utilities.mcp.tools.job_tools import register_job_tools
 from agent_utilities.mcp.tools.mcp_apps import register_mcp_apps_tools
 from agent_utilities.mcp.tools.media_sidecar_tools import register_media_sidecar_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
-from agent_utilities.mcp.tools.ops_causal_tools import register_ops_causal_tools
 from agent_utilities.mcp.tools.query_tools import register_query_tools
 from agent_utilities.mcp.tools.reach_tools import register_reach_tools
-from agent_utilities.mcp.tools.rlm_tools import register_rlm_tools
 from agent_utilities.mcp.tools.secret_tools import register_secret_tools
 from agent_utilities.mcp.tools.state_tools import register_state_tools
 from agent_utilities.mcp.tools.workflow_tools import register_workflow_tools
@@ -63,7 +61,6 @@ __all__ = [
     "register_engine_surface_tools",
     "register_evolution_tools",
     "register_governance_tools",
-    "register_ops_causal_tools",
     "register_audit_tools",
     "register_epistemic_tools",
     "register_incident_tools",
@@ -73,7 +70,6 @@ __all__ = [
     "register_compliance_tools",
     "register_config_tools",
     "register_data_prep_tools",
-    "register_rlm_tools",
     "register_workflow_tools",
     "register_argument_tools",
     "register_graph_engineering_tools",

@@ -27,8 +27,9 @@ answer that separates evidence from inference.
    `nl_query` when the request needs query planning but no query was supplied.
 5. Use `graph_code` or `graph_code_nav` for symbols, callers, definitions, and
    impact. Use `graph_document_tree` for document structure.
-6. Use `graph_analyze`, `graph_explain`, `graph_evaluate`, or `graph_epistemic`
-   when the answer needs diagnosis, confidence, disagreement, or provenance.
+6. Use `graph_explain`, `graph_evaluate`, or `graph_epistemic` when the answer
+   needs confidence, disagreement, or provenance. For structural or operational
+   analysis, use `graph-research-and-analysis`.
 7. Use `graph_table`, `graph_promql`, or `graph_gis` for tabular, metric, or
    spatial reads.
 
@@ -45,13 +46,13 @@ single bounded lookup direct.
 | `graph_code_nav` | `find_definition`, `find_references`, `trace_call_graph`, `impact_of_change`, `connects` (shortest path between two symbols) | start from a `symbol` or exact `node_id`; optional `source_system` scope |
 | `graph_context` | `put`/`get`/`list` — a session-scoped `ContextBlob` key/value store, optional `ttl_s` | linked to a `Session` node for id-anchored retrieval |
 | `graph_document_tree` | `build`, `structure` (token-cheap text-free table of contents), `content` (fetch cited char/page `ranges`), `retrieve` (tree-walk by relevance, `use_llm=true` tries LLM navigation first) | vectorless PageIndex-style retrieval for one long document — cited `start..end` ranges beat an embedder's recall ceiling; complements `graph_search`, doesn't replace it |
-| `graph_analyze` | `inspect`, `enrichment_coverage`, `process_writeback` (push KG intelligence to Camunda/ARIS, `target=camunda\|aris\|both`), `placement_plan` (workload placement), `infra_sweep`, `security_scan` | structural/ops analysis; code/research/eval/Q&A intents route to `graph_code`/`graph_research`/`graph_evaluate`/`graph_explain` instead |
 | `graph_explain` | `action=explain`/`context`, `target=<domain>:<intent>` (`code`, `ops` live task-queue, `deploy` is-my-change-live, `entity`/`tickets`/`process`), `target=domains` lists providers | the universal context plane — routes to the right domain provider and returns ONE cited answer |
 | `graph_epistemic` | `why` (=`explain_belief`), `status` (=`epistemic_status`), `why_not` (=`epistemic_status`, projects its `why_not` field), `what_would_invalidate` (=`epistemic_status`, projects its `what_would_invalidate` field), `what_changed`, `resolve_conflict` (argumentation-based resolution over contradicting claims) | purpose-named wrapper over the epistemic layers below — see "Epistemic answers" |
 | `graph_search` | `mode`: `hybrid` (default), `hyde`, `deep`, `concept` (look up a `CONCEPT:ID`), `analogy`, `memory`, `discover`, `latent`, `rerank`, `adore`, `hard_negatives`, `chrono_ids`, **`compiled`**; `top_k`, `self_correct`, `as_of`, `target` (named/`all` connections) | `mode="compiled"` is the policy-aware context compiler — see "Compiled context bundles" |
 | `graph_search_synthesis` | `synthesize` (evidence subgraph + multi-hop question around an `answer_id`), `diagnose` (solver trajectories / FORT signatures) | |
 | `graph_federated_search` | fans a `query` across registered external graph `references`, capped by `top_k` | for ONE specific reference by id instead, use `graph_query(scope="federated")` |
 | `graph_table` | `query` (read-only SELECT), `ingest` (mirror a connector into a table), `rows` (insert dicts), `create`, `list`, `drop` | the SQL-table surface of the engine |
+| `tabular_query` | read-only SQL projection | governed typed evidence query over tabular data |
 | `graph_promql` | `action=instant` (single evaluation at `time`, default now) or `range` (`start`..`end` at `step`) | extra engine kwargs via `params_json`; degrades cleanly with no metrics surface |
 | `graph_gis` | `route` (`from`+`to`[+`profile`]), `tile` (`z/x/y`), `nearest` (`lat`+`lon`[+`limit`]), `geo_task` | degrades cleanly with no GIS surface |
 | `graph_engineering` (GraphRAG) | `local_search` (one entity + relationship-path neighborhood via the SAME `ContextCompiler`), `global_search` (bounded map-reduce over `:CommunityReport` nodes, `max_communities` default 8), `build_community_reports` | reuses the engine's existing Louvain/label-propagation community detection and the ingest-time report summarizer — no reimplementation; auto-builds reports on first `global_search` use |

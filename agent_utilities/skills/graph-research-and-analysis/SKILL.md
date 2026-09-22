@@ -2,11 +2,10 @@
 name: graph-research-and-analysis
 skill_type: skill
 description: >-
-  Run hypothesis-driven, scoped research, graph mining, learning, causal
-  analysis, and evaluation in Graph-OS. Use for reproducible multi-source
-  studies, comparative analysis, anomaly or association discovery, graph
-  learning, causal evaluation, feedback, report persistence, or grounded
-  proposals. For one bounded lookup or cited explanation, use
+  Run hypothesis-driven, scoped research, graph learning, and evaluation in
+  Graph-OS. Use for reproducible multi-source studies, comparative analysis,
+  evaluation, feedback, report persistence, or grounded proposals. For one
+  bounded lookup or cited explanation, use
   graph-query-and-explanation.
 ---
 
@@ -17,15 +16,13 @@ separate measured results from hypotheses.
 
 ## Choose the route
 
-- Use `graph_research` to organize a research question and source set.
 - Use `graph_analyze` for structural, comparative, impact, or diagnostic work.
-- Use `graph_mine` or `graph_mine_deep` for associations, anomalies, and deeper
-  discovery over an existing graph.
 - Use `graph_learn` for supported graph-learning tasks.
-- Use `graph_ops_causal` when an operational question requires causal evidence.
 - Use `graph_claims` to inspect or advance the governed claim lifecycle.
 - Use `graph_feedback` to record corrections or outcome signals.
 - Use `research_artifact` to persist an approved report with provenance.
+- Use the GraphOS-served `graph_rlm` operation for bounded long-context tasks;
+  AU owns its typed application behavior, while GraphOS owns the served wrapper.
 
 Keep a bounded analysis direct. Delegate a multi-source study through
 `graph_agents` when acquisition, independent analyses, critique, and
@@ -35,22 +32,18 @@ synthesis can run as separate work items.
 
 | Tool | Actions | Notes |
 |---|---|---|
-| `graph_research` | `synthesize` (synthesize knowledge from a source), `deep_extract` (entity/relation extraction), `background_research`/`spawn_background` (background jobs — poll via `graph_ingest(action="status")`), `relevance_sweep`, `research_ingest`, `evolve_variants`, `track_citations` | `query` carries the source/topic |
 | `graph_evolution` | `assimilate` (research assimilation pass), `audit_scan` (Macroscope-class code-correctness/security findings over the ingested code KG, each filed as a canonical `:Gap` — CONCEPT:AU-AHE.harness.canonical-gap-lifecycle), `distill_skills`, `standardize` (enterprise standardization pass), `failure_ingest`, `optimize_component` (the engine-owned `ProgramOptimize` job — `target=all\|sweep` for a full sweep), `publish_proposal` | all proposal-producing actions stay review-gated; see `graph_loops` (`graph-orchestration-and-automation`) for the Gap backlog these findings feed |
 | `graph_evaluate` | `evaluate`/`evaluate_alpha` (score outputs), `evaluate_harness`, `guard_corpus`, `harness_gate` (formal no-regression SHACL gate), `check_constraints`, `specialize` (SAI specialization cycle), `world_model_rollout`, `latent_efficiency_benchmark`, `evolve_model`, `forecast`, `causal`, `invariant` | evaluation, gates, and world-model reasoning |
-| `graph_rlm` | `run` (ad-hoc confined RLM task), `benchmark` (RLM vs. vanilla vs. compaction on a supported long-context task), `evolve_prompt` (GEPA — Genetic-Pareto reflective prompt evolution over a PredictRLM signature; Pareto-frontier candidate pool with DW-GRPO dynamic multi-objective reward weighting on by default) | `evolve_prompt` is the RLM-specific evolutionary optimizer, distinct from and non-overlapping with `graph_evolution`'s `optimize_component` (the engine's generic `ProgramOptimize` job) |
+| `graph_rlm` (GraphOS external dependency) | `run` (ad-hoc confined RLM task), `benchmark` (RLM vs. vanilla vs. compaction on a supported long-context task), `evolve_prompt` (GEPA — Genetic-Pareto reflective prompt evolution over a PredictRLM signature; Pareto-frontier candidate pool with DW-GRPO dynamic multi-objective reward weighting on by default) | AU provides the typed application operation; GraphOS owns the public MCP/REST wrapper. `evolve_prompt` is distinct from `graph_evolution`'s `optimize_component`. |
 | `graph_feedback` | `correction_type=`: `outcome` (adjust an entity's reward), `rule` (durable governance/voice/source rule consulted at retrieval), `eval` (add a regression case), `reads_avoided` (close the code_context reads-avoided loop), `action_outcome` (close the loop on any autonomous action so routing prefers what works), `gotcha` (pin a hard-won trap to a file/module so code lookups surface it) | |
 | `research_artifact` | persists workflow execution outputs as typed `ExecutionSummary`/`PerformanceAnomaly` nodes — parses `execution_id`/`workflow_name`/timestamps/`status`/`steps_executed`/`raw_logs`, flags anomalies (step duration over threshold), links `HAS_EXECUTION`/`HAS_ANOMALY` | write via `graph_write(action="bulk_ingest")` or raw `add_node`/`add_edge` |
-| `graph_ops_causal` | `root_cause` (rank probable causes for a failure `node_id`, favoring true topological-source causes over closer symptoms), `blast_radius` (downstream impact of a change `node_id`), `change_risk` (predict risk from blast radius + `incident_history_json`), `control_evidence` (gather + verify the evidence chain for a governance control), `join` (materialize `links_json` as real edges between EXISTING ids — creates zero new nodes) | joins entities already ingested by the fleet (langfuse-agent, container-manager-mcp, gitlab-api/repository-manager, servicenow-api/atlassian-agent, leanix-agent) and runs the existing causal-reasoning engine (`StructuralCausalModel` + `CausalVerifier` + `SpuriousnessDetector`) — no new traversal algorithm; supply `links_json` for an offline/test-friendly model, or omit it with an active engine + `node_id` to load the neighborhood live; `root_cause`/`blast_radius` accept `as_claim=true` to propose ONE citable, revisable Claim through the SAME governed `graph_claims propose` ClaimFlywheel path, ActionPolicy-gated (a denial adds `claim_denied` without blocking the read-only answer) |
-| `graph_mine` / `graph_mine_deep` | `graph_mine` actions: `associate` (frequent-itemset + rules, Apriori/FP-Growth/Eclat, over `transactions` baskets or a graph-derived `source`; `writeback:true` ⇒ `:AssociationRule` nodes), `cluster` (DBSCAN default/hierarchical/GMM/k-medoids over a `features` matrix or a vector `source`; `writeback:true` ⇒ `:Cluster` nodes), `anomaly` (z-score default/isolation-forest/LOF/one-class-SVM over `features`/a 1-D `values` series/a vector `source`; `writeback:true` ⇒ `:Anomaly` nodes); `graph_mine_deep` dispatches the deep-learning family the pure-Rust engine deliberately does not implement — `deep_forecast` (LSTM), `deep_classify` (MLP), `autoencoder_anomaly`, `xgboost`, `embed` — to `agents/data-science-mcp` over MCP and folds results back as typed nodes (`:Forecast`/`:Classification`/`:Anomaly`/`:Embedding`) | ad hoc association-rule/clustering/anomaly/deep-learning discovery, distinct from the GOVERNED mining→claim flywheel below; degrades cleanly (`{"available":false, ...}`) when data-science-mcp is unreachable or its `[training]` extra isn't installed; the raw modality-tier router (`engine_mining`, empty-`action` self-discovery) lives in `graph-engine-and-modalities` |
 | `graph_learn` | `fit` (learn a KAN link-predictor model over a graph-derived subgraph — every `node_label`ed node is a vertex, edges among them are positives, non-edges are sampled negatives; `writeback:true` ⇒ `:EdgeFunction` nodes), `predict` (score candidate links or the `top_k` highest-probability missing links with a fitted `model`; `writeback:true` ⇒ `:PredictedEdge` nodes) | interpretable per-feature edge functions (common-neighbors, Jaccard, Adamic-Adar, preferential attachment, PageRank-product, neighbor-cosine, …), not a black-box scorer; the friendlier fixed-action wrapper over the raw `engine_graphlearn` client in `graph-engine-and-modalities` |
 
 ### Provenance-aware causal reasoning (do-calculus)
 
 Two `engine_query` actions — pure functions over the request, no graph read; both
 require the opt-in `epistemic-causal` engine feature (not in the default `full`
-build) — distinct from `graph_ops_causal` above, which reasons over the REAL
-ingested ops entity graph:
+build):
 
 - **`causal_estimate`** — genuine Pearl do-calculus `P(· | do(X₁=x₁, …))` over a
   caller-supplied linear-Gaussian structural causal model (`variables` in topological
@@ -87,8 +80,8 @@ advancing a Loop cycle (`graph_loops`, see `graph-orchestration-and-automation`)
   ORDER BY e.at", params='{"id": "<claim_id>"}')`. Cross-reference a resulting claim
   id with `graph-query-and-explanation`'s epistemic-answer/evidence-citation tools
   for its justification tree and source loci. For ad hoc association-rule/clustering/
-  anomaly mining OUTSIDE this governance (raw discovery, not claim promotion), use
-  `graph_mine`/`graph_mine_deep` directly instead (Action reference above).
+  anomaly discovery OUTSIDE this governance (raw discovery, not claim promotion),
+  use the raw `engine_mining` modality documented in `graph-engine-and-modalities`.
 - **Placement advisor** (X-5) mirrors the same pattern for infrastructure: mines
   agent-trace co-occurrence (tenant/tool/entity/modality access skew) into typed
   `PlacementProposal`s (`shard_split`/`replica`/`cache_prewarm`/`materialized_join`/

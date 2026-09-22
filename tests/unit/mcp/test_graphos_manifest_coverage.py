@@ -131,26 +131,25 @@ def test_manifest_generation_rejects_conflicting_verbose_name():
         )
 
 
-def test_mining_helper_action_identities_are_preserved():
-    """Helper delegation remains source authority, not an action=None collapse."""
+def test_unserved_legacy_tools_are_absent_from_the_generated_manifest():
+    """Retired legacy wrappers do not re-enter AU's GraphOS tool universe."""
+    retired = {"graph_mine", "graph_mine_deep", "graph_ops_causal", "graph_research"}
+    assert not retired & _manifest_tool_families()
+    assert not retired & _live_condensed_tool_families()
+    from agent_utilities.mcp.tools import ops_causal_tools
 
-    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+    assert not hasattr(ops_causal_tools, "register_ops_causal_tools")
 
-    actions_by_tool = {
-        tool: {entry["action"] for entry in GRAPHOS_ACTIONS if entry["tool"] == tool}
-        for tool in ("graph_mine", "graph_mine_deep")
-    }
 
-    assert actions_by_tool == {
-        "graph_mine": {"process"},
-        "graph_mine_deep": {
-            "autoencoder_anomaly",
-            "deep_classify",
-            "deep_forecast",
-            "embed",
-            "xgboost",
-        },
-    }
+def test_external_graphos_dependencies_never_become_au_registrars():
+    """GraphOS serves graph_rlm; AU owns only its typed application behavior."""
+    from agent_utilities.mcp.skill_coverage import EXTERNAL_GRAPHOS_TOOL_NAMES
+    from agent_utilities.mcp.tool_specs import TOOL_SPECS_BY_NAME
+
+    assert EXTERNAL_GRAPHOS_TOOL_NAMES == {"graph_rlm"}
+    assert not EXTERNAL_GRAPHOS_TOOL_NAMES & _manifest_tool_families()
+    assert not EXTERNAL_GRAPHOS_TOOL_NAMES & _live_condensed_tool_families()
+    assert not EXTERNAL_GRAPHOS_TOOL_NAMES & TOOL_SPECS_BY_NAME.keys()
 
 
 def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
@@ -171,18 +170,6 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
             "cross_repo_usages",
             "routes",
             "similar_code",
-        },
-        "graph_research": {
-            "background_research",
-            "contradictions",
-            "deep_extract",
-            "evolve_variants",
-            "night_shift",
-            "relevance_sweep",
-            "research_ingest",
-            "spawn_background",
-            "synthesize",
-            "track_citations",
         },
         "graph_evaluate": {
             "assimilation_benchmark",

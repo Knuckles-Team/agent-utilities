@@ -1,6 +1,22 @@
-"""Stable AU application/API adapters."""
+"""Stable AU application/API adapters and contracts."""
 
-from .catalog import (
+from agent_utilities.api.agent_control_plane import (
+    AgentControlPlane,
+    GraphRlmBenchmarkOptions,
+    GraphRlmBenchmarkRequest,
+    GraphRlmBenchmarkResult,
+    GraphRlmError,
+    GraphRlmEvolutionOptions,
+    GraphRlmEvolutionResult,
+    GraphRlmEvolvePromptRequest,
+    GraphRlmPromptExample,
+    GraphRlmRequest,
+    GraphRlmResult,
+    GraphRlmRunRequest,
+    GraphRlmRunResult,
+    compose_agent_control_plane,
+)
+from agent_utilities.api.catalog import (
     AgentCatalogReadPort,
     AgentCatalogRecord,
     CatalogReadAuthority,
@@ -10,7 +26,7 @@ from .catalog import (
     WorkflowCatalogRecord,
     catalog_read_ports,
 )
-from .provisioning import (
+from agent_utilities.api.provisioning import (
     PackImportAuthorityResolver,
     ProvisioningAuthorityError,
     pack_import_authority,
@@ -19,13 +35,27 @@ from .provisioning import (
 __all__ = [
     "AgentCatalogReadPort",
     "AgentCatalogRecord",
+    "AgentControlPlane",
     "CatalogReadAuthority",
     "CatalogReadError",
     "CatalogStatus",
-    "catalog_read_ports",
+    "GraphRlmBenchmarkOptions",
+    "GraphRlmBenchmarkRequest",
+    "GraphRlmBenchmarkResult",
+    "GraphRlmError",
+    "GraphRlmEvolutionOptions",
+    "GraphRlmEvolutionResult",
+    "GraphRlmEvolvePromptRequest",
+    "GraphRlmPromptExample",
+    "GraphRlmRequest",
+    "GraphRlmResult",
+    "GraphRlmRunRequest",
+    "GraphRlmRunResult",
     "PackImportAuthorityResolver",
     "ProvisioningAuthorityError",
-    "pack_import_authority",
     "WorkflowCatalogReadPort",
     "WorkflowCatalogRecord",
+    "catalog_read_ports",
+    "compose_agent_control_plane",
+    "pack_import_authority",
 ]

@@ -128,19 +128,19 @@ The loop engine (`LoopController.run_one_cycle`, `agent_utilities/knowledge_grap
 research/loop_controller.py`) runs a `mine_discovery` stage after `reason` and
 before `synthesize` each cycle (gated by `config.kg_loop_mine_discovery`, default
 **ON**; override per-call via `graph_loops(action="run", mine_discovery=...)`).
-It calls the engine's `graph_mine`/`graph_learn` surfaces directly (through the
-same `_invoke()` boundary those MCP tools use, so it degrades to an empty/no-op
-result on a no-mining engine build) and feeds:
+It calls the native `engine_mining`/`graph_learn` clients directly through the
+shared `_invoke()` boundary, so it degrades to an empty/no-op result on a
+no-mining engine build, and feeds:
 
 - **Step 5 (SDD Plan Generation) — WIRED.** Association-rule mining
-  (`graph_mine action=associate`) over each `Capability` node's outbound
+  (`engine_mining action=associate`) over each `Capability` node's outbound
   neighborhood (`SATISFIED_BY`/`RELATES_TO` concept edges, `DERIVED_FROM_RESEARCH`
   article edges, `HAS_SYNERGY_WITH` sibling-capability edges) discovers
   concept-co-occurrence rules — "capabilities that share concept A + B usually
   also relate to concept/capability Z" — and writes them back as `:AssociationRule`
   nodes for plan generation to read as candidate implementations.
 - **Step 1 (Topic Detection) — PARTIALLY WIRED.** A coverage-anomaly pass
-  (`graph_mine action=anomaly`, z-score over each Capability's covered-concept
+  (`engine_mining action=anomaly`, z-score over each Capability's covered-concept
   count) flags divergent/under-implemented capabilities as `:Anomaly` nodes — a
   real, queryable topic source today. `graph_learn` fit→predict over `Concept`
   nodes similarly writes `:PredictedEdge` nodes suggesting missing concept↔concept

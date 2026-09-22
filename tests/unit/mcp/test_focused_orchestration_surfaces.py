@@ -20,7 +20,6 @@ from agent_utilities.mcp.tools import (
     register_evolution_tools,
     register_governance_tools,
     register_job_tools,
-    register_rlm_tools,
     register_workflow_tools,
 )
 from scripts.gen_graphos_manifest import harvest_actions
@@ -47,7 +46,6 @@ def _register_all() -> _FakeMCP:
         register_evolution_tools,
         register_governance_tools,
         register_job_tools,
-        register_rlm_tools,
         register_workflow_tools,
     ):
         registrar(mcp)
@@ -97,7 +95,6 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "drain",
             "dead_letter",
         },
-        "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
             "compile_process",
@@ -109,7 +106,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    # 40, computed from `expected_actions` above, not guessed. This total has now
+    # 37, computed from `expected_actions` above, not guessed. This total has now
     # gone stale four times, each time the same way: a lane adds an action to a
     # tool, updates the action SET here, and does not touch this line -- so git
     # merges the set change cleanly and leaves the count behind.
@@ -121,7 +118,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
     # both were added above. The `harvest_actions(...) == actions` assertion below
     # is what actually pins the surface against the real tools; this total is the
     # redundant ratchet that catches a silently added action.
-    assert sum(map(len, expected_actions.values())) == 40
+    assert sum(map(len, expected_actions.values())) == 37
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -138,12 +135,13 @@ def test_focused_tools_publish_collapsed_rest_routes() -> None:
         "graph_evolution": "/graph/evolution",
         "graph_governance": "/graph/governance",
         "graph_jobs": "/graph/jobs",
-        "graph_rlm": "/graph/rlm",
         "graph_workflows": "/graph/workflows",
     }
     assert {
         tool: kg_server.ACTION_TOOL_ROUTES.get(tool) for tool in expected_routes
     } == expected_routes
+    assert "graph_rlm" not in kg_server.REGISTERED_TOOLS
+    assert "/graph/rlm" not in kg_server.ACTION_TOOL_ROUTES.values()
 
 
 @pytest.mark.asyncio

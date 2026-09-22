@@ -69,7 +69,9 @@ class _CollectingMCP:
 @pytest.fixture
 def tools() -> dict[str, object]:
     mcp = _CollectingMCP()
-    engine_surface_tools.register_engine_surface_tools(mcp)
+    engine_surface_tools.register_engine_surface_tools(
+        mcp, include_unserved_mining=True
+    )
     return mcp.tools
 
 

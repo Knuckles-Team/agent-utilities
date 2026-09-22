@@ -29,6 +29,11 @@ from agent_utilities.mcp.tool_specs import (
     canonical_tool_names,
 )
 
+# Public GraphOS operation whose application behavior belongs to AU while
+# GraphOS owns the served MCP/REST wrapper. This is coverage metadata only; it
+# must never become an AU ToolSpec or registrar.
+EXTERNAL_GRAPHOS_TOOL_NAMES: frozenset[str] = frozenset({"graph_rlm"})
+
 # Verbs deliberately NOT claimed by any domain skill's agents/graph-os.yaml
 # sidecar. Keep this list tiny and justified — every entry weakens the gate. A
 # new registered tool must either get sidecar coverage or be added here with a
@@ -73,6 +78,7 @@ GRAPH_OS_SCHEMA_VERSION = 2
 VALID_TIERS: frozenset[str] = frozenset({"domain", "platform"})
 _SIDECAR_KEYS: frozenset[str] = frozenset({"schema_version", "tier", "claims"})
 _CLAIMS_KEYS: frozenset[str] = frozenset({"core", "features"})
+_OPTIONAL_CLAIMS_KEYS: frozenset[str] = frozenset({"external"})
 
 
 @dataclass(frozen=True)
@@ -83,6 +89,7 @@ class SkillMeta:
     tier: str
     core_claims: tuple[str, ...]
     feature_claims: tuple[tuple[str, tuple[str, ...]], ...]
+    external_claims: tuple[str, ...]
     path: Path
     errors: tuple[str, ...] = ()
 
@@ -90,7 +97,7 @@ class SkillMeta:
     def wraps(self) -> tuple[str, ...]:
         """All claims, retained as one deterministic validation projection."""
         optional = (tool for _feature, tools in self.feature_claims for tool in tools)
-        return tuple(sorted((*self.core_claims, *optional)))
+        return tuple(sorted((*self.core_claims, *optional, *self.external_claims)))
 
     def claims_for(self, features: frozenset[str]) -> tuple[str, ...]:
         """Claims enabled by an explicit feature profile."""
@@ -98,6 +105,7 @@ class SkillMeta:
         for feature, tools in self.feature_claims:
             if feature in features:
                 enabled.extend(tools)
+        enabled.extend(self.external_claims)
         return tuple(sorted(enabled))
 
 
@@ -121,8 +129,10 @@ class CoverageReport:
 def verb_universe(
     *, features: frozenset[str] = frozenset(), include_intent: bool = True
 ) -> set[str]:
-    """Return the canonical Graph-OS surface for an explicit feature profile."""
-    return set(canonical_tool_names(features=features, include_intent=include_intent))
+    """Return AU-local tools plus declared GraphOS-owned external dependencies."""
+    return set(
+        canonical_tool_names(features=features, include_intent=include_intent)
+    ) | set(EXTERNAL_GRAPHOS_TOOL_NAMES)
 
 
 def _parse_frontmatter(text: str) -> dict[str, Any]:
@@ -229,6 +239,34 @@ def _validate_feature_tool_shape(feature: str, tools: tuple[str, ...]) -> list[s
     return errors
 
 
+def _parse_external_claims(
+    claims_raw: dict[str, Any],
+) -> tuple[tuple[str, ...], list[str]]:
+    """Validate GraphOS-owned dependencies without registering them in AU."""
+    external_raw = claims_raw.get("external", [])
+    if not isinstance(external_raw, list) or not all(
+        isinstance(item, str) and item for item in external_raw
+    ):
+        return (), ["claims.external must be a list of non-empty strings"]
+
+    names = tuple(external_raw)
+    errors: list[str] = []
+    if len(names) != len(set(names)):
+        errors.append("claims.external must not contain duplicates")
+    if list(names) != sorted(names):
+        errors.append("claims.external must be sorted")
+    for name in names:
+        if name not in EXTERNAL_GRAPHOS_TOOL_NAMES:
+            errors.append(
+                f"claims.external contains undeclared GraphOS dependency {name!r}"
+            )
+        if name in TOOL_SPECS_BY_NAME:
+            errors.append(
+                f"claims.external dependency {name!r} is also an AU-local tool"
+            )
+    return names, errors
+
+
 def _parse_one_feature_claim(
     feature: str, tools_raw: object
 ) -> tuple[tuple[str, ...] | None, list[str]]:
@@ -269,23 +307,30 @@ def _parse_feature_claims(
 
 def _parse_claims(
     raw: dict[str, Any],
-) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...], list[str]]:
+) -> tuple[
+    tuple[str, ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+    tuple[str, ...],
+    list[str],
+]:
     """``claims.core`` + ``claims.features``, or empty with an error if malformed."""
     claims_raw = raw.get("claims")
     if not isinstance(claims_raw, dict):
-        return (), (), ["claims must be a mapping"]
+        return (), (), (), ["claims must be a mapping"]
 
     errors = list(_validate_claims_keys(claims_raw))
     core_claims, core_errors = _parse_core_claims(claims_raw)
     feature_claims, feature_errors = _parse_feature_claims(claims_raw)
+    external_claims, external_errors = _parse_external_claims(claims_raw)
     errors.extend(core_errors)
     errors.extend(feature_errors)
-    return core_claims, feature_claims, errors
+    errors.extend(external_errors)
+    return core_claims, feature_claims, external_claims, errors
 
 
 def _validate_claims_keys(claims_raw: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    claim_extra = sorted(set(claims_raw) - _CLAIMS_KEYS)
+    claim_extra = sorted(set(claims_raw) - _CLAIMS_KEYS - _OPTIONAL_CLAIMS_KEYS)
     claim_missing = sorted(_CLAIMS_KEYS - set(claims_raw))
     if claim_extra:
         errors.append(f"claims has unsupported keys: {claim_extra}")
@@ -331,13 +376,15 @@ def parse_graph_os_sidecar(path: Path, *, skill_name: str) -> SkillMeta:
         Sorted, unique required ToolSpec names.
     ``claims.features.<feature>: [verb, ...]``
         Sorted, unique optional ToolSpec names enabled by that feature.
+    ``claims.external: [verb, ...]``
+        Optional sorted names from the closed GraphOS-owned dependency set.
     """
     raw, load_error = _load_sidecar_yaml(path)
     if raw is None:
-        return SkillMeta(skill_name, "", (), (), path, (load_error or "",))
+        return SkillMeta(skill_name, "", (), (), (), path, (load_error or "",))
 
     tier, tier_errors = _resolve_tier(raw)
-    core_claims, feature_claims, claims_errors = _parse_claims(raw)
+    core_claims, feature_claims, external_claims, claims_errors = _parse_claims(raw)
     errors = [
         *_validate_sidecar_top_level_keys(raw),
         *_validate_schema_version(raw),
@@ -351,6 +398,7 @@ def parse_graph_os_sidecar(path: Path, *, skill_name: str) -> SkillMeta:
         tier,
         core_claims,
         feature_claims,
+        external_claims,
         path,
         tuple(errors),
     )
@@ -391,6 +439,7 @@ def discover_skills(roots: list[Path] | None = None) -> list[SkillMeta]:
                     meta.tier,
                     meta.core_claims,
                     meta.feature_claims,
+                    meta.external_claims,
                     meta.path,
                     (*meta.errors, "SKILL.md is missing"),
                 )

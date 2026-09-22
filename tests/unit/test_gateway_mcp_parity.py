@@ -121,28 +121,23 @@ def test_prefix_is_applied_to_mounted_routes():
         assert ("/api" + path) in paths
 
 
-def test_mining_graphlearn_deepmining_full_fanout_mounted():
-    """BUG-PE-005: ``graph_mine``/``graph_learn``/``graph_mine_deep`` are deliberately
-    absent from the static ``ACTION_TOOL_ROUTES`` seed (same pattern as
-    ``graph_pipeline``) — their per-action REST twins come from the fan-out loops
-    in ``_mount_rest_routes``, each guarded by ``if "graph_mine" in
-    ACTION_TOOL_ROUTES:`` etc. Those three keys are populated at runtime by
-    ``register_engine_surface_tools`` (invoked via ``ensure_tools_registered``)
-    BEFORE ``_mount_rest_routes`` runs, in the one production call sequence
-    (``gateway.graph_api.register_graph_routes``). This pins the FULL fan-out
-    (not just the one representative path each tool has in ACTION_TOOL_ROUTES,
-    already covered by ``test_mapped_routes_are_actually_mounted``) so a future
-    reorder of that sequence, or a rename that breaks the ``in
-    ACTION_TOOL_ROUTES`` guard, is caught here instead of surfacing as a silent
-    404 in production.
-    """
+def test_retired_legacy_tool_fanout_is_not_mounted():
+    """Old standalone mining/research routes are absent from AU's served API."""
     paths = _mounted_paths()
-    for action in kg_server.MINING_ACTIONS:
-        assert f"/mining/{action}" in paths
+    retired = {"graph_mine", "graph_mine_deep", "graph_ops_causal", "graph_research"}
+    assert retired.isdisjoint(kg_server.REGISTERED_TOOLS)
+    assert retired.isdisjoint(kg_server.ACTION_TOOL_ROUTES)
+    assert "/graph/research" not in paths
+    assert "/ops/causal" not in paths
+    assert not any(path.startswith("/mining/") for path in paths)
+    assert not any(
+        path.startswith("/graph/analyze/")
+        and path.rsplit("/", 1)[-1]
+        in {"synthesize", "deep-extract", "background-research", "relevance-sweep"}
+        for path in paths
+    )
     for action in kg_server.GRAPHLEARN_ACTIONS:
         assert f"/graphlearn/{action}" in paths
-    for action in kg_server.DEEP_MINING_ACTIONS:
-        assert f"/mining/deep/{action}" in paths
 
 
 # ── Third leg: MCP verb ⇄ domain-skill coverage (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage) ──
@@ -178,3 +173,21 @@ def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
         "Invalid agents/graph-os.yaml sidecars: "
         f"{report.invalid_sidecars}. Follow the closed version-2 schema."
     )
+
+
+def test_graphos_external_rlm_dependency_is_explicitly_skill_covered():
+    from agent_utilities.mcp.skill_coverage import (
+        EXTERNAL_GRAPHOS_TOOL_NAMES,
+        compute_coverage,
+        discover_skills,
+    )
+
+    assert EXTERNAL_GRAPHOS_TOOL_NAMES == {"graph_rlm"}
+    research_skill = next(
+        skill for skill in discover_skills() if skill.name == "graph-research-and-analysis"
+    )
+    assert research_skill.external_claims == ("graph_rlm",)
+    assert "graph_rlm" in research_skill.claims_for(frozenset())
+    assert compute_coverage().covered["graph_rlm"] == [
+        "graph-research-and-analysis"
+    ]

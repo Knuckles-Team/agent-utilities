@@ -68,13 +68,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_finance": ("ask", "act"),
         "engine_mining": ("ask",),
         "engine_graph": ("ask", "write"),
-        # 17 of graph_mine's 18 actions can write (writeback => a persisted
-        # :Community/:RootCause/:... node, or process's ChangeEnvelope commit) --
-        # only `classify_fit` never persists (see READ_ONLY_ACTIONS below). Mirrors
-        # graph_code's split just above: `ask` stays read-only, `act` reaches the
-        # reviewed preview/plan-ref mutation path (CONCEPT:EG-KG.mining.frequent-itemset-mining).
-        "graph_mine": ("ask", "act"),
-        "graph_mine_deep": ("act", "ask"),
         "graph_learn": ("act", "ask"),
         "graph_pipeline": ("act", "ask"),
         "engine_graphlearn": ("act", "ask"),
@@ -90,7 +83,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         # 'capability_matrix'. Same act(produces an artifact)/ask(inspect)
         # split as engine_viz just above.
         "graph_viz": ("act", "ask"),
-        "graph_ops_causal": ("why", "ask"),
         "graph_traces": ("ask", "why"),
         "graph_audit": ("why", "ask"),
         "graph_compliance": ("ask", "why"),
@@ -150,7 +142,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_agents": ("act",),
         "graph_workflows": ("act", "ask", "manage"),
         "graph_evolution": ("act",),
-        "graph_rlm": ("act",),
         "graph_governance": ("act", "manage"),
         "graph_domain_ops": ("act",),
         "graph_loops": ("act",),
@@ -162,7 +153,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_broker": ("act",),
         "graph_message": ("act",),
         "graph_feeds": ("act", "ask"),
-        "graph_research": ("ask", "act"),
         # Track 4/5 of the universal-ingestion program. ``propose`` runs a
         # schema-constrained extraction pass and ``resolve_identities`` compares
         # records — both produce CANDIDATES with no path to becoming a fact
@@ -237,12 +227,6 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         "graph_data_prep": frozenset(
             {"profile_dataset", "clean_dataset", "validate_prepared"}
         ),
-        # graph_mine's CPD (capabilities-power.json) declares "mutates": "~true" for
-        # every action except `classify_fit` (declared "false" -- it only fits a
-        # model in memory and returns it; it never has a `writeback` option, unlike
-        # every other action, which the docstring documents as writeback => a
-        # persisted node). The other 17 stay reachable only via `act` (B-15).
-        "graph_mine": frozenset({"classify_fit"}),
         # Only ``set`` mutates; the other four are pure reads over the pydantic
         # model and the effective configuration (CONCEPT:AU-OS.config.two-surfaces-by-default).
         # ``reload`` re-reads from disk without writing, so it is a read of the

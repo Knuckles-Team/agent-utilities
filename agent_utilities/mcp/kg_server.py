@@ -1296,7 +1296,6 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_ingest": "/graph/ingest",
     "graph_analyze": "/graph/analyze",
     "graph_code": "/graph/code",
-    "graph_research": "/graph/research",
     "graph_evaluate": "/graph/evaluate",
     "graph_explain": "/graph/explain",
     "graph_observe": "/graph/observe",
@@ -5609,10 +5608,8 @@ def _build_server(
         register_mcp_apps_tools,
         register_media_sidecar_tools,
         register_ontology_tools,
-        register_ops_causal_tools,
         register_query_tools,
         register_reach_tools,
-        register_rlm_tools,
         register_secret_tools,
         register_state_tools,
         register_workflow_tools,
@@ -5644,11 +5641,12 @@ def _build_server(
             register_config_tools,
             register_data_prep_tools,
             register_engine_tools,
-            register_engine_surface_tools,
+            lambda server: register_engine_surface_tools(
+                server, include_unserved_mining=False
+            ),
             register_domain_ops_tools,
             register_evolution_tools,
             register_governance_tools,
-            register_ops_causal_tools,
             register_graph_engineering_tools,
             register_audit_tools,
             register_epistemic_tools,
@@ -5656,7 +5654,6 @@ def _build_server(
             register_job_tools,
             register_media_sidecar_tools,
             register_compliance_tools,
-            register_rlm_tools,
             register_workflow_tools,
             register_argument_tools,
             register_durable_tools,
@@ -5919,7 +5916,6 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/ingest", graph_ingest_endpoint, ["POST"])
     route("/graph/analyze", graph_analyze_endpoint, ["POST"])
     route("/graph/code", graph_code_endpoint, ["POST"])
-    route("/graph/research", graph_research_endpoint, ["POST"])
     route("/graph/evaluate", graph_evaluate_endpoint, ["POST"])
     route("/graph/explain", graph_explain_endpoint, ["POST"])
     route("/graph/observe", graph_observe_endpoint, ["POST"])
@@ -6014,21 +6010,9 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     )
 
     # ── Granular analyze ──
-    route("/graph/analyze/synthesize", graph_analyze_synthesize_endpoint, ["POST"])
     route(
         "/graph/analyze/process-writeback",
         graph_analyze_process_writeback_endpoint,
-        ["POST"],
-    )
-    route("/graph/analyze/deep-extract", graph_analyze_deep_extract_endpoint, ["POST"])
-    route(
-        "/graph/analyze/background-research",
-        graph_analyze_background_research_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/analyze/relevance-sweep",
-        graph_analyze_relevance_sweep_endpoint,
         ["POST"],
     )
     route("/graph/analyze/blast-radius", graph_analyze_blast_radius_endpoint, ["GET"])

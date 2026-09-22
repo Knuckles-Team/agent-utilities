@@ -32,7 +32,6 @@
         "OPS_CAUSALTOOL": "false",
         "QUERYTOOL": "false",
         "REACHTOOL": "true",
-        "RLMTOOL": "false",
         "SECRETTOOL": "false",
         "STATETOOL": "false",
         "WORKFLOWTOOL": "false",

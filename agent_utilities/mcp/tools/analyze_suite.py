@@ -24,6 +24,10 @@ from typing import Any, Literal
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.tools._surface_selection import (
+    conditional_tool_decorator,
+    register_conditional_tools,
+)
 from agent_utilities.mcp.tools.analysis_tools import execute_focused_analysis
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_text
@@ -79,7 +83,9 @@ GraphEvaluateAction = Literal[
 GraphExplainAction = Literal["explain", "context", "executable_rag", "recommend"]
 
 
-def register_analyze_suite_tools(mcp: Any) -> None:
+def register_analyze_suite_tools(
+    mcp: Any, *, include_unserved_research: bool = False
+) -> None:
     """Register the focused analyze-suite tools on the FastMCP server."""
 
     async def _delegate(
@@ -136,8 +142,11 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         """Code intelligence over the ingested, resolved code graph."""
         return await _delegate(action, query, top_k, node_id, depth, target)
 
-    @mcp.tool(
+    @conditional_tool_decorator(
+        mcp,
         name="graph_research",
+        excluded_names=frozenset({"graph_research"}),
+        include_excluded=include_unserved_research,
         description=(
             "Run the research/assimilation pipeline. Actions: 'synthesize' (synthesize "
             "knowledge from a source), 'deep_extract' (deep entity/relation extraction), "
@@ -313,11 +322,15 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         except Exception as e:
             return public_error_text(e)
 
-    for _name, _fn in [
-        ("graph_code", graph_code),
-        ("graph_research", graph_research),
-        ("graph_evaluate", graph_evaluate),
-        ("graph_explain", graph_explain),
-        ("graph_observe", graph_observe),
-    ]:
-        kg_server.REGISTERED_TOOLS[_name] = _fn
+    register_conditional_tools(
+        kg_server.REGISTERED_TOOLS,
+        [
+            ("graph_code", graph_code, None),
+            ("graph_research", graph_research, None),
+            ("graph_evaluate", graph_evaluate, None),
+            ("graph_explain", graph_explain, None),
+            ("graph_observe", graph_observe, None),
+        ],
+        excluded_names=frozenset({"graph_research"}),
+        include_excluded=include_unserved_research,
+    )

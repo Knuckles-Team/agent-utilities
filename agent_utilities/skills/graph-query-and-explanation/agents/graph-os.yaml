@@ -5,7 +5,6 @@ claims:
     - ask
     - ask_data
     - find
-    - graph_analyze
     - graph_ask
     - graph_catalog
     - graph_code
@@ -25,5 +24,6 @@ claims:
     - graph_search_synthesis
     - graph_table
     - nl_query
+    - tabular_query
     - why
   features: {}

@@ -148,32 +148,17 @@ Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,
 `graph_analyze` is the strict structural/operations surface: `inspect`,
 `enrichment_coverage`, `process_writeback`, `placement_plan`, `infra_sweep`, and
 `security_scan`. Analysis in other domains uses the focused tools:
-`graph_code` for code intelligence and blast radius, `graph_research` for
-synthesis and extraction, `graph_evaluate` for evaluation/causal/forecast work,
-`graph_explain` for grounded context, and `graph_observe` for trace analytics.
+`graph_code` for code intelligence and blast radius, `graph_evaluate` for
+evaluation/causal/forecast work, `graph_explain` for grounded context, and
+`graph_observe` for trace analytics. The GraphOS-served `graph_rlm` wrapper
+provides long-context execution through AU's typed application operation.
 OWL/RDFS forward-chaining reasoning remains native to the Rust engine
 (`reason()` over the `epistemic-graph` client).
 
-**Enterprise operations causal graph** (Codex X-2) is a separate, more specific
-tool: `graph_ops_causal` (`join`/`root_cause`/`blast_radius`/`change_risk`/
-`control_evidence` actions, `mcp/tools/ops_causal_tools.py`) joins the connector
-fleet's own entities (Langfuse trace/generation → agent/tool/model → service →
-deployment → commit/merge-request → incident/change → LeanIX capability →
-policy/control/evidence) into one causal chain and reasons over it with the
-existing causal-reasoning engine — distinct from `graph_evaluate`'s general
-causal analysis and `graph_code`'s code blast-radius analysis. See the
-`graph-research-and-analysis` skill.
-
-**Enterprise operations causal graph** (Codex X-2) is a separate, more specific
-tool: `graph_ops_causal` (`join`/`root_cause`/`blast_radius`/`change_risk`/
-`control_evidence` actions, `mcp/tools/ops_causal_tools.py`) joins the connector
-fleet's own entities (Langfuse trace/generation → agent/tool/model → service →
-deployment → commit/merge-request → incident/change → LeanIX capability →
-policy/control/evidence) into one causal chain and reasons over it with the
-existing causal-reasoning engine — distinct from `graph_analyze`'s
-general-purpose `causal`/`blast_radius` actions above, which operate on
-arbitrary graph structure rather than this specific ops entity chain. See the
-`graph-research-and-analysis` skill.
+The legacy `graph_research`, `graph_ops_causal`, `graph_mine`, and
+`graph_mine_deep` wrappers are not part of AU's served tool universe. Native
+engine mining remains available through the engine's `engine_mining` modality;
+causal/evaluation work should use the supported analysis and evaluation surfaces.
 
 ## Coding & task management (harness)
 

@@ -58,7 +58,7 @@ cases:
     mode: direct
     model_class: economy
     task: Use $graph-research-and-analysis at skill://graph-research-and-analysis to describe anomalies in a bounded single-tenant synthetic evidence set, excluding direct identifiers and unrelated records, without making causal claims or persisting a report.
-    expected_routes: [graph_mine]
+    expected_routes: [graph_analyze]
     allowed_tools: []
     read_only: true
   - id: research-delegated
@@ -66,8 +66,8 @@ cases:
     mode: delegated
     model_class: standard
     task: Use $graph-research-and-analysis at skill://graph-research-and-analysis to plan independent tenant-scoped synthetic analyses, minimize fields, challenge assumptions, and synthesize redacted grounded findings without persisting an artifact.
-    expected_routes: [graph_orchestrate, graph_research, graph_ops_causal]
-    allowed_tools: [graph_mine, graph_ops_causal, graph_research]
+    expected_routes: [graph_orchestrate, graph_rlm]
+    allowed_tools: [graph_rlm]
     read_only: true
   - id: orchestration-direct
     skill: graph-orchestration-and-automation
@@ -230,8 +230,8 @@ cases:
     mode: delegated
     model_class: standard
     task: Use $agent-utilities-evolution at skill://agent-utilities-evolution to produce a review-only coordination plan for synthetic evidence assimilation, adversarial review, implementation planning, and regression validation.
-    expected_routes: [graph_orchestrate, graph_research, focused_tests]
-    allowed_tools: [graph_query, graph_research]
+    expected_routes: [graph_orchestrate, graph_query, focused_tests]
+    allowed_tools: [graph_query]
     read_only: true
   - id: self-evolution-direct
     skill: agent-utilities-self-evolution
@@ -246,8 +246,8 @@ cases:
     mode: delegated
     model_class: standard
     task: Use $agent-utilities-self-evolution at skill://agent-utilities-self-evolution to produce a review-only coordination plan that separates synthetic research ingestion, comparative analysis, mining-flywheel discovery, and SDD plan generation into independent steps.
-    expected_routes: [graph_orchestrate, graph_research, graph_mine]
-    allowed_tools: [graph_mine, graph_research]
+    expected_routes: [graph_orchestrate, engine_mining]
+    allowed_tools: [engine_mining]
     read_only: true
   - id: source-integration-direct
     skill: agent-utilities-source-integration

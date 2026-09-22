@@ -8,11 +8,9 @@ from agent_utilities.mcp.kg_server import (
     _make_tool_endpoint,
     # Tools/Toggle
     get_tools_endpoint,
-    graph_analyze_background_research_endpoint,
     graph_analyze_blast_radius_endpoint,
     graph_analyze_causal_endpoint,
     graph_analyze_context_endpoint,
-    graph_analyze_deep_extract_endpoint,
     graph_analyze_endpoint,
     graph_analyze_evaluate_alpha_endpoint,
     graph_analyze_evaluate_endpoint,
@@ -20,10 +18,8 @@ from agent_utilities.mcp.kg_server import (
     graph_analyze_forecast_endpoint,
     graph_analyze_inspect_endpoint,
     graph_analyze_invariant_endpoint,
-    graph_analyze_relevance_sweep_endpoint,
     graph_analyze_security_scan_endpoint,
     # Analyze
-    graph_analyze_synthesize_endpoint,
     graph_configure_doctor_endpoint,
     graph_configure_endpoint,
     graph_configure_install_hooks_endpoint,
@@ -72,7 +68,6 @@ graph_domain_ops_endpoint = _make_tool_endpoint("graph_domain_ops")
 graph_evolution_endpoint = _make_tool_endpoint("graph_evolution")
 graph_governance_endpoint = _make_tool_endpoint("graph_governance")
 graph_jobs_endpoint = _make_tool_endpoint("graph_jobs")
-graph_rlm_endpoint = _make_tool_endpoint("graph_rlm")
 graph_workflows_endpoint = _make_tool_endpoint("graph_workflows")
 
 
@@ -170,25 +165,8 @@ def test_app():
         methods=["POST"],
     )
 
-    # Granular Graph Analyze endpoints
-    app.add_route(
-        "/graph/analyze/synthesize", graph_analyze_synthesize_endpoint, methods=["POST"]
-    )
-    app.add_route(
-        "/graph/analyze/deep-extract",
-        graph_analyze_deep_extract_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/analyze/background-research",
-        graph_analyze_background_research_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/analyze/relevance-sweep",
-        graph_analyze_relevance_sweep_endpoint,
-        methods=["POST"],
-    )
+    # The retired research wrappers are deliberately not mounted. GraphOS
+    # serves only the current AU application operations.
     app.add_route(
         "/graph/analyze/blast-radius",
         graph_analyze_blast_radius_endpoint,
@@ -234,7 +212,6 @@ def test_app():
     app.add_route("/graph/evolution", graph_evolution_endpoint, methods=["POST"])
     app.add_route("/graph/governance", graph_governance_endpoint, methods=["POST"])
     app.add_route("/graph/jobs", graph_jobs_endpoint, methods=["POST"])
-    app.add_route("/graph/rlm", graph_rlm_endpoint, methods=["POST"])
     app.add_route("/graph/workflows", graph_workflows_endpoint, methods=["POST"])
 
     # Granular Graph Configure endpoints
@@ -560,26 +537,27 @@ async def test_granular_ingest_endpoints(mock_execute_tool, client):
 async def test_granular_analyze_endpoints(mock_execute_tool, client):
     mock_execute_tool.return_value = {"analysis": "complete"}
 
-    # 1. POST /graph/analyze/synthesize
-    # graph_analyze's suite split (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
-    # unrelated; see D-OTR-4) moved dispatch onto the focused graph_code /
-    # graph_research / graph_evaluate / graph_explain tools — the granular
-    # HTTP route/endpoint function names stayed "graph_analyze_*" for URL
-    # backward compat, but the underlying MCP tool call moved with it.
-    res = client.post("/graph/analyze/synthesize", json={"query": "security anomalies"})
-    assert res.status_code == 200
-    assert res.json() == {"status": "success", "result": {"analysis": "complete"}}
-    mock_execute_tool.assert_called_with(
-        "graph_research", action="synthesize", query="security anomalies", top_k=10
-    )
-
-    # 2. GET /graph/analyze/blast-radius
+    # Code impact analysis remains served by graph_code.
     res = client.get("/graph/analyze/blast-radius?id=agent-1&depth=3")
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"analysis": "complete"}}
     mock_execute_tool.assert_called_with(
         "graph_code", action="blast_radius", node_id="agent-1", depth=3
     )
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/graph/analyze/synthesize",
+        "/graph/analyze/deep-extract",
+        "/graph/analyze/background-research",
+        "/graph/analyze/relevance-sweep",
+    ),
+)
+def test_retired_research_routes_are_not_mounted(client, path):
+    response = client.post(path, json={"query": "security anomalies"})
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

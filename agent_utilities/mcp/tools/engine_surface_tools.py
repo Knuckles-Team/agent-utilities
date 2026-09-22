@@ -63,6 +63,10 @@ from agent_utilities.mcp.engine_surface_types import (
     ChartRenderRequest,
     KvCheckpointIntelligenceRequest,
 )
+from agent_utilities.mcp.tools._surface_selection import (
+    conditional_tool_decorator,
+    register_conditional_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -3017,7 +3021,9 @@ def _fork_branches(branches_json: str, code: str, n: int) -> tuple[Any, str | No
     )
 
 
-def register_engine_surface_tools(mcp) -> None:
+def register_engine_surface_tools(
+    mcp, *, include_unserved_mining: bool = False
+) -> None:
     """Register the KG-2.310 engine-surface tools + their REST twins.
 
     Each tool is added to ``REGISTERED_TOOLS`` and mapped to a ``/graph/<name>``
@@ -3756,8 +3762,11 @@ def register_engine_surface_tools(mcp) -> None:
     # ══════════════════════════════════════════════════════════════════
     # graph_mine — data-mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)
     # ══════════════════════════════════════════════════════════════════
-    @mcp.tool(
+    @conditional_tool_decorator(
+        mcp,
         name="graph_mine",
+        excluded_names=frozenset({"graph_mine", "graph_mine_deep"}),
+        include_excluded=include_unserved_mining,
         description=(
             "CONCEPT:EG-KG.mining.frequent-itemset-mining — the unified data-mining surface "
             "over the engine, compute-near-data (mining runs where the graph lives). "
@@ -4019,17 +4028,15 @@ def register_engine_surface_tools(mcp) -> None:
             params=params,
         )
 
-    kg_server.REGISTERED_TOOLS["graph_mine"] = graph_mine
-    # REST twin path: POST {prefix}/mining/associate (mounted bespoke in kg_server so
-    # a natural mining body works while dispatching the SAME _execute_tool core).
-    kg_server.ACTION_TOOL_ROUTES["graph_mine"] = "/mining/associate"
-
     # ══════════════════════════════════════════════════════════════════
     # graph_mine_deep — Phase-6 heavy-dep delegation to data-science-mcp
     # (CONCEPT:AU-KG.mining.dsm-forecast-delegation)
     # ══════════════════════════════════════════════════════════════════
-    @mcp.tool(
+    @conditional_tool_decorator(
+        mcp,
         name="graph_mine_deep",
+        excluded_names=frozenset({"graph_mine", "graph_mine_deep"}),
+        include_excluded=include_unserved_mining,
         description=(
             "CONCEPT:AU-KG.mining.dsm-forecast-delegation — the deep-learning / heavy-Python family the "
             "engine core deliberately does NOT implement (no torch/GPU in the "
@@ -4132,10 +4139,20 @@ def register_engine_surface_tools(mcp) -> None:
             default=_json_default,
         )
 
-    kg_server.REGISTERED_TOOLS["graph_mine_deep"] = graph_mine_deep
-    # REST twin path: POST {prefix}/mining/deep/deep_forecast (mounted bespoke in
-    # kg_server so a natural body works while dispatching the SAME _execute_tool core).
-    kg_server.ACTION_TOOL_ROUTES["graph_mine_deep"] = "/mining/deep/deep_forecast"
+    register_conditional_tools(
+        kg_server.REGISTERED_TOOLS,
+        [
+            ("graph_mine", graph_mine, "/mining/associate"),
+            (
+                "graph_mine_deep",
+                graph_mine_deep,
+                "/mining/deep/deep_forecast",
+            ),
+        ],
+        excluded_names=frozenset({"graph_mine", "graph_mine_deep"}),
+        include_excluded=include_unserved_mining,
+        route_registry=kg_server.ACTION_TOOL_ROUTES,
+    )
 
     # ══════════════════════════════════════════════════════════════════
     # graph_learn — graph-learning / neuro-symbolic surface (CONCEPT:EG-KG.graphlearn.link-predictor)

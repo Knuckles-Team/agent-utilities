@@ -63,7 +63,9 @@ class _CollectingMCP:
 def tools() -> dict[str, object]:
     """Register the KG-2.310 tools onto a collecting MCP and return them by name."""
     mcp = _CollectingMCP()
-    engine_surface_tools.register_engine_surface_tools(mcp)
+    engine_surface_tools.register_engine_surface_tools(
+        mcp, include_unserved_mining=True
+    )
     return mcp.tools
 
 
@@ -899,7 +901,9 @@ def test_graph_mine_description_enumerates_all_18_actions():
     """The tool description documents the full 18-action mining surface — not
     just the 10 it originally shipped with."""
     mcp = _CollectingMCP()
-    engine_surface_tools.register_engine_surface_tools(mcp)
+    engine_surface_tools.register_engine_surface_tools(
+        mcp, include_unserved_mining=True
+    )
     description = mcp.descriptions["graph_mine"]
     missing = [name for name in _MINING_ACTIONS if f"'{name}'" not in description]
     assert not missing, f"graph_mine description is missing actions: {missing}"
