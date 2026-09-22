@@ -82,7 +82,7 @@ repos:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: e841cfe67d3e13ddf52aee32a4580f9c7cf9ec80 # public docs contract
+  rev: 73915f29ae672003a0bed287f85e19390d55f4d0 # public docs contract
   hooks:
   - id: public-surface
     stages: [pre-commit, pre-push, manual]
