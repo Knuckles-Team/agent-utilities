@@ -95,3 +95,149 @@ def test_present_but_invalid_private_helper_remains_fail_closed(tmp_path):
         list(gate._placeholder_ids(analyzer, "TODO: invalid helper"))
 
     assert exc_info.value.code == 2
+
+
+# ── EH-330: placeholder detection needs CODE-position context ───────────────
+# `_PLACEHOLDER_RE` matches raw text; these tests prove `_placeholder_ids` no
+# longer counts a hit sitting in docstring prose or in a non-marker comment,
+# while still catching a real stub (`raise NotImplementedError`, a bare
+# `pass`/`...` body, or a leading `TODO`/`FIXME`/`XXX`/`HACK` tag) — using the
+# REAL vendored `_PLACEHOLDER_RE` (copied verbatim) and a real
+# `_decorator_names`, not the minimal ``"TODO"``-only fixture above, so the
+# masking logic is exercised against the actual trigger phrases.
+
+
+def _write_real_placeholder_analyzer(tmp_path: Path) -> Path:
+    source = '''
+import re
+
+def _facade_branches(node):
+    return {}
+
+def _facade_except_handlers(node):
+    return {}
+
+def _does_real_work(node):
+    return False
+
+def _returns_canned_payload(node):
+    return False
+
+def _decorator_names(node):
+    out = set()
+    for d in getattr(node, "decorator_list", []) or []:
+        t = d.func if isinstance(d, __import__("ast").Call) else d
+        if isinstance(t, __import__("ast").Name):
+            out.add(t.id)
+        elif isinstance(t, __import__("ast").Attribute):
+            out.add(t.attr)
+    return out
+
+def _is_test(path):
+    return False
+
+_SURFACE_PARTS = frozenset()
+_SURFACE_DECORATORS = frozenset()
+_INFO_NAMES_RE = re.compile(r"^$")
+_PLACEHOLDER_RE = re.compile(
+    r"\\b(TODO|FIXME|XXX|HACK|stub(?:bed|s)?|placeholder|mock(?:ed)?|dummy|"
+    r"for now|not[ _-]?implemented|coming soon|hard[ -]?coded|sample data|"
+    r"example only|fake|lorem ipsum|in (?:a|the) real|real implementation|"
+    r"would (?:be|go) here|replace this|simulate[d]?)\\b",
+    re.IGNORECASE,
+)
+'''
+    path = tmp_path / "analyze_liveness.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def real_placeholder_analyzer(tmp_path):
+    gate = _load_gate()
+    analyzer = gate._import_analyzer(_write_real_placeholder_analyzer(tmp_path))
+    return gate, analyzer
+
+
+def test_docstring_prose_is_not_a_placeholder_finding(real_placeholder_analyzer):
+    gate, an = real_placeholder_analyzer
+    src = (
+        "def handler():\n"
+        '    """This capability is designed, not implemented yet."""\n'
+        "    return 1\n"
+    )
+    assert list(gate._placeholder_ids(an, src)) == []
+
+
+def test_prose_comment_mid_sentence_is_not_a_placeholder_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = (
+        "def handler():\n"
+        "    # this path is designed, not implemented, see EH-270\n"
+        "    return 1\n"
+    )
+    assert list(gate._placeholder_ids(an, src)) == []
+
+
+def test_raise_not_implemented_error_is_a_placeholder_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = "def handler():\n    raise NotImplementedError\n"
+    assert len(list(gate._placeholder_ids(an, src))) == 1
+
+
+def test_leading_todo_marker_comment_is_a_placeholder_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = "def handler():\n    # TODO: implement\n    return 1\n"
+    assert len(list(gate._placeholder_ids(an, src))) == 1
+
+
+def test_bare_pass_body_is_a_placeholder_finding(real_placeholder_analyzer):
+    gate, an = real_placeholder_analyzer
+    src = "def handler():\n    pass\n"
+    assert len(list(gate._placeholder_ids(an, src))) == 1
+
+
+def test_bare_ellipsis_body_is_a_placeholder_finding(real_placeholder_analyzer):
+    gate, an = real_placeholder_analyzer
+    src = "def handler():\n    ...\n"
+    assert len(list(gate._placeholder_ids(an, src))) == 1
+
+
+def test_protocol_method_ellipsis_body_is_not_a_placeholder_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = (
+        "from typing import Protocol\n\n"
+        "class Port(Protocol):\n"
+        "    def search(self, request) -> int: ...\n"
+    )
+    assert list(gate._placeholder_ids(an, src)) == []
+
+
+def test_abstractmethod_ellipsis_body_is_not_a_placeholder_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = (
+        "from abc import abstractmethod\n\n"
+        "class Base:\n"
+        "    @abstractmethod\n"
+        "    def search(self, request) -> int: ...\n"
+    )
+    assert list(gate._placeholder_ids(an, src)) == []
+
+
+def test_placeholder_string_literal_used_as_value_is_still_a_finding(
+    real_placeholder_analyzer,
+):
+    gate, an = real_placeholder_analyzer
+    src = "def handler():\n    return 'placeholder response'\n"
+    assert len(list(gate._placeholder_ids(an, src))) == 1

@@ -141,10 +141,13 @@ import argparse
 import ast
 import hashlib
 import importlib.util
+import io
 import json
 import os
+import re
 import subprocess
 import sys
+import tokenize
 from datetime import date
 from pathlib import Path
 
@@ -414,13 +417,203 @@ class _Scan:
         self.constants: frozenset = frozenset()
 
 
-def _placeholder_ids(an, src: str):
-    """Admitted placeholder/stub tells in raw source. Identity is the vendored
-    analyzer's own content hash of the matched line, so a marker that merely
-    moves is the same finding."""
+#: A comment counts as a stub tell only when the marker IS the comment (a
+#: leading tag), never when the trigger phrase merely appears mid-sentence in
+#: descriptive prose (EH-330: "this path is designed, not implemented, see
+#: EH-270" must not count; "# TODO: implement" must).
+_MARKER_COMMENT_RE = re.compile(r"^#\s*(TODO|FIXME|XXX|HACK)\b", re.IGNORECASE)
+
+
+def _placeholder_ids_regex_only(an, src: str):
+    """The old whole-line regex scan, used only when *src* does not parse
+    (``ast.parse`` failed). Kept verbatim as the fallback so a syntactically
+    broken file still gets a best-effort scan instead of silently zero
+    findings, and so the analyzer-compat identity contract in
+    ``test_liveness_analyzer_compat.py`` (which feeds deliberately invalid
+    Python) is unaffected by the context-aware path below."""
     for line in src.splitlines():
         if an._PLACEHOLDER_RE.search(line):
             yield _hash("placeholder", _stable_analyzer_id(an, line.strip()))
+
+
+def _docstring_line_spans(tree: ast.Module) -> list[tuple[int, int]]:
+    """``(start_lineno, end_lineno)`` inclusive for every module/class/function
+    docstring — PEP 257's definition (the first statement of the body, when it
+    is a bare string constant), same as ``ast.get_docstring``."""
+    spans: list[tuple[int, int]] = []
+    nodes: list[ast.AST] = [tree]
+    nodes.extend(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    for node in nodes:
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            spans.append((first.lineno, first.end_lineno or first.lineno))
+    return spans
+
+
+def _comment_tokens(src: str) -> list[tuple[int, int, str]]:
+    """``(lineno, col_offset, text)`` for every ``#`` comment token, tokenized
+    rather than regex-guessed so a ``#`` inside a string literal is never
+    mistaken for a comment."""
+    out: list[tuple[int, int, str]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                out.append((tok.start[0], tok.start[1], tok.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    return out
+
+
+def _masked_lines(src: str, tree: ast.Module) -> list[str]:
+    """*src*'s physical lines with docstring bodies blanked and non-marker
+    comments dropped, so the placeholder regex only ever sees CODE — never a
+    docstring's prose or a comment's descriptive prose (EH-330). A marker
+    comment (a leading ``TODO``/``FIXME``/``XXX``/``HACK`` tag) is left intact
+    because it is itself an admitted stub tell, not prose."""
+    lines = src.splitlines()
+    masked = list(lines)
+
+    for start, end in _docstring_line_spans(tree):
+        for lineno in range(start, end + 1):
+            idx = lineno - 1
+            if 0 <= idx < len(masked):
+                masked[idx] = ""
+
+    for lineno, col, text in _comment_tokens(src):
+        idx = lineno - 1
+        if not (0 <= idx < len(masked)):
+            continue
+        if _MARKER_COMMENT_RE.match(text):
+            continue
+        masked[idx] = masked[idx][:col]
+
+    return masked
+
+
+def _is_docstring_expr(stmt: ast.stmt) -> bool:
+    return (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    )
+
+
+def _base_names(cls: ast.ClassDef) -> set[str]:
+    out: set[str] = set()
+    for b in cls.bases:
+        if isinstance(b, ast.Attribute):
+            out.add(b.attr)
+        elif isinstance(b, ast.Name):
+            out.add(b.id)
+    return out
+
+
+#: Decorators under which a bare ``pass``/``...`` body is a declared interface
+#: contract, not debt — the base class is never meant to run it.
+_INTERFACE_DECORATORS = frozenset({"abstractmethod", "overload"})
+
+
+def _stub_marker_lines(an, tree: ast.Module) -> set[int]:
+    """Line numbers of genuine stub tells the placeholder regex cannot see on
+    its own: ``raise NotImplementedError`` (no word boundary between
+    "implemented" and the "Error" suffix, so ``_PLACEHOLDER_RE`` never matches
+    it) and a function body that is, once its own docstring is set aside,
+    only ``pass`` or ``...`` — the canonical "not implemented yet" stub shape.
+
+    Scoped to exclude the two idiomatic uses of that same shape that are NOT
+    debt: a method on a ``typing.Protocol`` class, and one decorated
+    ``@abstractmethod``/``@overload`` — measured live over this repo's
+    ``agent_utilities/`` tree, every single one of its 234 pre-existing
+    ``pass``/``...`` bodies is one of these two (190 Protocol, 44
+    abstractmethod, 0 unclassified), so without this exclusion EH-330's fix
+    would trade one false-positive class (prose) for a much larger one
+    (typed interface declarations). Also scoped to functions, not classes:
+    ``class FooError(Exception): pass`` is idiomatic, not a placeholder.
+    """
+    lines: set[int] = set()
+    class_of_function: dict[int, ast.ClassDef] = {}
+    for cls in ast.walk(tree):
+        if isinstance(cls, ast.ClassDef):
+            for stmt in cls.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    class_of_function[id(stmt)] = cls
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Raise) and n.exc is not None:
+            exc = n.exc
+            if isinstance(exc, ast.Call):
+                exc = exc.func
+            if isinstance(exc, ast.Name) and exc.id == "NotImplementedError":
+                lines.add(n.lineno)
+            elif isinstance(exc, ast.Attribute) and exc.attr == "NotImplementedError":
+                lines.add(n.lineno)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = [s for s in n.body if not _is_docstring_expr(s)]
+            if len(body) != 1:
+                continue
+            stmt = body[0]
+            is_stub_body = isinstance(stmt, ast.Pass) or (
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Constant)
+                and stmt.value.value is Ellipsis
+            )
+            if not is_stub_body:
+                continue
+            cls = class_of_function.get(id(n))
+            if cls is not None and "Protocol" in _base_names(cls):
+                continue
+            if an._decorator_names(n) & _INTERFACE_DECORATORS:
+                continue
+            lines.add(stmt.lineno)
+    return lines
+
+
+def _placeholder_ids(an, src: str):
+    """Admitted placeholder/stub tells, in CODE position or as a genuine stub
+    marker (EH-330). Identity is still the vendored analyzer's own content
+    hash of the RAW (unmasked) matched line — unchanged from before — so a
+    finding that survives this change keeps its existing id and a marker that
+    merely moves is still the same finding; only the DECISION of whether a
+    line counts changes.
+
+    A tell counts when:
+      * it sits in actual code (not inside a docstring, not inside a
+        descriptive comment) — this covers a placeholder string literal
+        returned/assigned as a value, a suspicious identifier, etc.; or
+      * the line carries a leading marker comment (``# TODO``/``FIXME``/
+        ``XXX``/``HACK``) — a legitimate stub tell kept regardless of prose
+        rules; or
+      * it is a stub the regex itself cannot see: ``raise
+        NotImplementedError`` or a bare ``pass``/``...`` function body.
+
+    Prose inside a docstring, and a trigger phrase appearing mid-sentence in a
+    non-marker comment, never count — that was the false-positive class this
+    gate was flagging honest documentation for (ledger EH-330).
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        yield from _placeholder_ids_regex_only(an, src)
+        return
+
+    lines = src.splitlines()
+    masked = _masked_lines(src, tree)
+    stub_lines = _stub_marker_lines(an, tree)
+
+    for lineno, (raw, masked_line) in enumerate(zip(lines, masked), start=1):
+        if an._PLACEHOLDER_RE.search(masked_line) or lineno in stub_lines:
+            yield _hash("placeholder", _stable_analyzer_id(an, raw.strip()))
 
 
 def _surface_functions(an, tree, path: Path):
