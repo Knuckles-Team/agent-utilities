@@ -130,6 +130,15 @@ def _reject_reserved_metadata(metadata: Mapping[str, Any]) -> None:
         raise ValueError("WorkItem metadata keys may not use the reserved 'au:' prefix")
 
 
+def _key_sorted(value: Any) -> Any:
+    """Recursively key-sort mappings, matching a Rust ``BTreeMap`` encoding."""
+    if isinstance(value, Mapping):
+        return {str(key): _key_sorted(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, list):
+        return [_key_sorted(item) for item in value]
+    return value
+
+
 def _bounded_metadata(metadata: dict[str, JsonValue]) -> dict[str, JsonValue]:
     import msgpack
 
@@ -240,12 +249,12 @@ class EgWorkItemStore:
         policy_digest: str,
         catalog_digest: str,
         model_digest: str,
+        graph: str | None = None,
     ) -> None:
-        commands = getattr(eg_client, "work_items", None)
-        if commands is None:
-            raise AgentControlPlaneUnavailable(
-                "the epistemic-graph client has no native WorkItem namespace"
-            )
+        """``eg_client`` must route to ``graph`` (the WorkItem authority graph);
+        ``None`` means the session's own graph."""
+        if eg_client is None:
+            raise ValueError("an epistemic-graph client is required")
         for label, digest in (
             ("policy", policy_digest),
             ("catalog", catalog_digest),
@@ -254,9 +263,28 @@ class EgWorkItemStore:
             if not str(digest).strip():
                 raise ValueError(f"a non-empty {label} digest is required")
         self._client = eg_client
-        self._commands: _WorkItemCommands = commands
+        self._graph = graph
         self._authentication_method = authentication_method
         self._digests = (policy_digest, catalog_digest, model_digest)
+
+    def _work_session(self, session: GraphSession) -> GraphSession:
+        """``session`` retargeted onto the WorkItem graph (identity unchanged).
+
+        A graph-scoped client refuses an ambient session bound to another
+        graph, so every command runs under this narrowed session.
+        """
+        if self._graph and self._graph != session.graph:
+            return session.with_graph(self._graph)
+        return session
+
+    @property
+    def _commands(self) -> _WorkItemCommands:
+        commands = getattr(self._client, "work_items", None)
+        if commands is None:
+            raise AgentControlPlaneUnavailable(
+                "the epistemic-graph client has no native WorkItem namespace"
+            )
+        return cast(_WorkItemCommands, commands)
 
     def _submit_request(
         self, request: WorkItemSubmission, session: GraphSession
@@ -276,11 +304,26 @@ class EgWorkItemStore:
             }
         )
         policy_digest, catalog_digest, model_digest = self._digests
+        command_digest = _canonical_digest(
+            {
+                "work_item_id": request.work_item_id,
+                "kind": request.kind,
+                "priority": request.priority,
+                "max_attempts": request.max_attempts,
+                "deadline_unix": request.deadline_unix,
+                "payload": payload_digest,
+            }
+        )
+        # Rust declaration order of ``SubmitWorkItemRequest``, with metadata
+        # key-sorted like its ``BTreeMap``: the ``eg2.`` envelope MAC covers
+        # the server's re-serialization of the typed request, so any other
+        # order fails authentication (EG CONTRACT-REQUEST R5).
         body = {
             "schema_version": "1",
             "context": request_context_for(session, self._authentication_method),
             "work_item_id": request.work_item_id,
             "idempotency_key": request.idempotency_key,
+            "command_digest": command_digest,
             "kind": request.kind,
             "priority": request.priority,
             "depends_on": [],
@@ -290,29 +333,20 @@ class EgWorkItemStore:
             "model_digest": model_digest,
             "max_attempts": request.max_attempts,
             "deadline_unix": request.deadline_unix,
-            "metadata": metadata,
+            "metadata": _key_sorted(metadata),
             "provenance_refs": [],
             "max_tenant_in_flight": 0,
         }
-        command = {
-            key: body[key]
-            for key in ("work_item_id", "kind", "priority", "max_attempts")
-        }
-        body["command_digest"] = _canonical_digest(
-            {
-                **command,
-                "deadline_unix": request.deadline_unix,
-                "payload": payload_digest,
-            }
-        )
         return body, description
 
     async def submit(
         self, request: WorkItemSubmission, *, session: GraphSession
     ) -> WorkItemSubmissionResult:
-        body, description = self._submit_request(request, session)
+        work_session = self._work_session(session)
+        body, description = self._submit_request(request, work_session)
         try:
-            result = await self._commands.submit(body)
+            with use_session(work_session):
+                result = await self._commands.submit(body)
         except RuntimeError as exc:
             if _is_idempotency_conflict(exc):
                 raise WorkItemIdempotencyConflict(
@@ -358,20 +392,22 @@ class EgWorkItemStore:
     async def get(
         self, request: WorkItemGetRequest, *, session: GraphSession
     ) -> WorkItemSnapshot | None:
-        reader = await self._read_method("GetWorkItem")
-        row = await reader(tenant=session.tenant, work_item_id=request.work_item_id)
+        with use_session(self._work_session(session)):
+            reader = await self._read_method("GetWorkItem")
+            row = await reader(tenant=session.tenant, work_item_id=request.work_item_id)
         return None if row is None else snapshot_from_row(row)
 
     async def list(
         self, request: WorkItemListRequest, *, session: GraphSession
     ) -> WorkItemPage:
-        reader = await self._read_method("ListWorkItems")
-        page = await reader(
-            tenant=session.tenant,
-            cursor=request.cursor,
-            limit=request.limit,
-            kind=request.kind,
-        )
+        with use_session(self._work_session(session)):
+            reader = await self._read_method("ListWorkItems")
+            page = await reader(
+                tenant=session.tenant,
+                cursor=request.cursor,
+                limit=request.limit,
+                kind=request.kind,
+            )
         return WorkItemPage(
             items=tuple(snapshot_from_row(row) for row in page["items"]),
             next_cursor=page.get("next_cursor"),
@@ -380,13 +416,14 @@ class EgWorkItemStore:
     async def cancel(
         self, request: WorkItemCancelRequest, *, session: GraphSession
     ) -> WorkItemSnapshot | None:
-        transition = await self._commands.cancel(
-            tenant=session.tenant,
-            work_item_id=request.work_item_id,
-            idempotency_key=f"au-cancel:{request.work_item_id}:{request.reason}",
-            now_ms=int(time.time() * 1000),
-            reason_ref=f"au-cancel-reason:{request.reason}",
-        )
+        with use_session(self._work_session(session)):
+            transition = await self._commands.cancel(
+                tenant=session.tenant,
+                work_item_id=request.work_item_id,
+                idempotency_key=f"au-cancel:{request.work_item_id}:{request.reason}",
+                now_ms=int(time.time() * 1000),
+                reason_ref=f"au-cancel-reason:{request.reason}",
+            )
         status = str(transition.get("status") or "")
         if status == "missing":
             return None

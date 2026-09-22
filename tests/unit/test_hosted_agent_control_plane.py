@@ -407,7 +407,7 @@ def test_runtime_views_and_drain() -> None:
     class _Compute:
         def for_graph(self, graph):
             events.append(("for_graph", graph))
-            return SimpleNamespace(client=f"client:{graph}")
+            return SimpleNamespace(async_client=f"client:{graph}")
 
         def drain(self, timeout_s):
             events.append(("drain", timeout_s))

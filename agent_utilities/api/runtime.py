@@ -46,11 +46,14 @@ class AgentRuntime:
         return self._engine
 
     def graph_client(self, graph: str) -> Any:
-        """The session-routed EG client view for ``graph`` (no new connection)."""
+        """The awaitable, session-routed EG client view for ``graph``.
+
+        No new connection is opened; calls run on the process transport.
+        """
         compute = getattr(self._engine, "graph_compute", None)
         if compute is None:
             raise RuntimeError("the AU runtime has no graph transport")
-        return compute.for_graph(graph).client
+        return compute.for_graph(graph).async_client
 
     def start_background_daemons(self) -> None:
         self._engine.start_background_daemons()

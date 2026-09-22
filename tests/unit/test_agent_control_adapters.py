@@ -276,9 +276,10 @@ async def test_cancel_maps_every_engine_status(status: str, outcome: Any) -> Non
     assert call["reason_ref"] == "au-cancel-reason:caller_cancelled"
 
 
-def test_store_requires_native_namespace_and_digests() -> None:
-    with pytest.raises(AgentControlPlaneUnavailable):
-        EgWorkItemStore(object(), authentication_method="oidc", **_DIGESTS)
+async def test_store_requires_native_namespace_and_digests() -> None:
+    store = EgWorkItemStore(object(), authentication_method="oidc", **_DIGESTS)
+    with pytest.raises(AgentControlPlaneUnavailable, match="WorkItem namespace"):
+        await store.submit(_submission(), session=_session())
     with pytest.raises(ValueError, match="policy"):
         EgWorkItemStore(
             _Client(),
@@ -287,6 +288,23 @@ def test_store_requires_native_namespace_and_digests() -> None:
             catalog_digest="c",
             model_digest="m",
         )
+
+
+async def test_store_routes_to_its_work_item_graph() -> None:
+    client = _Client()
+    store = EgWorkItemStore(
+        client, authentication_method="oidc", graph="__control__", **_DIGESTS
+    )
+    await store.submit(_submission(), session=_session())
+    (sent,) = client.work_items.submitted
+    assert sent["context"]["graph"] == "__control__"
+    assert list(sent)[:5] == [
+        "schema_version",
+        "context",
+        "work_item_id",
+        "idempotency_key",
+        "command_digest",
+    ]
 
 
 def test_request_context_never_widens_the_carrier() -> None:

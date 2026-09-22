@@ -105,6 +105,22 @@ def authentication_method_for(session: GraphSession) -> AuthenticationMethod:
     return "oidc"
 
 
+class _ControlGraphClient:
+    """The process runtime's ``__control__`` WorkItem-authority client, resolved per use.
+
+    WorkItems live in the tenant-shared control graph, not the caller's
+    content graph, so the hosted store cannot use the host's content client.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            CONTROL_GRAPH_NAME,
+        )
+
+        control = process_engine().graph_compute.for_graph(CONTROL_GRAPH_NAME)
+        return getattr(control.async_client, name)
+
+
 class _ProcessRunner:
     """Resolves the process ``Orchestrator`` per call, never at composition."""
 
@@ -218,6 +234,12 @@ class ProcessRunOutputReader:
         return run_output_from_trace(request.run_id, trace)
 
 
+def _control_graph_name() -> str:
+    from agent_utilities.knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
+
+    return CONTROL_GRAPH_NAME
+
+
 def compose_hosted_agent_control_plane(
     eg_client: Any, session: GraphSession
 ) -> AgentControlPlane:
@@ -231,7 +253,8 @@ def compose_hosted_agent_control_plane(
         capability_search=EgCapabilitySearch(eg_client),
         agent_executor=OrchestratorAgentExecutor(_ProcessRunner()),
         work_item_store=EgWorkItemStore(
-            eg_client,
+            _ControlGraphClient(),
+            graph=_control_graph_name(),
             authentication_method=authentication_method_for(session),
             policy_digest=policy_digest,
             catalog_digest=catalog_digest,
