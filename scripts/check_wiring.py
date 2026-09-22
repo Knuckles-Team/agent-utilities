@@ -142,6 +142,7 @@ import tempfile
 import tokenize
 from collections import Counter, defaultdict, deque
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
@@ -150,6 +151,15 @@ PYPROJECT = ROOT / "pyproject.toml"
 PYTEST_INI = ROOT / "pytest.ini"
 PRECOMMIT_CONFIG = ROOT / ".pre-commit-config.yaml"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
+
+
+class _ReachabilityReport(NamedTuple):
+    roots: tuple[str, ...]
+    total_modules: int
+    reachable_modules: int
+    unreachable: tuple[str, ...]
+    beyond_max_hops: tuple[tuple[str, int], ...]
+    max_hops: int
 
 
 def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
@@ -2004,54 +2014,49 @@ def _print_module_chain(
 
 
 def _print_reachability_json(
-    roots: set[str],
-    modules: set[str],
-    dist: dict[str, int],
-    unreachable: list[str],
-    far: list[tuple[str, int]],
-    max_hops: int,
+    report: _ReachabilityReport,
 ) -> None:
     print(
         json.dumps(
             {
-                "roots": sorted(roots),
-                "total_modules": len(modules),
-                "reachable": len(dist),
-                "unreachable": unreachable,
-                "beyond_max_hops": [{"module": m, "hops": d} for m, d in far],
-                "max_hops": max_hops,
+                "roots": report.roots,
+                "total_modules": report.total_modules,
+                "reachable": report.reachable_modules,
+                "unreachable": report.unreachable,
+                "beyond_max_hops": [
+                    {"module": module, "hops": hops}
+                    for module, hops in report.beyond_max_hops
+                ],
+                "max_hops": report.max_hops,
             },
             indent=2,
         )
     )
 
 
-def _print_reachability_text(
-    roots: set[str],
-    modules: set[str],
-    dist: dict[str, int],
-    unreachable: list[str],
-    far: list[tuple[str, int]],
-    max_hops: int,
-) -> None:
-    print(f"roots ({len(roots)}):")
-    for r in sorted(roots):
+def _print_reachability_text(report: _ReachabilityReport) -> None:
+    print(f"roots ({len(report.roots)}):")
+    for r in report.roots:
         print(f"  {r}")
     print(
-        f"\nmodules: {len(modules)}  reachable: {len(dist)}  "
-        f"unreachable: {len(unreachable)}"
+        f"\nmodules: {report.total_modules}  "
+        f"reachable: {report.reachable_modules}  "
+        f"unreachable: {len(report.unreachable)}"
     )
-    if far:
-        print(f"\nreachable only beyond {max_hops} hops ({len(far)}):")
-        for m, d in far:
-            print(f"  {d:>2}  {m}")
-    if unreachable:
+    if report.beyond_max_hops:
         print(
-            f"\nno static import path from a root ({len(unreachable)}) — "
+            f"\nreachable only beyond {report.max_hops} hops "
+            f"({len(report.beyond_max_hops)}):"
+        )
+        for module, hops in report.beyond_max_hops:
+            print(f"  {hops:>2}  {module}")
+    if report.unreachable:
+        print(
+            f"\nno static import path from a root ({len(report.unreachable)}) — "
             "verify against the blind-spot list before treating as dead:"
         )
-        for m in unreachable:
-            print(f"  {m}")
+        for module in report.unreachable:
+            print(f"  {module}")
 
 
 def _build_roots(modules: set[str]) -> set[str]:
@@ -2068,10 +2073,18 @@ def _emit_reachability(
 ) -> list[str]:
     unreachable = sorted(m for m in modules if m not in dist)
     far = sorted((m, d) for m, d in dist.items() if d > args.max_hops)
+    report = _ReachabilityReport(
+        roots=tuple(sorted(roots)),
+        total_modules=len(modules),
+        reachable_modules=len(dist),
+        unreachable=tuple(unreachable),
+        beyond_max_hops=tuple(far),
+        max_hops=args.max_hops,
+    )
     if args.json:
-        _print_reachability_json(roots, modules, dist, unreachable, far, args.max_hops)
+        _print_reachability_json(report)
     else:
-        _print_reachability_text(roots, modules, dist, unreachable, far, args.max_hops)
+        _print_reachability_text(report)
     return unreachable
 
 

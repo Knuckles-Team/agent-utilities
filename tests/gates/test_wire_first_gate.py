@@ -483,14 +483,7 @@ def _init_differential_repo(root: Path) -> None:
         "from agent_utilities.old import dormant\n\n"
         "def test_old():\n    assert dormant() == 1\n"
     )
-    for args in (
-        ("init", "-q"),
-        ("config", "user.name", "Wire First Test"),
-        ("config", "user.email", "wire-first@example.invalid"),
-        ("add", "--", "agent_utilities", "tests"),
-        ("commit", "-qm", "baseline"),
-    ):
-        subprocess.run(["git", *args], cwd=root, check=True)
+    _commit_differential_fixture(root)
 
 
 def _differential_findings(root: Path) -> list[dict]:
@@ -571,6 +564,19 @@ def _commit_differential_fixture(root: Path) -> None:
         ("commit", "-qm", "baseline"),
     ):
         subprocess.run(["git", *args], cwd=root, check=True)
+
+
+def _set_ambient_git_repository_environment(monkeypatch) -> None:
+    """Install real-repository git variables for bare-snapshot regressions."""
+    real_git_dir = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    monkeypatch.setenv("GIT_DIR", real_git_dir)
+    monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
 
 
 def test_differential_gate_accounts_for_test_only_method_unmasked_by_removal(
@@ -820,15 +826,7 @@ def test_snapshot_symbol_scan_survives_ambient_git_dir_env(tmp_path, monkeypatch
     tests_dir.mkdir()
     (tests_dir / "test_foo.py").write_text(_BAR_TEST)
 
-    real_git_dir = subprocess.run(
-        ["git", "rev-parse", "--absolute-git-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    monkeypatch.setenv("GIT_DIR", real_git_dir)
-    monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
+    _set_ambient_git_repository_environment(monkeypatch)
 
     findings = check_wiring._scan_snapshot_for_test_only_symbols(snapshot)
     symbols = {f["symbol"] for f in findings}
@@ -850,15 +848,7 @@ def test_snapshot_unmasking_context_survives_ambient_git_dir_env(tmp_path, monke
         "def test_target():\n    assert target.comparison()\n"
     )
 
-    real_git_dir = subprocess.run(
-        ["git", "rev-parse", "--absolute-git-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    monkeypatch.setenv("GIT_DIR", real_git_dir)
-    monkeypatch.setenv("GIT_INDEX_FILE", f"{real_git_dir}/index")
+    _set_ambient_git_repository_environment(monkeypatch)
 
     sources, (idents, calls, imports, _, _) = check_wiring._read_head_snapshot_context(
         snapshot

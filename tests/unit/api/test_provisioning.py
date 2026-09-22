@@ -76,6 +76,11 @@ class _Policy:
         )
 
 
+class _AllowWithoutReceipt:
+    def decide(self, request: ActionRequest) -> ActionDecision:
+        return ActionDecision(decision="allow", tier="auto", request=request)
+
+
 def _install_policy(monkeypatch: pytest.MonkeyPatch, policy: Any) -> None:
     monkeypatch.setattr(
         "agent_utilities.api.provisioning.get_action_policy",
@@ -103,6 +108,30 @@ def _resolve_pack_import(
         return await resolver("mcp-main")
 
     return asyncio.run(await_resolver())
+
+
+def _assert_policy_refuses_before_binding_load(
+    monkeypatch: pytest.MonkeyPatch, policy: Any
+) -> None:
+    session = _session()
+    binding_loaded = False
+    _install_policy(monkeypatch, policy)
+
+    def binding() -> Any:
+        nonlocal binding_loaded
+        binding_loaded = True
+        return _binding()
+
+    with use_session(session):
+        resolver = pack_import_authority(
+            object(),
+            session,
+            catalog_binding=binding,
+            serving_principal=lambda: "principal:sha256:" + ("ab" * 32),
+        )
+        with pytest.raises(ProvisioningAuthorityError, match="not authorized"):
+            _resolve_pack_import(resolver)
+    assert not binding_loaded
 
 
 def test_policy_issued_resolver_returns_generated_contracts(
@@ -162,54 +191,13 @@ def test_resolver_does_not_accept_a_caller_supplied_policy() -> None:
 def test_resolver_refuses_without_effect_authorizing_policy_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = _session()
-    called = False
-    _install_policy(monkeypatch, _Policy(allow=False))
-
-    def binding() -> Any:
-        nonlocal called
-        called = True
-        return _binding()
-
-    with use_session(session):
-        resolver = pack_import_authority(
-            object(),
-            session,
-            catalog_binding=binding,
-            serving_principal=lambda: "principal:sha256:" + ("ab" * 32),
-        )
-        with pytest.raises(ProvisioningAuthorityError, match="not authorized"):
-            _resolve_pack_import(resolver)
-    assert not called
+    _assert_policy_refuses_before_binding_load(monkeypatch, _Policy(allow=False))
 
 
 def test_resolver_refuses_an_allow_decision_without_a_policy_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = _session()
-    called = False
-
-    class _AllowWithoutReceipt:
-        def decide(self, request: ActionRequest) -> ActionDecision:
-            return ActionDecision(decision="allow", tier="auto", request=request)
-
-    _install_policy(monkeypatch, _AllowWithoutReceipt())
-
-    def binding() -> Any:
-        nonlocal called
-        called = True
-        return _binding()
-
-    with use_session(session):
-        resolver = pack_import_authority(
-            object(),
-            session,
-            catalog_binding=binding,
-            serving_principal=lambda: "principal:sha256:" + ("ab" * 32),
-        )
-        with pytest.raises(ProvisioningAuthorityError, match="not authorized"):
-            _resolve_pack_import(resolver)
-    assert not called
+    _assert_policy_refuses_before_binding_load(monkeypatch, _AllowWithoutReceipt())
 
 
 def test_resolver_refuses_malformed_authoritative_principal(
