@@ -7,14 +7,49 @@ session-scoped epistemic-graph client before any operation can run.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from agent_utilities.knowledge_graph.core.session import GraphSession, resolve_session
+from agent_utilities.api.agent_control_contracts import (
+    AgentControlPlaneUnavailable,
+    AgentExecutionPort,
+    AgentExecutionRequest,
+    AgentExecutionResult,
+    AgentOperationDescriptor,
+    AgentTaskDispatchRequest,
+    AgentTaskDispatchResult,
+    CapabilityCandidate,
+    CapabilityResolution,
+    CapabilitySearchPort,
+    CapabilitySearchRequest,
+    SignedAgentDispatchPort,
+    SignedAgentDispatchReceipt,
+    SignedAgentDispatchRequest,
+    WorkItemCancelRequest,
+    WorkItemGetRequest,
+    WorkItemListRequest,
+    WorkItemPage,
+    WorkItemSnapshot,
+    WorkItemStorePort,
+    WorkItemSubmission,
+    WorkItemSubmissionResult,
+)
+from agent_utilities.api.session import GraphSession, resolve_session
 from agent_utilities.rlm.benchmarks.base import BenchResult
 from agent_utilities.rlm.telemetry import FailureClass
 from agent_utilities.security.error_surface import public_error_payload
+
+_RequiredScope: TypeAlias = Literal["kg:read", "kg:write"]
+_OperationSpec: TypeAlias = tuple[
+    str,
+    Any,
+    Any,
+    _RequiredScope,
+    tuple[tuple[str, _RequiredScope], ...],
+]
 
 
 class _StrictModel(BaseModel):
@@ -149,11 +184,31 @@ GraphRlmResult: TypeAlias = Annotated[
     Field(discriminator="action"),
 ]
 
+_GRAPH_RLM_SCOPES: dict[type[BaseModel], Literal["kg:read", "kg:write"]] = {
+    GraphRlmRunRequest: "kg:read",
+    GraphRlmBenchmarkRequest: "kg:read",
+    GraphRlmEvolvePromptRequest: "kg:write",
+}
+
 
 class AgentControlPlane:
-    """Per-instance RLM behavior bound to verified graph identity and policy."""
+    """AU application operations bound to verified graph identity and policy.
 
-    def __init__(self, eg_client: Any, session: GraphSession) -> None:
+    Work-item, capability, execution, and signed-dispatch behavior is supplied
+    through explicit ports. The control plane deliberately has no legacy graph
+    engine adapter and never reconstructs those operations with raw queries.
+    """
+
+    def __init__(
+        self,
+        eg_client: Any,
+        session: GraphSession,
+        *,
+        capability_search: CapabilitySearchPort | None = None,
+        agent_executor: AgentExecutionPort | None = None,
+        work_item_store: WorkItemStorePort | None = None,
+        signed_dispatch: SignedAgentDispatchPort | None = None,
+    ) -> None:
         if eg_client is None:
             raise ValueError("a session-routed epistemic-graph client is required")
         if not isinstance(session, GraphSession):
@@ -164,9 +219,292 @@ class AgentControlPlane:
 
         self._eg_client = eg_client
         self._session = session
+        self._capability_search = capability_search
+        self._agent_executor = agent_executor
+        self._work_item_store = work_item_store
+        self._signed_dispatch = signed_dispatch
         # Validate eagerly so invalid or expired authority never creates a usable
         # control plane. It is checked again immediately before every call.
         session.engine_verified_context()
+
+    @property
+    def operation_descriptors(self) -> tuple[AgentOperationDescriptor, ...]:
+        """Schemas for direct operations; these are metadata, not a dispatcher."""
+        specs: tuple[_OperationSpec, ...] = (
+            (
+                "graph_rlm",
+                GraphRlmRequest,
+                GraphRlmResult,
+                "kg:read",
+                (("evolve_prompt", "kg:write"),),
+            ),
+            (
+                "resolve_capability",
+                CapabilitySearchRequest,
+                CapabilityResolution,
+                "kg:read",
+                (),
+            ),
+            (
+                "execute_agent",
+                AgentExecutionRequest,
+                AgentExecutionResult,
+                "kg:write",
+                (),
+            ),
+            (
+                "submit_agent_task",
+                AgentTaskDispatchRequest,
+                AgentTaskDispatchResult,
+                "kg:write",
+                (),
+            ),
+            (
+                "get_work_item",
+                WorkItemGetRequest,
+                WorkItemSnapshot | None,
+                "kg:read",
+                (),
+            ),
+            ("list_work_items", WorkItemListRequest, WorkItemPage, "kg:read", ()),
+            (
+                "cancel_work_item",
+                WorkItemCancelRequest,
+                WorkItemSnapshot | None,
+                "kg:write",
+                (),
+            ),
+        )
+        return tuple(
+            AgentOperationDescriptor(
+                name=name,
+                request_schema=TypeAdapter(request_type).json_schema(),
+                result_schema=TypeAdapter(result_type).json_schema(),
+                required_scope=scope,
+                action_scopes=action_scopes,
+            )
+            for name, request_type, result_type, scope, action_scopes in specs
+        )
+
+    def _verified_session(
+        self, required_scope: Literal["kg:read", "kg:write"] | None
+    ) -> GraphSession:
+        session = resolve_session(self._session, required_scope=required_scope)
+        session.engine_verified_context()
+        return session
+
+    @contextmanager
+    def _verified_client_context(self, session: GraphSession) -> Iterator[None]:
+        claims = session.engine_verified_context()
+        with self._eg_client.use_verified_context(claims):
+            yield
+
+    @staticmethod
+    def _require_port(port: Any, name: str) -> Any:
+        if port is None:
+            raise AgentControlPlaneUnavailable(
+                f"the {name} application port is not configured"
+            )
+        return port
+
+    async def resolve_capability(
+        self, request: CapabilitySearchRequest
+    ) -> CapabilityResolution:
+        """Return only a capability authorized by the injected EG search port."""
+        if not isinstance(request, CapabilitySearchRequest):
+            raise TypeError("request must be a validated CapabilitySearchRequest")
+        session = self._verified_session("kg:read")
+        port = self._require_port(self._capability_search, "capability-search")
+        with self._verified_client_context(session):
+            candidates = tuple(await port.search(request, session=session))
+        if any(not isinstance(item, CapabilityCandidate) for item in candidates):
+            raise AgentControlPlaneUnavailable(
+                "the capability-search port returned an invalid candidate"
+            )
+
+        if request.agent_name is not None:
+            candidates = tuple(
+                item for item in candidates if item.name == request.agent_name
+            )
+            if not candidates:
+                raise LookupError("the requested agent is not an authorized capability")
+
+        ranked = sorted(
+            candidates,
+            key=lambda item: (-item.score, item.name.casefold(), item.component_id),
+        )
+        if not ranked:
+            raise LookupError("no authorized capability matched the task")
+        selected = ranked[0]
+        return CapabilityResolution(
+            kind=selected.kind,
+            name=selected.name,
+            component_id=selected.component_id,
+            score=selected.score,
+            source="caller" if request.agent_name is not None else "eg_search",
+            alternatives=tuple(ranked[1:4]),
+        )
+
+    async def _prepare_agent_task(
+        self, task: str, agent_name: str | None
+    ) -> tuple[str, CapabilityResolution]:
+        from agent_utilities.orchestration.task_guard import (
+            screen_and_redact_agent_task,
+        )
+
+        sanitized_task = screen_and_redact_agent_task(task)
+        capability = await self.resolve_capability(
+            CapabilitySearchRequest(task=sanitized_task, agent_name=agent_name)
+        )
+        return sanitized_task, capability
+
+    async def execute_agent(
+        self, request: AgentExecutionRequest
+    ) -> AgentExecutionResult:
+        """Delegate execution only to a composed AU execution implementation."""
+        if not isinstance(request, AgentExecutionRequest):
+            raise TypeError("request must be a validated AgentExecutionRequest")
+        session = self._verified_session("kg:write")
+        port = self._require_port(self._agent_executor, "agent-execution")
+        sanitized_task, capability = await self._prepare_agent_task(
+            request.task, request.agent_name
+        )
+        authorized_request = request.model_copy(
+            update={"agent_name": capability.name, "task": sanitized_task}
+        )
+        with self._verified_client_context(session):
+            result = await port.execute_agent(authorized_request, session=session)
+        if not isinstance(result, AgentExecutionResult):
+            raise AgentControlPlaneUnavailable(
+                "the agent-execution port returned an invalid result"
+            )
+        return result
+
+    async def submit_agent_task(
+        self, request: AgentTaskDispatchRequest
+    ) -> AgentTaskDispatchResult:
+        """Screen, admit, and signed-enqueue one typed agent task."""
+        if not isinstance(request, AgentTaskDispatchRequest):
+            raise TypeError("request must be a validated AgentTaskDispatchRequest")
+        session = self._verified_session("kg:write")
+        store = self._require_port(self._work_item_store, "work-item-store")
+        dispatch = self._require_port(self._signed_dispatch, "signed-dispatch")
+        self._reject_authority_metadata(request.metadata)
+        sanitized_task, capability = await self._prepare_agent_task(
+            request.task, request.agent_name
+        )
+
+        submission = WorkItemSubmission(
+            work_item_id=request.work_item_id,
+            idempotency_key=request.idempotency_key,
+            kind="orchestrator_task",
+            description=sanitized_task,
+            metadata=dict(request.metadata),
+        )
+        with self._verified_client_context(session):
+            admission = await store.submit(submission, session=session)
+        if not isinstance(admission, WorkItemSubmissionResult):
+            raise AgentControlPlaneUnavailable(
+                "the work-item store returned an invalid admission result"
+            )
+        if admission.item.work_item_id != request.work_item_id:
+            raise AgentControlPlaneUnavailable(
+                "the work-item store returned an unrelated admission"
+            )
+
+        receipt: SignedAgentDispatchReceipt | None = None
+        if admission.item.status in {"submitted", "ready"}:
+            dispatch_request = SignedAgentDispatchRequest(
+                job_id=request.job_id,
+                work_item_id=admission.item.work_item_id,
+                session_ref=request.session_ref,
+                agent_name=capability.name,
+            )
+            with self._verified_client_context(session):
+                receipt = await dispatch.enqueue(dispatch_request, session=session)
+            if (
+                not isinstance(receipt, SignedAgentDispatchReceipt)
+                or receipt.job_id != request.job_id
+                or not receipt.accepted
+            ):
+                raise AgentControlPlaneUnavailable(
+                    "the signed-dispatch port did not accept the admitted work item"
+                )
+        return AgentTaskDispatchResult(
+            capability=capability, admission=admission, dispatch=receipt
+        )
+
+    async def get_work_item(
+        self, request: WorkItemGetRequest
+    ) -> WorkItemSnapshot | None:
+        if not isinstance(request, WorkItemGetRequest):
+            raise TypeError("request must be a validated WorkItemGetRequest")
+        session = self._verified_session("kg:read")
+        store = self._require_port(self._work_item_store, "work-item-store")
+        with self._verified_client_context(session):
+            result = await store.get(request, session=session)
+        if result is not None and not isinstance(result, WorkItemSnapshot):
+            raise AgentControlPlaneUnavailable(
+                "the work-item store returned an invalid snapshot"
+            )
+        return result
+
+    async def list_work_items(self, request: WorkItemListRequest) -> WorkItemPage:
+        if not isinstance(request, WorkItemListRequest):
+            raise TypeError("request must be a validated WorkItemListRequest")
+        session = self._verified_session("kg:read")
+        store = self._require_port(self._work_item_store, "work-item-store")
+        with self._verified_client_context(session):
+            result = await store.list(request, session=session)
+        if not isinstance(result, WorkItemPage):
+            raise AgentControlPlaneUnavailable(
+                "the work-item store returned an invalid page"
+            )
+        return result
+
+    async def cancel_work_item(
+        self, request: WorkItemCancelRequest
+    ) -> WorkItemSnapshot | None:
+        if not isinstance(request, WorkItemCancelRequest):
+            raise TypeError("request must be a validated WorkItemCancelRequest")
+        session = self._verified_session("kg:write")
+        store = self._require_port(self._work_item_store, "work-item-store")
+        with self._verified_client_context(session):
+            result = await store.cancel(request, session=session)
+        if result is not None and not isinstance(result, WorkItemSnapshot):
+            raise AgentControlPlaneUnavailable(
+                "the work-item store returned an invalid snapshot"
+            )
+        return result
+
+    @classmethod
+    def _reject_authority_metadata(cls, value: Any) -> None:
+        authority_names = {
+            "actor",
+            "actor_id",
+            "audience",
+            "auth",
+            "authorization",
+            "graph",
+            "owner",
+            "owner_id",
+            "policy",
+            "policy_version",
+            "principal",
+            "scope",
+            "scopes",
+            "tenant",
+            "tenant_id",
+        }
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized = str(key).casefold().replace("-", "_")
+                if normalized in authority_names:
+                    raise ValueError("metadata may not contain caller authority fields")
+                cls._reject_authority_metadata(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                cls._reject_authority_metadata(nested)
 
     async def graph_rlm(self, request: GraphRlmRequest) -> GraphRlmResult:
         """Execute one typed RLM action under the injected verified authority."""
@@ -177,9 +515,8 @@ class AgentControlPlane:
             raise TypeError("request must be a validated GraphRlmRequest")
 
         try:
-            resolved_session = resolve_session(self._session)
-            claims = resolved_session.engine_verified_context()
-            with self._eg_client.use_verified_context(claims):
+            resolved_session = self._verified_session(_GRAPH_RLM_SCOPES[type(request)])
+            with self._verified_client_context(resolved_session):
                 return await self._execute(request)
         except PermissionError as exc:
             return self._failed_result(request, exc, code="permission_denied")
@@ -291,10 +628,23 @@ class AgentControlPlane:
 
 
 def compose_agent_control_plane(
-    eg_client: Any, session: GraphSession
+    eg_client: Any,
+    session: GraphSession,
+    *,
+    capability_search: CapabilitySearchPort | None = None,
+    agent_executor: AgentExecutionPort | None = None,
+    work_item_store: WorkItemStorePort | None = None,
+    signed_dispatch: SignedAgentDispatchPort | None = None,
 ) -> AgentControlPlane:
-    """Compose the one retained AU application operation from verified inputs."""
-    return AgentControlPlane(eg_client, session)
+    """Compose AU application operations from verified inputs and explicit ports."""
+    return AgentControlPlane(
+        eg_client,
+        session,
+        capability_search=capability_search,
+        agent_executor=agent_executor,
+        work_item_store=work_item_store,
+        signed_dispatch=signed_dispatch,
+    )
 
 
 async def _evolve_prompt(

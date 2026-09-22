@@ -51,7 +51,7 @@ def _session() -> GraphSession:
     return GraphSession(
         actor=actor,
         tenant="tenant:test",
-        scopes=frozenset({"kg:read"}),
+        scopes=frozenset({"kg:read", "kg:write"}),
         policy_version="policy:test",
         audience="graph-os",
     )

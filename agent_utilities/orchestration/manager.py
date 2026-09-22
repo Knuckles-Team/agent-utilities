@@ -28,7 +28,6 @@ from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
 )
-from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +221,10 @@ class Orchestrator:
     ) -> None:
         self.engine = engine
         self.compiler = compiler
+        from agent_utilities.security.threat_defense_engine import (
+            PromptInjectionScanner,
+        )
+
         self.scanner = PromptInjectionScanner()
 
     def _scan_task(self, task: str) -> None:
@@ -232,7 +235,9 @@ class Orchestrator:
         ``PromptInjectionScanner`` exposes ``scan_text``/``scan_conversation``, never
         ``analyze`` — so this gate silently never fired (dead code).
         """
-        result = self.scanner.scan_text(task)
+        from agent_utilities.orchestration.task_guard import scan_agent_task
+
+        result = scan_agent_task(task, scanner=self.scanner)
         if result.is_malicious:
             raise ValueError(
                 "Security Alert: Task rejected due to detected prompt "
@@ -258,11 +263,9 @@ class Orchestrator:
         worker while keeping the unredacted value out of durable storage. Blocking
         instead would newly reject any dispatch merely mentioning an email address.
         """
-        from agent_utilities.capabilities.content_guardrails import _pii_guard
+        from agent_utilities.orchestration.task_guard import redact_agent_task
 
-        verdict = _pii_guard(task)
-        replacement = getattr(verdict, "replacement", None)
-        return replacement if isinstance(replacement, str) else task
+        return redact_agent_task(task)
 
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None
