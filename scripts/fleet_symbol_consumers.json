@@ -7680,13 +7680,6 @@
         "line": 41
       }
     ],
-    "agent_utilities.knowledge_graph.core.owl_bridge.register_promotable_node_types": [
-      {
-        "repo": "leanix-agent",
-        "file": "leanix_agent/metamodel.py",
-        "line": 477
-      }
-    ],
     "agent_utilities.knowledge_graph.core.session.GraphSession": [
       {
         "repo": "ansible-tower-mcp",

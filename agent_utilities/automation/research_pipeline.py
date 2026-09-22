@@ -499,7 +499,10 @@ class PipelineReport(BaseModel):
         papers_marginal: Papers meeting marginal threshold.
         papers_skipped: Papers below marginal threshold.
         papers_already_known: Papers already in KG (deduped).
-        owl_inferences: Number of new OWL inferences discovered.
+        owl_inferences: Number of subclass and instance entailments returned by the
+            native, read-only OWL reasoner. These are not graph write-backs.
+        owl_reasoning: Native reasoner outcome and schema snapshot metadata, when
+            exposed by the engine.
         records: Individual paper records.
         errors: Any errors encountered.
         duration_seconds: Total execution time.
@@ -515,6 +518,7 @@ class PipelineReport(BaseModel):
     papers_skipped: int = 0
     papers_already_known: int = 0
     owl_inferences: int = 0
+    owl_reasoning: dict[str, Any] = Field(default_factory=dict)
     records: list[IngestedPaperRecord] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     duration_seconds: float = 0.0
@@ -1177,30 +1181,76 @@ class ResearchPipelineRunner:
         )
         return result.document_id
 
-    def _run_owl_enrichment(self) -> int:
-        """Run OWL reasoning cycle to discover new inferences from ingested papers."""
-        if not self.engine or not self.config.run_owl_cycle:
-            return 0
+    def _run_owl_enrichment(self) -> dict[str, Any]:
+        """Return the native reasoner's read-only closure; never promote or downfeed."""
+        if not self.config.run_owl_cycle:
+            return {"status": "disabled", "mode": "read_only"}
+        reason, error = self._resolve_native_owl_reasoner()
+        if error is not None:
+            return {"status": "error", "error": error}
 
         try:
-            from ..knowledge_graph.backends.owl import create_owl_backend
-            from ..knowledge_graph.core.owl_bridge import OWLBridge
-
-            owl_backend = create_owl_backend()
-            bridge = OWLBridge(
-                graph=self.engine.graph,
-                owl_backend=owl_backend,
-                backend=self.engine.backend,
-            )
-            stats = bridge.run_cycle(lightweight=True)
-            inferred = stats.get("inferred", 0)
+            result = reason(class_base="http://agent-utilities.dev/ontology#")
+            outcome = self._summarize_native_owl_result(result)
             logger.info(
-                f"[CONCEPT:AU-KG.research.research-pipeline-runner] OWL enrichment: {inferred} inferences"
+                "[CONCEPT:AU-KG.research.research-pipeline-runner] Native OWL closure: %d subclass and %d instance entailments",
+                outcome["subclass_entailments"],
+                outcome["instance_entailments"],
             )
-            return inferred
-        except Exception as e:  # noqa: BLE001 — best-effort OWL enrichment, caller already treats result as optional
-            logger.debug(f"OWL enrichment skipped: {e}")
-            return 0
+            return outcome
+        except Exception as exc:  # noqa: BLE001 — expose native-reasoner failure in the report
+            logger.error("Native OWL reasoning failed: %s", exc)
+            return {"status": "error", "error": str(exc)}
+
+    def _resolve_native_owl_reasoner(self) -> tuple[Any, str | None]:
+        if self.engine is None:
+            return None, "graph engine is unavailable"
+        reason = getattr(getattr(self.engine, "graph", None), "owl_reason", None)
+        if not callable(reason):
+            return None, "native GraphComputeEngine.owl_reason is unavailable"
+        return reason, None
+
+    @staticmethod
+    def _summarize_native_owl_result(result: Any) -> dict[str, Any]:
+        if not isinstance(result, dict):
+            raise RuntimeError("native OwlReason returned an invalid result")
+        subclasses = result.get("subclasses", [])
+        instances = result.get("instances", [])
+        schema_digests = result.get("schema_digests", [])
+        consistent = result.get("consistent")
+        outcome = {
+            "status": "success",
+            "mode": "read_only",
+            "consistent": consistent,
+            "subclass_entailments": len(subclasses),
+            "instance_entailments": len(instances),
+            "schema_digests": schema_digests,
+        }
+        if consistent is not True:
+            outcome["status"] = "inconsistent" if consistent is False else "error"
+            if outcome["status"] == "error":
+                outcome["error"] = "native OwlReason omitted consistency status"
+        if not schema_digests:
+            outcome["status"] = "error"
+            outcome["error"] = "native OwlReason omitted committed schema digests"
+        return outcome
+
+    @staticmethod
+    def _record_owl_reasoning(
+        report: PipelineReport, reasoning: dict[str, Any]
+    ) -> None:
+        report.owl_reasoning = reasoning
+        report.owl_inferences = sum(
+            int(reasoning.get(field, 0) or 0)
+            for field in ("subclass_entailments", "instance_entailments")
+        )
+        if reasoning.get("status") in {"error", "inconsistent"}:
+            report.errors.append(
+                "native OWL reasoning: "
+                + str(
+                    reasoning.get("error") or "the committed ontology is inconsistent"
+                )
+            )
 
     async def _process_one_paper(
         self,
@@ -1348,7 +1398,7 @@ class ResearchPipelineRunner:
 
         # Run OWL reasoning
         if report.papers_relevant > 0 or report.papers_marginal > 0:
-            report.owl_inferences = self._run_owl_enrichment()
+            self._record_owl_reasoning(report, self._run_owl_enrichment())
 
         report.duration_seconds = time.time() - start
         logger.info(
@@ -1410,7 +1460,7 @@ class ResearchPipelineRunner:
             f"**Abstract-only**: {report.papers_marginal}",
             f"**Skipped**: {report.papers_skipped}",
             f"**Already known**: {report.papers_already_known}",
-            f"**OWL inferences**: {report.owl_inferences}",
+            f"**OWL entailments (read-only)**: {report.owl_inferences}",
             "",
         ]
 

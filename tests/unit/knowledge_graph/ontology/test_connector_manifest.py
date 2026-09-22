@@ -5,8 +5,6 @@ Covers (CONCEPT:AU-KG.ontology.connector-manifest-schema / -compiler / supply-ch
   * schema round-trips (pydantic validate/dump),
   * canonical-hash **serialization-order invariance** (URDNA2015-equivalent),
   * Ed25519 release signing + fail-closed verification,
-  * the compiler's **anti-sprawl refusal** and **fail-closed signature check** in
-    ``apply_manifest``,
   * the **golden-file LeanIX regression** — the generalized compiler reproduces the
     existing ``leanix_metamodel`` OWL output losslessly (LeanIX = first caller),
   * the ``ontology.lock`` reader/writer.
@@ -34,9 +32,6 @@ from agent_utilities.knowledge_graph.ontology.leanix_metamodel import (
     export_leanix_ttl,
 )
 from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
-    AntiSprawlError,
-    SignatureVerificationError,
-    apply_manifest,
     compile_manifest,
     export_manifest_ttl,
     manifest_from_leanix_spec,
@@ -259,84 +254,6 @@ def test_compile_manifest_projects_classes_relations_fields():
     assert op["placedBy"].lpg_rel_type == "PLACED_BY"
     dtp = {d.local: d for d in spec.datatype_properties}
     assert dtp["total"].range == "xsd:decimal"
-
-
-def test_apply_manifest_writes_when_signed_and_wired(tmp_path, monkeypatch):
-    from agent_utilities.knowledge_graph.core import owl_bridge
-
-    monkeypatch.setattr(owl_bridge, "DYNAMIC_PROMOTABLE_NODE_TYPES", set())
-    m = _signed_manifest()
-    target = (
-        tmp_path / "ontology_servicenow.ttl"
-    )  # exists=False, but source is federated-wired
-    result = apply_manifest(
-        m,
-        ttl_path=target,
-        dry_run=False,
-        trusted_public_keys=(str(m.provenance.signing_public_key),),
-    )
-    assert target.exists()
-    assert result["canonical_hash"] == m.provenance.integrity.hash
-    assert {"incident", "configurationitem"} <= owl_bridge.DYNAMIC_PROMOTABLE_NODE_TYPES
-
-
-def test_apply_manifest_fail_closed_on_bad_signature(tmp_path):
-    m = _signed_manifest()
-    tampered = m.model_copy(
-        update={"provenance": m.provenance.model_copy(update={"signature": "0" * 64})}
-    )
-    target = tmp_path / "ontology_servicenow.ttl"
-    try:
-        apply_manifest(
-            tampered,
-            ttl_path=target,
-            dry_run=False,
-            trusted_public_keys=(str(m.provenance.signing_public_key),),
-        )
-        raise AssertionError("expected SignatureVerificationError")
-    except SignatureVerificationError:
-        pass
-    assert not target.exists()  # nothing emitted on failure
-
-
-def test_apply_manifest_fail_closed_on_tampered_hash(tmp_path):
-    m = _signed_manifest()
-    tampered = m.model_copy(
-        update={
-            "provenance": m.provenance.model_copy(
-                update={"integrity": IntegrityInfo(hash="f" * 64)}
-            )
-        }
-    )
-    target = tmp_path / "ontology_servicenow.ttl"
-    try:
-        apply_manifest(
-            tampered,
-            ttl_path=target,
-            dry_run=False,
-            trusted_public_keys=(str(m.provenance.signing_public_key),),
-        )
-        raise AssertionError("expected SignatureVerificationError on hash mismatch")
-    except SignatureVerificationError:
-        pass
-    assert not target.exists()
-
-
-def test_apply_manifest_anti_sprawl_refusal(tmp_path):
-    """A brand-new, un-imported source with no existing ttl must be refused loudly."""
-    m = _signed_manifest(connector="totally-new-unwired-source")
-    target = tmp_path / "ontology_totally-new-unwired-source.ttl"  # does not exist
-    try:
-        apply_manifest(
-            m,
-            ttl_path=target,
-            dry_run=False,
-            trusted_public_keys=(str(m.provenance.signing_public_key),),
-        )
-        raise AssertionError("expected AntiSprawlError")
-    except AntiSprawlError as exc:
-        assert "owl:imports" in str(exc)
-    assert not target.exists()
 
 
 # ── golden-file LeanIX regression (LeanIX = first caller of the generalized compiler) ──

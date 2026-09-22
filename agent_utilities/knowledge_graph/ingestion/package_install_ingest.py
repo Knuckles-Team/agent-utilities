@@ -117,29 +117,6 @@ def _ingest_prompts_leg() -> dict[str, Any]:
         return {"status": "error", "reason": str(exc)}
 
 
-def _ingest_ontologies_leg(engine: Any) -> dict[str, Any]:
-    """Re-drive the existing ontology-federation reload (`sync_packages`)."""
-    sync_packages = getattr(
-        engine,
-        "_ontology_package_sync",
-        lambda _lifecycle: {
-            "status": "skipped",
-            "reason": "ontology package sync capability is unavailable",
-        },
-    )
-    try:
-        from agent_utilities.knowledge_graph.ontology.lifecycle import (
-            OntologyLifecycle,
-        )
-
-        report = sync_packages(OntologyLifecycle(engine=engine))
-        report.setdefault("status", "ok")
-        return report
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("package_install: ontologies leg failed: %s", exc)
-        return {"status": "error", "reason": str(exc)}
-
-
 def _ingest_skills_leg(engine: Any) -> dict[str, Any]:
     """Re-drive the workflow AND atomic-skill corpus reloads.
 
@@ -251,7 +228,6 @@ def sync_package_install(
 
     legs = {
         "prompts": _ingest_prompts_leg(),
-        "ontologies": _ingest_ontologies_leg(engine),
         "skills": _ingest_skills_leg(engine),
     }
 

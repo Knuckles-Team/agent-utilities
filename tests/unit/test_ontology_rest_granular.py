@@ -221,51 +221,6 @@ def test_generate_ontology_appears_in_openapi(client):
 # ── SHACL validation report (coverage row #9/#97 frontend gap) ──────────────
 
 
-def test_validate_ontology_round_trips_with_shacl_report(client):
-    tc, captured = client
-    resp = tc.post(
-        "/api/ontology/validate",
-        json={
-            "source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .",
-            "source_type": "text",
-        },
-    )
-    assert resp.status_code == 200
-    result = resp.json()["result"]
-    assert result["valid"] is True
-    assert result["shacl_report"]["conforms"] is True
-    assert (
-        "graph_ontology",
-        {
-            "action": "validate",
-            "source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .",
-            "source_type": "text",
-        },
-    ) in captured
-
-
-def test_validate_ontology_reports_invalid(client):
-    tc, _ = client
-    resp = tc.post("/api/ontology/validate", json={"source": "bad turtle"})
-    assert resp.status_code == 200
-    result = resp.json()["result"]
-    assert result["valid"] is False
-    assert result["errors"]
-
-
-def test_validate_ontology_requires_source(client):
-    tc, _ = client
-    resp = tc.post("/api/ontology/validate", json={})
-    assert resp.status_code == 400
-
-
-def test_validate_ontology_appears_in_openapi(client):
-    tc, _ = client
-    spec = tc.get("/openapi.json").json()
-    assert "/api/ontology/validate" in spec["paths"]
-    assert "post" in spec["paths"]["/api/ontology/validate"]
-
-
 # ── Import / export (coverage row #23) ───────────────────────────────────────
 
 
@@ -276,6 +231,8 @@ def test_load_ontology_round_trips(client):
         json={
             "source": "@prefix ex: <http://example.org/pets#> . ex:Dog a ex:Animal .",
             "source_type": "text",
+            "iri": "http://example.org/pets",
+            "version": "1.0.0",
         },
     )
     assert resp.status_code == 200
@@ -288,31 +245,8 @@ def test_load_ontology_round_trips(client):
             "action": "load",
             "source": "@prefix ex: <http://example.org/pets#> . ex:Dog a ex:Animal .",
             "source_type": "text",
-            "iri": "",
-            "version": "",
-            "category": "",
-            "tags_json": "",
-        },
-    ) in captured
-
-
-def test_load_ontology_forwards_category_and_tags(client):
-    tc, captured = client
-    resp = tc.post(
-        "/api/ontology/load",
-        json={"source": "x", "category": "finance", "tags": ["draft", "q3"]},
-    )
-    assert resp.status_code == 200
-    assert (
-        "graph_ontology",
-        {
-            "action": "load",
-            "source": "x",
-            "source_type": "auto",
-            "iri": "",
-            "version": "",
-            "category": "finance",
-            "tags_json": '["draft", "q3"]',
+            "iri": "http://example.org/pets",
+            "version": "1.0.0",
         },
     ) in captured
 
@@ -320,43 +254,13 @@ def test_load_ontology_forwards_category_and_tags(client):
 def test_load_ontology_requires_source(client):
     tc, _ = client
     resp = tc.post("/api/ontology/load", json={})
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
-def test_export_ontology_round_trips(client):
-    tc, captured = client
-    resp = tc.get("/api/ontology/export", params={"iri": "http://example.org/pets"})
-    assert resp.status_code == 200
-    result = resp.json()["result"]
-    assert "ex:Dog" in result["ontology"]["turtle"]
-    assert (
-        "graph_ontology",
-        {
-            "action": "get",
-            "iri": "http://example.org/pets",
-            "version": "",
-            "serialize": True,
-        },
-    ) in captured
-
-
-def test_export_ontology_not_found(client):
-    tc, _ = client
-    resp = tc.get("/api/ontology/export", params={"iri": "urn:missing"})
-    assert resp.status_code == 404
-
-
-def test_export_ontology_requires_iri(client):
-    tc, _ = client
-    resp = tc.get("/api/ontology/export")
-    assert resp.status_code == 422  # FastAPI: required query param missing
-
-
-def test_load_and_export_appear_in_openapi(client):
+def test_load_appears_in_openapi(client):
     tc, _ = client
     spec = tc.get("/openapi.json").json()
     assert "post" in spec["paths"]["/api/ontology/load"]
-    assert "get" in spec["paths"]["/api/ontology/export"]
 
 
 # ── Catalogue (coverage row #4) ───────────────────────────────────────────────
@@ -371,31 +275,7 @@ def test_catalogue_default_round_trips(client):
     assert result["ontologies"][0]["category"] == "animals"
     assert (
         "graph_ontology",
-        {"action": "list", "search": "", "category": "", "source_type": "", "tag": ""},
-    ) in captured
-
-
-def test_catalogue_forwards_all_filters(client):
-    tc, captured = client
-    resp = tc.get(
-        "/api/ontology/catalogue",
-        params={
-            "search": "pets",
-            "category": "animals",
-            "source": "text",
-            "tag": "demo",
-        },
-    )
-    assert resp.status_code == 200
-    assert (
-        "graph_ontology",
-        {
-            "action": "list",
-            "search": "pets",
-            "category": "animals",
-            "source_type": "text",
-            "tag": "demo",
-        },
+        {"action": "list"},
     ) in captured
 
 

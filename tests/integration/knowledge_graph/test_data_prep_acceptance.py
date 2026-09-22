@@ -408,7 +408,7 @@ def _close_real_engine(engine: Any) -> None:
     try:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        IntelligenceGraphEngine.set_active(None)
+        IntelligenceGraphEngine._set_active_for_tests(None)
     except ImportError:
         pass
 

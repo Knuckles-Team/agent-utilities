@@ -11,8 +11,6 @@ cleanly when no engine is reachable.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from agent_utilities.knowledge_graph.actions import (
@@ -29,9 +27,6 @@ from agent_utilities.security.permissions_kernel import (
     AgentRole,
     PermissionsKernel,
 )
-
-KG_DIR = Path(__file__).resolve().parents[3] / "agent_utilities" / "knowledge_graph"
-
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -266,79 +261,6 @@ def test_builtin_registry_denies_without_capability() -> None:
 
 
 # ── SHACL: valid action def accepted, invalid rejected ──────────────────────
-
-
-def _build_action_graph(*, with_required: bool):
-    """Build a tiny RDF graph with one OntologyAction individual."""
-    rdflib = pytest.importorskip("rdflib")
-    from rdflib import RDF, Literal, Namespace
-
-    KG = Namespace("http://knuckles.team/kg#")
-    g = rdflib.Graph()
-    a = KG["action:test.screen"]
-    g.add((a, RDF.type, KG.OntologyAction))
-    g.add((a, KG.name, Literal("test.screen")))
-    g.add((a, KG.acts_on, Literal("financial_instrument")))
-    if with_required:
-        g.add((a, KG.required_capability, Literal("finance_screen")))
-    return g
-
-
-def test_shacl_accepts_valid_action_def() -> None:
-    pytest.importorskip("pyshacl")
-    from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
-
-    shapes = KG_DIR / "shapes" / "governance.shapes.ttl"
-    g = _build_action_graph(with_required=True)
-    report = SHACLValidator().validate(g, shapes)
-    assert report["conforms"], report["results_text"]
-
-
-def test_shacl_rejects_invalid_action_def() -> None:
-    pytest.importorskip("pyshacl")
-    from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
-
-    shapes = KG_DIR / "shapes" / "governance.shapes.ttl"
-    # Missing required_capability → must be quarantined by the gate.
-    g = _build_action_graph(with_required=False)
-    report = SHACLValidator().validate(g, shapes)
-    assert not report["conforms"]
-    assert any(
-        "required_capability" in (v.get("message") or "") for v in report["violations"]
-    )
-
-
-# ── OWL: reasoned eligibility (the "for free" payoff) ───────────────────────
-
-
-def test_owl_reasoned_eligibility_may_be_invoked_by() -> None:
-    """An Agent that providesCapability X may invoke an Action requiringCapability X.
-
-    Demonstrates the OWL-substrate dividend: the ``mayBeInvokedBy`` property
-    chain ``( :requiresCapability :providedBy )`` infers action eligibility from
-    the same Capability/Tool pattern that powers tool swappability (KG-2.7).
-    """
-    rdflib = pytest.importorskip("rdflib")
-    owlrl = pytest.importorskip("owlrl")
-    from rdflib import RDF, Namespace
-
-    KG = Namespace("http://knuckles.team/kg#")
-    g = rdflib.Graph()
-    g.parse(str(KG_DIR / "ontology_action.ttl"), format="turtle")
-    g.parse(str(KG_DIR / "ontology_capability.ttl"), format="turtle")
-
-    action = KG["action:finance.forensic_screen"]
-    agent = KG["agent:fin"]
-    cap = KG["FinanceScreenCapability"]
-    g.add((action, RDF.type, KG.OntologyAction))
-    g.add((action, KG.requiresCapability, cap))
-    g.add((agent, RDF.type, KG.Agent))
-    g.add((agent, KG.providesCapability, cap))
-
-    owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(g)
-
-    # The reasoner infers eligibility without any hand-wired edge.
-    assert (action, KG.mayBeInvokedBy, agent) in g
 
 
 # ---------------------------------------------------------------------------

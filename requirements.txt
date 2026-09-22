@@ -4,6 +4,7 @@ pydantic[email]>=2.13.4
 pydantic-settings>=2.14.2
 PyYAML>=6.0.3
 epistemic-graph[full]>=2.27.0,<3.0.0
+agent-connector-sdk>=0.1.0,<1.0.0
 ladybug>=0.17.1
 cryptography>=50.0.0
 pathspec>=1.1.1

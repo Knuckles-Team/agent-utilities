@@ -7,7 +7,6 @@ from .knowledge_base import knowledge_base_phase
 from .memory import memory_phase
 from .mro import mro_phase
 from .observability import decision_evolution_phase, experience_distillation_phase
-from .owl_reasoning import owl_reasoning_phase
 from .parse import parse_phase
 from .reference import reference_phase
 from .registry import registry_phase
@@ -31,7 +30,6 @@ PHASES = [
     embedding_phase,
     shacl_gate_phase,
     sync_phase,
-    owl_reasoning_phase,
     external_graphs_phase,
     knowledge_base_phase,
     validate_phase,
@@ -42,7 +40,7 @@ PHASES = [
 # Bulk-ingest "structural" profile (CONCEPT:AU-KG.query.vendor-agnostic-traversal — throughput). Per-artifact runs
 # extract only the local symbol graph (dependency-closed: memory→scan→parse→embedding).
 # The expensive GLOBAL phases — registry (loads the whole discovery registry), resolve,
-# mro, reference, communities, centrality, owl_reasoning, sync — are deferred to a SINGLE
+# mro, reference, communities, centrality, and sync — are deferred to a SINGLE
 # end-of-run enrichment pass over the full accumulated graph (and offloaded to the Rust
 # epistemic-graph compute layer where possible) instead of being re-run per artifact.
 STRUCTURAL_PHASES = [

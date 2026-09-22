@@ -511,10 +511,16 @@ class IntelligenceGraphEngine(
         return view
 
     @classmethod
-    def set_active(cls, engine: IntelligenceGraphEngine | None):
-        """Explicit dependency-injection/reset seam (primarily for tests)."""
+    def _set_active_for_tests(cls, engine: IntelligenceGraphEngine | None):
+        """Private dependency-injection/reset seam for hermetic tests."""
         with cls._ACTIVE_ENGINE_LOCK:
             cls._ACTIVE_ENGINE = engine
+        cls._synchronize_active_test_dependencies(engine)
+
+    @staticmethod
+    def _synchronize_active_test_dependencies(
+        engine: IntelligenceGraphEngine | None,
+    ) -> None:
         from agent_utilities.core.contextual_model import set_context_compiler_engine
 
         set_context_compiler_engine(engine)
@@ -849,8 +855,7 @@ class IntelligenceGraphEngine(
                     # `"node_type": label` silently overwrote the correct
                     # lowercase value with the PascalCase schema label on
                     # every native typed-add upsert, breaking every
-                    # lowercase-keyed `node_type` consumer downstream (e.g.
-                    # owl_bridge.PROMOTABLE_NODE_TYPES membership checks).
+                    # lowercase-keyed `node_type` consumers downstream.
                     "node_type": prepared.get("node_type", label),
                 },
             )

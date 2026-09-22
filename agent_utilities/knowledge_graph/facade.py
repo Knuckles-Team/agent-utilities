@@ -4,23 +4,21 @@ from __future__ import annotations
 """Knowledge Graph facade — the single object the execution plane talks to.
 
 The **epistemic-graph engine is the ONE authority** (compute + in-memory cache +
-semantic + durable persistence); the facade composes it with the semantic + retrieval
-layers behind one object. There is no numeric graph-storage hierarchy — the facade exposes three
-collaborating concerns, all served by the one authority:
+semantic + durable persistence); the facade composes its storage, native RDF/OWL
+compute methods, and retrieval index behind one object. There is no numeric
+graph-storage hierarchy — these concerns are served by the one authority:
 
 * **store** — the epistemic engine, automatically wrapped with any configured
   durable external projections (e.g. ``backends/`` mirrors when
   ``GRAPH_MIRROR_TARGETS`` names one or more mirrors), holding the labelled
   property graph.
-* **compute** — the Rust-native ``epistemic-graph`` compute client for in-process graph
-  algorithms (when available).
-* **semantic / retrieval** — OWL reasoning (``owl_bridge``) and the capability-aware
-  designation index (:class:`CapabilityIndex`) that turn the graph into actionable
-  routing/designation decisions.
+* **compute** — the Rust-native ``epistemic-graph`` client for graph algorithms,
+  SPARQL, and read-only OWL reasoning.
+* **retrieval** — the capability-aware designation index (:class:`CapabilityIndex`).
 
 Dependency contract (strictly one-directional)::
 
-    graph/*  ->  facade (KnowledgeGraph)  ->  { store, compute, semantic/retrieval }
+    graph/*  ->  facade (KnowledgeGraph)  ->  { store, compute, retrieval }
 
 The execution plane (``graph/*`` — routing, planning, orchestration) depends on
 this facade. The facade depends downward on those concerns. **Nothing below the
@@ -29,9 +27,8 @@ lazily so that *constructing* a :class:`KnowledgeGraph` remains side-effect
 free — it never requires a running service, an installed optional backend, or
 a network connection. Accessing its operational store or compute layer
 requires the already active process-owned engine and fails closed when that
-authority is absent (the semantic/ontology layers remain best-effort and
-degrade to ``None`` on import/construction failure, keeping the facade usable
-in tests and degraded environments).
+authority is absent. The ontology registry remains lazily constructed and
+best-effort so the facade can still be created in tests and degraded environments.
 """
 
 import logging
@@ -49,10 +46,10 @@ __all__ = ["KnowledgeGraph"]
 class KnowledgeGraph:
     """Composition root over the multi-layer knowledge graph.
 
-    Exposes four lazily-initialised layer attributes — :attr:`compute`,
-    :attr:`store`, :attr:`semantic`, :attr:`retrieval` — plus the
-    :meth:`designate` convenience that the execution plane uses for
-    capability-aware routing.
+    Exposes lazily-initialised :attr:`compute`, :attr:`store`, and
+    :attr:`retrieval` layers, native :meth:`sparql` and :meth:`owl_reason`
+    operations, the :attr:`ontology` registry, and the :meth:`designate`
+    convenience used by capability-aware routing.
 
     Construction is cheap and side-effect free: no layer is touched until its
     property is accessed. Operational layers bind to the active process-owned
@@ -76,7 +73,6 @@ class KnowledgeGraph:
         # Lazy slots — sentinel ``...`` means "not yet initialised".
         self._store: Any = ...
         self._compute: Any = ...
-        self._semantic: Any = ...
         self._retrieval: CapabilityIndex | None = retrieval
         self._ontology: Any = ...
         # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — lazily built over self.retrieval.
@@ -187,50 +183,33 @@ class KnowledgeGraph:
         return self._compute
 
     # ------------------------------------------------------------------
-    # semantic — the OWL reasoning bridge
+    # semantic — native epistemic-graph RDF/OWL operations
     # ------------------------------------------------------------------
-    @property
-    def semantic(self) -> Any:
-        """The OWL reasoning bridge (semantic layer), or ``None``.
+    def sparql(
+        self,
+        query: str,
+        *,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, str | None]]:
+        """Run SPARQL through the graph authority's native RDF engine."""
+        return self.compute.sparql(
+            query, base_iri=base_iri, type_convention=type_convention
+        )
 
-        Built lazily over the active compute/store layers. Requires an OWL
-        backend; if none can be constructed the attribute resolves to ``None``.
-        """
-        if self._semantic is ...:
-            self._semantic = None
-            try:
-                from .core.owl_bridge import OWLBridge
-
-                owl_backend = self._make_owl_backend()
-                if owl_backend is not None and self.compute is not None:
-                    self._semantic = OWLBridge(
-                        graph=self.compute,
-                        owl_backend=owl_backend,
-                        backend=self.store,
-                    )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("KnowledgeGraph: semantic layer unavailable: %s", exc)
-                self._semantic = None
-        return self._semantic
-
-    @staticmethod
-    def _make_owl_backend() -> Any:
-        """Best-effort construction of an OWL backend; ``None`` on failure."""
-        try:
-            from .backends.owl import create_owl_backend  # type: ignore
-
-            return create_owl_backend()
-        except Exception:
-            pass
-        try:
-            from .backends.owl.owlready2_backend import (  # type: ignore
-                Owlready2Backend,
-            )
-
-            return Owlready2Backend()
-        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001 — returns None (the documented 'no OWL backend available' case); callers of retrieval/ontology already handle a None OWL backend by degrading semantic reasoning, not by crashing
-            logger.debug("KnowledgeGraph: no OWL backend available: %s", exc)
-            return None
+    def owl_reason(
+        self,
+        *,
+        ontology: str | None = None,
+        target_class: str | None = None,
+        class_base: str = "http://agent-utilities.dev/ontology#",
+    ) -> dict[str, Any]:
+        """Run the graph authority's native, read-only OWL reasoner."""
+        return self.compute.owl_reason(
+            ontology=ontology,
+            target_class=target_class,
+            class_base=class_base,
+        )
 
     # ------------------------------------------------------------------
     # retrieval — the capability designation index
@@ -259,7 +238,7 @@ class KnowledgeGraph:
         Composes the property-type / value-type / interface / link / function /
         derived-property registries (:class:`OntologySystem`) and binds them to
         *this* facade so Functions-on-Objects, derived-property compute, and
-        interface targeting resolve against the live store/semantic/retrieval
+        interface targeting resolve against the live store/native compute/retrieval
         layers. Built lazily and defensively — any import failure resolves to
         ``None`` rather than raising, matching the other layer accessors.
         """
@@ -659,7 +638,7 @@ class KnowledgeGraph:
         is intentionally lazy and defensive: it touches only the
         :attr:`retrieval` layer (which always resolves to a usable
         :class:`CapabilityIndex`), so it never requires a running store,
-        compute, or semantic backend.
+        compute engine.
 
         Each node is a mapping shaped::
 

@@ -24,7 +24,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from ...models.company_brain import (
     AssertionType,
@@ -1127,11 +1127,12 @@ class CompanyBrain:
         proposed_edge: tuple[str, str, dict[str, Any]] | None = None,
         shapes_path: str | Path | None = None,
     ) -> dict[str, Any]:
-        """Validate proposed assertion (node or edge) using a forked EpistemicGraph.
+        """Validate proposed assertion using EG's fork and native SHACL authority.
 
         Forks the base_graph, applies the proposed assertion, converts the resulting
-        state into an RDF graph using an internal OWLBridge-compatible materialization,
-        and validates against governance shapes using SHACLValidator.
+        state into EG's RDF projection, and validates against the committed
+        GraphSchema snapshot. An explicit ``shapes_path`` remains an ad-hoc
+        specialist check, but EG is still the only interpreter.
 
         Args:
             base_graph: An EpistemicGraph instance.
@@ -1177,72 +1178,40 @@ class CompanyBrain:
             props_str = json.dumps(props) if isinstance(props, dict) else str(props)
             forked_graph.add_edge(src, tgt, props_str)
 
-        # 3. Create a networkx-compatible wrapper so OWLBridge can materialize it
-        class NetworkXWrapper:
-            def __init__(self, eg: Any) -> None:
-                self.eg = eg
+        return self._validate_shacl_projection(forked_graph, shapes_path)
 
-            @property
-            def nodes(self) -> Any:
-                class NodeView:
-                    def __init__(self, eg: Any) -> None:
-                        self.eg = eg
+    @staticmethod
+    def _validate_shacl_projection(
+        forked_graph: Any, shapes_path: str | Path | None
+    ) -> dict[str, Any]:
+        """Validate the fork's canonical RDF projection through EG only."""
+        get_rdf = getattr(forked_graph, "get_rdf", None)
+        if get_rdf is None:
+            raise GraphForkUnavailableError(
+                "pre_commit_validate() requires forked_graph.get_rdf() so the "
+                "candidate can be validated by EG's generated ShaclValidate contract"
+            )
+        data_graph = str(get_rdf() or "")
+        if not data_graph:
+            raise RuntimeError("forked graph returned an empty RDF projection")
 
-                    def __call__(self, data: bool = False) -> list[Any]:
-                        nodes_list: list[Any] = []
-                        for node_id, props_str in self.eg.get_nodes():
-                            try:
-                                props = json.loads(props_str)
-                            except Exception:
-                                props = {}
-                            if data:
-                                nodes_list.append((node_id, props))
-                            else:
-                                nodes_list.append(node_id)
-                        return nodes_list
-
-                return NodeView(self.eg)
-
-            @property
-            def edges(self) -> Any:
-                class EdgeView:
-                    def __init__(self, eg: Any) -> None:
-                        self.eg = eg
-
-                    def __call__(self, data: bool = False) -> list[Any]:
-                        edges_list: list[Any] = []
-                        for src, tgt, props_str in self.eg.get_edges():
-                            try:
-                                props = json.loads(props_str)
-                            except Exception:
-                                props = {}
-                            if data:
-                                edges_list.append((src, tgt, props))
-                            else:
-                                edges_list.append((src, tgt))
-                        return edges_list
-
-                return EdgeView(self.eg)
-
-        wrapper = NetworkXWrapper(forked_graph)
-
-        # 4. Use SHACLValidator to validate
-        from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
-        from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
-
-        class DummyOWLBackend:
-            pass_dummy = True
-
-        owl_bridge = OWLBridge(
-            graph=wrapper,
-            owl_backend=cast(Any, DummyOWLBackend()),
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        validator = SHACLValidator()
-        if shapes_path:
-            return validator.validate(owl_bridge._build_rdf_graph(), shapes_path)
+        engine = GraphComputeEngine.get_or_create()
+        if shapes_path is None:
+            report = engine.shacl_validate_committed(data_graph)
         else:
-            return validator.validate_kg(owl_bridge)
+            report = engine.shacl_validate_ad_hoc(
+                data_graph, Path(shapes_path).read_text(encoding="utf-8")
+            )
+        return {
+            "conforms": bool(report.conforms),
+            "violations": [item.model_dump(mode="json") for item in report.results],
+            "schema_digests": list(report.schema_digests),
+            "composed_digest": report.composed_digest,
+        }
 
 
 __all__ = [

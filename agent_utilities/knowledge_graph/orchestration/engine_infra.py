@@ -435,56 +435,11 @@ class InfrastructureEngineMixin(_Base):
         # Evaluate only PlatformService nodes supplied by runtime discovery or a
         # standard provider connector. Do not inject a site-specific service profile.
 
-        # 2. Create the OWL bridge and run the cycle to populate OWL/RDF triples.
-        from ..backends.owl import create_owl_backend
-        from ..core.owl_bridge import OWLBridge
-
-        default_ontology = str(
-            Path(__file__).parent.parent / "ontology_infrastructure.ttl"
-        )
-        # The oxigraph OWL backend was removed; use the default (owlready2).
-        owl_backend = create_owl_backend(
-            ontology_path=default_ontology,
-        )
-
-        bridge = OWLBridge(
-            graph=self.graph,
-            owl_backend=owl_backend,
-            backend=self.backend,
-            importance_threshold=0.0,
-        )
-
-        # Execute the promotion cycle to populate ABox facts inside OWL backend
-        bridge.run_cycle()
-
-        # 4. Query Host capabilities via SPARQL. The engine's live projection
-        # types every promoted node as au:CamelCase(node_type) — a "host" node
-        # is au:Host, never au:BladeServer (that class belongs to an unrelated
-        # vendor ontology under a completely different namespace/prefix in
-        # ontology_infrastructure.ttl, not this engine-native projection).
-        #
-        # Edge predicates are NOT case-transformed on the engine-native path
-        # (D-CYP-1): ``bridge.query_sparql`` tries the LIVE engine projection
-        # FIRST (``OWLBridge.query_sparql`` strategy 1,
-        # ``self.graph.sparql(...)``) and only falls back to the owlready2
-        # backend's own SPARQL (strategy 2) when strategy 1 returns ZERO rows
-        # -- and a `?host rdf:type au:Host` row always exists once hosts are
-        # ingested, so strategy 1 always wins here. The engine's edge
-        # projection (`eg-rdf`'s ``match_triple_pattern`` -> ``proj.pred_iri``)
-        # emits an edge predicate from the LPG edge's raw ``relationship``
-        # property value VERBATIM, with no case transform -- and that value is
-        # the upper-snake-case ``link_nodes`` writes ("HAS_ACCELERATOR",
-        # "ATTACHED_STORAGE" — see below). Only the owlready2 backend's
-        # ``_promote_stable_edges()`` (strategy 2, effectively unreachable
-        # here) resolves it through ``_EDGE_TYPE_TO_OWL_PROP`` into camelCase
-        # ("hasAccelerator", "attachedStorage"). Querying camelCase-only
-        # predicates silently starved every host of a GPU/storage match on
-        # strategy 1 -- ``has_gpu`` was False for every host, so every
-        # GPU-requiring service scored an identical tie and the "best" host
-        # was whichever the sort's stability happened to keep first, NOT the
-        # one actually carrying the accelerator. Matching BOTH spellings via
-        # a property-path alternation keeps this correct under either
-        # strategy.
+        # Query the native live RDF projection directly. It synthesizes type
+        # triples from node types and preserves relationship keys verbatim.
+        # The property-path alternations cover the engine's stored relationship
+        # spelling and the ontology vocabulary spelling without a Python OWL
+        # materialization or fallback.
         host_query = """
         PREFIX au: <http://agent-utilities.dev/ontology#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -504,10 +459,18 @@ class InfrastructureEngineMixin(_Base):
         }
         """
 
-        hosts_rdf = bridge.query_sparql(host_query)
-        services_rdf = bridge.query_sparql(service_query)
+        hosts_rdf = self.graph.sparql(
+            host_query,
+            base_iri="http://agent-utilities.dev/ontology#",
+            type_convention="camel",
+        )
+        services_rdf = self.graph.sparql(
+            service_query,
+            base_iri="http://agent-utilities.dev/ontology#",
+            type_convention="camel",
+        )
 
-        def _local_id(uri: str) -> str:
+        def _local_id(uri: str | None) -> str:
             """The bare node id from a SPARQL-bound URI.
 
             The engine-native SPARQL surface (and rdflib's SELECT bindings)

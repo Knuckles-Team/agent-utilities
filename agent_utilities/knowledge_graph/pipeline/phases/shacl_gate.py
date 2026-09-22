@@ -21,16 +21,16 @@ operation: a Tool missing its required ``name``/``capabilityCategory``,
 or an Agent missing its ``name``, never silently lands in the graph as a
 first-class citizen.
 
-The phase is deliberately self-contained — it builds its own RDF data
-graph in the ``http://knuckles.team/kg#`` namespace (matching the
-``sh:targetClass`` IRIs in ``governance.shapes.ttl``) so it can run before
-any RDF materialization performed by the OWL reasoning phase.
+The phase builds only the candidate RDF data document in the
+``http://knuckles.team/kg#`` namespace. It sends that document to
+epistemic-graph with the ``shapes`` request field omitted, so validation uses
+the committed, digest-bound GraphSchema snapshot rather than an AU-local shape
+file or Python validator.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from ..types import PhaseResult, PipelineContext, PipelinePhase
@@ -40,22 +40,9 @@ logger = logging.getLogger(__name__)
 # kg# namespace — the ``:`` prefix used by every ontology + shapes file.
 KG_NS = "http://knuckles.team/kg#"
 
-# Default shapes: bundled alongside the knowledge_graph package.
-_DEFAULT_SHAPES = str(
-    Path(__file__).parent.parent.parent / "shapes" / "governance.shapes.ttl"
-)
-
 # Properties that should never be promoted into the RDF data graph
 # (large float arrays, internal bookkeeping).
 _SKIP_PROPS = {"embedding", "ewc_fisher_diag"}
-
-try:
-    import pyshacl  # noqa: F401
-    import rdflib  # noqa: F401
-
-    SHACL_SUPPORT = True
-except ImportError:  # pragma: no cover - exercised only when deps missing
-    SHACL_SUPPORT = False
 
 
 def _class_iri(node_type: str) -> str:
@@ -212,77 +199,36 @@ def build_data_graph(graph: Any) -> Any:
     return g
 
 
-def validate_graph(
-    graph: Any, shapes_path: str
-) -> tuple[bool, dict[str, list[str]], str]:
-    """Run pyshacl against *graph* and return per-focus-node violations.
+def _data_turtle(graph: Any) -> str:
+    rendered = build_data_graph(graph).serialize(format="turtle")
+    return rendered.decode() if isinstance(rendered, bytes) else str(rendered)
 
-    Returns ``(conforms, {node_id: [messages]}, report_text)``.  Only
-    ``sh:Violation`` severity results trigger quarantine; warnings/info are
-    surfaced in the report text but do not gate ingestion.
-    """
-    import pyshacl
-    import rdflib
 
-    data_graph = build_data_graph(graph)
-    shapes_graph = rdflib.Graph()
-    shapes_graph.parse(shapes_path, format="turtle")
+def _result_node_id(focus_node: str) -> str:
+    """Convert the engine's N-Triples lexical focus node into an AU node id."""
 
-    # CONCEPT:AU-KG.ontology.value-type-shacl-load — also load value-type-generated SHACL shapes so value-type
-    # constraints (EmailAddress, Percentage, …) are enforced alongside the bundled
-    # governance shapes. Best-effort: a malformed/absent fragment must not break
-    # the gate (the parse is isolated in try/except).
-    try:
-        from agent_utilities.knowledge_graph.ontology.value_types import VALUE_TYPES
+    value = focus_node
+    if value.startswith("<") and value.endswith(">"):
+        value = value[1:-1]
+    return value[len(KG_NS) :] if value.startswith(KG_NS) else value
 
-        frags = [vt.to_shacl() for vt in VALUE_TYPES.values()]
-        if frags:
-            header = (
-                "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
-                "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
-                "@prefix qudt: <http://qudt.org/schema/qudt/> .\n"
-                f"@prefix : <{KG_NS}> .\n\n"
-            )
-            shapes_graph.parse(data=header + "\n".join(frags), format="turtle")
-    except Exception as exc:  # noqa: BLE001 — optional advisory augmentation
-        logger.debug(
-            "Value-type SHACL augmentation unavailable (exception_type=%s)",
-            type(exc).__name__,
-        )
 
-    conforms, results_graph, results_text = pyshacl.validate(
-        data_graph,
-        shacl_graph=shapes_graph,
-        inference="none",
-        abort_on_first=False,
-        meta_shacl=False,
-        advanced=True,
-    )
-
-    SH = rdflib.Namespace("http://www.w3.org/ns/shacl#")
-    kg = rdflib.Namespace(KG_NS)
+def _violation_map(report: Any) -> dict[str, list[str]]:
     violations: dict[str, list[str]] = {}
-
-    for result in results_graph.subjects(rdflib.RDF.type, SH.ValidationResult):
-        severity = results_graph.value(result, SH.resultSeverity)
-        if severity is not None and severity != SH.Violation:
-            continue  # warnings / info do not gate ingestion
-        focus = results_graph.value(result, SH.focusNode)
-        msg = results_graph.value(result, SH.resultMessage)
-        if focus is None:
+    for result in report.results:
+        if getattr(result.severity, "value", result.severity) != "Violation":
             continue
-        focus_str = str(focus)
-        if focus_str.startswith(str(kg)):
-            # Prefer the exact id form first (ids without spaces stay intact)
-            raw_id = focus_str[len(str(kg)) :]
-        else:
-            raw_id = focus_str
-        key = raw_id
-        violations.setdefault(key, []).append(
-            str(msg) if msg is not None else "SHACL constraint violated"
+        violations.setdefault(_result_node_id(result.focus_node), []).append(
+            result.message or "SHACL constraint violated"
         )
+    return violations
 
-    return conforms, violations, str(results_text)
+
+def validate_graph(graph: Any) -> tuple[bool, dict[str, list[str]], str]:
+    """Validate through EG's committed, digest-bound GraphSchema authority."""
+
+    report = graph.shacl_validate_committed(_data_turtle(graph))
+    return bool(report.conforms), _violation_map(report), repr(report.results)
 
 
 def _resolve_node_id(graph: Any, raw_id: str) -> str | None:
@@ -306,18 +252,11 @@ async def execute_shacl_gate(
     if not ctx.config.enable_shacl_gate:
         return {"status": "skipped", "reason": "SHACL gate disabled"}
 
-    if not SHACL_SUPPORT:
-        return {
-            "status": "skipped",
-            "reason": "pyshacl/rdflib not installed (pip install pyshacl rdflib)",
-        }
-
-    shapes_path = ctx.config.shacl_shapes_path or _DEFAULT_SHAPES
-    if not Path(shapes_path).exists():
-        return {"status": "error", "reason": "SHACL shapes are unavailable"}
-
     try:
-        conforms, violations, report_text = validate_graph(ctx.graph, shapes_path)
+        report = await ctx.graph.shacl_validate_committed_async(_data_turtle(ctx.graph))
+        conforms = bool(report.conforms)
+        violations = _violation_map(report)
+        report_text = repr(report.results)
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(
             "Advisory SHACL validation failed (exception_type=%s)",

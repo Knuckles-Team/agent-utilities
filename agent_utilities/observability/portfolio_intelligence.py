@@ -19,12 +19,11 @@ composition style:
   ``:AssetInstance`` estate, read at the candidate's node.
 * A ``change_risk_score``-style deterministic weighted sum
   (``Sigma(w_i * score_i)``) over the ``:ComparisonCriterion`` vector.
-* :class:`~agent_utilities.knowledge_graph.core.shacl_validator.SHACLValidator`
-  (``shapes/portfolio_intelligence.shapes.ttl``) as an ADDITIVE audit of the
+* Committed epistemic-graph SHACL validation as an ADDITIVE audit of the
   verdict shape, mirroring :mod:`.research.promotion_governance`'s multi-check
   pattern — never the decision authority itself.
 * The inferred ``:RedundantCapability``/``:swappableWith`` capability topology
-  (``ontology_capability.ttl``) for peer-group discovery and the
+  from EG's committed capability GraphSchema source for peer-group discovery and the
   consolidation-benefit criterion — a pure graph read, no new mining algorithm.
 
 **Two-tier evaluation (design Sec 2c).** :func:`assess_candidate` runs the GATE
@@ -67,7 +66,6 @@ Two workflows:
 import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -113,13 +111,6 @@ _LICENSE_MODEL_SCORE: dict[str, float] = {
     "subscription": 0.5,
     "usage": 0.4,
 }
-
-_SHAPES_PATH = (
-    Path(__file__).parent.parent
-    / "knowledge_graph"
-    / "shapes"
-    / "portfolio_intelligence.shapes.ttl"
-)
 
 __all__ = [
     "GateCheck",
@@ -800,23 +791,17 @@ def _decide_verdict(
     )
 
 
-def validate_verdict_shape(recommendation: dict[str, Any]) -> dict[str, Any]:
+def validate_verdict_shape(
+    recommendation: dict[str, Any], *, engine: Any
+) -> dict[str, Any]:
     """ADDITIVE SHACL audit of the computed verdict
     (``shapes/portfolio_intelligence.shapes.ttl``) — confirms the
     ``:Recommendation``/``:Assessment`` the engine would write is well-formed
     (valid verdict enum, non-empty rationale, a recorded score). Never itself
     decides the verdict; mirrors
     :meth:`~agent_utilities.knowledge_graph.research.promotion_governance.PromotionGovernanceValidator._check_shacl`.
-    Degrades to ``conforms=True`` when rdflib/pyshacl aren't installed."""
-    try:
-        import rdflib
-    except ImportError:
-        return {
-            "conforms": True,
-            "violations": [],
-            "results_text": "rdflib not installed — SHACL check skipped",
-        }
-    from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
+    Epistemic Graph is the sole validator; an unavailable engine fails closed."""
+    import rdflib
 
     kg = rdflib.Namespace("http://knuckles.team/kg#")
     graph = rdflib.Graph()
@@ -844,7 +829,21 @@ def validate_verdict_shape(recommendation: dict[str, Any]) -> dict[str, Any]:
             ),
         )
     )
-    return SHACLValidator().validate(graph, _SHAPES_PATH)
+    return _validate_verdict_graph(engine, graph)
+
+
+def _validate_verdict_graph(engine: Any, graph: Any) -> dict[str, Any]:
+    graph_compute = getattr(engine, "graph_compute", engine)
+    if not hasattr(graph_compute, "shacl_validate_committed"):
+        raise RuntimeError("committed EG SHACL authority is unavailable")
+    data = graph.serialize(format="turtle")
+    report = graph_compute.shacl_validate_committed(str(data))
+    return {
+        "conforms": bool(report.conforms),
+        "violations": [item.model_dump(mode="json") for item in report.results],
+        "schema_digests": list(report.schema_digests),
+        "composed_digest": report.composed_digest,
+    }
 
 
 # ── the public compute entrypoint ───────────────────────────────────────────

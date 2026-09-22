@@ -7,14 +7,14 @@ the gate is wired into the pipeline phase graph ahead of the commit phase.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-pytest.importorskip("pyshacl")
 pytest.importorskip("rdflib")
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline.phases.shacl_gate import (
-    _DEFAULT_SHAPES,
     execute_shacl_gate,
     shacl_gate_phase,
     validate_graph,
@@ -28,24 +28,56 @@ def _ctx(graph: GraphComputeEngine) -> PipelineContext:
     return PipelineContext(config=cfg, graph=graph)
 
 
-def test_invalid_node_is_quarantined_with_report() -> None:
+def _report(*node_ids: str) -> SimpleNamespace:
+    results = [
+        SimpleNamespace(
+            focus_node=f"<http://knuckles.team/kg#{node_id}>",
+            message="name is required",
+            severity=SimpleNamespace(value="Violation"),
+        )
+        for node_id in node_ids
+    ]
+    return SimpleNamespace(conforms=not results, results=results)
+
+
+def _bind_report(
+    monkeypatch: pytest.MonkeyPatch,
+    graph: GraphComputeEngine,
+    *node_ids: str,
+) -> None:
+    report = _report(*node_ids)
+    monkeypatch.setattr(graph, "shacl_validate_committed", lambda _data: report)
+
+    async def _validate(_data: str) -> SimpleNamespace:
+        return report
+
+    monkeypatch.setattr(graph, "shacl_validate_committed_async", _validate)
+
+
+def test_invalid_node_is_quarantined_with_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An Agent missing its required ``name`` is quarantined with a report."""
     g = GraphComputeEngine()
     g.add_node("bad_agent", {"node_type": "agent"})  # missing required :name
+    _bind_report(monkeypatch, g, "bad_agent")
 
-    conforms, violations, report_text = validate_graph(g, _DEFAULT_SHAPES)
+    conforms, violations, report_text = validate_graph(g)
     assert conforms is False
     assert "bad_agent" in violations
     assert any("name" in m.lower() for m in violations["bad_agent"])
 
 
 @pytest.mark.asyncio
-async def test_gate_phase_routes_invalid_node_to_quarantine() -> None:
+async def test_gate_phase_routes_invalid_node_to_quarantine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The phase reroutes the violating node's type to the quarantine marker
     and attaches the violation report; the valid node is untouched."""
     g = GraphComputeEngine()
     g.add_node("good_agent", {"node_type": "agent", "name": "Planner"})
     g.add_node("bad_agent", {"node_type": "agent"})  # missing :name
+    _bind_report(monkeypatch, g, "bad_agent")
 
     ctx = _ctx(g)
     out = await execute_shacl_gate(ctx, {})
@@ -71,7 +103,9 @@ async def test_gate_phase_routes_invalid_node_to_quarantine() -> None:
 
 
 @pytest.mark.asyncio
-async def test_valid_tool_passes_invalid_tool_rejected() -> None:
+async def test_valid_tool_passes_invalid_tool_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A Tool with name + capabilityCategory passes; one missing the
     category is rejected."""
     g = GraphComputeEngine()
@@ -80,6 +114,7 @@ async def test_valid_tool_passes_invalid_tool_rejected() -> None:
         {"node_type": "tool", "name": "GitLab", "capabilityCategory": "source_control"},
     )
     g.add_node("bad_tool", {"node_type": "tool", "name": "OnlyName"})  # no category
+    _bind_report(monkeypatch, g, "bad_tool")
 
     ctx = _ctx(g)
     out = await execute_shacl_gate(ctx, {})
@@ -93,7 +128,7 @@ async def test_valid_tool_passes_invalid_tool_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_valid_nodes_conform() -> None:
+async def test_all_valid_nodes_conform(monkeypatch: pytest.MonkeyPatch) -> None:
     """When every node satisfies its shape, nothing is quarantined."""
     g = GraphComputeEngine()
     g.add_node("a", {"node_type": "agent", "name": "A"})
@@ -101,6 +136,7 @@ async def test_all_valid_nodes_conform() -> None:
         "t",
         {"node_type": "tool", "name": "T", "capabilityCategory": "itsm"},
     )
+    _bind_report(monkeypatch, g)
 
     out = await execute_shacl_gate(_ctx(g), {})
     assert out["quarantined_count"] == 0

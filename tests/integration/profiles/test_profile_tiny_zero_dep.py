@@ -59,7 +59,7 @@ def _tiny_profile_env(monkeypatch, tmp_path):
         monkeypatch.delenv(ext, raising=False)
     # Rebuild engine/backend under the tiny env (root conftest also resets these).
     set_active_backend(None)
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
 
 
 def test_cold_import_pulls_no_external_service_drivers():
@@ -90,26 +90,6 @@ def test_cold_import_pulls_no_external_service_drivers():
     assert result.returncode == 0, f"cold import failed:\n{result.stderr}"
     leaked = json.loads(result.stdout.strip().splitlines()[-1])
     assert leaked == [], f"tiny profile leaked external-service drivers: {leaked}"
-
-
-def test_local_owl_reasoner_runs_in_process():
-    """OWL runs locally (owlready2), not against a remote Stardog/Fuseki server."""
-    pytest.importorskip("owlready2")
-    from agent_utilities.knowledge_graph.backends.owl import create_owl_backend
-    from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
-        Owlready2Backend,
-    )
-
-    owl = create_owl_backend()  # OWL_BACKEND=owlready2 from the profile env
-    try:
-        assert isinstance(owl, Owlready2Backend), (
-            "tiny profile must use a local OWL reasoner"
-        )
-        # An in-process reasoner exposes live stats without any network call.
-        stats = owl.get_stats()
-        assert isinstance(stats, dict)
-    finally:
-        owl.close()
 
 
 def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
@@ -195,7 +175,7 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     auth_headers = {"Authorization": "Bearer valid-token"}
 
     # Force the process-active engine to exist (and be registered via
-    # IntelligenceGraphEngine.set_active) BEFORE any request. The connection
+    # IntelligenceGraphEngine._set_active_for_tests) BEFORE any request. The connection
     # registry's "default" target resolves ONLY to
     # IntelligenceGraphEngine.get_active() (get_connection_registry's own
     # docstring: "registry construction never creates or seeds a second

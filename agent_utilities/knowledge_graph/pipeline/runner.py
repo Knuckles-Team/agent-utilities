@@ -84,7 +84,6 @@ class PipelineRunner:
             "Stage 4: Epistemic Consolidation": [
                 "shacl_gate",
                 "sync",
-                "owl_reasoning",
                 "external_graphs",
                 "knowledge_base",
             ],

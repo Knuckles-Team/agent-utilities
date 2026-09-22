@@ -763,10 +763,9 @@ def _create_fanout_backend() -> "GraphBackend":
 
 
 def _create_stardog_backend(uri, user, password, db_name, kwargs):
-    # First-class SPARQL DATA backend (push/pull/query of instance data), usable
-    # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
-    # *reasoning* backend (TBox + inference) is separate:
-    # ``create_owl_backend('stardog')``.
+    # First-class external SPARQL DATA backend (push/pull/query of instance
+    # data), usable standalone, as a fan-out mirror, or ad hoc. Schema
+    # composition and reasoning remain owned by epistemic-graph.
     from .sparql.stardog_backend import (
         DEFAULT_DATABASE,
         STARDOG_LEVELS,

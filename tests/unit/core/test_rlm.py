@@ -131,33 +131,33 @@ class TestRLMOWLHelpers:
         assert result[0]["error"] == "Knowledge engine not available"
 
     @pytest.mark.asyncio
-    async def test_owl_query_no_bridge(self):
+    async def test_owl_query_no_native_sparql(self):
         from unittest.mock import MagicMock
 
         mock_deps = MagicMock()
         mock_deps.knowledge_engine = MagicMock()
-        mock_deps.knowledge_engine.owl_bridge = None
+        mock_deps.knowledge_engine.graph_compute = None
 
         env = RLMEnvironment(context="test", graph_deps=mock_deps)
         result = await env.owl_query("SELECT ?s WHERE { ?s a ?o }")
-        assert result[0]["error"] == "OWL bridge not configured"
+        assert result[0]["error"] == "Native graph SPARQL is not configured"
 
     @pytest.mark.asyncio
-    async def test_owl_query_delegates_to_bridge(self):
+    async def test_owl_query_delegates_to_native_sparql(self):
         from unittest.mock import MagicMock
 
-        mock_bridge = MagicMock()
-        mock_bridge.query_sparql.return_value = [{"id": "node_1", "type": "memory"}]
+        mock_compute = MagicMock()
+        mock_compute.sparql.return_value = [{"id": "node_1", "type": "memory"}]
 
         mock_deps = MagicMock()
         mock_deps.knowledge_engine = MagicMock()
-        mock_deps.knowledge_engine.owl_bridge = mock_bridge
+        mock_deps.knowledge_engine.graph_compute = mock_compute
 
         env = RLMEnvironment(context="test", graph_deps=mock_deps)
         result = await env.owl_query("SELECT ?s WHERE { ?s a au:Memory }")
 
         assert result == [{"id": "node_1", "type": "memory"}]
-        mock_bridge.query_sparql.assert_called_once()
+        mock_compute.sparql.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_kg_bulk_export_no_engine(self):

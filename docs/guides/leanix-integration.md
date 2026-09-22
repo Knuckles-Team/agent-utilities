@@ -71,7 +71,7 @@ This regenerates `agent_utilities/knowledge_graph/ontology_leanix.ttl` (a
 `register_promotable_node_types` so both reasoning layers see them:
 
 - **DL reasoning** (`owl_reasoning` phase / `owl_closure`) reasons over the TTL —
-  loaded through `knowledge_graph/ontology.ttl`'s `owl:imports <…/kg/leanix>`.
+  contributed through the owning component pack and composed by EG GraphSchema.
 - **Structural reasoning** (`owl_bridge`) promotes the LPG nodes via the dynamic
   promotable set.
 

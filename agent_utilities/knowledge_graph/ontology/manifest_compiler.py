@@ -6,9 +6,6 @@ pipeline over :class:`connector_manifest.ConnectorManifest`:
 
   ``compile_manifest`` — manifest -> :class:`~connector_manifest.OntologySpec` (OWL terms).
   ``export_manifest_ttl`` — spec -> Turtle (generalized ``export_leanix_ttl``).
-  ``apply_manifest`` — the generalized ``apply_leanix_metamodel``: fail-closed
-    integrity/signature check, anti-sprawl enforcement, then regenerate/reconcile the
-    connector's ``ontology_<source>.ttl`` and register promotable node types.
   ``manifest_from_leanix_spec`` — makes LeanIX the **first caller** of this generalized
     compiler (proved lossless by the golden-file test in ``tests/``), without touching
     the existing production ``sync_leanix_ontology`` entry point.
@@ -20,10 +17,8 @@ projection of the manifest's own declared fields.
 from __future__ import annotations
 
 import re
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from . import ontology_integrity
 from .connector_manifest import (
     ConnectorManifest,
     OntologyClassSpec,
@@ -36,24 +31,10 @@ if TYPE_CHECKING:
     from .leanix_metamodel import LeanixOntologySpec
 
 __all__ = [
-    "AntiSprawlError",
-    "SignatureVerificationError",
     "compile_manifest",
     "export_manifest_ttl",
-    "apply_manifest",
-    "is_wired",
     "manifest_from_leanix_spec",
 ]
-
-
-class AntiSprawlError(RuntimeError):
-    """Raised when a manifest's ontology IRI is neither wired into the canonical
-    ``ontology.ttl`` nor an already-federated module — the fix is a ONE-line
-    ``owl:imports`` edge (or federation registration), never a new top-level ``.ttl``."""
-
-
-class SignatureVerificationError(RuntimeError):
-    """Raised when ``provenance.integrity``/``signature`` fails fail-closed verification."""
 
 
 def _humanize(camel: str) -> str:
@@ -158,122 +139,6 @@ def export_manifest_ttl(spec: OntologySpec, *, source: str) -> str:
         )
 
     return "\n\n".join(lines) + "\n"
-
-
-def _canonical_ontology_path() -> Path:
-    return Path(__file__).resolve().parent.parent / "ontology.ttl"
-
-
-def _canonical_owl_imports() -> set[str]:
-    """The IRIs the bundled canonical ``ontology.ttl`` already ``owl:imports``."""
-    import rdflib
-
-    canon = _canonical_ontology_path()
-    if not canon.exists():
-        return set()
-    g = rdflib.Graph()
-    g.parse(str(canon), format="turtle")
-    imports_pred = rdflib.URIRef("http://www.w3.org/2002/07/owl#imports")
-    return {str(o) for o in g.objects(predicate=imports_pred)}
-
-
-def is_wired(source: str) -> bool:
-    """Whether ``http://knuckles.team/kg/<source>`` is already an owl:imports target of the
-    canonical ontology.ttl OR a registered federated IRI — i.e. anti-sprawl is satisfied."""
-    iri = f"http://knuckles.team/kg/{source}"
-    if iri in _canonical_owl_imports():
-        return True
-    try:
-        from ..core.ontology_federation import registered_federated_iris
-
-        return iri in registered_federated_iris()
-    except Exception:  # noqa: BLE001 — federation registry is best-effort here
-        return False
-
-
-def apply_manifest(
-    manifest: ConnectorManifest,
-    spec: OntologySpec | None = None,
-    *,
-    ttl_path: str | Path,
-    dry_run: bool = False,
-    trusted_signers: tuple[str, ...] = ontology_integrity.DEFAULT_TRUSTED_SIGNERS,
-    trusted_public_keys: tuple[str, ...] | None = None,
-) -> dict[str, Any]:
-    """Generalized ``apply_leanix_metamodel``: verify, anti-sprawl-check, then emit.
-
-    Fail-closed (CONCEPT:AU-KG.ontology.supply-chain-integrity): the ``provenance.integrity`` hash
-    and ``signature`` are re-verified against ``trusted_signers`` BEFORE anything is
-    written — a bad/missing/unsigned manifest raises, it is never silently skipped.
-    """
-    source = manifest.resolved_ontology_source
-    spec = spec if spec is not None else compile_manifest(manifest)
-    ttl = export_manifest_ttl(spec, source=source)
-
-    # ── fail-closed integrity + signature verification ──────────────────────
-    import rdflib
-
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    recomputed_hash, triple_count = ontology_integrity.canonical_hash(g)
-    if recomputed_hash != manifest.provenance.integrity.hash:
-        raise SignatureVerificationError(
-            f"{manifest.connector}: recompiled canonical hash "
-            f"{recomputed_hash} does not match provenance.integrity.hash "
-            f"{manifest.provenance.integrity.hash} — the manifest was hand-edited "
-            "after signing, or the compiler is non-deterministic. Regenerate."
-        )
-    if (
-        manifest.provenance.signer not in trusted_signers
-        or not ontology_integrity.verify_release_signature(
-            ontology_integrity.canonical_manifest_hash(manifest),
-            manifest.provenance.signature,
-            signer_id=manifest.provenance.signer,
-            algorithm=manifest.provenance.signature_algorithm,
-            public_key=manifest.provenance.signing_public_key,
-            trusted_public_keys=trusted_public_keys,
-        )
-    ):
-        raise SignatureVerificationError(
-            f"{manifest.connector}: provenance.signature failed verification "
-            "against the trusted Ed25519 release signer — refusing to emit "
-            "ontology output."
-        )
-
-    # ── anti-sprawl: extend an existing wired module, never sprawl a new one ──
-    path = Path(ttl_path)
-    already_wired = path.exists() or is_wired(source)
-    if not already_wired:
-        raise AntiSprawlError(
-            f"{manifest.connector}: no existing {path.name} and "
-            f"<http://knuckles.team/kg/{source}> is not owl:imports-ed by "
-            f"the canonical ontology.ttl (nor federated). Add ONE line to "
-            f"agent_utilities/knowledge_graph/ontology.ttl's owl:imports list — "
-            f"`<http://knuckles.team/kg/{source}>` — (and register it in "
-            f"docs/architecture/ontology_library.md) before this manifest may compile "
-            f"into an ontology artifact. Never add an un-imported top-level .ttl."
-        )
-
-    result: dict[str, Any] = {
-        "connector": manifest.connector,
-        "classes": len(spec.classes),
-        "object_properties": len(spec.object_properties),
-        "datatype_properties": len(spec.datatype_properties),
-        "ttl_path": str(path),
-        "triple_count": triple_count,
-        "canonical_hash": recomputed_hash,
-        "dry_run": dry_run,
-        "promoted_types": [c.local for c in spec.classes],
-    }
-    if dry_run:
-        result["ttl_preview"] = ttl
-        return result
-
-    from ..core.owl_bridge import register_promotable_node_types
-
-    register_promotable_node_types(c.local for c in spec.classes)
-    path.write_text(ttl, encoding="utf-8")
-    return result
 
 
 def manifest_from_leanix_spec(

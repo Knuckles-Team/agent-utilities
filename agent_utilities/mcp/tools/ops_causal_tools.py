@@ -428,8 +428,8 @@ def _propose_ops_causal_claim(
             "ops_causal_action": action,
             # PROV-O generator tagging (docs/pillars/2_epistemic_knowledge_graph/
             # company_brain/provenance.md's wasGeneratedBy/generatedAtTime
-            # alignment; the same property names owlready2_backend's PROV-O
-            # edge-alias table already recognizes). Kept as plain Claim
+            # alignment; EG's PROV-O projection recognizes the same property
+            # names). Kept as plain Claim
             # metadata rather than a separate prov:Activity node/edge —
             # thin tagging, not a new provenance subsystem.
             "was_generated_by": "mcp:graph_ops_causal",

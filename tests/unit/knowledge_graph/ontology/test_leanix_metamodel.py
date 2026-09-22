@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.core import owl_bridge
 from agent_utilities.knowledge_graph.ontology.leanix_metamodel import (
     apply_leanix_metamodel,
     compile_leanix_metamodel,
@@ -90,19 +89,12 @@ def test_apply_dry_run_writes_nothing(tmp_path):
     assert not target.exists()
 
 
-def test_apply_writes_ttl_and_registers_promotable(tmp_path, monkeypatch):
-    monkeypatch.setattr(owl_bridge, "DYNAMIC_PROMOTABLE_NODE_TYPES", set())
+def test_apply_refuses_local_ttl_authority(tmp_path):
     target = tmp_path / "ontology_leanix.ttl"
     spec = compile_leanix_metamodel(META_MODEL)
-    manifest = apply_leanix_metamodel(spec, ttl_path=target, dry_run=False)
-
-    assert target.exists()
-    assert ":DataCenter a owl:Class" in target.read_text()
-    # Generated types are now eligible for owl_bridge OWL promotion (lowercased).
-    assert {"application", "itcomponent", "datacenter"} <= (
-        owl_bridge.DYNAMIC_PROMOTABLE_NODE_TYPES
-    )
-    assert manifest["ttl_path"] == str(target)
+    with pytest.raises(RuntimeError, match="SDK ConnectorContent pack"):
+        apply_leanix_metamodel(spec, ttl_path=target, dry_run=False)
+    assert not target.exists()
 
 
 class _FakeClient:
@@ -116,11 +108,9 @@ def test_sync_core_no_client_skips():
     assert out["status"] == "skipped"
 
 
-def test_sync_core_with_injected_client(tmp_path, monkeypatch):
-    monkeypatch.setattr(owl_bridge, "DYNAMIC_PROMOTABLE_NODE_TYPES", set())
+def test_sync_core_with_injected_client_is_preview_only(tmp_path):
     target = tmp_path / "ontology_leanix.ttl"
-    out = sync_leanix_ontology(client=_FakeClient(), dry_run=False, ttl_path=target)
+    out = sync_leanix_ontology(client=_FakeClient(), dry_run=True, ttl_path=target)
     assert out["status"] == "completed"
     assert out["classes"] == 3
-    assert target.exists()
-    assert "datacenter" in owl_bridge.DYNAMIC_PROMOTABLE_NODE_TYPES
+    assert not target.exists()

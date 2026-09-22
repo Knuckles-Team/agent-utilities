@@ -15,7 +15,7 @@ substrate. (CONCEPT:EG-KG.storage.nonblocking-checkpoint, CONCEPT:AU-KG.ingest.e
 ## The one ontology
 
 Camunda, ARIS, and Egeria all fold into the **same canonical ArchiMate
-crosswalk** (`ontology_archimate.ttl`, `ontology_quant.ttl`,
+crosswalk** (EG's core ArchiMate source, `ontology_quant.ttl`,
 `ontology_orchestration.ttl`). There is no per-vendor schema:
 
 | Concept | OWL class / property | Camunda source | ARIS source |

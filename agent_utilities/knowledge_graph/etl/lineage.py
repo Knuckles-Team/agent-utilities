@@ -430,8 +430,8 @@ def record_media_sidecar_claim(
     start — the sidecar genuinely produced this many loci, it is not an
     inferred finding needing review), carrying the SAME ``was_generated_by``/
     ``generated_at_time`` PROV-O metadata convention
-    ``mcp/tools/ops_causal_tools.py``'s claim materialization and
-    ``owlready2_backend``'s PROV-O edge-alias table already recognize. The
+    ``mcp/tools/ops_causal_tools.py``'s claim materialization and EG's PROV-O
+    projection already recognize. The
     caller links each ``store_<locus>_evidence`` write-back's ``claim_id``
     to the returned id so ``evidence_citations``'s SUPPORTS-walk resolves
     every sidecar-produced locus through this ONE claim

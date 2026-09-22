@@ -9,7 +9,7 @@ CONCEPT:AU-KG.identity.asset-occurrence) linked by ``hasOccurrence``/``hasRendit
 ``hasBlob``/``extractedFrom``/``derivedFrom``/``SUPPORTS`` edges, but none of those
 classes/properties had a declared ``owl:Class``/``owl:ObjectProperty`` in the
 canonical ontology — a real class/property could be written to the graph with
-no ontology entry describing it, the exact drift ``scripts/check_ontology.py``'s
+no ontology entry describing it, the exact drift the former local ontology gate's
 CONNECTED checks exist to catch for *files*, not per-symbol coverage. This test
 is the per-symbol drift guard: it proves every node/edge vocabulary token
 ``MediaStore`` emits resolves to a declared ontology term, and that the check

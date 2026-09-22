@@ -1,6 +1,7 @@
 {
   "version": 1,
   "licenses": {
+    "agent-connector-sdk": "MIT",
     "agent-terminal-ui": "MIT",
     "agent-utilities": "MIT",
     "agent-webui": "MIT",
@@ -74,8 +75,6 @@
     "opentelemetry-instrumentation-fastapi": "Apache-2.0",
     "opentelemetry-instrumentation-starlette": "Apache-2.0",
     "opentelemetry-sdk": "Apache-2.0",
-    "owlready2": "LGPL-3.0-or-later",
-    "owlrl": "W3C-20150513",
     "owncast-agent": "MIT",
     "packaging": "Apache-2.0 OR BSD-2-Clause",
     "pandas": "BSD-3-Clause",
@@ -101,7 +100,6 @@
     "pydantic-settings": "MIT",
     "pyjwt": "MIT",
     "pypdf": "BSD-3-Clause",
-    "pyshacl": "Apache-2.0",
     "pystardog": "Apache-2.0",
     "pytest": "MIT",
     "pytest-asyncio": "Apache-2.0",

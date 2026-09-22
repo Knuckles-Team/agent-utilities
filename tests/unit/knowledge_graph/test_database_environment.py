@@ -171,33 +171,6 @@ def test_configure_backend_mirror_targets(monkeypatch, tmp_path):
 
 
 # ── publish_ontology ───────────────────────────────────────────────────────
-def test_publish_ontology_builtin(monkeypatch):
-    import agent_utilities.knowledge_graph.core.ontology_publisher as op
-
-    monkeypatch.setattr(op, "collect_bundled_ontology_graph", lambda: [1, 2, 3])
-    out = de.publish_ontology("builtin")
-    assert out["status"] == "success"
-    assert out["target"] == "builtin"
-    assert out["triple_count"] == 3
-
-
-def test_publish_ontology_stardog_delegates(monkeypatch):
-    import agent_utilities.knowledge_graph.core.ontology_publisher as op
-
-    monkeypatch.setattr(op, "collect_bundled_ontology_graph", lambda: [1])
-    captured = {}
-
-    def _push(self, graph, endpoint=None, database=None, named_graph=None):
-        captured["endpoint"] = endpoint
-        return {"status": "success", "triple_count": len(graph)}
-
-    monkeypatch.setattr(op.OntologyPublisher, "push_to_stardog", _push)
-    out = de.publish_ontology("stardog", endpoint="http://sd:5820", database="kg")
-    assert out["status"] == "success"
-    assert out["target"] == "stardog"
-    assert captured["endpoint"] == "http://sd:5820"
-
-
 # ── backfill_to_age ────────────────────────────────────────────────────────
 def test_register_stardog_mirror_uses_injected_registry_and_writer(monkeypatch):
     registry = _FakeRegistry()
@@ -279,30 +252,30 @@ def test_backfill_to_age_no_backend(monkeypatch):
 
 
 # ── verify_sparql ──────────────────────────────────────────────────────────
-class _FakeBridge:
-    # SPARQLEndpoint.execute now dispatches via query_sparql (CONCEPT:AU-KG.compute.native-sparql-owl-shacl —
-    # engine-native first, rdflib only as a no-engine last resort).
-    def query_sparql(self, query):
-        return [{"s": "http://example.org/Agent"}]
-
-    def _sparql_via_rdflib(self, query):
+class _FakeGraphCompute:
+    def sparql(self, query):
         return [{"s": "http://example.org/Agent"}]
 
 
 def test_verify_sparql_builtin(monkeypatch):
-    import agent_utilities.gateway.graph_api as gapi
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    monkeypatch.setattr(gapi, "_get_sparql_bridge", lambda: _FakeBridge())
+    monkeypatch.setattr(
+        GraphComputeEngine, "get_or_create", lambda: _FakeGraphCompute()
+    )
     out = de.verify_sparql("builtin")
     assert out["status"] == "success"
     assert out["rows"] == 1
     assert out["url"] == "/api/sparql"
 
 
-def test_verify_sparql_builtin_no_bridge(monkeypatch):
-    import agent_utilities.gateway.graph_api as gapi
+def test_verify_sparql_builtin_no_engine(monkeypatch):
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    monkeypatch.setattr(gapi, "_get_sparql_bridge", lambda: None)
+    def _unavailable():
+        raise RuntimeError("unavailable")
+
+    monkeypatch.setattr(GraphComputeEngine, "get_or_create", _unavailable)
     out = de.verify_sparql("builtin")
     assert out["status"] == "error"
 
@@ -320,7 +293,6 @@ def test_setup_environment_dev_partial_on_missing(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(de, "configure_backend", lambda *a, **k: {"status": "success"})
-    monkeypatch.setattr(de, "publish_ontology", lambda *a, **k: {"status": "success"})
     monkeypatch.setattr(
         de, "backfill_to_age", lambda: {"status": "error", "error": "no age"}
     )
@@ -343,7 +315,6 @@ def test_setup_environment_prod_targets_stardog(monkeypatch, tmp_path):
     for name in (
         "verify_postgres",
         "configure_backend",
-        "publish_ontology",
         "register_stardog_mirror",
         "verify_sparql",
     ):

@@ -45,14 +45,14 @@ on the evicted id so no backend — HNSW or native — grows without bound). The
 default is finite for every consumer, including ``OutcomeRouter`` and
 ``ReasonerRouter``.
 
-**X-4 — ontology-subsumption-aware selection.** Capability filtering always
-uses the current :class:`~agent_utilities.knowledge_graph.ontology.
-capability_hierarchy.CapabilityHierarchy`: a
+**X-4 — ontology-subsumption-aware selection.** Capability filtering accepts an
+engine-derived capability projection: a
 ``required_caps`` entry ``T`` is satisfied by an entity declaring ``T`` OR any
 *narrower* capability type the ontology's ``rdfs:subClassOf`` chain says is a
 ``T`` (a tool declaring ``DNSCapability`` now satisfies a request for the
-broader ``ServiceCapability``). Callers may inject a hierarchy for an isolated
-ontology, otherwise the bundled current hierarchy is resolved automatically.
+broader ``ServiceCapability``). The routing entry points obtain this projection
+from epistemic-graph ``OwlReason`` and inject it here. A bare standalone cache
+uses literal capability matching only; it never loads a second ontology authority.
 """
 
 import hashlib
@@ -206,14 +206,8 @@ __all__ = [
 
 
 def _resolve_capability_hierarchy(hierarchy: Any | None) -> Any:
-    """Return an injected hierarchy or the bundled current ontology hierarchy."""
-    if hierarchy is not None:
-        return hierarchy
-    from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
-        get_default_hierarchy,
-    )
-
-    return get_default_hierarchy()
+    """Return only an engine-derived projection explicitly injected by a caller."""
+    return hierarchy
 
 
 @dataclass
@@ -281,14 +275,28 @@ def _satisfied_required_caps(
         if r in caps:
             satisfied.add(r)
             continue
-        for c in sorted(caps):
-            if hierarchy.is_subtype_of(c, r):
-                satisfied.add(r)
-                path = hierarchy.subsumption_path(c, r)
-                if path:
-                    subsumption_paths[r] = path
-                break
+        match = next((c for c in sorted(caps) if _is_subtype(hierarchy, c, r)), None)
+        if match is None:
+            continue
+        satisfied.add(r)
+        _record_subsumption_path(subsumption_paths, hierarchy, match, r)
     return satisfied, subsumption_paths
+
+
+def _is_subtype(hierarchy: Any, candidate: str, required: str) -> bool:
+    return hierarchy is not None and hierarchy.is_subtype_of(candidate, required)
+
+
+def _record_subsumption_path(
+    paths: dict[str, list[str]], hierarchy: Any, candidate: str, required: str
+) -> None:
+    path = hierarchy.subsumption_path(candidate, required)
+    if path:
+        paths[required] = path
+
+
+def _hierarchy_descendants(hierarchy: Any, capability: str) -> frozenset[str]:
+    return hierarchy.descendants(capability) if hierarchy is not None else frozenset()
 
 
 def compute_eligibility(
@@ -447,8 +455,8 @@ class CapabilityIndex:
             cache; the engine is the authority). ``None`` selects
             :data:`DEFAULT_CAPABILITY_CACHE_SIZE`; zero and negative values are
             rejected.
-        capability_hierarchy: Ontology subsumption source (X-4) — see the class
-            docstring. ``None`` resolves the bundled current hierarchy.
+        capability_hierarchy: Engine-derived ontology subsumption projection
+            (X-4). ``None`` retains literal capability matching only.
     """
 
     def __init__(
@@ -466,8 +474,8 @@ class CapabilityIndex:
         self._dim = dim
         self._space = space
         self._max_elements = max(1, max_elements)
-        # CONCEPT:AU-P1-3 (X-4) — hierarchy-aware selection is the sole current
-        # contract. ``None`` resolves the bundled ontology singleton.
+        # CONCEPT:AU-P1-3 (X-4) — the execution path injects an EG-derived
+        # GraphSchema projection. A standalone cache has literal matching only.
         self._hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
 
         # Choose backend.
@@ -885,7 +893,7 @@ class CapabilityIndex:
         set lookup, never a scan.
         """
         ids = set(self._cap_to_ids.get(cap, set()))
-        for sub in self._hierarchy.descendants(cap):
+        for sub in _hierarchy_descendants(self._hierarchy, cap):
             ids |= self._cap_to_ids.get(sub, set())
         return ids
 

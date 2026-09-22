@@ -1826,39 +1826,36 @@ class GraphMaintainer:
             return 0
 
     def run_owl_reasoning(self) -> dict[str, Any]:
-        """Run OWL reasoning cycle: promote → reason → downfeed."""
+        """Run native read-only OWL reasoning; inferred edges are not downfed."""
         try:
-            from ..backends.owl import create_owl_backend
-            from .owl_bridge import OWLBridge
-        except ImportError:
-            logger.debug("OWL dependencies not installed, skipping reasoning")
-            return {"status": "skipped", "reason": "owl deps not installed"}
-
-        try:
-            from pathlib import Path
-
-            # The canonical TBox lives in the ``knowledge_graph`` package root
-            # (alongside the other 28 ``ontology_*.ttl`` modules), NOT in
-            # ``knowledge_graph/core/``. Resolving it relative to this file made
-            # every call return ``{"status": "skipped"}`` — the reasoner was
-            # dead by missing file (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
-            ontology_path = str(Path(__file__).parent.parent / "ontology.ttl")
-            if not Path(ontology_path).exists():
-                return {"status": "skipped", "reason": "ontology.ttl not found"}
-
-            owl_backend = create_owl_backend(ontology_path=ontology_path)
-            bridge = OWLBridge(
-                graph=self.engine.graph,
-                owl_backend=owl_backend,
-                backend=self.engine.backend,
+            result = self._validated_native_owl_result()
+            outcome = {
+                "status": "success",
+                "mode": "read_only",
+                **result,
+            }
+            logger.info(
+                "Native OWL reasoning maintenance complete: %d subclass and %d instance entailments",
+                len(result.get("subclasses", [])),
+                len(result.get("instances", [])),
             )
-            stats = bridge.run_cycle()
-            owl_backend.close()
-            logger.info("OWL reasoning maintenance complete: %s", stats)
-            return stats
+            return outcome
         except Exception as e:
-            logger.error("OWL reasoning maintenance failed: %s", e)
+            logger.error("Native OWL reasoning failed: %s", e)
             return {"status": "error", "reason": str(e)}
+
+    def _validated_native_owl_result(self) -> dict[str, Any]:
+        reason = getattr(self.engine.graph, "owl_reason", None)
+        if not callable(reason):
+            raise RuntimeError("native GraphComputeEngine.owl_reason is unavailable")
+        result = reason(class_base="http://agent-utilities.dev/ontology#")
+        if not isinstance(result, dict):
+            raise RuntimeError("native OwlReason returned an invalid result")
+        if result.get("consistent") is not True:
+            raise RuntimeError("native OwlReason did not prove ontology consistency")
+        if not result.get("schema_digests"):
+            raise RuntimeError("native OwlReason omitted committed schema digests")
+        return result
 
     def run_all(self):
         """Run all maintenance tasks."""

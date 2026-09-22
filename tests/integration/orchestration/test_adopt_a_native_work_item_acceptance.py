@@ -64,7 +64,7 @@ def native_work_item_engine(engine_graph: Any):
     try:
         yield engine
     finally:
-        IntelligenceGraphEngine.set_active(None)
+        IntelligenceGraphEngine._set_active_for_tests(None)
 
 
 def _claim(
@@ -228,7 +228,7 @@ def test_native_work_item_expiry_reclaim_old_fence_and_commit_readback(
     # successful read/reclaim through this fresh composition proves that no
     # process-local orchestration queue or lease mirror is required after an
     # AU worker restart.
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
     engine = IntelligenceGraphEngine(
         backend=EpistemicGraphBackend(
             graph_name=native_work_item_engine.backend.graph_name

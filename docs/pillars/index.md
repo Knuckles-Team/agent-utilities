@@ -147,7 +147,7 @@ a concept doc, follow the standard file naming conventions:
 - Pillar summary: `{N}_{pillar_name}.md`
 - Concept reference: `{ID}-{Name}.md` (e.g. `KG-2.5-Topological_Analysis.md`)
 
-All new concept proposals go through the DSTDD design phase — see
-[`.specify/design/_template.md`](../../.specify/design/_template.md) for the
-required KG analysis, and [Status — the Codex](../status.md) for the generated,
+All new concept proposals go through the DSTDD design phase — see the
+[development guide](../guides/development.md) for the required KG analysis, and
+[Status — the Codex](../status.md) for the generated,
 always-current concept count (never hand-typed here or anywhere else).

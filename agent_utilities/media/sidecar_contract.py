@@ -27,9 +27,8 @@ standardized rather than ad hoc:
 3. **Governance** — every delegation call is recorded as ONE PROV-O
    ``:PROVENANCE_ACTIVITY`` node and, when it produced locus writes, ONE
    directly-verified ``:Claim`` (``was_generated_by``/``generated_at_time``
-   metadata, the same convention ``ops_causal_tools.py``'s claim
-   materialization and ``owlready2_backend``'s PROV-O edge-alias table
-   already recognize) that every locus write-back's ``claim_id`` links to via
+   metadata, the same convention the native epistemic-graph PROV-O projection
+   already recognizes) that every locus write-back's ``claim_id`` links to via
    the EXISTING ``SUPPORTS`` edge convention — see
    :func:`agent_utilities.knowledge_graph.etl.lineage.record_media_sidecar_activity`
    / :func:`~agent_utilities.knowledge_graph.etl.lineage.record_media_sidecar_claim`.

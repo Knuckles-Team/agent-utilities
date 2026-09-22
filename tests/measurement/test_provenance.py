@@ -1,6 +1,6 @@
 """Capability A proof: mandatory provenance header (incidents 5, 6, 7 + the general verifier).
 
-* Incident 5: `bash scripts/check_ontology.py` passed while the pre-commit
+* Incident 5: a former local ontology check passed while the pre-commit
   HOOK of the same name failed -- different venv (different `interpreter`).
 * Incident 6: a local "2-core" gate via `taskset -c 0,1` on a 64-core host
   passed while the real 2-vCPU CI runner failed the same test -- different

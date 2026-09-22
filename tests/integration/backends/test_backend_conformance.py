@@ -50,7 +50,7 @@ def engine(backend_under_test: Any) -> IntelligenceGraphEngine:
         pytest.skip("epistemic-graph engine required (GRAPH_SERVICE_ENDPOINTS unset)")
     set_active_backend(backend_under_test)
     eng = IntelligenceGraphEngine(backend=backend_under_test)
-    IntelligenceGraphEngine.set_active(eng)
+    IntelligenceGraphEngine._set_active_for_tests(eng)
     return eng
 
 

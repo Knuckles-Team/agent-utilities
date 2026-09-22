@@ -11,9 +11,10 @@ to the workflow node for the current actor.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-pytest.importorskip("pyshacl")
 pytest.importorskip("rdflib")
 
 from agent_utilities.knowledge_graph.core.workflow_gate import (
@@ -52,6 +53,35 @@ class FakeGraph:
     def out_edges(self, node_id, data=False):
         rows = [(s, t, p) for s, t, p in self._edges if s == node_id]
         return rows if data else [(s, t) for s, t, _ in rows]
+
+    def shacl_validate_committed(self, turtle: str):
+        import rdflib
+
+        graph = rdflib.Graph()
+        graph.parse(data=turtle, format="turtle")
+        kg = rdflib.Namespace("http://knuckles.team/kg#")
+        results = []
+
+        class Result:
+            def __init__(self, message: str) -> None:
+                self.message = message
+
+            def model_dump(self, *, mode: str) -> dict[str, str]:
+                assert mode == "json"
+                return {"message": self.message}
+
+        for subject in graph.subjects(rdflib.RDF.type, kg.WorkflowDefinition):
+            if graph.value(subject, kg.name) is None:
+                results.append(Result("WorkflowDefinition must have a name."))
+            step_count = graph.value(subject, kg.step_count)
+            if step_count is None or int(step_count) < 1:
+                results.append(
+                    Result("WorkflowDefinition must have at least one step.")
+                )
+        for subject in graph.subjects(rdflib.RDF.type, kg.WorkflowStep):
+            if graph.value(subject, kg.node_id) is None:
+                results.append(Result("WorkflowStep must carry node_id."))
+        return SimpleNamespace(conforms=not results, results=results)
 
 
 class FakeEngine:
@@ -94,7 +124,7 @@ class FakeBackendEngine:
 
     def __init__(self):
         self.backend = FakeBackend()
-        self.graph = None
+        self.graph = FakeGraph()
 
 
 def _seed_backend_workflow(

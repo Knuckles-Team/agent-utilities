@@ -11,7 +11,7 @@ and can reconcile it with other configured metadata and business-process sources
 
 CISO Assistant records are mapped to the **canonical** governance classes shared
 across the ecosystem (the same classes the Egeria extractor emits, see
-`ontology_egeria.ttl` / `ontology_enterprise.ttl`), so they reconcile by GUID /
+`ontology_egeria.ttl` / EG's core enterprise source), so they reconcile by GUID /
 `qualifiedName` rather than living in a CISO-specific schema:
 
 | CISO Assistant object | KG node (`id` → `type`) |

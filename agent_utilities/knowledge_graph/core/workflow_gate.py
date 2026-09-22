@@ -10,9 +10,9 @@ Until now the ontology (SHACL shapes, permission ACLs) governed *ingestion*
 1. **Shape gate** (``KG_WORKFLOW_SHAPE_GATE``, default ON — cheap, LLM-free):
    the stored ``WorkflowDefinition`` + its ``WorkflowStep`` nodes are
    materialized into a focused RDF graph (``http://knuckles.team/kg#``
-   namespace, matching the ``sh:targetClass`` IRIs) and validated against the
-   bundled governance shapes (``WorkflowDefinitionShape`` /
-   ``WorkflowStepShape``). Violations refuse execution with a structured
+   namespace, matching the ``sh:targetClass`` IRIs) and validated by
+   epistemic-graph against its committed composed GraphSchema
+   (``WorkflowDefinitionShape`` / ``WorkflowStepShape``). Violations refuse execution with a structured
    report — a malformed definition never burns an agent run.
 
 2. **Permission gate** (mandatory,
@@ -30,7 +30,6 @@ and permission validation.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -59,9 +58,6 @@ class WorkflowGateDeniedError(PermissionError):
             or "denied by the ontology/ACL gate"
         )
         super().__init__(f"Workflow {workflow_name!r} execution refused: {summary}")
-
-
-_GOVERNANCE_SHAPES = Path(__file__).parent.parent / "shapes" / "governance.shapes.ttl"
 
 
 def workflow_shape_gate_enabled() -> bool:
@@ -210,27 +206,28 @@ def _build_workflow_rdf(
 
 
 def _validate_workflow_shape(
-    workflow_id: str, props: dict[str, Any], steps: list[dict[str, Any]]
+    engine: Any,
+    workflow_id: str,
+    props: dict[str, Any],
+    steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Run the SHACLValidator over the focused workflow graph."""
-    try:
-        import pyshacl  # noqa: F401
-        import rdflib  # noqa: F401
-    except ImportError:
-        # No SHACL stack installed — the gate cannot run; pass through (the
-        # pipeline ingestion gate degrades identically).
-        return {"conforms": True, "violations": []}
+    """Validate the focused workflow through committed EG GraphSchema."""
 
-    from .shacl_validator import SHACLValidator
-
-    if not _GOVERNANCE_SHAPES.exists():  # pragma: no cover - packaged install
-        return {"conforms": True, "violations": []}
     data_graph = _build_workflow_rdf(workflow_id, props, steps)
-    report = SHACLValidator().validate(data_graph, _GOVERNANCE_SHAPES)
+    rendered = data_graph.serialize(format="turtle")
+    turtle = rendered.decode() if isinstance(rendered, bytes) else str(rendered)
+    report = _committed_shacl_report(engine, turtle)
     return {
-        "conforms": bool(report.get("conforms", True)),
-        "violations": report.get("violations", []),
+        "conforms": bool(report.conforms),
+        "violations": [result.model_dump(mode="json") for result in report.results],
     }
+
+
+def _committed_shacl_report(engine: Any, turtle: str) -> Any:
+    graph_compute = getattr(engine, "graph_compute", None)
+    if graph_compute is None:
+        graph_compute = engine.graph
+    return graph_compute.shacl_validate_committed(turtle)
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +269,7 @@ def gate_workflow_execution(
         }
 
     if workflow_shape_gate_enabled():
-        report = _validate_workflow_shape(wid, props, steps)
+        report = _validate_workflow_shape(engine, wid, props, steps)
         if not report["conforms"]:
             logger.warning(
                 "[ORCH-1.42] workflow %r failed shape validation: %d violation(s)",

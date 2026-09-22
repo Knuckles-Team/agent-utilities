@@ -45,7 +45,7 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 |:------|:------|:------|
 | **AU-AHE** | `docs/pillars/3_agentic_harness_engineering.md` | `scripts/check_concepts.py` + `scripts/check_eval_corpus.py` |
 | **AU-ECO** | `docs/pillars/4_ecosystem_peripherals.md` | `scripts/check_concepts.py` + `scripts/check_skill_name_collision.py` |
-| **AU-KG** | `docs/pillars/2_epistemic_knowledge_graph/` | `scripts/check_concepts.py` + `scripts/check_ontology.py` |
+| **AU-KG** | `docs/pillars/2_epistemic_knowledge_graph/` | `scripts/check_concepts.py` + GraphSchema authority cutover gates |
 | **AU-ORCH** | `docs/pillars/1_graph_orchestration.md` | `scripts/check_concepts.py` + `scripts/check_coupling.py` |
 | **AU-OS** | `docs/pillars/5_agent_os_infrastructure.md` | `scripts/check_concepts.py` + `scripts/check_genesis_manifest.py` |
 | **EG-AHE** | `docs/architecture/ (epistemic-graph engine integration)` | `scripts/check_concepts.py` (marker registration) + epistemic-graph's `scripts/check_documentation_contract.py` |

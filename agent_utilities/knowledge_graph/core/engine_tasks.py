@@ -2138,6 +2138,7 @@ class SQLiteTaskQueue(QueueBackend):
 
 class GraphEngineProtocol(Protocol):
     backend: Any
+    graph_compute: Any
 
     def add_node(
         self,
@@ -2987,12 +2988,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             "runtime_reliability", "runtime_reliability", _RUNTIME_RELIABILITY_INTERVAL
         )
         _maint(
-            "fuseki_publish",
-            "fuseki_publish",
-            _cfg.kg_fuseki_publish_interval,
-            enabled=_cfg.kg_fuseki_publish,
-        )
-        _maint(
             "fleet_reconciler",
             "fleet_reconciler",
             _cfg.fleet_reconciler_interval,
@@ -3249,41 +3244,21 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         measured consequence was a graph with **zero** edges carrying
         ``inferred = true``.
 
-        Two complementary halves, both pre-existing and both previously without a
-        production caller on this path:
-
-        * :func:`...maintenance.owl_closure.run_closure` — the bounded, SHACL-validated
-          OWL closure (``OWLBridge.run_cycle``), which now reasons over the
-          object-property characteristics the bundled ``ontology*.ttl`` library
-          actually declares, instead of the single in-code axiom it used before.
-        * ``engine.run_inference()`` — :class:`...core.inference_engine.InferenceEngine`,
-          the repo's richest rule set (transitive ``DEPENDS_ON``, SKOS ``BROADER``,
-          PROV-O derivation chains). It is instantiated on every engine and, before
-          this, invoked only by tests.
-
-        Best-effort like every other tick: a failure logs and never stops the
-        scheduler.
+        Epistemic Graph is the sole semantic authority. The empty generated
+        Datalog request selects the committed GraphSchema snapshot; AU never sends
+        ad-hoc rules or reconstructs closure in Python.
         """
         try:
-            from agent_utilities.knowledge_graph.maintenance.owl_closure import (
-                run_closure,
-            )
-
-            closure = run_closure(self)
+            closure = self.graph_compute.run_datalog_reasoning()
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("reasoning tick: closure error: %s", e)
             closure = {}
-        try:
-            inferred = int(self.run_inference() or 0)
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("reasoning tick: rule inference error: %s", e)
-            inferred = 0
-        if closure.get("inferred_edges") or inferred:
+        inferred = int(closure.get("inferred_count", 0))
+        if inferred:
             logger.info(
-                "reasoning tick: closure_edges=%s rule_edges=%s conforms=%s",
-                closure.get("inferred_edges"),
+                "reasoning tick: inferred=%s schema_digests=%s",
                 inferred,
-                closure.get("conforms"),
+                closure.get("schema_digests"),
             )
 
     def _tick_fleet_reconciler(self) -> None:
@@ -4345,37 +4320,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             record_lane_metrics(self._pending_by_lane(), running_by_lane)
         except Exception:  # noqa: BLE001
             logger.debug("scheduler tick: lane metrics failed", exc_info=True)
-
-    def _tick_fuseki_publish(self) -> None:
-        """Push the bundled ontology modules to Apache Jena Fuseki.
-
-        One bounded distribution pass (CONCEPT:AU-KG.ontology.authoritative-tbox): merges every shipped
-        ``ontology*.ttl`` module and PUTs it to the configured Fuseki dataset
-        via :func:`publish_ontology_to_fuseki`, so an optional enterprise
-        triplestore stays in sync with the authoritative ontology. Opt-in via
-        ``KG_FUSEKI_PUBLISH``; endpoint from ``KG_FUSEKI_ENDPOINT`` (falling
-        back to the publisher's own resolution).
-        """
-        try:
-            from agent_utilities.core.config import config as _cfg
-
-            from .ontology_publisher import publish_ontology_to_fuseki
-
-            report = publish_ontology_to_fuseki(endpoint=_cfg.kg_fuseki_endpoint)
-            if report.get("status") == "success":
-                logger.info(
-                    "Fuseki publish: %s triples -> %s/%s",
-                    report.get("triple_count"),
-                    report.get("endpoint"),
-                    report.get("dataset"),
-                )
-            else:
-                logger.warning(
-                    "Fuseki publish did not complete: %s",
-                    report.get("error") or report.get("reason"),
-                )
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.error("fuseki_publish tick error: %s", e)
 
     def _embedding_backfill_loop(self) -> None:
         """Dedicated drain loop for vector-embedding backfill (CONCEPT:AU-KG.coordination.embedder-breaker).

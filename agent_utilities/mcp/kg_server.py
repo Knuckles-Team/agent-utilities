@@ -2432,65 +2432,6 @@ async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
     )
 
 
-async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='sync_packages'`` (CONCEPT:AU-KG.ontology.federation-runtime).
-
-    Federation: load every ontology ``.ttl`` contributed by installed fleet
-    packages (``agent_utilities.ontology_providers``) through the shared ontology
-    load path. Mirrors the generic ``POST /graph/ontology`` action twin as an
-    explicit convenience route.
-    """
-    try:
-        res = await _execute_tool("graph_ontology", action="sync_packages")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='publish_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
-
-    Push the platform's authoritative bundled TBox to a Stardog triplestore, overwriting
-    the target named graph by default so an updated ontology updates the catalog.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="publish_stardog",
-            named_graph=body.get("named_graph", ""),
-            overwrite=bool(body.get("overwrite", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='import_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-import).
-
-    Consume the TBox already living in a Stardog database / named graph back into the
-    engine, activating it for reasoning.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="import_stardog",
-            named_graph=body.get("named_graph", ""),
-            activate=bool(body.get("activate", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
 async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
     return await _run_json_endpoint(
         request,
@@ -3145,14 +3086,6 @@ def _get_extraction_manager(engine: Any) -> Any:
     return _EXTRACTION_MANAGER
 
 
-def _bind_ontology_package_sync(value: Any) -> None:
-    """Bind the current ontology adapter once per engine instance."""
-    from agent_utilities.mcp.tools.ontology_tools import _sync_package_ontologies
-
-    if getattr(value, "_ontology_package_sync", None) is not _sync_package_ontologies:
-        value._ontology_package_sync = _sync_package_ontologies
-
-
 def _bind_mcp_probe_port(value: Any) -> None:
     """Bind canonical multiplexer/config/async seams for KG MCP consumers."""
     from agent_utilities.knowledge_graph.core.engine_mcp_discovery import MCPProbePort
@@ -3176,10 +3109,7 @@ _RuntimeAuthorityBinder = Callable[[Any], object]
 
 def _runtime_authority_binders() -> tuple[_RuntimeAuthorityBinder, ...]:
     """Return the available process-owned runtime binders."""
-    binders: tuple[_RuntimeAuthorityBinder, ...] = (
-        _bind_ontology_package_sync,
-        _bind_mcp_probe_port,
-    )
+    binders: tuple[_RuntimeAuthorityBinder, ...] = (_bind_mcp_probe_port,)
     try:
         from agent_utilities.mcp.tools.data_prep_tools import (
             register_process_data_prep_runtime,
@@ -4499,7 +4429,6 @@ def _run_boot_hydration_plan(
             lambda: _ingest_capabilities(engine, skip_skill_names=skip_skill_names),
         ),
         ("prompts", 2, _ingest_prompts_at_boot),
-        ("ontologies", 3, lambda: _sync_ontologies_at_boot(engine)),
         (
             "code_and_connectors",
             4,
@@ -4647,35 +4576,6 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
         logger.info("Queued self tool-surface boot hydration: %s", job_id)
     except Exception as exc:
         logger.error("Self tool-surface boot enqueue failed: %s", exc)
-
-
-def _sync_ontologies_at_boot(engine: Any) -> None:
-    """Load package ontologies after runnable resources are available.
-
-    CONCEPT:AU-KG.ontology.integrity-bootstrap — ``activate_graph()`` runs FIRST
-    and unconditionally, so the dedicated ontology graph's SHACL/ICV integrity
-    policy is registered even on a boot with zero federated ontology content
-    to load (which would otherwise never reach the ``load()``/``_load_axioms``
-    chokepoint that also performs activation). Idempotent; safe every boot.
-    """
-    sync_packages = engine._ontology_package_sync
-    from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
-
-    lc = OntologyLifecycle(engine=engine)
-    activation = lc.activate_graph()
-    if not activation.get("activated") and activation.get("reason") not in (
-        "no engine RDF surface",
-    ):
-        logger.error(
-            "Ontology graph activation failed at boot: %s", activation.get("reason")
-        )
-
-    report = sync_packages(lc)
-    if report.get("providers_loaded"):
-        logger.info(
-            "Ontology federation: loaded %d package ontolog(ies) at boot",
-            report["providers_loaded"],
-        )
 
 
 def _set_readiness_authority(session: Any) -> object:
@@ -6087,23 +5987,6 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/write/external", graph_write_external_endpoint, ["POST"])
     route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
     route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
-    # CONCEPT:AU-KG.ontology.federation-runtime — federation: explicit twin for ontology package-sync.
-    route(
-        "/graph/ontology/sync-packages",
-        graph_ontology_sync_packages_endpoint,
-        ["POST"],
-    )
-    # CONCEPT:AU-KG.ontology.stardog-catalog-overwrite / stardog-catalog-import — Stardog catalog twins.
-    route(
-        "/graph/ontology/publish-stardog",
-        graph_ontology_publish_stardog_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/ontology/import-stardog",
-        graph_ontology_import_stardog_endpoint,
-        ["POST"],
-    )
     route("/graph/write/sdd", graph_write_sdd_endpoint, ["POST"])
 
     # ── Granular ingest ──

@@ -58,7 +58,7 @@ def _activate_isolated_engine():
     cursor_backend = EpistemicGraphBackend()
     cursor_backend._graph = compute
     engine = IntelligenceGraphEngine(backend=cursor_backend)
-    IntelligenceGraphEngine.set_active(engine)
+    IntelligenceGraphEngine._set_active_for_tests(engine)
     return engine
 
 

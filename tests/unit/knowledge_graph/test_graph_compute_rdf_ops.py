@@ -28,10 +28,6 @@ class _RdfTyped:
     def __init__(self):
         self.calls = []
 
-    def remove_triples(self, turtle=None, ntriples=None):
-        self.calls.append(("remove_triples", turtle, ntriples))
-        return {"removed": 3}
-
     def drop_named_graph(self, graph):
         self.calls.append(("drop_named_graph", graph))
         return {"dropped": graph}
@@ -52,36 +48,10 @@ def test_icv_configure_routes_to_client_rdf_icv_configure():
     assert rdf.calls[0] == ("icv_configure", "@prefix sh: <x> .", "ontology", "enforce")
 
 
-def test_remove_triples_prefers_typed_wrapper():
-    rdf = _RdfTyped()
-    eng = _engine_with_client(type("C", (), {"rdf": rdf})())
-    out = eng.remove_triples(turtle="@prefix : <x> . :a :b :c .")
-    assert out == {"removed": 3}
-    assert rdf.calls[0][0] == "remove_triples"
-
-
 def test_drop_named_graph_prefers_typed_wrapper():
     rdf = _RdfTyped()
     eng = _engine_with_client(type("C", (), {"rdf": rdf})())
     assert eng.drop_named_graph("urn:g:1") == {"dropped": "urn:g:1"}
-
-
-def test_remove_triples_falls_back_to_wire_op():
-    """No typed wrapper → raw RemoveTriples wire op via _send_wire."""
-    sent = {}
-
-    eng = _engine_with_client(type("C", (), {"rdf": object()})())  # rdf has no methods
-
-    def fake_send_wire(method, payload=None):
-        sent["method"] = method
-        sent["payload"] = payload
-        return {"removed": 1}
-
-    eng._send_wire = fake_send_wire  # type: ignore[assignment]
-    out = eng.remove_triples(ntriples="<a> <b> <c> .")
-    assert out == {"removed": 1}
-    assert sent["method"] == "RemoveTriples"
-    assert sent["payload"]["ntriples"] == "<a> <b> <c> ."
 
 
 def test_drop_named_graph_falls_back_to_wire_op():

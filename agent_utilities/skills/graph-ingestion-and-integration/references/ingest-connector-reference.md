@@ -171,7 +171,7 @@ hydrated with the physical and virtual topology:
   (default `$HOME/.config/agent-utilities/inventory.yaml`) → a `HardwareNode`
   per host (`hostname`, `ip_address`, `group`, `status`, ssh fields, extended
   metadata) + `HAS_INTERFACE`/`CONNECTS_VIA` edges.
-- **Ontology files** — `agent_utilities/knowledge_graph/ontology.ttl` and
+- **Ontology authority** — EG committed GraphSchema sources and
   `ontology_infrastructure.ttl` as ingestion targets, providing the formal
   BFO-aligned class hierarchy for infrastructure nodes.
 - **Workflow catalog** — `agent_utilities/workflows/catalog.yaml` →
@@ -192,7 +192,6 @@ $XDG_CONFIG_HOME/agent-utilities/inventory.yaml
 $XDG_CONFIG_HOME/agent-utilities/mcp_config.json
 $XDG_CONFIG_HOME/agent-utilities/config.json
 $XDG_DATA_HOME/agent-utilities/topology/
-agent_utilities/knowledge_graph/ontology.ttl
 agent_utilities/knowledge_graph/ontology_infrastructure.ttl
 agent_utilities/workflows/catalog.yaml
 ```

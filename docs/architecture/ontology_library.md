@@ -1,167 +1,51 @@
-# Ontology Library
+# Ontology and SHACL authority
 
-> The single, documented catalog of every bundled OWL/RDF ontology in
-> `agent_utilities/knowledge_graph/`. This page is the **anti-sprawl entry**: it names
-> every `.ttl`, its IRI, its role, and the rules that keep the library *valid and
-> connected*. It is enforced by `scripts/check_ontology.py` (CI + pre-commit) — adding
-> or removing a `.ttl` without updating this page fails the gate.
+Epistemic Graph is the sole runtime authority for OWL/RDF ontology composition,
+reasoning, Datalog materialization, and SHACL validation. Agent Utilities is a
+control-plane consumer. It does not load a private root ontology, resolve
+`owl:imports`, run a Python reasoner, or validate with a local SHACL engine.
 
-## The one canonical ontology
+## Composition
 
-There is exactly **one** root ontology: **`ontology.ttl`** (IRI `http://knuckles.team/kg`).
-It is an upper ontology (BFO-aligned, with PROV-O / Schema.org / Dublin Core / FOAF /
-SKOS / OWL-Time / BIBO / FIBO mappings) and it **`owl:imports` every domain module** —
-one edge per `ontology_<module>.ttl`. The canonical file is the federation index: if a
-module exists on disk, it is imported here; if it is imported here, the file exists.
+The immutable EG catalog contains the platform root and domain modules. Each
+component may contribute versioned semantic resources through an
+`agent-connector-sdk` `ConnectorContent` provider. GraphOS captures those
+resources and attaches the resulting pack through `GraphSchema.AttachPack`.
+`GraphSchemaList` returns immutable and dynamic source sets plus the catalog and
+composed digests for the requested graph snapshot.
 
-> **History / why this page exists.** There used to be a second, divergent copy at
-> `core/ontology.ttl` (a 57-class subset) that the background OWL reasoner
-> (`maintenance/owl_closure.py`) loaded **instead** of the real 69-class root, and ~17
-> domain modules that no file referenced. Because the owlready2 backend loads ontologies
-> by **globbing the sibling `ontology*.ttl` files of whatever path it is given** (see
-> below), pointing the reasoner at the `core/` subset silently dropped every domain
-> module. That duplicate and an orphaned `ontology_infra.ttl` were deleted; the reasoner
-> now loads the one canonical file; every module is imported. The gate keeps it that way.
+Agent Utilities contributes one pack resource:
 
-## How ontologies are loaded (two mechanisms, kept in lockstep)
+- `agent_utilities/ontology/shapes/governance.shapes.ttl`
 
-1. **Glob load (the live reasoning path).** `backends/owl/owlready2_backend.py`
-   `_register_local_imports` globs `ontology*.ttl` in the directory of the file it is
-   given and pre-loads them all (it strips `owl:imports`, resolving them by file
-   instead). `collect_bundled_ontology_graph()` (`core/ontology_publisher.py`, KG-2.52)
-   does the same glob for Stardog/Fuseki publishing. ⇒ Every `ontology_*.ttl` in this
-   directory is loaded, so each must parse.
-2. **`owl:imports` federation (Stardog / remote inheritance).**
-   `core/ontology_loader.py` resolves `owl:imports` recursively, mapping
-   `http://knuckles.team/kg/<X>` → `ontology_<X>.ttl` (and `http://knuckles.team/kg` →
-   `ontology.ttl`). ⇒ Every domain module must declare its `owl:Ontology` IRI and be
-   imported by the canonical file, or it is invisible to federation.
+The public provider is `agent_utilities.content.agent_utilities_content()`. It
+declares package content only; it does not interpret, attach, or write semantic
+data.
 
-The gate enforces that these two views agree: the canonical `owl:imports` set == the
-set of domain-module files on disk. No module is loaded-but-unlinked or linked-but-missing.
+## Runtime contracts
 
-## Adding a new ontology (the recipe)
+- `OwlReason` reads the composed GraphSchema and returns digest-bound class and
+  property entailments.
+- `OwlExplain` returns digest-bound class-subsumption proof trees.
+- `RunDatalogReasoning` materializes committed-schema entailments through EG's
+  durable write gateway.
+- `ShaclValidate` with the `shapes` field omitted validates against the composed
+  GraphSchema snapshot and returns the exact composed digest used.
+- An explicit non-empty `shapes` document is reserved for bounded specialist
+  checks. It is still interpreted by EG and deliberately has no committed-schema
+  receipt.
 
-1. Create `agent_utilities/knowledge_graph/ontology_<name>.ttl`.
-2. Declare its IRI at the top: `<http://knuckles.team/kg/<name>> a owl:Ontology ; rdfs:label "…" .`
-3. Add `<http://knuckles.team/kg/<name>>` to `owl:imports` in `ontology.ttl`.
-4. Add a row to the catalog below.
-5. Run `python3 scripts/check_ontology.py` — it must pass.
+Governance callers fail closed when a result lacks its required schema digest,
+reports an inconsistent ontology, or uses the ad-hoc validation mode.
 
-## Anti-drift / validity gate
+## Adding semantic content
 
-`scripts/check_ontology.py` enforces, for every `.ttl`:
-- **Valid** — parses as Turtle; no duplicate `owl:Ontology` IRIs; the merged graph
-  survives **OWL-RL closure** without error; every `shapes/*.ttl` is well-formed SHACL
-  that **pyshacl** can load and run (catches SHACL syntax/breakage).
-- **Connected** — every domain module declares one IRI and is imported by the canonical
-  ontology (no unlinked module); every `owl:imports` in our own namespace resolves to a
-  present file (no dangling/broken import).
-- **Documented** — every `.ttl` on disk appears in this catalog.
+1. Put the ontology or shape resource in its owning component package.
+2. Register the exact resource with that component's `ConnectorContent` provider.
+3. Add byte, digest, RDF-semantic, and package-data tests in the owning package.
+4. Provision the provider through the SDK and attach its pack through GraphOS.
+5. Verify `GraphSchemaList`, reasoning receipts, and validation receipts against
+   the target graph.
 
-## Catalog
-
-### Root
-
-| File | IRI | Role |
-|------|-----|------|
-| `ontology.ttl` | `http://knuckles.team/kg` | Canonical upper ontology; imports every domain module below. |
-
-### Domain modules
-
-| File | IRI | Role |
-|------|-----|------|
-| `ontology_a2a.ttl` | `…/kg/a2a` | Agent-to-Agent (A2A) protocol entities. |
-| `ontology_concepts.ttl` | `…/kg/concepts` | Generated OKF-CIS governed concepts (`:GovernedConcept`/`:partOf`/`:conceptId` + SKOS taxonomy). Built by `scripts/build_concept_rdf.py`. |
-| `ontology_action.ttl` | `…/kg/action` | Ontology action types (KG-2.42). |
-| `ontology_archimate.ttl` | `…/kg/archimate` | Vendor-neutral ArchiMate crosswalk keystone (KG-2.9): canonical `:ApplicationEvent`/`:BusinessProcess`/`:BusinessTask`/`:BusinessActor`/`:BusinessCapability` anchors + the ServiceNow/ERPNext/Camunda vendor-class crosswalk axioms. See `docs/architecture/vendor_neutral_enterprise_ontology.md` §1. |
-| `ontology_argumentation.ttl` | `…/kg/argumentation` | Argument Interchange Format (AIF): I-nodes/S-nodes (RA/CA/PA, AIF+ TA/YA) + Scheme templates, layered over the existing Claim/Evidence/BeliefState + Dung argumentation (`agent_utilities/knowledge_graph/argumentation/aif.py`). |
-| `ontology_calendar.ttl` | `…/kg/calendar` | Calendar / scheduling / OWL-Time bindings. |
-| `ontology_capability.ttl` | `…/kg/capability` | Agent/system capabilities. |
-| `ontology_company.ttl` | `…/kg/company` | Company / organization entities. |
-| `ontology_company_infra.ttl` | `…/kg/company_infra` | Company-internal infrastructure mapping. |
-| `ontology_energy_geopolitics.ttl` | `…/kg/energy_geopolitics` | Energy & geopolitics domain. |
-| `ontology_enterprise.ttl` | `…/kg/enterprise` | Enterprise EA governance, ADR decision traces. |
-| `ontology_government.ttl` | `…/kg/government` | Government domain extension. |
-| `ontology_harness.ttl` | `…/kg/harness` | Agentic harness engineering (AHE). |
-| `ontology_hr.ttl` | `…/kg/hr` | Human-resources domain. |
-| `ontology_identity.ttl` | `…/kg/identity` | Identity / IdP / access entities. |
-| `ontology_infrastructure.ttl` | `…/kg/infrastructure` | Runtime-agnostic infra topology (AU-OS.governance.reactive-multi-axis-budget). |
-| `ontology_medical.ttl` | `…/kg/medical` | Medical domain extension. |
-| `ontology_native_source_connector.ttl` | `…/kg/native_source_connector` | Generated OWL mirror of the native_source_connector connector manifest (every resource, relation, and field) — `scripts/generate_connector_manifests.py --connector native_source_connector` (AU-KG.ontology.connector-manifest-compiler). |
-| `ontology_orchestration.ttl` | `…/kg/orchestration` | Orchestration: skill proposals, workflow/process distillation. |
-| `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
-| `ontology_process_intelligence.ttl` | `…/kg/process_intelligence` | OCEL-shaped object-centric events, governed JSON-OCEL 2.0 import/export, temporal Event Knowledge Graph state, process perspectives/conformance, and governed neural graph representations/predictions. |
-| `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |
-| `ontology_sdlc_lifecycle.ttl` | `…/kg/sdlc_lifecycle` | SDLC lifecycle spine: the cross-cutting supertypes (`:Ticket`, `:PipelineRun`, `:CodeChange`, `:Validation`, `:ControlGate`, `:Approval`, `:EscalationRequest`, `:LifecycleStep`) + predicates (`:triggers`/`:specifies`/`:implements`/`:proposes`/`:triggersPipeline`/`:builds`/`:builtFrom`/`:deployedAs`/`:validatedBy`/`:resolves`) that unify the per-package incident/ticket/spec/MR/CI/image/deploy nodes into one enter-anywhere loop (`:Procedure`≡`:WorkflowDefinition`). |
-| `ontology_software.ttl` | `…/kg/software` | Software: code, tests, assertions. |
-| `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
-| `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
-| `ontology_worldview.ttl` | `…/kg/worldview` | WorldView subject-domain upper taxonomy (`:WorldViewDomain`/`:Topic`, SKOS `broader`/`narrower`) every topic classification hangs from (CONCEPT:AU-KG.enrichment.worldview-subject-ontology). |
-| `ontology_documentation.ttl` | `…/kg/documentation` | Governed documentation projection (`:DocumentationPage`/`:DocumentationRevision`/`:DocumentationEvidence`) for docs-as-code ingestion with provenance and temporal versioning. Markdown remains the source of truth; the graph is a reason/query projection (CONCEPT:AU-KG.ingest.governed-documentation-projection). |
-
-### Federated (package-contributed) ontologies — CONCEPT:AU-KG.ontology.federation-provider-leg
-
-Some ontology modules no longer live in this wheel: they are **contributed by fleet
-agent-packages** through the `agent_utilities.ontology_providers` entry-point (the
-third federation leg alongside skills and prompts). When the owning package is
-installed, its `.ttl` is discovered by
-`knowledge_graph/core/ontology_federation.py::discover_provider_ontologies()` and
-treated identically to a bundled module — parsed into the published TBox, pre-loaded
-into the live OWL reasoner, and swept by this valid/connected/SHACL gate. The
-canonical `ontology.ttl` keeps its `owl:imports` edge; when the provider is absent
-the import is a tolerated superset no-op (registered in
-`REGISTERED_FEDERATED_IRIS`).
-
-| File (in provider wheel) | IRI | Provider package | Role |
-|------|-----|------------------|------|
-| `archivebox.ttl` (`archivebox_api/ontology/`) | `…/kg/archivebox` | `archivebox-api` | Web-archive snapshots, extractor results, and capture provenance. |
-| `documentation.shapes.ttl` (`agent_utilities/knowledge_graph/shapes/`) | Governed documentation SHACL shapes | `agent-utilities` | Constrains `:DocumentationPage`, `:DocumentationRevision` and `:DocumentationEvidence` so a projected page cannot omit its source, revision lineage or evidence. |
-| `connector.shacl.ttl` (`archivebox_api/ontology/shapes/`) | ArchiveBox SHACL shapes | `archivebox-api` | Required source, tenant, access-policy, and evidence metadata for archived results. |
-| `gramps.ttl` (`gramps_mcp/ontology/`) | `…/kg/gramps` | `gramps-mcp` | Genealogy families, events, places, citations, repositories, and media relations. |
-| `connector.shacl.ttl` (`gramps_mcp/ontology/shapes/`) | Gramps SHACL shapes | `gramps-mcp` | Required source, tenant, access-policy, and evidence metadata for citations. |
-| `hdhomerun.ttl` (`hdhomerun_mcp/ontology/`) | `…/kg/hdhomerun` | `hdhomerun-mcp` | HDHomeRun devices, channels, guide metadata, and DVR recording rules. |
-| `servicenow.ttl` (`servicenow_api/ontology/`) | `…/kg/servicenow` | `servicenow-api` | ServiceNow ITSM integration (incidents, changes, CMDB). |
-| `connector.shacl.ttl` (`servicenow_api/ontology/shapes/`) | ServiceNow SHACL shapes | `servicenow-api` | Required source, tenant, access-policy, and evidence metadata for changes. |
-| `leanix.ttl` (`leanix_agent/ontology/`) | `…/kg/leanix` | `leanix-agent` | LeanIX EAM integration. |
-| `erpnext.ttl` (`erpnext_agent/ontology/`) | `…/kg/erpnext` | `erpnext-agent` | ERPNext integration. |
-| `archimate.ttl` (`archimate_mcp/ontology/`) | `…/kg/archimate` | `archimate-mcp` | ArchiMate enterprise-architecture vocabulary. |
-| `egeria.ttl` (`egeria_mcp/ontology/`) | `…/kg/egeria` | `egeria-mcp` | Egeria open-metadata integration (imports `…/kg/enterprise`). |
-| `quant.ttl` (`emerald_exchange/ontology/`) | `…/kg/quant` | `emerald-exchange` | Quantitative finance domain. |
-| `trading.ttl` (`emerald_exchange/ontology/`) | `…/kg/trading` | `emerald-exchange` | Trading: microstructure signals, market-knowledge provenance. |
-| `banking.ttl` (`emerald_exchange/ontology/`) | `…/kg/banking` | `emerald-exchange` | Banking domain extension (imported by core `ontology_company.ttl`). |
-| `legal.ttl` (`legal_peripherals_mcp/ontology/`) | `…/kg/legal` | `legal-peripherals-mcp` | Legal domain extension (imported by core `ontology_company.ttl`). |
-| `media.ttl` (`jellyfin_mcp/ontology/`) | `…/kg/media` | `jellyfin-mcp` | Media domain. |
-| `grafana.ttl` (`lgtm_mcp/ontology/`) | `…/kg/grafana` | `lgtm-mcp` | Grafana dashboards / observability assets. |
-| `observability.ttl` (`lgtm_mcp/ontology/`) | `…/kg/observability` | `lgtm-mcp` | Observability (metrics/logs/traces) entities. |
-| `social.ttl` (`postiz_agent/ontology/`) | `…/kg/social` | `postiz-agent` | Social / community domain. |
-| `feed.ttl` (`freshrss_agent/ontology/`) | `…/kg/feed` | `freshrss-agent` | Unified RSS/Atom feed sources + items (`:FeedSource`/`:RssFeed`/`:FeedItem`). |
-| `wellness.ttl` (`wger_agent/ontology/`) | `…/kg/wellness` | `wger-agent` | Wellness domain. |
-| `database.ttl` (`sql_mcp/ontology/`) | `…/kg/database` | `sql-mcp` | Database/schema domain (imports `…/kg/enterprise`). |
-| `container.ttl` (`container_manager_mcp/ontology/`) | `…/kg/container` | `container-manager-mcp` | Container runtime domain: images, volumes, networks, and the workloads that mount them. |
-| `tunnel.ttl` (`tunnel_manager/ontology/`) | `…/kg/tunnel` | `tunnel-manager` | SSH tunnel/host inventory: managed hosts, inventory groups, and fleet-wide operations. |
-| `arr.ttl` (`arr_mcp/ontology/`) | `…/kg/arr` | `arr-mcp` | The *arr media-automation stack: Radarr movies, Sonarr series/episodes, Lidarr artists/albums, Chaptarr books, Prowlarr indexers, Overseerr/Jellyseerr requests and quality profiles. |
-| `connector.shacl.ttl` (`arr_mcp/ontology/shapes/`) | Arr SHACL shapes | `arr-mcp` | Required source, tenant, access-policy, and evidence metadata for arr-stack entities. |
-| `atlassian.ttl` (`atlassian_agent/ontology/`) | `…/kg/atlassian` | `atlassian-agent` | Atlassian work-tracking and knowledge model: Jira issues, epics and sprints, plus Confluence pages as documents. |
-| `github.ttl` (`github_agent/ontology/`) | `…/kg/github` | `github-agent` | GitHub source-control, code-review and CI/CD model: organizations, repositories, pull requests, issues, releases, branches, commits, workflows and workflow runs. |
-| `gitlab.ttl` (`gitlab_api/ontology/`) | `…/kg/gitlab` | `gitlab-api` | GitLab source-control and CI/CD delivery model: groups, projects, merge requests, pipelines, jobs, issues, epics, milestones, commits, branches, releases and runners. |
-| `homeassistant.ttl` (`home_assistant_agent/ontology/`) | `…/kg/homeassistant` | `home-assistant-agent` | Home Assistant smart-home model: physical devices, the entities they expose, areas, services, and sensor/state/logbook timeseries. |
-| `plane.ttl` (`plane_agent/ontology/`) | `…/kg/plane` | `plane-agent` | Plane project-and-issue-tracking model: workspaces, software projects, work items, cycles, modules, states and labels. |
-| `portainer.ttl` (`portainer_agent/ontology/`) | `…/kg/portainer` | `portainer-agent` | Portainer container-management model: environments, endpoint groups, stacks, containers, services, images, networks, volumes, registries, templates, edge stacks and teams. |
-| `vector.ttl` (`vector_mcp/ontology/`) | `…/kg/vector` | `vector-mcp` | Vector-database / RAG retrieval model: collections, backends, chunks, embeddings and semantic/lexical/hybrid search. |
-
-### SHACL shapes
-
-SHACL shapes are validation constraints, not importable ontologies (no `owl:Ontology`
-IRI). They are validated for well-formedness by the gate via pyshacl.
-
-| File | Role |
-|------|------|
-| `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
-| `shapes/argumentation.shapes.ttl` | AIF argumentation SHACL shapes: an `:AIFInformationNode` must carry `aifNodeText`; `:AIFRuleApplicationNode`/`:AIFConflictApplicationNode` need ≥1 `aifHasPremise` + exactly 1 `aifHasConclusion`; `:AIFPreferenceApplicationNode` needs ≥2 premises + exactly 1 (preferred) conclusion. |
-| `shapes/sdlc_lifecycle.shapes.ttl` | SDLC lifecycle REQUIRED-shape constraints (design §1.3) — consulted in DIFF mode by the enter-anywhere orchestrator so "find the gaps" is a validation query (a merged `:CodeChange` REQUIRES a `:PipelineRun`, a resolving `:Deployment` REQUIRES `:validatedBy` evidence). |
-| `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
-| `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
-| `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:AU-KG.domains.ohlcv-gap-fill): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
-| `shapes/process_intelligence.shapes.ttl` | Required object/event participation and proposal-only neural/entity-resolution invariants for the unified OCEL/tEKG/neural graph contract. |
-| `shapes/portfolio_intelligence.shapes.ttl` | Portfolio comparative-intelligence decision shapes (CONCEPT:AU-KG.enrichment.portfolio-intelligence): a `:Recommendation` must carry a valid adopt/reject/consolidate/migrate `:verdict` + non-empty `:rationale`; an `:Assessment` must record its `:assessmentScore`; a `:ComparisonCriterion` must declare its kind + weight. |
+Do not add ontology files under `agent_utilities/knowledge_graph`, introduce a
+Python fallback reasoner, or pass governance shapes inline.

@@ -190,9 +190,10 @@ caller to fall back further. `knowledge_graph/retrieval/capability_index.py`'s
 only as the dev/lean-engine fallback and for reward write-back
 (`record_outcome`/`record_capability_outcome`).
 
-**X-4 extends the same file** (see §4.3) — `capability_hierarchy` is an optional
-parameter to `engine_filtered_search` that makes the `capabilities` filter
-subsumption-aware; passing nothing is byte-identical to pre-X-4 behavior.
+**X-4 extends the same file** (see §4.3) — `capability_hierarchy` is the injected
+request-scoped projection returned by EG `OwlReason`. It makes the
+`capabilities` filter subsumption-aware without giving AU a second TBox or
+process cache.
 
 **Two surfaces.** Consumed by `graph_orchestrate`'s designation/dispatch path
 (`/graph/orchestrate`) and by `graph_search action=discover`/hybrid retrieval
@@ -538,21 +539,19 @@ for the *broader* one (`rdfs:subClassOf`-aware), a versioned `CapabilityDescript
 full eligibility explainability.
 
 **Code anchor.**
-`knowledge_graph/ontology/capability_hierarchy.py::CapabilityHierarchy` (the
-subsumption index), `knowledge_graph/retrieval/capability_descriptor.py` (the typed
+`knowledge_graph/retrieval/capability_projection.py::CapabilitySubsumptionProjection`
+(the digest-bound EG projection), `knowledge_graph/retrieval/capability_descriptor.py` (the typed
 descriptor), `graph/routing/enrichers/capability_routing.py::
 route_capability_request`/`explain_routing_eligibility` (the WHY-eligible dict,
-computed engine-native-first, falling back to the in-process cache only when the
-engine is unreachable). `knowledge_graph/retrieval/engine_capability_search.py`'s
-`build_capability_filters`/`engine_filtered_search` take an optional
-`capability_hierarchy` parameter — **default `None` is byte-identical to pre-X-4
-behavior** (the exact-string `array_contains` filter the engine already used).
+computed engine-native-first). `knowledge_graph/retrieval/engine_capability_search.py`'s
+`build_capability_filters`/`engine_filtered_search` receive the one
+request-scoped projection through `capability_hierarchy`;
+missing schema digests or inconsistent classification fail closed rather than
+falling back to bundled TTL.
 
-**Two surfaces.** No dedicated tool. `capability_hierarchy.py` and
-`capability_descriptor.py` are named explicitly in
-`scripts/surface_parity_baseline.txt` with the comment *"internal routing structures
-behind ontology-driven tool/agent routing (X-4), which IS surfaced via
-`graph_orchestrate`"* — i.e. the accepted posture is that X-4 changes *how*
+**Two surfaces.** No dedicated tool. `capability_projection.py` and
+`capability_descriptor.py` are internal routing structures behind ontology-driven
+tool/agent routing — i.e. X-4 changes *how*
 `graph_orchestrate`'s existing dispatch/designation call picks a candidate, not that
 it adds a new callable. `explain_routing_eligibility` itself is a plain library
 function with **no MCP/REST caller anywhere in this codebase** (confirmed by

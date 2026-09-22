@@ -10,7 +10,6 @@ durably backfill the graph into Apache AGE. No new graph logic lives here.
 from .database_environment import (
     backfill_to_age,
     configure_backend,
-    publish_ontology,
     register_stardog_mirror,
     setup_environment,
     verify_postgres,
@@ -20,7 +19,6 @@ from .database_environment import (
 __all__ = [
     "backfill_to_age",
     "configure_backend",
-    "publish_ontology",
     "register_stardog_mirror",
     "setup_environment",
     "verify_postgres",

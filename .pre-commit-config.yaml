@@ -377,23 +377,6 @@ repos:
     # so the formatter would rewrite them on every run. They remain valid turtle
     # and are parsed/validated by the SHACL gate — just not cosmetically reformatted.
     exclude: ^agent_utilities/knowledge_graph/shapes/
-  - id: check-ontology
-    name: Ontology library — valid + connected (no unlinked/broken ontologies)
-    entry: python3 scripts/check_ontology.py
-    language: system
-    pass_filenames: false
-    # Scoped: every *.ttl in this repo lives under agent_utilities/knowledge_
-    # graph/ (verified: `find . -name '*.ttl'` has no hits outside it), and
-    # the gate's own 7th rule cross-references docs/architecture/
-    # ontology_library.md. The graph-connectivity/SHACL checks themselves
-    # still scan the WHOLE ontology library every time this runs (unchanged
-    # -- adding/removing one file can only break connectivity if a .ttl
-    # actually changed); only the invocation is scoped. If neither a .ttl
-    # nor that one doc changed, the ontology library's validity/connectivity
-    # cannot have changed either. Measured 2026-08-15: ~38s standalone --
-    # the single most expensive per-file-scopable hook after the two
-    # rejected below.
-    files: \.ttl$|^docs/architecture/ontology_library\.md$
   - id: check-identifier-interpolation
     name: Identifier interpolation — every label/table/rel-type f-string is validated
     entry: python3 scripts/check_identifier_interpolation.py

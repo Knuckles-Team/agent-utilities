@@ -5,15 +5,11 @@ asserted structurally:
 
 1. A real ``ingest_concepts`` run leaves a connected taxonomy, not 2,438
    isolated string rows (CONCEPT:AU-KG.enrichment.relation-projection).
-2. The bundled ``ontology*.ttl`` library reaches a reasoner at all
-   (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
-3. Reasoning produces at least one edge carrying ``inferred = true`` — the
+2. Reasoning produces at least one edge carrying ``inferred = true`` — the
    single assertion whose absence hid the entire failure.
 """
 
 from __future__ import annotations
-
-import pytest
 
 
 def _concepts(count: int) -> list[dict[str, str]]:
@@ -226,53 +222,6 @@ def test_non_projecting_writes_are_untouched(engine_graph):
 
 
 # ── 2. the ontology reaches a reasoner ────────────────────────────────────
-
-
-def test_bundled_ontology_projects_real_axioms():
-    """The 29 ``.ttl`` modules become reasoner input, not one hardcoded axiom."""
-    from agent_utilities.knowledge_graph.ontology.axioms import (
-        closure_sets,
-        ontology_axioms,
-    )
-
-    axioms = ontology_axioms()
-    if not axioms:
-        pytest.skip("rdflib unavailable — the ontology cannot be parsed here")
-
-    assert axioms.counts["triples"] > 5000
-    # The measured shape of the library: these are the axiom families that
-    # produce EDGES under a materialising reasoner.
-    assert len(axioms.transitive_properties) >= 15
-    assert len(axioms.symmetric_properties) >= 5
-    assert len(axioms.inverse_properties) >= 20
-    assert axioms.property_chains
-    # camelCase OWL local names are translated to the graph's edge convention.
-    assert "DEPENDS_ON" in axioms.transitive_properties
-    assert "PART_OF" in axioms.transitive_properties
-
-    transitive, symmetric, inverse = closure_sets()
-    # Casefolded for the closure's own comparison against edge relationships.
-    assert "depends_on" in transitive
-    assert "part_of" in transitive
-    assert symmetric and inverse
-
-
-def test_owl_bridge_is_seeded_from_the_bundled_ontology():
-    """``OWLBridge`` no longer reasons over a single hardcoded axiom."""
-    from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
-    from agent_utilities.knowledge_graph.ontology.axioms import ontology_axioms
-
-    if not ontology_axioms():
-        pytest.skip("rdflib unavailable — the ontology cannot be parsed here")
-
-    bridge = OWLBridge(graph=None, owl_backend=None, backend=None)
-    assert len(bridge._pack_transitive) > 10, bridge._pack_transitive
-    assert "depends_on" in bridge._pack_transitive
-    assert bridge._pack_symmetric
-    # ...and the Turtle it seeds the engine reasoner with says so.
-    turtle = bridge._pack_axioms_turtle()
-    assert "au:depends_on a owl:TransitiveProperty ." in turtle
-    assert turtle.count("owl:TransitiveProperty") > 10
 
 
 # ── 3. an inference actually lands as inferred = true ─────────────────────

@@ -7,7 +7,7 @@ generic writer with no edits to any shared hub file.
 
 Emitted node types are the **canonical** ArchiMate concepts, so Camunda data
 folds into the same cross-vendor crosswalk as ServiceNow/ERPNext (see
-``ontology_archimate.ttl``):
+EG's core ArchiMate source):
 
     process definition -> ``BusinessProcess``   id=bpmn_process:{id}
     task               -> ``BusinessTask``      id=bpmn_task:{id}   (PART_OF process)

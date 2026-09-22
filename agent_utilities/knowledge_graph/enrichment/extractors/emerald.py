@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core import owl_bridge
 from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
@@ -104,7 +103,6 @@ def extract(config: Any) -> ExtractionBatch:
             )
         )
 
-    owl_bridge.register_promotable_node_types({n.type for n in nodes})
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
 

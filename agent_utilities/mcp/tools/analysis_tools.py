@@ -1970,11 +1970,10 @@ async def _analysis_action_workforce_plan(
 
 async def _analysis_action_close(engine, action, query, top_k, node_id, depth, target):
     # action(s): 'close'
-    from agent_utilities.knowledge_graph.maintenance.owl_closure import (
-        run_closure,
-    )
-
-    summary = run_closure(engine, limit=top_k * 200 if top_k != 10 else 2000)
+    graph_compute = getattr(engine, "graph_compute", engine)
+    if not hasattr(graph_compute, "run_datalog_reasoning"):
+        raise RuntimeError("generated EG Datalog reasoning is unavailable")
+    summary = graph_compute.run_datalog_reasoning()
     return json.dumps(summary, default=str)
 
 

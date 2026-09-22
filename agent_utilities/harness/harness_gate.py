@@ -17,7 +17,7 @@ from typing import Any
 
 import rdflib
 
-from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 _KG = rdflib.Namespace("http://knuckles.team/kg#")
 _SHAPES = (
@@ -115,15 +115,23 @@ class HarnessGate:
     """Validate a harness-evolution graph against the SHACL seesaw + concentration
     + pathology shapes. The deterministic acceptance gate of the AEGIS Critic."""
 
-    def __init__(self, shapes_path: str | Path | None = None) -> None:
-        self._validator = SHACLValidator()
-        self._shapes = str(shapes_path or _SHAPES)
+    def __init__(
+        self,
+        shapes_path: str | Path | None = None,
+        *,
+        engine: Any | None = None,
+    ) -> None:
+        self._engine = _engine_or_default(engine)
+        self._shapes = Path(shapes_path or _SHAPES)
 
     def check(self, graph: rdflib.Graph) -> GateVerdict:
-        report = self._validator.validate(graph, self._shapes)
+        report = self._engine.shacl_validate_ad_hoc(
+            _serialize_turtle(graph),
+            self._shapes.read_text(encoding="utf-8"),
+        )
         return GateVerdict(
-            passed=bool(report.get("conforms", True)),
-            violations=list(report.get("violations", []) or []),
+            passed=bool(report.conforms),
+            violations=[result.model_dump(mode="json") for result in report.results],
         )
 
     def check_facts(
@@ -137,3 +145,12 @@ class HarnessGate:
         return self.check(
             build_evolution_graph(edits, variants, pathologies, processors)
         )
+
+
+def _engine_or_default(engine: Any | None) -> Any:
+    return engine or GraphComputeEngine.get_or_create()
+
+
+def _serialize_turtle(graph: rdflib.Graph) -> str:
+    data = graph.serialize(format="turtle")
+    return data.decode() if isinstance(data, bytes) else str(data)

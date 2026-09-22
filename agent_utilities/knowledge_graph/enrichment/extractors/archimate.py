@@ -3,8 +3,7 @@
 Reads an ArchiMate model (Open-Exchange, via the archimate-mcp ArchiApi) into the
 KG: elements → their ArchiMate class node (BusinessProcess, ApplicationComponent,
 Node, …), relationships → typed edges. Stamped externalToolId + domain="archimate".
-The emitted element types are registered as OWL-promotable so DL reasoning treats
-them as first-class (they already have classes in ontology_archimate.ttl). Client
+EG's committed GraphSchema already owns the ArchiMate class semantics. Client
 injected; tolerant.
 """
 
@@ -40,13 +39,11 @@ def extract(config: Any) -> ExtractionBatch:
     if client is None:
         return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
-    emitted_types: set[str] = set()
     for el in _call(client, "list_elements"):
         eid = el.get("id")
         etype = el.get("type")
         if not (eid and etype):
             continue
-        emitted_types.add(etype)
         nodes.append(
             GraphNode(
                 id=f"archi:{eid}",
@@ -72,13 +69,6 @@ def extract(config: Any) -> ExtractionBatch:
                 rel_type=_upper_snake(rel.get("type") or "ASSOCIATION"),
             )
         )
-
-    # Make the model's element classes OWL-promotable (they have ontology_archimate
-    # classes); registering here keeps reasoning first-class without a hub edit.
-    if emitted_types:
-        from ...core.owl_bridge import register_promotable_node_types
-
-        register_promotable_node_types(emitted_types)
 
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 

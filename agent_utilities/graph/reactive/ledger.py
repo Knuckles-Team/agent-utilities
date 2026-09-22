@@ -11,7 +11,7 @@ Ontological Synergy:
     - Stores event traces as standard 'Event' classes in the OWL ontology.
     - Connects event chains using 'was_derived_from' edges for transitive lineage.
     - Links events to runs using 'occurred_during' edges to trigger automated
-      description logic (DL) reasoning via the OWLBridge.
+      description logic reasoning through epistemic-graph.
 """
 
 import logging

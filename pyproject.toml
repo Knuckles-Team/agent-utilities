@@ -45,6 +45,10 @@ license = "MIT"
 # SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras — those are
 # genuinely optional; the engine is not. See "Dependency discipline" in AGENTS.md.
 dependencies = [
+    # RF-ADR-009: AU contributes its semantic pack through the fleet's one
+    # ConnectorContent contract. The SDK is phase 3 and may not depend on AU;
+    # AU (phase 4) may depend on the published SDK.
+    "agent-connector-sdk>=0.1.0,<1.0.0",
     "pydantic[email]>=2.13.4",
     "pydantic-settings>=2.14.2",
     "PyYAML>=6.0.3",
@@ -487,30 +491,14 @@ neo4j = [
 falkordb = [
     "falkordb>=1.6.2"
 ]
-owl = [
-    "owlready2>=0.51",
-    "rdflib>=7.6.0",
-    "pyshacl>=0.40.0"
-]
 # RDF parsing is needed by the GraphOS ingestion runtime to materialize skill and
 # ontology metadata.  Keep this smaller than ``owl``: the served gateway does not
 # need Python OWL-DL reasoning or SHACL validation to ingest a reviewed corpus.
 rdf = [
     "rdflib>=7.6.0"
 ]
-# The lightweight fallback the hosted-ontology lifecycle
-# (knowledge_graph/ontology/lifecycle.py) needs at SERVE time (CONCEPT:AU-KG.ontology.activation-icv-fallback):
-# a candidate TBox must survive an OWL-RL closure check + SHACL gate before it is
-# activated for native reasoning. Deliberately narrower than ``owl`` (no
-# owlready2 — that's a full external OWL-DL reasoner, never needed here): just
-# the RDF-RL closure (owlrl) and shapes validator (pyshacl) the lifecycle module
-# already imports defensively (``try: import owlrl`` / ``try: import pyshacl``).
-ontology-guardrails = [
-    "owlrl>=7.6.2",
-    "pyshacl>=0.40.0"
-]
 stardog = [
-    "agent-utilities[owl]",
+    "agent-utilities[rdf]",
     "pystardog>=0.20.0"
 ]
 fuseki = [
@@ -566,16 +554,8 @@ serving = [
     # dependency for RSS ingestion. Code parsing is delegated to the engine's
     # native tree-sitter — no Python tree-sitter is added to the serving plane.
     #
-    # Full external OWL-DL reasoning (owlready2, the `owl` extra) stays excluded: GraphOS
-    # delegates classification to the engine's native RDF/SPARQL/OWL surface. The narrower
-    # ``ontology-guardrails`` extra (owlrl + pyshacl, no owlready2) IS shipped here
-    # (CONCEPT:AU-KG.ontology.activation-icv-fallback): the hosted-ontology lifecycle's
-    # validate/activate gate needs an OWL-RL closure + SHACL check to run at serve time —
-    # without it, `graph_ontology action=activate` degraded to reporting
-    # ``ImportError: owlrl not installed`` as a soft warning instead of actually gating
-    # activation, so a candidate that would break reasoning could still be marked active.
-    # The light ``rdf`` extra is unrelated: workflow and ontology ingestion need rdflib
-    # parsing at runtime regardless of whether the guardrail reasoners are present.
+    # OWL reasoning and SHACL validation are engine-native generated contracts.
+    # AU retains rdflib only for bounded RDF document construction/parsing.
     # CONCEPT:KG-2.3 — the serving/host plane RUNS ingestion + enrichment, so it needs the
     # CANONICAL embedder. D2 (GHSA-8mgp-746c-j5xp) removed llama-index entirely:
     # `create_embedding_model()`'s openai/ollama providers are now plain
@@ -611,7 +591,7 @@ serving = [
     # without it here, every configured dashboard tile logs
     # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
     # refresh in production.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails,gateway-widgets]",
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,gateway-widgets]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -702,7 +682,7 @@ test = [
     # (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
+    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
@@ -741,14 +721,14 @@ test = [
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
 # `pytest -m live` can stand up throwaway pg-age/Neo4j/FalkorDB/Fuseki/Kafka.
 test-backends = [
-    "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
+    "agent-utilities[test,neo4j,falkordb,postgresql,kafka,rdf,fuseki]",
     "testcontainers>=4.14.2"
 ]
 # RF-ADR-009 SUPERSEDES GOC-73: the engine is a hard base dependency again, so
 # `all` no longer needs to name `graphos` — an existing `pip install
 # agent-utilities[all]` still gets the engine unchanged, now via base.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
@@ -1237,12 +1217,11 @@ searxng = ["pyyaml", "msgspec", "typing-extensions", "setuptools"]
 # deployment enables it, so AU intentionally has no provider source declaration
 # here. The SDK contract remains in the `[langfuse]` extra above.
 epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph", editable = true }
+agent-connector-sdk = { path = ".uv-workspace-siblings/agent-connector-sdk", editable = true }
 
 [dependency-groups]
 guardrails = [
     "jsonschema>=4.26.0",
-    "owlrl>=7.6.2",
-    "pyshacl>=0.40.0",
     "pytest>=9.1.1",
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",

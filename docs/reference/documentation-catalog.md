@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-406 publishable pages · 96 direct nav targets · 133 public capabilities · 882 action rows · 574 typed configuration fields · 375 runtime-only call-site inputs.
+406 publishable pages · 96 direct nav targets · 133 public capabilities · 868 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -246,11 +246,11 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — catalog
 - [Incremental object-centric derivation + conformance checking](../architecture/object_centric_derivation_and_conformance.md) — catalog
 - [Observability — Metrics, Logs, Traces, Alerts](../architecture/observability.md) — direct nav
-- [Ontology Federation & Package Migration](../architecture/ontology-federation.md) — catalog
+- [Ontology package composition](../architecture/ontology-federation.md) — catalog
 - [Ontology-Guided Ingestion & Entity Resolution](../architecture/ontology-guided-ingestion.md) — catalog
 - [Ontology integrity-policy activation (CONCEPT:AU-KG.ontology.integrity-bootstrap)](../architecture/ontology-integrity-activation.md) — catalog
 - [Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)](../architecture/ontology-native-classification.md) — catalog
-- [Ontology Library](../architecture/ontology_library.md) — catalog
+- [Ontology and SHACL authority](../architecture/ontology_library.md) — catalog
 - [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — catalog
 - [Optimization Campaign — Session Checkpoint (2026-06-19)](../architecture/optimization-campaign-checkpoint.md) — catalog
 - [Orchestration Execution Seam — ingested capability → executed by a local LLM](../architecture/orchestration-execution-seam.md) — catalog

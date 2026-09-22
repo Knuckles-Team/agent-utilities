@@ -38,8 +38,9 @@ the engine build doesn't understand (e.g. an older engine without the
 engine-surface consumer in this codebase.
 
 **X-4 — ontology-subsumption-aware push-down.** The ``capabilities`` restriction
-is always hierarchy-aware (an isolated ontology may be injected via
-``capability_hierarchy``; omitting it resolves the bundled current hierarchy):
+is always hierarchy-aware (an isolated engine-derived projection may be injected
+via ``capability_hierarchy``; otherwise this entry point obtains one from the
+composed GraphSchema through ``OwlReason``):
 a required capability type is satisfied by a node declaring it OR any
 ontology-narrower subtype. The engine's ``array_contains`` ``Filter`` op is
 exact-string only, so when (and only when) a required capability actually HAS
@@ -89,14 +90,8 @@ def build_capability_filters(
 
 
 def _resolve_capability_hierarchy(hierarchy: Any | None) -> Any:
-    """Return an injected hierarchy or the bundled current ontology hierarchy."""
-    if hierarchy is not None:
-        return hierarchy
-    from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
-        get_default_hierarchy,
-    )
-
-    return get_default_hierarchy()
+    """Return the engine-derived projection injected by the public entry point."""
+    return hierarchy
 
 
 def _capability_satisfied(caps_set: set[str], required: str, hierarchy: Any) -> bool:
@@ -390,10 +385,14 @@ def engine_filtered_search(
     real, authoritative answer: the engine ran the filtered plan and no entity
     qualified.
 
-    ``capability_hierarchy`` (X-4) may inject an isolated ontology; omitting it
-    resolves the bundled current hierarchy. See the module docstring for the
-    push-down/post-filter split this triggers.
+    ``capability_hierarchy`` (X-4) may inject an isolated engine-derived
+    projection; omitting it classifies the composed GraphSchema through
+    ``OwlReason``. See the module docstring for the push-down/post-filter split.
     """
+    capability_hierarchy = _search_hierarchy(
+        engine, required_caps, capability_hierarchy
+    )
+
     (
         capability_hierarchy,
         needs_local_check,
@@ -443,3 +442,15 @@ def engine_filtered_search(
         capability_hierarchy=capability_hierarchy,
         active_release_channel=active_release_channel,
     )
+
+
+def _search_hierarchy(
+    engine: Any, required_caps: list[str] | None, capability_hierarchy: Any | None
+) -> Any:
+    if capability_hierarchy is not None or not required_caps:
+        return capability_hierarchy
+    from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+        load_capability_projection,
+    )
+
+    return load_capability_projection(engine)

@@ -206,7 +206,7 @@ C4Component
         Component(program_jobs, "Native Program Jobs", "Rust", "Persists governed candidates and optimization evidence")
         Component(align_bridge, "Ontology Alignment Bridge", "Python", "KG-2.7: Unifies disparate silos (Enterprise Architecture Repositories [EARs], ServiceNow) via cosine_similarity & owl:sameAs")
         Component(entail_scope, "Entailment-Aware Permission Scoper", "Python", "KG-2.7: Intersects security classifications for Rust Datalog inferred edges")
-        Component(crosswalk, "Vendor-Neutral Crosswalk", "OWL/Turtle", "KG-2.9: ontology_archimate.ttl — binds each vendor class (ServiceNow :Incident, ERPNext :ErpNextIssue, Camunda :BusinessTask) to one canonical ArchiMate concept via subClassOf/equivalentClass")
+        Component(crosswalk, "Vendor-Neutral Crosswalk", "EG GraphSchema", "KG-2.9: immutable ArchiMate source binds each vendor class (ServiceNow :Incident, ERPNext :ErpNextIssue, Camunda :BusinessTask) to one canonical ArchiMate concept via subClassOf/equivalentClass")
         Component(vendor_ext, "Vendor Source Extractors", "Python", "KG-2.9: Self-registering adapters (servicenow/erpnext/camunda/leanix) lift REST APIs into canonical GraphNodes")
         Component(realizes, "Code→Capability Bridge", "Python", "KG-2.8: realizes.py — REALIZES edges from code features to BusinessCapability (match / mint / curated)")
         Component(cap_wb, "Capability Write-Back", "Python", "KG-2.8: Pushes provisional/derived capabilities back to Archi (add_element) & LeanIX (postbusinesscapability)")

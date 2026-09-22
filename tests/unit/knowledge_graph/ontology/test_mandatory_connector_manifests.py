@@ -16,7 +16,6 @@ from agent_utilities.knowledge_graph.ontology import connector_manifest_gate as 
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import is_wired
 
 NAMED_CONNECTOR_PACKAGES: tuple[str, ...] = tuple(
     sorted(gate.mandatory_connector_packages())
@@ -148,13 +147,7 @@ def test_named_connector_manifest_passes_gate(package: str):
     # fixture, by `test_connector_manifest_gate.py`.
     violations = gate.check_manifest_bytes(path, require_signature=False)
     assert violations == [], f"{package}: {violations}"
-    manifest = ConnectorManifest.model_validate(
-        yaml.safe_load(path.read_text(encoding="utf-8"))
-    )
-    assert is_wired(manifest.resolved_ontology_source), (
-        f"{package}: <http://knuckles.team/kg/"
-        f"{manifest.resolved_ontology_source}> is neither imported nor federated"
-    )
+    ConnectorManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
 def test_all_source_connectors_resolve_through_precheck_source(monkeypatch):

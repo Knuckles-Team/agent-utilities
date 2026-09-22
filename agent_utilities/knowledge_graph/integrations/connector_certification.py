@@ -785,7 +785,7 @@ async def _certify_connector_run(
     await _certify_connector_delete(driver, updated, envelopes, scope, counts, checks)
 
     semantic_validator = _semantic_validation(
-        bundle, envelopes, require_pyshacl=mode == "external-live"
+        bundle, envelopes, require_engine_shacl=mode == "external-live"
     )
     checks["semantic_validation"] = "passed"
     checks["count_reconciliation"] = "passed"
@@ -1096,7 +1096,7 @@ def _verify_cert_markers(record: Mapping[str, Any]) -> list[str]:
     if record.get("semantic_validator") not in {
         "not-run",
         "declared-shacl-contract",
-        "pyshacl",
+        "epistemic-graph",
     }:
         violations.append("certification semantic validator is invalid")
     failure_class = record.get("failure_class")
@@ -1577,28 +1577,35 @@ def _semantic_validation(
     bundle: CertificationBundle,
     envelopes: Sequence[ChangeEnvelope],
     *,
-    require_pyshacl: bool,
+    require_engine_shacl: bool,
 ) -> str:
-    try:
-        import rdflib
-    except ImportError:
-        if require_pyshacl:
-            raise CertificationError(
-                "live certification requires the SHACL runtime"
-            ) from None
+    if not require_engine_shacl:
         _declared_semantic_validation(bundle, envelopes)
         return "declared-shacl-contract"
     try:
-        shapes = rdflib.Graph()
-        shapes.parse(data=bundle.shapes_text, format="turtle")
+        import rdflib
+
         data = _build_certification_data_graph(rdflib, envelopes)
-        return _validate_against_shapes(
-            rdflib, shapes, data, envelopes, require_pyshacl=require_pyshacl
+        rendered = data.serialize(format="turtle")
+        data_turtle = (
+            rendered.decode() if isinstance(rendered, bytes) else str(rendered)
         )
+        return _validate_native_shacl(data_turtle, bundle.shapes_text)
     except CertificationError:
         raise
     except Exception as exc:
-        raise CertificationError("semantic validation failed") from exc
+        raise CertificationError("epistemic-graph semantic validation failed") from exc
+
+
+def _validate_native_shacl(data_turtle: str, shapes_text: str) -> str:
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    report = GraphComputeEngine.get_or_create().shacl_validate_ad_hoc(
+        data_turtle, shapes_text
+    )
+    if not bool(report.conforms):
+        raise CertificationError("synthetic fixture does not conform to SHACL")
+    return "epistemic-graph"
 
 
 def _build_certification_data_graph(
@@ -1616,52 +1623,6 @@ def _build_certification_data_graph(
         data.add((subject, kg.accessPolicyReference, rdflib.Literal("bound")))
         data.add((subject, kg.provenanceReference, rdflib.Literal("bound")))
     return data
-
-
-def _validate_against_shapes(
-    rdflib: Any,
-    shapes: Any,
-    data: Any,
-    envelopes: Sequence[ChangeEnvelope],
-    *,
-    require_pyshacl: bool,
-) -> str:
-    try:
-        from pyshacl import validate
-    except ImportError:
-        if require_pyshacl:
-            raise CertificationError(
-                "live certification requires the SHACL runtime"
-            ) from None
-        return _declared_shacl_target_coverage(rdflib, shapes, envelopes)
-    conforms, _results_graph, _results_text = validate(
-        data,
-        shacl_graph=shapes,
-        abort_on_first=False,
-        allow_infos=False,
-        allow_warnings=False,
-    )
-    if not bool(conforms):
-        raise CertificationError("synthetic fixture does not conform to SHACL")
-    return "pyshacl"
-
-
-def _declared_shacl_target_coverage(
-    rdflib: Any, shapes: Any, envelopes: Sequence[ChangeEnvelope]
-) -> str:
-    target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
-    targets = {str(value) for value in shapes.objects(predicate=target_class)}
-    declared = {
-        str(
-            rdflib.Namespace("http://knuckles.team/kg#")[
-                str((envelope.typed_payload or {}).get("type") or "Document")
-            ]
-        )
-        for envelope in envelopes
-    }
-    if not declared.issubset(targets):
-        raise CertificationError("declared semantic coverage is incomplete") from None
-    return "declared-shacl-contract"
 
 
 def _declared_semantic_validation(

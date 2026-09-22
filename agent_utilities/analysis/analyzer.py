@@ -208,23 +208,31 @@ async def _run_deep_extraction(
         }
 
 
-def _run_owl_cycle(engine: Any) -> dict[str, Any]:
-    """Trigger a lightweight OWL reasoning cycle on the engine's graph."""
+def _run_owl_reasoning(engine: Any) -> dict[str, Any]:
+    """Run the engine-native, read-only OWL reasoner."""
     try:
-        from agent_utilities.knowledge_graph.backends.owl import create_owl_backend
-        from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
-
-        owl_backend = create_owl_backend()
-        bridge = OWLBridge(
-            graph=engine.graph,
-            owl_backend=owl_backend,
-            backend=engine.backend,
-        )
-        stats = bridge.run_cycle(lightweight=True)
-        return {"status": "success", **stats}
+        compute = getattr(engine, "graph", None)
+        reason = getattr(compute, "owl_reason", None)
+        if not callable(reason):
+            raise RuntimeError("native GraphComputeEngine.owl_reason is unavailable")
+        result = reason(class_base="http://agent-utilities.dev/ontology#")
+        if not isinstance(result, dict):
+            raise RuntimeError("native OwlReason returned an invalid result")
+        if result.get("consistent") is not True:
+            raise RuntimeError("native OwlReason did not prove ontology consistency")
+        if not result.get("schema_digests"):
+            raise RuntimeError("native OwlReason omitted committed schema digests")
+        return {
+            "status": "success",
+            "mode": "read_only",
+            "consistent": result.get("consistent"),
+            "subclass_entailments": len(result.get("subclasses", [])),
+            "instance_entailments": len(result.get("instances", [])),
+            "schema_digests": result.get("schema_digests", []),
+        }
     except Exception as e:  # noqa: BLE001 — best-effort OWL cycle, caller already treats result as optional
-        logger.debug("OWL cycle skipped: %s", e)
-        return {"status": "skipped", "reason": str(e)}
+        logger.error("Native OWL reasoning failed: %s", e)
+        return {"status": "error", "reason": str(e)}
 
 
 class GraphAnalyzer:
@@ -253,7 +261,7 @@ class GraphAnalyzer:
 
         synthesis = await _run_synthesis(None, self.engine, query, results)
         extraction = await _run_deep_extraction(None, self.engine, query, results)
-        owl = _run_owl_cycle(self.engine)
+        owl = _run_owl_reasoning(self.engine)
 
         return {
             "status": "completed",

@@ -22,36 +22,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class OntologyCatalogRequest:
-    """Fields ``_graph_ontology_catalog``'s six actions (load/list/get/update/delete/validate)
-    draw from — each action reads only the 3-6 fields relevant to it."""
+    """Fields used by the GraphSchema-backed ontology lifecycle actions."""
 
     source: str = ""
     source_type: str = "auto"
     iri: str = ""
     version: str = ""
-    serialize: bool = False
-    active_only: bool = False
-    deprecated_only: bool = False
-    drop_inferences: bool = False
-    category: str = ""
-    tags_json: str = ""
-    search: str = ""
-    tag: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class OntologyProposalRequest:
-    """Fields ``_graph_ontology_proposal``'s six actions (propose/list_proposals/get_proposal/
-    review_proposal/promote_proposal/rollback_proposal) draw from."""
-
-    proposal_id: str = ""
-    source: str = ""
-    iri: str = ""
-    source_type: str = "auto"
-    evidence_refs_json: str = ""
-    proposer: str = ""
-    reason: str = ""
-    approve: bool = True
-    reviewer: str = ""
-    notes: str = ""
-    status: str = ""

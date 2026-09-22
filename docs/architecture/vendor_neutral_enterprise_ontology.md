@@ -36,7 +36,7 @@ layer. The ontology is the single source of truth; the tools are pluggable.
 
 | Part | Role | Concept | Code |
 |------|------|---------|------|
-| **Canonical crosswalk** | One ArchiMate concept per business idea; each vendor class subclasses it | `KG-2.9` | `knowledge_graph/ontology_archimate.ttl` |
+| **Canonical crosswalk** | One ArchiMate concept per business idea; each vendor class subclasses it | `KG-2.9` | EG core ArchiMate GraphSchema source |
 | **Vendor adapters** | Self-registering extractors lift each system's API into canonical nodes | `KG-2.9` | `knowledge_graph/enrichment/extractors/*.py` |
 | **Code→capability bridge** | Links source code to the `BusinessCapability` it realizes | `KG-2.8` | `knowledge_graph/enrichment/realizes.py` |
 | **Virtual REST federation** | Query live system data on-demand without re-materializing | `KG-2.1` | `knowledge_graph/orchestration/engine_federation.py` |
@@ -147,7 +147,7 @@ the canonical concept.
 
 ```mermaid
 graph TD
-    subgraph Canonical["ontology_archimate.ttl — canonical ArchiMate anchors"]
+    subgraph Canonical["EG core GraphSchema — canonical ArchiMate anchors"]
         AE[":ApplicationEvent"]
         BP[":BusinessProcess"]
         BT[":BusinessTask"]
@@ -167,7 +167,7 @@ graph TD
 Worked example — ServiceNow ↔ ERPNext interchangeability:
 
 ```turtle
-# ontology_archimate.ttl  (crosswalk axioms only; classes live in vendor TTLs)
+# EG core ArchiMate source (crosswalk axioms; classes live in vendor sources)
 :Incident       rdfs:subClassOf :ApplicationEvent .   # ServiceNow incident table
 :ErpNextIssue   rdfs:subClassOf :ApplicationEvent .   # Frappe Issue doctype
 :Incident       owl:equivalentClass :ErpNextIssue .   # full interchangeability
@@ -366,7 +366,7 @@ RETURN t.id, t.status, w.name
 
 ```
 agent_utilities/knowledge_graph/
-├── ontology_archimate.ttl              # canonical anchors + crosswalk (KG-2.9)
+├── EG core ArchiMate GraphSchema       # canonical anchors + crosswalk (KG-2.9)
 ├── ontology_servicenow.ttl             # :Incident, :Change, :ConfigurationItem
 ├── ontology_erpnext.ttl                # + :ErpNextIssue
 ├── enrichment/
@@ -401,7 +401,7 @@ pytest tests/unit/knowledge_graph/test_crosswalk_reasoning.py -q
 1. Write `enrichment/extractors/<vendor>.py` emitting **canonical** node types
    (reuse `:Incident`, `:BusinessProcess`, … where they fit), `register_extractor(...)`.
 2. If it introduces a genuinely new vendor class, declare it in that vendor's TTL
-   and add one `rdfs:subClassOf <canonical>` line in `ontology_archimate.ttl`.
+   and propose the corresponding governed `rdfs:subClassOf <canonical>` core change in EG.
 3. Register lowercase node types in `_NODE_TYPE_TO_OWL_CLASS` and
    `PROMOTABLE_NODE_TYPES`.
 

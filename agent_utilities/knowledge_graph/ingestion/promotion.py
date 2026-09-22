@@ -12,10 +12,7 @@ exist elsewhere in the codebase:
 
 * **SHACL** — the connector ingestion boundary's fail-closed gate
   (:func:`~.envelope_ingest.validate_rows_against_shacl`, a public alias of
-  ``_shacl_validate_rows``) — NOT the advisory ``SHACLValidator``/
-  ``shacl_gate`` phase used elsewhere, which fails OPEN on a missing shapes
-  file or an uninstalled ``pyshacl`` and is documented as advisory, not a
-  second security authority.
+  ``_shacl_validate_rows``), backed by the committed epistemic-graph schema.
 * **Policy/classification** — :func:`~.envelope_ingest.validate_envelope`
   (public alias of ``_validate_envelope``), the SAME fail-closed
   ``DataClassification``/``ExternalAccess`` policy ``ingest_envelope`` itself

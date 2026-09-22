@@ -15,10 +15,8 @@ A promotion candidate must clear four rules to be governance-valid:
 1. **MergePolicy thresholds** — quality score at/above the policy threshold
    plus structural completeness (a named spec with a stated goal).
 2. **SHACL governance shapes** — the spec, materialized as an RDF node in the
-   ``kg#`` namespace, must conform to the bundled
-   ``shapes/governance.shapes.ttl`` (via the existing
-   :class:`~agent_utilities.knowledge_graph.core.shacl_validator.SHACLValidator`)
-   where a shape targets its class; classes without a shape conform vacuously.
+   ``kg#`` namespace, must conform to the committed epistemic-graph GraphSchema
+   shape union. Validation fails closed without a schema receipt.
 3. **Regression gate recorded** — when the failure analyzer's regression gate
    (AHE-3.18) has recorded a verdict for this proposal
    (``RegressionGateResult`` nodes), the latest one must be a ``pass``; a
@@ -37,12 +35,9 @@ non-blocking where governance data simply does not exist — the master switch
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_SHAPES = Path(__file__).parent.parent / "shapes" / "governance.shapes.ttl"
 
 # Rule kinds that constitute a prohibition when matched against a proposal.
 _FORBID_KINDS = {"forbid", "prohibit", "prohibition", "constraint"}
@@ -135,8 +130,7 @@ class PromotionGovernanceValidator:
             not applicable (structural + SHACL rules still run).
         policy: The :class:`MergePolicy` whose thresholds rule (c) enforces.
             Defaults to the env-resolved conservative policy.
-        shapes_path: SHACL shapes file (defaults to the bundled
-            ``governance.shapes.ttl``).
+        Governance shapes are always selected from EG's committed GraphSchema.
     """
 
     def __init__(
@@ -144,13 +138,11 @@ class PromotionGovernanceValidator:
         engine: Any = None,
         *,
         policy: Any = None,
-        shapes_path: str | Path | None = None,
     ) -> None:
         from .auto_merge import MergePolicy
 
         self.engine = engine
         self.policy = policy or MergePolicy.from_env()
-        self.shapes_path = str(shapes_path or _DEFAULT_SHAPES)
 
     def __call__(self, spec: Any) -> bool:
         verdict = self.validate(spec)
@@ -202,45 +194,28 @@ class PromotionGovernanceValidator:
     def _check_shacl(self, spec: Any) -> GovernanceCheck:
         """(a) SHACL governance shapes, where a shape targets the spec class."""
         try:
-            from ..pipeline.phases.shacl_gate import SHACL_SUPPORT, build_data_graph
-
-            unavailable = self._shacl_not_applicable_check(SHACL_SUPPORT)
-            if unavailable is not None:
-                return unavailable
-
-            from ..core.shacl_validator import SHACLValidator
-
-            data = self._spec_to_shacl_data(spec)
-            # ``build_data_graph`` (pipeline/phases/shacl_gate.py) materializes
-            # the focus node's ``rdf:type`` from the ``node_type`` key — the
-            # SAME key every other KG write uses (``_upsert_node``'s
-            # ``node_type`` property) — defaulting to ``:Thing`` when absent.
-            # A plain ``"type"`` key is invisible to it: the proposal would
-            # always materialize as ``kg:Thing``, so a class-specific shape
-            # (e.g. ``:AgentShape``, ``sh:targetClass :Agent``) never targets
-            # it and SHACL conforms vacuously regardless of real violations
-            # (e.g. a nameless Agent). Must match the reader's key.
-            data["node_type"] = _spec_class(spec)
-            node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
-            graph = build_data_graph(_OneNodeGraph(node_id, data))
-            report = SHACLValidator().validate(graph, self.shapes_path)
-            return self._shacl_report_to_check(report)
+            return self._validate_shacl_spec(spec)
         except Exception as exc:  # noqa: BLE001 — cannot prove conformance ⇒ hold
             return GovernanceCheck("shacl", False, f"validation error: {exc}")
 
-    def _shacl_not_applicable_check(
-        self, shacl_support: bool
-    ) -> GovernanceCheck | None:
-        """Guard checks that make SHACL not applicable (always pass)."""
-        if not shacl_support:
+    def _validate_shacl_spec(self, spec: Any) -> GovernanceCheck:
+        from ..pipeline.phases.shacl_gate import build_data_graph
+
+        if self.engine is None or not hasattr(self.engine, "shacl_validate_committed"):
             return GovernanceCheck(
-                "shacl", True, "pyshacl/rdflib not installed — not applicable"
+                "shacl", False, "committed EG SHACL authority unavailable"
             )
-        if not Path(self.shapes_path).exists():
-            return GovernanceCheck(
-                "shacl", True, f"shapes file not found: {self.shapes_path}"
-            )
-        return None
+
+        data = self._spec_to_shacl_data(spec)
+        # ``build_data_graph`` materializes the focus node's ``rdf:type`` from
+        # the ``node_type`` key, matching the key every other KG write uses.
+        # A plain ``type`` key would make the shape conform vacuously.
+        data["node_type"] = _spec_class(spec)
+        node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
+        graph = build_data_graph(_OneNodeGraph(node_id, data))
+        document = graph.serialize(format="turtle")
+        report = self.engine.shacl_validate_committed(str(document))
+        return self._shacl_report_to_check(report)
 
     @staticmethod
     def _spec_to_shacl_data(spec: Any) -> dict[str, Any]:
@@ -255,13 +230,18 @@ class PromotionGovernanceValidator:
         return data
 
     @staticmethod
-    def _shacl_report_to_check(report: dict[str, Any]) -> GovernanceCheck:
-        if report.get("conforms", False):
+    def _shacl_report_to_check(report: Any) -> GovernanceCheck:
+        if report.conforms:
             return GovernanceCheck("shacl", True, "conforms")
         messages = "; ".join(
-            str(v.get("message", "")) for v in report.get("violations", [])[:3]
+            PromotionGovernanceValidator._shape_result_message(result)
+            for result in list(report.results)[:3]
         )
         return GovernanceCheck("shacl", False, messages or "shape violation")
+
+    @staticmethod
+    def _shape_result_message(result: Any) -> str:
+        return str(result.message or "")
 
     def _check_regression_gate(self, spec: Any, proposal_id: str) -> GovernanceCheck:
         """(b) the latest *recorded* regression-gate verdict must be a pass.

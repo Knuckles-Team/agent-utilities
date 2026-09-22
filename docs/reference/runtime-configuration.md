@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 375 runtime-only call-site inputs.
+574 typed fields · 372 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -1011,9 +1011,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 1 |
 | `OTEL_SERVICE_NAME` | 2 |
 | `OTEL_TRACES_EXPORTER` | 1 |
-| `OWL_ALLOW_REMOTE_IMPORTS` | 1 |
-| `OWL_BACKEND` | 1 |
-| `OWL_DB_PATH` | 1 |
 | `PLANE_API_TOKEN` | 1 |
 | `PLANE_TOKEN` | 1 |
 | `PLANE_URL` | 1 |
@@ -1057,11 +1054,11 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SLACK_APP_TOKEN` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
-| `STARDOG_DATABASE` | 5 |
-| `STARDOG_ENDPOINT` | 6 |
-| `STARDOG_PASSWORD` | 5 |
+| `STARDOG_DATABASE` | 4 |
+| `STARDOG_ENDPOINT` | 5 |
+| `STARDOG_PASSWORD` | 4 |
 | `STARDOG_PASSWORD_REF` | 1 |
-| `STARDOG_USER` | 5 |
+| `STARDOG_USER` | 4 |
 | `SWE_TOOLS` | 1 |
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |

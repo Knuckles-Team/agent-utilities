@@ -246,7 +246,7 @@ because of the **Vendor-Neutral Enterprise Crosswalk** (`CONCEPT:AU-KG.ingest.en
 crosswalk defines a small set of canonical ArchiMate concepts — `ApplicationEvent`,
 `BusinessProcess`, `BusinessTask`, `BusinessCapability`, `BusinessActor` — and binds
 every vendor's classes to them with `rdfs:subClassOf` and `owl:equivalentClass`
-axioms in `ontology_archimate.ttl`. The reasoner does the rest.
+axioms in EG's immutable ArchiMate GraphSchema source. The reasoner does the rest.
 
 ```
         ServiceNow            ERPNext              Camunda

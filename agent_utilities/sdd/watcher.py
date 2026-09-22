@@ -598,7 +598,6 @@ def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
         "~/.config/agent-utilities/mcp_config.json",
         "~/.config/agent-utilities/config.json",
         "~/.local/share/agent-utilities/topology",
-        str(workspace_path / "agent_utilities" / "knowledge_graph" / "ontology.ttl"),
         str(
             workspace_path
             / "agent_utilities"

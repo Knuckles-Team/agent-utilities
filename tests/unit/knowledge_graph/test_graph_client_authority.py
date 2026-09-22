@@ -49,9 +49,9 @@ def _process_engine(*, backend: object, compute: object | None = None):
 @pytest.fixture(autouse=True)
 def _restore_process_engine():
     previous = IntelligenceGraphEngine.get_active()
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
     yield
-    IntelligenceGraphEngine.set_active(previous)
+    IntelligenceGraphEngine._set_active_for_tests(previous)
 
 
 def test_process_engine_factory_executes_once():
@@ -70,7 +70,7 @@ def test_process_engine_factory_executes_once():
 
 
 def test_process_rejects_direct_duplicate_engine_construction():
-    IntelligenceGraphEngine.set_active(_process_engine(backend=object()))
+    IntelligenceGraphEngine._set_active_for_tests(_process_engine(backend=object()))
 
     with pytest.raises(RuntimeError, match="get_or_create"):
         IntelligenceGraphEngine(backend=object())
@@ -99,7 +99,7 @@ async def test_session_bound_view_returns_process_owned_backend():
     from agent_utilities.graph.client import get_process_graph_backend
 
     backend = object()
-    IntelligenceGraphEngine.set_active(_process_engine(backend=backend))
+    IntelligenceGraphEngine._set_active_for_tests(_process_engine(backend=backend))
     with use_session(_verified_session("kg:read")):
         assert await get_process_graph_backend() is backend
 
@@ -107,7 +107,7 @@ async def test_session_bound_view_returns_process_owned_backend():
 def test_facade_lazy_layers_bind_only_to_process_engine_authority() -> None:
     backend = object()
     compute = object()
-    IntelligenceGraphEngine.set_active(
+    IntelligenceGraphEngine._set_active_for_tests(
         _process_engine(backend=backend, compute=compute)
     )
 
@@ -129,7 +129,7 @@ def test_facade_lazy_layers_fail_closed_without_process_engine() -> None:
     # establishes the process engine, the same facade binds to that authority.
     backend = object()
     compute = object()
-    IntelligenceGraphEngine.set_active(
+    IntelligenceGraphEngine._set_active_for_tests(
         _process_engine(backend=backend, compute=compute)
     )
     assert facade.store is backend

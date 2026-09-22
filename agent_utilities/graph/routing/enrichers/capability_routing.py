@@ -4,7 +4,7 @@ from __future__ import annotations
 """Ontology-driven tool/agent routing — X-4 (CONCEPT:AU-P1-3).
 
 The single X-4 entry point: combine the engine's filtered ANN (AU-P1-3), ontology
-SUBSUMPTION (:mod:`agent_utilities.knowledge_graph.ontology.capability_hierarchy`),
+subsumption projected from epistemic-graph's composed GraphSchema,
 and tenant/policy filters into ONE candidate-selection call, re-ranked by the
 durable contextual bandit (:mod:`~.durable_outcome_store` /
 :class:`~agent_utilities.knowledge_graph.retrieval.capability_index.CapabilityIndex`),
@@ -54,14 +54,14 @@ class RoutingCandidate:
     eligibility: dict[str, Any] = field(default_factory=dict)
 
 
-def _resolve_hierarchy(hierarchy: Any | None) -> Any:
+def _resolve_hierarchy(engine: Any, hierarchy: Any | None) -> Any:
     if hierarchy is not None:
         return hierarchy
-    from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
-        get_default_hierarchy,
+    from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+        load_capability_projection,
     )
 
-    return get_default_hierarchy()
+    return load_capability_projection(engine)
 
 
 def _read_reward(engine: Any, entity_id: str) -> float:
@@ -127,7 +127,7 @@ def explain_routing_eligibility(
     both surfaces still gets a (fully ineligible) eligibility dict rather than
     ``None``, since a routing caller always needs a features dict to log/act on.
     """
-    hierarchy = _resolve_hierarchy(capability_hierarchy)
+    hierarchy = _resolve_hierarchy(engine, capability_hierarchy)
     props = _fetch_node_properties(engine, entity_id)
 
     if props:
@@ -181,7 +181,7 @@ def route_capability_request(
        reachable, else the bounded in-process fallback cache — both made
        ontology-subsumption-aware (X-4): a tool declaring a narrower ontology
        subtype of ``required_capability_type`` is a candidate, not just an exact
-       string match (see ``knowledge_graph/ontology/capability_hierarchy.py``).
+       string match using the engine-derived capability projection.
     2. **Policy/tenant filters** — pushed down with the same call (AU-P1-3).
     3. **Durable-bandit re-ranking** — every surviving candidate's cosine score is
        re-blended with its calibrated success-rate reward EMA
@@ -192,16 +192,14 @@ def route_capability_request(
        dict (subsumption path, policy/tenant match, reward) via
        :func:`explain_routing_eligibility`.
 
-    ``capability_hierarchy`` defaults to the bundled ontology's singleton
-    (:func:`~agent_utilities.knowledge_graph.ontology.capability_hierarchy.
-    get_default_hierarchy`) — subsumption is ON by default here (the top-level
-    X-4 entry point), unlike the lower-level primitives it composes, which stay
-    opt-in for backward compatibility.
+    ``capability_hierarchy`` defaults to a request-scoped projection of the
+    composed GraphSchema returned by epistemic-graph ``OwlReason``. Subsumption
+    is ON by default here; missing or inconsistent schema lineage fails closed.
     """
-    hierarchy = _resolve_hierarchy(capability_hierarchy)
     embedding = embed_query(query, embed_fn)
     if embedding is None:
         return []
+    hierarchy = _resolve_hierarchy(engine, capability_hierarchy)
 
     required = [required_capability_type]
     raw_candidates: list[tuple[str, float]] = []

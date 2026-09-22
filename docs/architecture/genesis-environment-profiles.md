@@ -1,7 +1,7 @@
 # Genesis k8s deployment inputs + named environment profiles
 
-CONCEPT:AU-OS.deployment.genesis-environment-profiles — design record:
-[`.specify/design/genesis-environment-profiles/design.md`](../../.specify/design/genesis-environment-profiles/design.md).
+CONCEPT:AU-OS.deployment.genesis-environment-profiles — this page is the
+current architecture record for the capability.
 
 Genesis already resolves a **topology** profile — `tiny` / `single-node-prod` /
 `enterprise` (`agent_utilities.deployment.config_generator.PROFILES`), answering

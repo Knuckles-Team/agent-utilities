@@ -342,7 +342,7 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         )
 
         active_engine = IntelligenceGraphEngine(backend=kg._store)
-        IntelligenceGraphEngine.set_active(active_engine)
+        IntelligenceGraphEngine._set_active_for_tests(active_engine)
         if not hasattr(kg.store.graph, "explain_provenance_by_ids"):  # pragma: no cover
             pytest.skip(
                 "installed epistemic_graph client predates "
@@ -406,5 +406,5 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
             IntelligenceGraphEngine as _IGE,
         )
 
-        _IGE.set_active(None)
+        _IGE._set_active_for_tests(None)
         reset_session(token)

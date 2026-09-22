@@ -8,7 +8,7 @@ system-of-record *federates* with the epistemic-graph KG through the one generic
 writer — no edits to any shared hub file.
 
 Emitted node types are the **canonical** governance concepts (the same classes the
-Egeria extractor emits — see ``ontology_egeria.ttl`` / ``ontology_enterprise.ttl``),
+Egeria extractor emits — see ``ontology_egeria.ttl`` / EG's core enterprise source),
 so CISO Assistant data reconciles with the Egeria/Camunda crosswalk:
 
     policy                         -> ``Policy``               ciso_assistant_policy:{id}

@@ -250,7 +250,7 @@ def _reset_process_engine() -> None:
     root = GraphComputeEngine.get_active()
     if root is not None:
         root.close()
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
 
 
 def _commons_engine() -> Any:

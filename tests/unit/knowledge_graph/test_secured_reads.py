@@ -174,16 +174,6 @@ def test_permission_infrastructure_failure_never_returns_unfiltered(monkeypatch)
         sr.permit(["node-a"])
 
 
-def test_inherit_inferred_acl_propagates_restriction(brain):
-    brain.permissions.set_acl(
-        NodeACL(node_id="parent", classification=DataClassification.RESTRICTED)
-    )
-    sr.inherit_inferred_acl("parent", "derived")
-    acl = brain.permissions.get_acl("derived")
-    assert acl is not None
-    assert acl.classification == DataClassification.RESTRICTED
-
-
 class _FakeBackendReader:
     """Records ``execute_read`` calls; source of truth for durable ACL rows.
 

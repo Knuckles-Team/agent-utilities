@@ -41,13 +41,6 @@ def test_relational_verbs_present():
     assert pack.relational_verbs["weakens"] == "weakens"
 
 
-def test_owl_closure_declarations():
-    pack = get_schema_pack("research-state")
-    transitive, _symmetric, inverse = pack.get_owl_closure_sets()
-    assert "supports_belief" in transitive
-    assert inverse.get("cites_source") == "cited_by_paper"
-
-
 def test_retrieval_signals_configured():
     pack = get_schema_pack("research-state")
     assert pack.recency_spec_for("document") is not None

@@ -26,38 +26,27 @@ from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
-# Cached OWL/RDF bridge for the local SPARQL endpoint (built lazily from the
-# active engine + a local owlready2 backend). Its rdflib materialization is
-# cache-invalidated on LPG changes, so a single instance is safe to reuse.
-_SPARQL_BRIDGE: Any = None
+# Cached process-owned native compute client for the local SPARQL endpoint.
+_GRAPH_COMPUTE: Any = None
 
 
-def _get_sparql_bridge() -> Any:
-    """Return a cached OWLBridge for SPARQL, or ``None`` if unavailable."""
-    global _SPARQL_BRIDGE
-    if _SPARQL_BRIDGE is not None:
-        return _SPARQL_BRIDGE
+def _get_graph_compute() -> Any:
+    """Return the active engine's native compute client, or ``None`` if unavailable."""
+    global _GRAPH_COMPUTE
+    if _GRAPH_COMPUTE is not None:
+        return _GRAPH_COMPUTE
     try:
-        from agent_utilities.knowledge_graph.backends.owl import create_owl_backend
-        from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
         from agent_utilities.mcp import kg_server
 
         engine = kg_server._get_engine()
-        try:
-            owl_backend = create_owl_backend()  # local owlready2 if installed
-        except Exception:
-            # owlready2 absent → still serve SPARQL via rdflib materialization of
-            # the live LPG (query_sparql falls back when self.owl has no query_sparql).
-            owl_backend = None
-        _SPARQL_BRIDGE = OWLBridge(
-            graph=engine.graph_compute,
-            owl_backend=owl_backend,
-            backend=getattr(engine, "backend", None),
-        )
+        compute = getattr(engine, "graph_compute", None)
+        if compute is None or not callable(getattr(compute, "sparql", None)):
+            raise RuntimeError("native GraphComputeEngine.sparql is unavailable")
+        _GRAPH_COMPUTE = compute
     except Exception as exc:  # pragma: no cover - SPARQL is best-effort
-        logger.warning("Local SPARQL bridge unavailable (%s)", type(exc).__name__)
+        logger.warning("Native SPARQL engine unavailable (%s)", type(exc).__name__)
         return None
-    return _SPARQL_BRIDGE
+    return _GRAPH_COMPUTE
 
 
 def _mount_sparql_route(app, prefix: str = "/api") -> None:
@@ -82,20 +71,19 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
             return JSONResponse(
                 {"status": "error", "message": "missing 'query'"}, status_code=400
             )
-        bridge = _get_sparql_bridge()
-        if bridge is None:
+        compute = _get_graph_compute()
+        if compute is None:
             return JSONResponse(
                 {
                     "status": "error",
-                    "message": "SPARQL layer unavailable (install agent-utilities[owl])",
+                    "message": "native SPARQL engine unavailable",
                 },
                 status_code=503,
             )
 
         try:
-            # ``bridge.query_sparql`` targets whatever named graph the AMBIENT
-            # session is pinned to (OWLBridge -> GraphComputeEngine.sparql ->
-            # the session-routed engine client) -- retarget per graph the
+            # ``GraphComputeEngine.sparql`` targets the graph selected by the
+            # ambient session -- retarget per graph the
             # actor may read (GOC-61: org graph(s) then commons, same
             # ``accessible_graphs`` ordering ``tenant_sharing.read_union``
             # uses for Cypher) so a SPARQL query issued under a tenant-pinned
@@ -112,7 +100,13 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
             for graph_name in accessible_graphs(session.actor):
                 try:
                     with use_session(session.with_graph(graph_name)):
-                        bindings.extend(bridge.query_sparql(query))
+                        bindings.extend(
+                            compute.sparql(
+                                query,
+                                base_iri="http://agent-utilities.dev/ontology#",
+                                type_convention="camel",
+                            )
+                        )
                 except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
                     logger.debug(
                         "sparql union: graph %s unavailable (%s)",
@@ -291,10 +285,9 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     kg_server._mount_rest_routes(app, prefix=prefix)
 
-    # Local SPARQL endpoint (CONCEPT:AU-KG.query.vendor-agnostic-traversal) — served over the OWL/RDF bridge with
-    # ZERO external dependencies (rdflib materialization of the live LPG + OWL
-    # inferences); an external Fuseki/Stardog is optional enterprise scale-out, not
-    # required. Works in the zero-dep tiny profile.
+    # Local SPARQL endpoint (CONCEPT:AU-KG.query.vendor-agnostic-traversal) —
+    # served by the native epistemic-graph RDF projection; no local RDF
+    # materializer or optional OWL backend is involved.
     _mount_sparql_route(app, prefix=prefix)
 
     # Read-only SQL catalog introspection (CONCEPT:AU-KG.query.raw-python) — the

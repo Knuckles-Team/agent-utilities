@@ -15,10 +15,10 @@ from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRet
 @pytest.fixture(autouse=True)
 def clear_global_state():
     """Clear global engine and backend state before and after each test."""
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
     set_active_backend(None)
     yield
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
     set_active_backend(None)
 
 

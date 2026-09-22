@@ -676,35 +676,6 @@ def visible(
         raise PermissionError("Row visibility evaluation failed") from exc
 
 
-_CLASS_ORDER = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}
-
-
-def inherit_inferred_acl(subject: str, obj: str) -> None:
-    """Entailment-aware scoping: an inferred fact inherits its parents' secrecy.
-
-    Sets the inferred target's classification to the *most restrictive* of the
-    two endpoints, so OWL reasoning can't leak a RESTRICTED parent through a
-    derived edge.
-    """
-    try:
-        perms = get_company_brain().permissions
-        levels = []
-        for nid in (subject, obj):
-            acl = perms.get_acl(nid)
-            if acl is not None:
-                levels.append(acl.classification)
-        if not levels:
-            return
-        strictest = max(levels, key=lambda c: _CLASS_ORDER.get(str(c), 0))
-        target_acl = perms.get_acl(obj)
-        if target_acl is None or _CLASS_ORDER.get(
-            str(target_acl.classification), 0
-        ) < _CLASS_ORDER.get(str(strictest), 0):
-            perms.classify_node(obj, strictest)
-    except Exception as exc:  # pragma: no cover - defensive boundary
-        raise PermissionError("Inferred ACL propagation failed") from exc
-
-
 def _row_node_id(row: dict[str, Any]) -> str | None:
     """Best-effort extraction of a node id from a result row."""
     for key in ("id", "node_id", "n.id", "_id"):

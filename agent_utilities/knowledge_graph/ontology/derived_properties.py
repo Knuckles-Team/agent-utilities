@@ -18,9 +18,9 @@ against the existing knowledge-graph fabric:
   2. ``CYPHER``    — evaluate a Cypher expression/aggregate through the facade's
      guarded :meth:`KnowledgeGraph.query` read path (tenant-scoped + ACL +
      audited). Degrades cleanly to ``None`` with no reachable backend.
-  3. ``SPARQL``    — evaluate a SPARQL expression through the L2 semantic
-     layer's :meth:`OWLBridge.query_sparql`. Degrades cleanly to ``None`` when
-     no OWL/fuseki/rdflib path is available.
+  3. ``SPARQL``    — evaluate a SPARQL expression through the graph facade's
+     native epistemic-graph query surface. Degrades cleanly to ``None`` when
+     no graph authority is bound.
   4. ``EMBEDDING`` — derive a value from vector similarity (nearest-concept
      label, similarity score, or designated-entity id) using
      :func:`~agent_utilities.core.embedding_utilities.create_embedding_model`
@@ -611,14 +611,12 @@ class DerivedPropertyEngine:
     def _compute_sparql(self, obj: Any, prop: DerivedProperty, graph: Any) -> Any:
         if not prop.expression:
             raise ValueError("SPARQL-backed derived property requires an expression")
-        bridge = getattr(graph, "semantic", None) if graph is not None else None
-        if bridge is None or not hasattr(bridge, "query_sparql"):
-            # Documented graceful degradation: no OWL/fuseki/rdflib path.
-            logger.debug("SPARQL derived %s: no semantic layer, degrading", prop.name)
+        if graph is None or not hasattr(graph, "sparql"):
+            logger.debug("SPARQL derived %s: no graph authority, degrading", prop.name)
             return None
         oid = _object_id(obj)
         sparql = prop.expression.replace("$id", oid).replace("?id", f'"{oid}"')
-        rows = bridge.query_sparql(sparql) or []
+        rows = graph.sparql(sparql) or []
         return _first_scalar(rows)
 
     def _compute_embedding(self, obj: Any, prop: DerivedProperty, graph: Any) -> Any:

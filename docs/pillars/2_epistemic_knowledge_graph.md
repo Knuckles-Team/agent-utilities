@@ -295,7 +295,7 @@ SDD properties include `realizes`, `specifies`, `testedBy`, `constrainedBy`, `gu
 
 ### Enterprise Core Ontology
 
-The `ontology_enterprise.ttl` module extracts the governance-relevant subset into a standalone importable standard:
+EG's core enterprise GraphSchema source defines the governance-relevant subset:
 
 - **ArchiMate 3.2 layer hierarchy** (Business, Application, Technology, Strategy, Motivation)
 - **ADR decision trace** classes and properties
@@ -328,7 +328,7 @@ The `OntologyLoader` (`core/ontology_loader.py`) resolves `owl:imports` declarat
 The enterprise rarely runs one vendor per capability — ServiceNow *or* ERPNext for
 ITSM, Camunda *or* Archi for processes. The crosswalk makes reasoning
 **vendor-neutral**: each per-system class is related to one canonical
-ArchiMate-aligned concept in `ontology_archimate.ttl`, so a single query resolves
+ArchiMate-aligned concept in EG's immutable ArchiMate source, so a single query resolves
 all sources regardless of which product produced the data.
 
 ```turtle

@@ -42,16 +42,16 @@ async def test_rlm_helpers():
 
 @pytest.mark.asyncio
 async def test_owl_query_helper_delegates():
-    """Verify owl_query delegates to the OWL bridge's query_sparql."""
+    """Verify owl_query delegates to the native graph SPARQL surface."""
 
-    mock_bridge = MagicMock()
-    mock_bridge.query_sparql.return_value = [
+    mock_compute = MagicMock()
+    mock_compute.sparql.return_value = [
         {"manifest": "m1", "edit": "e1"},
         {"manifest": "m2", "edit": "e2"},
     ]
 
     mock_engine = MagicMock()
-    mock_engine.owl_bridge = mock_bridge
+    mock_engine.graph_compute = mock_compute
 
     mock_deps = MagicMock()
     mock_deps.knowledge_engine = mock_engine
@@ -64,17 +64,17 @@ async def test_owl_query_helper_delegates():
 
     assert len(result) == 2
     assert result[0] == {"manifest": "m1", "edit": "e1"}
-    mock_bridge.query_sparql.assert_called_once()
+    mock_compute.sparql.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_owl_query_error_handling():
     """Verify owl_query handles backend exceptions gracefully."""
-    mock_bridge = MagicMock()
-    mock_bridge.query_sparql.side_effect = RuntimeError("OWL parse error")
+    mock_compute = MagicMock()
+    mock_compute.sparql.side_effect = RuntimeError("SPARQL parse error")
 
     mock_engine = MagicMock()
-    mock_engine.owl_bridge = mock_bridge
+    mock_engine.graph_compute = mock_compute
 
     mock_deps = MagicMock()
     mock_deps.knowledge_engine = mock_engine

@@ -32,11 +32,28 @@ from agent_utilities.graph.routing.enrichers.capability_routing import (
     explain_routing_eligibility,
     route_capability_request,
 )
-from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
-    load_capability_hierarchy,
+from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+    CapabilitySubsumptionProjection,
 )
 
-_HIERARCHY = load_capability_hierarchy()
+_HIERARCHY = CapabilitySubsumptionProjection(
+    relations=frozenset(
+        {
+            ("DNSCapability", "ServiceCapability"),
+            ("EncryptedTransport", "TransportCapability"),
+            ("EncryptedTransport", "ServiceCapability"),
+            ("TransportCapability", "ServiceCapability"),
+        }
+    ),
+    direct_relations=frozenset(
+        {
+            ("DNSCapability", "ServiceCapability"),
+            ("EncryptedTransport", "TransportCapability"),
+            ("TransportCapability", "ServiceCapability"),
+        }
+    ),
+    schema_digests=("sha256:test-capability-schema",),
+)
 
 _RETURN_ALIAS_RE = re.compile(r"n\.(\w+)\s+AS\s+(\w+)")
 _SET_ASSIGN_RE = re.compile(r"n\.(\w+)\s*=\s*\$(\w+)")
@@ -85,10 +102,31 @@ def _make_engine(nodes: dict[str, dict[str, Any]]) -> Any:
             scored.append((node_id, score))
         return sorted(scored, key=lambda item: item[1], reverse=True)[:k]
 
+    def owl_reason(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "consistent": True,
+            "schema_digests": list(_HIERARCHY.schema_digests),
+            "subclasses": [
+                [
+                    f"http://knuckles.team/kg#{child}",
+                    f"http://knuckles.team/kg#{parent}",
+                ]
+                for child, parent in _HIERARCHY.relations
+            ],
+            "direct_subclasses": [
+                [
+                    f"http://knuckles.team/kg#{child}",
+                    f"http://knuckles.team/kg#{parent}",
+                ]
+                for child, parent in _HIERARCHY.direct_relations
+            ],
+        }
+
     graph = types.SimpleNamespace(
         node_ids=lambda: list(nodes.keys()),
         _get_node_properties=lambda nid: nodes.get(nid, {}),
         semantic_search=semantic_search,
+        owl_reason=owl_reason,
     )
     return types.SimpleNamespace(graph=graph, backend=_SharedCypherBackend(nodes))
 

@@ -26,8 +26,6 @@ from agent_utilities.knowledge_graph.retrieval.capability_index import Capabilit
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
-
 
 # ---------------------------------------------------------------------------
 # Small in-test facade
@@ -49,12 +47,12 @@ class _FakeFacade:
 
 def _unit_index(dim=8):
     idx = CapabilityIndex(dim=dim, prefer_backend="numpy")
-    a = np.zeros(dim, dtype=np.float32)
+    a = [0.0] * dim
     a[0] = 1.0
-    b = np.zeros(dim, dtype=np.float32)
+    b = [0.0] * dim
     b[1] = 1.0
-    idx.add("retriever-1", a.tolist(), {"retrieval"})
-    idx.add("planner-1", b.tolist(), {"planning"})
+    idx.add("retriever-1", a, {"retrieval"})
+    idx.add("planner-1", b, {"planning"})
     return idx, a, b
 
 
@@ -116,7 +114,7 @@ def test_embedding_backing_nearest_label_offline():
     # Deterministic offline embedding: object text -> vector A direction.
     engine = DerivedPropertyEngine(
         registry=DerivedPropertyRegistry(),
-        embedding_fn=lambda _text: vec_a.tolist(),
+        embedding_fn=lambda _text: vec_a,
     )
     prop = DerivedProperty(
         name="nearest_cap",
@@ -142,7 +140,7 @@ def test_embedding_backing_similarity_and_precomputed_vector():
         embedding_vector_property="vec",
         embedding_derivation=EmbeddingDerivation.SIMILARITY,
     )
-    obj = {"id": "task-2", "vec": vec_a.tolist()}
+    obj = {"id": "task-2", "vec": vec_a}
     res = engine.compute(obj, prop, facade)
     assert res.ok, res.error
     # Cosine of identical unit vectors ~ 1.0.
@@ -196,16 +194,12 @@ def test_cypher_backing_degrades_without_facade():
 # ---------------------------------------------------------------------------
 class _SparqlFacade:
     def __init__(self, rows):
-        class _Sem:
-            def __init__(self, rows):
-                self._rows = rows
-                self.seen = []
+        self._rows = rows
+        self.seen = []
 
-            def query_sparql(self, sparql):
-                self.seen.append(sparql)
-                return list(self._rows)
-
-        self.semantic = _Sem(rows)
+    def sparql(self, sparql):
+        self.seen.append(sparql)
+        return list(self._rows)
 
 
 def test_sparql_backing_dispatch():
@@ -220,10 +214,10 @@ def test_sparql_backing_dispatch():
     res = engine.compute({"id": "iri-1"}, prop, facade)
     assert res.ok, res.error
     assert res.value == "Supplier"
-    assert facade.semantic.seen  # the bridge was invoked
+    assert facade.seen
 
 
-def test_sparql_backing_degrades_without_semantic_layer():
+def test_sparql_backing_degrades_without_graph_authority():
     engine = DerivedPropertyEngine(registry=DerivedPropertyRegistry())
     prop = DerivedProperty(
         name="rdf_label",

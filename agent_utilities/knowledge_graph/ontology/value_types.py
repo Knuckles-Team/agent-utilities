@@ -26,10 +26,8 @@ is enforced on every layer the platform already runs:
 2.  a **SHACL shape** — :meth:`ValueType.to_shacl` emits a reusable
     ``sh:NodeShape`` turtle fragment (``sh:pattern``, ``sh:minInclusive`` /
     ``sh:maxInclusive``, ``sh:minLength`` / ``sh:maxLength``, ``sh:in``) so the
-    existing SHACL gate
-    (:class:`agent_utilities.knowledge_graph.core.shacl_validator.SHACLValidator`,
-    consumed by ``security/graph_validator``) enforces the same rules at graph
-    write time. :func:`write_value_shapes_ttl` materializes the whole registry
+    committed epistemic-graph SHACL gate enforces the same rules at graph write
+    time. :func:`write_value_shapes_ttl` materializes the whole registry
     into ``shapes/value_types.shapes.ttl`` — a file the validator loads exactly
     like ``governance.shapes.ttl``; and
 3.  an **OWL datatype restriction** — :meth:`ValueType.to_owl` emits an
@@ -45,7 +43,7 @@ shell.
 
 import datetime as _dt
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -385,7 +383,7 @@ class ValueType(BaseModel):
         (``:<Name>ValueShape``) carrying the constraints; callers reuse it with
         ``sh:node`` on a property shape. (A reusable shape must be a NodeShape,
         not a PropertyShape — a path-less ``sh:PropertyShape`` is invalid SHACL
-        and pyshacl rejects it at shape-load time.) When ``path`` (and optionally
+        and EG rejects it at schema-attach time.) When ``path`` (and optionally
         ``target_class``) is given it emits a node shape that binds the
         constraints to that property path — the form the SHACL gate validates
         directly.
@@ -400,7 +398,7 @@ class ValueType(BaseModel):
         body = self._shacl_property_lines(indent="    ")
         if path is None:
             # Reusable constraint shape (no sh:path). A path-less shape must be a
-            # sh:NodeShape — pyshacl rejects a sh:PropertyShape without an sh:path.
+            # sh:NodeShape — EG rejects a sh:PropertyShape without an sh:path.
             # The trailing ' ;' of the last constraint line is replaced by ' .' to
             # close the shape.
             head = (
@@ -766,24 +764,28 @@ def sampling_profile_violations(profile: dict[str, Any]) -> list[str]:
     return violations
 
 
+def _value_types_ttl(
+    value_types: Iterable[ValueType] | None,
+    render: Callable[[ValueType], str],
+) -> str:
+    vts = (
+        list(value_types)
+        if value_types is not None
+        else [VALUE_TYPES[name] for name in list_value_types()]
+    )
+    return "\n".join([SHAPES_PREFIXES, "", *(render(value_type) for value_type in vts)])
+
+
 def value_types_shapes_ttl(
     value_types: Iterable[ValueType] | None = None,
 ) -> str:
     """Render the registry as one SHACL shapes turtle document.
 
     CONCEPT:AU-KG.ontology.value-type-shacl-load — concatenates the reusable ``sh:NodeShape`` fragment for
-    every value type under the shared prefix header, producing a turtle file the
-    SHACL gate (``SHACLValidator``) loads exactly like ``governance.shapes.ttl``.
+    every value type under the shared prefix header for provisioning as an
+    epistemic-graph GraphSchema pack source.
     """
-    vts = (
-        list(value_types)
-        if value_types is not None
-        else [VALUE_TYPES[n] for n in list_value_types()]
-    )
-    parts = [SHAPES_PREFIXES, ""]
-    for vt in vts:
-        parts.append(vt.to_shacl())
-    return "\n".join(parts)
+    return _value_types_ttl(value_types, lambda value_type: value_type.to_shacl())
 
 
 def value_types_owl_ttl(
@@ -794,15 +796,7 @@ def value_types_owl_ttl(
     CONCEPT:AU-KG.ontology.value-type-shacl-load — each value type becomes a named ``rdfs:Datatype`` restricted
     by its facets, under the shared prefix header, for the ``owl_bridge`` substrate.
     """
-    vts = (
-        list(value_types)
-        if value_types is not None
-        else [VALUE_TYPES[n] for n in list_value_types()]
-    )
-    parts = [SHAPES_PREFIXES, ""]
-    for vt in vts:
-        parts.append(vt.to_owl())
-    return "\n".join(parts)
+    return _value_types_ttl(value_types, ValueType.to_owl)
 
 
 def write_value_shapes_ttl(target_path: str | None = None) -> str:

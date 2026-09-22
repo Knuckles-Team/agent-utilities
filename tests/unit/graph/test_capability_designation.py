@@ -103,6 +103,7 @@ def _make_engine(nodes: dict[str, dict[str, Any]] | None = None):
 def test_designate_uses_engine_native_filtered_search(monkeypatch):
     engine = _make_engine()
     observed: dict[str, Any] = {}
+    projection = object()
 
     def search(_engine, embedding, **kwargs):
         observed.update(embedding=embedding, **kwargs)
@@ -121,11 +122,13 @@ def test_designate_uses_engine_native_filtered_search(monkeypatch):
         tenant="tenant-a",
         policy_tags=["cleared"],
         embed_fn=lambda _query: [0.0, 1.0],
+        capability_hierarchy=projection,
     )
     assert result == ["tool:math"]
     assert observed["required_caps"] == ["arithmetic"]
     assert observed["tenant"] == "tenant-a"
     assert observed["policy_tags"] == ["cleared"]
+    assert observed["capability_hierarchy"] is projection
 
 
 def test_designate_reports_unavailable_engine_vector_surface(monkeypatch):
@@ -164,6 +167,7 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
     cache is never even built — the engine IS the authority."""
     engine = _make_engine(NODES)
     calls: dict[str, Any] = {}
+    projection = object()
 
     def fake_engine_search(
         _engine,
@@ -181,6 +185,7 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
         calls["required_caps"] = required_caps
         calls["tenant"] = tenant
         calls["policy_tags"] = policy_tags
+        calls["capability_hierarchy"] = capability_hierarchy
         return [("tool:math", 0.99)]
 
     monkeypatch.setattr(
@@ -197,12 +202,14 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
         tenant="tenant-a",
         policy_tags=["cleared"],
         embed_fn=lambda q: [0.1, 0.9, 0.0],
+        capability_hierarchy=projection,
     )
 
     assert calls["called"] is True
     assert calls["required_caps"] == ["arithmetic"]
     assert calls["tenant"] == "tenant-a"
     assert calls["policy_tags"] == ["cleared"]
+    assert calls["capability_hierarchy"] is projection
     assert out == ["tool:math"]
     # The bounded in-process cache was never constructed — the engine answered.
     assert getattr(engine, "_capability_index_watcher", None) is None
@@ -228,6 +235,64 @@ def test_designate_specialists_falls_back_when_engine_search_returns_none(
     )
     assert out == ["tool:search"]
     assert getattr(engine, "_capability_index_watcher", None) is not None
+
+
+def test_required_capability_projection_is_shared_with_both_search_tiers(
+    monkeypatch,
+):
+    engine = _make_engine(NODES)
+    projection = object()
+    observed: dict[str, Any] = {"loads": 0}
+
+    def load(_engine):
+        observed["loads"] += 1
+        return projection
+
+    def engine_search(_engine, _embedding, **kwargs):
+        observed["engine_projection"] = kwargs["capability_hierarchy"]
+        return None
+
+    class _Index:
+        def __len__(self):
+            return 1
+
+        def designate(self, _embedding, **_kwargs):
+            return [types.SimpleNamespace(id="tool:search")]
+
+    def get_index(_engine, *, capability_hierarchy, refresh=False):
+        del refresh
+        observed["cache_projection"] = capability_hierarchy
+        return _Index()
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.capability_projection."
+        "load_capability_projection",
+        load,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.engine_capability_search."
+        "engine_filtered_search",
+        engine_search,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.graph.routing.enrichers.capability_designation."
+        "get_designation_index",
+        get_index,
+    )
+
+    result = designate_specialists(
+        engine,
+        "find search",
+        required_caps=["ServiceCapability"],
+        embed_fn=lambda _query: [1.0, 0.0, 0.0],
+    )
+
+    assert result == ["tool:search"]
+    assert observed == {
+        "loads": 1,
+        "engine_projection": projection,
+        "cache_projection": projection,
+    }
 
 
 # ---------------------------------------------------------------------------

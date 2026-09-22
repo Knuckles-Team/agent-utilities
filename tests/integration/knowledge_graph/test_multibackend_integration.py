@@ -193,7 +193,7 @@ class TestMultiBackendIntegration:
             engine = IntelligenceGraphEngine(backend=backend)
 
             # Set the engine active correctly using class variable
-            IntelligenceGraphEngine.set_active(engine)
+            IntelligenceGraphEngine._set_active_for_tests(engine)
             assert get_active_backend() == backend
 
             # 5. High-fidelity Stress/CRUD verification
@@ -406,7 +406,7 @@ class TestMultiConnectionRegistryLive:
         default_engine = IntelligenceGraphEngine(
             backend=create_backend(backend_type="memory")
         )
-        IntelligenceGraphEngine.set_active(default_engine)
+        IntelligenceGraphEngine._set_active_for_tests(default_engine)
         registry = ConnectionRegistry(default_engine_provider=lambda: default_engine)
 
         started: list[str] = []

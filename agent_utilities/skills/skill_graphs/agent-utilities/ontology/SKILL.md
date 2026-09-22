@@ -20,7 +20,7 @@ aligned to [BFO (Basic Formal Ontology)](https://basic-formal-ontology.org/).
 | `ontology_hr.ttl` | HR/Workforce | Employee, Department, CompensationBand, PerformanceReview, OKR |
 | `ontology_legal.ttl` | Legal | LegalMatter, CaseLaw, Statute, Contract, ContractClause |
 | `ontology_banking.ttl` | Banking | BankAccount, KYCRecord, PaymentMessage, CreditRiskAssessment |
-| `ontology_enterprise.ttl` | Enterprise Architecture | ArchiMateElement, ArchitectureDecisionRecord, Policy |
+| EG core enterprise source | Enterprise Architecture | ArchiMateElement, ArchitectureDecisionRecord, Policy |
 | `ontology_infrastructure.ttl` | Infrastructure | Host, Container, Network, Volume, Service |
 | `ontology_quant.ttl` | Quantitative Finance | Strategy, Signal, Portfolio, BacktestResult |
 | `ontology_medical.ttl` | Medical/Health | Patient, Diagnosis, Treatment, MedicalRecord |

@@ -7,7 +7,7 @@ governance / lineage records into the uniform ``ExtractionBatch`` shape (typed
 to any shared hub file.
 
 Emitted node types are the **canonical** ArchiMate concepts (see
-``ontology_enterprise.ttl`` / ``ontology_egeria.ttl``), so Egeria data reconciles
+EG's core enterprise source / ``ontology_egeria.ttl``), so Egeria data reconciles
 with the ServiceNow/ERPNext/Camunda/infra crosswalk by GUID:
 
     asset (DataStore/Database/FileFolder) -> ``DataConnector``  egeria_asset:{guid}

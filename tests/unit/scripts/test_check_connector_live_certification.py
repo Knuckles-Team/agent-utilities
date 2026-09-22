@@ -108,7 +108,7 @@ def _record(
         },
         "checks": checks,
         "counts": {"initial": 0, "after_cleanup": 0},
-        "semantic_validator": "pyshacl" if live else "declared-shacl-contract",
+        "semantic_validator": "epistemic-graph" if live else "declared-shacl-contract",
         "evidence": {name: "6" * 64 for name in REQUIRED_CHECKS},
         "failure_class": None,
         "runtime_configuration": "externalized" if live else "none",

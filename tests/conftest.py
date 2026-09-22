@@ -468,7 +468,7 @@ def clean_graph_globals(monkeypatch, tmp_path):
         if get_active_backend() is not None:
             set_active_backend(None)
         if IntelligenceGraphEngine.get_active() is not None:
-            IntelligenceGraphEngine.set_active(None)
+            IntelligenceGraphEngine._set_active_for_tests(None)
     except ImportError:
         # Lean metadata/security test environments intentionally omit the full
         # native numeric kernel. Reset is a no-op when no engine can be active.
@@ -490,7 +490,7 @@ def clean_graph_globals(monkeypatch, tmp_path):
         if get_active_backend() is not None:
             set_active_backend(None)
         if IntelligenceGraphEngine.get_active() is not None:
-            IntelligenceGraphEngine.set_active(None)
+            IntelligenceGraphEngine._set_active_for_tests(None)
     except ImportError:
         pass
     engine_breaker.reset_breakers()
@@ -1388,7 +1388,7 @@ def _session_engine():
     finally:
         _TEST_ENGINE_AVAILABLE = False
         _SESSION_ENGINE_SOCKET = None
-        IntelligenceGraphEngine.set_active(None)
+        IntelligenceGraphEngine._set_active_for_tests(None)
         engine.stop()
 
 

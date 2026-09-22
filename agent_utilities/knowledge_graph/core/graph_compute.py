@@ -4468,7 +4468,7 @@ class GraphComputeEngine:
         the durable write history has been tampered with post-hoc. The engine
         client (``epistemic_graph.client``) does not yet wrap ``AuditVerify`` as a
         typed ``LedgerClient`` method, so this uses the raw wire escape hatch
-        used by :meth:`remove_triples` (``_send_wire``) rather than
+        used by engine wire operations (``_send_wire``) rather than
         waiting on that package to add one — no Rust rebuild is required, the wire
         ``Method`` already exists and is dispatched by any engine built with the
         ``security`` feature (part of the default ``full`` build).
@@ -4726,7 +4726,7 @@ class GraphComputeEngine:
         """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
 
         CONCEPT:AU-KG.compute.native-sparql-owl-shacl — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
-        (rdflib/owlready2/pyshacl) is demoted to the engine's native RDF surface. This
+        Python semantic-web stacks are replaced by the engine's native RDF surface. This
         routes to the engine's native ``client.rdf.sparql`` so the
         query executes against the engine's RDF projection of the live property graph
         (resource object -> typed edge, literal -> typed property cell, ``rdf:type`` ->
@@ -4752,14 +4752,17 @@ class GraphComputeEngine:
         ontology: str | None = None,
         target_class: str | None = None,
         class_base: str | None = None,
+        min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Run the engine's native OWL 2 (EL+/RL) reasoner over the live graph.
 
         CONCEPT:AU-KG.compute.native-sparql-owl-shacl — routes to ``client.rdf.owl_reason``: classifies the OWL
         axioms in the graph (plus any extra ``ontology`` Turtle) and materializes
-        entailments, returning ``{"subclasses", "instances", "consistent",
-        "unsatisfiable"}`` (confidence/decay-weighted, read-only -- does NOT mutate the
-        graph). ``target_class`` restricts ``instances`` to that class's inferred
+        entailments, returning ``{"subclasses", "direct_subclasses", "instances",
+        "consistent", "unsatisfiable", "schema_digests"}`` (confidence/decay-weighted, read-only --
+        does NOT mutate the graph). ``schema_digests`` binds the classification to
+        the exact composed GraphSchema sources. ``target_class`` restricts
+        ``instances`` to that class's inferred
         members and is EMPTY-OK ("all classes") by design.
 
         ``class_base`` is the absolute namespace a bare string node ``type`` (e.g.
@@ -4772,22 +4775,270 @@ class GraphComputeEngine:
         ``sparql::Projection::raw()`` convention ("no ``base_iri`` configured -> keys
         emitted verbatim"): a bare ``type`` classifies under its own bare label rather
         than being silently bridged into a namespace the caller never asked for. This
-        is what :class:`~agent_utilities.knowledge_graph.core.owl_bridge.OWLBridge`'s
-        lightweight reasoning wants -- it compares inferred ``rdf:type`` objects
-        against the graph's own bare type labels. Pass the ``au:`` namespace (see
+        is what identity-projected native reasoning wants: inferred ``rdf:type``
+        objects are compared against the graph's own bare type labels. Pass the
+        ``au:`` namespace (see
         :meth:`sparql`'s ``base_iri``) explicitly to bridge bare types into absolute
         class IRIs the way the SPARQL by-class projection does.
 
         Raises if the engine/op is unavailable (server built without the
-        ``owl`` feature) so callers can fall back to the Python/owlready2 path.
+        ``owl`` feature); callers fail closed.
         """
-        return dict(
-            self._client.rdf.owl_reason(
-                ontology=ontology,
-                target_class=target_class,
-                class_base=class_base or "",
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import send_owl_reason
+
+        loop = self._require_reasoning_loop("OWL reasoning")
+
+        params = {
+            "ontology": ontology,
+            "target_class": target_class,
+            "class_base": class_base or "",
+            "min_confidence": min_confidence,
+        }
+
+        async def _drive() -> Any:
+            return await send_owl_reason(
+                self._engine_async_client(), params, self.graph_name
+            )
+
+        result = _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+        return self._committed_reasoning_payload(result, "OWL reasoning")
+
+    def _require_reasoning_loop(self, operation: str) -> Any:
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError(f"no engine loop available for {operation}")
+        return loop
+
+    @staticmethod
+    def _committed_reasoning_payload(result: Any, operation: str) -> dict[str, Any]:
+        payload = result.model_dump(mode="python")
+        if not payload.get("schema_digests") or not payload.get("consistent", False):
+            raise RuntimeError(
+                f"{operation} was not bound to a consistent committed GraphSchema"
+            )
+        return dict(payload)
+
+    def owl_explain(self, sub: str, sup: str) -> dict[str, Any]:
+        """Explain one class-subsumption result from committed GraphSchema."""
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import send_owl_explain
+
+        loop = self._require_reasoning_loop("OWL explanation")
+
+        async def _drive() -> Any:
+            return await send_owl_explain(
+                self._engine_async_client(),
+                {"sub": sub, "sup": sup},
+                self.graph_name,
+            )
+
+        result = _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+        return self._committed_reasoning_payload(result, "OWL explanation")
+
+    def run_datalog_reasoning(self) -> dict[str, Any]:
+        """Materialize committed GraphSchema rules through EG's durable gateway."""
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import send_run_datalog_reasoning
+
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for Datalog reasoning")
+
+        async def _drive() -> Any:
+            return await send_run_datalog_reasoning(
+                self._engine_async_client(), {}, self.graph_name
+            )
+
+        result = _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+        payload = result.model_dump(mode="python")
+        if not payload.get("schema_digests"):
+            raise RuntimeError(
+                "Datalog reasoning was not bound to committed GraphSchema"
+            )
+        return dict(payload)
+
+    def graph_schema_attach(
+        self,
+        source_id: str,
+        *,
+        ontology_ttl: str | None = None,
+        shapes_ttl: str | None = None,
+        if_composed_digest: str | None = None,
+    ) -> Any:
+        """Attach one admin-owned semantic source through generated GraphSchema."""
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.graph_schema import GraphSchemaOpAttach
+        from epistemic_graph.generated.reasoning import (
+            GraphSchemaRequest,
+            send_graph_schema,
+        )
+
+        op = GraphSchemaOpAttach(
+            op="attach",
+            source_id=source_id,
+            shapes_ttl=shapes_ttl,
+            ontology_ttl=ontology_ttl,
+            if_composed_digest=if_composed_digest,
+        )
+        request = GraphSchemaRequest(op=op)
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for GraphSchema attach")
+
+        async def _drive() -> Any:
+            return await send_graph_schema(
+                self._engine_async_client(),
+                request.model_dump(mode="json"),
+                self.graph_name,
+            )
+
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+
+    def graph_schema_detach(
+        self, source_id: str, *, if_composed_digest: str | None = None
+    ) -> Any:
+        """Detach one admin-owned semantic source through generated GraphSchema."""
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.graph_schema import GraphSchemaOpDetach
+        from epistemic_graph.generated.reasoning import (
+            GraphSchemaRequest,
+            send_graph_schema,
+        )
+
+        request = GraphSchemaRequest(
+            op=GraphSchemaOpDetach(
+                op="detach",
+                source_id=source_id,
+                if_composed_digest=if_composed_digest,
             )
         )
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for GraphSchema detach")
+
+        async def _drive() -> Any:
+            return await send_graph_schema(
+                self._engine_async_client(),
+                request.model_dump(mode="json"),
+                self.graph_name,
+            )
+
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+
+    def graph_schema_list(self) -> Any:
+        """Return EG's immutable/dynamic GraphSchema source metadata."""
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import (
+            GraphSchemaListRequest,
+            send_graph_schema_list,
+        )
+
+        request = GraphSchemaListRequest()
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for GraphSchema list")
+
+        async def _drive() -> Any:
+            return await send_graph_schema_list(
+                self._engine_async_client(),
+                request.model_dump(mode="json"),
+                self.graph_name,
+            )
+
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+
+    @staticmethod
+    def _require_committed_shacl_receipt(report: Any) -> Any:
+        """Reject validation that was not bound to committed GraphSchema.
+
+        Governance validation must use the engine snapshot's composed shapes.
+        An explicit/ad-hoc shape document intentionally carries no schema receipt,
+        so accepting it here would recreate the split authority this cutover
+        removes.
+        """
+
+        composed_digest = report.composed_digest
+        schema_digests = list(report.schema_digests)
+        if not composed_digest or schema_digests != [composed_digest]:
+            raise RuntimeError(
+                "SHACL validation was not bound to one committed GraphSchema snapshot"
+            )
+        return report
+
+    def shacl_validate_committed(self, data_graph: str) -> Any:
+        """Validate RDF data against EG's committed composed GraphSchema.
+
+        The request deliberately omits ``shapes``.  The generated EG contract is
+        the only validator and returns the digest of the exact schema snapshot
+        used for this validation; no AU-local shape parsing or fallback exists.
+        """
+
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import send_shacl_validate
+
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for SHACL validation")
+
+        async def _drive() -> Any:
+            return await send_shacl_validate(
+                self._engine_async_client(),
+                {"data_graph": data_graph},
+                self.graph_name,
+            )
+
+        future = _asyncio.run_coroutine_threadsafe(_drive(), loop)
+        return self._require_committed_shacl_receipt(future.result())
+
+    async def shacl_validate_committed_async(self, data_graph: str) -> Any:
+        """Async counterpart of :meth:`shacl_validate_committed`."""
+
+        from epistemic_graph.generated.reasoning import send_shacl_validate
+
+        report = await send_shacl_validate(
+            self.async_client,
+            {"data_graph": data_graph},
+            self.graph_name,
+        )
+        return self._require_committed_shacl_receipt(report)
+
+    def shacl_validate_ad_hoc(self, data_graph: str, shapes: str) -> Any:
+        """Validate with explicit component-owned shapes in EG.
+
+        This surface is only for non-governance specialist checks whose shapes
+        have not yet been attached to GraphSchema. The engine remains the sole
+        interpreter; its empty schema receipt proves the caller supplied an
+        ad-hoc document rather than committed governance authority.
+        """
+
+        import asyncio as _asyncio
+
+        from epistemic_graph.generated.reasoning import send_shacl_validate
+
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for SHACL validation")
+
+        async def _drive() -> Any:
+            return await send_shacl_validate(
+                self._engine_async_client(),
+                {"data_graph": data_graph, "shapes": shapes},
+                self.graph_name,
+            )
+
+        future = _asyncio.run_coroutine_threadsafe(_drive(), loop)
+        report = future.result()
+        if report.composed_digest is not None or list(report.schema_digests):
+            raise RuntimeError("ad-hoc SHACL validation returned a committed receipt")
+        return report
 
     def add_triples(
         self, turtle: str | None = None, ntriples: str | None = None
@@ -4813,7 +5064,7 @@ class GraphComputeEngine:
 
         CONCEPT:EG-KG.ontology.rdf-update-guard — routes to ``client.rdf.icv_configure``,
         the engine's OWN policy-registration authority: ``add_triples``/
-        ``remove_triples`` REQUIRE a graph to carry a registered integrity policy
+        RDF mutation operations REQUIRE a graph to carry a registered integrity policy
         before they accept any RDF write at all. This is the ONLY supported way to
         satisfy that requirement — never bypass or relax the guard from this client.
         Registration is policy-idempotent server-side (re-registering the same
@@ -4844,28 +5095,6 @@ class GraphComputeEngine:
             else async_client._send(method)
         )
         return asyncio.run_coroutine_threadsafe(coro, loop).result()
-
-    def remove_triples(
-        self, turtle: str | None = None, ntriples: str | None = None
-    ) -> dict[str, int]:
-        """Physically retract Turtle / N-Triples from the engine's RDF dataset (KG-2.266).
-
-        The retract counterpart to :meth:`add_triples` — used by the ontology
-        lifecycle (KG-2.265) to drop an unloaded ontology's axioms from the engine so
-        they stop being reasoned over, not just deactivated in a registry record.
-        Prefers a typed ``client.rdf.remove_triples`` wrapper when the installed
-        engine client exposes one, else falls back to the raw ``RemoveTriples`` wire op
-        (the engine ships the op even where the Python client lacks the wrapper).
-        Raises if the engine/op is unavailable so callers can report the gap honestly.
-        """
-        rdf = getattr(self._client, "rdf", None)
-        fn = getattr(rdf, "remove_triples", None)
-        if callable(fn):
-            return dict(fn(turtle=turtle, ntriples=ntriples))
-        return dict(
-            self._send_wire("RemoveTriples", {"turtle": turtle, "ntriples": ntriples})
-            or {}
-        )
 
     def drop_named_graph(self, graph: str) -> dict[str, Any]:
         """Drop an entire named RDF graph from the engine (KG-2.266).

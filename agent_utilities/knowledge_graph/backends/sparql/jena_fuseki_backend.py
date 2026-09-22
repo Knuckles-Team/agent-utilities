@@ -187,8 +187,8 @@ class JenaFusekiBackend(SparqlAdapter):
         (labeled-property-graph) queries are NOT supported here: there is no
         Cypher→SPARQL transpiler (the previous ``CypherToSPARQL`` import was dead
         code that raised on every Cypher query). Use a SPARQL query, or an LPG
-        backend for Cypher. The LPG↔OWL bridge answers SPARQL over any LPG store
-        via ``OWLBridge.query_sparql`` — this backend is for a real triplestore.
+        backend for Cypher. Epistemic-graph answers SPARQL natively over the
+        authoritative graph; this backend is for a separate triplestore.
 
         ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1): this triplestore
         tier has no id-seeded epistemic-envelope primitive, so a ``True`` request

@@ -40,10 +40,6 @@ def test_archimate_extract():
     assert by_id["archi:e1"].props["domain"] == "archimate"
     triples = {(e.source, e.target, e.rel_type) for e in batch.edges}
     assert ("archi:e2", "archi:e1", "REALIZATION") in triples
-    # element classes registered promotable
-    from agent_utilities.knowledge_graph.core import owl_bridge
-
-    assert "businessprocess" in owl_bridge.DYNAMIC_PROMOTABLE_NODE_TYPES
 
 
 def test_archimate_sink_add_element_and_relation(monkeypatch):

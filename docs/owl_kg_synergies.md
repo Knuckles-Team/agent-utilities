@@ -180,22 +180,23 @@ We propose registering the following concept mappings to fully support these syn
 
 ## 5. Reasoning Stack & Axiom Consumption (Plan 05)
 
-There is no Apache Jena Fuseki triple-store in this system. The live reasoning
-path is **owlready2** (the default `owl_backend`, see `PipelineConfig`), which
-loads the bundled `knowledge_graph/*.ttl` ontologies and drives the
-materialization that the OWL reasoning phase (`pipeline/phases/owl_reasoning.py`)
-downfeeds back into the LPG as edges tagged `inferred=true`.
+Epistemic-graph owns the active root, capability, enterprise, and ArchiMate
+ontology sources through committed GraphSchema. Capability routing calls normal
+EG `OwlReason` and receives both direct edges and closure with the exact
+`schema_digests`; AU neither reads a bundled capability TTL nor caches a second
+TBox.
 
 Two complementary reasoners run over the same axioms:
 
 | Layer | Engine | When it runs | Axioms it consumes |
 |-------|--------|--------------|--------------------|
-| **Live path** | **OWL 2 RL** materialization (rule-based, via owlready2 / the OWL bridge) | Every ingestion cycle, after `sync` | `rdfs:subClassOf`, `rdfs:subPropertyOf`, `rdfs:domain`/`rdfs:range`, `owl:inverseOf`, `owl:TransitiveProperty`/`owl:SymmetricProperty`, `owl:propertyChainAxiom`, `owl:equivalentClass`, and the **someValuesFrom** / **min-cardinality** existential half of the new `owl:Restriction` axioms (RL-safe). Materialized facts are written back as `inferred=true` edges. |
+| **Committed core path** | **EG EL+/RL and GraphSchema composition** | Request-scoped classification and validation | Immutable core plus attached component packs, with digest-bound direct/closure results and SHACL receipts. |
+| **Migration-debt path** | **AU OWL bridge / owlready2** | Existing mixed-DL/property materialization only | The exact residual domain corpus until EG proves equivalent mixed-DL and property entailments and the follow-up deletion lands. |
 | **CI / offline DL** | **owlready2 + HermiT** (full OWL 2 DL) | In CI (`tests/ontology/`) and offline consistency checks | The complete restriction set, including **universal** (`owl:allValuesFrom`) restrictions, `owl:maxCardinality`, `owl:disjointWith` / `owl:AllDisjointClasses`, and the defined (`owl:equivalentClass`) classes such as `:AuthenticatedTool`, `:SecureTask`, `:RedundantCapability`, `:OwnedEntity`, `:GovernedEntity`, `:RootEntity`. HermiT uses these to detect inconsistencies and infer non-trivial class membership the RL profile cannot. |
 
 **What Plan 05 added (consumed by the above):**
 
-* `ontology_capability.ttl` — inverses (`:providedBy`/`:requiredBy`,
+* EG's immutable capability source — inverses (`:providedBy`/`:requiredBy`,
   `:appliedByDomainOf`), property chains
   (`:canServe ← :hasRequirement ∘ :requiredBy`,
   `:mustFollowChain ← :worksOnDomain ∘ :appliedByDomainOf`), existential/universal
@@ -204,15 +205,17 @@ Two complementary reasoners run over the same axioms:
   :EncryptedTransport`), a `hasReplica min 2` cardinality class
   (`:HighAvailabilityService`), and `owl:AllDisjointClasses` over the capability
   subclasses and transport classes.
-* `ontology.ttl` — role hierarchy (`:hasParent ⊑ :hasAncestor`,
+* EG's immutable foundation source — role hierarchy (`:hasParent ⊑ :hasAncestor`,
   `:partOf ⊑ :dependsOn`, `:memberOf ⊑ :partOf`), additional `rdfs:domain`/`range`
   coverage, top-level `owl:AllDisjointClasses`/`owl:disjointWith`, and ~25
   class-level existential/universal/cardinality restrictions plus three defined
   classes.
 
 **SHACL gate (closed-world validation):** orthogonal to OWL's open-world
-reasoning, `pipeline/phases/shacl_gate.py` runs `pyshacl.validate` against
-`shapes/governance.shapes.ttl` *before* the `sync` commit phase. Nodes that
+reasoning, `pipeline/phases/shacl_gate.py` sends the candidate RDF document to
+EG `ShaclValidate` with `shapes` omitted *before* the `sync` commit phase. The
+engine validates against the committed composed GraphSchema and returns the
+same snapshot's digest receipt. Nodes that
 violate a `sh:Violation`-severity shape (e.g. a `:Tool` lacking `:name` or
 `:capabilityCategory`, an `:Agent` lacking `:name`) are routed to the `:Invalid`
 quarantine marker with the validation report attached, rather than being

@@ -36,7 +36,7 @@ def _real_engine() -> tuple[GraphComputeEngine, IntelligenceGraphEngine]:
     backend = EpistemicGraphBackend()
     backend._graph = graph
     engine = IntelligenceGraphEngine(backend=backend)
-    IntelligenceGraphEngine.set_active(engine)
+    IntelligenceGraphEngine._set_active_for_tests(engine)
     return graph, engine
 
 

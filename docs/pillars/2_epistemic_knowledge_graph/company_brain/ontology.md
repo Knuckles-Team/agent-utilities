@@ -6,7 +6,7 @@
 
 ## What the Ontology Does
 
-The OWL ontology (`knowledge_graph/ontology.ttl`, ~26KB) defines the **company-specific perspective** that transforms raw data into organizational knowledge. It is not a static schema — the `OWLBridge` runs active reasoning cycles that discover new facts through logical inference.
+The committed EG GraphSchema defines the **company-specific perspective** that transforms raw data into organizational knowledge. It is not a static local file: immutable core sources and attached component packs are reasoned over under an exact composed digest.
 
 ### Standards Alignment
 

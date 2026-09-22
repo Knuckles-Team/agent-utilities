@@ -26,10 +26,11 @@ in-process EMA (fast, same-process ranking) AND persists it onto the engine node
 routing preference survives a process restart instead of resetting to the neutral
 prior.
 
-Every entry point is fully guarded: if embeddings, an embedding model, or any node
-data are unavailable, the functions return ``None`` so the router falls back to its
-existing keyword scan. This wiring therefore never breaks routing — it strictly
-augments it when the KG (or the engine) is rich enough.
+If embeddings, an embedding model, or node data are unavailable, the functions
+return ``None`` so unconstrained routing can fall back to its keyword scan. A
+request carrying required capabilities is different: it must use the composed
+GraphSchema classification and fails closed when that semantic authority or its
+digest lineage is unavailable.
 """
 
 from __future__ import annotations
@@ -396,15 +397,19 @@ def designate_specialists(
     signalling the caller to fall back to its keyword scan.
 
     ``capability_hierarchy`` (X-4) makes ``required_caps`` ontology-subsumption-aware
-    on BOTH paths (engine-native push-down + in-process fallback). ``None``
-    (default) is the pre-X-4 exact-match behaviour, unchanged for every existing
-    caller.
+    on BOTH paths (engine-native push-down + in-process fallback). When required
+    capabilities exist and no projection is injected, one digest-bound projection
+    is loaded from epistemic-graph and shared by both paths. Missing semantic
+    authority fails closed rather than silently reverting to exact/keyword routing.
     """
+    capability_hierarchy = _designation_hierarchy(
+        engine, required_caps, capability_hierarchy
+    )
+
     try:
         embedding = embed_query(query, embed_fn)
         if embedding is None:
             return None
-
         from agent_utilities.core.release_channel import active_channel
         from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
             engine_filtered_search,
@@ -436,9 +441,21 @@ def designate_specialists(
             required_policy_tags=policy_tags,
         )
         return [d.id for d in designations]
-    except Exception as e:  # never break routing  # noqa: BLE001 — returning None is the documented unavailable-signal per this function's own docstring, handled identically to the already-covered no-embedding/no-index cases
+    except Exception as e:  # never break routing  # noqa: BLE001 — semantic authority was resolved before this best-effort block
         logger.debug("KG-driven designation unavailable, falling back: %s", e)
         return None
+
+
+def _designation_hierarchy(
+    engine: Any, required_caps: list[str] | None, capability_hierarchy: Any | None
+) -> Any | None:
+    if capability_hierarchy is not None or not required_caps:
+        return capability_hierarchy
+    from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+        load_capability_projection,
+    )
+
+    return load_capability_projection(engine)
 
 
 def record_capability_outcome(

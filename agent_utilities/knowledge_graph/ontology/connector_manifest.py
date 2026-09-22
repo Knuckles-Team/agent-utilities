@@ -59,7 +59,7 @@ __all__ = [
 # When a resource has neither an explicit ``rdfs:subClassOf`` (its OWN ontology's stated
 # parent) nor a hit in :data:`DEFAULT_ARCHIMATE_CROSSWALK` (LeanIX/ArchiMate fact-sheet
 # types only), this conservative keyword table gives a best-effort DRAFT crosswalk to the
-# canonical hub ``agent_utilities/knowledge_graph/ontology.ttl`` class of the same/nearest
+# canonical EG GraphSchema class of the same/nearest
 # *name* — e.g. a connector's ``Incident``/``Issue``/``Bug`` resource -> hub ``:Incident``.
 # Deliberately small and conservative: only common, low-ambiguity domain nouns get an
 # entry; anything else is left unresolved (``None``) rather than guessed. Every hit is

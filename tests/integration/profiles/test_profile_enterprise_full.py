@@ -51,7 +51,7 @@ def enterprise_env(
     monkeypatch.setenv("KG_FUSEKI_ENDPOINT", ephemeral_fuseki["url"])
     monkeypatch.setenv("GRAPH_FUSEKI_DATASET", ephemeral_fuseki["dataset"])
     set_active_backend(None)
-    IntelligenceGraphEngine.set_active(None)
+    IntelligenceGraphEngine._set_active_for_tests(None)
     return {
         "pg_uri": pg_uri,
         "kafka": ephemeral_kafka["bootstrap_servers"],
@@ -133,36 +133,3 @@ def test_task_queue_resolves_to_kafka_and_roundtrips(
         if callable(close):
             with contextlib.suppress(Exception):
                 close()
-
-
-def test_ontology_publishes_to_fuseki_and_is_queryable(
-    enterprise_env: dict[str, Any],
-) -> None:
-    """The bundled ontology publishes to Fuseki and is reachable over SPARQL."""
-    from agent_utilities.knowledge_graph.core.ontology_publisher import (
-        publish_ontology_to_fuseki,
-    )
-
-    report = publish_ontology_to_fuseki(
-        endpoint=enterprise_env["fuseki_url"],
-        dataset=enterprise_env["fuseki_dataset"],
-    )
-    status = report.get("status")
-    if status == "skipped":
-        pytest.skip(f"no ontology triples to publish in this build: {report}")
-    assert status not in ("error", None), f"fuseki publish failed: {report}"
-
-    fuseki = create_backend(
-        backend_type="jena_fuseki",
-        jena_fuseki_url=enterprise_env["fuseki_url"],
-        dataset=enterprise_env["fuseki_dataset"],
-    )
-    assert fuseki is not None
-    try:
-        rows = fuseki.execute_sparql_query("SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }")
-        assert rows, "SPARQL count returned no rows"
-        raw = rows[0].get("c")
-        count = int(raw.get("value") if isinstance(raw, dict) else raw)
-        assert count > 0, "Fuseki holds no triples after publish"
-    finally:
-        fuseki.close()

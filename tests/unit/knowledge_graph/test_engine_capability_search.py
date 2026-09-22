@@ -11,9 +11,29 @@ from __future__ import annotations
 import types
 from typing import Any
 
+from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+    CapabilitySubsumptionProjection,
+)
 from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
     build_capability_filters,
     engine_filtered_search,
+)
+
+_HIERARCHY = CapabilitySubsumptionProjection(
+    relations=frozenset(
+        {
+            ("EncryptedTransport", "TransportCapability"),
+            ("EncryptedTransport", "ServiceCapability"),
+            ("TransportCapability", "ServiceCapability"),
+        }
+    ),
+    direct_relations=frozenset(
+        {
+            ("EncryptedTransport", "TransportCapability"),
+            ("TransportCapability", "ServiceCapability"),
+        }
+    ),
+    schema_digests=("sha256:test-capability-schema",),
 )
 
 
@@ -74,7 +94,11 @@ def test_engine_query_routes_to_unified_plan_with_filter_not_in_process_scan():
     engine = types.SimpleNamespace(graph=graph)
 
     out = engine_filtered_search(
-        engine, [0.1, 0.9, 0.0], k=3, required_caps=["arithmetic"]
+        engine,
+        [0.1, 0.9, 0.0],
+        k=3,
+        required_caps=["arithmetic"],
+        capability_hierarchy=_HIERARCHY,
     )
 
     assert out == [("tool:math", 0.9)]
@@ -180,12 +204,18 @@ def test_native_ann_bounded_post_filter_excludes_non_matching_candidate():
             return self._props.get(nid, {})
 
     engine = types.SimpleNamespace(graph=_NoUnifiedWithProps())
-    out = engine_filtered_search(engine, [1.0], k=5, required_caps=["arithmetic"])
+    out = engine_filtered_search(
+        engine,
+        [1.0],
+        k=5,
+        required_caps=["arithmetic"],
+        capability_hierarchy=_HIERARCHY,
+    )
     assert out == [("tool:has_cap", 0.9)]
 
 
-def test_default_hierarchy_post_filters_for_declared_subtype():
-    """Omitting an injected hierarchy still applies the bundled current ontology."""
+def test_engine_derived_hierarchy_post_filters_for_declared_subtype():
+    """The engine-derived projection widens matching to a declared subtype."""
 
     class _HierarchyAwareGraph:
         def query_unified(self, plan):
@@ -201,6 +231,7 @@ def test_default_hierarchy_post_filters_for_declared_subtype():
         [1.0],
         k=5,
         required_caps=["TransportCapability"],
+        capability_hierarchy=_HIERARCHY,
     )
 
     assert out == [("tool:mtls", 0.95)]

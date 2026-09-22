@@ -249,63 +249,6 @@ def configure_backend(
 # ──────────────────────────────────────────────────────────────────────────
 # Step 3 — publish the ontology to the chosen SPARQL host
 # ──────────────────────────────────────────────────────────────────────────
-def publish_ontology(
-    target: str = "builtin",
-    *,
-    endpoint: str | None = None,
-    database: str | None = None,
-    dataset: str = "agent_kg",
-    named_graph: str | None = None,
-) -> dict[str, Any]:
-    """Distribute the bundled ontology to the SPARQL host (KG-2.6).
-
-    ``target``:
-      - ``"stardog"`` — push to Stardog (prod). Endpoint/credentials default to the
-        existing ``STARDOG_*`` settings.
-      - ``"fuseki"`` — push to a local Apache Jena Fuseki triple store (dev upgrade).
-      - ``"builtin"`` — no push needed; the gateway already serves the live graph at
-        ``/api/sparql`` (zero infra). Returns the triple count for confirmation.
-    """
-    from agent_utilities.knowledge_graph.core.ontology_publisher import (
-        OntologyPublisher,
-        collect_bundled_ontology_graph,
-    )
-
-    try:
-        graph = collect_bundled_ontology_graph()
-    except ImportError:
-        return {
-            "status": "error",
-            "error": "rdflib not installed (pip install agent-utilities[owl]).",
-        }
-
-    triple_count = len(graph)
-    publisher = OntologyPublisher()
-
-    if target == "stardog":
-        result = publisher.push_to_stardog(
-            graph,
-            endpoint=endpoint,
-            database=database,
-            named_graph=named_graph,
-        )
-        result.setdefault("target", "stardog")
-        return result
-    if target == "fuseki":
-        result = publisher.push_to_jena_fuseki(
-            graph, endpoint=endpoint, dataset=dataset, named_graph=named_graph
-        )
-        result.setdefault("target", "fuseki")
-        return result
-    # builtin — nothing to push; the endpoint materializes from the live graph.
-    return {
-        "status": "success",
-        "target": "builtin",
-        "triple_count": triple_count,
-        "note": "Consume the live ontology at the gateway's GET/POST /api/sparql.",
-    }
-
-
 # ──────────────────────────────────────────────────────────────────────────
 # Step 3b — register Stardog as a live DATA mirror (instance data, not just TBox)
 # ──────────────────────────────────────────────────────────────────────────
@@ -454,19 +397,11 @@ def verify_sparql(
 
     if kind == "builtin":
         try:
-            from agent_utilities.gateway.graph_api import _get_sparql_bridge
-            from agent_utilities.knowledge_graph.core.sparql_http import SPARQLEndpoint
+            from agent_utilities.knowledge_graph.core.graph_compute import (
+                GraphComputeEngine,
+            )
 
-            bridge = _get_sparql_bridge()
-            if bridge is None:
-                return {
-                    "status": "error",
-                    "error": "SPARQL bridge unavailable (need agent-utilities[owl]).",
-                }
-            result = SPARQLEndpoint(bridge).execute(q)
-            if "error" in result:
-                return {"status": "error", "error": "SPARQL query failed"}
-            rows = len(result.get("results", {}).get("bindings", []))
+            rows = len(GraphComputeEngine.get_or_create().sparql(q))
             return {
                 "status": "success",
                 "kind": "builtin",
@@ -595,10 +530,7 @@ def setup_environment(
         mirror_targets=mirror_targets,
     )
 
-    # 3. Ontology distribution (TBox).
-    report["steps"]["publish_ontology"] = publish_ontology(target)
-
-    # 3b. Live instance-data mirror into Stardog (default on for the Stardog target).
+    # 3. Live instance-data mirror into Stardog (default on for the Stardog target).
     if mirror_data_to_stardog is None:
         mirror_data_to_stardog = target == "stardog"
     if mirror_data_to_stardog:

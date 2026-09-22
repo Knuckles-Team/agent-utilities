@@ -15,7 +15,7 @@ The value is not in individual storage — it's in the **OWL reasoner inferring 
 | Module | File | Domain | Workflows Served |
 |---|---|---|---|
 | Core | `ontology.ttl` | Agents, events, concepts | All |
-| Enterprise | `ontology_enterprise.ttl` | ArchiMate, ADR, governance | ServiceNow, EAR |
+| Enterprise | EG core enterprise GraphSchema source | ArchiMate, ADR, governance | ServiceNow, EAR |
 | Infrastructure | `ontology_infrastructure.ttl` | Containers, DNS, hardware | Portainer, AdGuard, Uptime Kuma |
 | Quant | `ontology_quant.ttl` | Finance, code, processes | Trading, workspace validation |
 | SDD | `ontology_sdd.ttl` | Spec-driven development | GitHub Issues, evolution |

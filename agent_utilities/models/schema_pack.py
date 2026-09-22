@@ -436,26 +436,6 @@ class SchemaPack(BaseModel):
             return []
         return [r for r in self.identity_rules if r.applies(kind)]
 
-    def get_owl_closure_sets(self) -> tuple[set[str], set[str], dict[str, str]]:
-        """Return ``(transitive, symmetric, inverse_map)`` for OWL closure (KG-2.36).
-
-        Consumed by ``owl_bridge`` to union pack-declared object-property
-        characteristics into the reasoning sets used by the lightweight Python/Rust
-        reasoning paths. Edge-type values are lowercased to match stored edge types.
-        """
-        transitive: set[str] = set()
-        symmetric: set[str] = set()
-        inverse_map: dict[str, str] = {}
-        for prop in self.owl_object_properties:
-            et = prop.edge_type.lower()
-            if prop.transitive:
-                transitive.add(et)
-            if prop.symmetric:
-                symmetric.add(et)
-            if prop.inverse_of:
-                inverse_map[et] = prop.inverse_of.lower()
-        return transitive, symmetric, inverse_map
-
     def signature(self) -> str:
         """Return a stable content hash of this pack (KG-2.35).
 

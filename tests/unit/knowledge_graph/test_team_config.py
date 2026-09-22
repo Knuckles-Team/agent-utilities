@@ -39,7 +39,7 @@ def engine():
     backend = EpistemicGraphBackend()
     backend._graph = compute
     e = IntelligenceGraphEngine(backend=backend)
-    IntelligenceGraphEngine.set_active(e)
+    IntelligenceGraphEngine._set_active_for_tests(e)
     return e
 
 

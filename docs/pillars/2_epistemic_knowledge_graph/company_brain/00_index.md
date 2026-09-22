@@ -113,7 +113,7 @@ print(brain.status())
 | `agent_utilities/knowledge_graph/memory/optimization_engine.py` | SynthesisEngine — homeostatic memory distillation |
 | `agent_utilities/security/permissions_kernel.py` | PermissionsKernel — RBAC tool-level access control |
 | `agent_utilities/observability/audit_logger.py` | AuditLogger — append-only compliance logging |
-| `agent_utilities/knowledge_graph/ontology.ttl` | OWL ontology (~26KB) with BFO/PROV-O/SKOS/FIBO alignment |
+| EG committed GraphSchema | OWL ontology with BFO/PROV-O/SKOS/FIBO alignment and digest-bound composition |
 
 ---
 

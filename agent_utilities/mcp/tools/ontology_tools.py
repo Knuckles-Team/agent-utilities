@@ -17,11 +17,9 @@ from pydantic import Field
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.ontology_types import (
     OntologyCatalogRequest,
-    OntologyProposalRequest,
 )
 from agent_utilities.security.error_surface import (
     public_error_json,
-    public_error_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,95 +53,7 @@ def _run_coro(coro: Any) -> Any:
         return ex.submit(lambda: asyncio.run(coro)).result()
 
 
-def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
-    """Load every package-contributed ontology through the given lifecycle.
-
-    CONCEPT:AU-KG.ontology.federation-runtime — federation runtime: iterate
-    ``resolve_provider_ontologies()`` (installed distributions,
-    ``importlib.metadata.entry_points()``) PLUS
-    ``resolve_workspace_provider_ontologies()`` (source-mounted sibling repos in
-    the workspace that declare the same entry-point group in their
-    ``pyproject.toml`` but are not ``pip install``'d into this interpreter —
-    CONCEPT:AU-KG.ontology.workspace-provider-discovery) and call the EXISTING
-    :meth:`OntologyLifecycle.load` per contributed ``.ttl`` (parse + SHACL-validate
-    + register + activate for reasoning). No new load logic — reuse the one path
-    ``graph_ontology action='load'`` and boot hydration already use. Per-file
-    failure-isolated so one bad contribution never blocks the rest. Shape files
-    (``shapes/*.ttl``) are skipped (validation constraints, not loadable
-    ontologies). Called at graph-os boot and via ``graph_ontology
-    action='sync_packages'``.
-    """
-    from agent_utilities.knowledge_graph.core.ontology_federation import (
-        resolve_provider_ontologies,
-        resolve_workspace_provider_ontologies,
-    )
-
-    providers_seen: set[str] = set()
-    loaded_count = 0
-    idempotent_count = 0
-    errors: list[dict[str, Any]] = []
-    contributions = (
-        resolve_provider_ontologies() + resolve_workspace_provider_ontologies()
-    )
-    for provider, ttl_path in contributions:
-        if ttl_path.parent.name == "shapes":
-            continue
-        try:
-            report = lc.load(str(ttl_path), source_type="file")
-            loaded_count += 1
-            providers_seen.add(provider)
-            if bool(report.get("idempotent", False)):
-                idempotent_count += 1
-        except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
-            logger.warning(
-                "sync_packages: failed to load provider (exception_type=%s)",
-                type(exc).__name__,
-            )
-            errors.append(public_error_payload(exc))
-    return {
-        "action": "sync_packages",
-        "artifacts_loaded": loaded_count,
-        "providers_loaded": len(providers_seen),
-        "idempotent_artifacts": idempotent_count,
-        "error_count": len(errors),
-        "errors": errors,
-    }
-
-
-def _parse_json_str_list(raw: str) -> list[str]:
-    """Parse a JSON array of strings, degrading to `[]` on any malformed or
-    non-list input (used by both `graph_ontology`'s 'load' `tags_json` and
-    'propose' `evidence_refs_json` params)."""
-    if not raw:
-        return []
-    try:
-        loaded = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    if isinstance(loaded, list):
-        return [str(item) for item in loaded]
-    return []
-
-
-_ONTOLOGY_CATALOG_ACTIONS = frozenset(
-    {"load", "list", "get", "update", "delete", "validate"}
-)
-_ONTOLOGY_STARDOG_ACTIONS = frozenset(
-    {"sync_packages", "publish_stardog", "import_stardog"}
-)
-_ONTOLOGY_LIFECYCLE_FLAG_ACTIONS = frozenset(
-    {"activate", "deactivate", "deprecate", "undeprecate"}
-)
-_ONTOLOGY_PROPOSAL_ACTIONS = frozenset(
-    {
-        "propose",
-        "list_proposals",
-        "get_proposal",
-        "review_proposal",
-        "promote_proposal",
-        "rollback_proposal",
-    }
-)
+_ONTOLOGY_CATALOG_ACTIONS = frozenset({"load", "list", "get", "update", "delete"})
 
 
 def _graph_ontology_load(
@@ -153,20 +63,15 @@ def _graph_ontology_load(
     source_type: str,
     iri: str,
     version: str,
-    category: str,
-    tags_json: str,
 ) -> str:
     if not source:
         return json.dumps({"error": "load requires `source`"})
-    parsed_tags = _parse_json_str_list(tags_json)
     return json.dumps(
         lc.load(
             source,
             source_type=source_type,
             version=version or None,
             iri=iri or None,
-            category=category,
-            tags=parsed_tags,
         ),
         default=str,
     )
@@ -174,38 +79,14 @@ def _graph_ontology_load(
 
 def _graph_ontology_list(
     lc: Any,
-    *,
-    source_type: str,
-    active_only: bool,
-    deprecated_only: bool,
-    search: str,
-    category: str,
-    tag: str,
 ) -> str:
-    # source_type defaults to 'auto' (the load/validate parse-hint sentinel) —
-    # never filter on that default, only on a caller's EXPLICIT file/url/text
-    # choice, so plain action='list' calls keep returning every hosted
-    # ontology unfiltered.
-    filter_source_type = "" if source_type in ("", "auto") else source_type
-    return json.dumps(
-        lc.list_ontologies(
-            active_only=bool(active_only),
-            deprecated_only=bool(deprecated_only),
-            search=search,
-            category=category,
-            source_type=filter_source_type,
-            tag=tag,
-        ),
-        default=str,
-    )
+    return json.dumps(lc.list_ontologies(), default=str)
 
 
-def _graph_ontology_get(lc: Any, *, iri: str, version: str, serialize: bool) -> str:
+def _graph_ontology_get(lc: Any, *, iri: str, version: str) -> str:
     if not iri:
         return json.dumps({"error": "get requires `iri`"})
-    return json.dumps(
-        lc.get(iri, version=version or None, serialize=bool(serialize)), default=str
-    )
+    return json.dumps(lc.get(iri, version=version or None), default=str)
 
 
 def _graph_ontology_update(
@@ -219,21 +100,13 @@ def _graph_ontology_update(
     )
 
 
-def _graph_ontology_delete(
-    lc: Any, *, iri: str, version: str, drop_inferences: bool
-) -> str:
+def _graph_ontology_delete(lc: Any, *, iri: str, version: str) -> str:
     if not iri:
         return json.dumps({"error": "delete requires `iri`"})
     return json.dumps(
-        lc.delete(iri, version=version or None, drop_inferences=bool(drop_inferences)),
+        lc.delete(iri, version=version or None),
         default=str,
     )
-
-
-def _graph_ontology_validate(lc: Any, *, source: str, source_type: str) -> str:
-    if not source:
-        return json.dumps({"error": "validate requires `source`"})
-    return json.dumps(lc.validate(source, source_type=source_type), default=str)
 
 
 def _graph_ontology_catalog(
@@ -246,23 +119,13 @@ def _graph_ontology_catalog(
             source_type=request.source_type,
             iri=request.iri,
             version=request.version,
-            category=request.category,
-            tags_json=request.tags_json,
         )
     if action == "list":
         return _graph_ontology_list(
             lc,
-            source_type=request.source_type,
-            active_only=request.active_only,
-            deprecated_only=request.deprecated_only,
-            search=request.search,
-            category=request.category,
-            tag=request.tag,
         )
     if action == "get":
-        return _graph_ontology_get(
-            lc, iri=request.iri, version=request.version, serialize=request.serialize
-        )
+        return _graph_ontology_get(lc, iri=request.iri, version=request.version)
     if action == "update":
         return _graph_ontology_update(
             lc,
@@ -276,216 +139,8 @@ def _graph_ontology_catalog(
             lc,
             iri=request.iri,
             version=request.version,
-            drop_inferences=request.drop_inferences,
         )
-    # Only "validate" remains among `_ONTOLOGY_CATALOG_ACTIONS` at this point.
-    return _graph_ontology_validate(
-        lc, source=request.source, source_type=request.source_type
-    )
-
-
-def _graph_ontology_publish_stardog(*, named_graph: str, overwrite: bool) -> str:
-    # Push the platform's authoritative bundled TBox to Stardog, overwriting
-    # the target graph by default (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
-    from agent_utilities.knowledge_graph.core.ontology_publisher import (
-        OntologyPublisher,
-        collect_bundled_ontology_graph,
-    )
-
-    graph = collect_bundled_ontology_graph()
-    return json.dumps(
-        OntologyPublisher().push_to_stardog(
-            graph, named_graph=named_graph or None, overwrite=bool(overwrite)
-        ),
-        default=str,
-    )
-
-
-def _graph_ontology_import_stardog(
-    engine: Any, *, named_graph: str, activate: bool
-) -> str:
-    # Consume the TBox already in Stardog back into the engine, activating it
-    # for reasoning (CONCEPT:AU-KG.ontology.stardog-catalog-import).
-    from agent_utilities.knowledge_graph.core.ontology_publisher import (
-        import_ontology_from_stardog,
-    )
-
-    return json.dumps(
-        import_ontology_from_stardog(
-            named_graph=named_graph or None, engine=engine, activate=bool(activate)
-        ),
-        default=str,
-    )
-
-
-def _graph_ontology_stardog(
-    action: str,
-    lc: Any,
-    engine: Any,
-    *,
-    named_graph: str,
-    overwrite: bool,
-    activate: bool,
-) -> str:
-    if action == "sync_packages":
-        return json.dumps(_sync_package_ontologies(lc), default=str)
-    if action == "publish_stardog":
-        return _graph_ontology_publish_stardog(
-            named_graph=named_graph, overwrite=overwrite
-        )
-    # Only "import_stardog" remains among `_ONTOLOGY_STARDOG_ACTIONS`.
-    return _graph_ontology_import_stardog(
-        engine, named_graph=named_graph, activate=activate
-    )
-
-
-def _graph_ontology_lifecycle_flag(
-    action: str, lc: Any, *, iri: str, version: str
-) -> str:
-    if not iri:
-        return json.dumps({"error": f"{action} requires `iri`"})
-    if action in ("activate", "deactivate"):
-        return json.dumps(
-            lc.set_active(iri, version=version or None, active=(action == "activate")),
-            default=str,
-        )
-    return json.dumps(
-        lc.set_deprecated(
-            iri, version=version or None, deprecated=(action == "deprecate")
-        ),
-        default=str,
-    )
-
-
-def _graph_ontology_propose(
-    engine: Any, tenant: str, request: OntologyProposalRequest
-) -> str:
-    if not (request.source and request.iri):
-        return json.dumps({"error": "propose requires `source` and `iri`"})
-    parsed_evidence = _parse_json_str_list(request.evidence_refs_json)
-    from agent_utilities.knowledge_graph.ontology.evolution import (
-        propose_ontology_change,
-    )
-
-    return json.dumps(
-        propose_ontology_change(
-            engine,
-            tenant or None,
-            request.source,
-            iri=request.iri,
-            source_type=request.source_type,
-            evidence_refs=parsed_evidence,
-            proposer=request.proposer,
-            reason=request.reason,
-        ),
-        default=str,
-    )
-
-
-def _graph_ontology_list_proposals(engine: Any, tenant: str, *, status: str) -> str:
-    from agent_utilities.knowledge_graph.ontology.evolution import list_proposals
-
-    return json.dumps(
-        {"proposals": list_proposals(engine, tenant or None, status=status)},
-        default=str,
-    )
-
-
-def _graph_ontology_get_proposal(engine: Any, tenant: str, *, proposal_id: str) -> str:
-    if not proposal_id:
-        return json.dumps({"error": "get_proposal requires `proposal_id`"})
-    from agent_utilities.knowledge_graph.ontology.evolution import get_proposal
-
-    record = get_proposal(engine, tenant or None, proposal_id)
-    if record is None:
-        return json.dumps({"error": f"ontology proposal not found: {proposal_id}"})
-    return json.dumps({"proposal": record}, default=str)
-
-
-def _graph_ontology_review_proposal(
-    engine: Any,
-    tenant: str,
-    *,
-    proposal_id: str,
-    approve: bool,
-    reviewer: str,
-    notes: str,
-) -> str:
-    if not proposal_id:
-        return json.dumps({"error": "review_proposal requires `proposal_id`"})
-    from agent_utilities.knowledge_graph.ontology.evolution import (
-        review_ontology_proposal,
-    )
-
-    return json.dumps(
-        review_ontology_proposal(
-            engine,
-            tenant or None,
-            proposal_id,
-            approve=bool(approve),
-            reviewer=reviewer,
-            notes=notes,
-        ),
-        default=str,
-    )
-
-
-def _graph_ontology_promote_proposal(
-    engine: Any, tenant: str, *, proposal_id: str
-) -> str:
-    if not proposal_id:
-        return json.dumps({"error": "promote_proposal requires `proposal_id`"})
-    from agent_utilities.knowledge_graph.ontology.evolution import (
-        promote_ontology_proposal,
-    )
-
-    return json.dumps(
-        promote_ontology_proposal(engine, tenant or None, proposal_id), default=str
-    )
-
-
-def _graph_ontology_rollback_proposal(
-    engine: Any, tenant: str, *, proposal_id: str
-) -> str:
-    if not proposal_id:
-        return json.dumps({"error": "rollback_proposal requires `proposal_id`"})
-    from agent_utilities.knowledge_graph.ontology.evolution import (
-        rollback_ontology_proposal,
-    )
-
-    return json.dumps(
-        rollback_ontology_proposal(engine, tenant or None, proposal_id), default=str
-    )
-
-
-def _graph_ontology_proposal(
-    action: str, engine: Any, tenant: str, request: OntologyProposalRequest
-) -> str:
-    if action == "propose":
-        return _graph_ontology_propose(engine, tenant, request)
-    if action == "list_proposals":
-        return _graph_ontology_list_proposals(engine, tenant, status=request.status)
-    if action == "get_proposal":
-        return _graph_ontology_get_proposal(
-            engine, tenant, proposal_id=request.proposal_id
-        )
-    if action == "review_proposal":
-        return _graph_ontology_review_proposal(
-            engine,
-            tenant,
-            proposal_id=request.proposal_id,
-            approve=request.approve,
-            reviewer=request.reviewer,
-            notes=request.notes,
-        )
-    if action == "promote_proposal":
-        return _graph_ontology_promote_proposal(
-            engine, tenant, proposal_id=request.proposal_id
-        )
-    # Only "rollback_proposal" remains among `_ONTOLOGY_PROPOSAL_ACTIONS`.
-    return _graph_ontology_rollback_proposal(
-        engine, tenant, proposal_id=request.proposal_id
-    )
+    raise ValueError(f"unknown GraphSchema lifecycle action: {action}")
 
 
 def _ontology_interface_list(reg: Any, registry: str) -> str:
@@ -1999,166 +1654,44 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="graph_ontology",
         description=(
-            "Hosted-ontology lifecycle CRUD (CONCEPT:AU-KG.ontology.manage-arbitrary) — manage arbitrary "
-            "OWL/RDF ontologies hosted in the running KG. action='load' (parse + "
-            "SHACL-validate + register a .ttl/OWL from a file path, URL, or raw "
-            "turtle text via `source`/`source_type`, idempotent on iri+version, and "
-            "load its axioms into the native reasoner; optional `category`/`tags_json` "
-            "catalogue metadata), 'list' (every hosted ontology with metadata: "
-            "iri/version/#classes/#properties/#axioms/loaded_at/active/category/tags — "
-            "the browsable catalogue surface, CONCEPT:AU-KG.ontology.catalogue-browse: "
-            "optional `search` substring + `category`/`source_type`/`tag` facet filters), "
-            "'get' (inspect one ontology's classes/properties/"
-            "axioms; serialize=true returns turtle), 'update' (load a NEW version, "
-            "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
-            "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
-            "gate on a candidate WITHOUT committing), 'activate'/'deactivate' "
-            "(toggle participation in reasoning), 'propose'/'list_proposals'/"
-            "'get_proposal'/'review_proposal'/'promote_proposal'/'rollback_proposal' "
-            "(CONCEPT:AU-KG.ontology.evolution-governed-loop — ontology change as a "
-            "governed proposal: validate + classify additive/breaking + shadow-graph "
-            "competency-query replay on propose; promote is gated by the SAME "
-            "action_policy decision point every other evolution proposal uses — "
-            "SAFETY-CRITICAL, never auto — and rollback reactivates the still-hosted "
-            "prior version), 'sync_packages' (CONCEPT:AU-KG.ontology.federation-runtime "
-            "— federation: discover every ontology .ttl contributed by installed "
-            "fleet packages via the agent_utilities.ontology_providers entry-point "
-            "and load each through the SAME load path, so package-contributed "
-            "ontologies become live for reasoning; now ALSO discovers source-mounted "
-            "workspace repos that declare the entry point but aren't pip-installed). "
-            "TBox axioms + the hosted-ontology registry live in a DEDICATED, durable, "
-            "per-tenant ontology graph (CONCEPT:AU-KG.ontology.dedicated-tbox-graph) — "
-            "never the mixed property graph — so a live engine sees no non-durable, "
-            "process-global registry state."
+            "GraphSchema lifecycle control plane. load/update attach an explicit "
+            "iri+version Turtle document through EG; list/get return generated "
+            "GraphSchema metadata; delete detaches the exact source. EG alone "
+            "validates, composes, persists, reasons over, and reports schema state."
         ),
         tags=["graph-os", "ontology", "lifecycle"],
     )
     def graph_ontology(
         action: str = Field(
             default="list",
-            description=(
-                "load | list | get | update | delete | validate | activate | deactivate | "
-                "deprecate | undeprecate | sync_packages | publish_stardog | import_stardog."
-            ),
+            description=("load | list | get | update | delete"),
         ),
         source: str = Field(
             default="",
-            description="For load/update/validate: a .ttl/OWL file path, an HTTP(S) URL, or raw turtle/RDF text.",
+            description="For load/update: a UTF-8 Turtle file path or raw Turtle text.",
         ),
         source_type: str = Field(
             default="auto",
-            description="How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff).",
+            description="How to read `source`: 'file' | 'text' | 'auto' (sniff).",
         ),
         iri: str = Field(
             default="",
-            description="Ontology IRI (get/update/delete/activate/deactivate; optional override for load).",
+            description="Required stable ontology IRI for load/get/update/delete.",
         ),
         version: str = Field(
             default="",
-            description="Ontology version (defaults to '1.0.0' on load; omit on get/delete to target the newest).",
-        ),
-        serialize: bool = Field(
-            default=False,
-            description="For action='get': also return the ontology re-serialized to turtle.",
-        ),
-        active_only: bool = Field(
-            default=False,
-            description="For action='list': only ontologies currently active for reasoning.",
-        ),
-        deprecated_only: bool = Field(
-            default=False,
-            description="For action='list': only ontologies marked deprecated (advisory; independent of active_only).",
-        ),
-        drop_inferences: bool = Field(
-            default=False,
-            description="For action='delete': also attempt to drop materialized inferences (engine-gap aware).",
-        ),
-        category: str = Field(
-            default="",
-            description=(
-                "For load: optional catalogue category label, e.g. 'finance'. "
-                "For list: filter to hosted ontologies loaded with this category."
-            ),
-        ),
-        tags_json: str = Field(
-            default="",
-            description='For load: optional JSON array of catalogue tags, e.g. \'["draft","finance"]\'.',
-        ),
-        search: str = Field(
-            default="",
-            description="For list: case-insensitive substring filter over iri/version/source.",
-        ),
-        tag: str = Field(
-            default="",
-            description="For list: filter to hosted ontologies carrying this catalogue tag.",
-        ),
-        named_graph: str = Field(
-            default="",
-            description=(
-                "For publish_stardog/import_stardog: the Stardog named-graph URI to write "
-                "to / read from (omit for the default graph)."
-            ),
-        ),
-        overwrite: bool = Field(
-            default=True,
-            description=(
-                "For publish_stardog: REPLACE the target graph (clear-then-add) so an "
-                "updated ontology updates the catalog instead of accumulating stale triples."
-            ),
-        ),
-        activate: bool = Field(
-            default=True,
-            description="For import_stardog: activate the imported ontology for reasoning.",
-        ),
-        tenant: str = Field(
-            default="",
-            description=(
-                "Tenant id whose dedicated per-tenant ontology graph this call targets "
-                "(CONCEPT:AU-KG.ontology.dedicated-tbox-graph). Empty (default) resolves the "
-                "ambient session tenant, matching every other tenant-scoped engine call."
-            ),
-        ),
-        proposal_id: str = Field(
-            default="",
-            description="For get_proposal/review_proposal/promote_proposal/rollback_proposal.",
-        ),
-        evidence_refs_json: str = Field(
-            default="",
-            description="For propose: optional JSON array of evidence references, e.g. '[\"doc:123#span=4-9\"]'.",
-        ),
-        proposer: str = Field(
-            default="",
-            description="For propose: who/what filed the proposal (e.g. 'schema_discovery').",
-        ),
-        reason: str = Field(
-            default="", description="For propose: free-text rationale for the change."
-        ),
-        approve: bool = Field(
-            default=True,
-            description="For review_proposal: approve (true) or reject (false).",
-        ),
-        reviewer: str = Field(
-            default="",
-            description="For review_proposal: the reviewing human/policy identity.",
-        ),
-        notes: str = Field(
-            default="", description="For review_proposal: free-text review notes."
-        ),
-        status: str = Field(
-            default="",
-            description="For list_proposals: filter to this status (e.g. 'pending_review').",
+            description="Required stable version for load/get/update/delete.",
         ),
     ) -> str:
-        """Load / list / inspect / version / unload / validate hosted ontologies, and
-        publish/import the ontology catalog to/from a Stardog triplestore."""
+        """Attach, inspect, replace, or detach EG GraphSchema sources."""
         from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
 
         try:
             try:
                 engine = kg_server._get_engine()
-            except Exception:  # noqa: BLE001 — offline → registry-only operations
+            except Exception:  # noqa: BLE001 — fail closed below
                 engine = None
-            lc = OntologyLifecycle(engine=engine, tenant=(tenant or None))
+            lc = OntologyLifecycle(engine=engine)
 
             if action in _ONTOLOGY_CATALOG_ACTIONS:
                 catalog_request = OntologyCatalogRequest(
@@ -2166,46 +1699,8 @@ def register_ontology_tools(mcp):
                     source_type=source_type,
                     iri=iri,
                     version=version,
-                    serialize=serialize,
-                    active_only=active_only,
-                    deprecated_only=deprecated_only,
-                    drop_inferences=drop_inferences,
-                    category=category,
-                    tags_json=tags_json,
-                    search=search,
-                    tag=tag,
                 )
                 return _graph_ontology_catalog(action, lc, catalog_request)
-            if action in _ONTOLOGY_STARDOG_ACTIONS:
-                return _graph_ontology_stardog(
-                    action,
-                    lc,
-                    engine,
-                    named_graph=named_graph,
-                    overwrite=overwrite,
-                    activate=activate,
-                )
-            if action in _ONTOLOGY_LIFECYCLE_FLAG_ACTIONS:
-                return _graph_ontology_lifecycle_flag(
-                    action, lc, iri=iri, version=version
-                )
-            if action in _ONTOLOGY_PROPOSAL_ACTIONS:
-                proposal_request = OntologyProposalRequest(
-                    proposal_id=proposal_id,
-                    source=source,
-                    iri=iri,
-                    source_type=source_type,
-                    evidence_refs_json=evidence_refs_json,
-                    proposer=proposer,
-                    reason=reason,
-                    approve=approve,
-                    reviewer=reviewer,
-                    notes=notes,
-                    status=status,
-                )
-                return _graph_ontology_proposal(
-                    action, engine, tenant, proposal_request
-                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)

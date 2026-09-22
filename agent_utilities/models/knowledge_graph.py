@@ -1445,29 +1445,6 @@ class PipelineConfig(BaseModel):
         )
     )
     kb_auto_ingest_cloned_repos: bool = True
-    # OWL Reasoning settings
-    enable_owl_reasoning: bool = Field(
-        default_factory=lambda: (
-            __import__("os").getenv("ENABLE_KG_OWL", "true").lower()
-            in ("true", "1", "yes")
-        )
-    )
-    owl_backend: str = "owlready2"
-    owl_ontology_path: str | None = None
-    owl_promotion_importance_threshold: float = 0.1
-    owl_promotion_recency_days: int = 7
-    # Self-bootstrapping ontology (CONCEPT:AU-KG.ingest.engineering-rules) — derive the ontology from the
-    # graph's own records instead of the fixed ontology.ttl. Off by default; when on
-    # and no explicit owl_ontology_path is set, the OWL phase reasons over a schema
-    # inferred from sampled nodes (plateau-stopped).
-    enable_ontology_bootstrap: bool = Field(
-        default_factory=lambda: (
-            __import__("os").getenv("ENABLE_KG_ONTOLOGY_BOOTSTRAP", "false").lower()
-            in ("true", "1", "yes")
-        )
-    )
-    ontology_bootstrap_plateau_patience: int = 5
-    ontology_bootstrap_sample_limit: int = 2000
     # External Graph Endpoints settings
     enable_external_graphs: bool = Field(
         default_factory=lambda: (

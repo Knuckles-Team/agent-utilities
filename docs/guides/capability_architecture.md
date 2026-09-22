@@ -277,25 +277,24 @@ subsumption path) attached to every candidate.
 
 | Component | File |
 |-----------|------|
-| Dependency-free `rdfs:subClassOf` reader (no rdflib — safe on every install) | `knowledge_graph/ontology/capability_hierarchy.py` |
+| Digest-bound `rdfs:subClassOf` projection from committed EG GraphSchema | `knowledge_graph/retrieval/capability_projection.py` |
 | Versioned capability descriptor (typed I/O, side effects, cost/latency/locality, policy/approval class, calibrated reliability) | `knowledge_graph/retrieval/capability_descriptor.py` |
 | Subsumption-aware `CapabilityIndex` filtering + shared `compute_eligibility()` | `knowledge_graph/retrieval/capability_index.py` |
 | Subsumption-aware engine push-down/post-filter | `knowledge_graph/retrieval/engine_capability_search.py` |
 | Top-level routing entry point (`route_capability_request`, `explain_routing_eligibility`) | `graph/routing/enrichers/capability_routing.py` |
 
-Every lower-level primitive (`CapabilityIndex`, `engine_filtered_search`) keeps
-subsumption **opt-in** (`capability_hierarchy=None` by default) for exact
-backward compatibility; `route_capability_request` — the X-4 entry point — has
-it **on by default** via the bundled ontology's singleton
-(`ontology/capability_hierarchy.get_default_hierarchy()`).
+Every routing request that needs subsumption obtains one request-scoped
+projection from EG `OwlReason`: `direct_subclasses` preserves explanation
+paths, `subclasses` supplies the closure, and `schema_digests` pins both to the
+committed composed schema. Missing or inconsistent receipts fail closed; AU has
+no bundled-TTL or process-cache fallback.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `ontology.ttl` | Added 31 universal relationship properties (CONCEPT:AU-KG.research.research-pipeline-runner), `owl:imports` for capability ontology |
-| `ontology_capability.ttl` | **[NEW]** Capability classes, VPN taxonomy, domain/standard classes |
-| `ontology_enterprise.ttl` | Replaced `ARISProcess` → `ProcessModel`, `LeanIXFactSheet` → `EAFactSheet` |
+| EG core GraphSchema catalog | Owns the root, capability, enterprise, and ArchiMate ontology sources and their immutable digests |
+| `capability_projection.py` | Projects the committed capability hierarchy for one routing request |
 | `ontology_infrastructure.ttl` | Generalized vendor-specific comments |
 | `ontology_company_infra.ttl` | Generalized `dnsRewrite` comment |
 | `hydration.py` | Added `CAPABILITY_REGISTRY`, refactored `hydrate_source()` |

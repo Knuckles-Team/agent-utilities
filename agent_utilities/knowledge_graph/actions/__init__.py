@@ -29,13 +29,12 @@ Governance integration (reuses the existing fabric — nothing reinvented):
   - **Persistence**: invocations become KG ``action_invocation`` nodes with
     ``INVOKED_BY`` → actor and ``ACTS_ON`` → target edges (engine probed lazily;
     skipped cleanly offline).
-  - **OWL / SHACL**: ``OntologyAction`` / ``ActionInvocation`` are registered for
-    OWL promotion (``owl_bridge.PROMOTABLE_NODE_TYPES``) and an
-    ``OntologyActionShape`` in ``shapes/governance.shapes.ttl`` quarantines
-    invalid action defs. The ``ontology_action.ttl`` module defines the
+  - **OWL / SHACL**: EG's committed GraphSchema classifies
+    ``OntologyAction`` / ``ActionInvocation`` and validates action definitions.
+    The ontology defines the
     ``mayBeInvokedBy`` property chain ``( :requiresCapability :providedBy )`` so
     an Agent that ``providesCapability`` an action's required capability is
-    *reasoned* to be eligible to invoke it — the OWL-substrate dividend.
+    *reasoned* to be eligible to invoke it.
 
 A module-level :data:`DEFAULT_REGISTRY` is populated at import with real
 built-in actions (``kg.search``, ``finance.forensic_screen``). Executors are

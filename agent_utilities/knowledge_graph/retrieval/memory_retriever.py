@@ -12,13 +12,12 @@ Architecture:
       linked to the previous via ``SUPERSEDES``.
     - **CURRENT pointer**: A ``CURRENT_SELF_MODEL`` edge enables O(1)
       lookup of the latest version.
-    - **OWL integration**: Self-model triples are promoted into the
-      OWL ontology for reasoner-driven metacognition (e.g., "What
-      domains am I improving in?").
+    - **Native graph facts**: Self-model capabilities and failure observations
+      are persisted through the graph engine's typed write surface.
 
 Integrates with:
     - CONCEPT:AU-KG.query.object-graph-mapper (OGM): Declarative KG persistence
-    - Existing OWL bridge: ``promote_to_owl()`` / ``reason_about_self()``
+    - Native graph writes: ``write_self_model_facts()``
     - ``GraphState``: Session outcome aggregation
 
 See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.memory.persistent-self-model-owl
@@ -28,7 +27,7 @@ See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.memory.persistent-self-model
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...models.knowledge_graph import (
     MemoryRetrieverNode,
@@ -39,7 +38,6 @@ from ..core.ogm import KGMapper
 if TYPE_CHECKING:
     from ...graph.state import GraphState
     from ..core.engine import IntelligenceGraphEngine
-    from ..knowledge_graph.owl_bridge import OWLBridge
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ SELF_MODEL_ANCHOR = "self:agent-model"
 
 
 class MemoryRetriever:
-    """Versioned metacognitive self-model with OWL reasoning.
+    """Versioned metacognitive self-model persisted in the native graph.
 
     CONCEPT:AU-KG.memory.persistent-self-model-owl — Persistent Self-Model
 
@@ -533,10 +531,10 @@ class MemoryRetriever:
 
         return "\n".join(lines)
 
-    # ── OWL Integration ───────────────────────────────────────────────
+    # ── Self-model graph facts ────────────────────────────────────────
 
-    def promote_to_owl(self, owl_bridge: OWLBridge) -> int:
-        """Push self-model triples into the OWL ontology.
+    def write_self_model_facts(self) -> int:
+        """Persist the self-model's capability and failure observations.
 
         Creates triples for:
             - ``MemoryRetriever rdf:type Agent``
@@ -544,22 +542,20 @@ class MemoryRetriever:
             - ``Capability_X confidenceScore 0.85``
             - ``MemoryRetriever knownWeakness FailurePattern_Y``
 
-        This enables the OWL reasoner to infer routing decisions like
-        "I am competent at GitLab tasks" or "I should delegate medical tasks."
-
-        Args:
-            owl_bridge: The ``OWLBridge`` instance to push triples into.
-
         Returns:
-            Number of triples promoted.
+            Number of graph facts materialized.
         """
         current = self.get_current()
         if not current:
             return 0
 
-        promoted = 0
+        promoted = self._write_capability_facts(current)
+        promoted += self._write_failure_facts(current)
+        logger.info("Wrote %d self-model facts to the graph", promoted)
+        return promoted
 
-        # Promote domain capabilities as graph nodes for OWL
+    def _write_capability_facts(self, current: Any) -> int:
+        written = 0
         for domain, rate in current.domain_success_rates.items():
             cap_id = f"cap:{domain}"
             self.engine.graph.add_node(
@@ -575,9 +571,11 @@ class MemoryRetriever:
                 "provides_capability",
                 {"confidence_score": rate},
             )
-            promoted += 1
+            written += 1
+        return written
 
-        # Promote failure patterns as observations
+    def _write_failure_facts(self, current: Any) -> int:
+        written = 0
         for i, pattern in enumerate(current.known_failure_patterns[:10]):
             obs_id = f"fail_pattern:{i}"
             self.engine.graph.add_node(
@@ -593,7 +591,5 @@ class MemoryRetriever:
                 "observes",
                 {"is_weakness": True},
             )
-            promoted += 1
-
-        logger.info("Promoted %d self-model triples to OWL-ready graph", promoted)
-        return promoted
+            written += 1
+        return written

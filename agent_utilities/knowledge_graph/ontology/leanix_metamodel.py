@@ -6,22 +6,13 @@ architecture is mirrored **natively** in the knowledge graph — not flattened t
 hand-written stub. The compiler is pure (no network, no live graph); a LeanIX
 client is the caller's concern (see :func:`ea_clients.get_leanix_client`).
 
-Two reasoning layers consume the output, and ``apply_leanix_metamodel`` feeds
-both:
-
-* **DL reasoners** (``pipeline/phases/owl_reasoning.py`` and
-  ``maintenance/owl_closure.py``) reason over the static TTL files via
-  rdflib/owlready2. ``knowledge_graph/ontology.ttl`` already
-  ``owl:imports <…/kg/leanix>`` → ``ontology_leanix.ttl``, so we **regenerate**
-  that file from the live metamodel (replacing the 4-class stub).
-* **owl_bridge structural layer** reasons over the LPG gated by
-  ``PROMOTABLE_NODE_TYPES`` — so we register the generated types via
-  :func:`owl_bridge.register_promotable_node_types`.
+GraphSchema composition captures the generated LeanIX source in its owning
+component pack, then EG reasons over the committed graph snapshot.
 
 Fact sheet types map to ArchiMate classes where a crosswalk exists (e.g.
 ``Application`` → ``:ApplicationComponent``); unmapped custom types get a bare
 ``owl:Class`` with no ``rdfs:subClassOf`` (mirroring the domain-free precedent in
-``ontology_archimate.ttl``).
+EG's immutable ArchiMate source).
 """
 
 from __future__ import annotations
@@ -310,8 +301,6 @@ def apply_leanix_metamodel(
     generated class labels as promotable node types (owl_bridge structural
     layer). Returns a manifest; in ``dry_run`` mode nothing is written.
     """
-    from ..core.owl_bridge import register_promotable_node_types
-
     path = Path(ttl_path) if ttl_path else default_ttl_path()
     ttl = export_leanix_ttl(spec)
     manifest: dict[str, Any] = {
@@ -326,9 +315,10 @@ def apply_leanix_metamodel(
         manifest["ttl_preview"] = ttl
         return manifest
 
-    register_promotable_node_types(c.local for c in spec.classes)
-    path.write_text(ttl, encoding="utf-8")
-    return manifest
+    raise RuntimeError(
+        "AU no longer writes ontology files; publish the LeanIX ontology through "
+        "its SDK ConnectorContent pack and attach it with EG GraphSchema"
+    )
 
 
 def sync_leanix_ontology(

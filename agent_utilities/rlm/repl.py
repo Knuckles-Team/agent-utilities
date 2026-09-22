@@ -318,8 +318,7 @@ class RLMEnvironment:
     ) -> list[dict[str, Any]]:
         """Run a Cypher query against a specific ephemeral graph namespace."""
         try:
-            # A graph-scoped view shares the process transport; OWLBridge has
-            # already hydrated this namespace.
+            # A graph-scoped view shares the process transport and EG authority.
             ephemeral_engine = GraphComputeEngine.get_or_create(namespace)
             if hasattr(ephemeral_engine._client, "cypher"):
                 result = ephemeral_engine._client.cypher.query(cypher, params or {})
@@ -331,7 +330,7 @@ class RLMEnvironment:
             return [{"error": f"Ephemeral graph query failed: {e}"}]
 
     async def owl_query(self, sparql: str) -> list[dict[str, Any]]:
-        """Execute a SPARQL query against the OWL reasoner backend.
+        """Execute a SPARQL query against the native graph authority.
 
         Enables the RLM to leverage transitive reasoning chains
         (e.g., ``wasDerivedFrom``, ``escalatedTo``, SKOS hierarchies)
@@ -350,14 +349,13 @@ class RLMEnvironment:
         if not engine:
             return [{"error": "Knowledge engine not initialized"}]
 
-        # Delegate to OWL bridge if available
-        if hasattr(engine, "owl_bridge") and engine.owl_bridge:
-            try:
-                return engine.owl_bridge.query_sparql(sparql)
-            except Exception as e:
-                return [{"error": f"SPARQL query failed: {e}"}]
-
-        return [{"error": "OWL bridge not configured"}]
+        compute = getattr(engine, "graph_compute", None)
+        if compute is None or not hasattr(compute, "sparql"):
+            return [{"error": "Native graph SPARQL is not configured"}]
+        try:
+            return compute.sparql(sparql)
+        except Exception as e:
+            return [{"error": f"SPARQL query failed: {e}"}]
 
     async def kg_bulk_export(
         self, node_type: str, limit: int = 500

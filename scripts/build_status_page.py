@@ -74,7 +74,7 @@ PILLAR_SUBTREE = {
 PILLAR_GATE = {
     "AU-AHE": "`scripts/check_concepts.py` + `scripts/check_eval_corpus.py`",
     "AU-ECO": "`scripts/check_concepts.py` + `scripts/check_skill_name_collision.py`",
-    "AU-KG": "`scripts/check_concepts.py` + `scripts/check_ontology.py`",
+    "AU-KG": "`scripts/check_concepts.py` + GraphSchema authority cutover gates",
     "AU-ORCH": "`scripts/check_concepts.py` + `scripts/check_coupling.py`",
     "AU-OS": "`scripts/check_concepts.py` + `scripts/check_genesis_manifest.py`",
     "EG-AHE": "`scripts/check_concepts.py` (marker registration) + epistemic-graph's `scripts/check_documentation_contract.py`",
@@ -92,8 +92,16 @@ HONESTY_FRAMING = (
 )
 
 VOCAB_ROWS = [
-    ("RESERVED", "", "A concept ID is allocated in the reservations ledger; no code implements it yet."),
-    ("BUILDING", "🔶", "Partially implemented; unsupported paths fail honestly rather than silently."),
+    (
+        "RESERVED",
+        "",
+        "A concept ID is allocated in the reservations ledger; no code implements it yet.",
+    ),
+    (
+        "BUILDING",
+        "🔶",
+        "Partially implemented; unsupported paths fail honestly rather than silently.",
+    ),
     ("LIVE", "✅", "Implemented and present on `main`."),
     ("ROADMAP", "🗺", "Designed, no committed date."),
     ("RETIRED", "", "Formerly live, intentionally removed."),
@@ -165,9 +173,7 @@ def render() -> str:
             f"| **{pillar}** — {PILLAR_LABEL.get(pillar, pillar)} "
             f"| {live.get(pillar, 0)} | {reserved.get(pillar, 0)} | 0 | 0 | 0 |"
         )
-    lines.append(
-        f"| **Total** | {total_live} | {total_reserved} | 0 | 0 | 0 |"
-    )
+    lines.append(f"| **Total** | {total_live} | {total_reserved} | 0 | 0 | 0 |")
     lines.append("")
     lines.append(
         "> `BUILDING`/`ROADMAP`/`RETIRED` are always 0 here: "
@@ -255,8 +261,12 @@ def render() -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--write", action="store_true", help="write docs/status.md in place")
-    group.add_argument("--check", action="store_true", help="exit non-zero if docs/status.md is stale")
+    group.add_argument(
+        "--write", action="store_true", help="write docs/status.md in place"
+    )
+    group.add_argument(
+        "--check", action="store_true", help="exit non-zero if docs/status.md is stale"
+    )
     args = parser.parse_args()
 
     rendered = render()
