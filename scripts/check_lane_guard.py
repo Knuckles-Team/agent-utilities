@@ -47,6 +47,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -55,6 +56,29 @@ sys.path.insert(0, str(REPO))
 from agent_utilities.governance import lanes  # noqa: E402
 
 LEDGER_VIEW = "docs/concept_reservations.yaml"
+
+
+def _is_agent_utilities_tree(tree: Path) -> bool:
+    """Recognize AU by package metadata and its actual allocator module.
+
+    Other projects can legitimately use the same canonical documentation path;
+    the generated-view check belongs only to the agent-utilities package.
+    """
+    pyproject = tree / "pyproject.toml"
+    allocator = tree / "agent_utilities" / "governance" / "concept_allocator.py"
+    if not pyproject.is_file() or not allocator.is_file():
+        return False
+    try:
+        with pyproject.open("rb") as stream:
+            project = tomllib.load(stream).get("project")
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return isinstance(project, dict) and project.get("name") == "agent-utilities"
+
+
+def _should_check_generated_view(tree: Path, staged: list[str]) -> bool:
+    """Apply ledger validation only to the AU repository's generated view."""
+    return LEDGER_VIEW in staged and _is_agent_utilities_tree(tree)
 
 
 def _staged_files(tree: Path) -> list[str]:
@@ -135,8 +159,8 @@ def _check_canonical(scope: lanes.LaneScope, staged: list[str]) -> str | None:
 
 
 def _check_generated_view(tree: Path, staged: list[str]) -> str | None:
-    """agent-utilities-only: a no-op everywhere else (no other repo stages this path)."""
-    if LEDGER_VIEW not in staged:
+    """Keep AU's generated ledger honest without blocking other repos' docs."""
+    if not _should_check_generated_view(tree, staged):
         return None
     from agent_utilities.governance import concept_allocator as ca
 

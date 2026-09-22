@@ -50,7 +50,12 @@ def _init_repo(root: Path) -> Path:
     _run(["git", "init", "-b", "main"], root)
     _run(["git", "config", "user.email", "test@example.invalid"], root)
     _run(["git", "config", "user.name", "Lane Test"], root)
-    (root / "agent_utilities").mkdir(exist_ok=True)
+    allocator = root / "agent_utilities" / "governance" / "concept_allocator.py"
+    allocator.parent.mkdir(parents=True, exist_ok=True)
+    allocator.write_text("# package identity for the guard test\n", encoding="utf-8")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "agent-utilities"\n', encoding="utf-8"
+    )
     (root / "docs").mkdir(exist_ok=True)
     (root / "docs" / "concepts.yaml").write_text(
         yaml.safe_dump({"concepts": []}), encoding="utf-8"
@@ -1570,6 +1575,33 @@ def test_gate_refuses_a_hand_edited_generated_ledger_view(canonical: Path) -> No
     )
     refusal = guard._check_generated_view(lane, ["docs/concept_reservations.yaml"])
     assert refusal is not None and "GENERATED" in refusal
+
+
+def test_gate_allows_webui_to_stage_its_canonical_reservation_ledger(
+    tmp_path: Path,
+) -> None:
+    """The AU-only generated-view rule must not claim WebUI's same-named doc."""
+    webui = _init_foreign_repo(tmp_path / "agent-webui")
+    (webui / "package.json").write_text('{"name":"agent-webui"}\n', encoding="utf-8")
+    _run(["git", "add", "package.json"], webui)
+    _run(["git", "commit", "-qm", "identify WebUI"], webui)
+    lane = _add_worktree(webui, "webui-ledger-lane")
+    ledger = lane / "docs" / "concept_reservations.yaml"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text("# WebUI's canonical reservation records\n", encoding="utf-8")
+    _run(["git", "add", "docs/concept_reservations.yaml"], lane)
+
+    env = dict(os.environ)
+    env.pop("CARGO_TARGET_DIR", None)
+    proc = subprocess.run(
+        ["python3", str(GUARD_SCRIPT)],
+        cwd=str(lane),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "lane-guard: ok" in proc.stdout
 
 
 def test_guard_refusal_names_the_remedy(canonical: Path) -> None:
