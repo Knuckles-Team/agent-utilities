@@ -43,7 +43,7 @@ _FEATURES: dict[str, list[dict[str, Any]]] = {
         _number("passes"),
         _number("requested"),
     ],
-    "au.ingestion.lane": [_number("depth"), _number("oldest_age_s"), _number("owner")],
+    "au.ingestion.lane": [_number("classifier"), _number("llm_passes")],
     "au.enrichment.schedule": [_number("declared_cost"), _number("expected_yield")],
     "au.entity.same_as": [_number("similarity"), _number("wikidata_match")],
     "au.schema.mapping": [_text("label", "label", "column")],
