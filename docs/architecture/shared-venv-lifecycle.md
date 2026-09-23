@@ -299,16 +299,15 @@ sibling path and any sibling/canonical mutation fail closed.  Existing
 environment activity and dependency-sync locks remain held for the full
 resolution, so a relock cannot race another lane.
 
-```mermaid
-flowchart LR
-    A[external worktree: lock] --> B{own tracked uv.lock?}
-    B -- no --> X["refuse; lock --check only"]
-    B -- yes --> C{canonical checkout?}
-    C -- yes --> X
-    C -- no --> D[materialize exact sibling links]
-    D --> E[snapshot canonical + sibling locks]
-    E --> F[uv lock in target worktree]
-    F --> G{only target uv.lock changed?}
-    G -- no --> X
-    G -- yes --> H[return resolved lock]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Refuse unless the blast radius is provably one file</p>
+
+An external worktree's `lock` request is refused (falling back to
+`lock --check` only) unless it owns a tracked `uv.lock`, and refused again
+if that worktree turns out to be the canonical checkout. Only a genuine,
+non-canonical worktree with its own tracked lock proceeds: it materializes
+exact sibling links, snapshots the canonical and sibling locks, then runs
+`uv lock` inside the target worktree. The result is checked one more time —
+only if the target's `uv.lock` is the ONLY file that changed does the
+resolved lock get returned; any wider change is refused.
+</div>

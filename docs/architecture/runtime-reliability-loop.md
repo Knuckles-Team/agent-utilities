@@ -43,43 +43,29 @@ This loop is the wire.
 
 ## 2. The loop
 
-```mermaid
-flowchart LR
-    subgraph detect["DETECT — 4 existing hot-path sites"]
-        A["engine_breaker<br/>slow engine call ≥1s"]
-        B["router supervisor<br/>listener restart"]
-        C["contextual_model<br/>retrieval degraded"]
-        D["agent_runner<br/>delegation over budget"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Detect, aggregate, classify, feed the Gap flywheel</p>
 
-    A -->|engine_latency| E
-    B -->|listener_restart| E
-    C -->|retrieval_degraded| E
-    D -->|delegation_over_budget| E
-
-    E["record_runtime_signal()<br/>bounded in-process ring buffer<br/>(O(1), no engine I/O, swallows all)"]
-
-    E -.->|background tick, every 3 min| F["drain + persist<br/>:RuntimeSignal nodes"]
-    F --> G["aggregate by (kind, subject)<br/>over a 15-min window"]
-    G --> H{"count ≥<br/>threshold?"}
-    H -->|no| Z["(wait — pattern still building)"]
-    H -->|yes| I{"recognized<br/>class?"}
-
-    I -->|"unrecognized<br/>(delegation_over_budget, …)"| J["OPEN flywheel :Gap<br/>source=runtime"]
-    I -->|"engine_latency /<br/>retrieval_degraded"| K["OPEN recommendation :Gap<br/>(config/perf — no mutation)"]
-    I -->|"listener_restart<br/>(already auto-healed)"| L["RECORD resolved heal<br/>(closed-loop annotation)"]
-
-    J --> R
-    K --> R
-    L --> R
-    R["attach CODE REFERENCES<br/>resolve :Code (file:line) +<br/>(:Code)-[:EVIDENCES]->(:Gap)"]
-    R --> M["canonical Gap flywheel · gaps.py<br/>open → specified → resolved<br/>→ spec → implement via agent graph"]
-
-    classDef safe fill:#1b5e20,stroke:#2e7d32,color:#fff;
-    classDef gap fill:#0d47a1,stroke:#1565c0,color:#fff;
-    class E,F safe;
-    class J,K,L,R,M gap;
-```
+Four existing hot-path sites detect distinct signals — `engine_breaker`
+(slow engine call ≥1s → `engine_latency`), the router supervisor (listener
+restart → `listener_restart`), `contextual_model` (retrieval degraded →
+`retrieval_degraded`), `agent_runner` (delegation over budget →
+`delegation_over_budget`) — all calling the same
+`record_runtime_signal()`: a bounded in-process ring buffer, O(1), no
+engine I/O, swallows all errors. A background tick every 3 minutes drains
+and persists these as `:RuntimeSignal` nodes, aggregated by (kind, subject)
+over a 15-minute window. Below a count threshold, the pattern is still
+building and nothing happens. At or above threshold, the signal's class
+decides the outcome: an unrecognized class (e.g. `delegation_over_budget`)
+opens a flywheel `:Gap` (source=runtime); `engine_latency`/
+`retrieval_degraded` open a recommendation `:Gap` (config/perf, no
+mutation); `listener_restart` (already auto-healed) instead records a
+resolved heal as a closed-loop annotation. Every one of these three
+outcomes attaches code references (`:Code` resolved to file:line, linked
+`EVIDENCES` to the `:Gap`) and feeds the canonical Gap flywheel
+(`gaps.py`: open → specified → resolved → spec → implement via the agent
+graph).
+</div>
 
 ### The one invariant: emit is zero-risk to the hot path
 

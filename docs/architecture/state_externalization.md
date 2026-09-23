@@ -121,20 +121,17 @@ authorities once: goal rehydration, session/control-store SQL aggregates, and
 the dispatch-worker registry. It keeps no health cache and never replaces a
 failed read with an empty mapping or zero count.
 
-```mermaid
-flowchart LR
-    REST[REST fleet health/topology] --> C["FleetHealthEvidence<br/>fleet.health.v1"]
-    MCP[MCP graph_sessions health/topology] --> C
-    C --> G[goal rehydration authority]
-    C --> S[session/control-store SQL]
-    C --> W[dispatch-worker registry]
-    G --> E[typed status + freshness + bounded diagnostics]
-    S --> E
-    W --> E
-    E --> R[readiness]
-    E --> A[autoscaling gate]
-    E --> K[convergence gate]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two surfaces, one evidence contract, three gates</p>
+
+Both REST (fleet health/topology) and MCP (`graph_sessions`
+health/topology) feed one `FleetHealthEvidence` (`fleet.health.v1`), which
+checks three authoritative dependencies: goal rehydration authority, the
+session/control-store SQL, and the dispatch-worker registry. Each
+dependency contributes to one typed status + freshness + bounded
+diagnostics record, which then gates three downstream decisions: readiness,
+the autoscaling gate, and the convergence gate.
+</div>
 
 `healthy` is the only state that permits readiness, autoscaling, or desired
 state convergence. `partial` means some authoritative reads succeeded while

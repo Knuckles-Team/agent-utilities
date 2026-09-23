@@ -50,27 +50,26 @@ un-landed and still invisible to both lanes.
 
 ## The shape
 
-```mermaid
-flowchart TD
-    subgraph lane["Each lane (its own worktree, its own branch)"]
-        W[work + commit] --> P[pre-commit green] --> E["agent-utilities merge-queue enqueue"]
-    end
-    E -->|"one APPEND-ONLY fragment per lane<br/>in the shared --git-common-dir"| Q[(merge queue)]
-    Q --> R{"runner holds the<br/>reconciliation-merge LEASE"}
-    R -->|lease busy| D[exit 75 — defer]
-    R --> B["build a rolling trial commit<br/>merge-tree --write-tree → commit-tree<br/>(objects only, no working tree)"]
-    B -->|conflicts| RJ1["reject that ONE candidate<br/>batch continues"]
-    B --> M["materialize the merged commit<br/>in a throwaway detached worktree"]
-    M --> G["FAST GATE<br/>duplicate scan · contract checks · import smoke · targeted tests"]
-    G -->|fail, batch| BI["bisect the batch"]
-    BI --> B
-    G -->|fail, single| RJ2["reject with the failing checks"]
-    G -->|pass| L["git merge --ff-only into main<br/>guarded_tree_mutation"]
-    L --> PR["prune worktree + branch<br/>repository-manager prune_guard"]
-    L --> S["SLOW TIER, off the queue:<br/>full suite + guardrail gates on main"]
-    S --> PROM{"explicit promotion"}
-    PROM --> DEP["fast-forward refs/heads/deployed<br/>+ rollout restart"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Trial commit, fast gate, ff-only merge, then a slow tier off the queue</p>
+
+Each lane (its own worktree, its own branch) does work, commits, passes
+pre-commit, then enqueues into the merge queue as one append-only fragment
+per lane in the shared `--git-common-dir`. A runner holding the
+reconciliation-merge lease processes the queue (a busy lease exits 75 to
+defer); it builds a rolling trial commit (`merge-tree --write-tree` →
+`commit-tree`, objects only, no working tree) — a conflict rejects just
+that one candidate while the batch continues. A clean trial commit is
+materialized into a throwaway detached worktree and run through the FAST
+GATE (duplicate scan, contract checks, import smoke, targeted tests): a
+batch failure bisects the batch and rebuilds the trial commit; a
+single-candidate failure rejects it with the failing checks. A passing
+gate merges fast-forward-only into main (`guarded_tree_mutation`), which
+prunes the worktree and branch (`repository-manager`'s `prune_guard`) and
+triggers the SLOW TIER off the queue — the full suite plus guardrail gates
+on main — whose explicit promotion fast-forwards `refs/heads/deployed` and
+restarts the rollout.
+</div>
 
 Nothing here is a new arbitration mechanism. Serialization is the **existing**
 `reconciliation-merge` LEASE; the queue is an **existing** APPEND-ONLY

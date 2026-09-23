@@ -23,31 +23,27 @@ wires close it:
 
 ## Flow
 
-```mermaid
-flowchart TD
-    G[goal / Codex intent] --> O["graph_orchestrate<br/>KG capability resolution"]
-    O --> PICK{"best ingested target"}
-    PICK --> SKILL["AGENT_SKILL / explicit agent"]
-    PICK --> WF["WorkflowDefinition"]
-    WF --> GATE["workflow_gate (AU-ORCH.execution.ontology-validation-execution-path)<br/>SHACL + ACL"]
-    GATE --> WR["WorkflowRunner.execute_by_name<br/>(ORCH-1.95): load stored DAG"]
-    WR --> WAVE["dependency waves"]
-    WAVE --> RA["run_agent (ORCH-1.21)<br/>per step / per agent"]
-    SKILL --> RA
-    RA --> RES["_resolve_agent_from_kg<br/>Server · CallableResource · Skill→runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion)"]
-    RES --> BIND["bind real MCP toolset internally<br/>(stdio / HTTP + OIDC client credentials)"]
-    BIND --> MODE{"requested execution_mode"}
-    MODE -->|"auto"| ACTUAL{"actual execution mode"}
-    MODE -->|"pydantic_graph"| PG["pydantic_graph.run span<br/>pinned skill + exact tool catalog"]
-    ACTUAL -->|"single_server_agent"| LLM
-    ACTUAL -->|"pydantic_graph"| PG
-    ACTUAL -->|"direct_completion / service_registry / parallel_engine"| OTHER["other native executor"]
-    PG --> LLM
-    OTHER --> LLM
-    LLM["LOCAL vLLM (qwen, model_router)"]
-    LLM --> TOOL["REAL MCP tool call"]
-    TOOL --> TRACE["RunTrace.execution_mode + :ToolCall provenance<br/>(KG-2.296) + action_outcome"]
-    RA --> RID["bounded result + resolution + approval_request<br/>run_id / trace_ref (AU-ORCH.execution.rich-result-wrapper)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Goal to real tool call, every mode ending at the same LLM</p>
+
+A goal or Codex intent reaches `graph_orchestrate`'s KG capability
+resolution, which picks the best ingested target: an `AGENT_SKILL`/explicit
+agent, or a `WorkflowDefinition`. A workflow first passes `workflow_gate`
+(SHACL + ACL), then `WorkflowRunner.execute_by_name` loads its stored DAG
+and runs it as dependency waves; both a resolved skill and each wave step
+reach `run_agent` per step/per agent. `run_agent` resolves the real agent
+from the KG (`_resolve_agent_from_kg`: Server, CallableResource, or
+Skill-turned-runnable), binds its real MCP toolset internally (stdio or
+HTTP + OIDC client credentials), then picks an execution mode: `auto`
+resolves to an actual mode (`single_server_agent`, `pydantic_graph`, or one
+of `direct_completion`/`service_registry`/`parallel_engine`), while an
+explicit `pydantic_graph` request runs a pinned-skill, exact-tool-catalog
+span directly. Every mode converges on the same local vLLM
+(qwen/model_router), which makes a real MCP tool call, recorded as
+`RunTrace.execution_mode` + `:ToolCall` provenance + an action outcome.
+`run_agent` itself returns a bounded result plus resolution/approval_request
+carrying a `run_id`/`trace_ref`.
+</div>
     TRACE -.queryable.-> CODEX["Codex control plane:<br/>'what did the local LLM do?'"]
 ```
 
