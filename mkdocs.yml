@@ -38,7 +38,7 @@ nav:
       - Graph-native orchestration: guides/kg_native_orchestration.md
       - Workflow skill suite: guides/kg-skill-suite.md
       - Ecosystem capability fleet: ecosystem-capability-fleet.md
-      - Capability and action catalog: capabilities-power.md
+      - Capability and action catalog: https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md
   - Operate:
       - Deployment configurations: guides/deployment-configurations.md
       - Production operations: operations/production-cell-runbook.md

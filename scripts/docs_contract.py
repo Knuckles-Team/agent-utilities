@@ -37,8 +37,8 @@ DOCS = ROOT / "docs"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"
 CONFIG_CATALOG = DOCS / "reference" / "runtime-configuration.md"
-CAPABILITY_CATALOG = DOCS / "capabilities-power.md"
-CAPABILITY_DATA = DOCS / "capabilities-power.json"
+CAPABILITY_CATALOG = ROOT / "contract" / "capabilities-power.md"
+CAPABILITY_DATA = ROOT / "contract" / "capabilities-power.json"
 GRAPHOS_SURFACE_DOC = DOCS / "pillars" / "4_ecosystem_peripherals.md"
 SKILL_CERTIFICATION_DOC = DOCS / "release" / "skill-validation-certification.md"
 
@@ -49,7 +49,7 @@ REQUIRED_NAV = frozenset(
         "architecture/mandatory-context-compiler.md",
         "architecture/observability.md",
         "architecture/self-evolution-flywheel.md",
-        "capabilities-power.md",
+        "https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md",
         "ecosystem-capability-fleet.md",
         "guides/kg-skill-suite.md",
         "reference/documentation-catalog.md",
@@ -138,6 +138,16 @@ def _nav_paths() -> list[str]:
 
     visit(_load_mkdocs().get("nav", []))
     return paths
+
+
+def _is_external_nav_target(value: str) -> bool:
+    """A nav leaf that deliberately points off-site (D6: a rehomed generated/
+    gated artifact that stays discoverable from nav via its GitHub blob URL
+    instead of living under docs/). Such a target can never resolve to a
+    local ``docs/`` page, so it must not be counted as an unresolved nav
+    target -- but it still satisfies a ``REQUIRED_NAV`` entry naming that
+    exact URL."""
+    return value.startswith(("http://", "https://"))
 
 
 def _site_pages() -> list[Path]:
@@ -425,7 +435,9 @@ def render_document_catalog() -> str:
         f"{typed_count} typed configuration fields · {len(dynamic)} runtime-only call-site inputs.",
         "",
         "The detailed public capability/action contract is the "
-        "[generated Capability Power catalog](../capabilities-power.md). The complete "
+        "[generated Capability Power catalog]"
+        "(https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md)."
+        " The complete "
         "configuration contract is the "
         "[generated Runtime Configuration catalog](runtime-configuration.md).",
         "",
@@ -603,7 +615,9 @@ def metrics() -> dict[str, int]:
         "nav_coverage": len(pages & nav),
         "catalog_coverage": len(pages & catalog),
         "orphans": len(pages - nav - catalog),
-        "missing_nav_targets": len(nav - pages),
+        "missing_nav_targets": len(
+            [target for target in (nav - pages) if not _is_external_nav_target(target)]
+        ),
     }
 
 
@@ -626,6 +640,8 @@ def check() -> list[str]:
     pages = {_relative(path) for path in _site_pages()}
     nav = set(_nav_paths())
     for missing in sorted(nav - pages):
+        if _is_external_nav_target(missing):
+            continue
         errors.append(f"mkdocs.yml points to missing page `{missing}`")
     for missing in sorted(REQUIRED_NAV - nav):
         errors.append(f"mkdocs.yml must expose `{missing}`")

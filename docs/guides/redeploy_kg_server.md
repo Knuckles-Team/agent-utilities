@@ -84,7 +84,7 @@ uv --directory "$REPO_ROOT" run agent-utilities-doctor
 
 Then verify the action through the same authenticated MCP or REST entrypoint used by
 clients. Compare the result with the generated
-[Capability & Action Catalog](../capabilities-power.md); the tool/action pair must
+[Capability & Action Catalog](https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md); the tool/action pair must
 exist there before deployment.
 
 ## 5. Observe or roll back

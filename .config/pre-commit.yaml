@@ -753,12 +753,12 @@ repos:
     language: system
     pass_filenames: false
     # Scoped: nav/link/catalog checks target docs/, mkdocs.yml, and README.md
-    # directly; the "generated inventories" leg (capabilities-power.md/json
-    # etc.) is derived from the live agent_utilities/ surface, so source
-    # changes there are included too -- a commit touching neither docs/config
-    # nor agent_utilities/ source cannot move either side of this contract.
-    # ~18s standalone.
-    files: ^(docs/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
+    # directly; the "generated inventories" leg (capabilities-power.md/json,
+    # rehomed to contract/ by D6) is derived from the live agent_utilities/
+    # surface, so source changes there are included too -- a commit touching
+    # neither docs/config, contract/, nor agent_utilities/ source cannot move
+    # any side of this contract. ~18s standalone.
+    files: ^(docs/.*|contract/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
   - id: guardrail-tracked-privacy
     name: Guardrail — tracked public artifacts contain no host-specific data or local identities
     entry: python3 scripts/check_tracked_privacy.py

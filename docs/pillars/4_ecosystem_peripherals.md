@@ -177,7 +177,7 @@ weakens the loaded tool's verified session, scope, approval, or mutation policy.
 The source contracts are `agent_utilities/mcp/tool_specs.py`,
 `agent_utilities/mcp/tools/intent_tools.py`, and
 `agent_utilities/mcp/multiplexer.py`; the generated inventory is
-[Capability Power](../capabilities-power.md).
+[Capability Power](https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md).
 
 ### Server Endpoints
 

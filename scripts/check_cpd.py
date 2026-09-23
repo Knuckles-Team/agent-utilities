@@ -6,7 +6,7 @@ CONCEPT:AU-KG.retrieval.capability-power-descriptor (Seam 8 Phase 1 —
 
 Mirrors ``scripts/gen_docs.py --check`` / ``scripts/check_surface_parity.py``:
 regenerates the CPD set from the live tool registry + EG ledger (or its
-vendored cache) and fails if the checked-in ``docs/capabilities-power.md`` /
+vendored cache) and fails if the checked-in ``contract/capabilities-power.md`` /
 ``.json`` (and the packaged ``agent_utilities/knowledge_graph/retrieval/
 capabilities-power.json`` catalog) differ, so a CPD can never quietly rot
 relative to its sources. Also asserts two structural invariants no textual
