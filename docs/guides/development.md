@@ -79,7 +79,7 @@ After every change:
 
 ### Diagnostics
 If tests fail unexpectedly:
-- Check `AGENT_UTILITIES_TESTING=true` is set (auto-set via `pytest.ini`)
+- Check `AGENT_UTILITIES_TESTING=true` is set (auto-set via `[tool.pytest.ini_options]`)
 - Check for singleton pollution: `IntelligenceGraphEngine._ACTIVE_ENGINE` and `knowledge_graph/backends.__init__._ACTIVE_BACKEND` leak state across tests. Tests needing `None` must `monkeypatch.setattr(...)`.
 
 ## Project Structure Quick Reference

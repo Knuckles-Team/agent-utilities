@@ -26,7 +26,7 @@ deliberately does not reuse that fixture.
 The environment flag that hid it
 --------------------------------
 Writing this test surfaced a **fourth** green-signal factory beyond the three the
-program catalogued: ``pytest.ini`` sets ``AGENT_UTILITIES_TESTING=true``, which
+program catalogued: ``[tool.pytest.ini_options]`` sets ``AGENT_UTILITIES_TESTING=true``, which
 makes ``DEFAULT_VALIDATION_MODE`` true, which makes ``create_agent`` skip its
 entire ``mcp_toolsets`` block (``VALIDATION_MODE: Skipping external mcp_toolsets
 connection``). Under the default suite the governed-boundary branch is therefore

@@ -33,7 +33,7 @@ from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging.models import EventType
 from agent_utilities.messaging.router import InboundRouter
 
-# pytest is configured with ``asyncio_mode = auto`` (pytest.ini / pyproject), so ``async
+# pytest is configured with ``asyncio_mode = auto`` (pyproject.toml [tool.pytest.ini_options]), so ``async
 # def`` tests run automatically and the two synchronous log-visibility tests stay sync.
 
 

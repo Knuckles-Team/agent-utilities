@@ -297,7 +297,7 @@ jobs:
       # alone never pulled in pytest-asyncio/pytest-env/pytest-timeout (they
       # live in the `test` extra), so CI silently ran a plainer pytest than
       # the one every local invocation used (`asyncio_mode = auto` in
-      # pytest.ini requires pytest-asyncio to be installed to take effect).
+      # pyproject.toml [tool.pytest.ini_options] requires pytest-asyncio to be installed to take effect).
       - name: Sync test environment (no runtime engine)
         run: |
           uv sync --frozen --extra test --group guardrails \
@@ -305,13 +305,13 @@ jobs:
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
-      # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
+      # ---- THE test suite. pyproject.toml [tool.pytest.ini_options]'s testpaths covers the whole `tests/`
       # tree (gates, scale, unit, integration, security, retrieval, ...) in
       # ONE run, which is what previously ran as ~6 separately-invoked
       # subsets scattered across guardrails.yml/security.yml/pipeline.yml
       # (gate meta-tests, prod-profile guard, exact-local-release-contract,
       # CI-bootstrap contract, parser fuzzing, auth negative paths, tenant
-      # isolation, ...). Consolidating onto pytest.ini's own testpaths is
+      # isolation, ...). Consolidating onto pyproject.toml [tool.pytest.ini_options]'s own testpaths is
       # what makes the async-drift fix (above) apply uniformly instead of
       # needing to be replicated at N call sites.
       #
@@ -322,11 +322,11 @@ jobs:
       # binary/socket contention.
       #
       # `--dist loadfile` here (not `loadgroup`) is deliberate, and matches
-      # pytest.ini's addopts exactly -- CLI args win over addopts (pytest's
+      # pyproject.toml [tool.pytest.ini_options]'s addopts exactly -- CLI args win over addopts (pytest's
       # own precedence), so a prior version of this line that passed
-      # `--dist loadgroup` silently overrode pytest.ini's `loadfile` and made
+      # `--dist loadgroup` silently overrode pyproject.toml [tool.pytest.ini_options]'s `loadfile` and made
       # CI run under a DIFFERENT distribution than every local/pre-push run.
-      # That is precisely the class of bug pytest.ini's own comment warns
+      # That is precisely the class of bug pyproject.toml [tool.pytest.ini_options]'s own comment warns
       # about: order-dependent module state turning into flakes once tests
       # are split across workers.
       #
@@ -339,7 +339,7 @@ jobs:
       # process-wide intent-surface-resolution-cache in tests/conftest.py)
       # had NO protection under `loadgroup` -- `load`'s item-level balancing
       # is free to split a file's tests across workers and interleave them
-      # with unrelated tests, which is exactly what pytest.ini's `loadfile`
+      # with unrelated tests, which is exactly what pyproject.toml [tool.pytest.ini_options]'s `loadfile`
       # comment says must not happen. `loadfile` keeps every test in a file
       # on one worker, in collection order, for the WHOLE suite -- a strictly
       # stronger, already-proven-green guarantee (it's what every local and

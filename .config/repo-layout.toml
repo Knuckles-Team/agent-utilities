@@ -1,0 +1,49 @@
+# Repository-root directory-justification manifest, read by
+# scripts/check_root_hygiene.py.
+#
+# This is NOT a ratchet. A ratchet (a "baseline" a gate compares against
+# instead of an absolute standard) hides existing findings from view and only
+# ever grows by a gate silently re-recording whatever is currently true. This
+# file does the opposite on both counts:
+#   * it hides no finding -- every tracked root entry not listed here is a
+#     gate FAILURE, not a suppressed one;
+#   * it grows only by a deliberate human (or human-reviewed) edit that adds
+#     a one-line reason, never by a tool re-writing it to match the tree;
+#   * a listed entry that stops being tracked is ALSO a gate failure (see
+#     check_root_hygiene.py's stale-entry check) -- so unlike a baseline, this
+#     file cannot rot into fiction by silently outliving what it describes.
+#
+# Every tracked root directory, and every tracked non-dot root file, must have
+# a line here. The few dot-FILES a tool discovers only at the root (.gitignore,
+# .env.example, ...) are enumerated in scripts/check_root_hygiene.py's
+# ALLOWED_DOTFILES -- see that module's docstring for why the split. Every tool
+# input that accepts a path override lives in .config/ (or is folded into
+# pyproject.toml); the root keeps only what a tool discovers nowhere else.
+
+[dirs]
+".config" = "tool configuration with explicit paths: pre-commit (pre-commit -c), bump2version (--config-file), cccc and KISS thresholds, codespell ignore words, the OSV risk-acceptance ledger, the security-gate contract + harnesses, the vulture whitelist, uv overrides for image builds, the AGENTS.md source (AGENTS.head.md), MkDocs theme overrides (custom_dir), and this manifest"
+architecture = "owner-authored architecture component manifests consumed by the validation generator"
+agent_utilities = "the importable library package itself (kg_server.py MCP entry point, agent.py, skills/, core/, ...)"
+deploy = "k8s/Compose deployment manifests, the fleet MCP registry, action-policy defaults, and release/schedule configuration"
+docker = "Dockerfile + docker-compose stacks (graph-os, engine-shards, falkordb, jena_fuseki, kafka, egeria, ...) for the platform images"
+docs = "mkdocs documentation source"
+examples = "runnable reference material: action-policies, MCP client configs (mcp/), an ontology workflow, and a reference agent"
+scripts = "gate scripts (check_*.py) and release tooling invoked by pre-commit/CI"
+tests = "the test suite"
+".github" = "GitHub Actions workflow definitions (GitHub discovers only .github/)"
+
+[files]
+"AGENTS.md" = "generated agent-facing repo guide (agents discover it at the root)"
+"CHANGELOG.md" = "release changelog, updated by the bump2version release flow"
+"CLAUDE.md" = "Claude Code project instructions (discovered at the root)"
+"CONTRIBUTING.md" = "contributor guide (GitHub links it from the root)"
+"LICENSE" = "license text (GitHub and packaging detect it at the root)"
+"README.md" = "project readme and PyPI long description (GitHub/PyPI render the root readme)"
+"llms.txt" = "LLM-facing documentation index (llms.txt convention): agent tooling looks for it at the repository root, and docs/for-ai-agents.md links the root copy"
+"MANIFEST.in" = "sdist inclusion rules; setuptools reads MANIFEST.in only at the project root"
+"build_backend.py" = "in-tree PEP 517 build backend (pyproject backend-path); moving it trades a root file for a root directory that must also ship in the sdist"
+"pyproject.toml" = "package metadata plus tool config (pytest [tool.pytest.ini_options], ruff, mypy, ...)"
+"requirements.txt" = "pinned runtime deps: read by agent_utilities.deployment.venv_sync, onboarding_tools, the fleet provider/pydantic-ai contract gates and check_lockfile_version_mirrors at <repo>/requirements.txt, and by the shared publish action"
+"uv.lock" = "uv lockfile (uv reads it only beside pyproject.toml)"
+"genesis.yaml" = "agent-os-genesis provisioning manifest; published at a stable root URL (docs/for-ai-agents.md, docs/deploy.md and the docs/genesis.yaml symlink) that external agents fetch for the one-link deploy"
+"mkdocs.yml" = "mkdocs site config; mkdocs and the shared pages_pipeline read it only at the root, and its INHERIT/docs_dir paths are root-relative"

@@ -2,7 +2,7 @@
 
 CONCEPT:AU-GOC.harness.process-group-launcher
 
-Why this exists, concretely: pytest.ini's ``--timeout=300`` does not fire when
+Why this exists, concretely: pyproject.toml [tool.pytest.ini_options]'s ``--timeout=300`` does not fire when
 a test blocks in an anyio worker thread making a call into the live engine --
 pytest-timeout's default signal-based mechanism can only interrupt the main
 thread, and a worker thread parked in a blocking C call never sees it. The

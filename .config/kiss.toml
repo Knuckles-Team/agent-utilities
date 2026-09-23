@@ -40,7 +40,7 @@ docs_allowed            = ["./"]   # Neutralises `doc == 0`. The DEFAULT is []
 orphan_allowed          = []
 
 # [test] IS DELIBERATELY NOT CONFIGURED. `kiss test` replaces the test runner,
-# and this repo has pytest.ini testpaths, a coverage fail_under, and a pytest
+# and this repo has pyproject.toml [tool.pytest.ini_options] testpaths, a coverage fail_under, and a pytest
 # pre-commit hook. max_num_tests is itself a ratchet-shaped number. Out of scope.
 
 [python]

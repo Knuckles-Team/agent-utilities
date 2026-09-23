@@ -13,7 +13,7 @@ every fleet service to ``transport: streamable-http``, that is the entire
 deployed fleet.
 
 The pre-existing coverage for this path lives in ``tests/test_multiplexer_transports.py``,
-which ``pytest.ini``'s ``testpaths`` (``tests/unit tests/integration
+which ``[tool.pytest.ini_options]``'s ``testpaths`` (``tests/unit tests/integration
 tests/retrieval``) does not collect — it is dead coverage and caught none of
 this. These live in ``tests/unit`` on purpose.
 """

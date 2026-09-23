@@ -352,7 +352,7 @@ class TestDebateConsensus:
 class TestLMStudioIntegration:
     """Integration tests requiring a live LM Studio instance.
 
-    ``@pytest.mark.live`` (pytest.ini's "Tests requiring live external
+    ``@pytest.mark.live`` (pyproject.toml [tool.pytest.ini_options]'s "Tests requiring live external
     services") is the actual exclusion mechanism — the default
     ``-m "not live"`` addopts skips this class outright. The class docstring's
     "skipped unless the integration marker is specified" was never true on its

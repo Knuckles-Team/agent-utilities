@@ -17,7 +17,7 @@ string equality. Two consequences, both deliberate:
   so an attestation signed under 2.1.0 stays admissible under 2.1.1 and 2.9.9 and
   is rejected only by the major boundary it already declared.
 
-Before this contract was derived, ``.bumpversion.cfg`` rewrote the literal band on
+Before this contract was derived, the bumpversion config rewrote the literal band on
 every bump and the gate compared it for exact equality: a routine patch release
 invalidated the entire signed connector fleet. Nothing may reintroduce that
 coupling — ``scripts/check_version_consistency.py`` fails closed if any

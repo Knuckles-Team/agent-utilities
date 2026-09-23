@@ -31,7 +31,7 @@ from agent_utilities.core.model_circuit_breaker import get_circuit_breaker
 def _hair_trigger_breaker(monkeypatch):
     """Opt this module back into the production fail_threshold=1.
 
-    pytest.ini raises the test-wide floor to 4 so incidental CPU contention
+    pyproject.toml [tool.pytest.ini_options] raises the test-wide floor to 4 so incidental CPU contention
     under `-n auto` cannot trip the process-wide breaker and fail unrelated
     tests. The tests HERE assert tripping behaviour itself, so they need the
     real production hair-trigger. `_tunables()` reads the env at breaker

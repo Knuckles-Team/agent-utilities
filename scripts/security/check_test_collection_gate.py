@@ -14,11 +14,11 @@ hook nor a push-triggered workflow is wired into the merge queue's fast tier
 the check actually gates every merge, not just a developer's local commit.
 
 **What this catches.** A ``test_*.py`` file under ``tests/`` that neither
-``pytest.ini``'s ``testpaths`` covers nor an explicit ``pytest ...`` in
+``[tool.pytest.ini_options]``'s ``testpaths`` covers nor an explicit ``pytest ...`` in
 ``.config/pre-commit.yaml`` / ``.github/workflows/*.yml`` points at — i.e. a
 test nothing ever runs, so "the suite passes" says nothing about it (the
 defect this gate exists to keep from reopening). As of the D-RG2-1/D-WS-3
-audit (``reports/test-collection-audit.md``), ``pytest.ini``'s ``testpaths``
+audit (``reports/test-collection-audit.md``), ``[tool.pytest.ini_options]``'s ``testpaths``
 is the single recursive ``tests`` entry, so every ``test_*.py`` anywhere
 under ``tests/`` is collected by construction and the ratchet baseline
 (``scripts/wire_first_baseline.json``'s ``orphaned_test_files``) is empty —

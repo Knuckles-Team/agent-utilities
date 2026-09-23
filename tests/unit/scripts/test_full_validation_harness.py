@@ -228,7 +228,7 @@ def test_has_harness_modules_detects_the_three_sibling_files() -> None:
 
 def test_plain_import_succeeds_when_repo_root_is_already_on_sys_path() -> None:
     """The production topology (fleet NFS-mounts /au with PYTHONPATH=/au, per
-    AGENTS.md) and this test's own pytest.ini ``pythonpath = .`` both put the
+    AGENTS.md) and this test's own pyproject.toml [tool.pytest.ini_options] ``pythonpath = .`` both put the
     repo root on sys.path before the driver ever runs — the plain-import
     branch must succeed in that case without needing --modules-dir at all.
     """
@@ -257,7 +257,7 @@ def _evict_scripts_package_from_import_machinery(
     both have to be neutralized or the plain-import branch spuriously
     succeeds and the fallback path is never actually exercised:
 
-    1. The repo root on ``sys.path`` (via pytest.ini's ``pythonpath = .``, or
+    1. The repo root on ``sys.path`` (via pyproject.toml [tool.pytest.ini_options]'s ``pythonpath = .``, or
        an inherited PYTHONPATH) — a normal ``PathFinder`` lookup.
     2. This venv's ``pip install -e .`` for ``agent_utilities`` registers a
        ``_EditableFinder`` class directly on ``sys.meta_path``

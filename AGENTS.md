@@ -184,7 +184,7 @@ architecture, configuration, deployment, operations, and generated references.
 `docs/status.md` is the release-aware capability registry, and `llms.txt` is the
 machine-oriented documentation index.
 
-This file is the contributor and automation contract. Edit `AGENTS.head.md`,
+This file is the contributor and automation contract. Edit `.config/AGENTS.head.md`,
 then run `python3 scripts/gen_agents_md.py`; do not edit the generated
 `AGENTS.md` directly. Keep examples synthetic and repository-relative. Do not
 publish planning notes, checkout details, task chronology, or machine-specific

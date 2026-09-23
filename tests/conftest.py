@@ -1133,7 +1133,7 @@ def isolate_graph_compute_engine(monkeypatch):
 #        Failed: Timeout (>3.0s) from pytest-timeout." naming ``_session_engine``
 #   ... the same target at --timeout=300 runs normally.
 #
-# The repo's own ``pytest.ini`` declares ``--timeout=300``; the pre-push
+# The repo's own ``[tool.pytest.ini_options]`` declares ``--timeout=300``; the pre-push
 # ``pytest`` hook narrows it to ``--timeout=60`` on the command line, which wins.
 # That narrowing is legitimate for a TEST (no unit test should take a minute) and
 # wrong for a shared one-time bring-up that hashes a 227 MB engine binary and
@@ -1148,7 +1148,7 @@ def isolate_graph_compute_engine(monkeypatch):
 # before.
 _BROAD_FIXTURE_SCOPES = frozenset({"session", "package", "module"})
 
-#: Floor for a broad-scope fixture's own budget: ``pytest.ini``'s declared
+#: Floor for a broad-scope fixture's own budget: ``[tool.pytest.ini_options]``'s declared
 #: ``--timeout``. A caller that asks for MORE than this (a slow-marked run, a
 #: deliberate ``--timeout=900``) keeps its larger value -- the floor only stops a
 #: narrowed PER-TEST budget from silently narrowing shared setup too.

@@ -17,7 +17,7 @@
 | Feedback→eval regression corpus | `agent_utilities/harness/eval_corpus.py` | `scripts/check_eval_corpus.py` (pre-commit `guardrail-eval-corpus`, FLOOR=0.90 pass-rate) |
 | Retrieval Recall@k / MRR | `agent_utilities/knowledge_graph/retrieval/capability_index.py` | `scripts/check_retrieval_quality.py` (pre-commit `guardrail-retrieval-quality`, FLOOR=0.90) |
 | Multi-agent supervisory chaos (pause/domain-contain/goal-loop) | `tests/integration/test_fleet_chaos.py` | `pytest -m integration` |
-| Single-node fault injection (worker/lease/DLQ/tenant/restart/rolling-upgrade/connector/fencing-churn) | `tests/scale/soak/*.py` | run explicitly (not in `pytest.ini` `testpaths`, same convention as the rest of `tests/scale/`) |
+| Single-node fault injection (worker/lease/DLQ/tenant/restart/rolling-upgrade/connector/fencing-churn) | `tests/scale/soak/*.py` | run explicitly (not in `[tool.pytest.ini_options]` `testpaths`, same convention as the rest of `tests/scale/`) |
 | Production certification (multi-node/multi-broker) | `tests/scale/soak/test_production_certification.py` | explicit `live`, `slow`, and `certification` selection; signed evidence; no skip/mock path |
 
 ## 2. What was RUN — real pass/fail, this box, this session

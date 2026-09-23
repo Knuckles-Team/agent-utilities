@@ -65,7 +65,7 @@ by import, never "invoked". Four extra sweeps close that gap, each
 independently runnable and combined by ``--wire-first-report``:
 
 * ``--check-test-collection`` — test files under ``tests/`` that
-  ``pytest.ini``'s ``testpaths`` does not collect AND no pre-commit hook /
+  pyproject.toml's ``[tool.pytest.ini_options] testpaths`` does not collect AND no pre-commit hook /
   CI workflow explicitly points ``pytest`` at (parsed out of
   ``.config/pre-commit.yaml`` / ``.github/workflows/*.yml`` by regex, so
   this can't silently drift from what those files actually run). Enforced
@@ -140,6 +140,7 @@ import sys
 import tarfile
 import tempfile
 import tokenize
+import tomllib
 from collections import Counter, defaultdict, deque
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -148,7 +149,6 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
 TESTS_DIR = ROOT / "tests"
 PYPROJECT = ROOT / "pyproject.toml"
-PYTEST_INI = ROOT / "pytest.ini"
 PRECOMMIT_CONFIG = ROOT / ".config" / "pre-commit.yaml"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 
@@ -466,22 +466,19 @@ def shortest_chain(
     return None
 
 
-def _load_testpaths(*, pytest_ini: Path = PYTEST_INI) -> list[str]:
-    """Parse ``testpaths = ...`` out of ``pytest.ini`` (pytest.ini wins over
-    ``pyproject.toml`` per pytest's own ini-file precedence, so that's the
-    only file this needs to read to know what ``pytest`` actually collects
-    by default). ``pytest_ini`` is overridable (default: the real repo's)
-    so a caller testing this in isolation (``tests/gates/test_wire_first_gate.py``)
-    can point it at a synthetic ini instead of silently falling back to
-    reading THIS repo's real, live ``pytest.ini`` regardless of the fixture
-    under test."""
-    if not pytest_ini.exists():
+def _load_testpaths(*, pyproject: Path = PYPROJECT) -> list[str]:
+    """``[tool.pytest.ini_options] testpaths`` from ``pyproject.toml`` -- the
+    repository's only pytest configuration, so the only file this needs to
+    read to know what ``pytest`` actually collects by default. ``pyproject``
+    is overridable (default: the real repo's) so a caller testing this in
+    isolation (``tests/gates/test_wire_first_gate.py``) can point it at a
+    synthetic file instead of silently falling back to reading THIS repo's
+    real, live configuration regardless of the fixture under test."""
+    if not pyproject.exists():
         return []
-    for line in pytest_ini.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"\s*testpaths\s*=\s*(.+)$", line)
-        if m:
-            return m.group(1).split()
-    return []
+    document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    options = document.get("tool", {}).get("pytest", {}).get("ini_options", {})
+    return [str(path) for path in options.get("testpaths", [])]
 
 
 def _load_explicit_pytest_paths(
@@ -497,7 +494,7 @@ def _load_explicit_pytest_paths(
     hook/workflow files themselves so this can't hand-drift from what they
     actually run. ``precommit_config``/``workflows_dir`` are overridable
     (default: the real repo's) for the same isolation reason as
-    ``_load_testpaths``'s ``pytest_ini`` parameter.
+    ``_load_testpaths``'s ``pyproject`` parameter.
     """
     paths: set[str] = set()
     texts: list[str] = []
@@ -524,23 +521,21 @@ def find_orphaned_test_files(
     *,
     tests_dir: Path = TESTS_DIR,
     display_root: Path = ROOT,
-    pytest_ini: Path = PYTEST_INI,
+    pyproject: Path = PYPROJECT,
     precommit_config: Path = PRECOMMIT_CONFIG,
     workflows_dir: Path = WORKFLOWS_DIR,
 ) -> list[str]:
     """Test files under ``tests/`` collected by NEITHER ``testpaths`` NOR an
     explicit pytest invocation in pre-commit/CI (D-OB-13a). ``tests_dir``/
-    ``display_root``/``pytest_ini``/``precommit_config``/``workflows_dir``
+    ``display_root``/``pyproject``/``precommit_config``/``workflows_dir``
     are all overridable (default: the real repo) so
     ``tests/gates/test_wire_first_gate.py`` can prove this trips on a fully
     synthetic fixture, isolated from whatever this repo's OWN live
-    ``pytest.ini``/``.config/pre-commit.yaml``/``.github/workflows`` happen
+    ``pyproject.toml``/``.config/pre-commit.yaml``/``.github/workflows`` happen
     to say — "a gate that can't fail is not a gate"."""
     if not tests_dir.exists():
         return []
-    collected = set(
-        _load_testpaths(pytest_ini=pytest_ini)
-    ) | _load_explicit_pytest_paths(
+    collected = set(_load_testpaths(pyproject=pyproject)) | _load_explicit_pytest_paths(
         precommit_config=precommit_config, workflows_dir=workflows_dir
     )
     orphans = []

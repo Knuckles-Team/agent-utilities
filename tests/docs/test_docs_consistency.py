@@ -90,7 +90,7 @@ def test_agents_md_is_small_and_clean():
     content = AGENTS.read_text(encoding="utf-8")
     assert len(content.splitlines()) <= AGENTS_MAX_LINES
     assert _h2_headings(content) == AGENTS_HEADINGS
-    assert content == (ROOT / "AGENTS.head.md").read_text(encoding="utf-8")
+    assert content == (ROOT / ".config" / "AGENTS.head.md").read_text(encoding="utf-8")
 
 
 def test_check_concepts_passes():

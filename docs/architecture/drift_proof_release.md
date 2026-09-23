@@ -19,7 +19,7 @@ mechanism now prevents it and what class that mechanism reaches.
 ## 1. Attestation compatibility band — Class A
 
 `connector_source_attestation.SOURCE_COMPATIBILITY` used to be a literal that
-`.bumpversion.cfg` rewrote on every bump, compared for *exact string equality* by the
+the bumpversion config (`.config/bumpversion.cfg`) rewrote on every bump, compared for *exact string equality* by the
 admission gate. On 2026-07-28 the commit "Bump 2.1.0 → 2.1.1" rewrote the floor to
 `>=2.1.1,<3` and invalidated all 68 provider attestations — 22 minutes after the only
 key that could re-sign them was believed lost. **Every patch release did this.**
@@ -34,7 +34,7 @@ Now:
   bounded on both sides and still contains the released version. An attestation signed
   under 2.1.0 stays valid at 2.1.1 and 2.9.9, and is rejected only at the major
   boundary it already declared.
-* `.bumpversion.cfg` no longer targets the module, and
+* `.config/bumpversion.cfg` no longer targets the module, and
   `scripts/check_version_consistency.py` emits `bumpversion-attestation-coupling:<path>`
   if any bump section reaches an attestation input again (the Class-B backstop).
 

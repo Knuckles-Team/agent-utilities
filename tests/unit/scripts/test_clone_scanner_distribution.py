@@ -65,8 +65,8 @@ def test_source_distribution_carries_the_clone_scanner_surface() -> None:
     required = (
         ".config/pre-commit.yaml",
         ".config/codespell.ignore",
-        ".cccc.toml",
-        ".kiss/kiss.toml",
+        ".config/cccc.toml",
+        ".config/kiss.toml",
         ".github/workflows/release.yml",
         "scripts/_clone_scanner_config.py",
         "scripts/_git_subprocess_env.py",

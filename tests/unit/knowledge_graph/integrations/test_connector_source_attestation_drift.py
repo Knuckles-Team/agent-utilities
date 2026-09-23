@@ -1,7 +1,7 @@
 """A release bump must never invalidate an already-signed source attestation.
 
 CONCEPT:AU-KG.ontology.derived-compatibility-band. The regression these tests pin
-down is D-OB-6: ``.bumpversion.cfg`` rewrote the literal compatibility band inside
+down is D-OB-6: the bumpversion config rewrote the literal compatibility band inside
 :mod:`connector_source_attestation` on every bump while the gate compared that band
 for exact equality, so a routine patch release invalidated all 68 signed provider
 attestations at once.
@@ -208,7 +208,9 @@ def test_bumpversion_never_targets_an_attestation_input() -> None:
 
 def test_the_gate_fails_closed_if_the_coupling_is_reintroduced(tmp_path: Path) -> None:
     parser = configparser.ConfigParser()
-    parser.read_string((ROOT / ".bumpversion.cfg").read_text(encoding="utf-8"))
+    parser.read_string(
+        (ROOT / ".config" / "bumpversion.cfg").read_text(encoding="utf-8")
+    )
     section = (
         "bumpversion:file:"
         "agent_utilities/knowledge_graph/integrations/connector_source_attestation.py"
@@ -216,7 +218,10 @@ def test_the_gate_fails_closed_if_the_coupling_is_reintroduced(tmp_path: Path) -
     parser.add_section(section)
     parser.set(section, "search", '">={current_version},<3"')
     parser.set(section, "replace", '">={new_version},<3"')
-    with (tmp_path / ".bumpversion.cfg").open("w", encoding="utf-8") as handle:
+    (tmp_path / ".config").mkdir()
+    with (tmp_path / ".config" / "bumpversion.cfg").open(
+        "w", encoding="utf-8"
+    ) as handle:
         parser.write(handle)
 
     reintroduced = set(version_gate.bumpversion_targets(tmp_path))

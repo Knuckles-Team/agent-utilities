@@ -301,7 +301,7 @@ names, local paths, or certificates in source control.
 Known vulnerabilities must be remediated. A temporary acceptance is permitted
 only for one advisory/package pair, with a justification and an expiry no more
 than 90 days away. Store it in the affected repository's
-`.security-audit-allow.txt`:
+`.config/security-audit-allow.txt`:
 
 ```text
 ADVISORY-ID package expires=YYYY-MM-DD # justification of at least 12 characters

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate AGENTS.md and the separate project-structure reference.
 
-The concise contributor contract lives in ``AGENTS.head.md`` and is copied to
+The concise contributor contract lives in ``.config/AGENTS.head.md`` and is copied to
 ``AGENTS.md`` without an appended inventory. A pruned tracked-file tree is
 generated separately at ``docs/project_structure.md`` so repository growth does
 not inflate the instruction surface every agent loads.
@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HEAD_PATH = ROOT / "AGENTS.head.md"
+HEAD_PATH = ROOT / ".config" / "AGENTS.head.md"
 OUT_PATH = ROOT / "AGENTS.md"
 
 # Keep the generated inventory separate from the concise contributor contract.

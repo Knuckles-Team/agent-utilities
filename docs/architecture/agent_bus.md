@@ -149,7 +149,7 @@ shaper* (the core orchestrator) and **every spawned swarm/sub-agent** inherit, p
    progress and ask peers on that topic instead of fanning in only at synthesis.
 
 For a deeper, focused profile there is also a standalone blueprint
-`prompts/bus_coordinator.json` (+ the `mcp_config.bus.json` preset that trims graph-os to just
+`prompts/bus_coordinator.json` (+ the `examples/mcp/mcp_config.bus.json` preset that trims graph-os to just
 `graph_bus`+`graph_reach`) — used when you want a dedicated bus-first session on a small model.
 
 ```mermaid
@@ -174,7 +174,7 @@ flowchart TD
 | Native agent tools (universal) | `tools/agent_tools.py` (`bus_join`/`bus_peers`/`bus_send`/`bus_check`) + `tools/tool_registry.py` |
 | Capability awareness | `bus_capability_prompt()` (`messaging/bus.py`) injected at `agent/factory.py` |
 | Swarm coordination | shared `swarm_topic()` in `mcp/tools/analysis_tools.py` (`action=swarm`) |
-| Standalone preset | `prompts/bus_coordinator.json` + `mcp_config.bus.json` (2-tool focused surface) |
+| Standalone preset | `prompts/bus_coordinator.json` + `examples/mcp/mcp_config.bus.json` (2-tool focused surface) |
 | Federation relay | `agent_utilities/messaging/federation.py` (`BusFederationRelay`) |
 | Ontology | `:BusAgent`/`:Topic`/`:BusSubscription`/`:BusMessage`/`:BusTopicCursor` in `knowledge_graph/ontology_orchestration.ttl` |
 | Store-and-forward (ECO-4.91) | topic-log `:BusMessage{kind=topic}` + per-(agent,topic) `:BusTopicCursor`; reaper `AgentBus.prune_topic_log()` |

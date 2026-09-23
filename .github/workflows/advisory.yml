@@ -448,7 +448,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 444b232c7975e125a24b17d53ff615f5ad26a4cd
+          ref: 1d12b14a9f51c889316591c6314f4fc835660870
           path: .pipeline-theme
           persist-credentials: false
 
@@ -536,7 +536,7 @@ jobs:
   #     separately.
   #   * `live`-marked tests (13 files) -- require live external services,
   #     platform-independent exclusion (also excluded on Linux by
-  #     pytest.ini's default addopts).
+  #     pyproject.toml [tool.pytest.ini_options]'s default addopts).
   #   * `slow`/`certification`/`quarantine`-marked tests -- long-running
   #     soak/chaos/known-red, out of scope for a per-push CI job on ANY
   #     platform, not Windows-specific.

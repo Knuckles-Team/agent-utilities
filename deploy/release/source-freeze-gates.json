@@ -328,7 +328,7 @@
         "{python}",
         "scripts/security_contract.py",
         "--contract",
-        ".security/security-contract.json",
+        ".config/security/security-contract.json",
         "validate"
       ],
       "timeout_seconds": 120,
@@ -341,7 +341,7 @@
         "{python}",
         "scripts/security_contract.py",
         "--contract",
-        ".security/security-contract.json",
+        ".config/security/security-contract.json",
         "validate"
       ],
       "timeout_seconds": 120,
@@ -354,7 +354,7 @@
         "{python}",
         "scripts/security_contract.py",
         "--contract",
-        ".security/security-contract.json",
+        ".config/security/security-contract.json",
         "validate"
       ],
       "timeout_seconds": 120,
