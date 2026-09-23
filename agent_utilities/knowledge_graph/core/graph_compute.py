@@ -2760,7 +2760,7 @@ class GraphComputeEngine:
     def _ensure_local_graph_ready(
         self, transport_client: Any, *, autostart_allowed: bool
     ) -> None:
-        """Materialize the process session's one configured local graph.
+        """Materialize ``__control__`` and the process session's local graph.
 
         A packaged local engine can authoritatively route a tenant partition
         before that partition's graph has been materialized. Establish the process
@@ -2768,18 +2768,28 @@ class GraphComputeEngine:
         regardless of whether this process connected to an already running local
         engine or started a fresh one. Remote/sharded engines retain lifecycle
         authority and are never provisioned here.
+
+        EH-187: the engine's own ``open()`` creates only ``__commons__``. On a
+        packaged local engine this process is the whole cluster, so the
+        one-time genesis of the reserved ``__control__`` graph (the sole
+        WorkItem authority) is its job too. Without it the first WorkItem on a
+        fresh engine failed with "Graph '__control__' not found".
         """
-        local_graph_name = str(self.graph_name or "__commons__")
-        if not autostart_allowed or local_graph_name == "__commons__":
+        if not autostart_allowed:
             return
         from .session import current_session
+        from .shard_topology import CONTROL_GRAPH_NAME
 
+        local_graph_name = str(self.graph_name or "__commons__")
+        targets = dict.fromkeys((CONTROL_GRAPH_NAME, local_graph_name))
+        targets.pop("__commons__", None)
         session = current_session()
         if session is None:
             raise RuntimeError(
                 "local engine graph readiness requires verified process authority"
             )
-        self._ensure_local_session_graph(transport_client, local_graph_name, session)
+        for graph_name in targets:
+            self._ensure_local_session_graph(transport_client, graph_name, session)
 
     def _claim_process_engine(self) -> None:
         """Register this instance as THE process transport, or reject a duplicate."""
