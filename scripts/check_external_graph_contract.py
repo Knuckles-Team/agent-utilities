@@ -32,8 +32,10 @@ EXAMPLE_CONFIG = ROOT / "docs/examples/config.json"
 # agent-connector-sdk (RF-ADR-009: SDK owns connectors/transport) and no
 # longer live in this checkout, so this gate can no longer verify their
 # content markers directly. DOCS is kept empty rather than removed so the
-# call sites below need no further change; an equivalent marker check
-# belongs in agent-connector-sdk's own gate suite as a follow-up.
+# call sites below need no further change; the equivalent marker + literal
+# check (same 7 markers, same regex) now runs in agent-connector-sdk as
+# `scripts/check_external_graph_contract.py`, wired as the
+# `check-external-graph-contract` pre-commit hook there (EH-365).
 DOCS: tuple[Path, ...] = ()
 CI = ROOT / ".github/workflows/advisory.yml"
 
