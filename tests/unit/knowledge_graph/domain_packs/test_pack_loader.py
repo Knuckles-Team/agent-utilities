@@ -23,7 +23,6 @@ from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
 from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
     DomainPackError,
     DomainPackRegistry,
-    canonical_ontology_class_names,
     get_default_registry,
     load_pack,
     reset_default_registry,
@@ -41,10 +40,40 @@ def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
     assert "Runbook" in loaded.own_class_names
 
 
-def test_canonical_ontology_class_names_includes_document_and_person():
-    names = canonical_ontology_class_names()
-    assert "Document" in names
-    assert "Person" in names
+#: Stand-in for EG's composed-GraphSchema class vocabulary (43197d7c6 moved
+#: the canonical library into EG; AU no longer ships ontology*.ttl).
+_EG_VOCABULARY = frozenset({"Document", "Person"})
+
+
+def test_undeclared_classes_are_recorded_as_unverified_eg_refs(tmp_path):
+    """No vocabulary: canonical refs are kept visibly unverified, never assumed."""
+    pack_dir = _fixtures.write_pack(tmp_path, _fixtures.build_manifest())
+
+    loaded = load_pack(pack_dir)
+
+    assert "Document" in loaded.canonical_class_refs
+    assert "Runbook" not in loaded.canonical_class_refs  # the pack's own class
+    assert loaded.canonical_refs_verified is False
+
+
+def test_vocabulary_verifies_canonical_refs(tmp_path):
+    pack_dir = _fixtures.write_pack(tmp_path, _fixtures.build_manifest())
+
+    loaded = load_pack(pack_dir, canonical_classes=_EG_VOCABULARY)
+
+    assert loaded.canonical_refs_verified is True
+    assert loaded.canonical_class_refs <= _EG_VOCABULARY
+
+
+def test_registry_lists_packs_whose_eg_refs_are_unverified(tmp_path):
+    _fixtures.write_pack(tmp_path, _fixtures.build_manifest())
+    unverified = DomainPackRegistry(tmp_path)
+    verified = DomainPackRegistry(tmp_path, canonical_classes=_EG_VOCABULARY)
+    unverified.discover_and_install_all()
+    verified.discover_and_install_all()
+
+    assert "Document" in unverified.unverified_canonical_refs()["runbooks"]
+    assert verified.unverified_canonical_refs() == {}
 
 
 def test_missing_domain_pack_yml_is_refused(tmp_path):
@@ -93,7 +122,7 @@ def test_mapping_referencing_unknown_ontology_class_is_refused(tmp_path):
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
 
     with pytest.raises(DomainPackError, match="unknown ontology class"):
-        load_pack(pack_dir)
+        load_pack(pack_dir, canonical_classes=_EG_VOCABULARY)
 
 
 def test_table_edge_target_referencing_unknown_class_is_refused(tmp_path):
@@ -116,7 +145,7 @@ def test_table_edge_target_referencing_unknown_class_is_refused(tmp_path):
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
 
     with pytest.raises(DomainPackError, match="unknown ontology class"):
-        load_pack(pack_dir)
+        load_pack(pack_dir, canonical_classes=_EG_VOCABULARY)
 
 
 def test_evaluation_case_mismatch_is_refused(tmp_path):
