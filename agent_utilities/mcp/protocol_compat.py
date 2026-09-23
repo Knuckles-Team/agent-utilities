@@ -338,6 +338,50 @@ def _source_shadow_floor(package: str, extra: str) -> tuple[Any | None, str | No
     return None, str(manifest)
 
 
+def _fastmcp_code_problems() -> list[str]:
+    """Verify the installed ``fastmcp-slim`` is the one ``fastmcp`` pins.
+
+    CONCEPT:AU-ECO.mcp.protocol-compat-bridge — EH-221. Since FastMCP 4 the
+    ``fastmcp`` distribution is a metadata shell: the importable ``fastmcp``
+    package ships in ``fastmcp-slim``, which ``fastmcp`` pins exactly. A
+    resolver override that replaces that pin installed ``fastmcp`` 4.0.5
+    metadata over ``fastmcp-slim`` 4.0.0b2 code, and a check reading only
+    ``fastmcp``'s version reported that runtime as green. Returns ``[]`` when
+    ``fastmcp`` is absent or declares no unconditional ``fastmcp-slim`` pin.
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.version import InvalidVersion
+
+    try:
+        reqs = importlib.metadata.requires("fastmcp") or []
+    except importlib.metadata.PackageNotFoundError:
+        return []
+    pins = []
+    for raw in reqs:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue
+        if req.name.lower() == "fastmcp-slim" and req.marker is None:
+            pins.append(req)
+    if not pins:
+        return []
+    try:
+        installed = importlib.metadata.version("fastmcp-slim")
+    except importlib.metadata.PackageNotFoundError:
+        return ["fastmcp-slim is not installed"]
+    try:
+        satisfied = pins[0].specifier.contains(installed, prereleases=True)
+    except InvalidVersion:
+        return [f"fastmcp-slim reports an unparseable version {installed!r}"]
+    if satisfied:
+        return []
+    return [
+        f"fastmcp-slim {installed} does not satisfy fastmcp's own pin "
+        f"'{pins[0].specifier}' (fastmcp metadata over different fastmcp code)"
+    ]
+
+
 def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]:
     """Compare the installed `mcp`/`fastmcp` SDK against the declared `[mcp]` floor.
 
@@ -446,6 +490,8 @@ def check_mcp_sdk_floor(distribution: str = "agent-utilities") -> dict[str, Any]
                     f"mcp {installed_mcp} does not satisfy fastmcp's declared floor "
                     f"'{mcp_req.specifier}'"
                 )
+
+    problems.extend(_fastmcp_code_problems())
 
     summary = (
         f"fastmcp={installed_fastmcp} (floor {fastmcp_req.specifier}), "

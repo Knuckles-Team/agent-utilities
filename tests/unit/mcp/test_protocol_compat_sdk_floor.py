@@ -190,3 +190,56 @@ def test_startup_preflight_refuses_to_start_on_a_mismatch(monkeypatch) -> None:
 
     monkeypatch.setenv("MCP_SDK_FLOOR_ENFORCE", "warn")
     kg_server._preflight_mcp_sdk_floor()  # the documented escape hatch: logs, continues
+
+
+def test_fastmcp_metadata_over_older_slim_code_is_reported(monkeypatch) -> None:
+    """EH-221: `fastmcp` 4.0.5 metadata over `fastmcp-slim` 4.0.0b2 code (what
+    a uv override on fastmcp-slim produced) must fail, not report green."""
+    from agent_utilities.mcp import protocol_compat
+
+    real_version = importlib.metadata.version
+    real_requires = importlib.metadata.requires
+
+    def fake_version(name: str) -> str:
+        return {"fastmcp": "4.0.5", "fastmcp-slim": "4.0.0b2"}.get(
+            name, real_version(name)
+        )
+
+    def fake_requires(name: str):
+        if name == "fastmcp":
+            return ["fastmcp-slim[client,server]==4.0.5"]
+        return real_requires(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    monkeypatch.setattr(importlib.metadata, "requires", fake_requires)
+
+    assert protocol_compat._fastmcp_code_problems() == [
+        "fastmcp-slim 4.0.0b2 does not satisfy fastmcp's own pin '==4.0.5' "
+        "(fastmcp metadata over different fastmcp code)"
+    ]
+    outcome = protocol_compat.check_mcp_sdk_floor()
+    assert outcome["ok"] is False
+    assert "fastmcp-slim 4.0.0b2" in outcome["detail"]
+
+
+def test_matching_fastmcp_slim_pin_reports_no_problem(monkeypatch) -> None:
+    from agent_utilities.mcp import protocol_compat
+
+    real_version = importlib.metadata.version
+    real_requires = importlib.metadata.requires
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: "4.0.5" if name == "fastmcp-slim" else real_version(name),
+    )
+    monkeypatch.setattr(
+        importlib.metadata,
+        "requires",
+        lambda name: (
+            ["fastmcp-slim[client,server]==4.0.5"]
+            if name == "fastmcp"
+            else real_requires(name)
+        ),
+    )
+
+    assert protocol_compat._fastmcp_code_problems() == []
