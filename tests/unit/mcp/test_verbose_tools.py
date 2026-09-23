@@ -753,6 +753,59 @@ def test_autowire_is_idempotent():
     assert autowire_verbose_from_condensed(mcp) == []
 
 
+def test_autowire_large_action_enum_wires_in_well_under_a_second():
+    """A single condensed tool with a large closed action enum (the shape of an
+    EH-217 connector like atlassian-agent's ~1900/~700-action Jira/Confluence
+    surface) must derive its full verbose 1:1 surface in well under a second.
+
+    Regression for the super-linear registration path: FastMCP's
+    ``LocalProvider._check_version_mixing`` rescans every already-registered
+    component on every single ``add_tool`` call, so registering one verbose
+    tool per action with an ``add_tool`` call per action was O(n^2) in the
+    action count -- this timed out ``MCP_TOOL_MODE=both`` autowiring
+    (>60s) once real connectors closed large action enums. The fix
+    (``_bulk_add_tools`` in ``verbose_tools.py``) derives every tool first and
+    registers them in one O(n) bulk pass. 2000 actions must wire in well
+    under a second on the fast path; the old O(n^2) path took several
+    seconds at this size and would not scale to a real ~1900-action surface
+    at all.
+    """
+    import time
+    from typing import Literal
+
+    n = 2000
+    action_names = tuple(f"action_{i}" for i in range(n))
+    action_type = Literal[action_names]
+
+    mcp = FastMCP("t")
+
+    # Built without inline annotation syntax and stamped via __annotations__
+    # (matching this module's own _build_typed_tool pattern) so the huge
+    # dynamic Literal is a real type object, not a string this
+    # `from __future__ import annotations`-enabled test module would defer
+    # and fail to resolve (a local variable is never in module globals).
+    async def big_tool(action=Field(description="op"), params_json="{}") -> dict:
+        "A condensed tool with a large closed action enum."
+        return {"action": action, "params_json": params_json}
+
+    big_tool.__annotations__ = {
+        "action": action_type,
+        "params_json": str,
+        "return": dict,
+    }
+    mcp.tool(name="big_tool", tags={"big"})(big_tool)
+
+    start = time.monotonic()
+    derived = autowire_verbose_from_condensed(mcp)
+    elapsed = time.monotonic() - start
+
+    assert len(derived) == n
+    assert elapsed < 1.0, (
+        f"autowire_verbose_from_condensed took {elapsed:.3f}s for {n} actions "
+        "(expected well under 1s on the O(n) bulk-add path)"
+    )
+
+
 def test_surface_both_autowires_condensed_action_tools(monkeypatch):
     """register_tool_surface in `both` mode auto-wires verbose tools from condensed
     action-routed tools with no client_cls/verbose_targets (the atlassian case)."""

@@ -685,18 +685,26 @@ class _AutowireContext:
     arg_transform_cls: Any
 
 
-def _derive_one_verbose_action_tool(
+def _build_one_verbose_action_tool(
     ctx: _AutowireContext,
     tool: Any,
     tool_name: str,
     action: str,
     base_tags: set[str],
-) -> str | None:
+) -> Any | None:
+    """Build (but do not yet register) one derived verbose action tool.
+
+    Registration is deferred to a single bulk pass (:func:`_bulk_add_tools`)
+    over every tool this whole :func:`autowire_verbose_from_condensed` call
+    derives — see that function's docstring for why per-tool registration
+    does not scale. Returns ``None`` when the name is already taken by a real
+    condensed tool, or construction itself fails.
+    """
     verbose_name = f"{tool_name}__{action}"
     if verbose_name in ctx.source_tools:
         return None
     try:
-        verbose_tool = ctx.tool_cls.from_tool(
+        return ctx.tool_cls.from_tool(
             tool,
             name=verbose_name,
             transform_args={
@@ -704,7 +712,6 @@ def _derive_one_verbose_action_tool(
             },
             tags=base_tags | {"verbose"},
         )
-        ctx.mcp.add_tool(verbose_tool)
     except Exception as exc:  # pragma: no cover - defensive per-action
         logger.warning(
             "autowire_verbose_from_condensed: could not derive tool "
@@ -712,20 +719,70 @@ def _derive_one_verbose_action_tool(
             type(exc).__name__,
         )
         return None
-    return verbose_name
 
 
-def _derive_verbose_tools_for_tool(
+def _build_verbose_tools_for_tool(
     ctx: _AutowireContext, tool_name: str, tool: Any, actions: list[str]
-) -> list[str]:
+) -> list[Any]:
     src_tags = getattr(tool, "tags", None)
     base_tags = set(src_tags) if isinstance(src_tags, set) else set()
-    derived: list[str] = []
+    built: list[Any] = []
     for action in actions:
-        name = _derive_one_verbose_action_tool(ctx, tool, tool_name, action, base_tags)
-        if name is not None:
-            derived.append(name)
-    return derived
+        built_tool = _build_one_verbose_action_tool(
+            ctx, tool, tool_name, action, base_tags
+        )
+        if built_tool is not None:
+            built.append(built_tool)
+    return built
+
+
+def _bulk_add_tools(mcp: Any, tools: list[Any]) -> list[str]:
+    """Register many derived verbose tools in one O(n) pass instead of O(n^2).
+
+    FastMCP's ``LocalProvider.add_tool`` -> ``_add_component`` ->
+    ``_check_version_mixing`` rescans **every** already-registered component
+    (tools, resources, prompts, across the whole server) on every single
+    addition, to enforce "don't mix versioned and unversioned components
+    under one logical name". That invariant can never fire for the tools
+    this module derives: every one is an unversioned ``Tool.from_tool(...)``
+    transform of an unversioned condensed tool (nothing in this module ever
+    passes ``version=``), so no addition here can ever collide on
+    versioning. Calling the check thousands of times anyway made deriving
+    one verbose tool per action of a large closed ``Literal`` action enum
+    (EH-215/EH-217 connectors — e.g. atlassian-agent's ~1900-action Jira
+    surface) super-linear: registering a single connector's full verbose
+    surface took well over 60s and could time out
+    ``agent_utilities.mcp.verbose_tools`` autowiring entirely.
+
+    This inserts straight into the provider's own component storage
+    (``mcp._local_provider._components``, the same private attribute
+    :func:`_provider_tools` already reads elsewhere in this module) — an
+    O(1) dict write per tool, with an O(1) dict-membership duplicate check
+    replacing the O(n) scan, for a true O(n) bulk pass.
+
+    Falls back to the safe, per-tool ``LocalProvider.add_tool`` path (still
+    correct, just the original O(n^2)) whenever the fast path's invariant
+    does not hold: no ``_local_provider``/``_components`` on this FastMCP
+    build (older/newer SDK), or — defensively, never true for this call site
+    today — any candidate tool actually carries a version.
+
+    Returns the names of the tools actually added (a name already present in
+    ``_components`` is skipped, matching ``add_tool``'s duplicate-avoidance).
+    """
+    provider = getattr(mcp, "_local_provider", None)
+    components = getattr(provider, "_components", None)
+    if not isinstance(components, dict) or any(
+        getattr(t, "version", None) is not None for t in tools
+    ):
+        return [mcp.add_tool(tool).name for tool in tools]
+    added: list[str] = []
+    for tool in tools:
+        key = tool.key
+        if key in components:
+            continue
+        components[key] = tool
+        added.append(tool.name)
+    return added
 
 
 def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
@@ -778,7 +835,7 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         tool_cls=tool_cls,
         arg_transform_cls=arg_transform_cls,
     )
-    derived: list[str] = []
+    to_register: list[Any] = []
     for tool_name in sorted(source_tools):
         tool = source_tools[tool_name]
         if _is_already_derived_verbose_tool(tool_name, tool):
@@ -786,8 +843,9 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         actions = _tool_action_names(tool, providers)
         if not actions:
             continue
-        derived.extend(_derive_verbose_tools_for_tool(ctx, tool_name, tool, actions))
+        to_register.extend(_build_verbose_tools_for_tool(ctx, tool_name, tool, actions))
 
+    derived = _bulk_add_tools(mcp, to_register)
     logger.debug(
         "autowire_verbose_from_condensed: derived %d verbose tools from %d condensed tools",
         len(derived),
