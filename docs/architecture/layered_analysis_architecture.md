@@ -8,37 +8,21 @@
 
 ## Architecture Diagram
 
-```mermaid
-graph TD
-    subgraph "ORCH-1.2: Native vector discovery - All items - Zero LLM calls"
-        A["Re-ingest with v2 schema<br/>Types + Content + Embeddings"] --> B["Run concept cross-reference<br/>all concepts × all nodes"]
-        B --> C["Score & rank matches<br/>by cosine similarity"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Zero-LLM discovery feeding a bounded streaming synthesis pipeline</p>
 
-    subgraph "Streaming Pipeline (asyncio.Semaphore)"
-        C --> ACC{"Pillar<br/>Accumulator"}
-
-        ACC -->|"Pillar complete"| SYN["LLM synthesis<br/>1 call per pillar (5 max)"]
-        ACC -->|"High-weight paper found"| DEEP["Deep extraction<br/>1 call per paper"]
-
-        SYN --> |"Features"| OUT["Results Collector"]
-        DEEP --> |"Blueprints"| OUT
-    end
-
-    subgraph "Concurrency Control"
-        SEM["asyncio.Semaphore<br/>KG_LLM_CONCURRENCY=4"] -.->|"bounds"| SYN
-        SEM -.->|"bounds"| DEEP
-    end
-
-    subgraph "Persistent KG"
-        OUT --> L[("Knowledge Graph<br/>with temporal edges")]
-    end
-
-    style SYN fill:#f9f,stroke:#333
-    style DEEP fill:#ff9,stroke:#333
-    style L fill:#9f9,stroke:#333
-    style SEM fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-```
+Layer 1 (ORCH-1.2, native vector discovery, zero LLM calls): re-ingest with
+the v2 schema (types + content + embeddings), cross-reference every concept
+against every node, then score and rank matches by cosine similarity. That
+ranked output streams into a Pillar Accumulator: a completed pillar
+triggers one LLM synthesis call (at most 5, one per pillar), producing
+Features; a high-weight paper found along the way triggers one deep
+extraction call per paper, producing Blueprints. Both outputs feed the
+Results Collector, which writes into the persistent Knowledge Graph with
+temporal edges. An `asyncio.Semaphore` (`KG_LLM_CONCURRENCY=4`) bounds both
+the synthesis and deep-extraction call sites, capping total concurrent LLM
+calls regardless of how many pillars or papers are in flight.
+</div>
 
 ## Streaming Pipeline Architecture
 

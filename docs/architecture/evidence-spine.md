@@ -76,21 +76,22 @@ to keep correct across every re-ingest. The same-kind-sibling case is covered by
 
 ## How it flows
 
-```mermaid
-flowchart TD
-    SRC(["source object<br/>markdown · PDF · API record · row set"]) --> CE["ChangeEnvelope<br/>identity · revision · ACL · provenance"]
-    CE --> ART["Artifact<br/>content_hash · media_type · byte_length"]
-    SRC -.verbatim bytes.-> FRAG[fragment_markdown]
-    FRAG --> F["Fragment tree<br/>address + content_hash<br/>ordinal · sequence · parent"]
-    ART --> SLICE[to_graph_slice]
-    F --> SLICE
-    SLICE --> IE[["ingest_envelope / ingest_graph_slice<br/>ONE atomic ApplyChangeEnvelope"]]
-    IE --> SHACL{{"ArtifactShape · FragmentShape<br/>governance.shapes.ttl"}}
-    SHACL --> KG[("Epistemic Graph<br/>:Artifact -HAS_FRAGMENT-> :Fragment")]
-    KG --> READ["graph_document_tree<br/>action=fragments · action=cite"]
-    READ --> MCP([MCP])
-    READ --> REST([REST /graph/document-tree])
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One atomic write from source object to cited fragment</p>
+
+A source object (markdown, PDF, API record, or row set) becomes a
+`ChangeEnvelope` (identity, revision, ACL, provenance), which in turn
+becomes an `Artifact` (content_hash, media_type, byte_length). In parallel,
+the source's verbatim bytes are fragmented (`fragment_markdown`) into a
+Fragment tree (address + content_hash, ordinal, sequence, parent). Both the
+artifact and the fragment tree feed `to_graph_slice`, which
+`ingest_envelope`/`ingest_graph_slice` commit as ONE atomic
+`ApplyChangeEnvelope` — validated against `ArtifactShape`/`FragmentShape`
+(`governance.shapes.ttl`) before landing in the Epistemic Graph as
+`:Artifact -HAS_FRAGMENT-> :Fragment`. Reads go through
+`graph_document_tree` (`action=fragments`/`action=cite`), exposed over both
+MCP and REST (`/graph/document-tree`).
+</div>
 
 The spine never opens a second write path. A half-landed spine — an artifact whose
 fragments did not commit, or fragments orphaned from their artifact — is not a state a

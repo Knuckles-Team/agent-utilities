@@ -38,32 +38,27 @@ closest existing building blocks, reused rather than reimplemented:
 
 ## The shared-state thesis
 
-```mermaid
-flowchart TB
-    subgraph State["ReasoningState (one shared substrate)"]
-        Nodes["nodes: dict[id, ThoughtNode]<br/>(DAG — multi-parent = merge provenance)"]
-        Frontier["frontier / visited<br/>(ToT BFS/DFS)"]
-        MCTS["visits / total_reward<br/>(RAP backprop targets)"]
-        Cand["candidates: CandidateVote<br/>(self-consistency vote)"]
-        Tools["tool_calls: ToolCallRecord<br/>(ReAct grounding/retry)"]
-        Rationale["rationale_summary<br/>(CoT, append-only, summary-only)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One shared ReasoningState, six topologies, a self-tuning policy</p>
 
-    CoT["cot.py — linear generate chain"] --> State
-    SC["cot.py — self-consistent fan-out + vote"] --> State
-    ToT["tot.py — generate/score/frontier/prune (BFS or DFS)"] --> State
-    GoT["got.py — generate/transform/aggregate/refine DAG"] --> State
-    ReAct["react.py — thought/action/observation loop"] --> State
-    RAP["rap.py — select/expand/simulate/backpropagate (real MCTS)"] --> State
-
-    State --> Budget["budgets.BudgetTracker<br/>loop/tool/token/cost/time"]
-    Budget -->|exhausted| Proof["TerminationProof<br/>(degraded=True, never a fabricated success)"]
-    State -->|goal / converged| Proof
-
-    Proof --> Benchmark["benchmark.BenchmarkHarness<br/>accuracy/pass-rate/grounding/tokens/<br/>wall-time/tool-calls/cache-reuse/cost/reliability"]
-    Benchmark --> Policy["policy.EscalationPolicy<br/>cheapest adequate → escalate on<br/>measured low-confidence/unreliability"]
-    Policy -->|chooses next run's topology| CoT
-```
+All six topology modules write into the same shared `ReasoningState`: linear
+chain (`cot.py`), self-consistent fan-out + vote (also `cot.py`),
+generate/score/frontier/prune BFS or DFS (`tot.py`),
+generate/transform/aggregate/refine DAG (`got.py`), the
+thought/action/observation loop (`react.py`), and real MCTS
+select/expand/simulate/backpropagate (`rap.py`). That state holds the
+node DAG (multi-parent = merge provenance), frontier/visited sets,
+MCTS visit/reward counters, self-consistency candidate votes, ReAct tool-call
+records, and an append-only CoT rationale summary. Every run is bounded by
+`budgets.BudgetTracker` (loop/tool/token/cost/time); reaching a goal or
+converging, or exhausting the budget, both produce a `TerminationProof`
+(the exhausted-budget path sets `degraded=True` rather than fabricating
+success). Every proof feeds `benchmark.BenchmarkHarness` (accuracy,
+pass-rate, grounding, tokens, wall-time, tool-calls, cache-reuse, cost,
+reliability), which feeds `policy.EscalationPolicy` — cheapest-adequate by
+default, escalating to a stronger topology only on measured low-confidence
+or unreliability, and that choice picks the next run's topology.
+</div>
 
 ## The versioned topology resource
 

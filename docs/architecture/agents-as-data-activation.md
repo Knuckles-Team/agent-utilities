@@ -30,38 +30,25 @@ activation re-queues (bounded retries → `dead_letter`, the ADR-5 machinery).
 
 ## The flow
 
-```mermaid
-flowchart TD
-    subgraph events["Activation events (ADR-6 §5 → QoS lane by SOURCE)"]
-        direct["direct / interactive call ⇒ INTERACTIVE"]
-        timer["timer / orchestration / broker ⇒ ORCH"]
-        cdc["CDC-from-ingestion ⇒ INGEST"]
-    end
-    direct & timer & cdc --> deliver
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Activation events to a stateless worker pool, by QoS lane</p>
 
-    deliver["deliver_activation()"]
-    deliver -->|append| mailbox[":AgentMessage mailbox"]
-    deliver -->|submit, prio_bucket = QoS rank| wi["WorkItem (agent_activation)"]
-
-    subgraph pool["Stateless worker pool (1 process = 1 worker, N = the pool)"]
-        claim["claim_next → CAS lease\n(the liveness signal)"]
-        activate["statechart activate\ndormant → active (OCC guard)"]
-        identity["ADR-4 identity chain\nbuild_spawn_delegation + run-token\nuse_delegation(...)"]
-        run["priority_scope(class): engine calls\nride the W2.4 QoS lane\n→ drain mailbox + run executor"]
-        prov["write :RunTrace + :ToolCall\n(carrying the delegation chain)"]
-        hb["heartbeat WHILE active\n(renew lease + revalidate delegation)"]
-        commit["commit_result → WorkItem terminal"]
-        deactivate["statechart deactivate\nactive → dormant"]
-        claim --> activate --> identity --> run --> prov --> commit --> deactivate
-        hb -.renews.- run
-    end
-
-    wi --> claim
-    mailbox -.drained by.- run
-
-    classDef store fill:#eef,stroke:#557;
-    class mailbox,wi store;
-```
+Three activation sources map to three QoS lanes (ADR-6 §5): a direct/
+interactive call is `INTERACTIVE`; a timer/orchestration/broker call is
+`ORCH`; CDC-from-ingestion is `INGEST`. All three call `deliver_activation()`,
+which appends to the `:AgentMessage` mailbox and submits a `WorkItem`
+(`agent_activation`) with `prio_bucket` set to the QoS rank. In the
+stateless worker pool (one process = one worker, N workers total), a worker
+claims the next item via a CAS lease (the liveness signal), transitions the
+statechart from dormant to active (OCC-guarded), builds the ADR-4 identity
+chain (`build_spawn_delegation` + run-token, `use_delegation(...)`), then
+runs inside `priority_scope(class)` — engine calls ride the W2.4 QoS lane
+while the worker drains the mailbox and runs the executor. The run writes
+`:RunTrace` + `:ToolCall` (carrying the delegation chain), commits the
+result (`WorkItem` reaches a terminal state), and deactivates back to
+dormant. A heartbeat renews the lease and revalidates delegation for the
+whole duration the worker is active.
+</div>
 
 ### Backpressure (ADR-6 §5)
 

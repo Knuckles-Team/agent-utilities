@@ -50,18 +50,18 @@ admission remains a low-latency implementation concern; it cannot create a
 authority.  The graph receives only a bounded summary reference and lifecycle
 evidence, never one node or mutation per sample.
 
-```mermaid
-flowchart LR
-    M[Metrics authority\nhigh-rate samples] --> S[SignalSummaryRef\ndigest + bounded window]
-    A[ResourcePool + WorkloadClass + ScaleUnit] --> I[ScaleIntent\nrevision + CAS + idempotency]
-    S --> I
-    I --> D[ScaleDecision\npolicy verdict]
-    D --> E[ScaleExecution\nprepared/simulated/started/succeeded]
-    E --> O[ObservedOutcome\nconverged/pending/failed]
-    L[LeaseFence + failure domain + quotas] --> D
-    L --> E
-    O --> R[Rollback / revision update]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Scale intent to observed outcome, fenced throughout</p>
+
+High-rate samples from the metrics authority condense into a
+`SignalSummaryRef` (digest + bounded window), which combines with a
+`ResourcePool` + `WorkloadClass` + `ScaleUnit` to form a `ScaleIntent`
+(revision + CAS + idempotency). A `LeaseFence` (plus failure domain and
+quotas) gates both the resulting `ScaleDecision` (a policy verdict) and the
+`ScaleExecution` that follows it (prepared/simulated/started/succeeded).
+Execution produces an `ObservedOutcome` (converged/pending/failed), which
+drives a rollback or revision update.
+</div>
 
 ## Exactly one replica writer
 

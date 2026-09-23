@@ -15,25 +15,25 @@ independent of the upstream wire draft (MCP SEP-2640, "In Review").
 
 ## Runtime shape
 
-```mermaid
-flowchart LR
-    subgraph Server["au-built MCP server (server_factory.create_mcp_server)"]
-        SkillDirs["resolve_skill_provider_dirs()\n(core/providers.py)"] --> SkillProvider["SkillProvider\n(fastmcp>=4 — INERT today)"]
-        SkillProvider -->|"skill://{name}/SKILL.md\nskill://{name}/_manifest"| Resources[MCP Resources]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A — Server side: expose au's skills over MCP</p>
 
-    Resources -->|"list_resources() —\nreadable by an mcp/fastmcp-3 client too"| Probe["MCPMultiplexer.probe_server\n(_probe_skills, _bounded_skill_catalog)"]
-    Probe --> WriteNodes["_write_fleet_nodes\n(source_sync.py)"]
-    WriteNodes -->|":Skill kind=mcp_skill\n:Tool kind=mcp_tool\nboth SERVES from :MCPServer"| KG[(Knowledge Graph)]
-
-    KG --> Resolve["Orchestrator.resolve_capability\n(capability_kind_from_node)"]
-    Probe --> Discover["MCPMultiplexer.discover_tools\n(find_tools)"]
-    Discover --> Find["intent_tools._find_capability\n(find)"]
-
-    Resolve --> Bind["Capability.to_binding()"]
-    Find --> Bind
-    Bind --> Orchestrate["graph_orchestrate /\nOrchestrator.execute_capability"]
-```
+An au-built MCP server (`server_factory.create_mcp_server`) resolves skill
+provider directories (`core/providers.py`'s `resolve_skill_provider_dirs()`)
+into a `SkillProvider` (fastmcp>=4 — inert today), which exposes each skill
+as MCP Resources at `skill://{name}/SKILL.md` and `skill://{name}/_manifest`.
+Those resources are readable via `list_resources()` by an
+mcp/fastmcp-3 client too. `MCPMultiplexer.probe_server` (`_probe_skills`,
+`_bounded_skill_catalog`) reads them and `_write_fleet_nodes`
+(`source_sync.py`) writes `:Skill kind=mcp_skill` and `:Tool kind=mcp_tool`
+nodes into the Knowledge Graph, both linked `SERVES` from the owning
+`:MCPServer`. From there, `Orchestrator.resolve_capability` reads the KG
+(`capability_kind_from_node`), while the same probe's
+`MCPMultiplexer.discover_tools` (`find_tools`) feeds
+`intent_tools._find_capability` (`find`) — both paths converge on
+`Capability.to_binding()`, which `graph_orchestrate`/
+`Orchestrator.execute_capability` consumes.
+</div>
 
 ## A — Server side: expose au's skills over MCP
 

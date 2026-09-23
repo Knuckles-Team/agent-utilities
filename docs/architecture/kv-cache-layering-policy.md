@@ -79,23 +79,22 @@ per-call `user_prompt` and `message_history`, and `fold_kv_hint` merges
 hint is folded even under caller-supplied `model_settings` (it only adds the one
 `extra_body` key).
 
-```mermaid
-flowchart TD
-    subgraph Agent["agent-utilities (per execution)"]
-        R["agent.run(user_prompt,\nmessage_history)"] --> W["attach_profile_resolver wrapper\n(ORCH-1.58 + ORCH-1.105)"]
-        W --> P["KVCacheLayeringPolicy.decide(\n system_prompt, user_prompt,\n message_history, rag_context)"]
-        P --> D{cache_worthy?}
-        D -- "long prefix / multi-turn /\nlarge context" --> S0["skip_save = false\n(store KV)"]
-        D -- "one-off short prompt" --> S1["skip_save = true\n(don't pollute cache)"]
-        S0 --> F["fold_kv_hint →\nextra_body.kv_transfer_params"]
-        S1 --> F
-    end
-    F --> API["vLLM /v1/chat/completions\n(extra_body → kv_transfer_params)"]
-    API --> LM["LMCache extract_request_configs\nreads lmcache.skip_save"]
-    LM -- store --> L1["L1 CPU KV tier"]
-    L1 --> L2["L2 epistemic-graph\n(EpistemicGraphKVBackend, KG-2.306)"]
-    LM -. skip .-> X["no store\n(retrieval still opportunistic)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cache-worthiness decided once, per execution</p>
+
+Each `agent.run(user_prompt, message_history)` passes through the
+`attach_profile_resolver` wrapper (ORCH-1.58 + ORCH-1.105), which calls
+`KVCacheLayeringPolicy.decide(system_prompt, user_prompt, message_history,
+rag_context)`. A long prefix, multi-turn, or large-context case sets
+`skip_save = false` (store the KV); a one-off short prompt sets
+`skip_save = true` (don't pollute the cache). Either way, `fold_kv_hint`
+folds the decision into `extra_body.kv_transfer_params` on the outgoing
+vLLM `/v1/chat/completions` call. LMCache's `extract_request_configs` reads
+`lmcache.skip_save` from that same field: a store decision writes to the L1
+CPU KV tier, which backs onto the L2 epistemic-graph tier
+(`EpistemicGraphKVBackend`, KG-2.306); a skip decision stores nothing, but
+retrieval from either tier remains opportunistic regardless.
+</div>
 
 ## Configuration (no new env flag; `setting()` discipline)
 
