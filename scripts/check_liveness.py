@@ -611,7 +611,7 @@ def _placeholder_ids(an, src: str):
     masked = _masked_lines(src, tree)
     stub_lines = _stub_marker_lines(an, tree)
 
-    for lineno, (raw, masked_line) in enumerate(zip(lines, masked), start=1):
+    for lineno, (raw, masked_line) in enumerate(zip(lines, masked, strict=True), start=1):
         if an._PLACEHOLDER_RE.search(masked_line) or lineno in stub_lines:
             yield _hash("placeholder", _stable_analyzer_id(an, raw.strip()))
 
