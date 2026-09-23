@@ -17,6 +17,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from typing import Any
 
+from agent_connector_sdk import decide as sdk_decide
+
 from agent_utilities.decide.options import Option, iri_list_param, q32, text_param
 from agent_utilities.decide.outcome import Choice
 from agent_utilities.decide.points import (
@@ -35,13 +37,25 @@ _PROCESS: list[DecisionRunner | None] = [None]
 
 
 def install_runner(runner: DecisionRunner | None) -> None:
-    """Install ``runner`` for the whole process (``None`` uninstalls)."""
+    """Install ``runner`` for the whole process (``None`` uninstalls).
+
+    The connector SDK's own decision points (EH-042/043) ask through the SDK's
+    runner slot; AU installs the SAME runner there, so there is one runner and
+    one answer per question whichever side asks.
+    """
     _PROCESS[0] = runner
+    sdk_decide.install_runner(runner)
 
 
 def use_runner(runner: DecisionRunner | None) -> Any:
-    """Scope ``runner`` to the current context; returns the reset token."""
-    return _RUNNER.set(runner)
+    """Scope ``runner`` to the current context (AU and SDK); returns the reset token."""
+    return (_RUNNER.set(runner), sdk_decide.use_runner(runner))
+
+
+def reset_runner(token: Any) -> None:
+    """Undo :func:`use_runner`."""
+    for part in token:
+        part.var.reset(part)
 
 
 def current_runner() -> DecisionRunner | None:
@@ -105,6 +119,7 @@ __all__ = [
     "install_runner",
     "iri_list_param",
     "q32",
+    "reset_runner",
     "text_param",
     "use_runner",
 ]

@@ -15,4 +15,4 @@ def eg() -> Iterator[FakeTransport]:
     transport = FakeTransport()
     token = decide.use_runner(runner(transport))
     yield transport
-    decide._RUNNER.reset(token)
+    decide.reset_runner(token)

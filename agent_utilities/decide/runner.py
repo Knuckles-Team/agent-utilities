@@ -49,7 +49,7 @@ class Escalated:
     resolution_id: str
 
 
-Fallback = Callable[[], "str | Escalated | None"]
+Fallback = Callable[[], "str | Escalated"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,13 +81,23 @@ def _resolve_op(tenant: str, record_id: str, answer: Escalated) -> dict[str, Any
 def _settle(reading: Reading, logged: bool, fallback: Fallback) -> tuple[Choice, Any]:
     """The choice, plus the raw fallback answer (an :class:`Escalated` to record)."""
     if reading.option_id is not None:
-        return Choice(
-            reading.option_id, True, reading.reason, reading.record, {}, logged
-        ), None
+        decided = Choice(
+            reading.option_id,
+            True,
+            reading.reason,
+            record=reading.record,
+            logged=logged,
+        )
+        return decided, None
     answer = fallback()
     option = answer.option_id if isinstance(answer, Escalated) else answer
     choice = Choice(
-        option, False, reading.reason, reading.record, reading.advisory, logged
+        option,
+        False,
+        reading.reason,
+        advisory=reading.advisory,
+        record=reading.record,
+        logged=logged,
     )
     return choice, answer
 

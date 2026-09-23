@@ -9,8 +9,10 @@ score, an abstention -- leaves the call site on its deterministic fallback.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
+from agent_connector_sdk.decide.outcome import Choice as SdkChoice
 
 from agent_utilities.decide.points import Binding, DecisionPoint
 
@@ -19,22 +21,15 @@ _EXECUTING = frozenset({"acted", "explored"})
 
 
 @dataclass(frozen=True, slots=True)
-class Choice:
-    """What a decision point concluded, and why.
-
-    ``decided`` is true only when EG executed an option; otherwise
-    ``option_id`` is the deterministic fallback's answer and ``reason`` names
-    why EG did not decide (``unbound``, ``unavailable: ...``,
-    ``abstained: ...``, ``advisory``, ``foreign_option: ...``).
-    ``advisory`` carries EG's uncalibrated scores when it gave any: they are
-    shown, never obeyed.
+class Choice(SdkChoice):
+    """The connector SDK's :class:`~agent_connector_sdk.decide.outcome.Choice`
+    (``option_id``, ``decided``, ``reason``, ``advisory``) plus what AU records:
+    the EG ``record`` (executed or abstained) and whether it was ``logged``.
+    One choice type answers both sides, so an AU runner installed into the SDK
+    satisfies the SDK's ``DecisionRunner`` port as-is.
     """
 
-    option_id: str | None
-    decided: bool
-    reason: str
     record: Mapping[str, Any] | None = None
-    advisory: Mapping[str, int] = field(default_factory=dict)
     logged: bool = False
 
     @property
