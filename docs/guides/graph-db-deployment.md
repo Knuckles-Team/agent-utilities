@@ -153,8 +153,8 @@ remain in referenced runtime documents. Introspection is opt-in, generated
 mappings still require approval, and mutation/subscription operations are
 rejected.
 
-See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
-and [Privacy-safe External Graph Ingestion](../architecture/privacy-safe-external-ingestion.md)
+See [Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)
+and [Privacy-safe External Graph Ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/privacy-safe-ingestion/)
 for adapter limits and profile schemas.
 
 ## Verification gates
@@ -195,4 +195,4 @@ Those tests validate optional systems; they do not promote one to authority.
   with the one governed mirror drainer.
 
 The deeper storage and replication design is documented in
-[Graph Backend Architecture](../architecture/graph_backends_architecture.md).
+[Graph Backend Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/graph-backends/).

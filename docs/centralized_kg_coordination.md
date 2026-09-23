@@ -86,5 +86,5 @@ For implementation details, see:
 
 - [Graph authority convergence](architecture/graph-authority-convergence.md)
 - [Identity inheritance](architecture/identity-inheritance.md)
-- [Connectors and ingestion](architecture/kg_connectors_and_ingestion.md)
-- [Privacy-safe external ingestion](architecture/privacy-safe-external-ingestion.md)
+- [Connectors and ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/connectors-and-ingestion/)
+- [Privacy-safe external ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/privacy-safe-ingestion/)

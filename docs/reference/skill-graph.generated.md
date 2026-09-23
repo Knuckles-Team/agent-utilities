@@ -33,9 +33,7 @@ _No components._
 - **Runtime authority** — `architecture/graph-authority-convergence.md`
 - **Context boundary** — `architecture/mandatory-context-compiler.md`
 - **Observability model** — `architecture/observability.md`
-- **Privacy-safe ingestion** — `architecture/privacy-safe-external-ingestion.md`
 - **Improvement lifecycle** — `architecture/self-evolution-flywheel.md`
-- **External connectors** — `architecture/universal-external-graph-connectors.md`
 
 ## Build
 
@@ -45,6 +43,19 @@ _No components._
 - **Workflow skill suite** — `guides/kg-skill-suite.md`
 - **Ecosystem capability fleet** — `ecosystem-capability-fleet.md`
 - **Capability and action catalog** — `capabilities-power.md`
+
+## Components
+
+- **Overview** — `components/index.md`
+- **AU-AHE** — `components/au-ahe.md`
+- **AU-ECO** — `components/au-eco.md`
+- **AU-KG** — `components/au-kg.md`
+- **AU-ORCH** — `components/au-orch.md`
+- **AU-OS** — `components/au-os.md`
+- **EG-AHE** — `components/eg-ahe.md`
+- **EG-KG** — `components/eg-kg.md`
+- **EG-ORCH** — `components/eg-orch.md`
+- **EG-OS** — `components/eg-os.md`
 
 ## EG-AHE
 
@@ -84,8 +95,6 @@ _No components._
 - **Observability** — `guides/observability-usage-tracking.md`
 - **Connector certification** — `release/connector-live-certification.md`
 - **Compatibility and certification** — `release/compatibility-and-certification.md`
-- **Exact-artifact closure evidence** — `release/exact-artifact-closure.md`
-- **Exact Installed Local Certification** — `release/exact-local-gates.md`
 
 ## Prebundled skills
 
@@ -110,6 +119,7 @@ _No components._
 - **Metrics** — `reference/metrics.md`
 - **Glossary** — `glossary.md`
 - **Documentation catalog** — `reference/documentation-catalog.md`
+- **Skill graph reference** — `reference/skill-graph.generated.md`
 
 ## Status
 

@@ -72,7 +72,7 @@ write path, the worker pool, or the shared LLM.
 - **Chunked async drain** (`CONCEPT:AU-KG.ontology.single-source-full-drain/2.302`): one big `source_sync(mode=full)` is
   decomposed into paginated, capacity-guarded **wave-tasks** instead of one long blocking
   call, with a `source_drain` status tool to watch progress.
-  → [Chunked Async Drain](chunked-async-drain.md)
+  → [Chunked Async Drain](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/)
 - **Intelligent ingestion** — native auto-classification of code into typed KG nodes
   (`CONCEPT:AU-KG.ingest.over-same-tree-fan/2.285`), fast commit-history → graph + `code_evolution`
   (`CONCEPT:AU-KG.ingest.normal-codebase-ingest-also/2.283`), batch+concurrent embedding throughput (`CONCEPT:AU-KG.ingest.applying-agents-md-batch/2.281`),

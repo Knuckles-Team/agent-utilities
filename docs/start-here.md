@@ -123,7 +123,7 @@ validates the deployment.
 
 External Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph, and
 GraphQL sources use one reference-only
-[discovery, mapping, approval, and ingestion lifecycle](architecture/universal-external-graph-connectors.md).
+[discovery, mapping, approval, and ingestion lifecycle](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 Agent Utilities ships the native connection points and governance contracts, not an
 environment-specific endpoint, query, schema profile, or ontology.
 
@@ -143,7 +143,7 @@ from laptop to fleet: **[Deployment Configurations](guides/deployment-configurat
 
 - **[Capabilities](capabilities.md)** — the concrete list of what an agent can do, with copy-paste snippets.
 - **[Consumption Models](guides/consumption-models.md)** — library vs MCP stdio vs MCP HTTP vs REST.
-- **[Universal External Graph Connectors](architecture/universal-external-graph-connectors.md)** — schema discovery, digest-bound mapping approval, and governed ingestion.
+- **[Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)** — schema discovery, digest-bound mapping approval, and governed ingestion.
 - **[Loop Engine](guides/loop-engine.md)** — run self-improvement, research, and goal loops through the `graph_loops` entry point and autonomous daemon tick.
 - **[Deployment Configurations](guides/deployment-configurations.md)** — the flagship guide: every deployment shape from zero-infra laptop to sharded, queue-driven fleet.
 - **[Ecosystem](ecosystem.md)** — how agent-utilities anchors the wider `agent-packages/*` fleet.

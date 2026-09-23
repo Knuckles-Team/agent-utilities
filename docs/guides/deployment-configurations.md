@@ -748,5 +748,5 @@ Recipe form: [Enterprise](../recipes/enterprise.md).
   [gateway scaling](../architecture/gateway_scaling.md),
   [agent dispatch](../architecture/agent_dispatch.md),
   [fleet autonomy](../architecture/fleet_autonomy.md),
-  [graph service layer](../architecture/graph_service_layer.md)
+  [graph service layer](https://knuckles-team.github.io/epistemic-graph/architecture/service-layer/)
 - Sizing: [capacity model](../scaling/capacity_model.md)

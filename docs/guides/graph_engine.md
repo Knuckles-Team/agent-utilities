@@ -135,7 +135,7 @@ read or write path. Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-grap
 and GraphQL all use bounded schema discovery, digest-bound mapping approval, drift
 checks, and native `ChangeEnvelope` ingestion. Source connection, authentication,
 TLS, query, variables, schema, and ontology documents remain behind runtime
-references. See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).
+references. See [Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 
 ## Why the engine does it all
 

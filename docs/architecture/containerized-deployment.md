@@ -185,7 +185,7 @@ For graph-shaped external data, use the universal connector lifecycle:
 5. apply a governed snapshot or delta sync;
 6. checkpoint an opaque cursor.
 
-See [Universal external graph connectors](universal-external-graph-connectors.md).
+See [Universal external graph connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 
 ## Development deployment
 

@@ -29,7 +29,7 @@ flowchart LR
 
 See [Graph Authority Convergence](../architecture/graph-authority-convergence.md),
 [Mandatory ContextCompiler](../architecture/mandatory-context-compiler.md), and
-[Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+[Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)
 for the executable contracts behind the diagram.
 
 > [!NOTE]

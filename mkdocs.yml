@@ -50,9 +50,7 @@ nav:
       - Runtime authority: architecture/graph-authority-convergence.md
       - Context boundary: architecture/mandatory-context-compiler.md
       - Observability model: architecture/observability.md
-      - Privacy-safe ingestion: architecture/privacy-safe-external-ingestion.md
       - Improvement lifecycle: architecture/self-evolution-flywheel.md
-      - External connectors: architecture/universal-external-graph-connectors.md
   - Components:
       - Overview: components/index.md
       - AU-AHE: components/au-ahe.md

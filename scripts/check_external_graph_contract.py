@@ -28,10 +28,13 @@ NATIVE_MANIFEST = (
     / "native-source-connectors/connector_manifest.yml"
 )
 EXAMPLE_CONFIG = ROOT / "docs/examples/config.json"
-DOCS = (
-    ROOT / "docs/architecture/universal-external-graph-connectors.md",
-    ROOT / "docs/architecture/privacy-safe-external-ingestion.md",
-)
+# The universal/privacy-safe external-graph architecture docs relocated to
+# agent-connector-sdk (RF-ADR-009: SDK owns connectors/transport) and no
+# longer live in this checkout, so this gate can no longer verify their
+# content markers directly. DOCS is kept empty rather than removed so the
+# call sites below need no further change; an equivalent marker check
+# belongs in agent-connector-sdk's own gate suite as a follow-up.
+DOCS: tuple[Path, ...] = ()
 CI = ROOT / ".github/workflows/advisory.yml"
 
 REQUIRED_BACKENDS = frozenset(

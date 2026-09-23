@@ -92,7 +92,7 @@ the packaged, supervised epistemic-graph engine is the authority, with no mirror
 
 External Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph, and
 GraphQL sources instead use the governed
-[universal connector lifecycle](../architecture/universal-external-graph-connectors.md):
+[universal connector lifecycle](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/):
 declare reference-only aliases in `EXTERNAL_GRAPH_CONNECTORS`, discover, propose,
 approve, run `external_graph_doctor`, and ingest. No source-specific schema or
 ontology is bundled.
@@ -158,6 +158,6 @@ A green doctor + a `graph_write`/`graph_query` round-trip = you're up.
 ## See also
 - [Day-0 overview](day0.md) · [Deployment configurations](deployment-configurations.md) ·
   [Configuration reference](configuration.md) ·
-  [Universal connectors](../architecture/universal-external-graph-connectors.md)
+  [Universal connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)
 - Recipes: [tiny](../recipes/tiny.md) · [single-node-prod](../recipes/single-node-prod.md) ·
   [enterprise](../recipes/enterprise.md) · [databases](../recipes/databases.md)

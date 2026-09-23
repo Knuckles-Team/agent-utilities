@@ -10,7 +10,7 @@
 
 This page is the companion to [Ingestion throughput](ingestion_throughput.md) (the
 lanes, the best-effort cap, the bulk primitives, the per-hop profiler) and
-[Chunked async drain](chunked-async-drain.md) (full-corpus drains as background
+[Chunked async drain](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/) (full-corpus drains as background
 waves). Where those cover *how work is scheduled and metered*, this page covers
 *how much intelligence each ingest unit extracts and how the heavy/long units are
 kept from blowing up the tail*.
@@ -236,7 +236,7 @@ to cover an uncovered ingestion lane, so no codebase/ingestion/maint backlog can
 interactive capacity to 0; an MCP/interactive call always lands. The interactive lane
 set is `INTERACTIVE_LANES = {"queries"}` (conversation / kg_memory — the on-pool half
 of MCP/chat). This is the host-scheduler companion to the resource-priority edict
-(AU-ORCH.scheduling.resource-priority-edict/1.99) that [chunked drain](chunked-async-drain.md) also relies on.
+(AU-ORCH.scheduling.resource-priority-edict/1.99) that [chunked drain](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/) also relies on.
 
 ### Tail observability (KG-2.288)
 
@@ -308,7 +308,7 @@ doc writes** → a doc-heavy repo doesn't flood the queue.
 ## See also
 
 - [Ingestion throughput — lanes, tick-collapse, bulk primitives, per-hop profiler](ingestion_throughput.md)
-- [Chunked async drain — full-corpus drains as background waves](chunked-async-drain.md)
-- [Content-aware ingestion](content-aware-ingestion.md)
+- [Chunked async drain — full-corpus drains as background waves](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/)
+- [Content-aware ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/content-aware-ingestion/)
 - [Split-storage engine recipe](../recipes/split-storage-engine.md)
 - [Delta-based ingestion recipe](../recipes/delta-ingestion.md)

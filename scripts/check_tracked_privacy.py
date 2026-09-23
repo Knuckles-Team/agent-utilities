@@ -349,7 +349,7 @@ _CREDENTIAL_URI_RE = re.compile(
 # the comment already claimed they mirrored each other, but that script's
 # set additionally recognizes "agent" (this repo's own
 # ``postgresql://agent:agent@localhost:5432/agent_kg`` documented example
-# DSN, README.md / docs/architecture/graph_backends_architecture.md),
+# DSN, README.md / epistemic-graph docs/architecture/graph-backends.md),
 # "password", "secret", "test", and "sample" as placeholder words. Restored
 # so the two gates actually agree, as documented.
 _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(

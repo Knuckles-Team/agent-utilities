@@ -232,7 +232,7 @@ GraphQL sources are declared through reference-only `EXTERNAL_GRAPH_CONNECTORS`.
 Deployment supplies the referenced connection, authentication, TLS, variables, and
 mapping-policy documents; the repository retains no source-specific profile. Run the
 bounded `discover → propose → approve → external_graph_doctor → ingest` lifecycle
-described in [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).
+described in [Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 
 For Langfuse, configure `LANGFUSE_HOST`, both credential references, and a verified
 TLS-profile reference in AgentConfig. The native MCP child and propose-only failure
@@ -298,4 +298,4 @@ curl -s -XPOST localhost:9000/api/graph/query -d '{"query":"MATCH (n) RETURN cou
 
 See also: [Configuration](configuration.md) · [Graph Engine (Authority + Mirrors)](graph_engine.md)
 · [Deploying Graph Databases](graph-db-deployment.md) ·
-[Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).
+[Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).

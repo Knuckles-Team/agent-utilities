@@ -278,9 +278,9 @@ governance limits, and runtime references only. GraphOS performs bounded schema
 discovery, generates a digest-bound mapping proposal, requires explicit approval,
 checks schema and policy drift, then materializes native `ChangeEnvelope` transactions.
 
-See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+See [Universal External Graph Connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)
 for the current `add → discover → propose → approve → doctor → ingest` lifecycle and
-[Privacy-safe External Graph Ingestion](../architecture/privacy-safe-external-ingestion.md)
+[Privacy-safe External Graph Ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/privacy-safe-ingestion/)
 for the complete AgentConfig declaration. No source endpoint, query, discovered schema,
 custom ontology, credential, certificate path, or raw upstream identifier is bundled.
 

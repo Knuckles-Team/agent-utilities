@@ -12,7 +12,9 @@ PUBLIC_EXAMPLES = (
     "AGENTS.md",
     "CHANGELOG.md",
     "README.md",
-    "docs/architecture/graph_backends_architecture.md",
+    # graph_backends_architecture.md relocated to epistemic-graph's own
+    # docs/architecture/graph-backends.md (RF-ADR-009); that repo's own
+    # privacy gate covers it now.
     "docs/pillars/4_ecosystem_peripherals/ECO-4.5-Messaging_Configuration_Guide.md",
     "agent_utilities/core/config.py",
     "agent_utilities/gateway/widgets/langfuse.py",
