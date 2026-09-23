@@ -26,7 +26,10 @@ from agent_utilities.models.knowledge_graph import (
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
+from tests.unit.knowledge_graph._embedding_fixtures import (
+    random_unit_embedding,
+    similar_unit_embedding,
+)
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -44,20 +47,14 @@ def _make_node(name: str, embedding: list[float] | None = None) -> RegistryNode:
 
 def _random_embedding(dim: int = 64, seed: int | None = None) -> list[float]:
     """Generate a random unit-norm embedding."""
-    rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim)
-    vec /= np.linalg.norm(vec)
-    return vec.tolist()
+    return random_unit_embedding(dim, seed)
 
 
 def _similar_embedding(
     base: list[float], noise: float = 0.1, seed: int = 42
 ) -> list[float]:
     """Create a vector similar to base with controlled noise."""
-    rng = np.random.default_rng(seed)
-    arr = np.array(base) + rng.standard_normal(len(base)) * noise
-    arr /= np.linalg.norm(arr)
-    return arr.tolist()
+    return similar_unit_embedding(base, noise, seed)
 
 
 # =====================================================================
@@ -199,7 +196,14 @@ class TestKGNativeRetrievalRetriever:
         base_emb = _random_embedding(dim=32, seed=42)
         nodes = [
             _make_node("target node", embedding=base_emb),
-            _make_node("distant node", embedding=_random_embedding(dim=32, seed=99)),
+            # A weaker but still positively-related vector: an independent
+            # random draw can land at negative cosine and fall below the
+            # retriever's relevance floor, making the "2 results" premise
+            # depend on the RNG stream (EH-380).
+            _make_node(
+                "distant node",
+                embedding=_similar_embedding(base_emb, noise=0.15, seed=99),
+            ),
         ]
 
         query_emb = _similar_embedding(base_emb, noise=0.05, seed=1)

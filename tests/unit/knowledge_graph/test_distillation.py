@@ -29,33 +29,24 @@ from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNodeType,
 )
-from agent_utilities.numeric import xp as np
+from tests.unit.knowledge_graph._embedding_fixtures import (
+    random_unit_embedding,
+    similar_unit_embedding,
+)
 
 # ── Fixtures ──
 
 
 def _make_random_embedding(dim: int = 128, seed: int = 0) -> list[float]:
     """Generate a reproducible random embedding."""
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(dim).astype(np.float32)
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    return random_unit_embedding(dim, seed)
 
 
 def _make_similar_embedding(
     base: list[float], noise: float = 0.05, seed: int = 1
 ) -> list[float]:
     """Create an embedding similar to base by adding small noise."""
-    rng = np.random.RandomState(seed)
-    vec = np.array(base, dtype=np.float32) + noise * rng.randn(len(base)).astype(
-        np.float32
-    )
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    return similar_unit_embedding(base, noise, seed)
 
 
 def _make_block(
