@@ -15,6 +15,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypedDict
 
 from agent_utilities.layers.cli_process import (
     LaunchedProcess,
@@ -25,22 +26,42 @@ from agent_utilities.layers.cli_process import (
 )
 from agent_utilities.layers.contracts import (
     UNAVAILABLE_USAGE,
+    AccountMode,
+    EnvironmentMode,
+    HarnessDescriptor,
     HarnessError,
     HarnessNotConfigured,
     HarnessRunFailed,
     HarnessToolInventoryMismatch,
     McpEndpoint,
+    ReconciliationSupport,
     RunSpec,
     UsageRecord,
 )
 from agent_utilities.layers.credentials import (
     CredentialResolver,
     SecretsCredentialResolver,
+    api_key_for,
 )
 from agent_utilities.layers.session import DriveOutcome, HarnessRuntime, RunContext
 
 #: Directory inside the leased workspace that holds per-run harness config.
 RUN_CONFIG_DIR = ".au-run"
+
+
+#: Descriptor fields every headless CLI adapter shares: both account modes,
+#: a caller-managed host with a per-run workspace, provider session ids.
+class _CliDescriptorDefaults(TypedDict):
+    account_modes: frozenset[AccountMode]
+    environment_modes: frozenset[EnvironmentMode]
+    reconciliation: ReconciliationSupport
+
+
+CLI_DESCRIPTOR_DEFAULTS = _CliDescriptorDefaults(
+    account_modes=frozenset({"api_key", "subscription"}),
+    environment_modes=frozenset({"caller-managed-host"}),
+    reconciliation="provider_session",
+)
 
 
 @dataclass(slots=True)
@@ -81,6 +102,8 @@ class CliHarness(HarnessRuntime, abc.ABC):
     """Base for headless CLI adapters; subclasses supply the harness dialect."""
 
     binary: str
+    descriptor: HarnessDescriptor
+    record_handlers: Mapping[str, Handler]
 
     def __init__(
         self,
@@ -105,13 +128,12 @@ class CliHarness(HarnessRuntime, abc.ABC):
     ) -> Invocation:
         """argv, extra child environment and stdin for this run."""
 
-    @abc.abstractmethod
-    def handlers(self) -> Mapping[str, Handler]:
-        """JSONL record type -> parse handler."""
+    def describe(self) -> HarnessDescriptor:
+        return self.descriptor
 
-    @abc.abstractmethod
     def record_type(self, record: dict) -> str:
-        """The dispatch key of one decoded JSONL record."""
+        """The dispatch key of one decoded JSONL record (``type`` by default)."""
+        return str(record.get("type") or "")
 
     # -- HarnessRuntime -----------------------------------------------------
 
@@ -171,6 +193,14 @@ class CliHarness(HarnessRuntime, abc.ABC):
     def credentials(self) -> CredentialResolver:
         return self._credentials
 
+    def launch_env(self, run: RunContext, api_key_var: str) -> dict[str, str]:
+        """Child variables: MCP tokens, plus the API key in ``api_key`` mode."""
+        env = self.endpoint_tokens(run)
+        if run.spec.account_mode == "api_key":
+            name = self.describe().name
+            env[api_key_var] = api_key_for(run.spec, self._credentials, name)
+        return env
+
     def _consume(self, run: RunContext, line: str, state: StreamState) -> None:
         text = line.strip()
         if not text:
@@ -182,7 +212,7 @@ class CliHarness(HarnessRuntime, abc.ABC):
             return
         if not isinstance(record, dict):
             return
-        handler = self.handlers().get(self.record_type(record))
+        handler = self.record_handlers.get(self.record_type(record))
         if handler is not None:
             handler(run, record, state)
 
@@ -231,6 +261,7 @@ def write_skills(run: RunContext, skills_root: Path) -> None:
 
 
 __all__ = [
+    "CLI_DESCRIPTOR_DEFAULTS",
     "RUN_CONFIG_DIR",
     "CliHarness",
     "Handler",

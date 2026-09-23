@@ -16,10 +16,10 @@ built-in shell cannot be allowlisted, so an allowlisted RunSpec is refused.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 
 from agent_utilities.layers.cli_harness import (
+    CLI_DESCRIPTOR_DEFAULTS,
     CliHarness,
     Handler,
     Invocation,
@@ -32,24 +32,21 @@ from agent_utilities.layers.contracts import (
     UsageRecord,
     VendorTerms,
 )
-from agent_utilities.layers.credentials import api_key_for
 from agent_utilities.layers.session import RunContext
 
 HARNESS_NAME = "codex"
 
 DESCRIPTOR = HarnessDescriptor(
+    **CLI_DESCRIPTOR_DEFAULTS,
     name=HARNESS_NAME,
     version="codex-exec/jsonl",
     fidelity="tool-calls",
     capabilities=frozenset({"code_edit", "shell", "mcp_client", "cancellation"}),
     usage_quality="measured",
     enforceable_budgets=frozenset({"wall_time"}),
-    account_modes=frozenset({"api_key", "subscription"}),
-    environment_modes=frozenset({"caller-managed-host"}),
     tool_proof="none",
     skill_proof="none",
     max_skills=0,
-    reconciliation="provider_session",
     vendor_terms=VendorTerms(
         subscription_automation_allowed=True,
         note="codex exec with a ChatGPT plan login is vendor-documented; "
@@ -171,15 +168,8 @@ class CodexHarness(CliHarness):
     """:class:`HarnessPort` over the Codex CLI."""
 
     binary = "codex"
-
-    def describe(self) -> HarnessDescriptor:
-        return DESCRIPTOR
-
-    def handlers(self) -> Mapping[str, Handler]:
-        return _HANDLERS
-
-    def record_type(self, record: dict) -> str:
-        return str(record.get("type") or "")
+    descriptor = DESCRIPTOR
+    record_handlers = _HANDLERS
 
     def materialize(self, run: RunContext, config_dir: Path) -> None:
         (config_dir / "run.json").write_text(
@@ -208,9 +198,7 @@ class CodexHarness(CliHarness):
         if spec.model:
             argv += ["-m", spec.model]
         argv.append("-")
-        env = self.endpoint_tokens(run)
-        if spec.account_mode == "api_key":
-            env["CODEX_API_KEY"] = api_key_for(spec, self.credentials, HARNESS_NAME)
+        env = self.launch_env(run, "CODEX_API_KEY")
         return Invocation(argv=tuple(argv), env=env, stdin_text=spec.task)
 
 

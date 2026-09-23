@@ -17,12 +17,12 @@ failure where remote MCP tools are missing (claude-code#43298) cannot pass.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 
 from pydantic import JsonValue
 
 from agent_utilities.layers.cli_harness import (
+    CLI_DESCRIPTOR_DEFAULTS,
     CliHarness,
     Handler,
     Invocation,
@@ -37,12 +37,12 @@ from agent_utilities.layers.contracts import (
     UsageRecord,
     VendorTerms,
 )
-from agent_utilities.layers.credentials import api_key_for
 from agent_utilities.layers.session import RunContext
 
 HARNESS_NAME = "claude-code"
 
 DESCRIPTOR = HarnessDescriptor(
+    **CLI_DESCRIPTOR_DEFAULTS,
     name=HARNESS_NAME,
     version="claude-cli/stream-json",
     fidelity="tool-calls",
@@ -60,12 +60,9 @@ DESCRIPTOR = HarnessDescriptor(
     ),
     usage_quality="measured",
     enforceable_budgets=frozenset({"cost_usd", "wall_time"}),
-    account_modes=frozenset({"api_key", "subscription"}),
-    environment_modes=frozenset({"caller-managed-host"}),
     tool_proof="startup_inventory",
     skill_proof="startup_inventory",
     max_skills=64,
-    reconciliation="provider_session",
     vendor_terms=VendorTerms(
         subscription_automation_allowed=True,
         note="headless -p use of a Claude subscription is vendor-documented; "
@@ -214,15 +211,8 @@ class ClaudeCodeHarness(CliHarness):
     """:class:`HarnessPort` over the Claude Code CLI."""
 
     binary = "claude"
-
-    def describe(self) -> HarnessDescriptor:
-        return DESCRIPTOR
-
-    def handlers(self) -> Mapping[str, Handler]:
-        return _HANDLERS
-
-    def record_type(self, record: dict) -> str:
-        return str(record.get("type") or "")
+    descriptor = DESCRIPTOR
+    record_handlers = _HANDLERS
 
     def materialize(self, run: RunContext, config_dir: Path) -> None:
         from agent_utilities.claude_harness import build_settings_dict
@@ -264,9 +254,7 @@ class ClaudeCodeHarness(CliHarness):
             argv += ["--model", spec.model]
         if spec.budget.max_cost_usd is not None:
             argv += ["--max-budget-usd", f"{spec.budget.max_cost_usd:.4f}"]
-        env = self.endpoint_tokens(run)
-        if spec.account_mode == "api_key":
-            env["ANTHROPIC_API_KEY"] = api_key_for(spec, self.credentials, HARNESS_NAME)
+        env = self.launch_env(run, "ANTHROPIC_API_KEY")
         return Invocation(argv=tuple(argv), env=env, stdin_text=spec.task)
 
 
