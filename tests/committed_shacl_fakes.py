@@ -11,21 +11,33 @@ double:
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
+
+from epistemic_graph.generated.rdf_report import (
+    ShaclSeverity,
+    ShaclValidationReport,
+    ShaclValidationResult,
+)
 
 _COMPOSED_DIGEST = "sha256:" + "0" * 64
 
 
-def shacl_result(**fields: Any) -> SimpleNamespace:
-    """One typed-shaped ``ShaclValidationResult`` (unset fields are ``None``)."""
-    names = ("focus_node", "path", "source_shape", "message", "value")
-    return SimpleNamespace(**{name: fields.get(name) for name in names})
+def shacl_result(**fields: Any) -> ShaclValidationResult:
+    """One generated ``ShaclValidationResult``; unset required fields get defaults."""
+    defaults: dict[str, Any] = {
+        "constraint_component": "sh:MinCountConstraintComponent",
+        "focus_node": "node/test",
+        "severity": ShaclSeverity.VIOLATION,
+        "source_shape": "shape/test",
+    }
+    return ShaclValidationResult(**{**defaults, **fields})
 
 
-def shacl_report(*, conforms: bool = True, results: tuple = ()) -> SimpleNamespace:
-    """A typed-shaped ``ShaclValidationReport`` bound to one committed schema."""
-    return SimpleNamespace(
+def shacl_report(
+    *, conforms: bool = True, results: tuple[ShaclValidationResult, ...] = ()
+) -> ShaclValidationReport:
+    """A generated ``ShaclValidationReport`` bound to one committed schema."""
+    return ShaclValidationReport(
         conforms=conforms,
         results=list(results),
         composed_digest=_COMPOSED_DIGEST,

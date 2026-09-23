@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 import agent_utilities.observability.health_ingest as hi
 from agent_utilities.observability import portfolio_intelligence as pi
@@ -324,41 +326,81 @@ def test_rationalize_portfolio_writes_recommendations_when_write_true(monkeypatc
 # ── 4. adopt/reject/consolidate/migrate verdict via the SHACL shapes ──────────
 
 
-def test_shacl_shape_conforms_for_every_valid_verdict():
-    for verdict in ("adopt", "reject", "consolidate", "migrate"):
-        report = pi.validate_verdict_shape(
-            {
-                "candidateId": "prod-a",
-                "verdict": verdict,
-                "rationale": "some rationale text",
-                "assessmentScore": 0.75,
-            }
-        )
-        assert report["conforms"] is True, (verdict, report["violations"])
+# EG's committed GraphSchema is the only SHACL validator (43197d7c6), so these
+# tests pin AU's side of validate_verdict_shape: the data graph it renders,
+# the pass-through of EG's typed report, and failing closed without an engine.
+# The shape semantics (verdict enum, non-empty rationale) live in
+# knowledge_graph/shapes/portfolio_intelligence.shapes.ttl, which is not yet
+# part of the published AU pack. See the au-base-reds WRAPUP.
 
 
-def test_shacl_shape_rejects_an_invalid_verdict_value():
-    report = pi.validate_verdict_shape(
-        {
-            "candidateId": "prod-a",
-            "verdict": "maybe",
-            "rationale": "some rationale text",
-            "assessmentScore": 0.75,
-        }
+def _verdict(**overrides: Any) -> dict[str, Any]:
+    return {
+        "candidateId": "prod-a",
+        "verdict": "adopt",
+        "rationale": "some rationale text",
+        "assessmentScore": 0.75,
+        **overrides,
+    }
+
+
+def _engine(validator: Any) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        graph_compute=SimpleNamespace(shacl_validate_committed=validator)
     )
-    assert report["conforms"] is False
 
 
-def test_shacl_shape_rejects_a_missing_rationale():
-    report = pi.validate_verdict_shape(
-        {
-            "candidateId": "prod-a",
-            "verdict": "adopt",
-            "rationale": "",
-            "assessmentScore": 0.5,
-        }
+def test_verdict_graph_carries_verdict_rationale_and_score():
+    from tests.committed_shacl_fakes import CommittedShaclValidator
+
+    validator = CommittedShaclValidator()
+    report = pi.validate_verdict_shape(_verdict(), engine=_engine(validator))
+
+    assert report["conforms"] is True
+    [data_graph] = validator.validations
+    assert "Recommendation" in data_graph and "Assessment" in data_graph
+    assert '"adopt"' in data_graph
+    assert '"some rationale text"' in data_graph
+    assert "0.75" in data_graph
+
+
+def test_empty_rationale_is_omitted_so_the_shape_can_reject_it():
+    from tests.committed_shacl_fakes import CommittedShaclValidator
+
+    validator = CommittedShaclValidator()
+    pi.validate_verdict_shape(_verdict(rationale=""), engine=_engine(validator))
+
+    assert "rationale" not in validator.validations[0]
+
+
+def test_eg_violations_are_reported_with_the_schema_receipt():
+    from tests.committed_shacl_fakes import (
+        CommittedShaclValidator,
+        shacl_report,
+        shacl_result,
     )
+
+    rejected = shacl_report(
+        conforms=False, results=(shacl_result(path="kg:verdict", value="maybe"),)
+    )
+    report = pi.validate_verdict_shape(
+        _verdict(verdict="maybe"), engine=_engine(CommittedShaclValidator(rejected))
+    )
+
     assert report["conforms"] is False
+    assert report["violations"][0]["value"] == "maybe"
+    assert report["composed_digest"] == report["schema_digests"][0]
+
+
+def test_verdict_validation_fails_closed_without_an_engine():
+    from agent_utilities.knowledge_graph.core.committed_shacl import (
+        CommittedShaclUnavailable,
+    )
+
+    with pytest.raises(CommittedShaclUnavailable):
+        pi.validate_verdict_shape(_verdict(), engine=None)
 
 
 # ── 5. writeback is dry-run-first ──────────────────────────────────────────────
