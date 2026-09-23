@@ -3,8 +3,8 @@
 Covers the dependency-free parts of the consumer: no-manifest no-op, the
 content-hash watermark dedup (via ``DeltaManifest``), ``mode="full"``/``ids``
 forcing a re-run past the watermark, and that a failing leg is isolated
-(reported, not raised) while the other legs still run. The three reused
-ingestion primitives (prompts/ontologies/skills) are monkeypatched at the
+(reported, not raised) while the other legs still run. The two reused
+ingestion primitives (prompts/skills) are monkeypatched at the
 module's own leg-functions so this test never needs a live engine/backend.
 """
 
@@ -40,20 +40,12 @@ def _isolated_data_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def _fake_legs(monkeypatch):
-    """Stub the three reused ingestion primitives so no live engine is needed.
-
-    NOT autouse — ``test_ontologies_leg_catches_its_own_exception`` exercises
-    the REAL ``_ingest_ontologies_leg`` and would otherwise have it clobbered
-    by this stub before its own patch ever ran.
-    """
+    """Stub the two engine-driven ingestion primitives so no live engine is
+    needed. The ontologies leg is a pure report (EH-380) and runs for real."""
     calls: list[str] = []
 
     def _prompts():
         calls.append("prompts")
-        return {"status": "ok"}
-
-    def _ontologies(engine):
-        calls.append("ontologies")
         return {"status": "ok"}
 
     def _skills(engine):
@@ -61,7 +53,6 @@ def _fake_legs(monkeypatch):
         return {"status": "ok"}
 
     monkeypatch.setattr(pii, "_ingest_prompts_leg", _prompts)
-    monkeypatch.setattr(pii, "_ingest_ontologies_leg", _ontologies)
     monkeypatch.setattr(pii, "_ingest_skills_leg", _skills)
     return calls
 
@@ -73,7 +64,7 @@ def test_no_manifest_is_a_safe_no_op(tmp_path):
     assert "install-manifest.json" in res["reason"]
 
 
-def test_changed_manifest_runs_all_three_legs(tmp_path, _fake_legs):
+def test_changed_manifest_runs_every_leg(tmp_path, _fake_legs):
     _write_manifest(
         tmp_path,
         {
@@ -87,7 +78,8 @@ def test_changed_manifest_runs_all_three_legs(tmp_path, _fake_legs):
     assert res["status"] == "ok"
     assert res["skipped_unchanged"] is False
     assert res["manifest_providers"] == ["demo-pkg"]
-    assert _fake_legs == ["prompts", "ontologies", "skills"]
+    assert _fake_legs == ["prompts", "skills"]
+    assert res["legs"]["ontologies"] == {"status": "none", "providers": []}
     assert res["failed_legs"] == []
 
 
@@ -123,7 +115,7 @@ def test_mode_full_bypasses_the_watermark(tmp_path, _fake_legs):
 
     res = pii.sync_package_install(engine, mode="full")
     assert res["skipped_unchanged"] is False
-    assert set(_fake_legs) == {"prompts", "ontologies", "skills"}
+    assert set(_fake_legs) == {"prompts", "skills"}
 
 
 def test_ids_forces_a_rerun_and_is_reported(tmp_path, _fake_legs):
@@ -142,67 +134,31 @@ def test_ids_forces_a_rerun_and_is_reported(tmp_path, _fake_legs):
     res = pii.sync_package_install(engine, mode="delta", ids=["demo-pkg"])
     assert res["skipped_unchanged"] is False
     assert res["requested_providers"] == ["demo-pkg"]
-    assert set(_fake_legs) == {"prompts", "ontologies", "skills"}
+    assert set(_fake_legs) == {"prompts", "skills"}
 
 
-def test_ontologies_leg_catches_its_own_exception(monkeypatch):
-    """Each leg function is the isolation boundary — it must never raise out."""
+def test_ontologies_leg_reports_delegation_never_silent_success():
+    """EH-380: installed ontologies are listed as delegated to EG
+    ConnectorPack import -- never dropped, never reported as ingested."""
+    result = pii._ontologies_leg({"ontologies": {"pkg-b": 2, "pkg-a": 1}})
+    assert result["status"] == "delegated"
+    assert result["providers"] == ["pkg-a", "pkg-b"]
+    assert "ConnectorPack" in result["reason"]
+    assert pii._ontologies_leg({"ontologies": {}}) == {
+        "status": "none",
+        "providers": [],
+    }
 
-    class _BoomLifecycle:
-        def __init__(self, engine=None):
-            raise RuntimeError("ontology backend unavailable")
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.lifecycle.OntologyLifecycle",
-        _BoomLifecycle,
+def test_delegated_ontologies_are_not_a_failed_leg(tmp_path, _fake_legs):
+    _write_manifest(
+        tmp_path,
+        {"generated_at": "2026-07-12T00:00:00Z", "ontologies": {"pkg-a": 1}},
     )
-    engine = _FakeEngine()
-    engine._ontology_package_sync = lambda _lifecycle: {"status": "ok"}
-    result = pii._ingest_ontologies_leg(engine)
-    assert result["status"] == "error"
-    assert "ontology backend unavailable" in result["reason"]
-
-
-def test_ontologies_leg_reports_missing_application_capability():
-    result = pii._ingest_ontologies_leg(_FakeEngine())
-    assert result == {
-        "status": "skipped",
-        "reason": "ontology package sync capability is unavailable",
-    }
-
-
-def test_ontologies_leg_uses_the_composed_application_capability():
-    calls: list[Any] = []
-
-    def sync_packages(lifecycle: Any) -> dict[str, Any]:
-        calls.append(lifecycle)
-        return {"action": "sync_packages", "providers_loaded": 2}
-
-    engine = _FakeEngine()
-    engine._ontology_package_sync = sync_packages
-    result = pii._ingest_ontologies_leg(engine)
-
-    assert len(calls) == 1
-    assert type(calls[0]).__name__ == "OntologyLifecycle"
-    assert result == {
-        "status": "ok",
-        "action": "sync_packages",
-        "providers_loaded": 2,
-    }
-
-
-def test_ontologies_leg_reports_application_failure():
-    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
-        raise RuntimeError("ontology package application failed")
-
-    engine = _FakeEngine()
-    engine._ontology_package_sync = sync_packages
-    result = pii._ingest_ontologies_leg(engine)
-
-    assert result == {
-        "status": "error",
-        "reason": "ontology package application failed",
-    }
+    res = pii.sync_package_install(_FakeEngine(), mode="delta")
+    assert res["legs"]["ontologies"]["status"] == "delegated"
+    assert res["failed_legs"] == []
+    assert res["manifest_providers"] == ["pkg-a"]
 
 
 def test_package_ingest_has_no_upward_ontology_tool_import():
@@ -284,10 +240,9 @@ def test_skills_leg_isolates_one_failing_sub_leg_from_the_other(monkeypatch):
 
 def test_a_failing_leg_is_isolated_and_reported(tmp_path, monkeypatch):
     """`sync_package_install` never crashes on one bad leg — each leg function
-
-    already catches its own exceptions (see the test above), so the dict
-    literal building ``legs`` always completes; this asserts the aggregate
-    report surfaces the failure without blocking the other legs.
+    already catches its own exceptions, so the dict literal building ``legs``
+    always completes; this asserts the aggregate report surfaces the failure
+    without blocking the other legs.
     """
     _write_manifest(
         tmp_path,
@@ -298,22 +253,19 @@ def test_a_failing_leg_is_isolated_and_reported(tmp_path, monkeypatch):
         },
     )
 
-    monkeypatch.setattr(pii, "_ingest_prompts_leg", lambda: {"status": "ok"})
     monkeypatch.setattr(
-        pii,
-        "_ingest_ontologies_leg",
-        lambda engine: {"status": "error", "reason": "boom"},
+        pii, "_ingest_prompts_leg", lambda: {"status": "error", "reason": "boom"}
     )
     monkeypatch.setattr(pii, "_ingest_skills_leg", lambda engine: {"status": "ok"})
 
     engine = _FakeEngine()
     result = pii.sync_package_install(engine, mode="delta")
     assert result["status"] == "ok"
-    assert result["legs"]["ontologies"]["status"] == "error"
-    assert result["failed_legs"] == ["ontologies"]
-    # the other two legs still ran despite the ontology leg failing
-    assert result["legs"]["prompts"]["status"] == "ok"
+    assert result["legs"]["prompts"]["status"] == "error"
+    assert result["failed_legs"] == ["prompts"]
+    # the other legs still ran despite the prompts leg failing
     assert result["legs"]["skills"]["status"] == "ok"
+    assert result["legs"]["ontologies"]["status"] == "none"
 
 
 def test_registered_as_a_source_sync_delta_handler():
