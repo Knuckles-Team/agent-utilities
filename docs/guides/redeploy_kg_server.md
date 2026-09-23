@@ -11,15 +11,14 @@ and delegates process lifecycle to the active supervisor.
 
 ## Redeploy contract
 
-```mermaid
-flowchart LR
-    Source[Verified source revision] --> Gates[Tests + documentation gates]
-    Gates --> Artifact[Build or editable runtime]
-    Artifact --> Supervisor[Deployment supervisor]
-    Supervisor --> Health[Health and capability probes]
-    Health -->|healthy| Observe[Observe traces and queue drain]
-    Health -->|unhealthy| Rollback[Supervisor rollback]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Verified source to health-gated rollout, with a supervised rollback</p>
+
+A verified source revision passes tests + documentation gates, builds (or
+runs editable), and hands off to the deployment supervisor. The supervisor
+runs health and capability probes: healthy leads to observing traces and
+queue drain; unhealthy triggers a supervisor rollback.
+</div>
 
 The engine is the graph authority. Restarting the graph-os gateway should not
 replace, delete, or relocate engine state. A deployment that couples gateway and
