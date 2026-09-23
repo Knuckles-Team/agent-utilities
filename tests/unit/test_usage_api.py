@@ -6,11 +6,14 @@ and exercises the observability surface + the upload transport (ECO-4.42).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway.usage_api import usage_router
+from agent_utilities.pricing import reset_pricing_catalog
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.usage import backends as usage_backends
@@ -35,11 +38,40 @@ def client(tmp_path, monkeypatch):
 
     rec_mod._recorder = None
     svc_mod._service = None
+    _operator_pricing_catalog(tmp_path, monkeypatch)
 
     app = FastAPI()
     app.include_router(usage_router, prefix="/api/observability")
     yield TestClient(app)
     usage_backends.reset_usage_backend_for_tests()
+    reset_pricing_catalog()
+
+
+def _operator_pricing_catalog(tmp_path, monkeypatch) -> None:
+    """Price the seeded model the way an operator does (e15fabb69).
+
+    With no configured catalog every model is explicitly unpriced.
+    """
+    from agent_utilities.core.config import config
+
+    path = tmp_path / "pricing.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "usage-api-test-v1",
+                "models": [
+                    {
+                        "model_pattern": "claude-opus-4-8",
+                        "input_per_mtok": 15.0,
+                        "output_per_mtok": 75.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "pricing_catalog_path", str(path))
+    reset_pricing_catalog()
 
 
 def _seed(*, sid: str = "s1", tenant_id: str = ""):
