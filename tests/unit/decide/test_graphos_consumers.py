@@ -14,6 +14,7 @@ from agent_utilities.decide.consumers.assembly import (
     text_digest,
 )
 from agent_utilities.decide.consumers.graphos import route_a2a_task, tool_subset
+from tests.unit.decide.fakes import COMMITTED, FakeGraphs
 
 GRAPH = {"graph_id": "graph.triage", "version": "1"}
 SOLVED = {
@@ -29,34 +30,6 @@ ABSTAINED = {
         }
     }
 }
-COMMITTED = {
-    "record_id": "decision:abc",
-    "component": {
-        "component": {"kind": "decision_record", "definition_digest": "sha256:rec"}
-    },
-}
-
-
-class _Graphs:
-    def __init__(self, result: dict[str, Any]) -> None:
-        self.result = result
-        self.requests: list[Any] = []
-        self.commits: list[Any] = []
-        self.published: list[Any] = []
-
-    async def assemble(self, request: Any) -> Any:
-        self.requests.append(request)
-        return self.result
-
-    async def commit_decision(self, request: Any) -> Any:
-        self.commits.append(request)
-        return COMMITTED
-
-    async def publish_graph(
-        self, draft, context, *, evidence=None, idempotency_key=None
-    ):
-        self.published.append((draft, context, evidence))
-        return {"graph_id": draft["graph_id"]}
 
 
 async def _context(record: Any) -> dict[str, Any]:
@@ -64,7 +37,7 @@ async def _context(record: Any) -> dict[str, Any]:
 
 
 async def test_tool_exposure_is_the_budgeted_subset_and_never_committed() -> None:
-    graphs = _Graphs(SOLVED)
+    graphs = FakeGraphs(SOLVED)
     assembler = Assembler(graphs, "t", commit_context=_context)
     tools, answer = await tool_subset(
         assembler,
@@ -83,7 +56,7 @@ async def test_tool_exposure_is_the_budgeted_subset_and_never_committed() -> Non
 
 
 async def test_an_uncovered_task_keeps_the_current_exposure() -> None:
-    assembler = Assembler(_Graphs(ABSTAINED), "t")
+    assembler = Assembler(FakeGraphs(ABSTAINED), "t")
     tools, answer = await tool_subset(
         assembler,
         lambda reasons: ["all", *reasons],
@@ -95,7 +68,7 @@ async def test_an_uncovered_task_keeps_the_current_exposure() -> None:
 
 
 async def test_a2a_routing_takes_task_iris_a_budget_and_templates() -> None:
-    graphs = _Graphs(ABSTAINED)
+    graphs = FakeGraphs(ABSTAINED)
     template = {"component_id": "graph.triage", "definition_digest": "sha256:x"}
     answer = await route_a2a_task(
         Assembler(graphs, "t"),
@@ -113,7 +86,7 @@ async def test_a2a_routing_takes_task_iris_a_budget_and_templates() -> None:
 
 
 async def test_untyped_text_travels_only_as_its_digest() -> None:
-    graphs = _Graphs(ABSTAINED)
+    graphs = FakeGraphs(ABSTAINED)
     await route_a2a_task(
         Assembler(graphs, "t"), lambda r: None, text="find the billing owner"
     )
@@ -125,7 +98,7 @@ async def test_untyped_text_travels_only_as_its_digest() -> None:
 
 
 async def test_a_routed_graph_is_published_with_its_committed_record() -> None:
-    graphs = _Graphs(SOLVED)
+    graphs = FakeGraphs(SOLVED)
     assembler = Assembler(graphs, "t", commit_context=_context)
     answer = await route_a2a_task(
         assembler, lambda r: None, task_iris=["eg:task/research"]
@@ -145,6 +118,6 @@ async def test_a_routed_graph_is_published_with_its_committed_record() -> None:
 
 
 async def test_an_uncommitted_answer_is_never_published() -> None:
-    assembler = Assembler(_Graphs(SOLVED), "t")
+    assembler = Assembler(FakeGraphs(SOLVED), "t")
     with pytest.raises(ValueError):
         await assembler.publish_routed(Assembled(SOLVED), {"ctx": "minted"})

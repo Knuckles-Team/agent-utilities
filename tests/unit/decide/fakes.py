@@ -70,3 +70,41 @@ def runner(transport: FakeTransport, *, bound: bool = True) -> DecisionRunner:
         bindings=StaticBindings(bindings if bound else {}),
         tenant="tenant-t",
     )
+
+
+#: What a committed ``DecisionCommitResult`` looks like to AU.
+COMMITTED = {
+    "record_id": "decision:abc",
+    "component": {
+        "component": {"kind": "decision_record", "definition_digest": "sha256:rec"}
+    },
+}
+
+
+class FakeGraphs:
+    """An L3 agent-graph client answering every assembly with ``result``."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        self.requests: list[Any] = []
+        self.commits: list[Any] = []
+        self.published: list[Any] = []
+
+    async def assemble(self, request: Any) -> Any:
+        self.requests.append(request)
+        return self.result
+
+    async def commit_decision(self, request: Any) -> Any:
+        self.commits.append(request)
+        return COMMITTED
+
+    async def publish_graph(
+        self,
+        draft: Any,
+        context: Any,
+        *,
+        evidence: Any = None,
+        idempotency_key: Any = None,
+    ) -> Any:
+        self.published.append((draft, context, evidence))
+        return {"graph_id": draft["graph_id"]}

@@ -11,6 +11,7 @@ import pytest
 
 from agent_utilities.decide.consumers.assembly import Assembler, install_assembler
 from agent_utilities.knowledge_graph.enrichment.synthesize import synthesize_agent
+from tests.unit.decide.fakes import FakeGraphs
 
 GOAL = "find the owner of the billing service"
 AGENT = {
@@ -22,21 +23,6 @@ AGENT = {
 }
 
 
-class _Graphs:
-    def __init__(self, result: dict[str, Any]) -> None:
-        self.result = result
-        self.requests: list[Any] = []
-        self.commits: list[Any] = []
-
-    async def assemble(self, request: Any) -> Any:
-        self.requests.append(request)
-        return self.result
-
-    async def commit_decision(self, request: Any) -> Any:
-        self.commits.append(request)
-        return {"record_id": "decision:abc"}
-
-
 def _llm(prompt: str) -> str:
     if "task IRIs" in prompt:
         return json.dumps(["eg:task/research", "eg:task/invented"])
@@ -44,14 +30,14 @@ def _llm(prompt: str) -> str:
 
 
 @pytest.fixture
-def installed() -> Iterator[list[_Graphs]]:
-    box: list[_Graphs] = []
+def installed() -> Iterator[list[FakeGraphs]]:
+    box: list[FakeGraphs] = []
     yield box
     install_assembler(None)
 
 
-def _install(box: list[_Graphs], result: dict[str, Any], **kw: Any) -> _Graphs:
-    graphs = _Graphs(result)
+def _install(box: list[FakeGraphs], result: dict[str, Any], **kw: Any) -> FakeGraphs:
+    graphs = FakeGraphs(result)
     box.append(graphs)
     install_assembler(Assembler(graphs, "tenant-t", **kw), asyncio.run)
     return graphs
