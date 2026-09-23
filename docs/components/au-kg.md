@@ -345,7 +345,7 @@
 - **`AU-KG.ontology.descriptive-process-world-gains`** — the descriptive process world gains step-level shape (`agent_utilities/knowledge_graph/core/owl_bridge.py`)
 - **`AU-KG.ontology.do-not-auto-merge`** — is the recommended upstream step (`agent_utilities/knowledge_graph/extraction/schema_discovery.py`)
 - **`AU-KG.ontology.edit-ledger-writeback`** — the write-back leg of the edit ledger. Sinks are registered (`agent_utilities/gateway/ontology_api.py`)
-- **`AU-KG.ontology.emits-database-ontology-entities`** — emits database-ontology entities (`agent_utilities/models/knowledge_graph.py`)
+- **`AU-KG.ontology.emits-database-ontology-entities`** — emits database-ontology entities (`agent_utilities/knowledge_graph/pipeline/phases/parse.py`)
 - **`AU-KG.ontology.enterprise-governance-validation`** — Enterprise Governance Validation (`agent_utilities/knowledge_graph/core/shacl_validator.py`)
 - **`AU-KG.ontology.enterprise-ontology-distribution`** — Enterprise Ontology Distribution (`agent_utilities/knowledge_graph/core/ontology_loader.py`)
 - **`AU-KG.ontology.evolution-governed-loop`** — ontology change as a (`agent_utilities/knowledge_graph/ontology/evolution.py`)
