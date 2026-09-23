@@ -11,26 +11,20 @@
 
 ## Architecture Overview
 
-```mermaid
-graph TD
-    A["User / Agent Request"] --> B["browse_x_post / x_search"]
-    B --> C["XaiAuthManager\nOAuth 2.0 PKCE"]
-    C --> D["xAI Responses API\nPOST /v1/responses"]
-    D --> E["Grok grok-4.3\n(1M context)"]
-    E --> F["JSON Response\n(answer + citations)"]
-    F --> G{auto_ingest?}
-    G -->|Yes| H["XIngestionBridge"]
-    H --> I["UniversalKnowledgeClassifier\nconfigured model service"]
-    I --> J{Content Tier}
-    J -->|ephemeral| K["SocialPost node\n(decays via GraphMaintainer)"]
-    J -->|high_value| L["SocialPost node\n(permanent, concepts linked)"]
-    J -->|critical + evolve| M["SocialPost + EvolutionCandidate\n(triggers comparative-analysis)"]
-    G -->|No| N["Return JSON only"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Request to answer, with an optional three-tier ingestion branch</p>
 
-    style C fill:#1d5c3f,stroke:#32a873,color:#fff
-    style I fill:#2d4a8c,stroke:#5b7fd4,color:#fff
-    style M fill:#8b2252,stroke:#c4567a,color:#fff
-```
+A user or agent request calls `browse_x_post`/`x_search`, authenticated via
+`XaiAuthManager` (OAuth 2.0 PKCE) against the xAI Responses API
+(`POST /v1/responses`, Grok grok-4.3, 1M context), returning a JSON
+response (answer + citations). Without `auto_ingest`, that JSON is returned
+directly. With `auto_ingest`, `XIngestionBridge` routes it through
+`UniversalKnowledgeClassifier` (a configured model service), which assigns
+a content tier: `ephemeral` becomes a `SocialPost` node that decays via
+`GraphMaintainer`; `high_value` becomes a permanent `SocialPost` node with
+concepts linked; `critical + evolve` becomes both a `SocialPost` and an
+`EvolutionCandidate`, triggering `comparative-analysis`.
+</div>
 
 ## Authentication
 

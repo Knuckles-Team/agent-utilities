@@ -15,16 +15,20 @@ exactly which flags do what.
 Every autonomous change passes a chain of independent stages, each of which
 can stop it:
 
-```mermaid
-flowchart LR
-    A["Propose-only loops<br/>(golden loop, failure ingest,<br/>anomaly consumer, fleet events)"] --> B["Governed validation<br/>PromotionGovernanceValidator<br/>(AU-AHE.harness.promotion-governance-validator)"]
-    B --> C["Regression gate<br/>recorded RegressionGateResult<br/>(AU-AHE.harness.failure-evolution)"]
-    C --> D["Merge<br/>human by default;<br/>auto only with KG_GOLDEN_AUTO_MERGE"]
-    D --> E["Promotion policy gate<br/>ActionPolicy merge_promotion<br/>(OS-5.24) — deny blocks the flip"]
-    E --> F["Publication<br/>same merge_promotion approval<br/>(AHE-3.21, approval by default)"]
-    F --> G["Reviewable branch<br/>change synthesis + RLM sandbox<br/>(AHE-3.21) — never pushed"]
-    G --> H["Human merges<br/>normal release flow"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Propose only, validate, gate, and land as a human-reviewed branch</p>
+
+Propose-only loops (the golden loop, failure ingest, the anomaly consumer,
+fleet events) feed governed validation
+(`PromotionGovernanceValidator`), which feeds a regression gate (a recorded
+`RegressionGateResult`). A clean regression result reaches merge — human by
+default, auto only with `KG_GOLDEN_AUTO_MERGE` — which passes a promotion
+policy gate (`ActionPolicy merge_promotion`; a deny blocks the flip
+outright). A pass reaches publication (the same `merge_promotion` approval,
+approval by default), which produces a reviewable branch (change synthesis
++ RLM sandbox) that is never pushed automatically — a human merges it
+through the normal release flow.
+</div>
 
 1. **Propose-only loops.** The golden loop, the failure-evolution sweep, the
    PerformanceAnomaly consumer (`AU-AHE.optimization.performance-anomaly-consumer`) and fleet-event triage

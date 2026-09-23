@@ -18,15 +18,17 @@ operational lifecycle writes, or becomes an implicit fallback.
 
 ## Authority contract
 
-```mermaid
-flowchart LR
-    CLIENT["GraphOS · API · engine clients"] --> SESSION["Verified GraphSession"]
-    SESSION --> EG["epistemic-graph<br/>sole authority"]
-    EG -->|"durable governed outbox"| MIRRORS["Optional mirrors<br/>AGE · Neo4j · FalkorDB · LadybugDB/Kuzu"]
-    SOURCES["Optional read sources<br/>graphs · GraphQL · remote engine"] --> DISCOVER["Bounded discovery<br/>proposal · approval · drift gate"]
-    DISCOVER --> ENVELOPE["ChangeEnvelope<br/>ACL · provenance · idempotency"]
-    ENVELOPE --> EG
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One authority, optional mirrors out, bounded discovery in</p>
+
+GraphOS/API/engine clients reach epistemic-graph — the sole authority —
+through a verified `GraphSession`. The authority write-fans-out through a
+durable, governed outbox to optional mirrors (AGE, Neo4j, FalkorDB,
+LadybugDB/Kuzu). In the other direction, optional read sources (graphs,
+GraphQL, a remote engine) pass through bounded discovery (proposal,
+approval, drift gate) before becoming a `ChangeEnvelope` (ACL, provenance,
+idempotency) that the authority actually ingests.
+</div>
 
 The engine authority requires no selector or external graph service. Declaring
 one or more `role=mirror` connections (or naming them in

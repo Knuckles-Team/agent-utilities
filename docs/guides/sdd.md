@@ -10,45 +10,17 @@ The SDD orchestrator (`sdd/orchestrator.py`) implements a **specification-first 
 
 ## SDD Lifecycle Diagram
 
-```mermaid
-graph TD
-    subgraph Phase1 [1. Specification Ingestion]
-        direction TB
-        Req[AU-ORCH.planning.legal-automation-roadmap: requirements.md] --> AU-ORCH.planning.legal-automation-roadmap: Spec[Spec]
-        Cons[AU-ORCH.planning.legal-automation-roadmap: constraints.md] --> Spec
-        Acc[AU-ORCH.planning.legal-automation-roadmap: acceptance.md] --> Spec
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four phases: ingest, plan, decompose, execute in parallel</p>
 
-    subgraph Phase2 [2. Plan Generation]
-        Spec --> PlanAgent[ORCH-1.2: Planning Agent]
-        PlanAgent --> ImplPlan[AU-ORCH.planning.legal-automation-roadmap: Implementation Plan]
-    end
-
-    subgraph Phase3 [3. Task Decomposition]
-        ImplPlan --> TaskAgent[ORCH-1.1: Task Decomposer]
-        TaskAgent --> TaskA[ORCH-1.1: Task A]
-        TaskAgent --> TaskB[ORCH-1.1: Task B]
-        TaskAgent --> TaskC[ORCH-1.1: Task C]
-    end
-
-    subgraph Phase4 [4. Parallel Execution]
-        TaskA --> PySpecialist[ORCH-1.2: Python Specialist]
-        TaskB --> TSSpecialist[ORCH-1.2: TypeScript Specialist]
-        TaskC --> DevOpsSpecialist[ORCH-1.2: DevOps Specialist]
-
-        PySpecialist --> Joiner[ORCH-1.0: Execution Joiner]
-        TSSpecialist --> Joiner
-        DevOpsSpecialist --> Joiner
-    end
-
-    Joiner --> Verifier[AHE-3.1: TDD Verification - tests pass]
-
-    style Phase1 fill:#f5f5f5,stroke:#666
-    style Phase2 fill:#dae8fe,stroke:#6c8ebf
-    style Phase3 fill:#e1d5e7,stroke:#9673a6
-    style Phase4 fill:#d5e8d4,stroke:#82b366
-    style Verifier fill:#fff2cc,stroke:#d6b656
-```
+**1. Specification ingestion.** `requirements.md`, `constraints.md`, and
+`acceptance.md` all feed one `Spec`. **2. Plan generation.** The Planning
+Agent turns that spec into an Implementation Plan. **3. Task
+decomposition.** A Task Decomposer splits the plan into Task A, B, and C.
+**4. Parallel execution.** Each task goes to its own specialist (Python,
+TypeScript, DevOps); all three join at an Execution Joiner, which feeds
+TDD verification (tests pass).
+</div>
 
 ### Phase 1: Specification Ingestion
 

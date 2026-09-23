@@ -105,19 +105,14 @@ Fixed 21 stale file paths in `docs/overview.md` where files had been relocated t
 
 ## Query Lifecycle (Post-Integration)
 
-```mermaid
-flowchart TD
-    Q[ORCH-1.0: User Query] --> SR[AU-ECO.mcp.toolkit-live-discovery: ServiceRegistry.initialize]
-    SR --> PS[OS-5.1: PromptInjectionScanner]
-    PS -->|blocked| BLOCK[OS-5.1: Return Security Error]
-    PS -->|clean| ROUTER[ORCH-1.2: router_step]
-    ROUTER -->|KG discovery| KG[(KG-2.0: Knowledge Graph)]
-    ROUTER -->|plan| DISP[ORCH-1.0: dispatcher_step]
-    DISP --> DLD[OS-5.2: DoomLoopDetector]
-    DLD -->|loop| ERROR[ORCH-1.3: error_recovery]
-    DLD -->|ok| CKPT[ORCH-1.3: StateCheckpointer]
-    CKPT --> KG
-    CKPT --> EXEC[ORCH-1.2: Execute Specialists]
-    EXEC --> VERIFY[AHE-3.1: verifier]
-    VERIFY --> SYNTH[Synthesis]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Query to synthesis, scanned and loop-guarded throughout</p>
+
+A user query first reaches `ServiceRegistry.initialize`, then a
+`PromptInjectionScanner`: a blocked query returns a security error
+directly; a clean query reaches `router_step`, which reads the Knowledge
+Graph for discovery and hands a plan to `dispatcher_step`. The dispatcher
+passes through a `DoomLoopDetector` — a detected loop triggers error
+recovery; otherwise a `StateCheckpointer` records to the KG and proceeds to
+execute specialists, whose output passes a verifier before final synthesis.
+</div>

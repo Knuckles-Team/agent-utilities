@@ -10,26 +10,15 @@ are always recoverable by traversing the DAG.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph Thread["Conversation Thread"]
-        M1[KG-2.6: Message 1] --> M2[KG-2.6: Message 2]
-        M2 --> M3[KG-2.6: Message 3]
-        M3 --> M4[KG-2.6: Message 4]
-        M4 --> M5[KG-2.6: Message 5]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Messages summarize up a DAG, level by level</p>
 
-    subgraph DAG["Summary DAG"]
-        S1["KG-2.6: L1 Summary\n(msgs 1-5)"]
-        S2["KG-2.6: L1 Summary\n(msgs 6-10)"]
-        S3["KG-2.6: L2 Summary\n(L1 summaries)"]
-    end
-
-    M1 -.->|SUMMARIZES| S1
-    M5 -.->|SUMMARIZES| S1
-    S1 -.->|SUMMARIZES| S3
-    S2 -.->|SUMMARIZES| S3
-```
+A conversation thread's messages (1 through 5, sequential) are summarized:
+messages 1 and 5 (spanning the whole 1-5 range) both link `SUMMARIZES` into
+one L1 Summary covering messages 1-5. A second L1 Summary (not shown in
+detail) covers messages 6-10. Both L1 summaries then link `SUMMARIZES` up
+into one L2 Summary, which summarizes the L1 summaries themselves.
+</div>
 
 ### Key Concepts
 
