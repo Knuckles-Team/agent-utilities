@@ -40,8 +40,8 @@ def jobs(monkeypatch) -> dict[str, Any]:
         return state["eval"]
 
     module = types.ModuleType("epistemic_graph.generated.coordination")
-    setattr(module, "send_decision_fit", fit)
-    setattr(module, "send_decision_eval", eval_)
+    for name, sender in {"send_decision_fit": fit, "send_decision_eval": eval_}.items():
+        setattr(module, name, sender)
     monkeypatch.setitem(sys.modules, "epistemic_graph.generated.coordination", module)
     return state
 
