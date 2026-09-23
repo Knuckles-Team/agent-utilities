@@ -4,8 +4,9 @@ from __future__ import annotations
 """Tests for the measured-lift assimilation benchmark suite (CONCEPT:AU-AHE.optimization.real-optimization-metric).
 
 Each ``bench_*`` must return a :class:`BenchmarkResult` with the right metric and
-``claim_reproduced is True`` under the fixed seed (the mechanism beats its
-baseline in the paper's claimed direction); ``run_all`` returns seven results;
+``claim_reproduced is True`` (the mechanism beats its baseline in the paper's
+claimed direction). PauseRec's verdict is statistical: a mean lift over at least
+20 seeded catalogs with a 95% interval excluding zero (EH-386). ``run_all`` returns seven results;
 ``to_markdown`` renders every row; and the whole suite is deterministic.
 """
 
@@ -15,6 +16,7 @@ import pytest
 pytest.importorskip("epistemic_graph.numeric")
 
 from agent_utilities.harness.assimilation_benchmark import (
+    PAUSEREC_MIN_MEAN_LIFT,
     BenchmarkResult,
     bench_adore,
     bench_decentmem_bandit,
@@ -52,6 +54,21 @@ def test_bench_reproduces_claim(bench_fn, metric_substr) -> None:
     # The verdict must agree with a positive direction-aware lift.
     assert result.lift > 0.0
     assert result.detail  # every bench reports mechanism-specific detail
+
+
+def test_pauserec_claim_is_a_multi_seed_statistical_verdict() -> None:
+    """Pausing beats no pausing by the stated margin, CI excluding zero (EH-386)."""
+    result = bench_pauserec(seed=0)
+    ci_low, ci_high = result.detail["lift_ci95"]
+    assert result.detail["n_seeds"] >= 20
+    assert result.detail["mean_lift"] >= PAUSEREC_MIN_MEAN_LIFT
+    assert 0.0 < ci_low <= result.detail["mean_lift"] <= ci_high
+    assert result.detail["seeds_regressed"] == 0
+
+
+def test_pauserec_refuses_too_few_seeds_for_an_interval() -> None:
+    with pytest.raises(ValueError, match="n_seeds"):
+        bench_pauserec(seed=0, n_seeds=5)
 
 
 def test_lift_direction_is_consistent() -> None:

@@ -38,7 +38,7 @@ network, no upward dependencies.
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from agent_utilities.harness.explore_exploit_router import ExploreExploitRouter
@@ -175,88 +175,106 @@ def _ndcg_at_k(ranked_relevances: Sequence[float], k: int) -> float:
 # ----------------------------------------------------------------------------
 # PauseRec (KG-2.93) + TemporalSemanticIdEncoder (KG-2.86)
 # ----------------------------------------------------------------------------
-def bench_pauserec(*, seed: int = 0) -> BenchmarkResult:
-    """Latent-reasoning budget (pause_steps>0) vs none (pause_steps=0).
+#: Independent synthetic catalogs the PauseRec claim is evaluated over. One
+#: fixed seed can land on a lucky or unlucky geometry. The claim is a property
+#: of the mechanism's mean effect, so it is measured over many seeds (EH-386).
+PAUSEREC_SEEDS = 24
+#: The stated effect the mechanism must deliver: mean NDCG@k lift of pausing
+#: over no pausing, with the 95% CI of the paired lift excluding zero.
+PAUSEREC_MIN_MEAN_LIFT = 0.25
+#: Two-sided 95% Student-t critical value for 19 degrees of freedom. It bounds
+#: the critical value for every run of at least 20 seeds, so the reported
+#: interval is conservative for any PAUSEREC_SEEDS >= 20.
+_T_CRITICAL_95_DF19 = 2.093
+_PAUSEREC_DIM = 24
+_PAUSEREC_PER_CLUSTER = 6
+_PAUSEREC_STEPS = 2
 
-    Synthetic task: a clustered catalog where the user's history lives entirely in
-    the target cluster, the relevant items ARE that cluster, but the query points
-    (on content) at a *distractor* cluster. Ranking straight off the projected
-    query (no pausing) lands on the distractor and misses every relevant item;
-    PauseRec's implicit-reasoning steps pull the latent target toward the history
-    (and the items it co-supports), recovering the target cluster — the paper's
-    claim that latent reasoning bridges history/world-knowledge into SID selection.
 
-    Metric: NDCG@k over the relevant cluster. Claim: pausing >= no pausing.
-    Exercises ``TemporalSemanticIdEncoder`` (KG-2.86) as the shared SID encoder.
+def _pauserec_trial(seed: int) -> tuple[float, float]:
+    """NDCG@k without and with pausing on one seeded synthetic catalog.
+
+    The user's history lives entirely in the target cluster and the relevant
+    items ARE that cluster, but the query points (on content) at a
+    *distractor* cluster. Ranking straight off the projected query lands on
+    the distractor. The implicit-reasoning steps must pull the latent target
+    toward the history and the items it co-supports.
     """
     rng = xp.random.default_rng(seed + 1)
-    dim = 24
-    per_cluster = 6
     vectors, labels = _clustered_embeddings(
-        rng, n_clusters=4, per_cluster=per_cluster, dim=dim
+        rng, n_clusters=4, per_cluster=_PAUSEREC_PER_CLUSTER, dim=_PAUSEREC_DIM
     )
-    target_cluster = 0
-    distractor_cluster = 1
     items = [(f"item-{i}", vectors[i]) for i in range(len(labels))]
-    relevant = {f"item-{i}" for i, c in enumerate(labels) if c == target_cluster}
-
-    encoder_seed = seed + 2
-
-    def _build() -> TemporalSemanticIdEncoder:
-        return TemporalSemanticIdEncoder(
-            n_codebooks=3, codebook_size=8, seed=encoder_seed
-        )
-
-    # The query points (on content) at the WRONG cluster — a distractor — while the
-    # user's history sits firmly in the target cluster. A raw projection (no
-    # pausing) therefore ranks the distractor and misses the relevant items; the
-    # implicit-reasoning steps pull the latent target toward the history (and the
-    # items it co-supports), recovering the target cluster. This is exactly
-    # PauseRec's claim that the latent reasoning bridges history/world-knowledge
-    # into SID selection rather than ranking off the surface query.
-    distractor_vectors = [
-        vector
-        for vector, label in zip(vectors, labels, strict=True)
-        if label == distractor_cluster
-    ]
-    distractor_centroid = [
-        float(xp.mean([vector[column] for vector in distractor_vectors]))
-        for column in range(dim)
-    ]
-    noise = rng.normal(size=dim)
+    relevant = {f"item-{i}" for i, c in enumerate(labels) if c == 0}
+    distractor = [v for v, label in zip(vectors, labels, strict=True) if label == 1]
+    noise = rng.normal(size=_PAUSEREC_DIM)
     query = [
-        0.7 * centroid + 0.3 * delta
-        for centroid, delta in zip(distractor_centroid, noise, strict=True)
+        0.7 * float(xp.mean([vector[column] for vector in distractor]))
+        + 0.3 * noise[column]
+        for column in range(_PAUSEREC_DIM)
     ]
-
-    top_k = per_cluster
+    history_rows = [i for i, c in enumerate(labels) if c == 0][:3]
 
     def _ndcg_for(pause_steps: int) -> float:
-        rec = ImplicitReasoningRecommender(_build(), pause_steps=pause_steps)
+        encoder = TemporalSemanticIdEncoder(
+            n_codebooks=3, codebook_size=8, seed=seed + 2
+        )
+        rec = ImplicitReasoningRecommender(encoder, pause_steps=pause_steps)
         rec.fit_catalog(items)
-        # History SIDs: three items firmly inside the target cluster.
-        hist_ids = [i for i, c in enumerate(labels) if c == target_cluster][:3]
-        history_sids = [rec._encoder.encode_content(vectors[i]) for i in hist_ids]  # noqa: SLF001
-        ranked = rec.recommend(query, top_k=top_k, history_sids=history_sids)
+        history = [encoder.encode_content(vectors[i]) for i in history_rows]
+        ranked = rec.recommend(query, top_k=_PAUSEREC_PER_CLUSTER, history_sids=history)
         rels = [1.0 if r.item_id in relevant else 0.0 for r in ranked]
-        return _ndcg_at_k(rels, top_k)
+        return _ndcg_at_k(rels, _PAUSEREC_PER_CLUSTER)
 
-    baseline = _ndcg_for(0)
-    ours = _ndcg_for(2)
-    return _make_result(
+    return _ndcg_for(0), _ndcg_for(_PAUSEREC_STEPS)
+
+
+def _paired_ci95(differences: Sequence[float]) -> tuple[float, float, float]:
+    """Mean of paired differences and its conservative 95% Student-t interval."""
+    count = len(differences)
+    mean = sum(differences) / count
+    variance = sum((d - mean) ** 2 for d in differences) / (count - 1)
+    half_width = _T_CRITICAL_95_DF19 * math.sqrt(variance / count)
+    return mean, mean - half_width, mean + half_width
+
+
+def bench_pauserec(*, seed: int = 0, n_seeds: int = PAUSEREC_SEEDS) -> BenchmarkResult:
+    """Latent-reasoning budget (pause_steps>0) vs none, over ``n_seeds`` catalogs.
+
+    Each of seeds ``seed .. seed + n_seeds - 1`` builds an independent
+    clustered catalog (see :func:`_pauserec_trial`) and measures NDCG@k with
+    and without pausing. ``baseline``/``ours`` are the mean NDCGs. The claim
+    reproduces only if the mean paired lift is at least
+    :data:`PAUSEREC_MIN_MEAN_LIFT` AND its 95% interval excludes zero. The
+    verdict is statistical, not one lucky seed. Exercises
+    ``TemporalSemanticIdEncoder`` (KG-2.86) as the shared SID encoder.
+    """
+    if n_seeds < 20:
+        raise ValueError(f"n_seeds must be >= 20 for a 95% interval, got {n_seeds}")
+    trials = [_pauserec_trial(s) for s in range(seed, seed + n_seeds)]
+    baselines = [base for base, _ in trials]
+    ours_scores = [ours for _, ours in trials]
+    mean_lift, ci_low, ci_high = _paired_ci95([ours - base for base, ours in trials])
+    result = _make_result(
         name="PauseRec KG-2.93",
-        metric=f"NDCG@{top_k}",
-        baseline=baseline,
-        ours=ours,
+        metric=f"mean NDCG@{_PAUSEREC_PER_CLUSTER}",
+        baseline=sum(baselines) / n_seeds,
+        ours=sum(ours_scores) / n_seeds,
         higher_is_better=True,
         detail={
+            "n_seeds": n_seeds,
+            "mean_lift": round(mean_lift, 6),
+            "lift_ci95": (round(ci_low, 6), round(ci_high, 6)),
+            "min_mean_lift": PAUSEREC_MIN_MEAN_LIFT,
+            "seeds_improved": sum(o > b for b, o in trials),
+            "seeds_regressed": sum(o < b for b, o in trials),
             "pause_steps_baseline": 0,
-            "pause_steps_ours": 2,
-            "catalog_size": len(items),
-            "relevant_count": len(relevant),
+            "pause_steps_ours": _PAUSEREC_STEPS,
             "encoder": "TemporalSemanticIdEncoder KG-2.86 (n_codebooks=3)",
         },
     )
+    verdict = mean_lift >= PAUSEREC_MIN_MEAN_LIFT and ci_low > 0.0
+    return replace(result, claim_reproduced=result.claim_reproduced and verdict)
 
 
 # ----------------------------------------------------------------------------
