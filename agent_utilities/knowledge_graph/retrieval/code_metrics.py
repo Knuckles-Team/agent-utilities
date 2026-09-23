@@ -151,15 +151,31 @@ def detect_communities(
     edges: list[dict[str, Any]],
     resolution: float = 1.0,
 ) -> dict[str, int]:
-    """Map node → community id via the engine's ephemeral Louvain (KG-2.58).
+    """Map node → community id via the engine's ephemeral Leiden (KG-2.58, EH-282).
 
     Falls back to weakly-connected components (pure-Python union-find) if the engine
     op is unavailable, so the analytic degrades gracefully offline.
+
+    EH-284: each edge's already-loaded resolver ``confidence`` (a ``scoped`` call at
+    0.95 down to a ``unique`` guess at 0.60 — see ``_confidence_bucket``) rides
+    through as the wire method's per-edge weight, so a community binds harder on
+    edges the resolver is more certain about. A missing confidence (this projection
+    is scoped to ``_CODE_EDGE_TYPES`` — never ``similar_to`` — but an older/partial
+    resolver pass may still omit one) defaults to the pre-EH-284 uniform weight
+    ``1.0`` rather than fabricating a value.
     """
     edge_pairs = [(e["src"], e["dst"]) for e in edges]
+    weighted_edges = [
+        (
+            e["src"],
+            e["dst"],
+            e.get("confidence") if e.get("confidence") is not None else 1.0,
+        )
+        for e in edges
+    ]
     try:
         communities = engine.graph_compute.community_detect_ephemeral(
-            node_ids, edge_pairs, resolution
+            node_ids, weighted_edges, resolution
         )
         if communities:
             return {nid: i for i, com in enumerate(communities) for nid in com}

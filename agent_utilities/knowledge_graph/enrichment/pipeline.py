@@ -51,6 +51,7 @@ from .models import (
     ExtractionResult,
     GraphNode,
     dedupe_edges_by_rung,
+    run_ladder,
 )
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
@@ -563,11 +564,26 @@ class EnrichmentPipeline:
         self._tag_code_patterns(all_code, summary)
 
         # Resolve the code→code CALLS edges ONCE: community detection clusters on
-        # them and the write section below persists the same set. The resolver path
-        # already produced them in Rust; only the fallback resolves names here.
-        if call_edges is None:
-            with _pstage("resolve_calls"):
-                call_edges = resolve_call_edges(all_code)
+        # them and the write section below persists the same set. EH-270's cost
+        # ladder: the primary engine resolver already ran inside
+        # `_enrich_parse_and_resolve` above (INFERRED, type/scope-aware,
+        # per-edge confidence) and ABSTAINS by leaving `call_edges` `None` when
+        # that path wasn't taken (no index_fn, or a failed RPC) — only THEN does
+        # the more expensive Python name-only fallback resolver run, and never
+        # to overwrite what the primary resolver already produced.
+        already_resolved = call_edges
+        with _pstage("resolve_calls"):
+            call_edges = run_ladder(
+                [
+                    lambda: already_resolved,
+                    lambda: resolve_call_edges(all_code),
+                ]
+            )
+        # The fallback producer always returns a (possibly empty) list, never
+        # `None` -- so the ladder as a whole can never abstain here. Asserted
+        # rather than narrowed away, so a future producer that COULD abstain
+        # fails loudly instead of silently reintroducing a `None`.
+        assert call_edges is not None
 
         # Features: cluster the call graph via the engine's community detection.
         features = []

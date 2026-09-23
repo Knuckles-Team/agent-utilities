@@ -5253,17 +5253,24 @@ class GraphComputeEngine:
     def community_detect_ephemeral(
         self,
         node_ids: list[str],
-        edges: list[tuple[str, str]],
+        edges: list[tuple[str, str, float]],
         resolution: float = 1.0,
+        quality: str = "modularity",
     ) -> list[list[str]]:
         """Stateless community detection over an inline call graph (KG-2.58).
 
         Runs detection on the passed nodes/edges in an in-memory throwaway graph on
         the engine — no tenant load, no persistence. Eliminates the bulk-load
         round-trip + comm-tenant churn of the load-then-detect pattern.
+
+        EH-314: ``edges`` is ``(source, target, weight)`` -- the engine wire
+        method now carries a per-edge weight and a ``quality`` selector
+        (``"modularity"`` default or ``"cpm"``, EH-283) instead of the bare
+        unweighted pairs it used to accept. Pass ``1.0`` for an edge with no
+        known confidence to reproduce the pre-EH-314 uniform-weight result.
         """
         return self._client.graph.community_detect_ephemeral(
-            node_ids, edges, resolution
+            node_ids, edges, resolution, quality
         )
 
     def betweenness_centrality(self) -> list[tuple[str, float]]:

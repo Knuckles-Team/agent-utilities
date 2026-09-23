@@ -12,6 +12,7 @@ from agent_utilities.knowledge_graph.enrichment.models import (
     EdgeRung,
     EnrichmentEdge,
     dedupe_edges_by_rung,
+    run_ladder,
     rung_may_overwrite,
 )
 
@@ -93,3 +94,54 @@ def test_edge_defaults_to_unknown_rung_and_no_confidence():
     e = EnrichmentEdge(source="a", target="b", rel_type="X")
     assert e.rung is EdgeRung.UNKNOWN
     assert e.confidence is None
+
+
+# ── EH-270: run_ladder (the cost ladder's EXECUTION half) ───────────────────
+
+
+def test_run_ladder_returns_the_first_non_abstaining_producer():
+    assert run_ladder(
+        [lambda: None, lambda: "cheap answer", lambda: "never reached"]
+    ) == ("cheap answer")
+
+
+def test_run_ladder_never_invokes_a_higher_rung_once_a_lower_one_answers():
+    """KNOWN-BAD-input proof (build contract §3): if a cheap rung's answer were
+    merely PREFERRED rather than actually short-circuiting the ladder, this
+    spy would still be called and the test would catch it."""
+    calls: list[str] = []
+
+    def expensive() -> str:
+        calls.append("expensive")
+        return "expensive answer"
+
+    result = run_ladder([lambda: "cheap answer", expensive])
+    assert result == "cheap answer"
+    assert calls == [], (
+        "an EMBEDDED/ASSERTED-tier producer must never run once a cheaper rung answered"
+    )
+
+
+def test_run_ladder_falls_through_abstaining_producers_in_order():
+    order: list[str] = []
+
+    def rung(name: str, value: str | None):
+        def _produce() -> str | None:
+            order.append(name)
+            return value
+
+        return _produce
+
+    result = run_ladder(
+        [rung("extracted", None), rung("inferred", None), rung("derived", "found it")]
+    )
+    assert result == "found it"
+    assert order == ["extracted", "inferred", "derived"]
+
+
+def test_run_ladder_returns_none_when_every_rung_abstains():
+    assert run_ladder([lambda: None, lambda: None]) is None
+
+
+def test_run_ladder_on_an_empty_ladder_abstains():
+    assert run_ladder([]) is None

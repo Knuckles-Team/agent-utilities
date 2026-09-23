@@ -7,9 +7,13 @@ logic lives here.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from enum import IntEnum
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
+
+_T = TypeVar("_T")
 
 
 class CodeEntity(BaseModel):
@@ -183,6 +187,37 @@ def dedupe_edges_by_rung(edges: list[EnrichmentEdge]) -> list[EnrichmentEdge]:
         elif rung_may_overwrite(current.rung, e.rung):
             best[key] = e
     return [best[k] for k in order]
+
+
+def run_ladder(producers: Iterable[Callable[[], _T | None]]) -> _T | None:
+    """EH-270: the ingestion cost ladder's EXECUTION rule — the half
+    :func:`rung_may_overwrite`/:func:`dedupe_edges_by_rung` don't cover.
+
+    Those two already give the ladder's DATA-MODEL half: once a rung's fact
+    is on record, nothing less certain may replace it. What was still
+    missing is the ORDERING half the ledger names in the same sentence: "a
+    higher rung runs only when every lower rung abstains" — i.e. an
+    EMBEDDED/ASSERTED-tier (expensive) producer must never even be INVOKED
+    while a cheaper EXTRACTED/INFERRED/DERIVED-tier one has already answered.
+
+    ``producers`` is an iterable of zero-argument callables, deliberately NOT
+    already-computed values, ordered cheapest/most-certain rung first
+    (mirroring EH-270's EXTRACTED/INFERRED/DERIVED/MODELED/EMBEDDED/ASSERTED
+    ladder — see ``architecture/INGESTION-ECONOMICS-DESIGN.md`` §1). Each is
+    called in turn; the first to return a non-``None`` value ABSTAINS the
+    rest — laziness is the entire point, since a callable that is never
+    called can never run its (possibly expensive) work. A producer returns
+    ``None`` to ABSTAIN, exactly like :class:`EnrichmentEdge.confidence`'s
+    "None is an explicit abstain, never fabricated" contract; it never
+    raises to signal "no answer".
+
+    Returns ``None`` only when every producer abstained.
+    """
+    for produce in producers:
+        value = produce()
+        if value is not None:
+            return value
+    return None
 
 
 class EnrichmentEdge(BaseModel):

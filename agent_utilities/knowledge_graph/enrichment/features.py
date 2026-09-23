@@ -133,14 +133,19 @@ def cluster_features(
     return features
 
 
-def _strip_confidence(
+def _weighted_edges(
     edges: list[tuple[str, str, float | None]],
-) -> list[tuple[str, str]]:
-    """Plain (source, target) pairs for the ``CommunityDetectEphemeral`` wire
-    method, which has no properties/weight slot at all (EH-284/EH-274) --
-    extracted so ``make_community_fn``'s closure stays at its pre-EH-284
-    complexity (the comprehension itself, not a branch, was the delta)."""
-    return [(src, tgt) for src, tgt, _confidence in edges]
+) -> list[tuple[str, str, float]]:
+    """``(source, target, weight)`` triples for the ``CommunityDetectEphemeral``
+    wire method (EH-314), which now carries a per-edge weight. A ``None``
+    confidence (the Python-side name-only fallback resolver never computes
+    one -- EH-284/EH-274) defaults to the pre-EH-284 uniform weight ``1.0``
+    rather than fabricating a value; a real resolver confidence (0.95 scoped
+    down to 0.60 unique) rides straight through."""
+    return [
+        (src, tgt, confidence if confidence is not None else 1.0)
+        for src, tgt, confidence in edges
+    ]
 
 
 def _call_edge_properties(confidence: float | None) -> dict[str, Any]:
@@ -174,20 +179,18 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
         # the GC/dedicated-engine work was compensating for. Falls back to the
         # tenant-load path below on any error or against an older engine. (KG-2.58)
         #
-        # EH-284/EH-274: ``CommunityDetectEphemeral``'s wire method is
-        # ``edges: Vec<(String, String)>`` (epistemic-graph
-        # ``eg-types/src/protocol/method/method_02.rs``) with NO properties/weight
-        # slot at all — the handler builds every ephemeral edge with
-        # ``Vec::new()`` properties (``server/handlers/graph_ops/algorithms.rs``).
-        # So confidence CANNOT reach this call without an engine-side wire-protocol
-        # change; it is dropped here, not lost by an AU oversight. This is the path
-        # actually taken whenever the engine advertises it (i.e. almost always in
-        # production), so EH-284's confidence weighting is INERT on this branch
-        # until that protocol gap is closed on the epistemic-graph side.
+        # EH-314: ``CommunityDetectEphemeral``'s wire method now carries a
+        # per-edge weight (``edges: Vec<(String, String, f64)>``, epistemic-graph
+        # ``eg-types/src/protocol/method/method_02.rs``), closing the protocol
+        # gap that used to force dropping ``confidence`` on this path (this is
+        # the path actually taken whenever the engine advertises it — i.e.
+        # almost always in production). EH-284's resolver confidence (0.95
+        # scoped down to 0.60 unique) rides through as that weight, so a
+        # community binds harder on edges the resolver is more certain about.
         ephemeral = getattr(graph_compute, "community_detect_ephemeral", None)
         if ephemeral is not None:
             try:
-                return ephemeral(node_ids, _strip_confidence(edges), resolution)
+                return ephemeral(node_ids, _weighted_edges(edges), resolution)
             except Exception as e:  # noqa: BLE001 — degrade to the tenant-load path
                 logger.debug(
                     "ephemeral community detect failed (%s); tenant-load fallback", e
