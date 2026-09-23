@@ -47,6 +47,8 @@ _MD_INLINE_RE = re.compile(r"`[^`\n]*`")
 def _strip_markdown_code(text: str) -> str:
     """Return *text* with fenced blocks and inline code spans removed."""
     return _MD_INLINE_RE.sub("", _MD_FENCE_RE.sub("", text))
+
+
 SKIP_DIRS = {
     ".git",
     ".venv",
@@ -124,7 +126,12 @@ def _binary_violations(path: Path, rel: Path) -> list[str]:
 
 
 def scan(root: Path) -> list[str]:
-    violations: list[str] = []
+    # A reviewed generated artifact (the target's `.config/generated-artifacts.toml`)
+    # whose bytes equal its pinned sha256 is exempt from the binary-size cap; a
+    # missing or changed one is itself a violation.
+    from scripts.generated_artifacts import verify as verify_generated_artifacts
+
+    generated, violations = verify_generated_artifacts(root)
     for path in _candidate_files(root):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
@@ -134,7 +141,7 @@ def scan(root: Path) -> list[str]:
         violations.extend(_name_violations(path.name, rel))
         if path.suffix in TEXT_SUFFIXES:
             violations.extend(_text_violations(path, rel))
-        else:
+        elif rel.as_posix() not in generated:
             violations.extend(_binary_violations(path, rel))
     return violations
 
