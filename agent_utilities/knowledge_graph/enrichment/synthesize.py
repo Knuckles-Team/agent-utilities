@@ -114,13 +114,12 @@ def _assembled_agent(goal: str, llm_fn: LLMFn) -> AgentSpec | None:
     )
 
     assembled = assemble_goal(goal, llm_task_mapper(llm_fn))
-    agent = None if assembled is None else assembled.agent
-    if agent is None:
+    if assembled is None or assembled.agent is None:
         return None
     return AgentSpec(
         goal=goal,
         description=f"assembled by EG ({assembled.reason})",
-        **spec_fields(agent),
+        **spec_fields(assembled.agent),
     )
 
 
