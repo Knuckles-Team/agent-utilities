@@ -31,6 +31,7 @@ from agent_utilities.api.agent_control_contracts import (
     SignedAgentDispatchPort,
     SignedAgentDispatchReceipt,
     SignedAgentDispatchRequest,
+    TaskClassificationClaim,
     TaskIri,
     WorkItemCancelRequest,
     WorkItemGetRequest,
@@ -317,11 +318,35 @@ class AgentControlPlane:
     async def resolve_capability(
         self, request: CapabilitySearchRequest
     ) -> CapabilityResolution:
-        """Return only a capability authorized by the injected EG search port."""
+        """Return only a capability authorized by the injected EG search port.
+
+        EH-206: when the caller supplies neither a typed ``task_iri`` nor an
+        ``agent_name``, ``request.task`` (free text) is otherwise guaranteed
+        no match (``EgCapabilitySearch`` only ever searches EG by a typed
+        task term or a resolved agent name -- free text never reaches EG).
+        Before searching, a deterministic, LLM-free classification is
+        attempted over the free text
+        (:func:`agent_utilities.api.task_classification.classify_task_text`);
+        on a confident match the search proceeds against the PROPOSED
+        ``task_iri`` and the classification travels with the result as a
+        LABELLED CLAIM (:class:`TaskClassificationClaim`, never a proof --
+        DECISIONS.md 2026-09-17 afternoon). An abstention (``None``) leaves
+        this method in its prior behavior: the search still runs with no
+        task IRI and no agent name, which yields no candidates.
+        """
         if not isinstance(request, CapabilitySearchRequest):
             raise TypeError("request must be a validated CapabilitySearchRequest")
         session = self._verified_session("kg:read")
         port = self._require_port(self._capability_search, "capability-search")
+
+        task_claim: TaskClassificationClaim | None = None
+        if request.task_iri is None and request.agent_name is None:
+            from agent_utilities.api.task_classification import classify_task_text
+
+            task_claim = classify_task_text(request.task)
+            if task_claim is not None:
+                request = request.model_copy(update={"task_iri": task_claim.task_iri})
+
         with self._verified_client_context(session):
             candidates = tuple(await port.search(request, session=session))
         if any(not isinstance(item, CapabilityCandidate) for item in candidates):
@@ -350,6 +375,7 @@ class AgentControlPlane:
             score=selected.score,
             source="caller" if request.agent_name is not None else "eg_search",
             alternatives=tuple(ranked[1:4]),
+            task_claim=task_claim,
         )
 
     async def _prepare_agent_task(
