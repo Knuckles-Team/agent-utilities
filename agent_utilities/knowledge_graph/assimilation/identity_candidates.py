@@ -109,7 +109,11 @@ __all__ = [
 #: The ONE generic fallback identifier-field set used when no active pack
 #: declares an `IdentityRule` for a record's `kind` — a last resort, not a
 #: per-corpus rule (Configuration discipline: one correct default).
-GENERIC_IDENTIFIER_FIELDS: frozenset[str] = frozenset({"cmdb_id", "external_id", "id"})
+#: ``wikidata_id`` is the QID world-reference-mcp's alignment stream attaches
+#: (EH-362): a shared Wikidata item is exact-identifier evidence.
+GENERIC_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
+    {"cmdb_id", "external_id", "id", "wikidata_id"}
+)
 
 
 def _now_iso() -> str:

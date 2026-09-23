@@ -28,6 +28,15 @@ def _number(name: str) -> dict[str, Any]:
     }
 
 
+def _imputed(name: str, q32: int) -> dict[str, Any]:
+    """A number whose absence is a DECLARED, recorded imputation (not a silent zero)."""
+    return {
+        "name": name,
+        "kind": {"feature": "number", "key": name},
+        "missing": {"missing": "impute", "value": {"scale": "q32", "value": q32}},
+    }
+
+
 def _text(name: str, key: str, param: str) -> dict[str, Any]:
     return {
         "name": name,
@@ -45,7 +54,7 @@ _FEATURES: dict[str, list[dict[str, Any]]] = {
     ],
     "au.ingestion.lane": [_number("classifier"), _number("llm_passes")],
     "au.enrichment.schedule": [_number("declared_cost"), _number("expected_yield")],
-    "au.entity.same_as": [_number("similarity"), _number("wikidata_match")],
+    "au.entity.same_as": [_number("similarity"), _imputed("wikidata_match", 0)],
     "au.schema.mapping": [_text("label", "label", "column")],
     "au.tms.contradiction": [_number("confidence"), _number("support")],
     "au.route.choice": [_number("prior"), _number("reward")],
