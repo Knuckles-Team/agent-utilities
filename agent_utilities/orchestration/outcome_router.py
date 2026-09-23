@@ -64,7 +64,28 @@ class OutcomeRouter:
         return self._id(task_class, choice)
 
     def select(self, task_class: str, prior: str, candidates: tuple[str, ...]) -> str:
-        """Return the chosen candidate: the heuristic ``prior`` nudged by the learned reward-EMA.
+        """Return the chosen candidate, decided by EG ``Decide`` first (EH-035).
+
+        The candidates, the prior and each learned reward go to EG's decision
+        ladder as declared claims (``au.route.choice``); when EG does not decide
+        (unbound point, abstention, engine unavailable) :meth:`heuristic_select`
+        answers exactly as before, and the EG record is kept either way.
+        """
+        from agent_utilities.decide.consumers.routing import route_choice
+
+        rewards = {c: self.reward_of(task_class, c) for c in candidates}
+        return route_choice(
+            self._ns,
+            task_class,
+            prior,
+            rewards,
+            lambda: self.heuristic_select(task_class, prior, candidates),
+        )
+
+    def heuristic_select(
+        self, task_class: str, prior: str, candidates: tuple[str, ...]
+    ) -> str:
+        """The deterministic fallback: the heuristic ``prior`` nudged by the learned reward-EMA.
 
         ``score(c) = (prior_bias if c is the prior else 0) + reward_of(c)``. Early (all EMA at the
         0.5 neutral default) the prior wins; as outcomes accumulate the EMA can flip it, and an
