@@ -82,7 +82,7 @@ repos:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: 1d12b14a9f51c889316591c6314f4fc835660870 # public docs contract; gate inputs under .config/
+  rev: main # sanctioned exception to immutable pins; public docs contract; gate inputs under .config/
   hooks:
   - id: public-surface
     stages: [pre-commit, pre-push, manual]

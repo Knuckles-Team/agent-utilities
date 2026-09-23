@@ -91,6 +91,94 @@ def test_vcs_revision_contract_accepts_only_full_commit() -> None:
     )
 
 
+_PIPELINES_SHA = "1d12b14a9f51c889316591c6314f4fc835660870"
+
+
+def test_pipelines_workflow_reference_at_main_is_accepted() -> None:
+    findings = POLICY._workflow_findings(
+        "repo",
+        PurePosixPath(".github/workflows/pages.yml"),
+        "permissions:\n  contents: read\njobs:\n  pages:\n"
+        "    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main\n",
+    )
+    assert findings == []
+
+
+def test_pipelines_workflow_reference_pinned_to_a_sha_is_rejected() -> None:
+    findings = POLICY._workflow_findings(
+        "repo",
+        PurePosixPath(".github/workflows/pages.yml"),
+        "permissions:\n  contents: read\njobs:\n  pages:\n"
+        f"    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@{_PIPELINES_SHA}\n",
+    )
+    assert [f.rule for f in findings] == ["SC-GHA-010"]
+
+
+def test_third_party_workflow_reference_still_requires_a_sha() -> None:
+    findings = POLICY._workflow_findings(
+        "repo",
+        PurePosixPath(".github/workflows/ci.yml"),
+        "permissions:\n  contents: read\njobs:\n  x:\n    uses: someorg/other-action@v4\n",
+    )
+    assert [f.rule for f in findings] == ["SC-GHA-001"]
+
+
+def test_pipelines_precommit_hook_pinned_to_main_is_accepted() -> None:
+    findings = POLICY._precommit_findings(
+        "repo",
+        PurePosixPath(".config/pre-commit.yaml"),
+        "repos:\n- repo: https://github.com/Knuckles-Team/pipelines\n  rev: main\n  hooks:\n  - id: x\n",
+    )
+    assert findings == []
+
+
+def test_pipelines_precommit_hook_pinned_to_a_sha_is_rejected() -> None:
+    findings = POLICY._precommit_findings(
+        "repo",
+        PurePosixPath(".config/pre-commit.yaml"),
+        f"repos:\n- repo: https://github.com/Knuckles-Team/pipelines\n  rev: {_PIPELINES_SHA}\n  hooks:\n  - id: x\n",
+    )
+    assert [f.rule for f in findings] == ["SC-HOOK-003"]
+
+
+def test_third_party_precommit_hook_still_requires_a_sha() -> None:
+    findings = POLICY._precommit_findings(
+        "repo",
+        PurePosixPath(".config/pre-commit.yaml"),
+        "repos:\n- repo: https://github.com/example/hooks\n  rev: v1.0.0\n  hooks:\n  - id: x\n",
+    )
+    assert [f.rule for f in findings] == ["SC-HOOK-001"]
+
+
+def test_pipelines_dependency_pinned_to_main_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "x"\nversion = "0"\n'
+        'dependencies = ["pipelines-hooks @ git+https://github.com/Knuckles-Team/pipelines@main"]\n',
+        encoding="utf-8",
+    )
+    findings = POLICY._dependency_findings(
+        "repo", tmp_path, (pyproject, tmp_path / "uv.lock")
+    )
+    assert findings == []
+
+
+def test_pipelines_dependency_pinned_to_a_sha_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "x"\nversion = "0"\n'
+        "dependencies = [\"pipelines-hooks @ git+https://github.com/Knuckles-Team/pipelines@"
+        f'{_PIPELINES_SHA}"]\n',
+        encoding="utf-8",
+    )
+    findings = POLICY._dependency_findings(
+        "repo", tmp_path, (pyproject, tmp_path / "uv.lock")
+    )
+    assert [f.rule for f in findings] == ["SC-DEP-005"]
+
+
 def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

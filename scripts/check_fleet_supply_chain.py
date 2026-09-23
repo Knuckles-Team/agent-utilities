@@ -69,6 +69,19 @@ _SNAPSHOT_WORKSPACE_SIBLINGS_DIRECTORY = ".uv-workspace-siblings"
 ACTION_SHA_RE = re.compile(r"^[^/@\s]+/[^@\s]+@[0-9a-fA-F]{40}$")
 CONTAINER_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}(?:$|\s)")
 EXTERNAL_USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
+# Knuckles-Team/pipelines is the one sanctioned exception to every immutable-
+# pin rule below: every repository references it at `main`, never a commit
+# SHA or tag (operator ruling, plans/refactor/DECISIONS.md). A pin of
+# pipelines to anything else is a rejected finding, not a tolerated one --
+# mirrors pipelines_hooks/supply_chain/{workflows,precommit,dependencies}.py.
+PIPELINES_RE = re.compile(r"^Knuckles-Team/pipelines(?:/|$)", re.IGNORECASE)
+PIPELINES_HOOK_REPO_RE = re.compile(
+    r"^https://github\.com/Knuckles-Team/pipelines(?:\.git)?/?$", re.IGNORECASE
+)
+PIPELINES_VCS_RE = re.compile(
+    r"git\+https://github\.com/Knuckles-Team/pipelines(?:\.git)?@([^\s#&]+)",
+    re.IGNORECASE,
+)
 NETWORK_TO_SHELL_RE = re.compile(
     r"(?:curl|wget)\b[^\n|]*\|\s*(?:/bin/)?(?:ba|z|k)?sh\b", re.IGNORECASE
 )
@@ -543,11 +556,25 @@ def _workflow_findings(
     display = relative.as_posix()
     for match in EXTERNAL_USES_RE.finditer(text):
         reference = match.group(1)
+        repository, _, ref = reference.rpartition("@")
+        if PIPELINES_RE.match(repository) and ref != "main":
+            findings.append(
+                Finding(
+                    label,
+                    display,
+                    _line_number(text, match.start()),
+                    "SC-GHA-010",
+                    "Knuckles-Team/pipelines must be referenced at main; a pinned commit SHA or tag is rejected",
+                )
+            )
+            continue
         valid = reference.startswith("./")
         if reference.startswith("docker://"):
             valid = bool(
                 CONTAINER_DIGEST_RE.search(reference.removeprefix("docker://") + " ")
             )
+        elif PIPELINES_RE.match(repository):
+            valid = True  # ref == "main", accepted above
         elif not valid:
             valid = bool(ACTION_SHA_RE.fullmatch(reference))
         if not valid:
@@ -706,19 +733,30 @@ def _precommit_findings(
     findings: list[Finding] = []
     display = relative.as_posix()
     pending: tuple[int, str] | None = None
+
+    def _missing_revision_finding(entry: tuple[int, str]) -> Finding:
+        line_number, repository = entry
+        if PIPELINES_HOOK_REPO_RE.match(repository):
+            return Finding(
+                label,
+                display,
+                line_number,
+                "SC-HOOK-003",
+                "Knuckles-Team/pipelines pre-commit hook must be pinned to rev: main; a commit SHA or tag is rejected",
+            )
+        return Finding(
+            label,
+            display,
+            line_number,
+            "SC-HOOK-001",
+            "external pre-commit hook repository has no immutable revision",
+        )
+
     for line_number, line in enumerate(text.splitlines(), 1):
         repository_match = re.match(r"^\s*-\s*repo:\s*([^\s#]+)", line)
         if repository_match:
             if pending is not None:
-                findings.append(
-                    Finding(
-                        label,
-                        display,
-                        pending[0],
-                        "SC-HOOK-001",
-                        "external pre-commit hook repository has no immutable revision",
-                    )
-                )
+                findings.append(_missing_revision_finding(pending))
             repository = repository_match.group(1).strip("\"'")
             pending = (
                 None if repository in {"local", "meta"} else (line_number, repository)
@@ -729,7 +767,19 @@ def _precommit_findings(
         revision_match = re.match(r"^\s*rev:\s*([^\s#]+)", line)
         if revision_match:
             revision = revision_match.group(1).strip("\"'")
-            if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
+            _, repository = pending
+            if PIPELINES_HOOK_REPO_RE.match(repository):
+                if revision != "main":
+                    findings.append(
+                        Finding(
+                            label,
+                            display,
+                            line_number,
+                            "SC-HOOK-003",
+                            "Knuckles-Team/pipelines pre-commit hook must be pinned to rev: main; a commit SHA or tag is rejected",
+                        )
+                    )
+            elif not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
                 findings.append(
                     Finding(
                         label,
@@ -741,15 +791,7 @@ def _precommit_findings(
                 )
             pending = None
     if pending is not None:
-        findings.append(
-            Finding(
-                label,
-                display,
-                pending[0],
-                "SC-HOOK-001",
-                "external pre-commit hook repository has no immutable revision",
-            )
-        )
+        findings.append(_missing_revision_finding(pending))
 
     for match in re.finditer(
         r"additional_dependencies:\s*\[([^\]]*)\]", text, re.DOTALL
@@ -1081,6 +1123,20 @@ def _dependency_findings(
                         )
 
             for dependency in dependency_values:
+                offset = pyproject_text.find(dependency)
+                pipelines_ref = PIPELINES_VCS_RE.search(dependency)
+                if pipelines_ref is not None:
+                    if pipelines_ref.group(1) != "main":
+                        findings.append(
+                            Finding(
+                                label,
+                                "pyproject.toml",
+                                _line_number(pyproject_text, max(offset, 0)),
+                                "SC-DEP-005",
+                                "Knuckles-Team/pipelines dependency must be pinned to @main; a commit SHA or tag is rejected",
+                            )
+                        )
+                    continue
                 casefolded = dependency.casefold()
                 unsafe_vcs = "git+" in casefolded and (
                     "git+https://" not in casefolded
@@ -1091,7 +1147,6 @@ def _dependency_findings(
                 ) and (" @ https://" not in casefolded or "#sha256=" not in casefolded)
                 if not unsafe_vcs and not unsafe_archive:
                     continue
-                offset = pyproject_text.find(dependency)
                 findings.append(
                     Finding(
                         label,
