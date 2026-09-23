@@ -174,6 +174,18 @@ def test_lane_guard_allows_a_pure_bumpversion_commit(canonical: Path) -> None:
     assert clg._check_canonical(scope, staged=["pyproject.toml"]) is None
 
 
+def test_lane_guard_allows_a_pure_bump_from_a_relocated_config(canonical: Path) -> None:
+    (canonical / ".config").mkdir()
+    (canonical / ".config" / "bumpversion.cfg").write_text(
+        "[bumpversion:file:pyproject.toml]\n", encoding="utf-8"
+    )
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    staged = ["pyproject.toml", ".config/bumpversion.cfg"]
+    assert clg._check_canonical(scope, staged=staged) is None
+    assert clg._check_canonical(scope, staged=[*staged, "other.py"]) is not None
+
+
 def test_guard_allows_the_canonical_merge_back(canonical: Path) -> None:
     """The one sanctioned canonical mutation, detected from git's own state."""
     head = _run(["git", "rev-parse", "HEAD"], canonical)

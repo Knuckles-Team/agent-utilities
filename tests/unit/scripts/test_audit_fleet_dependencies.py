@@ -91,3 +91,22 @@ def test_single_source_snapshot_rejects_symlink(tmp_path: Path) -> None:
 
     with pytest.raises(module.AuditError, match="must be a directory"):
         module._single_source_snapshot(link)
+
+
+@pytest.mark.parametrize(
+    "ledger", [".config/security-audit-allow.txt", ".security-audit-allow.txt"]
+)
+def test_acceptances_are_read_from_either_ledger_location(
+    tmp_path: Path, ledger: str
+) -> None:
+    import datetime as dt
+
+    module = _module()
+    expiry = dt.date.today() + dt.timedelta(days=10)
+    (tmp_path / ledger).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / ledger).write_text(
+        f"OSV-EXAMPLE example-name expires={expiry.isoformat()} # Reviewed temporary exposure.\n",
+        encoding="utf-8",
+    )
+
+    assert len(module.load_acceptances(tmp_path)) == 1

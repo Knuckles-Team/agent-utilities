@@ -4,7 +4,9 @@
 The gate has no project-runtime dependencies.  It parses the lock with
 ``tomllib``, queries the fixed OSV HTTPS API, bounds every request/response, and
 fails for every affected dependency unless an exact advisory/package pair has a
-short-lived, justified risk acceptance in ``.security-audit-allow.txt``.
+short-lived, justified risk acceptance in ``.config/security-audit-allow.txt``
+(a repository that has not moved its root tool configuration keeps a root
+``.security-audit-allow.txt``).
 
 TLS trust remains an environment concern: ``SSL_CERT_FILE`` or
 ``REQUESTS_CA_BUNDLE`` may point at a complete PEM bundle and ``SSL_CERT_DIR``
@@ -137,8 +139,12 @@ def load_acceptances(root: pathlib.Path) -> dict[tuple[str, str], RiskAcceptance
     Broad package-only suppressions are deliberately rejected.
     """
 
-    path = root / ".security-audit-allow.txt"
-    if not path.exists():
+    ledgers = (
+        root / ".config" / "security-audit-allow.txt",
+        root / ".security-audit-allow.txt",
+    )
+    path = next((ledger for ledger in ledgers if ledger.exists()), None)
+    if path is None:
         return {}
     if path.is_symlink() or path.stat().st_size > 1024 * 1024:
         raise AuditError("security acceptance ledger is unavailable or too large")

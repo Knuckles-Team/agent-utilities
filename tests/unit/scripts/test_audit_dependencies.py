@@ -81,6 +81,19 @@ def test_acceptance_requires_exact_advisory_and_short_expiry(tmp_path: Path) -> 
     assert set(accepted) == {("osv-example", "example-name")}
 
 
+def test_acceptances_are_read_from_the_relocated_ledger(tmp_path: Path) -> None:
+    expiry = dt.date.today() + dt.timedelta(days=10)
+    (tmp_path / ".config").mkdir()
+    (tmp_path / ".config" / "security-audit-allow.txt").write_text(
+        f"OSV-EXAMPLE example-name expires={expiry.isoformat()} # Reviewed temporary exposure.\n",
+        encoding="utf-8",
+    )
+
+    accepted = dependency_audit.load_acceptances(tmp_path)
+
+    assert set(accepted) == {("osv-example", "example-name")}
+
+
 @pytest.mark.parametrize(
     "declaration",
     [
