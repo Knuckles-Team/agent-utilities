@@ -72,20 +72,25 @@ meta-tool (`find_tools`/`list_catalog`/`load_tools`/`unload_tools`/`multiplexer_
   (`tests/unit/mcp/test_protocol_compat_sdk_floor.py`) that fails the moment this repo's
   own lock resolves an `mcp`/`fastmcp` pair that no longer satisfies the declared floor.
 
-## The dependency-graph fix: `[tool.uv] override-dependencies`
+## The dependency-graph policy: a constraint, not an override (EH-221)
 
-`fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]==4.0.0b1`. The workspace
-override keeps the explicit FastMCP-4 policy for consumers that do not carry AU's direct
-floor. **Both `client` and `server` extras must be listed** — uv's override
-replaces the entire requirement (extras included) for every requester of `fastmcp-slim`,
-including `fastmcp`'s own `server`-extra pin that `agent_utilities/mcp/server_factory.py`
-needs (`from fastmcp import FastMCP/Context`). An earlier draft of this override listing
-only `[client]` silently broke every server-side fastmcp import project-wide; caught by
-installing the full `agent-runtime` extra into a real venv before landing.
+`fastmcp` 4 is a metadata shell that pins its code distribution exactly
+(`fastmcp==4.0.5` requires `fastmcp-slim[client,server]==4.0.5`). The workspace used to
+force FastMCP 4 with an `override-dependencies` entry on `fastmcp-slim`. An override
+replaces the entire requirement for every requester of `fastmcp-slim` — including
+`fastmcp`'s own exact pin — so the lock resolved `fastmcp` 4.0.5 metadata over
+`fastmcp-slim` 4.0.0b2 code, and any check that read only `fastmcp`'s version reported
+that skewed runtime as green.
 
-## Where the override must ALSO be applied: image builds (D-OB-18)
+The policy is now `[tool.uv] constraint-dependencies = ["fastmcp-slim>=4.0.0b1"]`. A
+constraint only narrows the allowed versions; `fastmcp`'s exact pin and its extras still
+apply. No Pydantic-AI cap remains to work around: `pydantic-ai-slim` 2.29.0's `mcp` extra
+declares `fastmcp-slim[client]>=3.3.0,<5`. `check_mcp_sdk_floor()` additionally fails when
+the installed `fastmcp-slim` does not satisfy the pin that the installed `fastmcp` declares.
 
-The workspace root's `override-dependencies` fixes the *workspace* resolution. It does
+## Image builds resolve the same requirements (D-OB-18)
+
+The workspace dependency policy fixes the *workspace* resolution. It does
 nothing for a container image, and that gap ran unnoticed long enough for the deployed
 runtime to sit a full major version below the floor its own source declares.
 
@@ -107,17 +112,19 @@ failed, because au source is bind-mounted over the image (`PYTHONPATH=/au`) whil
 meta-tool: `find_tools`, `load_tools`, `list_catalog`, `unload_tools`,
 `multiplexer_status`.
 
-The fix is to carry the override into the build by the same mechanism:
+The fix is to resolve the build from the same requirements with uv:
 
 * `overrides.txt` (repo root) is the build-side **mirror** of the workspace root's
-  `override-dependencies`. `docker/Dockerfile` already wires it via `UV_OVERRIDE`;
-  `docker/graphos-unified.Dockerfile` passes it as `uv pip install --override`.
+  `override-dependencies`. `docker/Dockerfile` wires it via `UV_OVERRIDE`;
+  `docker/graphos-unified.Dockerfile` passes it as `uv pip install --override`. Since
+  EH-221 it carries no FastMCP entry: the build's explicit `fastmcp>=4.0.0b1` requirement
+  and `fastmcp`'s exact `fastmcp-slim` pin select FastMCP 4 coherently.
 * `--no-sources` is what makes uv usable in an isolated context at all — it ignores the
   `[tool.uv.sources] { workspace = true }` entries (epistemic-graph, langfuse-agent) that
   previously forced the build onto plain pip, while `--find-links` keeps
   `epistemic-graph[full]` pinned to the staged kernel-injected wheel.
-* No blanket `--prerelease=allow`: the `>=4.0.0b1` override is itself the explicit
-  prerelease signal uv needs for that one package. A global prerelease mode bleeds
+* No blanket `--prerelease=allow`: the explicit `fastmcp>=4.0.0b1` requirement is itself
+  the prerelease signal uv needs for that one package. A global prerelease mode bleeds
   (verified: it pulled `sqlalchemy 2.1.0b3`).
 
 **Keep `overrides.txt` in sync with the workspace root whenever that table changes.**

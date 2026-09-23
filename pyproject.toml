@@ -1178,26 +1178,20 @@ override-dependencies = [
     # PYSEC-2026-3844..3849.
     "httpx2>=2.12.0",
     "httpcore2>=2.12.0",
-    # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
-    # `[mcp]` extra above). `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]
-    # ==4.0.0b1`, while pydantic-ai-slim 2.29.0 now declares
-    # `fastmcp-slim[client]<5,>=3.3.0` and natively supports the FastMCP 4
-    # protocol. This workspace-wide override remains the explicit fastmcp-4
-    # policy for image/fleet consumers that do not carry AU's direct floor; it
-    # is no longer compensating for a Pydantic-AI client cap.
-    #
-    # Both `client` and `server` extras MUST be listed here: uv's override
-    # replaces the ENTIRE requirement (extras included) for every requester of
-    # `fastmcp-slim` project-wide, including `fastmcp`'s own metadata pin
-    # (`fastmcp-slim[client,server]==4.0.0b1`) that server-side code
-    # (`agent_utilities/mcp/server_factory.py`, `from fastmcp import Context`)
-    # needs. Verified empirically: an override listing only `[client]` silently
-    # strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
-    # `griffelib`, …) project-wide, breaking every `from fastmcp import
-    # FastMCP/Context` — a real regression this exact override could have
-    # caused, caught only by installing the full `agent-runtime` extra into a
-    # real venv and importing `fastmcp.Context`.
-    "fastmcp-slim[client,server]>=4.0.0b1",
+]
+# CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
+# `[mcp]` extra above). This is a CONSTRAINT, not an override (EH-221). The former
+# `fastmcp-slim[client,server]>=4.0.0b1` override replaced EVERY requirement on
+# `fastmcp-slim` project-wide — including `fastmcp`'s own exact
+# `fastmcp-slim[client,server]==<same version>` pin — so the lock resolved
+# `fastmcp` 4.0.5 metadata over `fastmcp-slim` 4.0.0b2 code, and every floor check
+# that read `fastmcp`'s version reported that skewed runtime as green. A
+# constraint only narrows: `fastmcp`'s exact pin (and its extras) still applies,
+# while this floor keeps any `fastmcp-slim` requester (pydantic-ai-slim's `mcp`
+# extra accepts `>=3.3.0,<5`) off FastMCP 3. No Pydantic-AI cap remains to
+# compensate for: pydantic-ai-slim 2.29.0 declares `fastmcp-slim[client]<5`.
+constraint-dependencies = [
+    "fastmcp-slim>=4.0.0b1",
 ]
 
 # CONCEPT:PHASE2-RECONCILE — searxng has no published wheel for the current
