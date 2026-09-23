@@ -4451,9 +4451,11 @@ def _run_boot_hydration_plan(
     """Run GraphOS boot hydration in its fixed resource-priority order.
 
     1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
-    2. prompts/agent templates;
-    3. package ontologies; and
+    2. prompts/agent templates; and
     4. codebases and configured connectors through their durable delta queues.
+
+    Priority 3 (package ontologies) was retired with the local ontology
+    registry: ontology attach is EG GraphSchema (43197d7c6).
 
     Each step is isolated so a failed optional source cannot prevent later
     priority classes from making progress.
