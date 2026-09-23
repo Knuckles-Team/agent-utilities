@@ -20,19 +20,15 @@ To achieve a fully unified, DB-agnostic memory design, the Event Sourcing framew
 
 Because the `EventNode` type is registered inside our `OWLBridge` promotable set, all events and relationships are automatically promoted to standard RDF OWL classes and reasoned over using Description Logic (HermiT/Stardog).
 
-```mermaid
-graph TD
-    EventNode["EventNode (LPG Instance)"]
-    -->|OWL Promotion| OWLEventClass[":Event Class (owl:Class)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Event lineage</p>
 
-    Event1["Event 2 (e.g., event.success)"]
-    -->|WAS_DERIVED_FROM| Event2["Event 1 (e.g., task.proposed)"]
+An `EventNode` (LPG instance) promotes via OWL promotion to the `:Event`
+class (`owl:Class`). Event 2 (e.g. `event.success`) is `WAS_DERIVED_FROM`
+Event 1 (e.g. `task.proposed`), and Event 2 `OCCURRED_DURING` an
+`EpisodeNode`/`SwarmRun`.
 
-    Event1 -->|OCCURRED_DURING| RunNode["EpisodeNode / SwarmRun"]
-
-    style EventNode fill:#2d3748,stroke:#4a5568,color:#fff
-    style OWLEventClass fill:#1a365d,stroke:#2b6cb0,color:#fff
-```
+</div>
 
 * **Node Classification**: `EventNode` instances promote directly to the OWL class `:Event` (a subclass of `:Observation`).
 * **Lineage & Trajectory**: Chronological event chains are connected via `WAS_DERIVED_FROM` edges. This enables OWL reasoning to trace historical provenance and identify causal bottlenecks.
