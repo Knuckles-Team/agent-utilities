@@ -3180,9 +3180,10 @@ def _get_engine():
     barrier; noncritical bootstrap work remains asynchronous.
     (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
-    from agent_utilities.core.paths import ensure_dirs
-    from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.process_engine import (
+        open_process_engine,
+    )
 
     def _register_runtime_authorities(value: Any) -> Any:
         # Registration is process-owned startup state.  The served callers can
@@ -3199,18 +3200,8 @@ def _get_engine():
         engine = IntelligenceGraphEngine.get_active()
         if engine is not None:
             return _register_runtime_authorities(engine)
-        # First-run: ensure XDG dirs exist and create backend
-        ensure_dirs()
-
-        def _factory():
-            backend = create_backend()
-            return IntelligenceGraphEngine(
-                backend=backend,
-                defer_background_start=True,
-            )
-
         return _register_runtime_authorities(
-            IntelligenceGraphEngine.get_or_create(factory=_factory)
+            open_process_engine(defer_background_start=True)
         )
 
 

@@ -169,8 +169,12 @@ def test_feature_modules_do_not_construct_graph_compute_directly() -> None:
 
 
 def test_feature_modules_do_not_construct_operational_engine_directly() -> None:
-    """Only the GraphOS singleton factory may invoke the engine constructor."""
-    allowed = {Path("mcp/kg_server.py")}
+    """Only the process-engine factory may invoke the engine constructor.
+
+    graph-os MCP and the hosted AU runtime both open the engine through
+    ``core/process_engine.py`` (one construction site, D-WD-7).
+    """
+    allowed = {Path("knowledge_graph/core/process_engine.py")}
     offenders: list[str] = []
     for path in _source_files():
         relative = path.relative_to(_SOURCE_ROOT)
@@ -264,11 +268,15 @@ def test_workitem_claim_backend_has_exactly_one_native_backend() -> None:
 
 
 def test_orchestrator_and_ingestion_tasks_have_distinct_native_queues() -> None:
-    source = (_SOURCE_ROOT / "orchestration" / "work_item.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'queue="orchestrator_task"' in source
-    assert 'kind="ingest_task"' in source
+    """Both submitters live in work_durability since 44b01d517 retired
+    orchestration/work_item.py. An ingest item's queue defaults to its kind."""
+    from agent_utilities.knowledge_graph.core import work_durability
+
+    orchestrator = inspect.getsource(work_durability.submit_orchestrator_work_item)
+    ingest = inspect.getsource(work_durability.ensure_ingest_task_work_item)
+    assert 'queue="orchestrator_task"' in orchestrator
+    assert 'kind="ingest_task"' in ingest
+    assert "queue=" not in ingest
 
 
 def test_served_tool_dispatch_requires_minted_graph_session() -> None:
