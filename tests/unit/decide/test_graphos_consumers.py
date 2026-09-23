@@ -23,7 +23,9 @@ ABSTAINED = {
 
 class _Graphs:
     def __init__(self, result: dict[str, Any]) -> None:
-        self.result, self.requests, self.commits = result, [], []
+        self.result = result
+        self.requests: list[Any] = []
+        self.commits: list[Any] = []
 
     async def assemble(self, request: Any) -> Any:
         self.requests.append(request)
