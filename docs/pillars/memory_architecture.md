@@ -34,31 +34,22 @@ modules: **representation/storage**, **extraction**, **retrieval/routing**, and
 `EpistemicGraphBackend`/HNSW path), so the framing below is a map of existing
 components onto those four roles, not a new subsystem.
 
-```mermaid
-flowchart TB
-    subgraph REP["1 · Representation / storage"]
-        EGB["EpistemicGraphBackend + HNSW<br/>(latent-native embeddings at rest)"]
-        TIERS["Memory Tiers — Episodic / Semantic / Procedural<br/>(KG-2.2 multi-timescale decay)"]
-    end
-    subgraph EXT["2 · Extraction"]
-        ING["Graph-OS ingestion (read → extract → embed → write)<br/>concept / fact / edge extraction"]
-    end
-    subgraph RET["3 · Retrieval / routing"]
-        HYB["Hybrid Retriever (semantic ⊕ keyword)"]
-        CIDX["CapabilityIndex.designate()<br/>(AU-KG.ontology.optional-populated-from ontology-type prior)"]
-        ROUTE["GraphOSRouterMethod<br/>(AU-AHE.harness.callers-feed-back-per family-aware config router)"]
-    end
-    subgraph MNT["4 · Maintenance"]
-        DECAY["Ebbinghaus decay / consolidation<br/>(KG-2.4 Evolving Memory)"]
-        REAP["idle / max-age reapers + compaction"]
-        ERASE["Generation-scoped selective reward erasure<br/>(AU-KG.memory.generation-scoped-selective-reward — provenance, not age)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The four memory roles, mapped onto existing components</p>
 
-    EXT --> REP
-    REP --> RET
-    RET --> MNT
-    MNT -. "promote / decay / forget" .-> REP
-```
+**1 · Representation/storage** — `EpistemicGraphBackend` + HNSW (latent-native
+embeddings at rest) and the Memory Tiers (Episodic/Semantic/Procedural,
+KG-2.2 multi-timescale decay). **2 · Extraction** — Graph-OS ingestion
+(read → extract → embed → write; concept/fact/edge extraction) feeds
+representation/storage. **3 · Retrieval/routing** — the Hybrid Retriever
+(semantic ⊕ keyword), `CapabilityIndex.designate()` (an optional
+ontology-type prior), and `GraphOSRouterMethod` (a family-aware config
+router) all read from representation/storage. **4 · Maintenance** —
+Ebbinghaus decay/consolidation (KG-2.4), idle/max-age reapers +
+compaction, and generation-scoped selective reward erasure (provenance,
+not age) act on what retrieval/routing surfaces, and feed back into
+representation/storage by promoting, decaying, or forgetting entries.
+</div>
 
 ### Generation-scoped selective reward erasure (CONCEPT:AU-KG.memory.generation-scoped-selective-reward)
 
@@ -120,40 +111,23 @@ and whether a learned router beats every single config.
   markdown table: measured results, best-config-per-family, and router-vs-best,
   with the 22 published MemoryData presets stubbed for a future Δ column.
 
-```mermaid
-flowchart LR
-    subgraph DRIVER["MemoryData bake-off (harness/memorydata/)"]
-        BAKE["run_bakeoff()<br/>config × family × task<br/>(AU-AHE.harness.when-outcome-names-agent)"]
-        ADAPT["GraphOSMemoryMethod<br/>memorize / query (AHE-3.71)"]
-        ROUTER["GraphOSRouterMethod<br/>family priors + reward EMA (AU-AHE.harness.callers-feed-back-per)"]
-        CLIENT["MemoryBackendClient<br/>mock | GraphOSRestClient (AHE-3.71)"]
-    end
-    subgraph CONFIGS["6 retrieval configs (RETRIEVAL_CONFIGS)"]
-        C1["graphos_semantic_hnsw"]
-        C2["graphos_bitemporal_asof (as_of)"]
-        C3["graphos_context_plane (explain)"]
-        C4["graphos_latent"]
-        C5["graphos_rlm_facts"]
-        C6["graphos_graph_rerank"]
-    end
-    subgraph GOS["graph-os REST surface"]
-        SRCH["POST /graph/search"]
-        ANALYZE["POST /graph/analyze action=explain"]
-        SESS["POST /graph/ingest_sessions"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">MemoryData bake-off, config-to-REST wiring</p>
 
-    BAKE --> ADAPT
-    BAKE -->|"+ router row"| ROUTER
-    ROUTER --> ADAPT
-    ADAPT -->|"spec per config"| CONFIGS
-    ADAPT --> CLIENT
-    CLIENT --> SRCH
-    CLIENT --> ANALYZE
-    CLIENT --> SESS
-    BAKE --> SCORE["render_scoreboard()<br/>EM / ROUGE-L / Judge<br/>router-vs-best (AU-AHE.harness.ahe-3)"]
-    SCORE -. "vs 22 MemoryData presets" .-> BASE["MEMORYDATA_BASELINES (Δ stub)"]
-    SCORE -->|"per-config reward"| ROUTER
-```
+`run_bakeoff()` drives every config × family × task cell, plus one extra
+row for the router, feeding `GraphOSRouterMethod` (family priors + reward
+EMA) — both the bake-off and the router call `GraphOSMemoryMethod`'s
+`memorize`/`query` contract. That adapter maps each of the 6 retrieval
+configs (`graphos_semantic_hnsw`, `graphos_bitemporal_asof`,
+`graphos_context_plane`, `graphos_latent`, `graphos_rlm_facts`,
+`graphos_graph_rerank`) to a spec, and calls `MemoryBackendClient` (mock or
+`GraphOSRestClient`), which in turn calls graph-os's REST surface:
+`POST /graph/search`, `POST /graph/analyze action=explain`, and
+`POST /graph/ingest_sessions`. The bake-off's results feed
+`render_scoreboard()` (EM/ROUGE-L/Judge, router-vs-best), which compares
+against the 22 published MemoryData baselines (currently a stubbed Δ
+column) and feeds each config's measured reward back into the router.
+</div>
 
 > **Status:** the bake-off ships on `feat/memorydata-bench-and-ingestion-profiling`
 > (concepts AHE-3.71–3.74). It is a measurement module — no MCP surface; it
