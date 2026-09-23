@@ -118,3 +118,75 @@ def test_lifecycle_refuses_legacy_local_semantic_modes() -> None:
             iri="urn:x",
             version="1",
         )
+
+
+class _AttachRefused(_GraphSchema):
+    def graph_schema_attach(self, source_id, **payload):
+        raise RuntimeError("GraphSchema composition rejected")
+
+
+def test_lifecycle_attach_failure_propagates_without_an_active_restatement() -> None:
+    """EH-367 (D-OBC-2): an EG attach failure is raised, never folded into
+    an ``active``/``loaded_to_engine`` status restated from the request."""
+    lifecycle = OntologyLifecycle(_AttachRefused())
+    with pytest.raises(RuntimeError, match="composition rejected"):
+        lifecycle.load(
+            "<urn:a> <urn:p> <urn:b> .", source_type="text", iri="urn:x", version="1"
+        )
+    with pytest.raises(OntologyError, match="inactive"):
+        lifecycle.load(
+            "<urn:a> <urn:p> <urn:b> .",
+            source_type="text",
+            iri="urn:x",
+            version="1",
+            activate=False,
+        )
+
+    receipt = OntologyLifecycle(_GraphSchema()).load(
+        "<urn:a> <urn:p> <urn:b> .", source_type="text", iri="urn:x", version="1"
+    )
+    assert "active" not in receipt
+
+
+def test_lifecycle_untyped_engine_receipt_fails_loudly() -> None:
+    class _Untyped(_GraphSchema):
+        def graph_schema_attach(self, source_id, **payload):
+            return {"changed": True}
+
+    with pytest.raises(OntologyError, match="untyped result"):
+        OntologyLifecycle(_Untyped()).load(
+            "<urn:a> <urn:p> <urn:b> .", source_type="text", iri="urn:x", version="1"
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"category": "domain"}, {"tags": ["x"]}],
+)
+def test_lifecycle_refuses_arguments_it_cannot_honour(kwargs) -> None:
+    lifecycle = OntologyLifecycle(_GraphSchema())
+    with pytest.raises(OntologyError, match="local-registry metadata"):
+        lifecycle.load(
+            "<urn:a> <urn:p> <urn:b> .",
+            source_type="text",
+            iri="urn:x",
+            version="1",
+            **kwargs,
+        )
+
+
+def test_lifecycle_refuses_a_graph_or_tenant_it_cannot_scope_to() -> None:
+    with pytest.raises(OntologyError, match="cannot scope"):
+        OntologyLifecycle(_GraphSchema(), graph_name="tenant:other")
+    with pytest.raises(OntologyError, match="verified graph session"):
+        OntologyLifecycle(_GraphSchema(), tenant="tenant:other")
+
+    scoped = []
+
+    class _Scoping(_GraphSchema):
+        def for_graph(self, graph_name):
+            scoped.append(graph_name)
+            return self
+
+    OntologyLifecycle(_Scoping(), graph_name="tenant:mine")
+    assert scoped == ["tenant:mine"]
