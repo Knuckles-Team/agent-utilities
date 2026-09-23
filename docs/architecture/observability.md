@@ -4,17 +4,19 @@ How MCP services and deployed workloads expose bounded operational signals.
 
 ## Topology
 
-```
-                    ┌──────────── Prometheus (15s) ──────────┐
- node-exporter ─────┤  hosts (global, every node)            │
- cAdvisor ──────────┤  containers (global, every container)  │── rules.yml ─► Alertmanager ─► Mattermost
- MCP /metrics ──────┤  mcp-fleet (generated file-SD targets) │
- blackbox /health ──┤  blackbox-mcp (synthetic probe)        │
-                    └────────────────┬───────────────────────┘
-                                     ▼
- promtail (docker SD) ─► Loki        Grafana (grafana.example, Keycloak OIDC)
- app traces ─► Tempo + Langfuse      provisioned datasources + dashboards
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Collection topology</p>
+
+Four sources scrape into **Prometheus** on a 15s interval: `node-exporter`
+(hosts, global, every node), `cAdvisor` (containers, global, every
+container), MCP `/metrics` (the `mcp-fleet` generated file-SD targets), and
+`blackbox /health` (the `blackbox-mcp` synthetic probe). Prometheus feeds
+`rules.yml`, which drives Alertmanager, which notifies Mattermost.
+Independently, `promtail` (docker service-discovery) ships logs to Loki, and
+app traces go to Tempo + Langfuse. Grafana (at `grafana.example`, behind
+Keycloak OIDC) holds the provisioned datasources and dashboards over all of
+the above.
+</div>
 
 | Signal | Collector | Store | Notes |
 |--------|-----------|-------|-------|
@@ -37,18 +39,19 @@ delaying kubelet. The inner probe pool remains separately bounded. Unauthenticat
 readiness exposes only `ready`/`not_ready`; component detail remains behind the
 authenticated health action and dashboard.
 
-```mermaid
-flowchart LR
-    MCP_L["GraphOS /health"] --> L["status-only liveness"]
-    REST_L["REST /health"] --> L
-    MCP["GraphOS /health/ready"] --> A["collect_health_async()"]
-    REST["REST /health/ready<br/>authenticated dashboard /health"] --> A
-    A --> C["reserved collector executor<br/>2 workers"]
-    C --> H["collect_health()<br/>one truthful report"]
-    H --> P["bounded health-probe pool"]
-    P --> E["engine + configured dependencies"]
-    G["asyncio default executor<br/>models · connectors · backup"] -. "no probe dependency" .-> A
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Reserved health-collector executor</p>
+
+Both `GraphOS /health` and REST `/health` are pure status-only liveness
+checks with no dependencies. Their `/health/ready` twins — and the
+authenticated dashboard's `/health` — instead call
+`collect_health_async()`, which submits the synchronous, truthful
+`collect_health()` core to a **reserved** two-worker collector executor,
+which in turn drives a bounded health-probe pool against the engine and its
+configured dependencies. The asyncio default executor (models, connectors,
+backup) has no dependency on this probe path at all, by construction — it
+cannot starve readiness even when saturated.
+</div>
 
 Self-hosted Langfuse uses the same runtime TLS-profile resolver as every other
 outbound integration. Certificate material, proxy details, endpoints, and keys
@@ -253,48 +256,44 @@ dataset-prompt loop), AU-KG.ingest.observability-queries-opik-cannot (moat queri
 
 ### 1. Always-on capture → the trace subgraph
 
-```mermaid
-flowchart LR
-    subgraph capture["Always-on capture (no vendor key needed)"]
-        dec["@trace / @generation\ndecorators"]
-        mw["create_model wrap\n(WrapperModel, per-LLM-call)"]
-    end
-    dec -->|"_emit_trace"| sink
-    mw -->|"record_event"| sink["KGTraceBackend\n(default sink)"]
-    daemon["host daemon startup\nset_kg_trace_sink()"] -.installs.-> sink
-    sink -->|"add_node + link"| kg[("epistemic-graph")]
-    sink -. fan-out (optional) .-> lf["Langfuse / OTel"]
-    subgraph tracegraph["Trace subgraph in the KG"]
-        T["TraceNode\ninput/output/cost/status"]
-        S["SpanNode"]
-        G["GenerationNode\nmodel/tokens/cost/latency"]
-        T -->|HAS_SPAN| S
-        T -->|HAS_GENERATION| G
-    end
-    kg --- tracegraph
-    pricing["pricing catalog\n(ECO-4.40)"] -.cost.-> G
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Always-on capture (no vendor key needed)</p>
+
+Two capture points need no vendor key: the `@trace`/`@generation`
+decorators (via `_emit_trace`) and the `create_model` wrap's per-LLM-call
+`WrapperModel` (via `record_event`) — both feed the default sink,
+`KGTraceBackend`, which the host daemon installs at startup
+(`set_kg_trace_sink()`). The sink writes into the epistemic-graph KG
+(`add_node` + `link`) and optionally fans out to Langfuse/OTel. Inside the
+KG, the resulting trace subgraph is a `TraceNode` (input/output/cost/status)
+linked `HAS_SPAN` to `SpanNode`s and `HAS_GENERATION` to `GenerationNode`s
+(model/tokens/cost/latency); the pricing catalog (ECO-4.40) supplies each
+generation's cost.
+</div>
 
 ### 2. Online-scoring + evaluation (one judge path for prod + regression)
 
-```mermaid
-flowchart TD
-    T["root trace completes"] -->|on_trace_complete hook| pool["OnlineScoringSampler\n(off hot-path thread pool)"]
-    pool --> sel{"trace large?\n(>12 spans)"}
-    sel -->|yes| tj["tool-judge\n(navigates spans via tools)"]
-    sel -->|no| ij["inline LLM judge\n(EvalRunner._assertion_judge)"]
-    pool --> rules["automation rules"]
-    pool --> regs["regression assertions\n(EvalCorpus.load_cases)"]
-    pool --> metrics["sandboxed Python metrics\n(SandboxedExecutor)"]
-    rules & regs & metrics --> verdict
-    tj & ij --> verdict["OnlineScoreNode /\nAssertionResultNode"]
-    verdict -->|SCORED_BY| T
-    verdict -->|FAILED| corpus["EvalCorpus.add_from_trace\n→ DatasetItemNode(source=trace)"]
-    corpus -->|re-checked on future traces| regs
-    geval["G-Eval\n(logprob-weighted + cached CoT)"] -.alt scorer.-> verdict
-    pv["StructuredPrompt.version()\n→ PromptVersionNode"] -.prompt_version_id.-> verdict
-    llm["vLLM / OpenAI-style"] -.judge calls.-> tj & ij & geval
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Online scoring: one judge path for prod and regression</p>
+
+When a root trace completes, the `on_trace_complete` hook hands it to
+`OnlineScoringSampler`, running off the hot path on its own thread pool. The
+sampler branches on trace size: a large trace (>12 spans) goes to a
+tool-judge that navigates spans via tools; a smaller one goes to an inline
+LLM judge (`EvalRunner._assertion_judge`). In parallel the sampler also
+drives automation rules, regression assertions (`EvalCorpus.load_cases`),
+and sandboxed Python metrics (`SandboxedExecutor`) — all four paths
+(tool-judge, inline judge, rules, regressions, metrics) converge on one
+verdict node, `OnlineScoreNode`/`AssertionResultNode`, which links back to
+the trace as `SCORED_BY`. A `FAILED` verdict additionally creates a
+`DatasetItemNode` from the trace via `EvalCorpus.add_from_trace`, which is
+then re-checked against future traces' regression assertions — turning
+every real failure into a regression case. G-Eval (logprob-weighted, cached
+chain-of-thought) is an alternate scorer feeding the same verdict node, and
+`StructuredPrompt.version()` attaches a `PromptVersionNode` to it. Every
+judge call (tool-judge, inline judge, G-Eval) goes through the same
+vLLM/OpenAI-style model layer.
+</div>
 
 ### 3. Moat queries + the focused graph-os tool suite
 
@@ -302,24 +301,19 @@ Because traces/scores/generations/prompt-versions are KG nodes, the engine answe
 questions an opaque trace store cannot — exposed through **focused, intent-scoped MCP
 tools** (the `graph_analyze` 30-action wall was split so an agent selects by intent):
 
-```mermaid
-flowchart LR
-    subgraph tools["graph-os analyze suite (focused tools)"]
-        gobs["graph_observe"]
-        gcode["graph_code"]
-        gres["graph_research"]
-        gev["graph_evaluate"]
-        gexp["graph_explain"]
-        gana["graph_analyze\n(residual ops/structural)"]
-    end
-    gcode & gres & gev & gexp -->|delegate| core["_execute_tool\n(one action core)"]
-    gobs --> ta["trace_analytics"]
-    ta --> q1["trace_rootcause\n(failures → agent)"]
-    ta --> q2["prompt_regression\n(score per prompt version)"]
-    ta --> q3["failure_cluster\n(systemic breaks)"]
-    q1 & q2 & q3 --> kg[("trace subgraph")]
-    core --> kg
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The focused graph-os analyze suite</p>
+
+The `graph_analyze` 30-action wall was split into six focused, intent-scoped
+tools: `graph_observe`, `graph_code`, `graph_research`, `graph_evaluate`,
+`graph_explain`, and a residual `graph_analyze` for ops/structural actions.
+`graph_code`, `graph_research`, `graph_evaluate`, and `graph_explain` all
+delegate to one shared action core, `_execute_tool`, which reads the trace
+subgraph directly. `graph_observe` instead drives `trace_analytics`, which
+answers three question shapes — `trace_rootcause` (which failures trace back
+to which agent), `prompt_regression` (score per prompt version), and
+`failure_cluster` (systemic breaks) — each reading the same trace subgraph.
+</div>
 
 > Engine-side wirings (Track A bi-temporal `AS OF`, Track C1 hybrid search / rerankers,
 > Track C2 dedup) are documented in the epistemic-graph repo

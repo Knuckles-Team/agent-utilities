@@ -14,17 +14,15 @@ provides a runnable companion implementation.
 
 Every agent in the ecosystem follows the same layout:
 
-```
-my-agent/
-├── my_agent/
-│   ├── __init__.py
-│   ├── __main__.py          # Entry point: from .agent_server import agent_server; agent_server()
-│   ├── agent_server.py      # Agent server bootstrap (see below)
-│   ├── main_agent.json      # Agent identity (name, description, system prompt)
-│   └── mcp_config.json      # MCP server configuration
-├── pyproject.toml
-└── README.md
-```
+- `my-agent/`
+    - `my_agent/`
+        - `__init__.py`
+        - `__main__.py` — entry point: `from .agent_server import agent_server; agent_server()`
+        - `agent_server.py` — agent server bootstrap (see below)
+        - `main_agent.json` — agent identity (name, description, system prompt)
+        - `mcp_config.json` — MCP server configuration
+    - `pyproject.toml`
+    - `README.md`
 
 ## Step 1: Create `main_agent.json`
 

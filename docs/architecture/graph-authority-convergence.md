@@ -5,20 +5,20 @@ contract removes three classes of split-brain behavior: caller-created graph
 identity, multiple graph transports in one process, and parallel task/lease
 state machines.
 
-```mermaid
-flowchart LR
-    REQ["MCP · REST · library request"] --> ID["Validate identity"]
-    ID --> SESSION["Mint immutable GraphSession"]
-    SESSION --> GRAPH["Graph/query/tool action"]
-    SESSION --> MODEL["Model-bound action"]
-    MODEL --> CC["ContextCompiler<br/>evidence + citations + bounded policy"]
-    CC --> GRAPH
-    GRAPH --> SHARED["Process-wide GraphComputeEngine client"]
-    SHARED --> EG["epistemic-graph authority"]
-    GRAPH --> WORK["Native WorkItem transition"]
-    WORK --> EG
-    EG -. "durable result/provenance" .-> GRAPH
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One authority boundary, every request path</p>
+
+Every MCP, REST, or library request first validates identity, then mints an
+immutable `GraphSession` at the server boundary. From there two paths
+converge on the same authority: a graph/query/tool action goes straight to
+the process-wide `GraphComputeEngine` client, while a model-bound action
+first passes through `ContextCompiler` (evidence + citations + bounded
+policy) before reaching that same client. A graph action may also drive a
+native `WorkItem` transition. Both the shared client and the WorkItem path
+terminate at the single `epistemic-graph` authority, which returns its
+result/provenance back to the graph action as the durable, sole source of
+truth.
+</div>
 
 There is no caller-minted context, feature-local engine connection, Python task
 lease, or model path outside this boundary.

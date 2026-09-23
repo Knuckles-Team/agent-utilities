@@ -64,19 +64,21 @@ human-approval gate (OS-5.24) and the capability-ratchet regression gate (AU-AHE
 stay on the path. So "distill specs → develop **those** specs" finally flows end to end,
 governance intact.
 
-```mermaid
-flowchart LR
-    subgraph cycle["LoopController.run_one_cycle (propose-only)"]
-      intake["intake / acquire / resolve"] --> reason["reason (OWL/RDF, AU-KG.research.best-effort-lightweight-never)"]
-      reason --> distill["distill → SpecDraft .md"]
-      distill --> persist["persist_spec_proposal\n:SpecProposal (pending_review)\nDISTILLED_FROM concepts\n(AU-KG.research.close-distill-develop-seam)"]
-    end
-    persist --> gate{"spec-review\ncheckpoint\n(AU-OS.config.autonomous-spec-develop-off)"}
-    gate -- "approve" --> dev["develop_spec → governed_publish\n(merge_promotion gate +\ncapability ratchet)"]
-    gate -- "reject / veto" --> dead["rejected (terminal)"]
-    gate -- "edit" --> persist
-    dev --> branch["reviewable branch\n(never auto-merged)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">LoopController.run_one_cycle (propose-only)</p>
+
+Inside one propose-only cycle: intake/acquire/resolve feeds reason (OWL/RDF,
+best-effort, never blocking), which feeds distill (produces a `SpecDraft`
+`.md`), which feeds `persist_spec_proposal` — a `:SpecProposal` node in
+`pending_review`, linked `DISTILLED_FROM` its source concepts. That
+proposal then sits at the spec-review checkpoint (gated off by default via
+`AU-OS.config.autonomous-spec-develop-off`), which has three outcomes:
+**approve** routes to `develop_spec → governed_publish` (the
+`merge_promotion` human-approval gate plus the capability ratchet), landing
+on a reviewable branch that is never auto-merged; **reject/veto** ends in
+`rejected` (terminal); **edit** loops back to `persist_spec_proposal` for
+another pass.
+</div>
 
 ### Wave 6 — the unified Gap→SDD→Implement→Promote→Close spine (operator surface)
 
@@ -88,17 +90,19 @@ findings), joined by 7+ disjoint id schemes. `knowledge_graph/research/gaps.py`
 repurposes the existing `KnowledgeGapNode` model as the **single** gap
 representation every discovery track now folds into:
 
-```mermaid
-flowchart LR
-    failure["failure_analyzer\n(production failures)"] -->|submit_gap| gap
-    research["plan_synthesis\n(research/OSS)"] -->|submit_gap| gap
-    skill["skill_evolver\n(skill coverage)"] -->|submit_gap| gap
-    audit["audit_gap_detector\n(code-correctness/security)"] -->|submit_gap| gap
-    manual["operator\n(graph_loops action=submit_gap)"] -->|submit_gap| gap
-    gap((":Gap\nopen")) -->|SPECIFIED_BY| spec[":SpecProposal\n(distill/review gate above)"]
-    spec -->|develop_spec| loop["develop-Loop\nRESOLVES the origin gap"]
-    loop -->|governed_publish| resolved["gap.status = resolved\n(the visible END)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One gap representation, five submitters, one resolution path</p>
+
+Five independent sources all call the same `submit_gap`: `failure_analyzer`
+(production failures), `plan_synthesis` (research/OSS), `skill_evolver`
+(skill coverage), `audit_gap_detector` (code-correctness/security), and an
+operator via `graph_loops(action="submit_gap")`. Every submission lands on
+the same `:Gap` node, opened. From there the gap is `SPECIFIED_BY` a
+`:SpecProposal` (the distill/review gate above), which `develop_spec` turns
+into a develop-Loop that `RESOLVES` the origin gap; when that loop's
+`governed_publish` lands, the gap's status flips to `resolved` — the one
+visible end state, regardless of which of the five tracks opened it.
+</div>
 
 Every hop is queryable and steerable through the SAME `graph_loops` MCP tool (+ REST
 twin) the rest of this page documents — no separate gap-management surface:
@@ -218,12 +222,15 @@ ecosystem → review-veto"* directive asks of the orchestrator.
 A distilled `:SpecProposal` moves through a lifecycle, and **`pending_review` is the
 default landing state** — review-first, not act-first:
 
-```
-pending_review ──approve──▶ approved ──develop──▶ developing ──▶ published
-      │  ▲                                                  └──▶ reverted (ratchet regression)
-      │  └──edit (merge changes, hold again)
-      └──reject / veto ──▶ rejected (terminal)
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">SpecProposal lifecycle</p>
+
+From `pending_review`, **approve** moves to `approved`, then **develop**
+moves to `developing`, then to `published` — which can later move to
+`reverted` on a ratchet regression. From `pending_review`, **edit** merges
+changes and holds again in `pending_review`. From `pending_review`,
+**reject/veto** moves to `rejected`, a terminal state.
+</div>
 
 `review_spec(engine, spec_id, decision, …)` is the explicit human/Claude decision point:
 
@@ -355,22 +362,25 @@ diffs, free-form trace text, and source identifiers; the filename uses a portabl
 Deep-analysis output is bounded, must select a registered component type, cannot nominate
 a path, and may reference only task IDs already present in the in-memory evidence corpus.
 
-```mermaid
-flowchart LR
-    fail["delegated run fails /\nungrounded / escalated"] --> outcome["record_action_outcome\n→ opaque agent/example refs"]
-    outcome --> attribute["agent_eval_cases +\nbuild_agent_trainset\n(governed store)"]
-    attribute --> optimize["run_program_optimization\nreference-only request/result"]
-    optimize --> build["validate ProgramCompiledState\n(no raw demonstrations)"]
-    build --> resolve["resolve demonstration refs\nephemerally for execution"]
-    resolve --> eval["score baseline vs execution render"]
-    eval --> promote{"should_promote?"}
-    promote -- "no" --> rejected["rejected (audit only)"]
-    promote -- "yes" --> gate{"KG_AGENT_AUTO_APPLY?"}
-    gate -- "off (default)" --> proposed["ProposedPromptChange\n(.specify/proposals/) — held\n→ approve_proposed_change()"]
-    gate -- "on" --> policy{"action_policy.decide\nkind=promote_prompt_version"}
-    policy -- "queue_approval / deny\n(shipped default)" --> proposed
-    policy -- "allow (operator-relaxed)" --> applied["StructuredPrompt.save() + commit"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">From a delegated failure to a promoted prompt change</p>
+
+A delegated run that fails, is ungrounded, or is escalated is recorded by
+`record_action_outcome` as opaque agent/example references, then attributed
+via `agent_eval_cases` + `build_agent_trainset` into the governed store.
+`run_program_optimization` then runs against reference-only request/result
+data, and its output is validated as a `ProgramCompiledState` holding no raw
+demonstrations — demonstration references are resolved only ephemerally, at
+execution time, before scoring the baseline against the execution render.
+The `should_promote?` decision then branches: **no** ends in `rejected`
+(audit only); **yes** checks `KG_AGENT_AUTO_APPLY` — off (the shipped
+default) always produces a held `ProposedPromptChange` under
+`.specify/proposals/` awaiting `approve_proposed_change()`; on instead asks
+`action_policy.decide(kind=promote_prompt_version)`, whose `queue_approval`/
+`deny` outcomes (the shipped default policy) still land on that same held
+proposal, and only its `allow` outcome (an operator-relaxed policy) reaches
+`StructuredPrompt.save()` + commit.
+</div>
 
 This is the loop AGENTS.md points at: when you resolve an exception, the fix (a hardened
 prompt — and, by the same spine, a fixed tool binding or a new skill) becomes a durable

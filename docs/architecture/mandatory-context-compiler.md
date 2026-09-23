@@ -8,18 +8,18 @@ constructing the agent. Direct OpenAI-compatible calls are centralized in
 `context_compiler_serving.py`. Native optimization transports only opaque
 references through the engine jobs plane and does not invoke a Python model.
 
-```mermaid
-flowchart LR
-    Config[AgentConfig / caller model] --> Boundary[create_context_agent]
-    Factory[create_model] --> Boundary
-    Boundary --> Wrapper[wrap_model_with_context]
-    Wrapper --> Mode{grounding authority}
-    Mode -->|general request| Compiler[ContextCompiler + verified GraphSession]
-    Mode -->|explicitly bound MCP server| ToolGrounding[compiler-owned bound-tool contract]
-    Compiler --> Agent[Pydantic AI Agent]
-    ToolGrounding --> Agent
-    Agent --> Transport[request / stream / count / compact]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two grounding paths, one mandatory boundary</p>
+
+An `AgentConfig`/caller model plus a `create_model`-built model both enter at
+`create_context_agent`, which calls `wrap_model_with_context`. That wrapper
+picks the grounding authority: a general request is bound to a
+`ContextCompiler` running against a verified `GraphSession`, while an
+explicitly bound MCP server instead gets the compiler-owned bound-tool
+contract. Either path feeds the same Pydantic AI `Agent`, which serves every
+transport shape (request, stream, token-count, compact) identically — there
+is no third, ungrounded path.
+</div>
 
 ## Invariants
 
