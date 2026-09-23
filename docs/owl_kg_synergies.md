@@ -8,26 +8,16 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
 
 ## 1. Low-Level Agent OS & Kernel Synergy (Abstractions to Semantics)
 
-```
-                     ┌───────────────────────────────────────┐
-                     │     OWL Epistemic Knowledge Graph     │
-                     │  - Security Policies  - Role central  │
-                     └───────────────────┬───────────────────┘
-                                         │
-                    ┌─────────────────────┴─────────────────────┐
-                    ▼                                           ▼
-       ┌─────────────────────────┐                 ┌─────────────────────────┐
-       │    Cognitive Kernel     │                 │   OS Security Kernel    │
-       │   - Priority Sharding   │                 │   - Semantic Safe Proof │
-       │   - Thread Preemption   │                 │   - Sandbox Isolation   │
-       └────────────┬────────────┘                 └────────────┬────────────┘
-                    │                                           │
-                    ▼                                           ▼
-       ┌─────────────────────────┐                 ┌─────────────────────────┐
-       │   WASM Execution Pool   │                 │   container-manager     │
-       │    - Dynamic Gas/CPU    │                 │   - Hardened Sandboxes  │
-       └─────────────────────────┘                 └─────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Kernel/OWL synergy</p>
+
+The OWL Epistemic Knowledge Graph (security policies, role central) feeds
+two peer kernels: the **Cognitive Kernel** (priority sharding, thread
+preemption), which feeds the WASM Execution Pool (dynamic gas/CPU); and the
+**OS Security Kernel** (semantic safe proof, sandbox isolation), which
+feeds `container-manager` (hardened sandboxes).
+
+</div>
 
 ### A. Epistemic CPU Scheduling & Thread Preemption (`OS-5.2` × `KG-2.5`)
 *   **The Synergy**: Standard OS kernels schedule processes based on raw thread priority, CPU affinity, or time slices. The **Cognitive Kernel** schedules agents using **topological network analysis**.
@@ -55,33 +45,18 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
 
 To run an entire company of up to 1 million autonomous agents, centralized scheduling and graph routing become massive bottlenecks. We solve this by leveraging **OWL-sharded topologies** and **hierarchical semantic consensus**.
 
-```mermaid
-graph TD
-    subgraph Global Orchestration
-        MeshRouter["Ontological Sharding Mesh (NATS JetStream)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Ontological sharding mesh</p>
 
-    subgraph "Department Shards (OWL Class Subsumption)"
-        LegalDept["tasks.legal.compliance.* [100k Agents]"]
-        FinanceDept["tasks.finance.trading.* [300k Agents]"]
-        DevDept["tasks.engineering.sdd.* [600k Agents]"]
-    end
+The Ontological Sharding Mesh (NATS JetStream, global orchestration) routes
+by OWL class subsumption to three department shards: `tasks.legal.compliance.*`
+(100k agents, matched via `SubClassOf(:LegalAgent)`),
+`tasks.finance.trading.*` (300k agents, `SubClassOf(:FinanceAgent)`), and
+`tasks.engineering.sdd.*` (600k agents, `SubClassOf(:EngineeringAgent)`).
+All three feed the Consensus & Speculative Branching Engine, which feeds
+the Semantic Garbage Collector (a Datalog engine) via speculative branching.
 
-    subgraph Epistemic Coordination
-        ConsensusEngine["Consensus & Speculative Branching Engine"]
-        GarbageCollector["Semantic Garbage Collector (Datalog Engine)"]
-    end
-
-    MeshRouter -->|Semantic Match: SubClassOf(:LegalAgent)| LegalDept
-    MeshRouter -->|Semantic Match: SubClassOf(:FinanceAgent)| FinanceDept
-    MeshRouter -->|Semantic Match: SubClassOf(:EngineeringAgent)| DevDept
-
-    LegalDept --> ConsensusEngine
-    FinanceDept --> ConsensusEngine
-    DevDept --> ConsensusEngine
-
-    ConsensusEngine -->|Speculative Branching| GarbageCollector
-```
+</div>
 
 ### A. Semantic Routing & Topic Sharding (`AU-ECO.bus.pluggable-queue-backend` × `ORCH-1.12` × `KG-2.6`)
 *   **Mechanism**: The company's organizational chart is represented as a structured ontology (`ontology_company.ttl`).
@@ -119,20 +94,16 @@ graph TD
 
 By linking seemingly unrelated domains in the unified Knowledge Graph, powerful emergent reasoning chains are generated.
 
-```
-    ┌────────────────────────────────────────────────────────┐
-    │             Unified Knowledge Graph substrate          │
-    └───────┬─────────┬──────────────────────┬─────────┬─────┘
-            │         │                      │         │
-            ▼         ▼                      ▼         ▼
-         Wellness    Personal            Infrastructure Enterprise
-         Domain     Productivity           Domain      Domain
-            │         │                      │         │
-            └────┬────┘                      └────┬────┘
-                 ▼                                ▼
-        [Synergy Chain 1]                [Synergy Chain 2]
-      Homeostatic Scheduling           Self-Healing Quant Risk
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-domain synergy chains</p>
+
+The unified Knowledge Graph substrate feeds four domains: Wellness,
+Personal Productivity, Infrastructure, and Enterprise. Wellness and
+Personal Productivity together produce **Synergy Chain 1: Homeostatic
+Scheduling**; Infrastructure and Enterprise together produce **Synergy
+Chain 2: Self-Healing Quant Risk**.
+
+</div>
 
 ### Synergy Chain 1: Wellness × Productivity (Homeostatic Scheduling)
 *   **Ontology Modules**: `ontology_wellness.ttl` (Nutrition, Fitness) + `ontology_personal.ttl` (Calendar, Task management)

@@ -13,7 +13,7 @@
 #   depends_on: [0, 1]   → waits for both step 0 AND step 1
 
 workflows:
-  # ─── Infrastructure Workflows ───────────────────────────────────────
+  # Infrastructure Workflows
 
   - name: container_health_check
     description: >
@@ -83,7 +83,7 @@ workflows:
         expected: [firewall, rule]
         depends_on: [0, 1]
 
-  # ─── Research Workflows ─────────────────────────────────────────────
+  # Research Workflows
 
   - name: research_discovery_pipeline
     description: >
@@ -127,7 +127,7 @@ workflows:
         expected: [knowledge, graph]
         depends_on: []
 
-  # ─── Development Workflows ──────────────────────────────────────────
+  # Development Workflows
 
   - name: workspace_inventory
     description: >
@@ -167,7 +167,7 @@ workflows:
         expected: [disk, usage]
         depends_on: [1]
 
-  # ─── Mixed / Cross-Domain Workflows ─────────────────────────────────
+  # Mixed / Cross-Domain Workflows
 
   - name: full_ecosystem_health
     description: >

@@ -17,24 +17,22 @@ This document defines the comprehensive, high-fidelity engineering roadmap for e
 
 ## 1. Executive Summary: Point A to Point B
 
-```mermaid
-graph TD
-    subgraph PointA ["Point A: Current State (Baseline)"]
-        A1["Basic Contract Clause Parsing<br/>(document-tools)"]
-        A2["General Company Profiles<br/>(models/company.py)"]
-        A3["General Legal Ontology<br/>(ontology_legal.ttl)"]
-        A4["Manual Compliance Audits<br/>(compliance-checker)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Point A to Point B</p>
 
-    subgraph PointB ["Point B: Target State (Expert Legal System)"]
-        B1["State-Specific Statutory Drafting<br/>(Operating & Trust Agreements)"]
-        B2["Specialized Legal Specialist Coalition<br/>(LLC & Trust Specialists)"]
-        B3["Trust & LLC Extended Ontologies<br/>(SALI, LKIF, FIBO Alignments)"]
-        B4["Self-Healing Filing Pipelines<br/>(Registry Portals & EIN API Simulation)"]
-    end
+**Point A (current baseline):** basic contract clause parsing
+(`document-tools`), general company profiles (`models/company.py`), a
+general legal ontology (`ontology_legal.ttl`), manual compliance audits
+(`compliance-checker`).
 
-    PointA -->|Transition Framework| PointB
-```
+**Point B (target expert legal system, reached via a transition
+framework):** state-specific statutory drafting (operating & trust
+agreements), a specialized legal specialist coalition (LLC & trust
+specialists), trust & LLC extended ontologies (SALI, LKIF, FIBO
+alignments), self-healing filing pipelines (registry portals & EIN API
+simulation).
+
+</div>
 
 | Dimension | Point A (Current State) | Point B (Target State) |
 | :--- | :--- | :--- |
@@ -50,27 +48,22 @@ graph TD
 
 To maintain a clean and robust codebase, we strictly leverage and extend existing abstractions within `agent-utilities` rather than writing redundant systems.
 
-```mermaid
-graph TD
-    subgraph Existing ["Existing Utilities & Libraries"]
-        DocTools["document-tools & stirlingpdf-agent<br/>(PDF Assembly / Extraction)"]
-        WasmRunner["core/wasm_runner.py [WasmAgentRunner]<br/>(Safe Sandbox Execution)"]
-        CompanyPy["models/company.py [CorporateGovernanceDoc]<br/>(Base Schema Definitions)"]
-        LawPy["domains/law/models.py [LegalMatterNode]<br/>(Legal Baseline Models)"]
-        KGCoord["knowledge_graph/facade.py & GraphComputeEngine<br/>(epistemic-graph — Transactional Graph Authority)"]
-        Guard["security/guardrails.py<br/>(Input/Output Sanitization)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Existing utilities and their extensions</p>
 
-    subgraph Extensions ["Plugs Directly Into"]
-        LawPy -->|Add subclass| LegalTrustNode["LegalTrustNode"]
-        CompanyPy -->|Extend usage of| CorpDoc["OperatingAgreement / TrustAgreement"]
-        WasmRunner -->|Safe execution environment for| WasmDraft["WASM Draft Compilation"]
-        DocTools -->|Used for| PDFGen["Signature & Notary PDF Generation"]
-        KGCoord -->|Graph serialization of| SerNode["Trust & LLC Nodes / Relationships"]
-        Guard -->|Inject PII scrubbing in| PiiSan["PiiSanitizer Utility"]
-    end
-end
-```
+Six existing utilities each extend directly rather than being duplicated:
+`domains/law/models.py`'s `LegalMatterNode` gets a new `LegalTrustNode`
+subclass; `models/company.py`'s `CorporateGovernanceDoc` gets extended
+usage for `OperatingAgreement`/`TrustAgreement`;
+`core/wasm_runner.py`'s `WasmAgentRunner` provides the safe execution
+environment for WASM draft compilation; `document-tools` &
+`stirlingpdf-agent` handle signature & notary PDF generation;
+`knowledge_graph/facade.py` & `GraphComputeEngine` (epistemic-graph,
+transactional graph authority) handle graph serialization of trust & LLC
+nodes/relationships; `security/guardrails.py` gets a `PiiSanitizer` utility
+injected for PII scrubbing.
+
+</div>
 
 ### Existing Wirings Utilized:
 1. **Pydantic Model Extensions**:
@@ -94,44 +87,19 @@ To preserve the architectural integrity of `agent-utilities`, the legal automati
 ### Pillar 2: Epistemic Knowledge Graph (Ontology & Schema Extensions)
 To support Trusts and LLCs, we must extend the active knowledge graph schemas and OWL ontologies.
 
-```mermaid
-classDiagram
-    class RegistryNode {
-        +str id
-        +str type
-    }
-    class CompanyProfile {
-        +str legal_name
-        +str entity_type
-        +str state_of_incorporation
-        +str ein
-        +list registered_agents
-    }
-    class LegalTrustNode {
-        +str trust_name
-        +str trust_type
-        +str governing_law_state
-        +str settlor_id
-        +list trustee_ids
-        +list beneficiary_ids
-        +str funding_status
-    }
-    class CorporateGovernanceDoc {
-        +str doc_type
-        +str effective_date
-        +str last_amended
-    }
-    class LLCFormationFiling {
-        +str filing_state
-        +str filing_number
-        +str registered_agent_name
-        +str status
-    }
-    RegistryNode <|-- CompanyProfile
-    RegistryNode <|-- LegalTrustNode
-    RegistryNode <|-- CorporateGovernanceDoc
-    RegistryNode <|-- LLCFormationFiling
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Registry node class hierarchy</p>
+
+All four classes below extend `RegistryNode` (`id: str`, `type: str`):
+
+| Class | Fields |
+|---|---|
+| `CompanyProfile` | `legal_name`, `entity_type`, `state_of_incorporation`, `ein`, `registered_agents: list` |
+| `LegalTrustNode` | `trust_name`, `trust_type`, `governing_law_state`, `settlor_id`, `trustee_ids: list`, `beneficiary_ids: list`, `funding_status` |
+| `CorporateGovernanceDoc` | `doc_type`, `effective_date`, `last_amended` |
+| `LLCFormationFiling` | `filing_state`, `filing_number`, `registered_agent_name`, `status` |
+
+</div>
 
 #### A. OWL Legal Ontology Extensions (`knowledge_graph/ontology_legal.ttl`)
 We introduce new OWL classes and object/datatype properties to represent legal Trust and LLC structures:
@@ -226,23 +194,20 @@ class LLCFormationFiling(RegistryNode):
 ### Pillar 1: Graph Orchestration (Specialist Routing & Task Planning)
 The creation of complex legal entities requires a multi-step planner (`ORCH-1.1: HTN Planning`) and a specialist routing matrix (`ORCH-1.2: Specialist Routing`).
 
-```mermaid
-graph TD
-    Start["User Request:<br/>Create LLC/Trust"] --> HTN["HTN Planner [ORCH-1.1]<br/>Decomposes Goal into Tasks"]
-    HTN --> Route["Ontological Specialist Router [ORCH-1.2]<br/>Selects Specialist Coalition"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Request-to-coalition flow</p>
 
-    subgraph Coalition ["Specialist Coalition [AU-ORCH.execution.autonomous-department-orchestration]"]
-        Research["jurisdiction_researcher_agent<br/>Checks statutory fees & name availability"]
-        Draftsman["corporate_draftsman_agent<br/>Drafts legal structures"]
-        Validator["compliance_verifier_agent<br/>Validates clauses & SHACL compliance"]
-        Integrator["filing_integrator_agent<br/>Interacts with IRS & State Portal APIs"]
-    end
+A user request ("Create LLC/Trust") goes to the HTN Planner (ORCH-1.1),
+which decomposes the goal into tasks, then the Ontological Specialist
+Router (ORCH-1.2), which selects the specialist coalition
+(AU-ORCH.execution.autonomous-department-orchestration) and routes to all
+four members in parallel: `jurisdiction_researcher_agent` (checks statutory
+fees & name availability), `corporate_draftsman_agent` (drafts legal
+structures), `compliance_verifier_agent` (validates clauses & SHACL
+compliance), and `filing_integrator_agent` (interacts with IRS & state
+portal APIs).
 
-    Route --> Research
-    Route --> Draftsman
-    Route --> Validator
-    Route --> Integrator
-```
+</div>
 
 - **HTN Planning Pipeline (`ORCH-1.1`)**: Break down a high-level command like `"Create a Wyoming Asset Protection Trust funded with $10,000"` into concrete sub-goals:
   1. Conflict checks against the existing KG database (ABA Rule 1.7 compliance).
@@ -276,13 +241,16 @@ To guarantee legal and logical soundness before any documents are presented to t
 
 ### Pillar 4: Ecosystem & Peripherals (Tooling & API Interfaces)
 
-```mermaid
-flowchart LR
-    Agent["filing_integrator_agent"] <--> MCP["Legal Peripherals MCP Server"]
-    MCP <--> SEC_STATE["State Secretary of State Portal<br/>(Name Availability & Filing)"]
-    MCP <--> IRS["IRS EIN Assistant<br/>(Form SS-4 / EIN Extraction)"]
-    MCP <--> PDF["document-tools / StirlingPDF<br/>(High-Fidelity PDF Compilation)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Filing peripherals</p>
+
+`filing_integrator_agent` talks bidirectionally to the Legal Peripherals
+MCP Server, which talks bidirectionally to three peers: the State Secretary
+of State Portal (name availability & filing), the IRS EIN Assistant (Form
+SS-4 / EIN extraction), and `document-tools`/StirlingPDF (high-fidelity PDF
+compilation).
+
+</div>
 
 #### A. Gap Analysis & Sourcing Strategy
 We have audited the existing `agent-packages/agents` workspace and identified **three critical tooling gaps** required for full autonomous operation. Rather than creating disjointed standalone utilities, we will construct these tools as unified MCP interfaces, sourcing accurate data from public legal records and containerized browser controllers.
@@ -301,23 +269,19 @@ Since legal formation involves processing highly sensitive corporate and persona
 > [!CAUTION]
 > **Data Privacy and Leakage Prevention**: Personal identifying information (PII) like Social Security Numbers or tax IDs used for EIN filing must never be persisted in the active Knowledge Graph, logs, or external telemetry systems.
 
-```mermaid
-graph TD
-    Input["Filing Request with PII<br/>(SSN, Tax IDs, Personal Addresses)"] --> Sanitizer["PiiSanitizer (Regex / NER / Redaction)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">PII sanitization flow</p>
 
-    subgraph EphemeralStack ["Transient Local Memory (RAM Only)"]
-        Transient["Transient State Context<br/>(Used ONLY for immediate API call)"]
-        Scrub["In-Place Memory Zeroing<br/>(Overwritten with \x00 & GC run)"]
-    end
+A filing request carrying PII (SSN, tax IDs, personal addresses) goes to
+`PiiSanitizer` (regex/NER/redaction), which extracts and isolates the PII
+into a transient, RAM-only state context (used only for the immediate API
+call) and sends the redacted payload to the Audit Log Redactor. The
+redactor feeds the Knowledge Graph (safe writes only) and Langfuse/external
+telemetry. The transient context invokes the portal API for filing
+submission, which triggers in-place memory zeroing (overwritten with
+`\x00` and a GC run).
 
-    Sanitizer -->|Extract and Isolate PII| Transient
-    Sanitizer -->|Redacted Payload| LogFilter["Audit Log Redactor<br/>(Redacts logs & traces)"]
-    LogFilter --> KG["Knowledge Graph (Safe Writes Only)"]
-    LogFilter --> Telemetry["Langfuse & External Telemetry"]
-
-    Transient -->|Invoke Portal API| FilingSubmit["Filing Submission"]
-    FilingSubmit --> Scrub
-```
+</div>
 
 #### A. Comprehensive PII Sanitation & Ephemeral Cleanup
 1. **PII Sanitizer Utility (`security/guardrails.py`)**:
@@ -347,30 +311,24 @@ We define the step-by-step sequential workflows that will live in `/skills/llc_f
 
 ### Workflow A: Limited Liability Company (LLC) Formation
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Human Owner
-    participant Coord as legal_compliance_coordinator
-    participant Research as jurisdiction_researcher_agent
-    participant Draft as corporate_draftsman_agent
-    participant Val as compliance_verifier_agent
-    participant Portal as SoS & IRS Portal Integrator
+<div class="admonition architecture" markdown>
+<p class="admonition-title">LLC formation sequence</p>
 
-    User->>Coord: Invoke llc_formation workflow
-    Coord->>Research: Check name availability & state filing rules
-    Research-->>Coord: Name available; Wyoming fee: $100
-    Coord->>Draft: Draft Articles of Organization & Operating Agreement
-    Draft-->>Coord: Documents drafted (Markdown/PDF format)
-    Coord->>Val: Run compliance audit & SHACL check
-    Val-->>Coord: Validation Score: 1.0 (Passed)
-    Coord->>User: Request Signature & Payment Authorization (Human Gate)
-    User-->>Coord: Approved & Signed
-    Coord->>Portal: Submit filing & Request EIN (Scrub PII immediately after!)
-    Portal-->>Coord: LLC Active; EIN Assigned
-    Coord->>Coord: Persist LLC Profile & Filings to KG (Active status)
-    Coord-->>User: Delivery of LLC Formation Package
-```
+The human owner invokes the `llc_formation` workflow on the
+`legal_compliance_coordinator`. The coordinator asks
+`jurisdiction_researcher_agent` to check name availability and state filing
+rules (returns: name available, Wyoming fee $100); asks
+`corporate_draftsman_agent` to draft the Articles of Organization &
+Operating Agreement (returns: documents drafted, Markdown/PDF); asks
+`compliance_verifier_agent` to run the compliance audit & SHACL check
+(returns: validation score 1.0, passed); then requests the human's
+signature & payment authorization (human gate) — the user approves and
+signs. The coordinator submits the filing and requests an EIN via the SoS
+& IRS Portal Integrator, scrubbing PII immediately after (returns: LLC
+active, EIN assigned), persists the LLC profile & filings to the KG as
+active, and delivers the LLC formation package to the user.
+
+</div>
 
 #### Step-by-Step Verification Gates
 1. **Intake Gate**: The user must provide `dba_name` (optional), `legal_name`, `registered_agent_name`, `state_of_incorporation`, and list of `members` with ownership interest.
@@ -386,25 +344,21 @@ sequenceDiagram
 
 ### Workflow B: Legal Trust Creation (Revocable Living or Asset Protection)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Settlor (Owner)
-    participant Coord as legal_compliance_coordinator
-    participant Research as jurisdiction_researcher_agent
-    participant Draft as corporate_draftsman_agent
-    participant Val as compliance_verifier_agent
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Trust creation sequence</p>
 
-    User->>Coord: Invoke trust_creation workflow
-    Coord->>Research: Check trust requirements (governing law)
-    Research-->>Coord: Wyoming Statutory Trust Act standards loaded
-    Coord->>Draft: Draft Trust Agreement & Certificate of Trust
-    Draft-->>Coord: Trust Agreement, Certificate, & Schedule A drafted
-    Coord->>Val: Run SHACL rule check & spendthrift validation
-    Val-->>Coord: Validation Score: 1.0 (Passed)
-    Coord->>User: Handoff package for Notarization & Bank Funding
-    Coord->>Coord: Persist LegalTrust & Trustee relations to KG
-```
+The settlor invokes the `trust_creation` workflow on the
+`legal_compliance_coordinator`. The coordinator asks
+`jurisdiction_researcher_agent` to check trust requirements/governing law
+(returns: Wyoming Statutory Trust Act standards loaded); asks
+`corporate_draftsman_agent` to draft the Trust Agreement & Certificate of
+Trust (returns: agreement, certificate, & Schedule A drafted); asks
+`compliance_verifier_agent` to run the SHACL rule check & spendthrift
+validation (returns: validation score 1.0, passed); then hands off the
+package to the settlor for notarization & bank funding, and persists the
+`LegalTrust` & trustee relations to the KG.
+
+</div>
 
 #### Step-by-Step Verification Gates
 1. **Intake Gate**: User specifies `trust_name`, `trust_type` (e.g. revocable vs asset protection), `settlor_id`, `trustee_ids` (must not overlap with sole beneficiary), and `beneficiary_ids`.
@@ -422,27 +376,22 @@ sequenceDiagram
 
 To successfully implement this, we lay out a **4-Phase Spec-Driven Development Plan** in alignment with `CONCEPT:AU-ORCH.planning.legal-automation-roadmap` (DSTDD Pipeline).
 
-```
-Phase 1: Ontological Core (Week 1)
- ├── Expand ontology_legal.ttl to include LegalTrust & LLC classes
- ├── Implement Pydantic models in agent_utilities/domains/law/models.py
- └── Map OWL properties to Rust-compiled epistemic reasoning backend
-
-Phase 2: Specialist Agent Scaffolding (Week 2)
- ├── Scaffold TeamConfig for Legal Entity Creator Coalition
- ├── Generate prompt manifests in agent_utilities/prompts/
- └── Wire capabilities for document parsing, templates, and web crawling
-
-Phase 3: Universal Skill & Pipeline Building (Week 3)
- ├── Code the llc_formation and trust_creation skill workflows
- ├── Integrate document compilers (document-tools / StirlingPDF)
- └── Wire SHACL validation gates and PII Sanitizer cleanup guardrails
-
-Phase 4: Real-World Integrations & Pilot (Week 4)
- ├── Develop SoS and IRS simulation portals in a mock environment
- ├── Execute end-to-end sandbox dry-run using WasmAgentRunner
- └── Human-in-the-loop validation, audit logging, and production handoff
-```
+- **Phase 1: Ontological Core** (Week 1)
+    - Expand `ontology_legal.ttl` to include `LegalTrust` & LLC classes
+    - Implement Pydantic models in `agent_utilities/domains/law/models.py`
+    - Map OWL properties to the Rust-compiled epistemic reasoning backend
+- **Phase 2: Specialist Agent Scaffolding** (Week 2)
+    - Scaffold `TeamConfig` for the Legal Entity Creator Coalition
+    - Generate prompt manifests in `agent_utilities/prompts/`
+    - Wire capabilities for document parsing, templates, and web crawling
+- **Phase 3: Universal Skill & Pipeline Building** (Week 3)
+    - Code the `llc_formation` and `trust_creation` skill workflows
+    - Integrate document compilers (`document-tools`/StirlingPDF)
+    - Wire SHACL validation gates and PII Sanitizer cleanup guardrails
+- **Phase 4: Real-World Integrations & Pilot** (Week 4)
+    - Develop SoS and IRS simulation portals in a mock environment
+    - Execute an end-to-end sandbox dry-run using `WasmAgentRunner`
+    - Human-in-the-loop validation, audit logging, and production handoff
 
 ### Phase 1: Ontological Core & Schema Definitions
 - Extend `ontology_legal.ttl` with detailed properties for Trusts and LLCs.
@@ -470,23 +419,21 @@ Phase 4: Real-World Integrations & Pilot (Week 4)
 
 When `agent-utilities` reaches **Point B**, it unlocks a highly cohesive corporate governance lifecycle where health, productivity, infrastructure, finance, and law seamlessly communicate through the Epistemic Knowledge Graph.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Epistemic Knowledge Graph                       │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-         ┌──────────────────────────┼──────────────────────────┐
-         ▼                          ▼                          ▼
-┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
-│   Law & Corporate│       │ Infrastructure & │       │Finance & Banking │
-│  Governance      │       │ Software Ops     │       │Asset Management  │
-├──────────────────┤       ├──────────────────┤       ├──────────────────┤
-│• LegalTrust Node │       │• CompanySoftware │       │• Banking API     │
-│• Articles of Org │◄─────►│  (ERPNext, CRM)  │◄─────►│  Integration     │
-│• Operating Agrmt │       │• Docker Blueprints│      │• Funding Logs    │
-│• Regulatory deadlines    │• DNSRewrites     │       │• Asset Ledgers   │
-└──────────────────┘       └──────────────────┘       └──────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-domain governance triangle</p>
+
+The Epistemic Knowledge Graph feeds three domains, with Law & Corporate
+Governance and Finance & Banking/Asset Management both bidirectionally
+linked through Infrastructure & Software Ops in the middle:
+
+- **Law & Corporate Governance:** `LegalTrust` node, Articles of
+  Organization, Operating Agreement, regulatory deadlines
+- **Infrastructure & Software Ops:** `CompanySoftware` (ERPNext, CRM),
+  Docker blueprints, DNS rewrites
+- **Finance & Banking/Asset Management:** banking API integration, funding
+  logs, asset ledgers
+
+</div>
 
 1. **Autonomous Creation**: The AI drafts and files an LLC (`Wyoming LLC`) and a revocable trust (`Family Wealth Trust`) under strict human supervision.
 2. **Infrastructure Hook**: The newly created company profile immediately triggers container deployments (`CompanySoftware`) for the new entity (like standard ERPNext or Twenty CRM instances) via Docker Swarm blueprints.

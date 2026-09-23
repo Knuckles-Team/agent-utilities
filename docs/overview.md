@@ -23,132 +23,80 @@
 
 ## The 5 Core Pillars Architecture
 
-```mermaid
-graph TD
-    %% Pillar 1: Graph Orchestration Engine
-    subgraph P1 ["Pillar 1: Graph Orchestration Engine"]
-        ORCH10["<b>ORCH-1.0: Core Orchestration Engine</b>"]
-        ORCH11["<b>ORCH-1.1: HTN Planning Pipeline</b>"]
-        ORCH12["<b>ORCH-1.2: Specialist Routing</b>"]
-        ORCH13["<b>ORCH-1.3: Execution Safety</b>"]
-        ORCH14["<b>ORCH-1.4: Capability Wiring</b>"]
-        ORCH16["<b>AU-ORCH.planning.legal-automation-roadmap: DSTDD Pipeline</b>"]
-        ORCH17["<b>AU-ORCH.planning.spec-driven-pipeline: Prediction Linkage Layer</b>"]
-        ORCH18["<b>AU-ORCH.planning.journey-milestone: RecursiveMAS Latent Orchestrator</b>"]
-        ORCH125["<b>ORCH-1.8: Parallel Execution & Synthesis Engine</b>"]
-        ORCH127["<b>AU-ORCH.execution.autonomous-department-orchestration: Dept Orchestration</b>"]
-        ORCH128["<b>ORCH-1.10: Reactive Dispatch</b>"]
-        ORCH129["<b>AU-ORCH.sandbox.compiled-orchestration-kernel: WASM Sandbox</b>"]
-        ORCH141["<b>ORCH-1.41-1.43: Ontology-to-Workflow Execution</b>"]
-        ORCH145["<b>ORCH-1.45: Queue-Driven Agent Dispatch</b>"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The 5-pillar concept taxonomy</p>
 
-    %% Pillar 2: Epistemic Knowledge Graph
-    subgraph P2 ["Pillar 2: Epistemic Knowledge Graph"]
-        KG20["<b>KG-2.0: Active Knowledge Graph</b>"]
-        KG21["<b>KG-2.1: Tiered Memory</b>"]
-        KG22["<b>KG-2.2: Ontology & Epistemics</b>"]
-        KG23["<b>KG-2.3: Unified Retrieval & Graph Integrity</b>"]
-        KG24["<b>KG-2.4: Inductive Hypergraphs</b>"]
-        KG25["<b>KG-2.5: Topological Analysis</b>"]
-        KG26["<b>KG-2.6: Domain Ontologies & Vertical Subgraphs</b>"]
-        KG28["<b>KG-2.6: Memory Stability</b>"]
-        KG29["<b>KG-2.7: Quant Orchestration</b>"]
-        KG215["<b>KG-2.7: Transaction Proxy</b>"]
-        KG216["<b>KG-2.7: Rust-Native High-Performance Compute (FFI)</b>"]
-        KG219["<b>KG-2.7: Event Backbone</b>"]
-        KG220["<b>KG-2.7: Query Router</b>"]
-        KG221["<b>KG-2.21: Working Set Manager</b>"]
-        KG260["<b>KG-2.7: Single Company Brain</b>"]
-        KG255["<b>KG-2.55-2.57: Kafka Ingest Scale-Out</b>"]
-        KG258["<b>AU-KG.sharding.tenant-partitioned-sharding-hrw: Engine-Authoritative Tenant Placement</b>"]
-    end
+**Pillar 1: Graph Orchestration Engine** — ORCH-1.0 Core Orchestration
+Engine; ORCH-1.1 HTN Planning Pipeline; ORCH-1.2 Specialist Routing;
+ORCH-1.3 Execution Safety; ORCH-1.4 Capability Wiring;
+AU-ORCH.planning.legal-automation-roadmap (DSTDD Pipeline);
+AU-ORCH.planning.spec-driven-pipeline (Prediction Linkage Layer);
+AU-ORCH.planning.journey-milestone (RecursiveMAS Latent Orchestrator);
+ORCH-1.8 Parallel Execution & Synthesis Engine;
+AU-ORCH.execution.autonomous-department-orchestration (Dept Orchestration);
+ORCH-1.10 Reactive Dispatch;
+AU-ORCH.sandbox.compiled-orchestration-kernel (WASM Sandbox);
+ORCH-1.41-1.43 Ontology-to-Workflow Execution; ORCH-1.45 Queue-Driven Agent
+Dispatch.
 
-    %% Pillar 3: Agentic Harness Engineering
-    subgraph P3 ["Pillar 3: Agentic Harness Engineering"]
-        AHE30["<b>AHE-3.0: Harness Core</b>"]
-        AHE31["<b>AHE-3.1: Evaluation Engine</b>"]
-        AHE32["<b>AHE-3.2: Evolution Engine</b>"]
-        AHE33["<b>AHE-3.3: Team Optimization</b>"]
-        AHE34["<b>AHE-3.4: Distributed Evolution</b>"]
-        AHE35["<b>AU-AHE.harness.self-evolution-narrative: Heavy Thinking</b>"]
-        AHE36["<b>AU-AHE.harness.evolution-checkpoint: Backtest & Curriculum</b>"]
-        AHE315["<b>AU-AHE.harness.self-improvement-overview: Interpretability & Model Evolution</b>"]
-        AHE321["<b>AHE-3.18-3.21: Failure-Driven Evolution & Branch Publication</b>"]
-    end
+**Pillar 2: Epistemic Knowledge Graph** — KG-2.0 Active Knowledge Graph;
+KG-2.1 Tiered Memory; KG-2.2 Ontology & Epistemics; KG-2.3 Unified
+Retrieval & Graph Integrity; KG-2.4 Inductive Hypergraphs; KG-2.5
+Topological Analysis; KG-2.6 Domain Ontologies & Vertical Subgraphs; KG-2.6
+Memory Stability; KG-2.7 Quant Orchestration; KG-2.7 Transaction Proxy;
+KG-2.7 Rust-Native High-Performance Compute (FFI); KG-2.7 Event Backbone;
+KG-2.7 Query Router; KG-2.21 Working Set Manager; KG-2.7 Single Company
+Brain; KG-2.55-2.57 Kafka Ingest Scale-Out;
+AU-KG.sharding.tenant-partitioned-sharding-hrw (Engine-Authoritative Tenant
+Placement).
 
-    %% Pillar 4: Ecosystem & Peripherals
-    subgraph P4 ["Pillar 4: Ecosystem & Peripherals"]
-        ECO40["<b>ECO-4.0: Tool Interface & MCP</b>"]
-        ECO41["<b>ECO-4.1: A2A Network</b>"]
-        ECO42["<b>AU-ECO.toolkit.journey-map-narrative: Telemetry & Ecosystem</b>"]
-        ECO43["<b>AU-ECO.ui.company-infrastructure-orchestration: Market Data</b>"]
-        ECO44["<b>AU-ECO.toolkit.journey-map-adoption: KG MCP Server</b>"]
-        ECO410["<b>AU-ECO.mcp.toolkit-live-discovery: Dynamic Capability Ingestion & Discovery</b>"]
-        ECO414["<b>ECO-4.14: Infrastructure Blueprint Library</b>"]
-        ECO415["<b>AU-ECO.bus.pluggable-queue-backend: Queue Backend</b>"]
-        ECO416["<b>AU-KG.memory.team-startup-context: Automated Documentation & AGENTS.md Governance</b>"]
-        ECO418["<b>AU-OS.governance.lint-enforcement-hook: Lint Enforcement</b>"]
-        ECO419["<b>AU-ECO.toolkit.self-documenting-plugin-bundle: Plugin Bundles</b>"]
-        ECO420["<b>AU-OS.governance.permission-policy: Ecosystem Governance & Policy Engine</b>"]
-        ECO434["<b>AU-ECO.mcp.profile-differences-from-client: Multiplexer Child Resilience</b>"]
-    end
+**Pillar 3: Agentic Harness Engineering** — AHE-3.0 Harness Core; AHE-3.1
+Evaluation Engine; AHE-3.2 Evolution Engine; AHE-3.3 Team Optimization;
+AHE-3.4 Distributed Evolution; AU-AHE.harness.self-evolution-narrative
+(Heavy Thinking); AU-AHE.harness.evolution-checkpoint (Backtest &
+Curriculum); AU-AHE.harness.self-improvement-overview (Interpretability &
+Model Evolution); AHE-3.18-3.21 Failure-Driven Evolution & Branch
+Publication.
 
-    %% Pillar 5: Agent OS Infrastructure
-    subgraph P5 ["Pillar 5: Agent OS Infrastructure"]
-        OS50["<b>OS-5.0: Agent OS Kernel</b>"]
-        OS51["<b>OS-5.1: Security & Auth</b>"]
-        OS52["<b>OS-5.2: Resource Scheduling</b>"]
-        OS53["<b>AU-OS.governance.reactive-multi-axis-budget: OS Guardrails & Safety Boundaries</b>"]
-        OS54["<b>AU-OS.governance.wasm-micro-agent-sandbox: Telemetry</b>"]
-        OS56["<b>OS-5.5: Massive Scale</b>"]
-        OS514["<b>OS-5.14: Server-Minted JWT Identity</b>"]
-        OS516["<b>OS-5.16-5.18: Externalized Durable State</b>"]
-        OS523["<b>AU-OS.observability.no-op-without-metrics: Gateway Hardening & /metrics</b>"]
-        OS524["<b>OS-5.24-5.29: Fleet Autonomy Control Plane</b>"]
-    end
+**Pillar 4: Ecosystem & Peripherals** — ECO-4.0 Tool Interface & MCP;
+ECO-4.1 A2A Network; AU-ECO.toolkit.journey-map-narrative (Telemetry &
+Ecosystem); AU-ECO.ui.company-infrastructure-orchestration (Market Data);
+AU-ECO.toolkit.journey-map-adoption (KG MCP Server);
+AU-ECO.mcp.toolkit-live-discovery (Dynamic Capability Ingestion &
+Discovery); ECO-4.14 Infrastructure Blueprint Library;
+AU-ECO.bus.pluggable-queue-backend (Queue Backend);
+AU-KG.memory.team-startup-context (Automated Documentation & AGENTS.md
+Governance); AU-OS.governance.lint-enforcement-hook (Lint Enforcement);
+AU-ECO.toolkit.self-documenting-plugin-bundle (Plugin Bundles);
+AU-OS.governance.permission-policy (Ecosystem Governance & Policy Engine);
+AU-ECO.mcp.profile-differences-from-client (Multiplexer Child Resilience).
 
-    %% Cross-pillar relationships
-    ORCH10 <--> KG20
-    ORCH11 --> ORCH12
-    ORCH12 --> KG22
-    ORCH14 --> ECO40
-    KG21 --> KG20
-    KG25 --> KG20
-    KG26 --> KG20
-    KG29 --> KG20
-    KG215 --> KG20
-    KG216 --> KG20
-    KG219 --> KG20
-    KG220 --> KG20
-    KG221 --> KG216
-    KG260 --> KG22
-    AHE31 --> KG20
-    AHE33 --> ORCH12
-    AHE34 --> ECO42
-    ECO44 --> KG20
-    ECO410 --> ECO40
-    ECO415 --> ECO44
-    OS51 --> ORCH13
-    OS53 --> OS51
-    OS54 --> KG20
-    OS56 --> OS50
-    ECO416 --> KG20
-    ECO420 --> OS51
-    ORCH145 --> OS516
-    KG255 --> KG20
-    KG258 --> KG20
-    AHE321 --> OS524
-    ECO434 --> OS523
-    OS514 --> OS51
-    OS524 --> OS514
+**Pillar 5: Agent OS Infrastructure** — OS-5.0 Agent OS Kernel; OS-5.1
+Security & Auth; OS-5.2 Resource Scheduling;
+AU-OS.governance.reactive-multi-axis-budget (OS Guardrails & Safety
+Boundaries); AU-OS.governance.wasm-micro-agent-sandbox (Telemetry); OS-5.5
+Massive Scale; OS-5.14 Server-Minted JWT Identity; OS-5.16-5.18
+Externalized Durable State; AU-OS.observability.no-op-without-metrics
+(Gateway Hardening & /metrics); OS-5.24-5.29 Fleet Autonomy Control Plane.
 
-    style P1 fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style P2 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style P3 fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style P4 fill:#e6ccff,stroke:#9673a6,stroke-width:2px
-    style P5 fill:#cce5ff,stroke:#004085,stroke-width:2px
-```
+**Cross-pillar relationships:** ORCH-1.0 ↔ KG-2.0; ORCH-1.1 → ORCH-1.2 →
+KG-2.2; ORCH-1.4 → ECO-4.0; KG-2.1, KG-2.5, KG-2.6, KG-2.7(Quant),
+KG-2.7(Transaction Proxy), KG-2.7(FFI), KG-2.7(Event Backbone),
+KG-2.7(Query Router), KG-2.55-2.57, and AU-KG.sharding.tenant-partitioned-
+sharding-hrw all → KG-2.0; KG-2.21 → KG-2.7(FFI); KG-2.7(Single Company
+Brain) → KG-2.2; AHE-3.1 → KG-2.0; AHE-3.3 → ORCH-1.2; AHE-3.4 →
+AU-ECO.toolkit.journey-map-narrative; AHE-3.18-3.21 → OS-5.24-5.29;
+AU-ECO.toolkit.journey-map-adoption → KG-2.0; AU-ECO.mcp.toolkit-live-
+discovery → ECO-4.0; AU-ECO.bus.pluggable-queue-backend →
+AU-ECO.toolkit.journey-map-adoption; AU-KG.memory.team-startup-context →
+KG-2.0; AU-ECO.mcp.profile-differences-from-client →
+AU-OS.observability.no-op-without-metrics; ORCH-1.45 → OS-5.16-5.18;
+OS-5.1 → ORCH-1.3; AU-OS.governance.reactive-multi-axis-budget → OS-5.1;
+AU-OS.governance.wasm-micro-agent-sandbox → KG-2.0; OS-5.5 → OS-5.0;
+AU-OS.governance.permission-policy → OS-5.1; OS-5.14 → OS-5.1;
+OS-5.24-5.29 → OS-5.14.
+
+</div>
 
 ## Concept Index
 
@@ -359,33 +307,24 @@ All assimilation follows the **Wire or Discard** principle:
 
 ### 4-Phase Pipeline
 
-```mermaid
-flowchart TD
-    A[Phase 1: Ecosystem Ingestion] --> B[Phase 2: Assimilation Codification]
-    B --> C[Phase 3: Parallel Comparative Analysis]
-    C --> D[Phase 4: SDD Plan Generation]
-
-    subgraph P1 [Phase 1: Ingestion]
-        A1[AU-ECO.mcp.toolkit-live-discovery: agent-packages] --> A3[ORCH-1.0: IntelligencePipeline]
-        A2[AU-ECO.mcp.toolkit-live-discovery: open-source-libraries] --> A3
-        A3 --> A4[KG-2.2: PolicyIngestor: Constitution Rules]
-    end
-
-    subgraph P3 [Phase 3: Analysis]
-        C1[ORCH Background Research] --> C6[Synthesis]
-        C2[KG Background Research] --> C6
-        C3[AHE Background Research] --> C6
-        C4[ECO Background Research] --> C6
-        C5[OS Background Research] --> C6
-        C6 --> C7[KG-2.2: Concept Cross-Reference Matrix]
-    end
-
-    subgraph P4 [Phase 4: SDD]
-        D1[Feature Recommendations] --> D2[Wiring Audit]
-        D2 --> D3[KG-2.2: Constitution Compliance]
-        D3 --> D4[AU-ORCH.planning.legal-automation-roadmap: SDD Implementation Plan]
-    end
-```
+<ol class="site-flow">
+  <li class="site-flow__step">
+    <div class="site-flow__title">Phase 1: Ecosystem Ingestion</div>
+    <div class="site-flow__body">AU-ECO.mcp.toolkit-live-discovery ingests <code>agent-packages</code> and <code>open-source-libraries</code>, both feeding ORCH-1.0's <code>IntelligencePipeline</code>, which feeds KG-2.2's <code>PolicyIngestor</code> (constitution rules).</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Phase 2: Assimilation Codification</div>
+    <div class="site-flow__body">Ingested material is codified for comparative analysis.</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Phase 3: Parallel Comparative Analysis</div>
+    <div class="site-flow__body">ORCH, KG, AHE, ECO, and OS background research all feed one synthesis step, which produces KG-2.2's Concept Cross-Reference Matrix.</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Phase 4: SDD Plan Generation</div>
+    <div class="site-flow__body">Feature recommendations feed a wiring audit, which feeds KG-2.2 constitution compliance, which produces the AU-ORCH.planning.legal-automation-roadmap SDD implementation plan.</div>
+  </li>
+</ol>
 
 ### Integration Points
 
