@@ -16,6 +16,10 @@ _CAMEL_SEGMENT_RE = re.compile(
     rb"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[A-Z]+|[0-9]+"
 )
 _SEPARATORS = frozenset(b"_-")
+# One lexical group: a maximal run of ASCII letters, digits and separators.
+_GROUP_RUN_RE = re.compile(rb"[0-9A-Za-z_-]+")
+_LEADING_RUN_RE = re.compile(rb"[0-9A-Za-z_-]*")
+_TRAILING_RUN_RE = re.compile(rb"[0-9A-Za-z_-]+\Z")
 
 
 class IdentityPolicyError(ValueError):
@@ -116,35 +120,90 @@ def _consume_chunk(
     group_line: int,
     identities: tuple[bytes, ...],
 ) -> tuple[list[tuple[int, bytes]], int, int]:
+    """Split one chunk into maximal lexical groups, carrying a boundary group.
+
+    The group runs and the newlines between them are found in C (``finditer`` /
+    ``bytes.count``) instead of classifying every byte in Python; group
+    boundaries, the carried group, line numbers and the size limit are exactly
+    those of a byte-by-byte scan.
+    """
+    if len(chunk) <= MAX_GROUP_BYTES and not _may_match(group, chunk, identities):
+        line, group_line = _advance_without_match(chunk, group, line, group_line)
+        return [], line, group_line
     matches: list[tuple[int, bytes]] = []
-    for value in chunk:
-        if _is_group_byte(value):
-            group_line = line if not group else group_line
-            if len(group) >= MAX_GROUP_BYTES:
-                raise IdentityPolicyError(
-                    "tracked lexical group exceeds the size limit"
-                )
-            group.append(value)
-            continue
-        if group:
-            rendered = bytes(group)
-            if _group_matches(rendered, identities):
-                matches.append((group_line, rendered))
-            group.clear()
-        line += value == 10
+    cursor = 0
+    for run in _GROUP_RUN_RE.finditer(chunk):
+        start, end = run.span()
+        if start > cursor:
+            _flush_group(group, group_line, identities, matches)
+            line += chunk.count(b"\n", cursor, start)
+        if not group:
+            group_line = line
+        if len(group) + (end - start) > MAX_GROUP_BYTES:
+            raise IdentityPolicyError("tracked lexical group exceeds the size limit")
+        group += chunk[start:end]
+        cursor = end
+    if cursor < len(chunk):
+        _flush_group(group, group_line, identities, matches)
+        line += chunk.count(b"\n", cursor)
     return matches, line, group_line
 
 
-def _is_group_byte(value: int) -> bool:
-    return (
-        48 <= value <= 57
-        or 65 <= value <= 90
-        or 97 <= value <= 122
-        or value in _SEPARATORS
-    )
+def _normalized(text: bytes) -> bytes:
+    """Separator-free, lower-cased text: the form every identity is matched in."""
+    return text.replace(b"_", b"").replace(b"-", b"").lower()
+
+
+def _may_match(group: bytearray, chunk: bytes, identities: tuple[bytes, ...]) -> bool:
+    """Exact necessary condition for any group ending in ``chunk`` to match.
+
+    Each such group is a contiguous run of the carried group plus ``chunk``, and
+    dropping separators character-wise keeps its normalized form contiguous, so
+    an identity absent from the whole normalized text is absent from every group.
+    """
+    normalized = _normalized(bytes(group) + chunk)
+    return any(identity in normalized for identity in identities)
+
+
+def _advance_without_match(
+    chunk: bytes, group: bytearray, line: int, group_line: int
+) -> tuple[int, int]:
+    """Advance line and carried-group state over a chunk that cannot match."""
+    if group:
+        leading = _LEADING_RUN_RE.match(chunk)
+        leading_end = leading.end() if leading is not None else 0
+        if len(group) + leading_end > MAX_GROUP_BYTES:
+            raise IdentityPolicyError("tracked lexical group exceeds the size limit")
+        if leading_end == len(chunk):
+            group += chunk
+            return line, group_line
+    trailing = _TRAILING_RUN_RE.search(chunk)
+    group.clear()
+    if trailing is not None:
+        group_line = line + chunk.count(b"\n", 0, trailing.start())
+        group += chunk[trailing.start() :]
+    return line + chunk.count(b"\n"), group_line
+
+
+def _flush_group(
+    group: bytearray,
+    group_line: int,
+    identities: tuple[bytes, ...],
+    matches: list[tuple[int, bytes]],
+) -> None:
+    if group:
+        rendered = bytes(group)
+        if _group_matches(rendered, identities):
+            matches.append((group_line, rendered))
+        group.clear()
 
 
 def _group_matches(group: bytes, identities: tuple[bytes, ...]) -> bool:
+    # Exact prefilter: this is the same separator-free, lower-cased text the
+    # position walk below searches, so an identity absent here is absent there.
+    normalized_text = _normalized(group)
+    if not any(identity in normalized_text for identity in identities):
+        return False
     positions = [index for index, value in enumerate(group) if value not in _SEPARATORS]
     normalized = bytes(group[index] for index in positions).lower()
     for identity in identities:
