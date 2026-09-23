@@ -440,7 +440,7 @@ The Python gateway tier is observable and self-protecting:
   on one shared listen socket; the flock host-lock still elects exactly one KG
   host daemon among them.
 
-Full design: [Gateway Scaling](../architecture/gateway_scaling.md);
+Full design: [Gateway Scaling](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/);
 walkthrough: [observability example](../examples/observability.md).
 
 ---
@@ -492,7 +492,7 @@ pieces:
    leader-only target-tracking tick (`FLEET_AUTOSCALER`, default off) whose
    scale actions pass the same policy gate and deploy watch.
 
-Full design: [Fleet Autonomy](../architecture/fleet_autonomy.md); postures:
+Full design: [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/); postures:
 [action-policy examples](../examples/action-policy-postures.md); signals:
 [autoscaling examples](../examples/autoscaling-signals.md).
 
@@ -508,7 +508,7 @@ GraphOS status tools expose operational readiness. The unauthenticated
 GraphOS `GET /health` response is deliberately status-only and never exposes
 server identity or topology. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
-[Engine Sharding](../architecture/engine_sharding.md).
+[Engine Sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/).
 
 ## 🛠️ Developer-Workspace Runtime (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 / KG-2.64)
 

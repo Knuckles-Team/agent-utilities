@@ -22,8 +22,8 @@ Who is acting, on whose behalf, with what authority — from the first request t
 - [Graph Authority Convergence (session, client, work state)](graph-authority-convergence.md)
 - [Per-Agent On-Behalf-Of Identity (delegation chain, ceiling, revocation)](per-agent-delegation.md)
 - [Verified Identity Carrier Contract (GOC-15)](verified-identity-carrier-contract.md)
-- [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](identity-inheritance.md)
-- [MCP Fleet Authentication (JWT + Eunomia)](mcp_auth.md)
+- [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](https://knuckles-team.github.io/graph-os/architecture/identity-inheritance/)
+- [MCP Fleet Authentication (JWT + Eunomia)](https://knuckles-team.github.io/graph-os/architecture/mcp-auth/)
 - [Engine-authoritative cluster discovery and session continuity](cluster-discovery-session-continuity.md)
 - [Concept hierarchy](concept-hierarchy.md)
 - [Cross-host concept reservation authority](concept-reservation-authority.md)
@@ -35,7 +35,7 @@ The remaining runtime authority and resource-management seams.
 - [Relational Authority & Registry Read Model](relational-authority.md)
 - [Resource-pool capability authority](resource-pool-authority.md)
 - [Native WorkItem resource-reservation boundary](native-resource-reservation.md)
-- [Fleet scale authority](fleet-scale-authority.md)
+- [Fleet scale authority](https://knuckles-team.github.io/graph-os/architecture/fleet-scale-authority/)
 - [Durable ScaleIntent actuation](scaling-intent-actuation.md)
 - [Service-surface scale units](service-scale-units.md)
 
@@ -136,7 +136,7 @@ Bridges into the enterprise tool landscape — BPM, GRC, and the runtime that ca
 
 How the platform talks to the outside world — cross-session messaging, reactions, frontend contribution points, and code intelligence.
 
-- [Agent Communication Bus (cross-session/host/provider)](agent_bus.md)
+- [Agent Communication Bus (cross-session/host/provider)](https://knuckles-team.github.io/graph-os/architecture/agent-bus/)
 - [Messaging Reach (Telegram + agents)](messaging_reach.md)
 - [Secure Messaging Ingress (zero open ports)](messaging_security.md)
 - [Reactions / Emotes (system-wide, renderer contract)](reactions.md)
@@ -150,16 +150,19 @@ How the platform talks to the outside world — cross-session messaging, reactio
 
 Everything about running more than one of something — engine shards, GPUs, gateways, caches, tenants, and the wire protocols between them.
 
-- [Authoritative Engine Placement & Sharding](engine_sharding.md)
-- [graph-os Horizontal Scaling (the HPA blocker, precisely)](graphos-horizontal-scaling.md)
+- [Authoritative Engine Placement & Sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/)
+- graph-os Horizontal Scaling (the HPA blocker, precisely) — described the superseded
+  `out-of-process-shared` (Shape 2) topology; condensed into the
+  ["History" section](https://knuckles-team.github.io/graph-os/architecture/graphos-self-hosting/#history-the-horizontal-scaling-shape-this-cutover-replaced)
+  of graph-os's self-hosting cutover doc, not carried forward as a standalone page.
 - [Distributed Multi-GPU Concurrency](distributed_gpu_concurrency.md)
 - [Adaptive Model Concurrency (vLLM auto-scale)](adaptive_model_concurrency.md)
-- [Scaling the Gateway](gateway_scaling.md)
+- [Scaling the Gateway](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/)
 - [Resource-Priority Edict (interactive over ingestion, end-to-end)](resource-priority-edict.md)
 - [Scaling Authority Contract (NE-164)](scaling-authority.md)
 - [Durable-State Externalization](state_externalization.md)
 - [Event Backbone (Kafka)](event_backbone_architecture.md)
-- [Multi-Tenant graph-os over Streamable-HTTP](multi_tenant_streamable_http.md)
+- [Multi-Tenant graph-os over Streamable-HTTP](https://knuckles-team.github.io/graph-os/architecture/multi-tenant-streamable-http/)
 - [HNSW Vector Index Lifecycle](https://knuckles-team.github.io/epistemic-graph/architecture/vector-index-lifecycle/)
 - [Task-Aware Sampling Profiles](sampling_profiles.md)
 - [LLM/Embedding Server-Capacity Guard (never OOM the model host)](llm-server-capacity-guard.md)
@@ -167,11 +170,11 @@ Everything about running more than one of something — engine shards, GPUs, gat
 - [KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk)](kv-checkpoint-intelligence.md)
 - [Graph Backend Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/graph-backends/)
 - [Epistemic Graph Service Layer Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/service-layer/)
-- [GraphOS Embedded Fleet Gateway](mcp_multiplexer.md)
-- [MCP 2026-07-28 Native Protocol Surface](mcp-2026-protocol-surface.md)
+- [GraphOS Embedded Fleet Gateway](https://knuckles-team.github.io/graph-os/architecture/fleet-gateway/)
+- [MCP 2026-07-28 Native Protocol Surface](https://knuckles-team.github.io/graph-os/architecture/mcp-2026-protocol-surface/)
 - [fastmcp 4 as the Default (MCP SDK v2 protocol bridge)](fastmcp4-default.md)
 - [Staged httpx to httpx2 Migration (transport-factory strangler)](httpx_httpx2_migration.md)
-- [Gateway Daemon (all runtime components)](gateway_daemon.md)
+- [Gateway Daemon (all runtime components)](https://knuckles-team.github.io/graph-os/architecture/gateway-daemon/)
 
 ## Observability, governance & safety
 
@@ -180,7 +183,7 @@ Metrics/logs/traces, autonomous governance, and the reliability loop that watche
 - [Observability (Metrics/Logs/Traces/Alerts)](observability.md)
 - [Runtime-Reliability Loop (detect→signal→gap→heal)](runtime-reliability-loop.md)
 - [Autonomous Governance & Zero-Trust Consensus](autonomous_governance_and_zero_trust.md)
-- [Fleet Autonomy Control Plane](fleet_autonomy.md)
+- [Fleet Autonomy Control Plane](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/)
 
 ## Deployment, release & repo operations
 
@@ -200,7 +203,7 @@ Shipping the platform itself — containerization, orchestrator migrations, vers
 - [The shared workspace `.venv` — sync, flip-on-merge, drift, upgrade](shared-venv-lifecycle.md)
 - [Phased Dependency Release Architecture](phased_release_architecture.md)
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](goc-44-dependency-runtime-compatibility-baseline.md)
-- [graph-os Self-Hosting Cutover (design)](graphos-self-hosting-cutover.md)
+- [graph-os Self-Hosting Cutover (design)](https://knuckles-team.github.io/graph-os/architecture/graphos-self-hosting/)
 - [Unattended Claude Code Harness](unattended_claude_harness.md)
 - [Pydantic AI v2 Migration](pydantic-ai-v2-migration.md)
 - [In-House Training Substrate](in_house_training_substrate.md)
@@ -210,6 +213,13 @@ Shipping the platform itself — containerization, orchestrator migrations, vers
 The canonical record of what ran, why, and — for closed incidents — what broke and how it was found.
 
 - [Canonical Trace and Outcome Ontology](trace_outcome_ontology.md)
-- [RCA: graph-os fleet-mount state desync (D-OB-3)](rca-mcp-tool-state-desync.md)
-- [Optimization Campaign Checkpoint](optimization-campaign-checkpoint.md)
+- RCA: graph-os fleet-mount state desync (D-OB-3) — closed and merged
+  (`fix/mcp-tool-state-desync`, `fe3c1f519`); the generalized "favorable-restatement"
+  invariant it named lives on in
+  [graph-os's fleet gateway architecture](https://knuckles-team.github.io/graph-os/architecture/fleet-gateway/#history-the-favorable-restatement-invariant-d-ob-3).
+  The full RCA text is preserved in git history (`07dcbac23`), not carried forward as a
+  standalone page.
+- Optimization Campaign Checkpoint — a dated (2026-06-19) session resume-point note, not
+  an architecture description; superseded by everything merged since. Preserved in git
+  history (last touched `274d4c375`), not carried forward as a standalone page.
 - [Historical Hardening Audit (non-authoritative)](epistemic-os-hardening.md)

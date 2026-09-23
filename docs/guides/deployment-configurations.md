@@ -534,7 +534,7 @@ agent-dispatch-worker --workers 2
 ### Load balancer (Caddy)
 
 N gateway replicas (each `GATEWAY_WORKERS=1`) or one multi-worker gateway —
-both are supported; see [gateway scaling](../architecture/gateway_scaling.md)
+both are supported; see [gateway scaling](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/)
 for the per-process state table (metrics registries, rate-limit buckets).
 
 ```caddyfile
@@ -591,7 +591,7 @@ curl -s https://kg-member-0.example.test:9110/metrics | grep epistemic_graph_ | 
 
 Worked examples: [sharding-walkthrough](../examples/sharding-walkthrough.md),
 [queue-dispatch-walkthrough](../examples/queue-dispatch-walkthrough.md).
-Deep dives: [engine sharding](../architecture/engine_sharding.md),
+Deep dives: [engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/),
 [agent dispatch](../architecture/agent_dispatch.md),
 [event backbone](../architecture/event_backbone_architecture.md),
 [capacity model](../scaling/capacity_model.md).
@@ -720,7 +720,7 @@ Uptime Kuma / Portainer payloads),
 [autoscaling-signals](../examples/autoscaling-signals.md),
 [evolution-publication](../examples/evolution-publication.md) (how promoted
 proposals become reviewable local branches). Deep dives:
-[fleet autonomy](../architecture/fleet_autonomy.md),
+[fleet autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/),
 [failure-driven evolution](../architecture/failure_driven_evolution.md),
 [autonomous evolution guide](autonomous-evolution.md).
 
@@ -744,9 +744,9 @@ Recipe form: [Enterprise](../recipes/enterprise.md).
   [mcp-consumption](../examples/mcp-consumption.md)
 - Architecture deep dives:
   [state externalization](../architecture/state_externalization.md),
-  [engine sharding](../architecture/engine_sharding.md),
-  [gateway scaling](../architecture/gateway_scaling.md),
+  [engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/),
+  [gateway scaling](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/),
   [agent dispatch](../architecture/agent_dispatch.md),
-  [fleet autonomy](../architecture/fleet_autonomy.md),
+  [fleet autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/),
   [graph service layer](https://knuckles-team.github.io/epistemic-graph/architecture/service-layer/)
 - Sizing: [capacity model](../scaling/capacity_model.md)

@@ -96,7 +96,7 @@ Configure JWT/OIDC authentication, allowed hosts/origins, and trusted TLS before
 non-loopback bind.
 
 Scale it with `GATEWAY_WORKERS` and front it with Caddy/nginx — see
-[Scaling the Gateway](../architecture/gateway_scaling.md) and the
+[Scaling the Gateway](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/) and the
 [deployment configuration ladder](deployment-configurations.md).
 
 When to use: web UIs (agent-webui consumes this), scripts, the fleet supervisor,
@@ -133,5 +133,5 @@ The two MCP transports above are just two ways onto the **one** graph-os:
   identical data.
 
 See the [ecosystem map](../ecosystem.md) for the connector fleet, and
-[MCP auth](../architecture/mcp_auth.md) for the inbound-JWT / outbound-client-credentials
+[MCP auth](https://knuckles-team.github.io/graph-os/architecture/mcp-auth/) for the inbound-JWT / outbound-client-credentials
 wiring.

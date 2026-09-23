@@ -665,7 +665,7 @@ status, the gateway dashboard's `daemon/shards` route, and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}` metrics. A
 worked 3-shard recipe ships in `docker/engine-shards.compose.yml`.
 Single-endpoint deployments are byte-for-byte unchanged. Full design:
-[Engine Sharding](../architecture/engine_sharding.md); walkthrough:
+[Engine Sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/); walkthrough:
 [sharding example](../examples/sharding-walkthrough.md).
 
 ### AU-ORCH.planning.repo-map-skeleton — Token-Budgeted Repo-Map Skeleton

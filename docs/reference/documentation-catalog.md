@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-402 publishable pages · 38 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+386 publishable pages · 38 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -152,12 +152,10 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — catalog
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — catalog
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — catalog
-- [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — catalog
 - [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md) — catalog
 - [Agents-as-data activation layer (ADR-6 / W2.3)](../architecture/agents-as-data-activation.md) — catalog
 - [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — catalog
 - [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — catalog
-- [Atlas source catalogue](../architecture/atlas-source-catalog.md) — catalog
 - [Autonomous Governance & Zero-Trust Consensus](../architecture/autonomous_governance_and_zero_trust.md) — catalog
 - [Engine-authoritative cluster discovery and session continuity](../architecture/cluster-discovery-session-continuity.md) — catalog
 - [Codebase context via the KG — query, don't grep](../architecture/codebase-context.md) — catalog
@@ -178,7 +176,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — catalog
 - [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — catalog
-- [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — catalog
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — catalog
 - [Epistemic-columns currency (Seam 1) — consuming epistemic-graph's KnowledgeBatch](../architecture/epistemic-columns-currency.md) — catalog
@@ -190,22 +187,15 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — catalog
 - [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — catalog
 - [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — catalog
-- [Fleet scale authority](../architecture/fleet-scale-authority.md) — catalog
-- [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — catalog
 - [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — catalog
-- [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — catalog
-- [Scaling the Gateway](../architecture/gateway_scaling.md) — catalog
 - [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — catalog
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — catalog
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
 - [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — catalog
 - [Governed retrieval](../architecture/governed_retrieval.md) — catalog
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
-- [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — catalog
-- [graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)](../architecture/graphos-self-hosting-cutover.md) — catalog
 - [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — catalog
 - [Staged httpx → httpx2 migration (GOC-87)](../architecture/httpx_httpx2_migration.md) — catalog
-- [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — catalog
 - [In-House Training Substrate](../architecture/in_house_training_substrate.md) — catalog
 - [Architecture Reference](../architecture/index.md) — direct nav
 - [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — catalog
@@ -220,9 +210,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — catalog
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
-- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — catalog
-- [MCP authentication and network trust](../architecture/mcp_auth.md) — catalog
-- [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
 - [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — catalog
 - [Messaging reach — agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — catalog
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — catalog
@@ -230,7 +217,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — catalog
 - [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — catalog
 - [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — catalog
-- [Multi-Tenant graph-os over Streamable-HTTP](../architecture/multi_tenant_streamable_http.md) — catalog
 - [Native WorkItem resource-reservation boundary](../architecture/native-resource-reservation.md) — catalog
 - [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — catalog
 - [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — catalog
@@ -240,7 +226,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Ontology integrity-policy activation (CONCEPT:AU-KG.ontology.integrity-bootstrap)](../architecture/ontology-integrity-activation.md) — catalog
 - [Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)](../architecture/ontology-native-classification.md) — catalog
 - [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — catalog
-- [Optimization Campaign — Session Checkpoint (2026-06-19)](../architecture/optimization-campaign-checkpoint.md) — catalog
 - [Orchestration Execution Seam — ingested capability → executed by a local LLM](../architecture/orchestration-execution-seam.md) — catalog
 - [Orchestrator Migration & Cutover — hard-won hardening (provider-neutral)](../architecture/orchestrator-migration-cutover.md) — catalog
 - [Runtime Org Dynamics — Recruiter, Work-Item DAG, Self-Grown Staff](../architecture/org-runtime.md) — catalog
@@ -249,7 +234,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Perspectival Inquiry — STORM made native](../architecture/perspectival_inquiry.md) — catalog
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — catalog
-- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — catalog
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — catalog
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — catalog
 - [Relational authority and registry read model](../architecture/relational-authority.md) — catalog

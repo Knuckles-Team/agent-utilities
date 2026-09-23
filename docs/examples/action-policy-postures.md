@@ -14,7 +14,7 @@ The policy files live in this repo:
 - [`examples/action-policies/supervised.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/supervised.yml)
 - [`examples/action-policies/scoped-autonomous.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/scoped-autonomous.yml)
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md). The
+Deep dive: [graph-os architecture/fleet-autonomy.md](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/). The
 decision point itself is `agent_utilities/orchestration/action_policy.py`;
 the shipped conservative default is `deploy/action-policy.default.yml`
 (embedded byte-for-byte as `DEFAULT_POLICY` so installed wheels behave

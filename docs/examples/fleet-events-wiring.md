@@ -9,7 +9,7 @@ Knowledge Graph (`FleetEvent` nodes), and how critical events flow into the
 AU-OS.host.remediation-playbooks remediation playbooks (`service_down` / `service_flapping` /
 `resource_pressure`) with a step-by-step `remediation_log` audit trail.
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
+Deep dive: [graph-os architecture/fleet-autonomy.md](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/) and
 [event_backbone_architecture.md](../architecture/event_backbone_architecture.md).
 
 ## Prerequisites (ladder rung)

@@ -85,6 +85,6 @@ boundary; there is no anonymous served profile.
 For implementation details, see:
 
 - [Graph authority convergence](architecture/graph-authority-convergence.md)
-- [Identity inheritance](architecture/identity-inheritance.md)
+- [Identity inheritance](https://knuckles-team.github.io/graph-os/architecture/identity-inheritance/)
 - [Connectors and ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/connectors-and-ingestion/)
 - [Privacy-safe external ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/privacy-safe-ingestion/)

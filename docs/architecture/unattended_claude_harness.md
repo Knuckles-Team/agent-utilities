@@ -81,7 +81,7 @@ flowchart TD
 
 ## Related
 
-- [Fleet Autonomy](fleet_autonomy.md) — the `ActionPolicy` decision point (OS-5.24).
+- [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/) — the `ActionPolicy` decision point (OS-5.24).
 - [Observational Memory Bridge](../pillars/memory_architecture.md) — the
   `MEMORY.md` ↔ KG bridge (KG-2.1) the morning summary rides on.
 - [Trigger the Loop engine](../guides/loop-engine.md) — `graph_loops`/`LoopController`.

@@ -154,7 +154,7 @@ separately, provide the strict `GRAPH_RAFT_GROUP_ENDPOINTS` mapping generated fr
 external placement inventory. The engine returns authoritative group, epoch, and fence
 information; stale routes refresh without inventing a second placement authority.
 
-See [Engine sharding](engine_sharding.md).
+See [Engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/).
 
 ## Durable state and queue
 

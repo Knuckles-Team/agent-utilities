@@ -169,7 +169,7 @@ runtime references.
 | `KG_GOLDEN_MERGE_THRESHOLD` | `0.85` | Minimum proposal quality score for auto-merge eligibility. |
 | `EVOLUTION_WORKTREE_ROOT` | `data_dir()/evolution_worktrees` | Where the `AHE-3.21` bridge creates fresh git worktrees when publishing a promoted proposal as a local branch. |
 | `FLEET_EVENTS_TOKEN_REF` | unset | Secret-provider reference for the `POST /api/fleet/events` monitoring-webhook ingress (`AU-OS.config.fleet-event-ingress`). |
-| `FLEET_RECONCILER` | `false` | Desired-state fleet reconciler tick — registry vs observed, converged through the `OS-5.24` ActionPolicy gate (see [Fleet Autonomy](../architecture/fleet_autonomy.md)). |
+| `FLEET_RECONCILER` | `false` | Desired-state fleet reconciler tick — registry vs observed, converged through the `OS-5.24` ActionPolicy gate (see [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/)). |
 | `ACTION_POLICY_PATH` | shipped default | Operational action policy (tiers / rate limits / maintenance windows / blast-radius caps); the shipped default keeps every mutating action approval-required (`OS-5.24`). |
 
 ## Recommended rollout

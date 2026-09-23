@@ -15,8 +15,8 @@ How the reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-auto
 `scale_service` proposal — with the exact target-tracking math, the
 cooldown/flap guard, and what lands in the KG.
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
-[gateway_scaling.md](../architecture/gateway_scaling.md).
+Deep dive: [graph-os architecture/fleet-autonomy.md](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/) and
+[graph-os architecture/gateway-scaling.md](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/).
 
 ## Prerequisites (ladder rung)
 

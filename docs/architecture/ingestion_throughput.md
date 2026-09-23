@@ -224,4 +224,4 @@ throughput linearly; the review plane is unaffected.
 
 See also: [Unified scheduling](../recipes/unified-scheduling.md),
 [Delta-based ingestion](../recipes/delta-ingestion.md),
-[the gateway daemon map](gateway_daemon.md).
+[the gateway daemon map](https://knuckles-team.github.io/graph-os/architecture/gateway-daemon/).

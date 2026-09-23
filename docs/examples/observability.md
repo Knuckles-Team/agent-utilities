@@ -7,8 +7,8 @@ gateway's Python-tier `/metrics` endpoint (CONCEPT:AU-OS.observability.no-op-wit
 shards' native listeners — plus ready-to-paste Grafana panel queries over the
 headline series.
 
-Deep dives: [gateway_scaling.md](../architecture/gateway_scaling.md) and
-[engine_sharding.md](../architecture/engine_sharding.md). Full metric
+Deep dives: [graph-os architecture/gateway-scaling.md](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/) and
+[graph-os architecture/engine-sharding.md](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/). Full metric
 reference: [metrics.md](../reference/metrics.md).
 
 ## Prerequisites (ladder rung)

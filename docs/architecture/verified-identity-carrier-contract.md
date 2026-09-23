@@ -161,7 +161,7 @@ cookie's mere presence. No code change was required here; this section is the
 recorded proof.
 
 **One doc-drift correction while verifying this surface:**
-`docs/architecture/identity-inheritance.md`'s "Deferred / roadmap" section
+graph-os's `docs/architecture/identity-inheritance.md`'s "Deferred / roadmap" section
 (unchanged since commit `3e13feeec`) still lists **"graph-os on-behalf-of
 token exchange in `execute_agent`"** — RFC 8693 delegation carrying the
 original caller's identity to downstream calls — as **not yet implemented**.
@@ -171,7 +171,7 @@ primitives (W2.1)`): `security/delegation.py` (`SpawnDelegation`,
 `ENABLE_DELEGATED_IDENTITY`) plus `session.py::_apply_spawn_delegation`
 forward exactly this — the `delegation` chain and, since W2.1-1, the
 `oidc_token` claim documented in the field table above. This lane corrects
-that stale entry (see the diff to `identity-inheritance.md` in this change).
+that stale entry (see the diff to graph-os's `identity-inheritance.md` in this change).
 
 ## Bounds already enforced (vs. the lane's proposed bounds)
 

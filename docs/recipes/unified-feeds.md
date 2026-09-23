@@ -78,4 +78,4 @@ graph_query "MATCH (i)-[:INGESTED_FROM]->(f:FeedSource) RETURN f.name, count(i)"
 ```
 
 See also: [Unified scheduling](unified-scheduling.md),
-[the gateway daemon](../architecture/gateway_daemon.md).
+[the gateway daemon](https://knuckles-team.github.io/graph-os/architecture/gateway-daemon/).

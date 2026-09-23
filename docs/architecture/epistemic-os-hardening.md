@@ -435,7 +435,7 @@ not behavior).
 **Two surfaces.** Not applicable — this is a pure performance fix inside the
 existing `ActionPolicy.decide()` gate every autonomous action already passes
 through (`graph_orchestrate`'s dispatch/approval actions, the fleet reconciler,
-remediation playbooks — see `docs/architecture/fleet_autonomy.md`).
+remediation playbooks — see graph-os's `docs/architecture/fleet-autonomy.md`).
 
 ---
 

@@ -363,7 +363,7 @@ across sessions, providers, and hosts — through the universal `bus_join`/`bus_
 can stand up agent-to-agent communication, and `action=swarm` gives each wave a shared bus topic
 so peers announce work and share findings instead of duplicating. Heavy work is handed to the
 fleet with `graph_bus(action='dispatch')`. Full design:
-[Agent Communication Bus](../architecture/agent_bus.md).
+[Agent Communication Bus](https://knuckles-team.github.io/graph-os/architecture/agent-bus/).
 
 ### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path { #ontology-workflow-execution }
 
