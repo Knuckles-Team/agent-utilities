@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.orchestration.action_policy import ActionPolicy
+from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
+    ActionPolicy,
+)
 from agent_utilities.orchestration.fleet_actuation import DryRunActuator
 from agent_utilities.orchestration.fleet_health import unavailable_fleet_health
 from agent_utilities.orchestration.fleet_reconciler import (
@@ -27,6 +30,7 @@ from .fleet_autonomy_fakes import (
     FakeObserver,
     healthy_fleet_evidence,
     obs,
+    verified_fleet_session,
     write_policy,
 )
 from .test_fleet_action_outbox import DurableActionOutbox
@@ -61,7 +65,47 @@ PERMISSIVE = (
 
 @pytest.fixture
 def engine():
-    return FakeEngine()
+    with verified_fleet_session():
+        yield FakeEngine()
+
+
+def _pending_approvals(engine) -> list[dict]:
+    return engine.control_leases.list(
+        tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+    )["leases"]
+
+
+def _seed_consumed_approval(
+    engine, lease_id: str, *, kind: str, target: str, params_json: str = "{}"
+) -> None:
+    """Issue then immediately consume an ``action.approval`` lease, matching a
+    human ``POST /api/fleet/approvals/grant``, so the drain has a candidate."""
+    now_ms = 0
+    engine.control_leases.issue(
+        tenant="fleet-autonomy",
+        lease_id=lease_id,
+        kind=ACTION_APPROVAL_KIND,
+        grant={
+            "kind": kind,
+            "target": target,
+            "params_json": params_json,
+            "source": "reconciler",
+            "reason": "",
+            "request_digest": "0" * 64,
+            "receipt_schema": "policy-receipt.v1",
+        },
+        issued_at_ms=now_ms,
+        expires_at_ms=now_ms + 1,
+        hard_expires_at_ms=now_ms + 1,
+        idempotency_key=f"seed:{lease_id}",
+    )
+    engine.control_leases.transition(
+        tenant="fleet-autonomy",
+        lease_id=lease_id,
+        expected_revision=1,
+        to="consumed",
+        idempotency_key=f"seed-consume:{lease_id}",
+    )
 
 
 def _reconciler(
@@ -210,7 +254,7 @@ def test_default_policy_queues_convergence_actions(engine, tmp_path, patch_desir
     assert report["divergences"] == 1
     assert report["actions"][0]["decision"] == "queue_approval"
     assert rec.actuator.applied == []  # nothing actuated without approval
-    assert len(engine.by_type("ActionApproval")) == 1
+    assert len(_pending_approvals(engine)) == 1
     assert len(engine.by_type("ReconcileReport")) == 1
 
 
@@ -276,22 +320,20 @@ def test_granted_approval_is_executed_and_stamped(engine, tmp_path, patch_desire
     # schedules a watch.
     reconciler_actuator = RecordingActuator()
     rec = patch_desired(_reconciler(engine, {}, tmp_path, actuator=reconciler_actuator))
-    engine.add_node(
-        "action_approval:xyz",
-        "ActionApproval",
-        properties={
-            "kind": "restart_service",
-            "target": "caddy-mcp",
-            "params_json": "{}",
-            "status": "approved",
-            "source": "reconciler",
-        },
+    _seed_consumed_approval(
+        engine, "action_approval:xyz", kind="restart_service", target="caddy-mcp"
     )
     report = rec.reconcile()
     drained = report["approved_drained"]
     assert len(drained) == 1
     assert drained[0]["status"] == "executed"
-    assert engine.nodes["action_approval:xyz"]["status"] == "executed"
+    # The lease is drained (consumed -> expired) so the next tick's scan
+    # never re-selects it; the rich disposition ("executed") lives on the
+    # report above and the ActionExecution audit node, not the lease.
+    lease = engine.control_leases.get(
+        tenant="fleet-autonomy", lease_id="action_approval:xyz"
+    )
+    assert lease["status"] == "expired"
     assert [r.target for r in reconciler_actuator.applied] == ["caddy-mcp"]
     # Watched kind ⇒ health watch scheduled after the approved execution too.
     assert [t["task_type"] for t in engine.submitted] == ["deploy_watch"]
@@ -299,10 +341,30 @@ def test_granted_approval_is_executed_and_stamped(engine, tmp_path, patch_desire
 
 def test_denied_approvals_are_not_drained(engine, tmp_path, patch_desired):
     rec = patch_desired(_reconciler(engine, {}, tmp_path))
-    engine.add_node(
-        "action_approval:no",
-        "ActionApproval",
-        properties={"kind": "restart_service", "target": "x", "status": "denied"},
+    engine.control_leases.issue(
+        tenant="fleet-autonomy",
+        lease_id="action_approval:no",
+        kind=ACTION_APPROVAL_KIND,
+        grant={
+            "kind": "restart_service",
+            "target": "x",
+            "params_json": "{}",
+            "source": "reconciler",
+            "reason": "",
+            "request_digest": "0" * 64,
+            "receipt_schema": "policy-receipt.v1",
+        },
+        issued_at_ms=0,
+        expires_at_ms=1,
+        hard_expires_at_ms=1,
+        idempotency_key="seed:no",
+    )
+    engine.control_leases.transition(
+        tenant="fleet-autonomy",
+        lease_id="action_approval:no",
+        expected_revision=1,
+        to="revoked",
+        idempotency_key="deny:no",
     )
     report = rec.reconcile()
     assert report["approved_drained"] == []

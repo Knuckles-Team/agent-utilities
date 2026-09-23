@@ -571,26 +571,32 @@ def test_default_policy_gates_k8s_actuator_no_kubectl_call(tmp_path, monkeypatch
     must never be invoked, at EITHER layer — this is the security guarantee
     that survives the NE-226 redesign (autoscaler never actuates directly;
     the reconciler only actuates an accepted intent)."""
-    from .fleet_autonomy_fakes import FakeEngine
+    from agent_utilities.orchestration.action_policy import ACTION_APPROVAL_KIND
 
-    engine = FakeEngine()
-    recorder = _RecordingRun()
-    scaler, reconciler = _k8s_autoscaler_and_reconciler(
-        engine,
-        {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
-        tmp_path,
-        monkeypatch,
-        recorder,
-    )
-    report = scaler.evaluate()
-    assert report["evaluations"][0]["outcome"] == "intent_proposed"
-    assert "queue_approval" in report["evaluations"][0]["reason"]
-    assert recorder.calls == []  # gated: no kubectl call issued
-    assert len(engine.by_type("ActionApproval")) == 1
+    from .fleet_autonomy_fakes import FakeEngine, verified_fleet_session
 
-    converged = reconciler.reconcile()
-    assert converged["actions"] == []  # no accepted intent ⇒ nothing to converge
-    assert recorder.calls == []  # still gated: the reconciler never reaches kubectl
+    with verified_fleet_session():
+        engine = FakeEngine()
+        recorder = _RecordingRun()
+        scaler, reconciler = _k8s_autoscaler_and_reconciler(
+            engine,
+            {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
+            tmp_path,
+            monkeypatch,
+            recorder,
+        )
+        report = scaler.evaluate()
+        assert report["evaluations"][0]["outcome"] == "intent_proposed"
+        assert "queue_approval" in report["evaluations"][0]["reason"]
+        assert recorder.calls == []  # gated: no kubectl call issued
+        approvals = engine.control_leases.list(
+            tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+        )["leases"]
+        assert len(approvals) == 1
+
+        converged = reconciler.reconcile()
+        assert converged["actions"] == []  # no accepted intent ⇒ nothing to converge
+        assert recorder.calls == []  # still gated: the reconciler never reaches kubectl
 
 
 def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(

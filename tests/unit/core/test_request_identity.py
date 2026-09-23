@@ -894,7 +894,11 @@ class TestStdioProcessIdentity:
         # never kg:admin. See test_tiny_local_process_session_default_has_no_admin_or_control_scope
         # and test_tiny_local_process_session_admin_opt_in_grants_exactly_kg_admin
         # below for the mutation-proof coverage of this specific fix.
-        assert session.scopes == frozenset({"kg:read", "kg:write"})
+        # ``fleet:events`` is also granted unconditionally: this identity is
+        # what background/system fleet-event publishing runs under too
+        # (eg-workitem WRAPUP §3d — EG's native broker authority requires
+        # this exact scope, or kg:admin, for a write to a fleet.* stream).
+        assert session.scopes == frozenset({"kg:read", "kg:write", "fleet:events"})
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
         assert session.actor.credential_expires_at is not None
@@ -934,12 +938,16 @@ class TestStdioProcessIdentity:
         # outage.
         session.require_scope("kg:read")
         session.require_scope("kg:write")
+        session.require_scope("fleet:events")
 
     def test_tiny_local_process_session_admin_opt_in_grants_exactly_kg_admin(self):
         """CONCEPT:X1 (b): KG_LOCAL_PROCESS_ADMIN_SCOPE=true is the only way a
         tiny-profile local process gets kg:admin, and it grants exactly the
-        documented set (read+write+admin via the coarse-scope hierarchy) --
-        never more, never less."""
+        documented kg:read/write/admin hierarchy set -- never a wider kg:*
+        scope than that. ``fleet:events`` is orthogonal to that hierarchy (an
+        independent, non-kg capability every local-process authority carries
+        for background fleet-event publishing) and is unaffected by this flag
+        either way."""
         from agent_utilities.security.request_identity import (
             mint_local_process_session,
         )
@@ -948,7 +956,9 @@ class TestStdioProcessIdentity:
         with mock.patch("agent_utilities.core.config.config", cfg):
             session = mint_local_process_session()
 
-        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        assert session.scopes == frozenset(
+            {"kg:read", "kg:write", "kg:admin", "fleet:events"}
+        )
         session.require_scope("kg:admin")
 
     def test_local_process_bootstrap_authority_is_a_distinct_narrow_admin_mint(self):

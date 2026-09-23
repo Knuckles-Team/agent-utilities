@@ -17,8 +17,10 @@ no separate supervisor service. Everything here surfaces state the ecosystem
   sessions owned by another host get ``pause_requested``/``kill_requested``,
   which the owning host's goal loop reconciles on its next tick
   (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
-* **approvals** — pending mutation/risk approvals stored as ``ActionApproval`` nodes,
-  read and decided through the parity-covered ``graph_query`` / ``graph_governance``
+* **approvals** — pending mutation/risk approvals are ``action.approval`` EG
+  ControlLease records (a generic ``ActionApproval`` node write is refused by
+  the connected engine's native row guard; eg-workitem WRAPUP §3d), read and
+  decided through the parity-covered ``graph_query`` / ``graph_governance``
   tools.
 
 These handlers are plain Starlette callables mounted by the gateway; the
@@ -325,9 +327,10 @@ async def fleet_kill(request: Request) -> JSONResponse:
 async def fleet_approvals(request: Request) -> JSONResponse:
     """List pending mutation/risk approvals.
 
-    ``ActionApproval`` is immutable approval evidence filed by the operational
-    ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). A WorkItem is created or
-    released only after authorization; unclaimed operational work is never
+    Pending approvals are ``active`` ``action.approval`` EG ControlLease
+    records filed by the operational ActionPolicy gate
+    (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). A WorkItem is created
+    or released only after authorization; unclaimed operational work is never
     misrepresented as a pending human decision.
     """
 
@@ -335,14 +338,24 @@ async def fleet_approvals(request: Request) -> JSONResponse:
     note = None
     try:
         from agent_utilities.mcp.kg_server import _get_engine
-
-        rows = _get_engine().query_cypher(
-            "MATCH (a:ActionApproval {status: 'pending'}) RETURN a LIMIT 200"
+        from agent_utilities.orchestration.action_policy import (
+            ACTION_APPROVAL_KIND,
+            approval_lease_client,
+            approval_lease_to_props,
         )
-        for row in rows or []:
-            props = row.get("a") if isinstance(row, dict) else None
-            if isinstance(props, dict):
-                pending.append(props)
+        from agent_utilities.orchestration.action_policy import (
+            approval_lease_tenant as _approval_lease_tenant,
+        )
+
+        engine = _get_engine()
+        leases = approval_lease_client(engine)
+        tenant = _approval_lease_tenant(required_scope="kg:read")
+        page = leases.list(
+            tenant=tenant, kind=ACTION_APPROVAL_KIND, status="active", limit=200
+        )
+        for lease in (page or {}).get("leases") or []:
+            if isinstance(lease, dict):
+                pending.append(approval_lease_to_props(lease))
     except Exception as exc:
         logger.warning(
             "Fleet approval source unavailable (exception_type=%s)",
@@ -356,7 +369,7 @@ async def fleet_approvals(request: Request) -> JSONResponse:
 
 
 async def fleet_grant_approval(request: Request) -> JSONResponse:
-    """Atomically grant or deny a pending ``ActionApproval`` by id."""
+    """Atomically grant or deny a pending ``action.approval`` lease by id."""
 
     try:
         body = await request.json()

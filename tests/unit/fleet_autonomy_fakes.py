@@ -2,12 +2,14 @@
 
 A minimal KG-engine double honoring exactly the surface the control plane
 uses (``add_node`` / ``query_cypher`` / ``backend.execute`` / ``submit_task``
-/ ``link_nodes``), plus observer/actuator/signal-provider/notifier doubles.
+/ ``link_nodes`` / ``client.control_leases``), plus
+observer/actuator/signal-provider/notifier doubles.
 """
 
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any
 
@@ -72,6 +74,147 @@ class FakeBackend:
         return []
 
 
+_LEASE_LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
+    "active": frozenset({"consumed", "revoked", "expired"}),
+    "consumed": frozenset({"revoked", "expired"}),
+}
+
+
+class FakeControlLeaseClient:
+    """In-memory double for ``EpistemicGraphClient.control_leases`` (EG-2/EG-3).
+
+    Mirrors just the semantics ``action_policy``/``approval``/
+    ``fleet_reconciler``/``change_publisher`` depend on: id collision on
+    ``issue``, CAS-on-revision ``transition`` restricted to the legal
+    ``active -> consumed|revoked|expired`` / ``consumed -> revoked|expired``
+    edges, and ``kind``/``status``/``grant_match`` filtering on ``list`` —
+    the fleet-approvals replacement for the retired generic
+    ``ActionApproval`` node (eg-workitem WRAPUP §3d).
+    """
+
+    def __init__(self) -> None:
+        self._leases: dict[str, dict[str, Any]] = {}
+
+    def _view(self, lease_id: str) -> dict[str, Any]:
+        row = self._leases[lease_id]
+        return {
+            "lease_id": lease_id,
+            "kind": row["kind"],
+            "status": row["status"],
+            "grant": dict(row["grant"]),
+            "issued_at_ms": row["issued_at_ms"],
+            "expires_at_ms": row["expires_at_ms"],
+            "hard_expires_at_ms": row["hard_expires_at_ms"],
+            "revision": row["revision"],
+        }
+
+    def issue(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        kind: str,
+        grant: dict[str, Any],
+        issued_at_ms: int,
+        expires_at_ms: int,
+        hard_expires_at_ms: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        if lease_id in self._leases:
+            return {
+                "outcome": "collision",
+                "lease": self._view(lease_id),
+                "changed_work_item_ids": [],
+            }
+        self._leases[lease_id] = {
+            "tenant": tenant,
+            "kind": kind,
+            "status": "active",
+            "grant": dict(grant),
+            "issued_at_ms": issued_at_ms,
+            "expires_at_ms": expires_at_ms,
+            "hard_expires_at_ms": hard_expires_at_ms,
+            "revision": 1,
+        }
+        return {
+            "outcome": "issued",
+            "lease": self._view(lease_id),
+            "changed_work_item_ids": [],
+        }
+
+    def get(self, *, tenant: str, lease_id: str) -> dict[str, Any] | None:
+        if lease_id not in self._leases:
+            return None
+        return self._view(lease_id)
+
+    def transition(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        expected_revision: int,
+        to: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        row = self._leases.get(lease_id)
+        if row is None:
+            return {"outcome": "not_found", "lease": None, "changed_work_item_ids": []}
+        if row[
+            "revision"
+        ] != expected_revision or to not in _LEASE_LEGAL_TRANSITIONS.get(
+            row["status"], frozenset()
+        ):
+            return {
+                "outcome": "conflict",
+                "lease": self._view(lease_id),
+                "changed_work_item_ids": [],
+            }
+        row["status"] = to
+        row["revision"] += 1
+        return {
+            "outcome": "applied",
+            "lease": self._view(lease_id),
+            "changed_work_item_ids": [],
+        }
+
+    def list(
+        self,
+        *,
+        tenant: str,
+        kind: str | None = None,
+        status: str | None = None,
+        grant_match: dict[str, Any] | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        leases = []
+        for lease_id, row in self._leases.items():
+            if row["tenant"] != tenant:
+                continue
+            if kind is not None and row["kind"] != kind:
+                continue
+            if status is not None and row["status"] != status:
+                continue
+            if grant_match and any(
+                row["grant"].get(key) != value for key, value in grant_match.items()
+            ):
+                continue
+            leases.append(self._view(lease_id))
+        return {"leases": leases[:limit], "next_cursor": None}
+
+
+class _FakeGeneratedClient:
+    """Stand-in for the session-routed generated EG client ``engine.client`` exposes.
+
+    Only ``control_leases`` is modeled -- the one namespace the retired
+    ``ActionApproval`` generic-node path now reaches through
+    (``approval_lease_client`` in ``action_policy.py``).
+    """
+
+    def __init__(self, control_leases: FakeControlLeaseClient) -> None:
+        self.control_leases = control_leases
+
+
 class FakeEngine:
     """In-memory engine double for ActionPolicy/reconciler/playbook/watch tests."""
 
@@ -80,6 +223,8 @@ class FakeEngine:
         self.edges: list[tuple[str, str, str]] = []
         self.submitted: list[dict[str, Any]] = []
         self.backend = FakeBackend(self)
+        self.control_leases = FakeControlLeaseClient()
+        self.client = _FakeGeneratedClient(self.control_leases)
 
     # ── node surface ────────────────────────────────────────────────
     def add_node(self, node_id: str, node_type: str, properties: dict | None = None):
@@ -333,3 +478,44 @@ def write_policy(tmp_path, body: str):
     path = tmp_path / "policy.yml"
     path.write_text(body, encoding="utf-8")
     return str(path)
+
+
+def fleet_approval_session(tenant: str = "fleet-autonomy") -> Any:
+    """Build a minimal verified ``GraphSession`` for the approval-lease surface.
+
+    ``action_policy.approval_lease_tenant``/``approval.decide_action_approval``
+    resolve their EG ``tenant`` from the ambient verified session (never a
+    caller-supplied value, matching ``work_durability._work_tenant`` and the
+    eg-workitem WRAPUP §3d tenant-binding rule) — tests that exercise the
+    ``action.approval`` queue/decide/drain path need one scoped for their
+    duration via :func:`verified_fleet_session`.
+    """
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.security.brain_context import ActorContext, ActorType
+
+    actor = ActorContext(
+        actor_id="principal:fleet-autonomy-test",
+        actor_type=ActorType.AI_AGENT,
+        roles=("operator",),
+        tenant_id=tenant,
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=tenant,
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph=f"tenant-{tenant}-graph",
+        policy_version="policy-v1",
+        audience="agent-services",
+    )
+
+
+@contextmanager
+def verified_fleet_session(tenant: str = "fleet-autonomy"):
+    """Scope a block of test code to a verified fleet-autonomy ``GraphSession``."""
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+
+    session = fleet_approval_session(tenant)
+    with use_actor(session.actor), use_session(session):
+        yield session

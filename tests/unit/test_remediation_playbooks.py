@@ -20,6 +20,7 @@ from agent_utilities.knowledge_graph.adaptation import (
     fleet_event_triage,
     remediation_playbooks,
 )
+from agent_utilities.orchestration.action_policy import ACTION_APPROVAL_KIND
 from agent_utilities.orchestration.fleet_actuation import (
     DryRunActuator,
     set_fleet_actuator,
@@ -33,6 +34,7 @@ from .fleet_autonomy_fakes import (
     in_memory_writer,
     obs,
     utc_now_str,
+    verified_fleet_session,
     write_policy,
 )
 
@@ -47,7 +49,14 @@ PERMISSIVE = (
 
 @pytest.fixture
 def engine():
-    return FakeEngine()
+    with verified_fleet_session():
+        yield FakeEngine()
+
+
+def _pending_approvals(engine) -> list[dict]:
+    return engine.control_leases.list(
+        tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+    )["leases"]
 
 
 @pytest.fixture
@@ -179,7 +188,7 @@ def test_service_down_queues_approval_under_default_policy(engine, notifier):
     report = fleet_event_triage.triage_fleet_event(engine, event_id)
     assert report["decision"] == "queue_approval"
     assert actuator.applied == []
-    assert len(engine.by_type("ActionApproval")) == 1
+    assert len(_pending_approvals(engine)) == 1
     assert any("awaits approval" in m for m in notifier.messages)
 
 
@@ -201,7 +210,7 @@ def test_service_down_escalates_on_actuation_failure(
     steps = _log(engine, event_id)
     assert "escalate" in steps
     assert any("escalation" in m for m in notifier.messages)
-    assert len(engine.by_type("ActionApproval")) == 1  # escalation queued
+    assert len(_pending_approvals(engine)) == 1  # escalation queued
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +229,8 @@ def test_flapping_backs_off_and_escalates(engine, permissive_policy, notifier):
     assert report["resolution"] == "backed_off"
     assert actuator.applied == []  # backed off — no restart even on auto tier
     assert any("flapping" in m for m in notifier.messages)
-    approvals = engine.by_type("ActionApproval")
-    assert len(approvals) == 1 and approvals[0]["kind"] == "restart_service"
+    approvals = _pending_approvals(engine)
+    assert len(approvals) == 1 and approvals[0]["grant"]["kind"] == "restart_service"
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +254,8 @@ def test_resource_pressure_never_auto_acts(engine, permissive_policy, notifier):
     assert report["playbook"] == "resource_pressure"
     assert report["resolution"] == "proposed_only"
     assert actuator.applied == []  # even a fully-permissive policy never acts
-    approvals = engine.by_type("ActionApproval")
-    assert [a["kind"] for a in approvals] == ["investigate_resource_pressure"]
+    approvals = _pending_approvals(engine)
+    assert [a["grant"]["kind"] for a in approvals] == ["investigate_resource_pressure"]
     assert any("resource pressure" in m for m in notifier.messages)
 
 

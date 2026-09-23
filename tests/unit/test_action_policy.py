@@ -19,6 +19,7 @@ import yaml
 
 from agent_utilities.orchestration import action_policy as ap
 from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
     DEFAULT_POLICY,
     ActionPolicy,
     ActionRequest,
@@ -26,14 +27,27 @@ from agent_utilities.orchestration.action_policy import (
     in_maintenance_window,
 )
 
-from .fleet_autonomy_fakes import CaptureNotifier, FakeEngine, write_policy
+from .fleet_autonomy_fakes import (
+    CaptureNotifier,
+    FakeEngine,
+    verified_fleet_session,
+    write_policy,
+)
 
 pytestmark = pytest.mark.concept("AU-OS.deployment.fleet-lifecycle-control")
 
 
+def _active_approvals(engine) -> list[dict]:
+    """The pending (``active``) ``action.approval`` leases on ``engine``."""
+    return engine.control_leases.list(
+        tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+    )["leases"]
+
+
 @pytest.fixture
 def engine():
-    return FakeEngine()
+    with verified_fleet_session():
+        yield FakeEngine()
 
 
 @pytest.fixture
@@ -57,10 +71,10 @@ def test_default_policy_queues_mutating_actions(engine):
     )
     assert decision.decision == "queue_approval"
     assert not decision.allowed
-    approvals = engine.by_type("ActionApproval")
+    approvals = _active_approvals(engine)
     assert len(approvals) == 1
-    assert approvals[0]["kind"] == "restart_service"
-    assert approvals[0]["status"] == "pending"
+    assert approvals[0]["grant"]["kind"] == "restart_service"
+    assert approvals[0]["status"] == "active"
 
 
 def test_default_policy_allows_diagnostics(engine):
@@ -152,10 +166,19 @@ def test_granted_approval_authorizes_only_the_exact_request_digest(engine):
     held = policy.decide(request)
     assert held.disposition is PolicyDisposition.HOLD
     assert held.approval_id is not None
-    approval = engine.nodes[held.approval_id]
-    assert approval["request_digest"] == request.digest()
+    lease = engine.control_leases.get(
+        tenant="fleet-autonomy", lease_id=held.approval_id
+    )
+    assert lease["grant"]["request_digest"] == request.digest()
 
-    approval["status"] = "approved"
+    outcome = engine.control_leases.transition(
+        tenant="fleet-autonomy",
+        lease_id=held.approval_id,
+        expected_revision=lease["revision"],
+        to="consumed",
+        idempotency_key="test-grant",
+    )
+    assert outcome["outcome"] == "applied"
     approved = policy.decide(request)
     assert approved.disposition is PolicyDisposition.APPROVE
     assert approved.approval_id == held.approval_id
@@ -216,7 +239,7 @@ def test_forbidden_tier_denies(engine, tmp_path):
         ActionRequest(kind="restart_service", target="prod-db")
     )
     assert decision.decision == "deny"
-    assert engine.by_type("ActionApproval") == []
+    assert _active_approvals(engine) == []
 
 
 def test_target_selector_glob_scoping(engine, tmp_path):
@@ -384,7 +407,7 @@ def test_pending_approval_is_deduped(engine):
     first = policy.decide(ActionRequest(kind="restart_service", target="caddy-mcp"))
     second = policy.decide(ActionRequest(kind="restart_service", target="caddy-mcp"))
     assert first.approval_id == second.approval_id
-    assert len(engine.by_type("ActionApproval")) == 1
+    assert len(_active_approvals(engine)) == 1
 
 
 def test_approval_queue_notifies_operators(engine, notifier):
@@ -511,7 +534,7 @@ class TestAssuranceGateWiring:
         assert decision.invariant == "role"
         assert "reconciler" in decision.reason
         # No approval was filed either — the assurance deny short-circuits everything.
-        assert engine.by_type("ActionApproval") == []
+        assert _active_approvals(engine) == []
 
     def test_missing_argument_is_denied_with_schema_invariant(self, engine):
         decision = ActionPolicy(engine=engine).decide(
@@ -562,7 +585,7 @@ class TestAssuranceGateWiring:
         assert verdict.decision == "deny"
         assert verdict.invariant == "schema"
         assert engine.by_type("ActionDecision") == []
-        assert engine.by_type("ActionApproval") == []
+        assert _active_approvals(engine) == []
 
     def test_evaluate_allows_a_valid_payload(self, engine):
         verdict = ActionPolicy(engine=engine).evaluate(
@@ -771,11 +794,12 @@ class TestGetActionPolicyCache:
         rebuilt from scratch (old) — the fix changes allocation, not
         semantics. Each side gets its OWN fresh engine so ledger/rate-limit
         accounting can't leak between them and skew the comparison."""
-        request = ActionRequest(kind=kind, target=target, source=source)
-        cached_decision = ap.get_action_policy(FakeEngine()).decide(request)
+        with verified_fleet_session():
+            request = ActionRequest(kind=kind, target=target, source=source)
+            cached_decision = ap.get_action_policy(FakeEngine()).decide(request)
 
-        fresh_request = ActionRequest(kind=kind, target=target, source=source)
-        fresh_decision = ActionPolicy(engine=FakeEngine()).decide(fresh_request)
+            fresh_request = ActionRequest(kind=kind, target=target, source=source)
+            fresh_decision = ActionPolicy(engine=FakeEngine()).decide(fresh_request)
 
         assert cached_decision.decision == fresh_decision.decision
         assert cached_decision.tier == fresh_decision.tier

@@ -13,14 +13,52 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agent_utilities.orchestration.action_policy import ActionRequest
+from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
+    ActionRequest,
+)
 from agent_utilities.orchestration.fleet_actuation import (
     _action_request_digest,
     execute_action,
 )
 from agent_utilities.orchestration.fleet_reconciler import FleetReconciler
 
-from .fleet_autonomy_fakes import FakeEngine, FakeObserver, obs
+from .fleet_autonomy_fakes import (
+    FakeEngine,
+    FakeObserver,
+    obs,
+    verified_fleet_session,
+)
+
+
+def _seed_consumed_approval(engine, lease_id: str, *, kind: str, target: str) -> None:
+    """Issue then immediately consume an ``action.approval`` lease, matching a
+    human ``POST /api/fleet/approvals/grant``, so the drain has a candidate."""
+    engine.control_leases.issue(
+        tenant="fleet-autonomy",
+        lease_id=lease_id,
+        kind=ACTION_APPROVAL_KIND,
+        grant={
+            "kind": kind,
+            "target": target,
+            "params_json": json.dumps({}),
+            "source": "fixture",
+            "reason": "fixture approval",
+            "request_digest": "0" * 64,
+            "receipt_schema": "policy-receipt.v1",
+        },
+        issued_at_ms=0,
+        expires_at_ms=1,
+        hard_expires_at_ms=1,
+        idempotency_key=f"seed:{lease_id}",
+    )
+    engine.control_leases.transition(
+        tenant="fleet-autonomy",
+        lease_id=lease_id,
+        expected_revision=1,
+        to="consumed",
+        idempotency_key=f"seed-consume:{lease_id}",
+    )
 
 
 class DurableActionOutbox:
@@ -95,11 +133,7 @@ class DurableActionOutbox:
         )
         approval_id = str(request.get("approval_id") or "")
         if approval_id and self.engine is not None:
-            approval = self.engine.nodes.get(approval_id)
-            if approval is not None:
-                approval["status"] = str(
-                    request.get("approval_status") or request["state"]
-                )
+            self._close_approval_lease(approval_id)
         if self.fail_complete_after_commit:
             raise RuntimeError("fixture completion acknowledgement lost")
         return {
@@ -107,6 +141,37 @@ class DurableActionOutbox:
             "status": record["status"],
             "approval_committed": bool(approval_id),
         }
+
+    def _close_approval_lease(self, approval_id: str) -> None:
+        """Best-effort mirror of the production contract: ``complete`` closes
+        a linked approval in the SAME authoritative transaction (this
+        fixture's docstring/``ActionOutboxStore``'s). An ``action.approval``
+        is now a ``ControlLease`` (eg-workitem WRAPUP §3d) — drain it
+        (``consumed`` -> ``expired``) exactly like
+        ``fleet_reconciler._stamp_approval_if_needed``'s own drain. Silent
+        no-op for ids that never had a lease (e.g. this module's own
+        synthetic ``"approval-1"`` ids) or when no verified session is
+        active — this fixture models durability, not authorization.
+        """
+        try:
+            from agent_utilities.orchestration.action_policy import (
+                approval_lease_client,
+                approval_lease_tenant,
+            )
+
+            leases = approval_lease_client(self.engine)
+            tenant = approval_lease_tenant()
+            current = leases.get(tenant=tenant, lease_id=approval_id)
+            if current is not None and current["status"] == "consumed":
+                leases.transition(
+                    tenant=tenant,
+                    lease_id=approval_id,
+                    expected_revision=current["revision"],
+                    to="expired",
+                    idempotency_key=f"outbox-complete:{approval_id}",
+                )
+        except Exception:  # noqa: BLE001 — best-effort fixture behavior
+            pass
 
 
 class CountingActuator:
@@ -344,70 +409,67 @@ def test_crash_after_apply_is_not_replayed():
 
 
 def test_duplicate_approval_drain_closes_once():
-    engine = FakeEngine()
-    outbox = DurableActionOutbox(engine)
-    outbox.engine = engine
-    engine.add_node(
-        "approval-1",
-        "ActionApproval",
-        properties={
-            "kind": "restart_service",
-            "target": "graph-os",
-            "params_json": json.dumps({}),
-            "source": "fixture",
-            "reason": "fixture approval",
-            "status": "approved",
-        },
-    )
-    actuator = CountingActuator()
-    reconciler = FleetReconciler(
-        engine,
-        observer=FakeObserver({"graph-os": obs("graph-os", "up", replicas=1)}),
-        actuator=actuator,
-        action_outbox_store=outbox,
-    )
+    with verified_fleet_session():
+        engine = FakeEngine()
+        outbox = DurableActionOutbox(engine)
+        outbox.engine = engine
+        _seed_consumed_approval(
+            engine, "approval-1", kind="restart_service", target="graph-os"
+        )
+        actuator = CountingActuator()
+        reconciler = FleetReconciler(
+            engine,
+            observer=FakeObserver({"graph-os": obs("graph-os", "up", replicas=1)}),
+            actuator=actuator,
+            action_outbox_store=outbox,
+        )
 
-    first = reconciler._drain_approved(1)
-    second = reconciler._drain_approved(1)
+        first = reconciler._drain_approved(1)
+        second = reconciler._drain_approved(1)
 
-    assert first[0]["status"] == "executed"
-    assert second == []
-    assert engine.nodes["approval-1"]["status"] == "executed"
-    assert len(actuator.calls) == 1
+        assert first[0]["status"] == "executed"
+        assert second == []
+        # Drained (consumed -> expired) so the second scan never re-selects it.
+        lease = engine.control_leases.get(
+            tenant="fleet-autonomy", lease_id="approval-1"
+        )
+        assert lease is not None
+        assert lease["status"] == "expired"
+        assert len(actuator.calls) == 1
 
 
 def test_approval_completion_loss_reconciles_observed_without_reapply():
-    engine = FakeEngine()
-    outbox = DurableActionOutbox(engine)
-    outbox.fail_complete = True
-    engine.add_node(
-        "approval-recovery",
-        "ActionApproval",
-        properties={
-            "kind": "restart_service",
-            "target": "graph-os",
-            "params_json": json.dumps({}),
-            "source": "fixture",
-            "reason": "fixture approval recovery",
-            "status": "approved",
-        },
-    )
-    actuator = CountingActuator()
-    reconciler = FleetReconciler(
-        engine,
-        observer=FakeObserver({"graph-os": obs("graph-os", "up", replicas=1)}),
-        actuator=actuator,
-        action_outbox_store=outbox,
-    )
+    with verified_fleet_session():
+        engine = FakeEngine()
+        outbox = DurableActionOutbox(engine)
+        outbox.fail_complete = True
+        _seed_consumed_approval(
+            engine, "approval-recovery", kind="restart_service", target="graph-os"
+        )
+        actuator = CountingActuator()
+        reconciler = FleetReconciler(
+            engine,
+            observer=FakeObserver({"graph-os": obs("graph-os", "up", replicas=1)}),
+            actuator=actuator,
+            action_outbox_store=outbox,
+        )
 
-    first = reconciler._drain_approved(1)
-    assert first[0]["status"] == "recovery_pending"
-    assert engine.nodes["approval-recovery"]["status"] == "approved"
-    assert len(actuator.calls) == 1
+        first = reconciler._drain_approved(1)
+        assert first[0]["status"] == "recovery_pending"
+        lease = engine.control_leases.get(
+            tenant="fleet-autonomy", lease_id="approval-recovery"
+        )
+        assert lease is not None
+        assert lease["status"] == "consumed"  # completion lost -> left for retry
+        assert len(actuator.calls) == 1
 
-    outbox.fail_complete = False
-    recovered = reconciler._drain_approved(1)
-    assert recovered[0]["status"] == "observed"
-    assert engine.nodes["approval-recovery"]["status"] == "observed"
-    assert len(actuator.calls) == 1
-    assert reconciler._drain_approved(1) == []
+        outbox.fail_complete = False
+        recovered = reconciler._drain_approved(1)
+        assert recovered[0]["status"] == "observed"
+        lease = engine.control_leases.get(
+            tenant="fleet-autonomy", lease_id="approval-recovery"
+        )
+        assert lease is not None
+        assert lease["status"] == "expired"  # now drained
+        assert len(actuator.calls) == 1
+        assert reconciler._drain_approved(1) == []

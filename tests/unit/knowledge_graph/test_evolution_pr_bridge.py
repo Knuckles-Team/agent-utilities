@@ -20,7 +20,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
+from fleet_autonomy_fakes import (  # noqa: E402
+    FakeEngine,
+    verified_fleet_session,
+)
 
 from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
     GovernedAutoMerger,
@@ -40,6 +43,9 @@ from agent_utilities.knowledge_graph.research.change_synthesis import (  # noqa:
     extract_embedded_files,
     extract_named_tests,
     synthesize_change_set,
+)
+from agent_utilities.orchestration.action_policy import (  # noqa: E402
+    ACTION_APPROVAL_KIND,
 )
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.evolution-branch-bridge")
@@ -379,24 +385,34 @@ class TestLocalBranchPublisher:
 
 
 def _grant_pending_approval(engine: BridgeEngine, proposal_id: str) -> str:
-    pending = [
-        n
-        for n in engine.by_type("ActionApproval")
-        if n.get("kind") == "merge_promotion" and n.get("target") == proposal_id
-    ]
+    pending = engine.control_leases.list(
+        tenant="fleet-autonomy",
+        kind=ACTION_APPROVAL_KIND,
+        status="active",
+        grant_match={"kind": "merge_promotion", "target": proposal_id},
+    )["leases"]
     assert pending, "expected a queued merge_promotion approval"
-    pending[0]["status"] = "approved"
-    return pending[0]["id"]
+    lease = pending[0]
+    outcome = engine.control_leases.transition(
+        tenant="fleet-autonomy",
+        lease_id=lease["lease_id"],
+        expected_revision=lease["revision"],
+        to="consumed",
+        idempotency_key=f"test-grant:{lease['lease_id']}",
+    )
+    assert outcome["outcome"] == "applied"
+    return lease["lease_id"]
 
 
 class TestGovernedPublish:
     def test_default_policy_queues_approval(self, target_repo, tmp_path):
         engine = BridgeEngine()
-        report = governed_publish(
-            engine,
-            _code_proposal(),
-            publisher=_publisher(engine, target_repo, tmp_path),
-        )
+        with verified_fleet_session():
+            report = governed_publish(
+                engine,
+                _code_proposal(),
+                publisher=_publisher(engine, target_repo, tmp_path),
+            )
         assert report["status"] == "approval_queued"
         assert report["approval_id"]
         assert "publish" not in report
@@ -407,18 +423,26 @@ class TestGovernedPublish:
         engine = BridgeEngine()
         proposal = _code_proposal()
         publisher = _publisher(engine, target_repo, tmp_path)
-        governed_publish(engine, proposal, publisher=publisher)
-        approval_id = _grant_pending_approval(engine, proposal["id"])
+        with verified_fleet_session():
+            governed_publish(engine, proposal, publisher=publisher)
+            approval_id = _grant_pending_approval(engine, proposal["id"])
 
-        report = governed_publish(engine, proposal, publisher=publisher)
+            report = governed_publish(engine, proposal, publisher=publisher)
 
-        assert report["status"] == "published"
-        assert report["approval_id"] == approval_id
-        assert report["decision"] == "approve"
-        assert report["provenance_receipts"]
-        assert report["policy_receipt"]["schema"] == "policy-receipt.v1"
-        assert report["publish"]["branch_ref"].startswith("pref_branch_")
-        assert engine.nodes[approval_id]["status"] == "executed"
+            assert report["status"] == "published"
+            assert report["approval_id"] == approval_id
+            assert report["decision"] == "approve"
+            assert report["provenance_receipts"]
+            assert report["policy_receipt"]["schema"] == "policy-receipt.v1"
+            assert report["publish"]["branch_ref"].startswith("pref_branch_")
+            # The lease is drained (consumed -> expired); the rich
+            # disposition ("executed") lives on the ActionExecution audit
+            # node below, not on the lease (EG ControlLease has no such field).
+            lease = engine.control_leases.get(
+                tenant="fleet-autonomy", lease_id=approval_id
+            )
+            assert lease is not None
+            assert lease["status"] == "expired"
         executions = engine.by_type("ActionExecution")
         assert executions and executions[0]["kind"] == "merge_promotion"
         assert executions[0]["ok"] is True
@@ -451,13 +475,18 @@ class TestGovernedPublish:
             files=[{"path": "pkg/broken.py", "content": "def broken(:\n"}]
         )
         publisher = _publisher(engine, target_repo, tmp_path)
-        governed_publish(engine, proposal, publisher=publisher)
-        approval_id = _grant_pending_approval(engine, proposal["id"])
+        with verified_fleet_session():
+            governed_publish(engine, proposal, publisher=publisher)
+            approval_id = _grant_pending_approval(engine, proposal["id"])
 
-        report = governed_publish(engine, proposal, publisher=publisher)
+            report = governed_publish(engine, proposal, publisher=publisher)
 
-        assert report["status"] == "validation_failed"
-        assert engine.nodes[approval_id]["status"] == "failed"
+            assert report["status"] == "validation_failed"
+            lease = engine.control_leases.get(
+                tenant="fleet-autonomy", lease_id=approval_id
+            )
+            assert lease is not None
+            assert lease["status"] == "expired"
         assert _git("branch", "--list", "evolution/*", cwd=target_repo) == ""
 
     def test_publish_proposal_by_node_id(self, target_repo, tmp_path):
@@ -474,11 +503,12 @@ class TestGovernedPublish:
             },
         )
         publisher = _publisher(engine, target_repo, tmp_path)
-        first = publish_proposal(engine, "proposal:seeded", publisher=publisher)
-        assert first["status"] == "approval_queued"
-        _grant_pending_approval(engine, "proposal:seeded")
+        with verified_fleet_session():
+            first = publish_proposal(engine, "proposal:seeded", publisher=publisher)
+            assert first["status"] == "approval_queued"
+            _grant_pending_approval(engine, "proposal:seeded")
 
-        report = publish_proposal(engine, "proposal:seeded", publisher=publisher)
+            report = publish_proposal(engine, "proposal:seeded", publisher=publisher)
 
         assert report["status"] == "published"
         branch = _git(
@@ -517,11 +547,14 @@ class TestMergerBridgeWiring:
             promoter=lambda s: True,
             publisher=_publisher(engine, target_repo, tmp_path),
         )
-        evaluation = merger.consider(self._spec())
-        assert evaluation.merged
-        assert evaluation.publication is not None
-        assert evaluation.publication["status"] == "approval_queued"
-        assert engine.by_type("ActionApproval")
+        with verified_fleet_session():
+            evaluation = merger.consider(self._spec())
+            assert evaluation.merged
+            assert evaluation.publication is not None
+            assert evaluation.publication["status"] == "approval_queued"
+            assert engine.control_leases.list(
+                tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+            )["leases"]
 
     def test_disabled_policy_never_publishes(self, target_repo, tmp_path):
         engine = BridgeEngine()
@@ -535,7 +568,9 @@ class TestMergerBridgeWiring:
         evaluation = merger.consider(self._spec())
         assert not evaluation.merged
         assert evaluation.publication is None
-        assert not engine.by_type("ActionApproval")
+        assert not engine.control_leases.list(
+            tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+        )["leases"]
 
     def test_relaxed_tier_publishes_end_to_end(self, target_repo, tmp_path):
         """Seeded proposal → governance pass → branch + gate verdict recorded."""

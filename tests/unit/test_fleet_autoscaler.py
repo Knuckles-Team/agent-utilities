@@ -20,7 +20,10 @@ from dataclasses import replace
 
 import pytest
 
-from agent_utilities.orchestration.action_policy import ActionPolicy
+from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
+    ActionPolicy,
+)
 from agent_utilities.orchestration.fleet_actuation import DryRunActuator
 from agent_utilities.orchestration.fleet_autoscaler import (
     FleetAutoscaler,
@@ -44,6 +47,7 @@ from .fleet_autonomy_fakes import (
     FakeSignalProvider,
     healthy_fleet_evidence,
     obs,
+    verified_fleet_session,
     write_policy,
 )
 from .test_fleet_scale_authority import (
@@ -89,7 +93,8 @@ PERMISSIVE_WATCH_DOWN = PERMISSIVE + "options: {watch_scale_down: true}\n"
 
 @pytest.fixture
 def engine():
-    return FakeEngine()
+    with verified_fleet_session():
+        yield FakeEngine()
 
 
 def _autoscaler(
@@ -791,8 +796,10 @@ def test_default_policy_queues_scale_for_approval(engine, tmp_path, monkeypatch)
     assert "queue_approval" in report["evaluations"][0]["reason"]
     assert scaler.actuator.applied == []  # the actuator is never touched here
     assert scaler.intent_store.intents["vector-mcp"]["status"] == "proposed"
-    approvals = engine.by_type("ActionApproval")
-    assert len(approvals) == 1 and approvals[0]["kind"] == "scale_service"
+    approvals = engine.control_leases.list(
+        tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+    )["leases"]
+    assert len(approvals) == 1 and approvals[0]["grant"]["kind"] == "scale_service"
 
 
 def test_permissive_policy_scales_up_and_schedules_watch(engine, tmp_path, monkeypatch):
