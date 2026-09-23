@@ -19,64 +19,71 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from agent_utilities.decide.consumers.assembly import Assembled, Assembler
+from agent_utilities.decide.consumers.assembly import (
+    Assembled,
+    Assembler,
+    AssemblyBudget,
+    assembly_request,
+)
 
 #: A tool subset request draws only tools.
 TOOL_KINDS = ("tool",)
 
 
-def _request(
-    tenant: str,
-    capabilities: Sequence[str],
-    *,
-    kinds: Sequence[str],
-    templates: Sequence[Mapping[str, Any]] = (),
-    context_budget_tokens: int | None = None,
-) -> dict[str, Any]:
-    constraints: dict[str, Any] = {}
-    if context_budget_tokens is not None:
-        constraints["context_budget_tokens"] = int(context_budget_tokens)
-    return {
-        "tenant_id": tenant,
-        "requirements": {
-            "capabilities": sorted(set(capabilities)),
-            "constraints": constraints,
-        },
-        "candidates": {"kinds": list(kinds)},
-        "templates": [dict(t) for t in templates],
-        "policy": {"policy": "default"},
-    }
-
-
 async def route_a2a_task(
     assembler: Assembler,
-    capabilities: Sequence[str],
-    templates: Sequence[Mapping[str, Any]],
     current: Callable[[list[str]], Any],
+    *,
+    task_iris: Sequence[str] = (),
+    capabilities: Sequence[str] = (),
+    context_budget_tokens: int | None = None,
+    templates: Sequence[Mapping[str, Any]] = (),
+    text: str | None = None,
 ) -> Assembled:
-    """The agent graph for one inbound A2A task; ``current`` routes on abstention."""
-    request = _request(
+    """The agent graph for one inbound A2A task; ``current`` routes on abstention.
+
+    Requirements are typed (task / capability IRIs) under an optional context
+    budget over the published agent-graph ``templates``; ``text`` is never
+    sent -- without IRIs only its digest goes, and EG abstains with
+    ``unmapped_task``. Publish a solved answer with
+    :meth:`Assembler.publish_routed`.
+    """
+    request = assembly_request(
         assembler.tenant,
-        capabilities,
-        kinds=("model_profile", "skill", "system_prompt", "tool"),
-        templates=templates,
+        task_iris=task_iris,
+        capabilities=capabilities,
+        goal=text,
+        budget=AssemblyBudget(
+            templates=tuple(templates), context_budget_tokens=context_budget_tokens
+        ),
     )
     return await assembler.assemble(request, current)
 
 
 async def tool_subset(
     assembler: Assembler,
-    capabilities: Sequence[str],
-    context_budget_tokens: int,
     current: Callable[[list[str]], Sequence[str]],
+    *,
+    context_budget_tokens: int,
+    task_iris: Sequence[str] = (),
+    capabilities: Sequence[str] = (),
+    text: str | None = None,
 ) -> tuple[list[str], Assembled]:
-    """The smallest covering tool subset within the budget, or ``current``'s tools."""
+    """The smallest covering tool subset within the budget, or ``current``'s tools.
+
+    Evaluate-only (§4.5): the record is returned for sampling, never committed.
+    """
     evaluate_only = Assembler(assembler.graphs, assembler.tenant, commit_context=None)
-    request = _request(
+    request = assembly_request(
         assembler.tenant,
-        capabilities,
-        kinds=TOOL_KINDS,
-        context_budget_tokens=context_budget_tokens,
+        task_iris=task_iris,
+        capabilities=capabilities,
+        goal=text,
+        budget=AssemblyBudget(
+            kinds=TOOL_KINDS,
+            context_budget_tokens=context_budget_tokens,
+            require_tools=True,
+        ),
     )
     answer = await evaluate_only.assemble(request, current)
     if answer.agent is None:

@@ -36,6 +36,22 @@ TaskMapper = Callable[[str], Sequence[str]]
 CommitContext = Callable[[Mapping[str, Any]], Awaitable[Mapping[str, Any]]]
 
 
+@dataclass(frozen=True, slots=True)
+class AssemblyBudget:
+    """The candidate kinds, templates and constraints one assembly runs under."""
+
+    kinds: tuple[str, ...] = ASSEMBLY_KINDS
+    templates: tuple[Mapping[str, Any], ...] = ()
+    context_budget_tokens: int | None = None
+    require_tools: bool = False
+
+    def constraints(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"require_tools": self.require_tools}
+        if self.context_budget_tokens is not None:
+            out["context_budget_tokens"] = int(self.context_budget_tokens)
+        return out
+
+
 def text_digest(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -48,26 +64,38 @@ def assembly_request(
     goal: str | None = None,
     mapped: Sequence[str] = (),
     producer: str = "au-task-mapper",
+    budget: AssemblyBudget | None = None,
 ) -> dict[str, Any]:
-    """An ``AssemblyRequest``; a mapped goal travels as a claim, never as text."""
+    """An ``AssemblyRequest`` -- the ONE builder every AU/graph-os assembly uses.
+
+    Free text never travels: a goal with a model's ``mapped`` task IRIs becomes
+    a ``ClaimedTaskMapping`` (a claim premise); a goal with no IRIs at all is
+    sent only as its digest in ``unmapped_task_digests``, which EG answers with
+    an explicit ``unmapped_task`` abstention rather than a guess.
+    """
+    shape = budget or AssemblyBudget()
+    digest = None if goal is None else text_digest(goal)
     mappings = []
-    if goal is not None and mapped:
+    if digest is not None and mapped:
         mappings.append(
             {
-                "text_digest": text_digest(goal),
+                "text_digest": digest,
                 "task_iris": list(mapped),
                 "provenance": {"producer": producer},
             }
         )
+    typed = bool(task_iris or capabilities or mappings)
     return {
         "tenant_id": tenant,
         "requirements": {
-            "tasks": list(task_iris),
-            "capabilities": list(capabilities),
+            "tasks": sorted(set(task_iris)),
+            "capabilities": sorted(set(capabilities)),
             "task_mappings": mappings,
+            "unmapped_task_digests": [] if typed or digest is None else [digest],
+            "constraints": shape.constraints(),
         },
-        "candidates": {"kinds": list(ASSEMBLY_KINDS)},
-        "templates": [],
+        "candidates": {"kinds": list(shape.kinds)},
+        "templates": [dict(t) for t in shape.templates],
         "policy": {"policy": "default"},
     }
 
@@ -119,6 +147,31 @@ class Assembler:
         request = await self.commit_context(record)
         return await self.graphs.commit_decision(request)
 
+    async def publish_routed(
+        self,
+        answer: Assembled,
+        context: Mapping[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Publish the routed graph with its committed record as evidence (EH-044).
+
+        The graph's ``synthesis_evidence`` pins the committed ``DecisionRecord``
+        component, so a delegation of this graph resolves to why it was chosen
+        (DECIDE-LAYER-DESIGN §4.6). Refuses an answer that was not solved AND
+        committed: a graph without its decision has no evidence to carry. The
+        assembled agents the graph pins must already be published.
+        """
+        graph = (answer.result or {}).get("graph")
+        if not isinstance(graph, Mapping) or answer.committed is None:
+            raise ValueError("only a solved, committed assembly is published")
+        return await self.graphs.publish_graph(
+            graph,
+            context,
+            evidence=decision_evidence(answer.committed),
+            idempotency_key=idempotency_key,
+        )
+
     async def assemble(
         self,
         request: Mapping[str, Any],
@@ -137,6 +190,17 @@ class Assembler:
                 payload, fallback(reasons), "abstained: " + ",".join(reasons)
             )
         return Assembled(payload, None, "solved", await self._commit(payload))
+
+
+def decision_evidence(committed: Mapping[str, Any]) -> dict[str, Any]:
+    """The ``ComponentDependency`` pinning a ``DecisionCommitResult``'s record."""
+    committed = getattr(committed, "payload", committed)
+    component = (committed.get("component") or {}).get("component") or {}
+    return {
+        "component_id": str(committed["record_id"]),
+        "kind": str(component.get("kind") or "decision_record"),
+        "definition_digest": str(component["definition_digest"]),
+    }
 
 
 #: EG's native task vocabulary (``agent_ontology``): the only IRIs a mapping may name.
@@ -222,6 +286,8 @@ def spec_fields(agent: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "ASSEMBLY_KINDS",
+    "AssemblyBudget",
+    "decision_evidence",
     "NATIVE_TASKS",
     "assemble_goal",
     "install_assembler",

@@ -38,6 +38,7 @@ def fake_generated(monkeypatch) -> dict[str, Any]:
         "send_agent_assemble",
         "send_decision_commit",
         "send_agent_component_search",
+        "send_agent_graph",
     ):
         setattr(storage, name, sender(name))
     query = types.ModuleType("epistemic_graph.generated.query")
@@ -98,3 +99,23 @@ def test_an_unbound_session_is_refused() -> None:
     bound = clients.KnowledgeClient(object(), session)
     with pytest.raises(LayerUnavailable):
         _ = bound.graph
+
+
+async def test_l3_publish_graph_carries_the_decision_as_synthesis_evidence(
+    fake_generated,
+) -> None:
+    evidence = {
+        "component_id": "decision:abc",
+        "kind": "decision_record",
+        "definition_digest": "sha256:rec",
+    }
+    layer = _clients()
+    await layer.graphs.publish_graph(
+        {"graph_id": "g"}, {"ctx": 1}, evidence=evidence, idempotency_key="p1"
+    )
+    sent = fake_generated["send_agent_graph"]
+    assert sent["key"] == "p1" and sent["graph"] == "tenant-graph"
+    request = sent["params"]["op"]["request"]
+    assert sent["params"]["op"]["op"] == "publish"
+    assert request["graph"] == {"graph_id": "g", "synthesis_evidence": evidence}
+    assert request["context"] == {"ctx": 1}
