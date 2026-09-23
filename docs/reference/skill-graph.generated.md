@@ -123,6 +123,6 @@ _No components._
 
 ## Status
 
-- **Status** — `status.md`
+- **Status** — `https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md`
 
 </div>

@@ -214,7 +214,7 @@ jobs:
         continue-on-error: true
         run: python3 scripts/docs_contract.py --check
 
-      - name: Status page freshness gate (docs/status.md vs concepts.yaml/concept_reservations.yaml)
+      - name: Status page freshness gate (status/status.md vs concepts.yaml/concept_reservations.yaml)
         continue-on-error: true
         run: python3 scripts/check_status_page.py
 

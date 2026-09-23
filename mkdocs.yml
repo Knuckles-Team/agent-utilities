@@ -69,5 +69,5 @@ nav:
       - Glossary: glossary.md
       - Documentation catalog: reference/documentation-catalog.md
       - Skill graph reference: reference/skill-graph.generated.md
-  - Status: status.md
+  - Status: https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md
   - For AI agents: for-ai-agents.md

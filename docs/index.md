@@ -98,7 +98,7 @@ WebUI presents the browser experience.
 | Configure a deployment | [Deployment configurations](guides/deployment-configurations.md) |
 | Operate and observe the runtime | [Observability and usage](guides/observability-usage-tracking.md) |
 | Browse generated Python APIs | [API reference](reference/api.md) |
-| Check what ships in this release | [Status](status.md) |
+| Check what ships in this release | [Status](https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md) |
 
 !!! tip "Using the whole ecosystem?"
     Start with [GraphOS](https://knuckles-team.github.io/graph-os/) for the

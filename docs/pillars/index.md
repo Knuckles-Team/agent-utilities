@@ -149,5 +149,5 @@ a concept doc, follow the standard file naming conventions:
 
 All new concept proposals go through the DSTDD design phase — see the
 [development guide](../guides/development.md) for the required KG analysis, and
-[Status — the Codex](../status.md) for the generated,
+[Status — the Codex](https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md) for the generated,
 always-current concept count (never hand-typed here or anywhere else).
