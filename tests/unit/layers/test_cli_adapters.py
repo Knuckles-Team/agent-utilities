@@ -171,10 +171,10 @@ async def test_cli_run_without_a_leased_workspace_is_refused(tmp_path) -> None:
     assert outcome.result.error_kind == "SandboxBoundaryError"
 
 
-def test_child_environment_is_an_allowlist(monkeypatch) -> None:
-    monkeypatch.setenv("HOME", "/home/agent")
+def test_child_environment_is_an_allowlist(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("OPENAI_API_KEY", "ambient-secret")
     env = child_environment({"AU_MCP_TOKEN_0": "t"})
-    assert env["HOME"] == "/home/agent"
+    assert env["HOME"] == str(tmp_path)
     assert env["AU_MCP_TOKEN_0"] == "t"
     assert "OPENAI_API_KEY" not in env
