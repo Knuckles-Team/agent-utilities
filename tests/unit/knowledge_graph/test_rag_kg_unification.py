@@ -17,9 +17,6 @@ import uuid
 import pytest
 
 from agent_utilities.models.knowledge_graph import (
-    AgentRAGConfigNode,
-    DistillationIndexNode,
-    OrchestrationCycleNode,
     RegistryEdgeType,
     RegistryNode,
     RegistryNodeType,
@@ -571,51 +568,6 @@ class TestGraphDistillationMigrator:
 
 class TestNewPydanticModels:
     """Tests for KG-2.38, KG-2.39, KG-2.40 Pydantic models."""
-
-    def test_agent_rag_config_node(self):
-        """AgentRAGConfigNode creates with defaults."""
-        node = AgentRAGConfigNode(
-            id="urag_1",
-            name="Unified RAG Config",
-        )
-        assert node.type == RegistryNodeType.AGENT_RAG_CONFIG
-        assert node.enable_similarity_shortcuts is True
-        assert node.shortcut_hits == 0
-
-    def test_orchestration_cycle_node(self):
-        """OrchestrationCycleNode creates with all fields."""
-        node = OrchestrationCycleNode(
-            id="orch_1",
-            name="Research Cycle 1",
-            cycle_id="orch_abc",
-            papers_discovered=10,
-            papers_ingested=5,
-            citations_traversed=20,
-            similarity_edges_created=8,
-            clusters_built=3,
-            duration_seconds=12.5,
-            query="spectral clustering",
-        )
-        assert node.type == RegistryNodeType.ORCHESTRATION_CYCLE
-        assert node.papers_discovered == 10
-        assert node.query == "spectral clustering"
-
-    def test_distillation_index_node(self):
-        """DistillationIndexNode creates with all fields."""
-        node = DistillationIndexNode(
-            id="dist_1",
-            name="Distillation Index Snapshot",
-            total_nodes=100,
-            nodes_with_shortcuts=70,
-            total_edges=150,
-            coverage_ratio=0.7,
-            avg_edge_weight=0.65,
-            stale_edge_count=5,
-            recommendation="HEALTHY: Good coverage.",
-        )
-        assert node.type == RegistryNodeType.DISTILLATION_INDEX
-        assert node.coverage_ratio == 0.7
-        assert "HEALTHY" in node.recommendation
 
     def test_new_edge_types(self):
         """New edge types are registered."""

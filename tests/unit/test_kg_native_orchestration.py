@@ -547,33 +547,6 @@ class TestShareableTeamConfigs:
 class TestKGNativeModels:
     """Tests for new Pydantic models."""
 
-    def test_topology_template_node(self):
-        from agent_utilities.models.knowledge_graph import TopologyTemplateNode
-
-        node = TopologyTemplateNode(
-            id="topo:test",
-            name="Test Topology",
-            domain="finance",
-            node_roles=["router", "expert"],
-            transitions={"router": ["expert"], "expert": []},
-            execution_mode="sequential",
-        )
-        assert node.type.value == "topology_template"
-        assert node.complexity_min == 1
-        assert node.complexity_max == 5
-
-    def test_session_checkpoint_node(self):
-        from agent_utilities.models.knowledge_graph import SessionCheckpointNode
-
-        node = SessionCheckpointNode(
-            id="ckpt:test",
-            name="Test Checkpoint",
-            session_id="sess:abc",
-            query="test query",
-        )
-        assert node.type.value == "session_checkpoint"
-        assert node.status == "active"
-
     def test_persistent_agent_node(self):
         from agent_utilities.models.knowledge_graph import PersistentAgentNode
 

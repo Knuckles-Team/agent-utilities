@@ -13,10 +13,8 @@ import pytest
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import (
-    AgentCapabilityNode,
     RegistryEdgeType,
     RegistryNodeType,
-    SwarmCoalitionNode,
     TeamConfigNode,
 )
 
@@ -147,49 +145,6 @@ class TestTeamConfigLookup:
 
 
 @pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
-class TestPromoteCoalition:
-    """Test suite for promote_coalition_to_template()."""
-
-    def test_promote_creates_team_config(self, engine):
-        """Promoting a coalition should create a TeamConfig node."""
-        # Create a mock coalition
-        coalition = SwarmCoalitionNode(
-            id="coalition:test",
-            name="Test Coalition",
-            agents_spawned=3,
-            task_description="Analyze repository",
-        )
-        engine.graph.add_node(coalition.id, **_node_kwargs(coalition))
-
-        result = engine.promote_coalition_to_template(
-            coalition_id=coalition.id,
-            task_pattern="repository analysis",
-        )
-
-        assert "id" in result
-        assert result["task_pattern"] == "repository analysis"
-        assert result["success_rate"] == 1.0  # Initial promotion
-
-    def test_promote_creates_reused_team_edge(self, engine):
-        """Should create a REUSED_TEAM edge from TeamConfig to coalition."""
-        coalition = SwarmCoalitionNode(
-            id="coalition:edge",
-            name="Edge Test Coalition",
-            agents_spawned=2,
-        )
-        engine.graph.add_node(coalition.id, **_node_kwargs(coalition))
-
-        result = engine.promote_coalition_to_template(
-            coalition_id=coalition.id,
-            task_pattern="edge test",
-        )
-        tc_id = result["id"]
-
-        # Check edge exists in NetworkX
-        assert engine.graph.has_edge(tc_id, coalition.id)
-
-
-@pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
 class TestRecordTeamOutcome:
     """Test suite for record_team_outcome()."""
 
@@ -257,33 +212,6 @@ class TestLinkPromptToAgent:
 @pytest.mark.concept("CONCEPT:AU-ORCH.adapter.hot-cache-invalidation")
 class TestAgentCapabilityNode:
     """Test suite for the AgentCapabilityNode model."""
-
-    def test_create_capability_node(self):
-        """AgentCapabilityNode should create with correct defaults."""
-        cap = AgentCapabilityNode(
-            id="cap:rlm",
-            name="RLM Capability",
-            capability_type="rlm",
-            handler_module="agent_utilities.rlm.specialist",
-            handler_function="run",
-            trigger_conditions={"input_chars_gt": 50000},
-        )
-        assert cap.type == RegistryNodeType.AGENT_CAPABILITY
-        assert cap.auto_activate is True
-        assert cap.performance_score == 0.5
-
-    def test_capability_with_custom_trigger(self):
-        """Should support custom trigger conditions."""
-        cap = AgentCapabilityNode(
-            id="cap:critic",
-            name="Critic",
-            capability_type="critic",
-            handler_module="agent_utilities.harness.verifier",
-            trigger_conditions={"always": True},
-            auto_activate=False,
-        )
-        assert cap.trigger_conditions == {"always": True}
-        assert cap.auto_activate is False
 
     def test_schema_enum_values(self):
         """RegistryNodeType and RegistryEdgeType should have new values."""

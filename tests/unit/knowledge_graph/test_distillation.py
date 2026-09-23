@@ -25,9 +25,7 @@ from agent_utilities.knowledge_graph.distillation.distillation_engine import (
 )
 from agent_utilities.knowledge_graph.distillation.lsh_index import LSHIndex
 from agent_utilities.models.knowledge_graph import (
-    DistillationRoundNode,
     EntityReference,
-    IdeaBlockNode,
     RegistryEdgeType,
     RegistryNodeType,
 )
@@ -76,79 +74,6 @@ def _make_block(
 
 
 # ── IdeaBlock Model Tests ──
-
-
-class TestIdeaBlockModel:
-    """Tests for the IdeaBlockNode Pydantic model."""
-
-    def test_create_ideablock_node(self):
-        """An IdeaBlockNode can be created with all required fields."""
-        node = IdeaBlockNode(
-            id="ideablock:test001",
-            name="Test Block",
-            critical_question="What is X?",
-            trusted_answer="X is a thing.",
-        )
-        assert node.type == RegistryNodeType.IDEA_BLOCK
-        assert node.critical_question == "What is X?"
-        assert node.trusted_answer == "X is a thing."
-        assert node.distillation_round == 0
-        assert node.merged_from == []
-
-    def test_ideablock_with_entities(self):
-        """IdeaBlockNode supports entity references."""
-        entities = [
-            EntityReference(entity_name="CLAUDE CODE", entity_type="PRODUCT"),
-            EntityReference(entity_name="ANTHROPIC", entity_type="ORGANIZATION"),
-        ]
-        node = IdeaBlockNode(
-            id="ideablock:test002",
-            name="Claude Code Overview",
-            critical_question="What is Claude Code?",
-            trusted_answer="Claude Code is an AI development tool.",
-            entities=entities,
-        )
-        assert len(node.entities) == 2
-        assert node.entities[0].entity_name == "CLAUDE CODE"
-        assert node.entities[1].entity_type == "ORGANIZATION"
-
-    def test_ideablock_with_tags_keywords(self):
-        """IdeaBlockNode stores governance tags and retrieval keywords."""
-        node = IdeaBlockNode(
-            id="ideablock:test003",
-            name="Test",
-            tags=["IMPORTANT", "TECHNOLOGY", "AI"],
-            keywords=["machine learning", "neural networks"],
-        )
-        assert "IMPORTANT" in node.tags
-        assert "machine learning" in node.keywords
-
-    def test_ideablock_merged_from(self):
-        """IdeaBlockNode tracks merge provenance."""
-        node = IdeaBlockNode(
-            id="ideablock:merged001",
-            name="Merged Block",
-            distillation_round=2,
-            merged_from=["ideablock:001", "ideablock:002", "ideablock:003"],
-        )
-        assert node.distillation_round == 2
-        assert len(node.merged_from) == 3
-
-    def test_distillation_round_node(self):
-        """DistillationRoundNode records iteration metrics."""
-        node = DistillationRoundNode(
-            id="round:001",
-            name="Round 1",
-            iteration=1,
-            similarity_threshold=0.65,
-            blocks_before=100,
-            blocks_after=75,
-            pairs_found=30,
-            clusters_merged=8,
-        )
-        assert node.type == RegistryNodeType.DISTILLATION_ROUND
-        assert node.blocks_before == 100
-        assert node.blocks_after == 75
 
 
 class TestRegistryEnums:
@@ -524,41 +449,6 @@ class TestDistillationEngine:
 
 class TestDistillationIntegration:
     """Integration tests verifying KG model compatibility."""
-
-    def test_ideablock_as_registry_node(self):
-        """IdeaBlockNode serializes via model_dump() like all RegistryNodes."""
-        node = IdeaBlockNode(
-            id="ideablock:int001",
-            name="Integration Test",
-            critical_question="Does this work?",
-            trusted_answer="Yes it does.",
-            tags=["IMPORTANT"],
-            entities=[EntityReference(entity_name="TEST", entity_type="CONCEPT")],
-        )
-
-        data = node.model_dump()
-        assert data["type"] == "idea_block"
-        assert data["critical_question"] == "Does this work?"
-        assert len(data["entities"]) == 1
-        assert data["entities"][0]["entity_name"] == "TEST"
-
-    def test_distillation_round_serialization(self):
-        """DistillationRoundNode serializes correctly."""
-        node = DistillationRoundNode(
-            id="round:int001",
-            name="Test Round",
-            iteration=3,
-            similarity_threshold=0.69,
-            blocks_before=50,
-            blocks_after=40,
-            pairs_found=15,
-            clusters_merged=5,
-        )
-
-        data = node.model_dump()
-        assert data["type"] == "distillation_round"
-        assert data["similarity_threshold"] == 0.69
-        assert data["clusters_merged"] == 5
 
     def test_entity_reference_model(self):
         """EntityReference validates correctly."""

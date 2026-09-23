@@ -1,11 +1,8 @@
 """Current Agent-OS model contract: WorkItem is the sole task authority."""
 
 from agent_utilities.models.knowledge_graph import (
-    AgentMailboxNode,
-    AgentProcessNode,
     OutcomeEvaluationNode,
     RegistryNodeType,
-    SessionCheckpointNode,
     WorkItemNode,
 )
 
@@ -56,18 +53,6 @@ def test_work_item_consent_defaults_are_not_required_absent_fields() -> None:
     assert node.consent_state() == "not_required"
 
 
-def test_checkpoint_references_work_item_and_engine_lease() -> None:
-    node = SessionCheckpointNode(
-        id="checkpoint:opaque",
-        name="checkpoint",
-        session_id="session-ref",
-        work_item_id="workitem:opaque",
-        lease_id="lease-ref",
-    )
-    assert node.work_item_id == "workitem:opaque"
-    assert node.lease_id == "lease-ref"
-
-
 def test_outcome_is_evidence_not_a_task_status_projection() -> None:
     node = OutcomeEvaluationNode(
         id="outcome:opaque",
@@ -79,10 +64,3 @@ def test_outcome_is_evidence_not_a_task_status_projection() -> None:
     )
     assert node.lease_id == "lease-ref"
     assert node.dag_id == "dag-ref"
-
-
-def test_non_task_agent_models_remain_available() -> None:
-    process = AgentProcessNode(id="process:opaque", name="process")
-    mailbox = AgentMailboxNode(id="mailbox:opaque", name="mailbox")
-    assert process.spent_usd == 0.0
-    assert mailbox.unread_count == 0

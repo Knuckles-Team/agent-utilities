@@ -290,3 +290,49 @@ def test_generated_docstring_excludes_but_mention_in_body_does_not(tmp_path):
     # generator_tool.py's `emit` is unrescued by any mechanism and its file is
     # NOT generated, so it stays a genuine (if synthetic) still-flagged finding.
     assert "gen.generator_tool" in recon["orphan_modules"]["still"]
+
+
+# ---------------------------------------------------------------------------
+# EH-380: module/entry service registries and aliased production imports.
+# ---------------------------------------------------------------------------
+
+
+def _dead_mechanisms(lr, dead: list[str]) -> dict[str, str]:
+    recon = lr.reconcile({"orphan_modules": [], "dead_definitions": dead})
+    return {
+        r["definition"]: r["mechanism"] for r in recon["dead_definitions"]["rescued"]
+    }
+
+
+def test_module_entry_registry_rescues_exact_pair_only(tmp_path):
+    lr = _reconciler_for(
+        tmp_path,
+        extra_files={
+            "agent_utilities/core/__init__.py": "",
+            "agent_utilities/core/kit.py": "class Walker:\n    pass\n\nclass Unlisted:\n    pass\n",
+            "agent_utilities/core/registry.py": (
+                "ROWS = [{'module': 'agent_utilities.core.kit', 'entry': 'Walker'},\n"
+                "        {'entry': 'Unlisted'}]\n"
+            ),
+        },
+    )
+    rescued = _dead_mechanisms(lr, ["core.kit:Walker", "core.kit:Unlisted"])
+    assert rescued == {"core.kit:Walker": "module-entry-registry"}
+
+
+def test_production_aliased_import_rescues_but_test_import_does_not(tmp_path):
+    lr = _reconciler_for(
+        tmp_path,
+        extra_files={
+            "agent_utilities/models/__init__.py": "",
+            "agent_utilities/models/nodes.py": "class Kept:\n    pass\n\nclass TestOnly:\n    pass\n",
+            "agent_utilities/pkg/__init__.py": (
+                "def __getattr__(name):\n"
+                "    from ..models.nodes import Kept as k\n"
+                "    return k\n"
+            ),
+            "tests/test_nodes.py": "from agent_utilities.models.nodes import TestOnly\n",
+        },
+    )
+    rescued = _dead_mechanisms(lr, ["models.nodes:Kept", "models.nodes:TestOnly"])
+    assert rescued == {"models.nodes:Kept": "production-exact-import"}
