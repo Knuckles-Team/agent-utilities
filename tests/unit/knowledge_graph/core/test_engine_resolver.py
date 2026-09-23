@@ -1122,7 +1122,7 @@ def test_local_graph_readiness_never_bootstraps_a_nonlocal_session_in_tiny(
 
 def test_local_graph_readiness_skips_bootstrap_mint_when_session_already_admin():
     """An ambient session that already carries kg:admin (a real configured
-    identity, or the KG_LOCAL_PROCESS_ADMIN_SCOPE opt-in) is used unchanged --
+    identity) is used unchanged --
     no bootstrap authority is minted and no extra provisioning path is taken."""
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 

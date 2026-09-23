@@ -2957,17 +2957,16 @@ class GraphComputeEngine:
         """Resolve the authority used to materialize a local tenant graph.
 
         CONCEPT:X1: the ambient ``tiny``-profile local-process session is
-        least-privilege by default (``kg:read``/``kg:write``) and no longer
-        carries ``kg:admin`` ambiently
+        least-privilege (``kg:read``/``kg:write``/``fleet:events``) and never
+        carries ``kg:admin``
         (``security/request_identity.py::mint_local_process_session``). When
-        ``session`` already holds ``kg:admin`` (a real configured identity, or
-        the opt-in ``KG_LOCAL_PROCESS_ADMIN_SCOPE``), it is used unchanged --
-        no behavior change there. Otherwise, first-run graph provisioning for
-        the packaged zero-infra local engine is the one genuinely admin-scoped
-        action this profile must still perform with no external IdP
-        configured, so this mints a narrowly-scoped, one-shot admin authority
-        for exactly this RPC (never installed as ambient identity) instead of
-        requiring ambient admin on every local process. Any other caller --
+        ``session`` already holds ``kg:admin`` (a real configured identity),
+        it is used unchanged. Otherwise, first-run graph provisioning for the
+        packaged zero-infra local engine is the one admin-scoped engine action
+        this profile must still perform with no external IdP configured, so
+        this mints a one-shot authority carrying exactly the engine's
+        ``graph:admin`` lifecycle scope for this RPC (never installed as
+        ambient identity, never ``kg:admin``). Any other caller --
         a real configured identity without ``kg:admin``, a network-served
         session, ... -- still fails closed with the session's standard
         ``require_scope`` error.
@@ -3011,9 +3010,9 @@ class GraphComputeEngine:
         graph.  This local-only bootstrap seam closes that lifecycle gap without
         allowing request-scoped graph views or configured remote coordinators to
         provision graphs implicitly. See
-        :meth:`_local_graph_provisioning_authority` for how the admin authority
-        used here is resolved without requiring the ambient tiny-profile
-        session to carry ``kg:admin`` (CONCEPT:X1).
+        :meth:`_local_graph_provisioning_authority` for how the graph-lifecycle
+        authority used here is resolved without the ambient tiny-profile
+        session ever carrying ``kg:admin`` (CONCEPT:X1).
         """
         if graph_name == "__commons__":
             return

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-575 typed fields · 372 runtime-only call-site inputs.
+574 typed fields · 372 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -274,7 +274,6 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `KG_AUTH_TOKEN_REF` | `Union` | `unset` |
 | `KG_IDENTITY_OAUTH2` | `Union` | `unset` |
-| `KG_LOCAL_PROCESS_ADMIN_SCOPE` | `bool` | `False` |
 | `KG_ADMIN_BROKER_OAUTH2` | `Union` | `unset` |
 
 ## Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
