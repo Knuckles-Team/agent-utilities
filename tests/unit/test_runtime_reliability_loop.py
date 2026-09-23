@@ -25,8 +25,18 @@ from agent_utilities.knowledge_graph.research.runtime_reliability import (
     runtime_reliability_analyzer,
 )
 from agent_utilities.observability import runtime_signals
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.runtime-reliability-loop")
+
+
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -41,6 +51,7 @@ class MockEngine:
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
         self.edges: list[tuple[str, str, str]] = []
+        self.market = attach_market(self)
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict | None = None
@@ -85,7 +96,7 @@ class MockEngine:
         return []
 
     def gap_nodes(self) -> list[dict[str, Any]]:
-        return [v for v in self.nodes.values() if v.get("type") == gaps.GAP_LABEL]
+        return list(self.market.gap_rows.values())
 
     def signal_nodes(self) -> list[dict[str, Any]]:
         return [v for v in self.nodes.values() if v.get("type") == "RuntimeSignal"]
@@ -244,7 +255,7 @@ def test_runtime_gap_carries_code_reference():
 
 def test_runtime_gap_links_kg_resolved_code_anchor(monkeypatch):
     """When the fix-site symbol / subject resolves to an ingested :Code node, the gap gets a
-    precise file:line reference AND a traversable (:Code)-[:EVIDENCES]->(:Gap) edge — the
+    precise file:line reference AND cites the :Code node on EG's Gap itself — the
     'golden egg': the gap points at real ingested code with line numbers."""
     import agent_utilities.knowledge_graph.retrieval.code_context as cc
 
@@ -266,8 +277,9 @@ def test_runtime_gap_links_kg_resolved_code_anchor(monkeypatch):
     gap = gaps.get_gap(engine, gap_id)
     refs = gap.get("evidence_refs") or []
     assert any("agent_runner.py:2100" in r for r in refs), refs
-    # the ingested code node is linked to the gap by the existing EVIDENCES convention
-    assert (anchor["id"], gap_id, "EVIDENCES") in engine.edges
+    # the ingested code node is cited on the Gap (no generic edge onto a native row)
+    assert anchor["id"] in gap["concept_ids"]
+    assert not [e for e in engine.edges if e[1] == gap_id]
 
 
 def test_reconciler_standalone_reads_and_disposes():

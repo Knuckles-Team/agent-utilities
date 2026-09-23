@@ -2764,9 +2764,9 @@ class LoopController:
     ) -> dict[str, Any]:
         """Feed an approved spec into the EXISTING governed promotion pipeline.
 
-        D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
-        back to the origin gap and flip it to resolved (the graph-native seam,
-        idempotent with ``develop_spec``'s property-based close). The chain gets
+        D5 — close the loop: on publish, resolve the origin gap this develop-Loop
+        carries (``gap_id``, stamped by ``_bind_develop_loop``) through EG's typed
+        ``GapTransition`` — idempotent with ``develop_spec``'s own close. The chain gets
         its visible END. 'published'/'approval_queued' = the governed pipeline ran
         + queued a reviewable branch → the develop step did its job (complete).
         Hard failures stop the loop rather than retrying a broken synthesis
@@ -2781,7 +2781,7 @@ class LoopController:
         if status == "published":
             from .gaps import resolve_gaps_for_loop
 
-            resolve_gaps_for_loop(self.engine, loop["id"])
+            resolve_gaps_for_loop(self.engine, loop)
         done = status in ("published", "approval_queued", "approved")
         return {
             "status": "completed" if done else "failed",
