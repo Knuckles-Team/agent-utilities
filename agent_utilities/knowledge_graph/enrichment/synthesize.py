@@ -100,6 +100,30 @@ tool names it should use, drawn from the candidates where possible), "skills"
 (array of skill names), and "description" (one sentence). No other text."""
 
 
+def _assembled_agent(goal: str, llm_fn: LLMFn) -> AgentSpec | None:
+    """EG ``graph.assemble()`` first (EH-036): the LLM composes only when EG abstains.
+
+    The model only MAPS the goal onto native task IRIs, and that mapping enters
+    EG as a claim premise (EH-037); the agent itself is assembled from the Agent
+    Library with a verifiable certificate. ``None`` keeps the LLM composition below.
+    """
+    from agent_utilities.decide.consumers.assembly import (
+        assemble_goal,
+        llm_task_mapper,
+        spec_fields,
+    )
+
+    assembled = assemble_goal(goal, llm_task_mapper(llm_fn))
+    agent = None if assembled is None else assembled.agent
+    if agent is None:
+        return None
+    return AgentSpec(
+        goal=goal,
+        description=f"assembled by EG ({assembled.reason})",
+        **spec_fields(agent),
+    )
+
+
 def synthesize_agent(
     goal: str,
     capability_search: CapabilitySearchFn,
@@ -116,6 +140,9 @@ def synthesize_agent(
     given, the right model is chosen for ``complexity`` ("light" routing vs
     "normal"/"super" heavy) and recorded on the agent. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
+    assembled = _assembled_agent(goal, llm_fn)
+    if assembled is not None:
+        return assembled
     results = capability_search(goal, limit) or []
     by_type = _candidates_by_type(results)
 
