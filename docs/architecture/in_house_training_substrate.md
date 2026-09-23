@@ -11,31 +11,26 @@ fine-tune *runs* is deterministic, CPU-testable, and shippable today; the actual
 runs (Wave D) execute on a deployment-selected accelerator. The design split is
 "build now, run later".
 
-```mermaid
-flowchart TD
-    subgraph AU["agent-utilities (deterministic reward spine)"]
-        TS["graph/training_signals.py<br/>advantage · failure-point · composite-reward · difficulty-floor"]
-        EM["harness/evolving_memory.py<br/>insight bank (merge-generalize)"]
-        RB["harness/replay_buffer.py<br/>prioritized replay (decisive states)"]
-    end
-    subgraph DSM["data-science-mcp (corpora + gradient trainers)"]
-        TD["training_data.py<br/>SFT/DPO/GRPO corpus builders + reward"]
-        OBJ["trainers/objectives.py<br/>torch loss kernels"]
-        TR["trainers/{sft,dpo,grpo}_trainer.py<br/>(impl training_data.Trainer)"]
-        PM["peft_manager.py · tokenizer_registry.py · rollout_buffer.py"]
-        EH["trainers/eval_hooks.py → AHE-3.1 reliability suite"]
-    end
-    subgraph EG["epistemic-graph (Rust performance path)"]
-        K["src/datascience/training.rs<br/>softmax · CE · DPO · GRPO · KL · Adam/SGD"]
-    end
-    TS --> TD
-    TD --> TR
-    OBJ --> TR
-    PM --> TR
-    TR --> EH
-    K -. "perf path — same math batched over the wire" .- OBJ
-    EH --> DEPLOY["Deploy seam: register checkpoint → model-registry role"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Three tiers: reward spine, gradient trainers, Rust performance path</p>
+
+**agent-utilities (deterministic reward spine):** `graph/training_signals.py`
+computes advantage, failure-point attribution, composite reward, and
+difficulty-floor filtering; `harness/evolving_memory.py` maintains an
+insight bank (merge-generalize); `harness/replay_buffer.py` runs prioritized
+replay over decisive states. The reward spine's signals feed
+**data-science-mcp's** `training_data.py` (SFT/DPO/GRPO corpus builders +
+reward), which feeds the `trainers/{sft,dpo,grpo}_trainer.py`
+implementations of `training_data.Trainer`, alongside
+`trainers/objectives.py`'s torch loss kernels and
+`peft_manager.py`/`tokenizer_registry.py`/`rollout_buffer.py`. Every
+trainer feeds `trainers/eval_hooks.py`, which reaches the AHE-3.1
+reliability suite and then a deploy seam that registers the checkpoint into
+a model-registry role. **epistemic-graph's** Rust performance path
+(`src/datascience/training.rs`: softmax, CE, DPO, GRPO, KL, Adam/SGD) runs
+the same math as `trainers/objectives.py`, batched over the wire, as a
+performance-path alternative to the Python loss kernels.
+</div>
 
 ## Layers
 

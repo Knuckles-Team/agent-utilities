@@ -34,18 +34,19 @@ Both are wired into every toolset-construction call site in this package:
 `agent/factory.py` (the raw in-process `FastMCP` instance path), `core/config.py`
 (`load_mcp_servers_from_config`), and `graph/executor.py` (the lazy per-agent MCP load).
 
-```mermaid
-flowchart TD
-    A[toolset_factory.build_http_toolset / build_stdio_toolset] --> C[MCPToolset construction]
-    B["agent/factory.py: MCPToolset(server)"] --> C
-    D[core/config.py: load_mcp_servers_from_config] --> C
-    E[graph/executor.py: lazy MCP load] --> C
-    C --> F[force_legacy_protocol_mode]
-    F --> G[toolset.client.mode = 'legacy']
-    H["install_mcp_v2_bridge, called once per call site"] --> I["exact Pydantic-AI contract gate"]
-    G --> J[Real fastmcp-4 server: connect / list tools / call tool]
-    I --> J
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Every MCPToolset construction site forces legacy protocol mode</p>
+
+Four independent construction sites —
+`toolset_factory.build_http_toolset`/`build_stdio_toolset`,
+`agent/factory.py`'s `MCPToolset(server)`, `core/config.py`'s
+`load_mcp_servers_from_config`, and `graph/executor.py`'s lazy MCP load —
+all funnel into one `MCPToolset` construction path, which calls
+`force_legacy_protocol_mode` to set `toolset.client.mode = 'legacy'`.
+Separately, `install_mcp_v2_bridge` (called once per call site) installs
+the exact Pydantic-AI contract gate. Both the legacy-mode client and the
+contract gate reach the real fastmcp-4 server for connect/list-tools/call-tool.
+</div>
 
 ## Guarding the declared floor: `check_mcp_sdk_floor()`
 

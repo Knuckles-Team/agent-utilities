@@ -42,28 +42,22 @@ top-k type coherence.
 
 ## Flow
 
-```mermaid
-flowchart TD
-    subgraph Surface["Two surfaces (same _execute_tool core)"]
-        MCP["graph_analyze (MCP)"]
-        REST["/graph/analyze (REST)"]
-    end
-    MCP --> CORE[_execute_tool]
-    REST --> CORE
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two surfaces, one core, two actions</p>
 
-    CORE -->|action=world_model_rollout| WM["WorldModel.rollout()"]
-    WM --> PL["LatentDynamicsModel.predict_latent()"]
-    PL -->|carry + EMA-blend y_hat| CACHE[(per-rollout latent cache)]
-    CACHE --> PL
-    WM --> ROLL["persist_rollout → WorldModelRollout node\n(per-step latent_norm / drift)"]
-
-    CORE -->|action=latent_efficiency_benchmark| BENCH["latent_efficiency_benchmark.run_all()\nbaseline vs ours + lift"]
-
-    DES["KnowledgeGraph.facade.designate()"] --> CI["CapabilityIndex.designate()"]
-    FUN["ObjectIndexFunnel (live nodes + types)"] --> CI
-    CI -->|cosine ⊕ reward EMA ⊕ ontology-type prior| RANK["type-coherent designations"]
-    FUN -. "node_type via add()/build_from_edges" .-> CI
-```
+`graph_analyze` (MCP) and `/graph/analyze` (REST) both call the same
+`_execute_tool` core. `action=world_model_rollout` calls
+`WorldModel.rollout()`, which calls `LatentDynamicsModel.predict_latent()`
+— its `y_hat` is carried and EMA-blended through a per-rollout latent
+cache — and separately persists each rollout as a `WorldModelRollout` node
+(per-step latent_norm/drift). `action=latent_efficiency_benchmark` instead
+calls `latent_efficiency_benchmark.run_all()` (baseline vs ours + lift).
+Independently, `KnowledgeGraph.facade.designate()` calls
+`CapabilityIndex.designate()`, which `ObjectIndexFunnel` (live nodes +
+types) also feeds its `node_type` into (via `add()`/`build_from_edges`);
+the index combines cosine similarity, reward EMA, and an ontology-type
+prior into type-coherent designations.
+</div>
 
 ## Verification
 - `pytest tests/test_kg_2_73b_latent_rollout_memory.py

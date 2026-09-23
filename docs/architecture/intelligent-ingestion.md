@@ -17,26 +17,25 @@ kept from blowing up the tail*.
 
 ## Where these sit in the pipeline
 
-```mermaid
-flowchart TB
-    REPO["graph_ingest(repo)"] --> SPLIT{"big repo?<br/>(> SPLIT_MIN_FILES,<br/>graph routing)"}
-    SPLIT -- yes --> FAN["repo_split.plan_repo_split()<br/>K balanced buckets → code:&lt;repo&gt;__s&lt;i&gt;<br/>commit in parallel across K shard writers (KG-2.287)"]
-    SPLIT -- no --> STRUCT["structural code pass<br/>Code/Test/Feature + call graph"]
-    FAN --> STRUCT
-    STRUCT --> CLASS["repo_classifier.classify_repo()<br/>Skill / Spec / Prompt / Document / Config / Code (AU-KG.ingest.over-same-tree-fan)"]
-    CLASS --> ROUTE["_route_classified_artifacts()<br/>fan non-code to per-type adaptors (KG-2.285)"]
-    ROUTE --> DOCS["ChangeEnvelope-backed, enrich-deferred document writes<br/>(AU-KG.ingest.change-envelope)"]
-    STRUCT --> HIST["git_history.ingest_commit_history()<br/>:Commit/:Author/:File + coupling/churn (AU-KG.ingest.normal-codebase-ingest-also)"]
-    DOCS --> EMB["batched + concurrent embedding<br/>make_embed_fn (AU-KG.ingest.applying-agents-md-batch) · cached client (KG-2.294)"]
-    HIST --> EMB
-    EMB --> KG[("epistemic-graph<br/>K redb shard writers")]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Repo ingest: split, classify, route, embed — all under one scheduler</p>
 
-    subgraph GUARDS["whole pipeline runs under (worker_scheduler)"]
-        T["per-task soft-timeout owner (KG-2.286)<br/>request cooperative cancellation;<br/>never detach live mutation"]
-        R["interactive reservation floor (AU-KG.compute.interactive-lane-floor)"]
-        O["tail observability — slowest-N + p99 (KG-2.288)"]
-    end
-```
+`graph_ingest(repo)` first checks size: a big repo (over `SPLIT_MIN_FILES`,
+by graph routing) is split by `repo_split.plan_repo_split()` into K balanced
+buckets (`code:<repo>__s<i>`), committed in parallel across K shard writers;
+either way, the result feeds a structural code pass (Code/Test/Feature +
+call graph). That pass feeds two things: `repo_classifier.classify_repo()`
+(Skill/Spec/Prompt/Document/Config/Code), which
+`_route_classified_artifacts()` fans out to per-type adaptors producing
+ChangeEnvelope-backed, enrich-deferred document writes; and
+`git_history.ingest_commit_history()`, producing `:Commit`/`:Author`/`:File`
+nodes plus coupling/churn data. Both the document writes and the commit
+history feed batched, concurrent embedding (a cached client), which writes
+into epistemic-graph's K redb shard writers. The whole pipeline runs under
+`worker_scheduler`'s guards: a per-task soft-timeout owner that requests
+cooperative cancellation but never detaches a live mutation, an interactive
+reservation floor, and tail observability (slowest-N + p99).
+</div>
 
 ---
 

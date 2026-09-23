@@ -5,40 +5,23 @@ scale: a single source of truth across the MCP and REST surfaces, a native
 supervisory plane, crash-safe durable execution, and cross-agent trace
 correlation. These records exist so the rationale survives as the surface grows.
 
-```mermaid
-flowchart TB
-    subgraph clients["Consumers"]
-        agent["Agents (MCP tools)"]
-        http["HTTP / automation clients"]
-        ui["agent-webui Fleet view"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Every consumer path funnels through one execution core</p>
 
-    subgraph gw["Gateway (single process)"]
-        mcp["graph-os MCP<br/>collapsed action tools"]
-        rest["REST: collapsed twins<br/>(ACTION_TOOL_ROUTES)"]
-        gran["REST: granular typed<br/>ontology/object GETs<br/>(ontology_api.py → OpenAPI)"]
-        fleet["/api/fleet/* supervisory<br/>health · topology · pause/kill<br/>approvals · trace · touched"]
-        dispatch["goal loop + dispatch worker"]
-    end
-
-    exec["_execute_tool()<br/><b>single source of truth</b>"]
-    engine[("epistemic-graph engine<br/>the one authority")]
-    corr["correlation_id stamped on<br/>FleetEvent + WorkItem records"]
-
-    agent --> mcp
-    http --> rest
-    http --> gran
-    ui --> fleet
-    mcp --> exec
-    rest --> exec
-    gran --> exec
-    fleet --> exec
-    exec --> engine
-    dispatch -->|"native WorkItem<br/>checkpoint · idempotency · fence"| engine
-    dispatch --> exec
-    fleet -.->|"trace?correlation_id<br/>touched?resource"| engine
-    engine --- corr
-```
+Three consumers reach the single-process gateway: agents call graph-os MCP's
+collapsed action tools; HTTP/automation clients call either the REST
+collapsed twins (`ACTION_TOOL_ROUTES`) or the granular typed ontology/object
+GET routes (`ontology_api.py`, published as OpenAPI); agent-webui's Fleet
+view calls the supervisory `/api/fleet/*` routes (health, topology,
+pause/kill, approvals, trace, touched). All four gateway surfaces —
+MCP, the REST twins, the granular GETs, and the fleet routes — call the same
+`_execute_tool()`, the single source of truth, which reaches the one
+epistemic-graph engine authority. The goal loop + dispatch worker also
+reaches both `_execute_tool()` and the engine directly, driving native
+WorkItem checkpoint/idempotency/fencing. The fleet routes separately query
+the engine for trace-by-correlation_id and touched-by-resource, and every
+`FleetEvent`/`WorkItem` record is stamped with that same `correlation_id`.
+</div>
 
 ## 1. Gateway ⇄ MCP parity over a shared dispatch (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 

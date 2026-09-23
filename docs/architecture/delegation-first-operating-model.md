@@ -89,23 +89,27 @@ enter the promotion pipeline **only after the AU-OS.config.autonomous-spec-devel
 action=state`, AU-KG.research.evolutionstate-live-surface-per) and the saturation gauge (AU-KG.research.saturation-gauge-aggregates-four) to know which direction is
 exhausted, and approve/veto rather than implement by hand.
 
-```mermaid
-flowchart TD
-    H["Claude / harness<br/>(orchestrator + exception-resolver)"]
-    H -->|understand code| KG["graph_code code_context<br/>(KG-2.134/135) → cited answer"]
-    H -->|intent only| EX["graph_orchestrate skill gateway<br/>KG resolves skill / workflow"]
-    EX -->|no typed hit| EXP["agent-utilities-expert fallback"]
-    EX -->|workflow DAG| WF["governed WorkflowRunner<br/>local LLM per step"]
-    H -->|evolve/manage| LOOP["graph_loops + evolution flywheel<br/>:SpecProposal → AU-OS.config.autonomous-spec-develop-off review-veto"]
-    EX --> ENGINE["engine_&lt;domain&gt; surface (AU-ECO.mcp.full-api-mcp-surface)<br/>+ multiplexer meta-tools"]
-    EX --> PROV[":ToolCall / RunTrace provenance (KG-2.296)<br/>+ run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
-    PROV -->|query: what did it do?| H
-    PROV -->|on failure| TS["troubleshoot provider (AU-KG.retrieval.kg-4)<br/>read RunTrace → find why"]
-    TS --> FIX["fix the gap: missing skill / unbound tool /<br/>prompt / ingestion"]
-    FIX -->|re-delegate + harden (AU-AHE.optimization.telemetry-optimization)| EX
-    EDICT["resource-priority edict (AU-ORCH.scheduling.resource-priority-edict/99)<br/>orchestration outranks ingestion"] -.guards.- EX
-    EDICT -.guards.- H
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Orchestrate, delegate, resolve exceptions — never hand-do the work</p>
+
+The harness (Claude, as orchestrator + exception-resolver) has three
+entry points: to understand code, it calls `graph_code code_context`
+(KG-2.134/135) for a cited answer; to act on intent alone, it calls the
+`graph_orchestrate` skill gateway, which resolves a skill or workflow from
+the KG — a workflow DAG runs through a governed `WorkflowRunner` (local LLM
+per step), while no typed hit falls back to the `agent-utilities-expert`;
+to evolve or manage the ecosystem, it drives `graph_loops` + the evolution
+flywheel (`:SpecProposal` through a review/veto gate). The skill gateway
+also reaches the full `engine_<domain>` MCP surface plus multiplexer
+meta-tools, and writes `:ToolCall`/`RunTrace` provenance (KG-2.296) plus a
+`run_id` handle — the harness queries that provenance to see what a
+delegated run did, and on failure routes to a troubleshoot provider that
+reads the RunTrace to find why, then fixes the actual gap (a missing skill,
+an unbound tool, a prompt, or missing ingestion) and re-delegates, hardening
+the system so it self-handles next time. A resource-priority edict guards
+both the harness and the skill gateway, keeping orchestration from being
+starved by background ingestion.
+</div>
 
 ## The full engine surface available to delegates (AU-ECO.mcp.full-api-mcp-surface)
 
