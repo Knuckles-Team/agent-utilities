@@ -9,6 +9,7 @@ and the fail-closed ActionPolicy gate on every state-changing action.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,7 +28,13 @@ class _ClaimStubEngine:
     not just an in-process cache."""
 
     def __init__(self) -> None:
+        from tests.unit.fleet_autonomy_fakes import FakeControlLeaseClient
+
         self.nodes: dict[str, dict[str, Any]] = {}
+        # The approval queue is an EG ``action.approval`` ControlLease
+        # (fe45551a8); without this surface an approval-tier decision fails
+        # closed as "unavailable" instead of queueing (EH-380).
+        self.client = SimpleNamespace(control_leases=FakeControlLeaseClient())
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
@@ -289,7 +296,9 @@ async def test_real_unstubbed_action_policy_denies_by_default(registered, stub_e
         )
     )
     assert res["error"] == "policy_denied"
-    assert res["policy"]["decision"] in ("queue_approval", "deny")
+    assert res["policy"]["decision"] == "queue_approval"
+    # ...and the hold is a real queued approval lease, not a fail-closed stub.
+    assert len(stub_engine.client.control_leases._leases) == 1
 
     get_res = json.loads(
         await kg_server._execute_tool(
