@@ -143,22 +143,31 @@ def synthesize_agent(
     if assembled is not None:
         return assembled
     by_type = _candidates_by_type(capability_search(goal, limit) or [])
-    tool_names = _names_of(by_type, "Tool")
-    skill_names = _names_of(by_type, "Skill")
-    prompt = _AGENT_PROMPT.format(
+    obj = _loads_obj(llm_fn(_agent_prompt(goal, by_type)))
+    return _agent_spec(goal, obj, by_type, select_model(models, complexity))
+
+
+def _agent_prompt(goal: str, by_type: dict[str, list[dict]]) -> str:
+    """The composition prompt over the retrieved tool/skill/prompt candidates."""
+    return _AGENT_PROMPT.format(
         goal=goal,
-        tools=_bullets(tool_names),
-        skills=_bullets(skill_names),
+        tools=_bullets(_names_of(by_type, "Tool")),
+        skills=_bullets(_names_of(by_type, "Skill")),
         prompts=_bullets(_names_of(by_type, "Prompt")),
     )
-    obj = _loads_obj(llm_fn(prompt))
+
+
+def _agent_spec(
+    goal: str, obj: dict, by_type: dict[str, list[dict]], model: str
+) -> AgentSpec:
+    """The ``AgentSpec`` the model's JSON describes, grounded in the candidates."""
     return AgentSpec(
         name=str(obj.get("name") or "").strip() or f"Agent for {goal}"[:80],
         goal=goal,
         system_prompt=str(obj.get("system_prompt") or "").strip(),
-        tools=_ground(obj.get("tools") or [], tool_names),
-        skills=_ground(obj.get("skills") or [], skill_names),
-        model=select_model(models, complexity),
+        tools=_ground(obj.get("tools") or [], _names_of(by_type, "Tool")),
+        skills=_ground(obj.get("skills") or [], _names_of(by_type, "Skill")),
+        model=model,
         description=str(obj.get("description") or "").strip(),
     )
 

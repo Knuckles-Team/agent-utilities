@@ -76,13 +76,14 @@ class OutcomeRouter:
         """
         from agent_utilities.decide.consumers.routing import route_choice
 
-        rewards = {c: self.reward_of(task_class, c) for c in candidates}
+        rewards: dict[str, float] = {}
         best, best_score = prior, float("-inf")
         for c in candidates:
+            rewards[c] = self.reward_of(task_class, c)
             score = (_PRIOR_BIAS if c == prior else 0.0) + rewards[c]
             if score > best_score:
                 best, best_score = c, score
-        return route_choice(self._ns, task_class, prior, rewards, lambda: best)
+        return route_choice(self._ns, task_class, prior, rewards, best)
 
     def record(self, task_class: str, choice: str, reward: float) -> None:
         """Feed a run outcome back into the shared reward-EMA (best-effort, never raises)."""

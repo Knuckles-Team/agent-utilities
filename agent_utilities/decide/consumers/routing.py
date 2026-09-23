@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from agent_utilities import decide
@@ -29,16 +29,16 @@ def route_choice(
     task_class: str,
     prior: str,
     rewards: Mapping[str, float],
-    heuristic: Callable[[], str],
+    heuristic: str,
 ) -> str:
-    """The routed choice among ``rewards``' keys (the heuristic when EG does not decide)."""
+    """The routed choice among ``rewards``' keys; ``heuristic`` is the answer when EG does not."""
     options = [
         Option(c, {"prior": 1.0 if c == prior else 0.0, "reward": reward})
         for c, reward in rewards.items()
     ]
     params = [text_param("namespace", namespace), text_param("task_class", task_class)]
-    choice = decide.choose("au.route.choice", options, heuristic, params=params)
-    return choice.option_id or heuristic()
+    choice = decide.choose("au.route.choice", options, lambda: heuristic, params=params)
+    return choice.option_id or heuristic
 
 
 def _model_options(models: Sequence[Any], picked: Any) -> list[Option]:
