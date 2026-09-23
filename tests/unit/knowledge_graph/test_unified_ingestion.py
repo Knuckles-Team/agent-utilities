@@ -233,10 +233,15 @@ class TestCodebaseIngestion:
     async def test_routes_through_enrichment_pipeline(self, engine, tmp_path):
         """Structural ingest sends logical source names and bytes per file."""
         (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
-        # Fake the current batched Rust parser with a benign empty result so no
-        # service is needed.
-        engine.kg.graph_compute.parse_files = MagicMock(
-            side_effect=lambda files: [{} for _ in files]
+        # The primary path is one IndexRepository round trip. Answer it with a
+        # well-formed, exactly-acknowledged empty parse (files_parsed equals the
+        # request set), so no service is needed.
+        engine.kg.graph_compute.index_repository = MagicMock(
+            side_effect=lambda files: {
+                "files_parsed": len(files),
+                "nodes": [],
+                "edges": [],
+            }
         )
 
         result = await engine.ingest(
@@ -249,14 +254,12 @@ class TestCodebaseIngestion:
 
         assert result.status == "success"
         # The ingestion boundary performs policy-approved discovery; the native
-        # request receives only each logical source name and its bytes.
-        # NOTE: the pipeline's primary path is a single index_repository()
-        # round-trip; on a plain MagicMock (no real IndexResult shape) that
-        # path raises internally and the pipeline degrades to the *batched*
-        # parser (`parse_files`, mocked above) — not the legacy per-file
-        # `parse_file` this assertion originally targeted. Updated to match
-        # the current batch/index-first architecture (CONCEPT:EG-KG.compute.type-scope-resolved-call).
-        engine.kg.graph_compute.parse_files.assert_called()
+        # request receives only each logical source name and its bytes. This
+        # replaces an older premise: a bare MagicMock index response used to
+        # raise and fall back to parse_files, and it is now read as an answer.
+        engine.kg.graph_compute.index_repository.assert_called_once_with(
+            [("main.py", b"def hello():\n    return 1\n")]
+        )
 
 
 # ── Conversation Adaptor ─────────────────────────────────────────────
