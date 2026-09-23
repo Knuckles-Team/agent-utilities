@@ -19,9 +19,11 @@ never stop a call site, and the choice says so in ``reason``.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+from agent_connector_sdk.ports.decide_runner import Fallback as SdkFallback
 
 from agent_utilities.decide.options import Option, declared_source
 from agent_utilities.decide.outcome import (
@@ -36,20 +38,33 @@ from agent_utilities.decide.points import POINTS, Bindings, DecisionPoint, LogMo
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class Escalated:
+class Escalated(str):
     """A fallback answer produced by an escalation rather than AU's own rule.
 
-    ``resolver`` is EG's ``AbstentionResolver`` wire value:
-    ``{"resolver": "human"}`` or ``{"resolver": "model", "producer": ...}``.
+    It IS the chosen option id (a ``str``), so it satisfies the SDK's
+    ``Fallback = Callable[[], str]`` contract unchanged; it also carries EG's
+    ``AbstentionResolver`` wire value (``{"resolver": "human"}`` or
+    ``{"resolver": "model", "producer": ...}``) and the resolution id.
     """
 
-    option_id: str
     resolver: Mapping[str, Any]
     resolution_id: str
 
+    def __new__(
+        cls, option_id: str, resolver: Mapping[str, Any], resolution_id: str
+    ) -> Escalated:
+        answer = super().__new__(cls, option_id)
+        answer.resolver = dict(resolver)
+        answer.resolution_id = resolution_id
+        return answer
 
-Fallback = Callable[[], "str | Escalated"]
+    @property
+    def option_id(self) -> str:
+        return str(self)
+
+
+#: The deterministic (or escalated) answer when EG does not decide -- the SDK's type.
+Fallback = SdkFallback
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,9 +105,8 @@ def _settle(reading: Reading, logged: bool, fallback: Fallback) -> tuple[Choice,
         )
         return decided, None
     answer = fallback()
-    option = answer.option_id if isinstance(answer, Escalated) else answer
     choice = Choice(
-        option,
+        str(answer),
         False,
         reading.reason,
         advisory=reading.advisory,
@@ -128,8 +142,7 @@ class DecisionRunner:
         self,
         question_id: str,
         options: Sequence[Option],
-        params: Iterable[Mapping[str, Any]],
-        candidates: Mapping[str, Any] | None,
+        context: Mapping[str, Any],
     ) -> _Prepared:
         point = self.points[question_id]
         offered = frozenset(o.option_id for o in options)
@@ -140,8 +153,8 @@ class DecisionRunner:
             point,
             binding,
             tenant=self.tenant,
-            candidates=candidates or declared_source(options),
-            params=params,
+            candidates=context.get("candidates") or declared_source(options),
+            params=context.get("params") or (),
         )
         return _Prepared(point, request, offered)
 
@@ -193,12 +206,13 @@ class DecisionRunner:
         question_id: str,
         options: Sequence[Option],
         fallback: Fallback,
-        *,
-        params: Iterable[Mapping[str, Any]] = (),
-        candidates: Mapping[str, Any] | None = None,
+        **context: Any,
     ) -> Choice:
-        """Decide from a sync call site (EG is driven on the engine loop)."""
-        prepared = self._prepare(question_id, options, params, candidates)
+        """Decide from a sync call site (EG is driven on the engine loop).
+
+        ``context``: the SDK port's ``params`` / ``candidates`` keywords.
+        """
+        prepared = self._prepare(question_id, options, context)
         reading, logged = (
             self._run(self._consult(prepared), lambda exc: (_unavailable(exc), False))
             if prepared.request is not None
@@ -214,12 +228,10 @@ class DecisionRunner:
         question_id: str,
         options: Sequence[Option],
         fallback: Fallback,
-        *,
-        params: Iterable[Mapping[str, Any]] = (),
-        candidates: Mapping[str, Any] | None = None,
+        **context: Any,
     ) -> Choice:
-        """Decide from an async call site."""
-        prepared = self._prepare(question_id, options, params, candidates)
+        """Decide from an async call site (same ``context`` as :meth:`choose`)."""
+        prepared = self._prepare(question_id, options, context)
         reading, logged = await self._consult(prepared)
         choice, answer = _settle(reading, logged, fallback)
         await self._resolve(choice, answer)

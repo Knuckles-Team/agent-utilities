@@ -13,8 +13,7 @@ verified engine session (:func:`install_runner`); tests install fakes.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from contextvars import ContextVar
+from collections.abc import Sequence
 from typing import Any
 
 from agent_connector_sdk import decide as sdk_decide
@@ -30,77 +29,53 @@ from agent_utilities.decide.points import (
 )
 from agent_utilities.decide.runner import DecisionRunner, Escalated, Fallback
 
-_RUNNER: ContextVar[DecisionRunner | None] = ContextVar(
-    "au_decide_runner", default=None
-)
-_PROCESS: list[DecisionRunner | None] = [None]
-
 
 def install_runner(runner: DecisionRunner | None) -> None:
     """Install ``runner`` for the whole process (``None`` uninstalls).
 
-    The connector SDK's own decision points (EH-042/043) ask through the SDK's
-    runner slot; AU installs the SAME runner there, so there is one runner and
-    one answer per question whichever side asks.
+    There is ONE runner slot -- the connector SDK's -- so AU's and the SDK's
+    decision points (EH-042/043 live in the SDK) ask through the same runner.
     """
-    _PROCESS[0] = runner
     sdk_decide.install_runner(runner)
 
 
 def use_runner(runner: DecisionRunner | None) -> Any:
-    """Scope ``runner`` to the current context (AU and SDK); returns the reset token."""
-    return (_RUNNER.set(runner), sdk_decide.use_runner(runner))
+    """Scope ``runner`` to the current context; returns the reset token."""
+    return sdk_decide.use_runner(runner)
 
 
 def reset_runner(token: Any) -> None:
     """Undo :func:`use_runner`."""
-    for part in token:
-        part.var.reset(part)
+    token.var.reset(token)
 
 
 def current_runner() -> DecisionRunner | None:
-    """The context's runner, else the process runner, else ``None``."""
-    return _RUNNER.get() or _PROCESS[0]
+    """The installed AU runner, if any (the SDK slot holds it)."""
+    runner = sdk_decide.current_runner()
+    return runner if isinstance(runner, DecisionRunner) else None
 
 
-def _no_runner(fallback: Fallback) -> Choice:
-    answer = fallback()
-    option = answer.option_id if isinstance(answer, Escalated) else answer
-    return Choice(option, False, "no_runner")
+def _au(choice: Any) -> Choice:
+    """An SDK choice (no runner installed) as AU's, which adds the record fields."""
+    if isinstance(choice, Choice):
+        return choice
+    return Choice(
+        choice.option_id, choice.decided, choice.reason, advisory=choice.advisory
+    )
 
 
 def choose(
-    question_id: str,
-    options: Sequence[Option],
-    fallback: Fallback,
-    *,
-    params: Iterable[Mapping[str, Any]] = (),
-    candidates: Mapping[str, Any] | None = None,
+    question_id: str, options: Sequence[Option], fallback: Fallback, **context: Any
 ) -> Choice:
-    """Decide ``question_id`` from a sync call site."""
-    runner = current_runner()
-    if runner is None:
-        return _no_runner(fallback)
-    return runner.choose(
-        question_id, options, fallback, params=params, candidates=candidates
-    )
+    """Decide from a sync call site (``context``: ``params`` / ``candidates``)."""
+    return _au(sdk_decide.choose(question_id, options, fallback, **context))
 
 
 async def achoose(
-    question_id: str,
-    options: Sequence[Option],
-    fallback: Fallback,
-    *,
-    params: Iterable[Mapping[str, Any]] = (),
-    candidates: Mapping[str, Any] | None = None,
+    question_id: str, options: Sequence[Option], fallback: Fallback, **context: Any
 ) -> Choice:
-    """Decide ``question_id`` from an async call site."""
-    runner = current_runner()
-    if runner is None:
-        return _no_runner(fallback)
-    return await runner.achoose(
-        question_id, options, fallback, params=params, candidates=candidates
-    )
+    """Decide from an async call site (``context``: ``params`` / ``candidates``)."""
+    return _au(await sdk_decide.achoose(question_id, options, fallback, **context))
 
 
 __all__ = [
