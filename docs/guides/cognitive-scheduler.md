@@ -13,25 +13,16 @@ It composes three existing primitives into a kernel-level orchestration layer:
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph CognitiveScheduler
-        PQ[ORCH-1.21: Priority Queue] --> SE{OS-5.2: Slot Available?}
-        SE -- Yes --> RUN[ORCH-1.21: RUNNING]
-        SE -- No --> WAIT[ORCH-1.21: WAITING]
-        RUN --> QE{ORCH-1.21: Quota Exceeded?}
-        QE -- Yes --> ORCH-1.21: PREEMPT[PREEMPT]
-        PREEMPT --> CKP[KG-2.0: Checkpoint to KG]
-        CKP --> WAIT
-        RUN --> DONE[ORCH-1.21: COMPLETED]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Priority queue to run/wait/preempt/complete</p>
 
-    subgraph Integrations
-        RO["ResourceOptimizer<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> QE
-        CP["Checkpointing<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> CKP
-        EV["Eviction<br>CONCEPT:AU-OS.state.cognitive-scheduler-preemption"] -.-> CKP
-    end
-```
+A priority queue entry checks for an available slot: available runs it
+immediately; unavailable waits. A running task is checked against its
+quota: exceeded triggers preemption, which checkpoints to the KG and
+returns the task to waiting; not exceeded lets it complete. Three
+integrations tie into this loop: `ResourceOptimizer` feeds the quota
+check, and both checkpointing and eviction feed the KG checkpoint step.
+</div>
 
 ## Priority Levels
 
@@ -44,18 +35,15 @@ flowchart TB
 
 ## Process States
 
-```mermaid
-stateDiagram-v2
-    [*] --> WAITING: submit()
-    WAITING --> RUNNING: schedule_next()
-    RUNNING --> PAUSED: preempt()
-    RUNNING --> COMPLETED: complete()
-    RUNNING --> FAILED: fail()
-    PAUSED --> RUNNING: resume()
-    PAUSED --> WAITING: resume() (no capacity)
-    COMPLETED --> [*]
-    FAILED --> [*]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Task lifecycle states</p>
+
+`submit()` moves a new task to `WAITING`. `schedule_next()` moves it to
+`RUNNING`. From `RUNNING`: `preempt()` moves to `PAUSED`, `complete()`
+moves to the terminal `COMPLETED`, `fail()` moves to the terminal `FAILED`.
+From `PAUSED`: `resume()` moves back to `RUNNING` when capacity is
+available, or back to `WAITING` when it isn't.
+</div>
 
 ## Configuration
 

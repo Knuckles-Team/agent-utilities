@@ -18,12 +18,14 @@ Checkpoints are written through a pluggable `CheckpointStore` (`InMemoryCheckpoi
 `relationship=SNAPSHOT_OF` properties, persist the configured backend first, and
 avoid duplicate writes when the native compute graph is itself the authority.
 
-```mermaid
-flowchart LR
-    S[GraphCheckpointStore] -->|typed node and edge| E[IntelligenceGraphEngine]
-    E -->|authority write| B[Configured backend]
-    E -->|only when distinct| G[Native compute graph]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Checkpoints write through the engine, never around it</p>
+
+`GraphCheckpointStore` writes a typed node and edge into
+`IntelligenceGraphEngine`, which performs the authority write to the
+configured backend, and — only when it's genuinely a distinct target —
+also to the native compute graph.
+</div>
 
 ```python
 from agent_utilities.capabilities.checkpointing import (
@@ -95,18 +97,19 @@ retry budget never preempts this module's classified exhaustion path
 `output_type` is plain text — the underlying hooks never fire for
 unstructured output.
 
-```mermaid
-flowchart LR
-    O[Raw model output] --> C{classify}
-    C -->|looks fine| V[validated output]
-    C -->|malformed_json / truncated / empty / refused| R{"attempts < max_repairs?"}
-    V -->|ValidationError| C2{classify error}
-    C2 -->|wrong_type / schema_invalid| R
-    R -->|yes| M[ModelRetry: targeted re-ask]
-    M --> O
-    R -->|no| X[StructuredOutputRepairExhausted]
-    V -->|ok, attempts recorded| S["result.output_repair_attempts"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Classify, repair-retry within budget, or fail loud</p>
+
+Raw model output is classified: output that looks fine is validated; output
+that's malformed JSON, truncated, empty, or refused checks whether repair
+attempts remain under `max_repairs`. Validated output can still fail
+validation — that error is classified too, and a wrong-type or
+schema-invalid error also joins the repair-attempts check. Any output
+routed to the repair check either gets a targeted re-ask (`ModelRetry`,
+looping back to raw model output) when attempts remain, or raises
+`StructuredOutputRepairExhausted` when they don't. Output that validates
+cleanly records its attempt count on `result.output_repair_attempts`.
+</div>
 
 ### Hooks (`capabilities/hooks.py`)
 

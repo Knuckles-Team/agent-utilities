@@ -92,30 +92,19 @@ and every vLLM process on the box (or, later, across boxes) pools into one store
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph GB10["GB10 (DGX Spark, 10.0.0.18) — host network"]
-        direction TB
-        vllm["vLLM (nightly)\n--enable-prefix-caching\n--kv-transfer-config LMCacheConnectorV1 (kv_both)"]
-        subgraph lm["LMCache (in vLLM process)"]
-            l1["L1: local CPU\n(max_local_cpu_size)"]
-            remote["remote backend"]
-        end
-        vllm -->|store / load KV blocks by token-hash| lm
-        l1 -. miss .-> remote
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two wire paths, one engine-side tiered store</p>
 
-        subgraph egk["epistemic-kvcache (engine, feature kvcache-server + redis-wire)"]
-            http["EG-KG.backend.is-configured-so-co HTTP:\nGET|PUT|HEAD /kv/&lt;hash&gt;\nGET /kv/stats"]
-            resp["EG-KG.ontology.resp2-resp3-codec-round/307 Redis RESP :6379"]
-            tier["EG-185 tiered hot/warm/cold\n+ EG-186 content-addressed dedup"]
-            http --> tier
-            resp --> tier
-        end
-
-        remote -->|Path A: HTTP :9130\nEpistemicGraphKVBackend KG-2.306| http
-        remote -->|Path B: redis://:6379\nLMCache built-in remote| resp
-    end
-```
+On the GB10 (DGX Spark) host, vLLM (nightly, prefix caching +
+`LMCacheConnectorV1` in `kv_both` mode) stores/loads KV blocks by
+token-hash through LMCache, running in the same process. LMCache checks
+its L1 local CPU tier first; a miss falls through to a remote backend,
+which can reach the `epistemic-kvcache` engine server via either of two
+paths that land on the same tiered hot/warm/cold, content-addressed-dedup
+store: **Path A** — HTTP `:9130` (`EpistemicGraphKVBackend`,
+`GET`/`PUT`/`HEAD /kv/<hash>`, `GET /kv/stats`); **Path B** — Redis RESP
+`:6379` (LMCache's built-in remote-backend support, no custom code).
+</div>
 
 Two wiring paths reach the **same** engine store — pick one:
 
@@ -704,14 +693,19 @@ live via the `graph_kv_checkpoint` MCP tool / `POST /graph/kv_checkpoint`) lets 
 operator checkpoint a KV-cache blob at a point of ideal understanding, then either
 initialise a new agent from it or reset an existing conversation back to it:
 
-```mermaid
-flowchart LR
-    run["Live run\n(a point of ideal\nunderstanding)"] -->|create_checkpoint| ckpt[("KVCheckpoint node\n(model/quant/engine/version/\nprefix-digest/tenant/policy)")]
-    ckpt -->|hasBlob| blob[("content-addressed\nBlob (engine store)")]
-    ckpt -->|instantiate_agent\n(fail-closed load)| newrun["New :AgentRun\n(initializedFrom edge)"]
-    ckpt -->|restore_conversation\n(fail-closed load)| conv["Existing conversation\n(restoredFrom edge)"]
-    conv -.->|allow_cold_start=true\nonly| cold["Explicit, traced\ncold start"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One checkpoint node, two fail-closed load paths, one explicit cold-start escape</p>
+
+A live run, at a point of ideal understanding, calls `create_checkpoint`,
+producing a `KVCheckpoint` node (model/quant/engine/version/prefix-digest/
+tenant/policy) linked `hasBlob` to a content-addressed blob in the engine
+store. That checkpoint feeds two fail-closed load paths:
+`instantiate_agent` creates a new `:AgentRun` (`initializedFrom` edge), and
+`restore_conversation` restores an existing conversation (`restoredFrom`
+edge). The only sanctioned fallback off the restore path is an explicit,
+traced cold start — reached only when the caller opts in with
+`allow_cold_start=true`.
+</div>
 
 The checkpoint id is a sha256 over **six** components — model identity,
 quantization, serving engine + version, prefix digest, tenant, and policy version
