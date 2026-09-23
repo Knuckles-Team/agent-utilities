@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-408 publishable pages · 30 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+418 publishable pages · 40 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -419,6 +419,19 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — catalog
 - [Live workload certification contract](../scaling/live-loadgen-certification.md) — catalog
 - [Agent-utilities scale claim register](../scaling/scale_claims.md) — catalog
+
+## Components
+
+- [AU-AHE](../components/au-ahe.md) — direct nav
+- [AU-ECO](../components/au-eco.md) — direct nav
+- [AU-KG](../components/au-kg.md) — direct nav
+- [AU-ORCH](../components/au-orch.md) — direct nav
+- [AU-OS](../components/au-os.md) — direct nav
+- [EG-AHE](../components/eg-ahe.md) — direct nav
+- [EG-KG](../components/eg-kg.md) — direct nav
+- [EG-ORCH](../components/eg-orch.md) — direct nav
+- [EG-OS](../components/eg-os.md) — direct nav
+- [Components](../components/index.md) — direct nav
 
 ## Learn
 

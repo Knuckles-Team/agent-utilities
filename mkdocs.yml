@@ -45,7 +45,7 @@ nav:
       - Observability: guides/observability-usage-tracking.md
       - Connector certification: release/connector-live-certification.md
       - Compatibility and certification: release/compatibility-and-certification.md
-  - Components:
+  - Architecture:
       - Overview: architecture/index.md
       - Runtime authority: architecture/graph-authority-convergence.md
       - Context boundary: architecture/mandatory-context-compiler.md
@@ -53,6 +53,17 @@ nav:
       - Privacy-safe ingestion: architecture/privacy-safe-external-ingestion.md
       - Improvement lifecycle: architecture/self-evolution-flywheel.md
       - External connectors: architecture/universal-external-graph-connectors.md
+  - Components:
+      - Overview: components/index.md
+      - AU-AHE: components/au-ahe.md
+      - AU-ECO: components/au-eco.md
+      - AU-KG: components/au-kg.md
+      - AU-ORCH: components/au-orch.md
+      - AU-OS: components/au-os.md
+      - EG-AHE: components/eg-ahe.md
+      - EG-KG: components/eg-kg.md
+      - EG-ORCH: components/eg-orch.md
+      - EG-OS: components/eg-os.md
   - Reference:
       - API: reference/api.md
       - Runtime configuration: reference/runtime-configuration.md
