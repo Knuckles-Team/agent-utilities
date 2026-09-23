@@ -45,7 +45,7 @@ nav:
       - Observability: guides/observability-usage-tracking.md
       - Connector certification: release/connector-live-certification.md
       - Compatibility and certification: release/compatibility-and-certification.md
-  - Architecture:
+  - Components:
       - Overview: architecture/index.md
       - Runtime authority: architecture/graph-authority-convergence.md
       - Context boundary: architecture/mandatory-context-compiler.md
