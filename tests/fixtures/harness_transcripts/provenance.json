@@ -1,0 +1,21 @@
+{
+  "claude_code_success.jsonl": {
+    "evidence": "recorded-live-transcript",
+    "captured": "2026-09-22",
+    "harness": "Claude Code 2.1.280 (subscription login)",
+    "command": "claude -p --output-format stream-json --verbose --strict-mcp-config --mcp-config mcp.json --allowedTools 'Bash(echo:*)' --permission-mode dontAsk --model haiku --no-session-persistence",
+    "sanitized": "init record: skills and slash_commands trimmed to the planted skill, cwd replaced, host paths, sockets and plugin paths removed; thinking blocks and rate_limit_event records dropped"
+  },
+  "codex_success.jsonl": {
+    "evidence": "recorded-live-transcript",
+    "captured": "2026-09-22",
+    "harness": "codex-cli 0.155.1 (ChatGPT login)",
+    "command": "codex exec --json --ephemeral --skip-git-repo-check -s read-only -C <workspace> -",
+    "sanitized": "none"
+  },
+  "grok_success.jsonl": {
+    "evidence": "synthetic-transcript",
+    "authored": "2026-09-22",
+    "source": "docs.x.ai/build/cli/headless-scripting (streaming-json = Agent Client Protocol session/update notifications + session/prompt stopReason); Grok Build is not installed on the recording host, so no live capture exists"
+  }
+}

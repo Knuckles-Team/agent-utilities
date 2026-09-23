@@ -10,6 +10,7 @@ behavior without a live engine.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,7 +24,7 @@ from agent_utilities.api import (
     EgCapabilitySearch,
     EgWorkItemStore,
     GraphSession,
-    OrchestratorAgentExecutor,
+    HarnessAgentExecutor,
     SignedAgentDispatchReceipt,
     WorkItemCancelRequest,
     WorkItemGetRequest,
@@ -319,17 +320,11 @@ def test_request_context_never_widens_the_carrier() -> None:
 
 
 def _entry(component_id: str, kind: str, name: str | None = None) -> Any:
-    class _Kind:
-        value = kind
-
-    class _Entry:
-        pass
-
-    entry = _Entry()
-    entry.component_id = component_id
-    entry.kind = _Kind()
-    entry.attributes = {"name": name} if name else None
-    return entry
+    return SimpleNamespace(
+        component_id=component_id,
+        kind=SimpleNamespace(value=kind),
+        attributes={"name": name} if name else None,
+    )
 
 
 def test_candidates_preserve_eg_order_and_drop_unmapped_kinds() -> None:
@@ -369,7 +364,9 @@ async def test_free_text_is_never_sent_to_eg_as_a_task() -> None:
 
 def test_task_iri_is_the_closed_native_vocabulary() -> None:
     with pytest.raises(ValueError):
-        CapabilitySearchRequest(task="t", task_iri="eg:task/anything")
+        CapabilitySearchRequest.model_validate(
+            {"task": "t", "task_iri": "eg:task/anything"}
+        )
 
 
 async def test_named_agent_walks_the_kind_scoped_catalog(monkeypatch) -> None:
@@ -434,12 +431,13 @@ class _Runner:
 async def test_executor_binds_the_verified_session_for_the_run() -> None:
     runner = _Runner()
     session = _session()
-    result = await OrchestratorAgentExecutor(runner).execute_agent(
+    result = await HarnessAgentExecutor.in_process(runner).execute_agent(
         AgentExecutionRequest(
             agent_name="expert",
             task="t",
             allowed_tools=("a",),
             execution_mode="graph",
+            max_steps=7,
         ),
         session=session,
     )
@@ -447,14 +445,38 @@ async def test_executor_binds_the_verified_session_for_the_run() -> None:
     assert (name, task) == ("expert", "t")
     assert bound is session
     assert options["allowed_tools"] == ["a"]
+    assert options["max_steps"] == 7
+    assert options["execution_mode"] == "graph"
     assert options["run_id"] == result.run_id
+    assert callable(options["progress_sink"])
     assert result.output == "done"
     assert result.execution_mode == "graph"
 
 
+async def test_executor_reraises_the_runtime_error_contract() -> None:
+    class _Refusing:
+        async def execute_agent(self, agent_name: str, task: str, **options: Any):
+            raise LookupError("no authorized capability")
+
+    with pytest.raises(LookupError, match="no authorized capability"):
+        await HarnessAgentExecutor.in_process(_Refusing()).execute_agent(
+            AgentExecutionRequest(agent_name="expert", task="t"), session=_session()
+        )
+
+
+async def test_executor_maps_an_unusable_harness_to_unavailable() -> None:
+    from agent_utilities.layers.execution import default_registry
+
+    executor = HarnessAgentExecutor(default_registry(_Runner()), harness="nope")
+    with pytest.raises(AgentControlPlaneUnavailable, match="not registered"):
+        await executor.execute_agent(
+            AgentExecutionRequest(agent_name="expert", task="t"), session=_session()
+        )
+
+
 def test_executor_requires_a_runner() -> None:
     with pytest.raises(TypeError):
-        OrchestratorAgentExecutor(object())
+        HarnessAgentExecutor.in_process(object())
 
 
 # --- Composition -----------------------------------------------------------
