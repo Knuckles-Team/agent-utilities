@@ -38,6 +38,7 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+from tests.committed_shacl_fakes import CommittedShaclValidator
 
 RUNBOOK_MD = """---
 status: active
@@ -68,16 +69,6 @@ class _Nodes:
 
     def properties(self, node_id: str):
         return self.values.get(node_id)
-
-
-class _Rdf:
-    def __init__(self) -> None:
-        self.reports = [{"conforms": True, "results": []}]
-        self.validations: list[tuple[str, str]] = []
-
-    def validate_shacl(self, shapes: str, data_graph: str):
-        self.validations.append((shapes, data_graph))
-        return self.reports[0]
 
 
 class _Changes:
@@ -129,7 +120,6 @@ class _Client:
     def __init__(self) -> None:
         self.nodes = _Nodes()
         self.changes = _Changes(self.nodes)
-        self.rdf = _Rdf()
 
     def supports(self, operation: str) -> bool:
         return operation in {"ApplyChangeEnvelope", "GetChangeCursor"}
@@ -141,6 +131,7 @@ class _Compute:
         self.catalog_epoch = 3
         self.placement_group = 8
         self.client = _Client()
+        self.shacl_validate_committed = CommittedShaclValidator()
 
     def for_graph(self, graph: str):
         self.graph_name = graph

@@ -48,7 +48,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from importlib.resources import files
 from typing import Any
 from urllib.parse import quote
 
@@ -304,95 +303,67 @@ def _shacl_data_graph(rows: list[tuple[str, dict[str, Any]]]) -> str:
     return "\n".join(triples) + "\n"
 
 
-#: AU's published governance-shape pack (``pack:agent-utilities``). EH-380:
-#: 43197d7c6 moved it from ``knowledge_graph/shapes/`` to ``ontology/shapes/``
-#: without updating this reader, so every connector ChangeEnvelope failed
-#: closed with "connector SHACL validation could not complete".
-_GOVERNANCE_SHAPES = files("agent_utilities").joinpath(
-    "ontology", "shapes", "governance.shapes.ttl"
-)
-
-
 def _shacl_validate_rows(
-    client: Any,
+    authority: Any,
     rows: list[tuple[str, dict[str, Any]]],
 ) -> None:
-    """Admit connector rows only after native canonical SHACL validation.
+    """Admit connector rows only after EG validates them against committed schema.
 
-    Connector material is an external trust boundary. Validation therefore is
-    unconditional: an unavailable engine validator, missing packaged shapes,
-    malformed report, or non-conforming data fails closed before the native
-    ChangeEnvelope is constructed. Invalid rows are never materialized.
+    Connector material is an external trust boundary, so validation is
+    unconditional. EG's committed composed GraphSchema is the only shape
+    authority (EH-385): AU renders the data graph and never reads or sends a
+    shapes document. A missing validator, a failed call, a report without the
+    typed ``conforms`` flag, or non-conforming data all fail closed before the
+    native ChangeEnvelope is built. Invalid rows are never materialized.
     """
+    from ..core.committed_shacl import (
+        CommittedShaclUnavailable,
+        shacl_violation_summary,
+        validate_committed,
+    )
+
     try:
-        shapes = _GOVERNANCE_SHAPES.read_text(encoding="utf-8")
-        rdf = getattr(client, "rdf", None)
-        validate = getattr(rdf, "validate_shacl", None)
-        if not callable(validate):
-            raise NativeChangeEnvelopeUnavailable(
-                "connector SHACL validation support is unavailable"
-            )
-        report = validate(shapes, _shacl_data_graph(rows))
-    except (NativeChangeEnvelopeUnavailable, ValueError):
+        report = validate_committed(authority, _shacl_data_graph(rows))
+    except CommittedShaclUnavailable as exc:
+        raise NativeChangeEnvelopeUnavailable(
+            "connector SHACL validation support is unavailable"
+        ) from exc
+    except ValueError:
         raise
     except Exception as exc:
         raise NativeChangeEnvelopeUnavailable(
             "connector SHACL validation could not complete"
         ) from exc
-    if not isinstance(report, dict) or not isinstance(report.get("conforms"), bool):
+    conforms = getattr(report, "conforms", None)
+    if not isinstance(conforms, bool):
         raise NativeChangeEnvelopeUnavailable(
             "connector SHACL validator returned an invalid report"
         )
-    if not report["conforms"]:
+    if not conforms:
         # Name the failing shapes. "violates the governed ontology" without the
         # violations is unactionable: it cannot distinguish a missing required
         # property from a bad datatype on a single row out of hundreds.
         raise ValueError(
             "connector material violates the governed ontology: "
-            f"{_shacl_violation_summary(report)}"
+            f"{shacl_violation_summary(report)}"
         )
 
 
 def validate_rows_against_shacl(
-    client: Any, rows: list[tuple[str, dict[str, Any]]]
+    authority: Any, rows: list[tuple[str, dict[str, Any]]]
 ) -> None:
     """Public reuse point for :func:`_shacl_validate_rows` (CONCEPT:AU-KG.ingest.governed-claim-promotion).
 
     The connector ingestion boundary's fail-closed SHACL gate — unavailable
-    validator, missing shapes, malformed report, or non-conforming data all
-    ``raise`` — exposed so another governed-write caller (e.g.
+    validator, malformed report, or non-conforming data all ``raise`` —
+    exposed so another governed-write caller (e.g.
     ``knowledge_graph.ingestion.promotion``'s candidate-claim promotion gate)
     can reuse the SAME unconditional validate-or-raise contract instead of a
-    second SHACL implementation.
+    second SHACL implementation. ``authority`` is any handle
+    :func:`~agent_utilities.knowledge_graph.core.committed_shacl.committed_shacl_authority`
+    resolves.
     """
-    _shacl_validate_rows(client, rows)
-
-
-def _shacl_violation_detail(item: Any) -> str:
-    """Render one SHACL result row, or ``""`` when it carries no usable detail."""
-    if not isinstance(item, dict):
-        return ""
-    return " ".join(
-        str(item[key])
-        for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
-        if item.get(key)
-    )
-
-
-def _shacl_violation_summary(report: dict[str, Any], *, limit: int = 5) -> str:
-    """Summarize a non-conforming SHACL report as a short, bounded string."""
-    results = report.get("results")
-    if not isinstance(results, list) or not results:
-        return str(report.get("message") or "no violation detail reported")
-    seen: list[str] = []
-    for item in results:
-        detail = _shacl_violation_detail(item)
-        if detail and detail not in seen:
-            seen.append(detail)
-        if len(seen) >= limit:
-            break
-    extra = len(results) - len(seen)
-    return "; ".join(seen) + (f" (+{extra} more)" if extra > 0 else "")
+    _shacl_validate_rows(authority, rows)
 
 
 # ── validate ─────────────────────────────────────────────────────────────
@@ -1944,7 +1915,7 @@ def _native_material(
     # GraphSession tenant, overriding any untrusted source value.
     for _current_id, properties in node_rows:
         properties["tenant_id"] = str(session.tenant)
-    _shacl_validate_rows(client, node_rows)
+    _shacl_validate_rows(authority.compute, node_rows)
     operations = _graph_operations(node_rows, links, node_id)
     material_digest, content_digest, source_position, previous_digest = (
         _native_content_state(
@@ -3672,8 +3643,12 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
             result = _apply_native_change_envelope(authority, session, envelope)
             _publish_envelope_embedding(authority, result, embedded_by_position)
             return result
-        except NativeChangeEnvelopeUnavailable:
-            logger.warning("native ChangeEnvelope capability is unavailable")
+        except NativeChangeEnvelopeUnavailable as exc:
+            logger.warning(
+                "native ChangeEnvelope capability is unavailable: %s (cause: %r)",
+                exc,
+                exc.__cause__,
+            )
             return {
                 **base,
                 "status": "failed",
