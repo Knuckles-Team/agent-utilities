@@ -5,14 +5,16 @@ local container image to the OCI-layout archive consumed by component evidence.
 The exporter accepts only a local `sha256:` image ID or a name pinned with
 `@sha256:<digest>`; a mutable tag is never an export subject.
 
-```mermaid
-flowchart LR
-    I["digest-addressed local image"] --> C["Exact container CLI descriptor"]
-    C --> T["Private no-replace temporary descriptor"]
-    T --> V["OCI layout, descriptor, blob, and privacy validation"]
-    V --> P["Atomic no-overwrite publication"]
-    P --> E["generate_component_evidence.py"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Export pipeline</p>
+
+A digest-addressed local image resolves to an exact container CLI
+descriptor, staged as a private, no-replace temporary descriptor. That
+descriptor goes through OCI layout, descriptor, blob, and privacy
+validation, then an atomic, no-overwrite publication, then
+`generate_component_evidence.py`.
+
+</div>
 
 ## Export contract
 

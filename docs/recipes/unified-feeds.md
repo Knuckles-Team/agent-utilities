@@ -6,29 +6,23 @@ are all first-class `:FeedSource` citizens that emit the same `SourceDocument` a
 through **one** world-model gate, which routes research items to the prioritized
 research-paper fetch and news items to relevance+novelty ingestion.
 
-```mermaid
-flowchart TB
-    subgraph SRC["Feed sources — all emit SourceDocument(metadata.record)"]
-        N["native rss connector\n@register_source('rss')\nfeedparser · zero-infra · KG_RSS_FEEDS"]
-        F["FreshRSS\nmcp_tool preset (aggregator)"]
-        S["ScholarX arXiv\nscholarx_feed_documents (keeps arXiv parser)"]
-    end
-    REG[":FeedSource registry (KG nodes)\ngraph_feeds list/add/remove"]
-    GATE["WorldModelPipelineRunner.run_gated_ingest\ndedup (canonical arxiv:id) → classify"]
-    RESEARCH["research → grade_and_enqueue_paper\nWorkItem research_paper_fetch (prio by grade)"]
-    NEWS["news → relevance+novelty\n:FeedItem / Document · :ingestedFrom :FeedSource"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Unified feed pipeline</p>
 
-    N --> GATE
-    F --> GATE
-    S --> GATE
-    REG -. seeds + runtime feeds .-> N
-    GATE -->|_is_research| RESEARCH
-    GATE -->|else| NEWS
-    SWEEP["feed_sweep schedule (unified scheduler)\nsync_source rss + freshrss"] --> SRC
+Three feed sources — the native rss connector (`@register_source('rss')`,
+feedparser, zero-infra, `KG_RSS_FEEDS`), FreshRSS (mcp_tool preset
+aggregator), and ScholarX arXiv (`scholarx_feed_documents`, keeps the arXiv
+parser) — all emit `SourceDocument(metadata.record)` into
+`WorldModelPipelineRunner.run_gated_ingest`, which dedups by canonical
+`arxiv:id` and classifies each item: research items go to
+`grade_and_enqueue_paper` (a `research_paper_fetch` WorkItem, priority by
+grade); everything else goes to news (relevance+novelty scoring, written as
+`:FeedItem`/`Document` with `:ingestedFrom :FeedSource`). The
+`:FeedSource` registry (KG nodes, `graph_feeds` list/add/remove) seeds the
+native connector's runtime feed list. A `feed_sweep` schedule (unified
+scheduler) periodically syncs both the rss and freshrss sources.
 
-    classDef ext fill:#533483,stroke:#7b2cbf,color:#fff
-    class RESEARCH,NEWS ext
-```
+</div>
 
 ## The three sources
 

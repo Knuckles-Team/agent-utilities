@@ -15,15 +15,16 @@ Stardog) — with a durable **Postgres** carrying Apache AGE + pgvector + Parade
 
 ## The loop you're building
 
-```
-agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
-        │                                  │
-        │                                  ├─ prod ─▶ Stardog ──SPARQL──▶ your system
-        │                                  └─ dev  ─▶ built-in /api/sparql (zero infra)
-        │                                                    └─ optional local Jena Fuseki
-        ▼
-   reconcile (KG-2.7) ──▶ Postgres / Apache AGE  (durable graph + pgvector + BM25)
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The loop you're building</p>
+
+The `agent-utilities` graph promotes into an OWL/RDF ontology (KG-2.6),
+which in production reaches your system through Stardog over SPARQL, or in
+dev through the built-in `/api/sparql` (zero infra, with an optional local
+Jena Fuseki). Separately, the graph reconciles (KG-2.7) into
+Postgres/Apache AGE — a durable graph plus pgvector and BM25.
+
+</div>
 
 - **Push / host / consume** the ontology → `OntologyPublisher` +
   the gateway SPARQL endpoint.

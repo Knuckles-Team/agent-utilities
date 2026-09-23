@@ -273,17 +273,17 @@ tree `cb222da...`) is a CA/refactor reference-plane input only. Its qualificatio
 state remains `PROPOSED/NOT_RUN`; it does not establish runtime acceptance, and
 the external `/etc` authority bundle is deferred until post-refactor deployment.
 
-```mermaid
-flowchart LR
-    C[Digest-bound candidate] --> Q[graph_query exact component/capability join]
-    C --> S[graph_search advisory discovery]
-    C --> G[graph_code grounded live callers]
-    Q --> V[RF-021 typed validation]
-    S --> V
-    G --> V
-    V --> E[Signed content-free architecture evidence]
-    V -->|missing or stale| H[Owner manifest regeneration and source_sync delta handoff]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Validation pipeline</p>
+
+A digest-bound candidate feeds three checks in parallel —
+`graph_query` (exact component/capability join), `graph_search` (advisory
+discovery), and `graph_code` (grounded live callers) — which all feed
+RF-021 typed validation. Validation produces signed, content-free
+architecture evidence; when the evidence is missing or stale, it instead
+triggers owner-manifest regeneration and a `source_sync` delta handoff.
+
+</div>
 
 The normative validation schema is
 `deploy/release/prebundled-skill-validation-evidence.schema.json`.
