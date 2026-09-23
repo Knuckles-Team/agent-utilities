@@ -241,3 +241,36 @@ def test_relationship_source_and_target_ids_survive_unmodified() -> None:
     assert clean["target"] == "action_decision:da90004e126c486abf4579b4646be2d0"
     assert clean["source"] != clean["target"]
     assert "iban" not in report.detected_types
+
+
+def test_structural_id_embedding_a_user_path_is_pseudonymized_distinctly() -> None:
+    """EH-380: ``source`` is a structural key, but a home path under it is a
+    person's machine location. It becomes a stable keyed reference: never
+    persisted raw, and distinct ids stay distinct."""
+    guard = PersistencePrivacyGuard(deny_terms=())
+    clean, report = guard.sanitize(
+        {
+            "a": {"source": "/home/example/secret.csv"},
+            "b": {"source": "/home/example/other.csv"},
+            "c": {"source": "/home/example/secret.csv"},
+            "d": {"source": "C:\\Users\\example\\x.csv"},
+        }
+    )
+    values = [clean[k]["source"] for k in ("a", "b", "c", "d")]
+    assert not any("example" in v for v in values)
+    assert values[0] == values[2] != values[1]
+    assert all(v.startswith("pref_structural_user_path_") for v in values)
+    assert report.redactions == 4
+    assert "structural_user_path" in report.detected_types
+
+
+def test_structural_ids_without_user_paths_stay_raw() -> None:
+    guard = PersistencePrivacyGuard(deny_terms=())
+    ids = {
+        "id": "de12ab34cd56ef7890ab12cd34ef5678",
+        "source": "node:abc",
+        "target": "src/app.py",
+    }
+    clean, report = guard.sanitize(ids)
+    assert clean == ids
+    assert report.redactions == 0
