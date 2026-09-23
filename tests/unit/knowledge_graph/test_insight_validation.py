@@ -34,8 +34,12 @@ class _InsightStubEngine:
         # Upsert-keyed-by-id, matching a real engine: a second ``add_node`` for the
         # same id (e.g. the promoter flipping proposal → active) overwrites the
         # node in place rather than accumulating a duplicate.
+        from tests.unit.fleet_autonomy_fakes import approval_lease_client_surface
+
         self.nodes: dict[str, dict[str, Any]] = {}
         self.add_node_calls = 0
+        # EH-380: approval-tier holds queue on an EG ControlLease (fe45551a8).
+        self.client = approval_lease_client_surface()
         self.backend = object()
         self._governance_rules = governance_rules or []
         # X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): records for the
@@ -61,6 +65,15 @@ class _InsightStubEngine:
     def register_materialization(self, derived_id: str) -> dict[str, Any]:
         self.registered_materializations.append(derived_id)
         return {"id": derived_id, "depends_on": [], "generating_activity": None}
+
+    @staticmethod
+    def shacl_validate_committed(_document: str) -> Any:
+        """EG's committed-GraphSchema SHACL authority (43197d7c6): conforms.
+
+        Without it the promotion-governance validator holds (fail closed)."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(conforms=True, results=[])
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
         if "governance_rule" in q:

@@ -35,9 +35,13 @@ class _SkillEvoStubEngine:
     """
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
+        from tests.unit.fleet_autonomy_fakes import approval_lease_client_surface
+
         self.nodes: dict[str, dict[str, Any]] = {}
         self.backend = object()
         self._governance_rules = governance_rules or []
+        # EH-380: approval-tier holds queue on an EG ControlLease.
+        self.client = approval_lease_client_surface()
         self.edges: list[tuple[str, str, dict[str, Any]]] = []
 
     def add_node(

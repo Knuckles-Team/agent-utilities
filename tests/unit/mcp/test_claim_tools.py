@@ -9,7 +9,6 @@ and the fail-closed ActionPolicy gate on every state-changing action.
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -28,13 +27,11 @@ class _ClaimStubEngine:
     not just an in-process cache."""
 
     def __init__(self) -> None:
-        from tests.unit.fleet_autonomy_fakes import FakeControlLeaseClient
+        from tests.unit.fleet_autonomy_fakes import approval_lease_client_surface
 
         self.nodes: dict[str, dict[str, Any]] = {}
-        # The approval queue is an EG ``action.approval`` ControlLease
-        # (fe45551a8); without this surface an approval-tier decision fails
-        # closed as "unavailable" instead of queueing (EH-380).
-        self.client = SimpleNamespace(control_leases=FakeControlLeaseClient())
+        # EH-380: approval-tier holds queue on an EG ControlLease (fe45551a8).
+        self.client = approval_lease_client_surface()
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None

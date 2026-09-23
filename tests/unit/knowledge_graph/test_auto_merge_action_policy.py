@@ -38,6 +38,7 @@ from agent_utilities.orchestration.action_policy import (  # noqa: E402
     ActionDecision,
     ActionPolicy,
     ActionRequest,
+    _policy_receipt,
 )
 
 pytestmark = pytest.mark.concept("AHE-3.20")
@@ -54,13 +55,18 @@ class _FakePolicy:
 
     def decide(self, request: ActionRequest) -> ActionDecision:
         self.requests.append(request)
-        return ActionDecision(
+        decision = ActionDecision(
             decision=self._decision,
             tier="approval_required",
             request=request,
             reason=self._reason,
             approval_id=self._approval_id,
         )
+        # A real ActionPolicy binds an audited receipt to every decision; only
+        # a receipt-backed approval can authorize an effect (5a4dd9a2f).
+        decision.audit_id = "action_decision:fake"
+        decision.receipt = _policy_receipt(decision)
+        return decision
 
 
 def _spec() -> dict:
@@ -119,7 +125,7 @@ class TestDecisionMapping:
         assert ev.merged is True
         assert promoted
         assert ev.action_decision == {
-            "decision": "queue_approval",
+            "decision": "hold",
             "reason": "tier requires human approval",
             "approval_id": "action_approval:abc",
         }
@@ -131,7 +137,7 @@ class TestDecisionMapping:
         ev = merger.consider(_spec())
         assert ev.merged is True
         assert promoted
-        assert ev.action_decision["decision"] == "allow"
+        assert ev.action_decision["decision"] == "approve"
         (request,) = policy.requests
         assert request.kind == "merge_promotion"
         assert request.target == "proposal:policy-1"
@@ -141,7 +147,7 @@ class TestDecisionMapping:
         policy = _FakePolicy("allow_notify")
         ev = _merger(policy).consider(_spec())
         assert ev.merged is True
-        assert ev.action_decision["decision"] == "allow_notify"
+        assert ev.action_decision["decision"] == "approve"
 
     def test_disabled_outer_gate_never_consults(self):
         """KG_GOLDEN_AUTO_MERGE stays the unchanged outer gate (default off)."""
@@ -170,7 +176,7 @@ class TestDecisionMapping:
         ev = _merger(_Boom(), promoted=promoted).consider(_spec())
         assert ev.merged is False
         assert promoted == []
-        assert ev.action_decision["decision"] == "deny"
+        assert ev.action_decision["decision"] == "unavailable"
         assert "fail closed" in ev.action_decision["reason"]
 
 
@@ -216,7 +222,7 @@ class TestRealActionPolicy:
         with verified_fleet_session():
             ev = merger.consider(_spec())
             assert ev.merged is True
-            assert ev.action_decision["decision"] == "queue_approval"
+            assert ev.action_decision["decision"] == "hold"
             assert ev.publication["status"] == "approval_queued"
             approvals = engine.control_leases.list(
                 tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
@@ -245,7 +251,7 @@ class TestRealActionPolicy:
         )
         ev = merger.consider(_spec())
         assert ev.merged is True
-        assert ev.action_decision["decision"] == "allow"
+        assert ev.action_decision["decision"] == "approve"
         assert not engine.control_leases.list(
             tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
         )["leases"]

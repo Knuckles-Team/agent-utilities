@@ -519,3 +519,44 @@ def verified_fleet_session(tenant: str = "fleet-autonomy"):
     session = fleet_approval_session(tenant)
     with use_actor(session.actor), use_session(session):
         yield session
+
+
+class ApprovingActionPolicy:
+    """Receipt-backed approving ActionPolicy double.
+
+    For tests of promotion *mechanics* (auto-merge, regression checks) that
+    need the gate out of the way: the shipped default tiers several reserved
+    kinds ``approval_required``, and with no engine a real policy cannot even
+    queue that approval, so it fails closed. A real decision carries an
+    audited receipt; only a receipt-backed approval authorizes an effect
+    (EH-380).
+    """
+
+    def __init__(self) -> None:
+        self.requests: list[Any] = []
+
+    def decide(self, request: Any) -> Any:
+        from agent_utilities.orchestration.action_policy import (
+            ActionDecision,
+            _policy_receipt,
+        )
+
+        self.requests.append(request)
+        decision = ActionDecision(
+            decision="allow", tier="auto", request=request, reason="test gate"
+        )
+        decision.audit_id = "action_decision:test"
+        decision.receipt = _policy_receipt(decision)
+        return decision
+
+
+def approval_lease_client_surface() -> Any:
+    """An engine ``client`` exposing only an in-memory ``control_leases``.
+
+    The ActionPolicy approval queue is an ``action.approval`` EG ControlLease
+    (fe45551a8). An engine double without this surface makes every
+    approval-tier hold fail closed as ``unavailable`` instead of queueing.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(control_leases=FakeControlLeaseClient())

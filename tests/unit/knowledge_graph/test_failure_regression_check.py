@@ -18,6 +18,7 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
+from tests.unit.fleet_autonomy_fakes import ApprovingActionPolicy
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.failure-evolution")
 
@@ -95,6 +96,9 @@ class TestMergerIntegration:
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             regression_check=check,
             promoter=lambda spec: True,
+            # Regression-check mechanics under an approving merge gate; the
+            # gate itself is covered by test_auto_merge_action_policy.py.
+            action_policy=ApprovingActionPolicy(),
         )
 
     def test_spiking_failure_blocks_auto_merge(self):
