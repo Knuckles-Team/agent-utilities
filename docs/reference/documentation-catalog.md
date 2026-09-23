@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 29 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+408 publishable pages · 30 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -412,6 +412,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Vertex Overview](../reference/palantir-foundry/vertex-overview.md) — catalog
 - [Why Ontology](../reference/palantir-foundry/why-ontology.md) — catalog
 - [Runtime Configuration](../reference/runtime-configuration.md) — direct nav
+- [Agent Utilities — generated skill-graph reference](../reference/skill-graph.generated.md) — direct nav
 
 ## Scaling
 
