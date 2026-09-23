@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agent_utilities import decide
 from agent_utilities.decide.consumers.routing import route_by_cost, route_model
 from agent_utilities.orchestration.outcome_router import OutcomeRouter
 from tests.unit.decide.fakes import FakeTransport, abstained, acted
@@ -26,9 +27,12 @@ def test_outcome_router_keeps_its_prior_when_eg_abstains(eg: FakeTransport) -> N
     eg.answer = abstained()
     router = OutcomeRouter("shape")
     assert router.select("qa", "fast", ("fast", "deep")) == "fast"
-    assert router.select("qa", "fast", ("fast", "deep")) == router.heuristic_select(
-        "qa", "fast", ("fast", "deep")
-    )
+    decide.install_runner(None)
+    token = decide.use_runner(None)
+    try:
+        assert router.select("qa", "fast", ("fast", "deep")) == "fast", "same rule"
+    finally:
+        decide.reset_runner(token)
     assert eg.op_names()[0] == "commit", "the abstention is recorded"
 
 

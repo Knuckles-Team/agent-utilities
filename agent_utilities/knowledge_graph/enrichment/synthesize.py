@@ -139,48 +139,21 @@ def synthesize_agent(
     given, the right model is chosen for ``complexity`` ("light" routing vs
     "normal"/"super" heavy) and recorded on the agent. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
-    return _assembled_agent(goal, llm_fn) or _compose_agent(
-        goal, capability_search, llm_fn, limit, models, complexity
-    )
-
-
-def _compose_agent(
-    goal: str,
-    capability_search: CapabilitySearchFn,
-    llm_fn: LLMFn,
-    limit: int,
-    models: list[dict] | None,
-    complexity: str,
-) -> AgentSpec:
-    """The LLM composition: the fallback when EG does not assemble the agent."""
-    results = capability_search(goal, limit) or []
-    by_type = _candidates_by_type(results)
-
-    def _names(kind: str) -> set[str]:
-        return {
-            str(r.get("name") or "").strip()
-            for r in by_type.get(kind, [])
-            if r.get("name")
-        }
-
-    tool_names = _names("Tool")
-    skill_names = _names("Skill")
-    prompt_names = _names("Prompt")
-
-    def _fmt(names: set[str]) -> str:
-        return "\n".join(f"- {n}" for n in sorted(names)) or "- (none)"
-
+    assembled = _assembled_agent(goal, llm_fn)
+    if assembled is not None:
+        return assembled
+    by_type = _candidates_by_type(capability_search(goal, limit) or [])
+    tool_names = _names_of(by_type, "Tool")
+    skill_names = _names_of(by_type, "Skill")
     prompt = _AGENT_PROMPT.format(
         goal=goal,
-        tools=_fmt(tool_names),
-        skills=_fmt(skill_names),
-        prompts=_fmt(prompt_names),
+        tools=_bullets(tool_names),
+        skills=_bullets(skill_names),
+        prompts=_bullets(_names_of(by_type, "Prompt")),
     )
     obj = _loads_obj(llm_fn(prompt))
-
-    name = str(obj.get("name") or "").strip() or f"Agent for {goal}"[:80]
     return AgentSpec(
-        name=name,
+        name=str(obj.get("name") or "").strip() or f"Agent for {goal}"[:80],
         goal=goal,
         system_prompt=str(obj.get("system_prompt") or "").strip(),
         tools=_ground(obj.get("tools") or [], tool_names),
@@ -188,6 +161,17 @@ def _compose_agent(
         model=select_model(models, complexity),
         description=str(obj.get("description") or "").strip(),
     )
+
+
+def _names_of(by_type: dict[str, list[dict]], kind: str) -> set[str]:
+    """The distinct, non-empty candidate names of one kind."""
+    return {
+        str(r.get("name") or "").strip() for r in by_type.get(kind, []) if r.get("name")
+    }
+
+
+def _bullets(names: set[str]) -> str:
+    return "\n".join(f"- {n}" for n in sorted(names)) or "- (none)"
 
 
 _TEAM_PROMPT = """Decompose this goal into a small hierarchical team of agents:
