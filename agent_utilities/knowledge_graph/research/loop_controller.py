@@ -568,6 +568,8 @@ class LoopController:
         ``insight_validation`` — gated on the SAME flag as its one consumer.
         ``audit_gaps`` is the opt-in code-correctness/security audit track
         (CONCEPT:AU-AHE.harness.audit-gap-detector, KG_LOOP_AUDIT default OFF).
+        ``work_market`` is the bounded EH-348 recovery sweep over the canonical Gaps
+        (settle/cancel/price through EG; self-skipping without the typed surface).
         """
         from agent_utilities.core.config import config as _audit_cfg
 
@@ -586,6 +588,7 @@ class LoopController:
             )
         if getattr(_audit_cfg, "kg_loop_audit", False):
             report["audit_gaps"] = stage("audit_gaps", self._run_audit_gaps)
+        report["work_market"] = stage("work_market", self._run_work_market)
 
     def _cycle_insight_stages(
         self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
@@ -3896,6 +3899,17 @@ class LoopController:
         from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan
 
         return run_audit_gap_scan(self.engine)
+
+    def _run_work_market(self) -> dict[str, Any]:
+        """EH-348 work-market recovery sweep over the canonical Gaps.
+
+        Settles finished Gap WorkItems onto their Gaps, cancels the never-run WorkItem
+        of a closed Gap, and prices unpriced live Gaps -- all through EG's typed
+        surfaces. It never ranks or claims: selecting legal work is ``Decide``'s.
+        """
+        from .work_market import run_market_stage
+
+        return run_market_stage(self.engine)
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
