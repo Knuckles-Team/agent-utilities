@@ -61,6 +61,12 @@ _FEATURES: dict[str, list[dict[str, Any]]] = {
     "au.route.model": [_number("tier_rank"), _number("heuristic")],
     "au.tool.risk": [_number("sensitive"), _number("rule_verdict")],
     "au.route.cost": [_number("declared_cost"), _number("l5.observed_cost")],
+    "au.swarm.topology": [
+        _number("agents"),
+        _number("messaging"),
+        _number("complexity"),
+        _number("heuristic"),
+    ],
     "au.connector.triage": [_number("severity_rank"), _number("heuristic")],
     "au.connector.tool": [_number("heuristic")],
     "au.connector.writeback": [_number("heuristic")],
