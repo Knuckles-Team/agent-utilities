@@ -1355,38 +1355,11 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
 BASE_ACTION_TOOL_ROUTES = MappingProxyType(dict(ACTION_TOOL_ROUTES))
 
 
-#: HTTP status for a tool's typed ``OperationResult`` failure, keyed by its
-#: public error code (``security/error_surface.PUBLIC_ERROR_MESSAGES``).
-_FAILED_OPERATION_HTTP_STATUS: dict[str, int] = {
-    "invalid_request": 400,
-    "permission_denied": 403,
-    "dependency_unavailable": 503,
-    "engine_degraded": 503,
-    "operation_failed": 500,
-}
-
-
-def _failed_operation_status(parsed: Any) -> int | None:
-    """HTTP status for a tool result that is a typed failed ``OperationResult``.
-
-    EH-380: tools return ``public_error_json`` (``status: "failed"``) instead
-    of raising, and the REST twins wrapped that in ``{"status": "success"}``
-    with HTTP 200 -- an engine ``ACCESS_DENIED`` write read as a success (the
-    D-OB-3 favorable-restatement class). ``None`` for any other result.
-    """
-    if not (
-        isinstance(parsed, dict)
-        and parsed.get("status") == "failed"
-        and "operation_id" in parsed
-        and isinstance(parsed.get("error"), dict)
-    ):
-        return None
-    return _FAILED_OPERATION_HTTP_STATUS.get(str(parsed["error"].get("code")), 500)
-
-
 def _tool_success_response(parsed: Any) -> JSONResponse:
     """Wrap a tool result, never restating a typed failure as success."""
-    failed_status = _failed_operation_status(parsed)
+    from agent_utilities.security.error_surface import failed_operation_http_status
+
+    failed_status = failed_operation_http_status(parsed)
     if failed_status is not None:
         return JSONResponse(
             {"status": "failed", "result": parsed}, status_code=failed_status
