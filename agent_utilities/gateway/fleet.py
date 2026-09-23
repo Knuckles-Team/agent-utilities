@@ -428,7 +428,11 @@ async def fleet_verify_action(request: Request) -> JSONResponse:
     """
     import json
 
-    from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
+    from agent_utilities.mcp.kg_server import (
+        _execute_tool,
+        _tool_success_response,
+        safe_json_load,
+    )
 
     try:
         body = await request.json()
@@ -450,7 +454,7 @@ async def fleet_verify_action(request: Request) -> JSONResponse:
             reason=str(body.get("reason") or ""),
             actor_id=str(body.get("actor_id") or ""),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as exc:  # noqa: BLE001 — canonical safe error surface
         return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
