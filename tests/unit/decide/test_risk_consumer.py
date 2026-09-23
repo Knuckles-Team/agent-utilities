@@ -2,21 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.security.tool_guard import PermissionPolicy, Rule
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 
 def test_eg_s_risk_verdict_is_attached_but_never_changes_the_decision(

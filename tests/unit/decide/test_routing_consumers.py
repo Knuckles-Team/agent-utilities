@@ -2,23 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from types import SimpleNamespace
 
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.routing import route_by_cost, route_model
 from agent_utilities.orchestration.outcome_router import OutcomeRouter
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 
 def _keys(transport: FakeTransport) -> list[list[str]]:

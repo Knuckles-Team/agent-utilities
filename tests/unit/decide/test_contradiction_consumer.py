@@ -2,27 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.knowledge_graph.adaptation.contradiction_detector import (
     Claim,
     ContradictionDetector,
 )
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 NEW = Claim("c-new", "The billing service is not deprecated.")
 OLD = Claim("c-old", "The billing service is deprecated.")
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
 
 
 def test_eg_suggests_a_handling_but_the_finding_stays_a_proposal(

@@ -2,21 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.retrieval import choose_retrieval_plan
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 
 def test_eg_picks_the_plan_template(eg: FakeTransport) -> None:

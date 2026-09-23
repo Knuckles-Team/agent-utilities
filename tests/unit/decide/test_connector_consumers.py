@@ -2,31 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.connectors import (
     connector_tool,
     propose_writeback,
     triage_playbook,
 )
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 PLAYBOOKS = {
     "default": object(),
     "servicenow": object(),
     "servicenow:critical": object(),
 }
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
 
 
 def test_triage_decides_among_registered_playbooks(eg: FakeTransport) -> None:

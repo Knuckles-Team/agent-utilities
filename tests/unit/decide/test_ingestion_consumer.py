@@ -2,22 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.ingestion import choose_ingestion_lane
 from agent_utilities.knowledge_graph.ingestion.engine import IngestionEngine
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport(answer=abstained(digest="sha256:" + "0" * 64))
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
+from tests.unit.decide.fakes import FakeTransport, acted
 
 
 def test_eg_routes_a_window_to_a_lane(eg: FakeTransport) -> None:

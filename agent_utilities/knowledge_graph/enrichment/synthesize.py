@@ -139,9 +139,20 @@ def synthesize_agent(
     given, the right model is chosen for ``complexity`` ("light" routing vs
     "normal"/"super" heavy) and recorded on the agent. (CONCEPT:AU-KG.enrichment.a2a-capability-extraction)
     """
-    assembled = _assembled_agent(goal, llm_fn)
-    if assembled is not None:
-        return assembled
+    return _assembled_agent(goal, llm_fn) or _compose_agent(
+        goal, capability_search, llm_fn, limit, models, complexity
+    )
+
+
+def _compose_agent(
+    goal: str,
+    capability_search: CapabilitySearchFn,
+    llm_fn: LLMFn,
+    limit: int,
+    models: list[dict] | None,
+    complexity: str,
+) -> AgentSpec:
+    """The LLM composition: the fallback when EG does not assemble the agent."""
     results = capability_search(goal, limit) or []
     by_type = _candidates_by_type(results)
 

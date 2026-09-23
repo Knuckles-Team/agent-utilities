@@ -116,6 +116,11 @@ def decided_candidates(
     return kept
 
 
+def proposed_candidates(records: Sequence[Any], candidates: Sequence[Any]) -> list[Any]:
+    """The flagged candidates still proposed as ``same_as`` after the decision."""
+    return [candidate for candidate, _ in decided_candidates(records, candidates)]
+
+
 __all__ = [
     "DISTINCT",
     "SAME_AS",
@@ -123,6 +128,7 @@ __all__ = [
     "WikidataAlignment",
     "decide_pair",
     "decided_candidates",
+    "proposed_candidates",
     "wikidata_match",
     "with_wikidata",
 ]

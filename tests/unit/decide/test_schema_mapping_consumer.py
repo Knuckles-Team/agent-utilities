@@ -2,23 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.schema_mapping import apply_decided_mappings
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
+from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
 TARGETS = ["wm:Taxon", "wm:Country"]
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport()
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
 
 
 def test_eg_maps_what_the_crosswalk_left_unmapped(eg: FakeTransport) -> None:

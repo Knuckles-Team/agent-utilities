@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
-import pytest
-
-from agent_utilities import decide
 from agent_utilities.decide.consumers.identity import (
     WikidataAlignment,
     decided_candidates,
@@ -16,7 +11,7 @@ from agent_utilities.knowledge_graph.assimilation.identity_candidates import (
     EntityRecord,
     resolve_identity_candidates,
 )
-from tests.unit.decide.fakes import FakeTransport, abstained, acted, runner
+from tests.unit.decide.fakes import FakeTransport, acted
 
 ROWS = [
     {
@@ -30,14 +25,6 @@ ROWS = [
         "external_id": "5219",
     },
 ]
-
-
-@pytest.fixture
-def eg() -> Iterator[FakeTransport]:
-    transport = FakeTransport(answer=abstained())
-    token = decide.use_runner(runner(transport))
-    yield transport
-    decide._RUNNER.reset(token)
 
 
 def _records() -> list[EntityRecord]:

@@ -3630,13 +3630,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         # Circuit breaker: while OPEN (a down card LLM), this tick is a cheap no-op so a
         # broken endpoint is never retry-stormed (CONCEPT:AU-KG.enrichment.card-attempt-status).
         now = time.monotonic()
-        if self._card_circuit_open(now):
-            return
-
-        from agent_utilities.decide.consumers.enrichment import schedule_enricher
-
-        last_yield = getattr(self, "_enrich_last_yield", None)
-        if not schedule_enricher("code_cards", float(_ENRICH_MAX_BATCHES), last_yield):
+        if not self._enrich_may_run(now):
             return
         max_workers = compute_ingest_worker_count()
         ran = 0
@@ -3645,6 +3639,15 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
                 break
             ran += 1
         self._enrich_last_yield = ran / _ENRICH_MAX_BATCHES
+
+    def _enrich_may_run(self, now: float) -> bool:
+        """The breaker (deterministic) and then the schedule decision (EH-031)."""
+        if self._card_circuit_open(now):
+            return False
+        from agent_utilities.decide.consumers.enrichment import schedule_enricher
+
+        last_yield = getattr(self, "_enrich_last_yield", None)
+        return schedule_enricher("code_cards", float(_ENRICH_MAX_BATCHES), last_yield)
 
     def _enrich_should_yield(self) -> bool:
         """True when the shared background throttle wants this tick to stand down."""
