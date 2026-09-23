@@ -51,20 +51,34 @@ def test_trailing_slash_normalized() -> None:
 
 
 def test_discovery_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transport failure on the canonical OIDC client is a fail-closed
+    ``None``. Patches ``oidc_http_client`` -- discovery no longer builds a raw
+    ``httpx.Client`` (it goes through the pinned-egress factory), which is
+    why the old ``oidc_discovery.httpx`` patch target vanished (EH-380)."""
+    calls: list[str] = []
+
     class _Boom:
-        def __init__(self, *a: object, **k: object) -> None: ...
         def __enter__(self) -> _Boom:
             return self
 
         def __exit__(self, *a: object) -> bool:
             return False
 
-        def get(self, url: str) -> object:
+        def stream(self, method: str, url: str) -> object:
+            calls.append(url)
             raise RuntimeError("network down")
 
-    monkeypatch.setattr(oidc_discovery.httpx, "Client", _Boom)
-    assert oidc_discovery.jwks_uri_for("http://unreachable.test/iss") is None
-    assert oidc_discovery.token_endpoint_for("http://unreachable.test/iss") is None
+    monkeypatch.setattr(oidc_discovery, "oidc_http_client", lambda **_k: _Boom())
+    assert oidc_discovery.jwks_uri_for("https://unreachable.test/iss") is None
+    assert oidc_discovery.token_endpoint_for("https://unreachable.test/iss") is None
+    # Both lookups really attempted discovery (nothing served from cache).
+    assert (
+        calls
+        == [
+            "https://unreachable.test/iss/.well-known/openid-configuration",
+        ]
+        * 2
+    )
 
 
 def test_oidc_clients_admit_only_canonicalized_loopback_http(
