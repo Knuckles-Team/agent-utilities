@@ -59,5 +59,6 @@ nav:
       - Metrics: reference/metrics.md
       - Glossary: glossary.md
       - Documentation catalog: reference/documentation-catalog.md
+      - Skill graph reference: reference/skill-graph.generated.md
   - Status: status.md
   - For AI agents: for-ai-agents.md
