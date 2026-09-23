@@ -2666,7 +2666,7 @@ def _register_skill_providers(mcp: Any) -> None:
 
 def _register_prompt_providers(mcp: Any) -> None:
     """Expose this server's own prompts as ``prompt://`` MCP resources
-    (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+    (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider — the ``prompt://``
     sibling of :func:`_register_skill_providers`'s ``skill://`` wiring).
 
     Wires one static :class:`~fastmcp.resources.FileResource` per
@@ -2675,16 +2675,10 @@ def _register_prompt_providers(mcp: Any) -> None:
     child's own venv, is exactly that child's own ``prompts/`` directory
     (its own package is always installed in its own venv, even though it is
     deliberately NOT co-installed in graph-os's). graph-os cannot see these
-    files by importing this package (``AGENTS.md`` "Dependency discipline"),
-    but it already holds a live probe session to this server, so it reads
-    each ``prompt://{provider}/{stem}`` resource body back over that session
-    (:meth:`~agent_utilities.mcp.multiplexer.MCPMultiplexer._harvest_prompt_bodies`)
-    and promotes it through the SAME ``PromptNode`` primitive the packaged
-    base sweep uses
-    (:func:`agent_utilities.knowledge_graph.ingestion.fleet_prompt_harvest.promote_harvested_prompts`).
-    One discovery-and-write path server-side, two projections (local
-    ``ingest_prompts_to_graph`` for what's co-installed, cross-process
-    harvest for what's not).
+    files by importing this package (``AGENTS.md`` "Dependency discipline");
+    the connector SDK captures these resources into the server's
+    ConnectorPack, which EG imports as governed AgentComponents (EH-220,
+    RF-ADR-009 §2.1). The graph-os multiplexer never harvests them.
 
     Never raises: a single unreadable provider directory or prompt file logs
     a ``WARNING`` and is skipped, and any other failure degrades to one

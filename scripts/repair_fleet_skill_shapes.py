@@ -25,7 +25,7 @@ WHAT IT DOES
      - absent                                -> CREATE (the repair)
      - present, same ``mcp_server``          -> already correct, no-op
      - present, DIFFERENT ``mcp_server``     -> NAME CONFLICT, skipped and
-       reported (mirrors ``fleet_skill_harvest._local_provider_owns``: an
+       reported (an
        existing resource is the stronger authority and is never silently
        overwritten by a same-named fleet file).
 4. Creates the missing ones via the SAME canonical entrypoint the ServiceNow

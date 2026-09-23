@@ -140,13 +140,10 @@ Schema (6 tables):
 * ``mcp_resources`` — id, tenant_id, server_id, server_name, uri, name,
   description, mime_type, resource_kind, revision, idempotency_key,
   discovery_authority_kind, discovery_principal, discovery_grant_digest,
-  updated_at. Today populated
-  from the ``skill://`` and ``prompt://``
-  resource subsets the multiplexer already discovers (``resource_kind`` =
-  ``"skill"``/``"prompt"``) — both ARE MCP Resources under the hood (see
-  ``multiplexer._bounded_skill_catalog``/``_bounded_prompt_catalog``
-  docstrings). Extending probe coverage to other resource kinds is a
-  multiplexer change, not a new mechanism here.
+  updated_at. Populated only from a catalog entry's ``skills``/``prompts``
+  lists (``resource_kind`` = ``"skill"``/``"prompt"``); the multiplexer no
+  longer emits either since EH-220 deleted its skill/prompt harvest (skills
+  and prompts arrive as governed EG AgentComponents from connector packs).
 * ``skills``        — id, tenant_id, name, description, uri, skill_type,
   classification, provider, mcp_server, enabled, revision, idempotency_key,
   discovery_authority_kind, discovery_principal, discovery_grant_digest,

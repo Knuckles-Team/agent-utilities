@@ -19,14 +19,6 @@
 # a human confirms each decision; `... apply` does the typing.
 
 parents:
-  AU-ECO.mcp.cross-process-prompt-harvest:
-    parent: AU-ECO.mcp.cross-process-skill-harvest
-    rationale: Named directly in its own module docstring (fleet_prompt_harvest.py) as "the prompt://
-      sibling of fleet_skill_harvest's CONCEPT:AU-ECO.mcp.cross-process-skill-harvest" -- same D-2.2-2.3-1
-      rationale (fleet packages are not co-installed into graph-os's venv, AGENTS.md "Dependency discipline")
-      and the same gap documented in .specify/design/cross-process-skill-harvest/design.md, realised as
-      a second prompt://-resource discovery path reusing the multiplexer's existing probe session onto
-      the SAME PromptNode writer, not an independent decision.
   AU-ECO.mcp.intent-surface-cpd-ranking:
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
     rationale: Named directly in docs/architecture/intent-surface.md's own concept list as the CPD-backed
@@ -52,11 +44,6 @@ parents:
     rationale: The load->use->auto-unload session lifecycle for gated tools (multiplexer.py:1187) is the
       mechanism that reveals the granular tools the SAME intent resolver dispatches to; documented as
       one concept in docs/architecture/intent-surface.md.
-  AU-ECO.mcp.skills-over-mcp-provider:
-    parent: AU-ECO.mcp.cross-process-skill-harvest
-    rationale: Registers the skills-over-MCP provider that exposes harvested fleet skill bodies as runnable
-      capabilities; multiplexer.py:106,2509 consume the SAME harvest pipeline change_publisher and source_sync.py:497
-      already document at .specify/design/cross-process-skill-harvest/design.md.
   AU-ECO.mcp.two-surfaces-mcp-rest:
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
     rationale: The REST twin for each intent verb is wired automatically by the generic ACTION_TOOL_ROUTES
@@ -342,6 +329,14 @@ renamed:
       id moves.
     to: AU-OS.deployment.mutable-image-refs
 retired:
+  AU-ECO.mcp.cross-process-prompt-harvest:
+    reason: the multiplexer's prompt:// body harvest and its fleet_prompt_harvest promotion were deleted
+      by EH-220 (RF-ADR-009 section 2.1 item 5); prompts now enter the graph only as governed EG AgentComponents
+      imported from connector packs, and the server-side prompt:// provider is marked skills-over-mcp-provider
+  AU-ECO.mcp.cross-process-skill-harvest:
+    reason: the multiplexer's skill:// body harvest and its fleet_skill_harvest promotion were deleted by
+      EH-220 (RF-ADR-009 section 2.1 item 5); skills now enter the graph only as governed EG AgentComponents
+      imported from connector packs
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
       synthesis it annotates is written up in docs/architecture/knowledge_distillation_skill_graphs.md

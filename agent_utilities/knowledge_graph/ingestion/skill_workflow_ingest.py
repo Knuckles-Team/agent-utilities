@@ -142,15 +142,14 @@ def ingest_runnable_skill(
     searchable ``Skill`` and runnable object explicit while ``BINDS_RUNNABLE``
     and ``DERIVED_FROM`` retain provenance.
 
-    ``mcp_server``, when set, records WHICH fleet MCP child serves this skill
-    (CONCEPT:AU-ECO.mcp.cross-process-skill-harvest). A skill harvested from a
-    child names that child so the dispatcher can bind the toolset the skill's
-    instructions actually direct it to call; a locally-installed skill leaves
-    it empty and the property is simply absent.
+    ``mcp_server``, when set, records WHICH fleet MCP child serves this skill,
+    so the dispatcher can bind the toolset the skill's instructions actually
+    direct it to call; a locally-installed skill leaves it empty and the
+    property is simply absent.
 
     ``skill_type`` is the corpus's own frontmatter self-declaration
     (``skill``/``workflow``/``graph``) or a caller-assigned kind
-    (``mcp_skill`` for a fleet-harvested skill) — CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables.
+    (``mcp_skill`` for a fleet-served skill) — CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables.
     It is stored BOTH on the ``Skill`` node and, via
     :func:`~..core.fleet_catalog_tables.write_skill_row`, as a stored column
     in the relational ``skills`` table (never left to fall back to

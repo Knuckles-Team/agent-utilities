@@ -22,9 +22,10 @@ flowchart LR
         SkillProvider -->|"skill://{name}/SKILL.md\nskill://{name}/_manifest"| Resources[MCP Resources]
     end
 
-    Resources -->|"list_resources() —\nreadable by an mcp/fastmcp-3 client too"| Probe["MCPMultiplexer.probe_server\n(_probe_skills, _bounded_skill_catalog)"]
-    Probe --> WriteNodes["_write_fleet_nodes\n(source_sync.py)"]
-    WriteNodes -->|":Skill kind=mcp_skill\n:Tool kind=mcp_tool\nboth SERVES from :MCPServer"| KG[(Knowledge Graph)]
+    Resources -->|"captured by the connector SDK"| Pack["ConnectorPack"]
+    Pack -->|"EG ConnectorPack.Import"| KG[(Knowledge Graph:\nAgentComponent)]
+    Probe["MCPMultiplexer.probe_server\n(tools + descriptors only)"] --> WriteNodes["_write_fleet_nodes\n(source_sync.py)"]
+    WriteNodes -->|":Tool kind=mcp_tool\nSERVES from :MCPServer"| KG
 
     KG --> Resolve["Orchestrator.resolve_capability\n(capability_kind_from_node)"]
     Probe --> Discover["MCPMultiplexer.discover_tools\n(find_tools)"]
@@ -64,41 +65,21 @@ This is why the strategy works at all: a fastmcp-3 (or plain `mcp`) client can
 already read a fastmcp-4 server's `skill://` resources — so upgrading
 every au client is not a precondition for serving skills over the wire.
 
-## B — Client side: ingest `skill://` resources into the KG
+## B — Client side: the multiplexer does not ingest skills (EH-220)
 
-`MCPMultiplexer.probe_server` (`agent_utilities/mcp/multiplexer.py`) now
-enumerates a probed server's Resources alongside its Tools:
-`_probe_skills` calls `session.list_resources()` and `_bounded_skill_catalog`
-extracts the `skill://{name}/SKILL.md` subset (bounded the same way the tool
-catalog is bounded — a hostile/misbehaving child cannot force an unbounded
-catalog into the KG). Both are best-effort: a server with no
-`resources/list` support, or a malformed resource catalog, degrades to
-`skills: []` without failing the tool probe that already succeeded.
+The fleet multiplexer used to read every probed child's `skill://` and
+`prompt://` bodies over its probe session and promote them into the graph
+(`fleet_skill_harvest.py`/`fleet_prompt_harvest.py`). That second,
+ungoverned ingestion path is deleted (RF-ADR-009 §2.1 item 5). A probe now
+records a child's tools plus its native resource, resource-template and prompt
+*descriptors* only; it never calls `resources/read`, and `_write_fleet_nodes`
+writes `:Tool`/`:MCPServer` nodes only.
 
-`source_sync._write_fleet_nodes` writes each entry as a `:Skill` node
-(`kind="mcp_skill"`, mirroring `:Tool`'s `kind="mcp_tool"`), linked to its
-`:MCPServer` via the same `SERVES` edge Tool nodes use, batched into the SAME
-`_ingest_graph_slice_via_envelope` call — so the existing whole-slice
-content-hash idempotency (unchanged on re-probe → no-op) covers skills for
-free; no second idempotency mechanism was introduced.
-
-**Identity is deliberately namespaced away from the in-loop skill.** A
-fleet-probed skill's node id is `skill_{server}_{name}` (parallel to
-`tool_{server}_{name}`), NOT the canonical `skill:<slug>` id
-`ingest_runnable_skill` (`knowledge_graph/ingestion/skill_workflow_ingest.py`)
-writes for a richer, body-bearing in-loop skill. The engine's native typed
-mutation path can replace a node's full property set on write, so reusing the
-same id for a thin fleet-probe entity risked silently wiping a richer
-`body`/`instruction` on the next re-sync. The fleet node still carries
-`source_ref = skill_reference(name)` (the same `skill://<slug>` reference
-scheme), so ranking/binding recognizes both as the same capability *kind*
-without merging their identities.
-
-**Tenancy:** this path carries no tenant/session stamp of its own — it flows
-through the exact same `"fleet"` connector and `ingest_graph_slice` boundary
-`:Tool`/`:MCPServer` nodes already use, so an ingested skill is visible to
-whatever tenants the existing fleet-connector ACL/manifest already grants
-`:Tool` visibility to. RLS is untouched, not bypassed.
+Skill and prompt content reaches the platform through the governed path: the
+connector SDK captures a server's MCP content into its ConnectorPack, and EG's
+`ConnectorPack.Import` materializes each entry as an `AgentComponent` whose
+body is read through `AgentComponent.Content`. The gateway loads tools for
+agents; it is not an ingestion source.
 
 ## C — One ranked capability space + unified binding
 
@@ -116,10 +97,10 @@ it without a new cross-layer dependency) defines:
   capability-bearing node type is one new predicate here, not a growing
   if/elif spread across `resolve_capability`/`find`/`find_tools`.
 
-**Ranking.** `MCPMultiplexer.discover_tools` (`find_tools`) scores
-`skill://`-derived entries with the SAME token-overlap + semantic backbone as
-tools and merges both into one `results` list, each item carrying `kind` and a
-ready-to-spread `bind` dict. `intent_tools._find_capability` (`find`) inherits
+**Ranking.** `MCPMultiplexer.discover_tools` (`find_tools`) ranks fleet
+tools with the token-overlap + semantic backbone into one `results` list, each
+item carrying `kind` and a ready-to-spread `bind` dict; skills are resolved
+from the graph (`resolve_capability`), not from the gateway (EH-220). `intent_tools._find_capability` (`find`) inherits
 that unification through its existing `fleet_results` field — no separate
 merge logic was needed there. `Orchestrator.resolve_capability`'s
 `_search_hit_kind` now also classifies a bare `:Tool` hybrid-search hit

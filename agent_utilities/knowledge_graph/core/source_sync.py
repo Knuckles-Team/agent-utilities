@@ -833,71 +833,12 @@ def _fleet_tool_entity(
     }
 
 
-def _fleet_skill_entity(
-    engine: Any,
-    entry: Any,
-    server_name: str,
-    product: str,
-    synonyms: list[str],
-) -> dict[str, Any] | None:
-    """One probed Skills-over-MCP resource as a ``Skill`` node, or ``None``."""
-    from ..ingestion.skill_workflow_ingest import skill_reference
-
-    if not isinstance(entry, dict):
-        return None
-    skill_name = entry.get("name")
-    if not skill_name:
-        return None
-    skill_node_id = f"skill_{server_name}_{skill_name}"
-    skill_props: dict[str, Any] = {
-        "id": skill_node_id,
-        "type": "Skill",
-        "name": skill_name,
-        "description": _privacy_safe(entry.get("description", "")),
-        "mcp_server": server_name,
-        "tags": [product] if product else [],
-        "relevance_score": 0.5,
-        "requires_approval": False,
-        "synonyms": synonyms,
-        "kind": "mcp_skill",
-        "disabled": _existing_disabled(engine, skill_node_id),
-        # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — WHY this
-        # fleet skill is (or is not) runnable, recorded on the node
-        # so the execution path can name the unmet precondition
-        # instead of failing with a generic "not found or runnable".
-        "runnable_blocked_by": _privacy_safe(entry.get("harvest_error", "")),
-    }
-    # ``skill://<name>`` collides with the persistence-privacy policy's
-    # posix-path heuristics whenever a skill name starts with a
-    # filesystem-root token (``opt``ions-…, ``workspace``-manager,
-    # ``tmp``…, ``var``…). The native ApplyChangeEnvelope commit REJECTS
-    # such text, and a rejection fails the WHOLE slice — so six oddly
-    # named skills silently cost every tool and skill from every
-    # reachable server. Writing a redacted ref instead would be worse:
-    # it is no longer a ``skill://`` reference at all, which is the
-    # contract every ranking consumer checks. So the ref is omitted and
-    # the reason logged; the skill's canonical runnable identity comes
-    # from the promotion path, which does not use this envelope.
-    source_ref = skill_reference(skill_name)
-    if _privacy_safe(source_ref) == source_ref:
-        skill_props["source_ref"] = source_ref
-    else:
-        logger.warning(
-            "Fleet skill %s omits its source_ref: %r trips the "
-            "persistence privacy policy's local-path heuristic",
-            skill_name,
-            source_ref,
-        )
-    return skill_props
-
-
 def _fleet_server_slice(
     engine: Any, server_name: str, info: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """The ``MCPServer`` node plus every ``Tool``/``Skill`` node one server serves."""
+    """The ``MCPServer`` node plus every ``Tool`` node one server serves."""
     tools = info.get("tools") or []
-    skills = info.get("skills") or []
-    if not tools and not skills:
+    if not tools:
         return [], []
 
     synonyms = derive_capability_synonyms(server_name)
@@ -916,15 +857,6 @@ def _fleet_server_slice(
 
     for entry in tools:
         entity = _fleet_tool_entity(engine, entry, server_name, product, synonyms)
-        if entity is None:
-            continue
-        entities.append(entity)
-        relationships.append(
-            {"source": server_node_id, "target": entity["id"], "type": "SERVES"}
-        )
-
-    for entry in skills:
-        entity = _fleet_skill_entity(engine, entry, server_name, product, synonyms)
         if entity is None:
             continue
         entities.append(entity)
@@ -964,8 +896,8 @@ def _fleet_catalog_slice(
 
 
 def _fleet_type_counts(entities: list[dict[str, Any]]) -> dict[str, int]:
-    """How many ``MCPServer``/``Tool``/``Skill`` nodes the slice carries."""
-    counts = {"MCPServer": 0, "Tool": 0, "Skill": 0}
+    """How many ``MCPServer``/``Tool`` nodes the slice carries."""
+    counts = {"MCPServer": 0, "Tool": 0}
     for item in entities:
         if item["type"] in counts:
             counts[item["type"]] += 1
@@ -982,24 +914,16 @@ def _write_fleet_nodes(
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
     ``catalog`` is the ``{server: {"tools": [{name, description, ...}],
-    "skills": [{name, uri, description}], "error": str|None}}`` map returned by
-    :meth:`MCPMultiplexer.probe_catalog` (``skills`` is the Skills-over-MCP
-    subset of a probed server's Resources, CONCEPT:AU-ECO.mcp.skills-over-mcp-provider — absent/empty for
-    a fastmcp-3 or pre-skills server). For each reachable server every tool
-    becomes a ``Tool`` node and every ``skill://{name}/SKILL.md`` resource
-    becomes a ``Skill`` node, both carrying the schema the dispatcher/ranker
-    reads (``name``, ``description``, ``mcp_server``, ``tags``,
-    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the
-    lexical gate, linked to their (defensively upserted) ``MCPServer`` via
-    ``SERVES``. A fleet ``Skill`` node is id-namespaced per-server
-    (``skill_{server}_{name}``), distinct from a locally-executed skill's
-    canonical ``skill:<slug>`` identity (:func:`~..ingestion.skill_workflow_ingest.skill_reference`)
-    so a thin fleet probe write can never clobber a richer in-loop skill's
-    ``body``/``instruction`` properties — ``kind='mcp_skill'`` plus
-    ``source_ref='skill://<slug>'`` still lets ranking recognize both as the
-    same capability *kind*. Idempotent: stable node ids + the write-layer
-    content-hash delta (over the whole probed slice) skip unchanged
-    tools/skills on re-sync. Factored out of :func:`_sync_fleet` so it is
+    "error": str|None}}`` map returned by :meth:`MCPMultiplexer.probe_catalog`.
+    For each reachable server every tool becomes a ``Tool`` node carrying the
+    schema the dispatcher/ranker reads (``name``, ``description``,
+    ``mcp_server``, ``tags``, ``relevance_score``, ``requires_approval``) plus
+    ``synonyms`` for the lexical gate, linked to its (defensively upserted)
+    ``MCPServer`` via ``SERVES``. Skills and prompts are NOT written here: they
+    enter the graph only as governed EG ``AgentComponent`` records imported
+    from connector packs (EH-220, RF-ADR-009 §2.1). Idempotent: stable node ids
+    + the write-layer content-hash delta (over the whole probed slice) skip
+    unchanged tools on re-sync. Factored out of :func:`_sync_fleet` so it is
     testable without spawning any servers.
     """
     # Relational write FIRST (see CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables
@@ -1014,23 +938,6 @@ def _write_fleet_nodes(
     )
 
     entities, relationships, unreachable = _fleet_catalog_slice(engine, catalog)
-
-    # CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — promotion runs BEFORE the
-    # catalog slice write, and deliberately so. The catalog write is ONE native
-    # ChangeEnvelope over every server's every tool and skill: it is atomic, so
-    # a single rejected row (observed live: one tool description whose prose
-    # about credential handling tripped the engine's persistence-privacy policy)
-    # discards the whole slice. Making a fleet skill RUNNABLE must not be
-    # hostage to that all-or-nothing write — promotion writes per skill through
-    # ``ingest_runnable_skill`` and fails closed per skill, so one noisy
-    # description can no longer cost the entire fleet its runnable capability.
-    harvest = _promote_fleet_skills(engine, catalog)
-    # CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — promotes prompts
-    # harvested from fleet MCP children into the Prompt corpus, same rationale
-    # as the skill promotion above applied to prompt bodies: runs BEFORE the
-    # catalog slice write and fails closed per prompt via ``ingest_prompt_node``,
-    # so one malformed fleet prompt can never cost the rest of the corpus.
-    harvest.update(_promote_fleet_prompts(engine, catalog))
 
     rejected: list[str] = []
     materialization_pending: list[str] = []
@@ -1052,10 +959,8 @@ def _write_fleet_nodes(
         "catalog_materialization_pending_ids": materialization_pending,
         "servers_written": written["MCPServer"],
         "tools_written": written["Tool"],
-        "skills_written": written["Skill"],
         "unreachable": unreachable,
         "relational": relational,
-        **harvest,
     }
 
 
@@ -1072,7 +977,7 @@ def write_fleet_catalog_snapshot(
 
     This is the composition boundary used both by the full ``fleet`` source
     sync and by a governed single-child runtime refresh.  Keeping preflight,
-    fresh write authority, relational projection, skill/prompt promotion, and
+    fresh write authority, relational projection, and
     KG capability-node materialization behind this one function prevents the
     refresh surface from growing an ad-hoc second graph writer.
 
@@ -1288,36 +1193,6 @@ def _write_fleet_slice(
 
     known_bad_ids = [str(row.get("id")) for row in known_bad]
     return known_bad_ids + newly_rejected, materialization_pending
-
-
-def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
-    """Promote harvested fleet skills, reporting the outcome under its own keys."""
-    from ..ingestion.fleet_skill_harvest import promote_harvested_skills
-
-    report = promote_harvested_skills(engine, catalog)
-    return {
-        "skills_promoted": report["promoted"],
-        "skills_promoted_names": report["promoted_skills"],
-        "skills_blocked": report["blocked"],
-        "skills_blocked_detail": report["blocked_detail"],
-        "skills_promote_errors": report["errors"],
-        "skills_promote_error_detail": report["error_detail"],
-    }
-
-
-def _promote_fleet_prompts(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
-    """Promote harvested fleet prompts, reporting the outcome under its own keys."""
-    from ..ingestion.fleet_prompt_harvest import promote_harvested_prompts
-
-    report = promote_harvested_prompts(engine, catalog)
-    return {
-        "prompts_promoted": report["promoted"],
-        "prompts_promoted_ids": report["promoted_prompts"],
-        "prompts_blocked": report["blocked"],
-        "prompts_blocked_detail": report["blocked_detail"],
-        "prompts_promote_errors": report["errors"],
-        "prompts_promote_error_detail": report["error_detail"],
-    }
 
 
 def _fleet_config_adapter_candidates(config_resolver: Any) -> list[Any]:

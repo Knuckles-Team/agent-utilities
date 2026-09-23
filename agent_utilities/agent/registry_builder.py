@@ -150,13 +150,12 @@ def ingest_prompt_node(
 ) -> str:
     """Write ONE prompt through the canonical ``PromptNode`` shape/id scheme.
 
-    Single writer for both the on-disk boot sweep
-    (:func:`ingest_prompts_to_graph`, packaged base + operator overlay) and the
-    cross-process fleet prompt harvest
-    (:mod:`agent_utilities.knowledge_graph.ingestion.fleet_prompt_harvest`,
-    CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
-    sibling of the skill harvest), so a prompt has ONE node shape and ONE id
-    scheme regardless of which path discovered it. Returns the written node id.
+    Single writer for the on-disk boot sweep
+    (:func:`ingest_prompts_to_graph`, packaged base + operator overlay), so a
+    prompt has ONE node shape and ONE id scheme. Fleet prompts are not
+    harvested into this corpus: they reach the platform only as governed EG
+    AgentComponents imported from connector packs (EH-220). Returns the
+    written node id.
     """
     from agent_utilities.models.knowledge_graph import PromptNode
 

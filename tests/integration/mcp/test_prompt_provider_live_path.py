@@ -1,4 +1,4 @@
-"""Server-side Prompts-over-MCP is LIVE (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest).
+"""Server-side Prompts-over-MCP is LIVE (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
 
 ``tests/unit/mcp/test_prompt_provider_wiring.py`` proves
 ``_register_prompt_providers`` calls ``mcp.add_resource`` once per resolved
@@ -8,8 +8,7 @@ registration silently no-oped. This asserts the real thing: a server built
 by au's own ``create_mcp_server`` actually serves a fleet package's
 ``prompts/*.json`` file as a ``prompt://`` resource, using the genuine
 fastmcp ``FileResource``, and a client can read the body back — the exact
-capability :meth:`~agent_utilities.mcp.multiplexer.MCPMultiplexer
-._harvest_prompt_bodies` depends on when graph-os probes this server.
+capability the connector SDK's pack capture depends on.
 """
 
 from __future__ import annotations
