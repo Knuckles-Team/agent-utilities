@@ -90,13 +90,12 @@ class _FixSynth:
 
 
 def _grant(engine: LifecycleEngine, proposal_id: str) -> None:
-    pending = [
-        n
-        for n in engine.by_type("ActionApproval")
-        if n.get("kind") == "merge_promotion" and n.get("target") == proposal_id
-    ]
-    assert pending, "expected a queued merge_promotion approval (the W2.7 veto point)"
-    pending[0]["status"] = "approved"
+    """Grant the W2.7 veto point: the queued merge_promotion approval lease."""
+    from tests.unit.fleet_autonomy_fakes import grant_pending_approval
+
+    grant_pending_approval(
+        engine.control_leases, kind="merge_promotion", target=proposal_id
+    )
 
 
 def _single_traversal(engine: LifecycleEngine, gap_id: str):

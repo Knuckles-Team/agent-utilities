@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fleet_autonomy_fakes import (  # noqa: E402
     FakeEngine,
+    grant_pending_approval,
     verified_fleet_session,
 )
 
@@ -385,23 +386,12 @@ class TestLocalBranchPublisher:
 
 
 def _grant_pending_approval(engine: BridgeEngine, proposal_id: str) -> str:
-    pending = engine.control_leases.list(
+    return grant_pending_approval(
+        engine.control_leases,
+        kind="merge_promotion",
+        target=proposal_id,
         tenant="fleet-autonomy",
-        kind=ACTION_APPROVAL_KIND,
-        status="active",
-        grant_match={"kind": "merge_promotion", "target": proposal_id},
-    )["leases"]
-    assert pending, "expected a queued merge_promotion approval"
-    lease = pending[0]
-    outcome = engine.control_leases.transition(
-        tenant="fleet-autonomy",
-        lease_id=lease["lease_id"],
-        expected_revision=lease["revision"],
-        to="consumed",
-        idempotency_key=f"test-grant:{lease['lease_id']}",
     )
-    assert outcome["outcome"] == "applied"
-    return lease["lease_id"]
 
 
 class TestGovernedPublish:

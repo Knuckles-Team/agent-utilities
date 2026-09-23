@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 from dataclasses import replace
+from functools import cached_property
 from typing import Any
 
 from agent_utilities.orchestration.fleet_health import (
@@ -560,3 +561,69 @@ def approval_lease_client_surface() -> Any:
     from types import SimpleNamespace
 
     return SimpleNamespace(control_leases=FakeControlLeaseClient())
+
+
+def grant_pending_approval(
+    control_leases: FakeControlLeaseClient,
+    *,
+    kind: str,
+    target: str,
+    tenant: str | None = None,
+) -> str:
+    """Grant (consume) the one queued ``action.approval`` lease for kind+target.
+
+    The human veto point is an EG ``action.approval`` ControlLease since
+    fe45551a8, no longer an ``ActionApproval`` node. ``tenant`` defaults to
+    the ambient verified session's, the same tenant the policy queued under.
+    Returns the granted lease id.
+    """
+    from agent_utilities.orchestration.action_policy import (
+        ACTION_APPROVAL_KIND,
+        approval_lease_tenant,
+    )
+
+    lease_tenant = tenant or approval_lease_tenant()
+    pending = control_leases.list(
+        tenant=lease_tenant,
+        kind=ACTION_APPROVAL_KIND,
+        status="active",
+        grant_match={"kind": kind, "target": target},
+    )["leases"]
+    assert pending, f"expected a queued {kind} approval for {target}"
+    lease = pending[0]
+    outcome = control_leases.transition(
+        tenant=lease_tenant,
+        lease_id=lease["lease_id"],
+        expected_revision=lease["revision"],
+        to="consumed",
+        idempotency_key=f"test-grant:{lease['lease_id']}",
+    )
+    assert outcome["outcome"] == "applied"
+    return str(lease["lease_id"])
+
+
+def conforming_committed_shacl(_document: str) -> Any:
+    """EG's committed-GraphSchema SHACL authority double: the document conforms.
+
+    ``PromotionGovernanceValidator`` holds (fails closed) when the engine has
+    no ``shacl_validate_committed`` (43197d7c6 moved SHACL authority to EG).
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(conforms=True, results=[])
+
+
+class GovernedLoopAuthorities:
+    """Mixin: the two EG authorities a governed mining/promotion loop consults.
+
+    ``shacl_validate_committed`` (governance SHACL, conforming) and
+    ``client.control_leases`` (the ``action.approval`` queue). Without them an
+    engine double makes every loop fail closed before its policy tier matters:
+    governance invalid, and an approval-tier hold ``unavailable`` (EH-386).
+    """
+
+    shacl_validate_committed = staticmethod(conforming_committed_shacl)
+
+    @cached_property
+    def client(self) -> Any:
+        return approval_lease_client_surface()
