@@ -14,23 +14,17 @@ Almost everything is **outbound-initiated** and therefore needs no inbound port:
 The only thing that wants to come *in* is a **webhook push**. We never open a port for it —
 it rides an **outbound tunnel**.
 
-```mermaid
-flowchart LR
-    TG([Telegram / Slack cloud]) -->|signed webhook over HTTPS| EDGE
-    subgraph EDGE["Edge (no homelab ports opened)"]
-        T[Tunnel terminator\npangolin / Cloudflare Tunnel]
-        AUTH["Keycloak forward-auth\n(human surfaces only)"]
-        CS[CrowdSec WAF / rate-limit]
-    end
-    T -. outbound WireGuard/QUIC .-> GW
-    subgraph HOME["Homelab (egress-only)"]
-        GW[gateway daemon\n127.0.0.1:webhook_port]
-        GW --> RT[InboundRouter → agent]
-    end
-    EDGE -.->|forward only /messaging/webhook/*| GW
-    classDef e fill:#533483,stroke:#7b2cbf,color:#fff
-    class TG,EDGE e
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Egress-only homelab: the edge terminates, the tunnel initiates</p>
+
+Telegram/Slack cloud sends a signed webhook over HTTPS to the Edge — no
+homelab ports are opened. The Edge terminates the tunnel (pangolin or
+Cloudflare Tunnel), applies Keycloak forward-auth (human surfaces only),
+and runs CrowdSec WAF/rate-limiting; it forwards only
+`/messaging/webhook/*`. The tunnel connects outbound over WireGuard/QUIC
+into the homelab (egress-only), reaching a gateway daemon bound to
+`127.0.0.1:webhook_port`, which hands off to `InboundRouter → agent`.
+</div>
 
 ## The webhook modes (all first-class)
 

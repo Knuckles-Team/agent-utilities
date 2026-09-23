@@ -27,42 +27,22 @@ tenant, an explicit ACL, or its authorization infrastructure fails closed.
 
 ## Components
 
-```mermaid
-graph TD
-    subgraph Identity
-        AC["ActorContext (contextvar)<br/>security/brain_context.py"]
-        SRC["source-system contextvar"]
-    end
-    subgraph Runtime
-        RT["get_company_brain()<br/>core/company_brain_runtime.py<br/>(SOURCE_AUTHORITY_WINS + seeded TrustHierarchy)"]
-    end
-    subgraph Write["Write path (L3)"]
-        BG["BrainGuardedBackend<br/>backends/brain_guarded_backend.py"]
-        CB["ConflictResolver.effective_authority()<br/>(trust decay)"]
-        PV["ProvenanceTracker.record_write"]
-    end
-    subgraph Read["Read path (L4)"]
-        SR["secured_reads.permit/scope/audit_read"]
-        FAC["facade.designate / facade.query"]
-        OWL["owl_bridge entailment-aware ACL inheritance"]
-    end
-    subgraph Feedback["Feedback (L5/L6)"]
-        FB["FeedbackService<br/>adaptation/feedback.py"]
-        GR["governance_rules.apply_governance_rules"]
-        EC["EvalCorpus<br/>harness/eval_corpus.py"]
-        MCP["graph_feedback MCP tool"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Identity through runtime to write/read/feedback</p>
 
-    AC --> BG
-    SRC --> BG
-    RT --> BG
-    RT --> SR
-    BG --> CB
-    BG --> PV
-    FAC --> SR
-    FAC --> GR
-    MCP --> FB
-    FB --> GR
+Identity (`ActorContext` contextvar plus the source-system contextvar,
+`security/brain_context.py`) and the runtime singleton
+(`get_company_brain()`, `core/company_brain_runtime.py` — seeded
+`SOURCE_AUTHORITY_WINS` + `TrustHierarchy`) both feed the write path (L3):
+`BrainGuardedBackend` resolves effective authority via
+`ConflictResolver.effective_authority()` (trust decay) and records
+provenance through `ProvenanceTracker.record_write`. The runtime also
+drives the read path (L4): `secured_reads.permit/scope/audit_read`, and
+`facade.designate`/`facade.query`, which in turn feeds governance rules
+(`governance_rules.apply_governance_rules`) — the same governance rules
+that the feedback path (L5/L6) reaches via the `graph_feedback` MCP tool
+calling `FeedbackService` (`adaptation/feedback.py`).
+</div>
     FB --> EC
     OWL --> SR
 ```

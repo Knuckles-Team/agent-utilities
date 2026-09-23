@@ -5,15 +5,16 @@ Agent Utilities only validates the typed request and projects the result into th
 RMDD-08 `WorkItemReservationPort`; it does not maintain a second lease, capacity
 ledger, lock, JSON file, or queue.
 
-```mermaid
-flowchart LR
-  RM[RMDD-08 scheduler] --> AD[AU native reservation adapter]
-  AD -->|reserve/release/reclaim/query| EG[(engine-native redb transaction)]
-  EG --> WI[WorkItem tenant/owner/attempt/fence]
-  EG --> HOST[host capacity + telemetry]
-  EG --> POL[exclusivity + anti-affinity + disk + fairness]
-  EG --> OUT[durable audit/CDC/projection outbox]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One redb transaction backs every reservation fact</p>
+
+The RMDD-08 scheduler calls the AU native reservation adapter
+(reserve/release/reclaim/query), which drives one engine-native redb
+transaction. That transaction is the source for four things: the WorkItem's
+tenant/owner/attempt/fence identity, host capacity + telemetry,
+exclusivity/anti-affinity/disk/fairness policy, and the durable
+audit/CDC/projection outbox.
+</div>
 
 ## Immutable WorkItem extension
 
