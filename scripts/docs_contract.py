@@ -321,17 +321,18 @@ def render_config_catalog() -> str:
         "",
         f"{typed_count} typed fields · {len(dynamic)} runtime-only call-site inputs.",
         "",
-        "```mermaid",
-        "flowchart LR",
-        "    Schema[AgentConfig schema] --> Generator[docs contract generator]",
-        "    Live[config.setting call sites] --> Generator",
-        "    Generator --> Catalog[versioned configuration catalog]",
-        "    Catalog --> Gate{drift gate}",
-        "    Gate -->|pass| XDG[XDG config or secret references at runtime]",
-        "    XDG --> Normalize[normalize persisted provenance]",
-        "    Normalize --> Neutral[repo:// · skill:// · connector://]",
-        "    Gate -->|stale or unsafe| Block[block commit and docs build]",
-        "```",
+        '<div class="admonition architecture" markdown>',
+        '<p class="admonition-title">Generation and drift-gate flow</p>',
+        "",
+        "The `AgentConfig` schema and live `config.setting` call sites both feed "
+        "the docs contract generator, which produces this versioned configuration "
+        "catalog. A drift gate compares the catalog against the schema and "
+        "call sites: on pass, values are read at runtime from the XDG config or "
+        "resolved secret references, normalized to neutral persisted provenance "
+        "(`repo://`, `skill://`, `connector://`); on stale-or-unsafe drift, the "
+        "gate blocks the commit and the docs build.",
+        "",
+        "</div>",
         "",
         "Use the XDG configuration file created by `setup-config generate`; "
         "deployment secrets must be references resolved by the configured secret store.",
