@@ -86,6 +86,22 @@ _GENERIC_IDENTIFIERS = frozenset(
         "workspace",
     }
 )
+# EH-467: the fleet's canonical agent commit identities (operator ruling,
+# plans/refactor/DECISIONS.md 2026-09-24; EH-465/EH-466). Every
+# agent-packages checkout is now legitimately configured with
+# ``user.name``/``user.email`` set to one of these, so
+# ``derive_local_identifiers()`` must not add them to the sensitive set --
+# doing so would turn every ordinary "claude"/"codex" mention in this
+# repository's own tracked prose into a manufactured leak, the exact
+# D-ORC-57 false-positive-flood shape the HEAD-author fallback was removed
+# for on 2026-08-17 (see ``derive_local_identifiers``'s docstring). This is
+# an EXEMPTION from the sensitive set, not a widening of it: it only stops
+# these specific, now-public values from being flagged when they appear in
+# tracked text; it grants no identity permission to commit (that is
+# ``pipelines`` `author-identity` gate's job, EH-466).
+_CANONICAL_AGENT_IDENTITIES = frozenset(
+    {"claude", "noreply@anthropic.com", "codex", "codex@users.noreply.github.com"}
+)
 _HOME_PATH_PATTERN = (
     r"(?:(?<![A-Za-z0-9_.-])/home/(?P<home_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
     r"(?<![A-Za-z0-9_.-])/Users/(?P<users_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
@@ -502,6 +518,18 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     so removing the HEAD-author fallback loses no genuine detection here --
     it only removes a signal that was never "the current account" in the
     first place.
+
+    EH-467 (2026-09-24): the operator's commit-identity rewrite ruling
+    (plans/refactor/DECISIONS.md) makes ``git config user.name``/``user.email``
+    LEGITIMATELY resolve to ``Claude <noreply@anthropic.com>`` or
+    ``Codex <codex@users.noreply.github.com>`` in a checkout committing as one
+    of the two canonical agent identities -- the exact D-ORC-57 shape this
+    docstring already fixed once for the HEAD-author fallback, now reachable
+    through the source the previous fix deliberately kept. Both return paths
+    below therefore also drop any candidate in ``_CANONICAL_AGENT_IDENTITIES``:
+    an exemption from the sensitive set, not a widening of it, and not a
+    change to which identities may author a commit (that allowlist is the
+    ``pipelines`` `author-identity` gate, EH-466).
     """
     override = os.environ.get("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "").strip()
     if override:
@@ -511,7 +539,9 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
         return frozenset(
             value.casefold()
             for value in declared
-            if len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
+            if len(value) >= 4
+            and value.casefold() not in _GENERIC_IDENTIFIERS
+            and value.casefold() not in _CANONICAL_AGENT_IDENTITIES
         )
 
     candidates = {
@@ -558,7 +588,10 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     return frozenset(
         value.casefold()
         for value in candidates
-        if value and len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
+        if value
+        and len(value) >= 4
+        and value.casefold() not in _GENERIC_IDENTIFIERS
+        and value.casefold() not in _CANONICAL_AGENT_IDENTITIES
     )
 
 
