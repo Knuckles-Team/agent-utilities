@@ -35,6 +35,7 @@ key and corpus size, so re-emitting the same recurring group is idempotent.
 Concept: substrate-training
 """
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,6 +49,7 @@ from typing import Any
 
 __all__ = [
     "GrpoSample",
+    "PolicyJobInputs",
     "TrainingJobSpec",
     "DispatchFn",
     "SubstrateTrainer",
@@ -93,6 +95,9 @@ class TrainingJobSpec:
         status: Lifecycle of this spec — ``"recorded"`` (queued locally, no
             substrate yet), ``"dispatched"`` (accepted by the substrate), or
             ``"skipped_no_substrate"`` (dispatch failed / substrate absent).
+        policy: For an open-weight policy job (EH-347) only: the immutable EG
+            record ids and digests the external trainer consumes. ``None`` for
+            the GRPO trace-corpus path.
     """
 
     job_id: str
@@ -102,6 +107,36 @@ class TrainingJobSpec:
     mean_advantage: float
     corpus: list[GrpoSample] = field(default_factory=list)
     status: str = "recorded"
+    policy: PolicyJobInputs | None = None
+
+
+@dataclass(frozen=True)
+class PolicyJobInputs:
+    """The digest-bound inputs of one open-weight policy training job (EH-347).
+
+    Every field names an immutable EG record or digest, so the external trainer
+    can verify exactly what it trains on. There is no inline corpus: token
+    arrays stay in EG Blob CAS behind the named captures.
+
+    Args:
+        capability_id: The attested ``OpenWeightPolicyCapability`` record.
+        base_version_id: The ``ModelPolicyVersion`` the adapter is trained on.
+        capture_ids: Trainer-eligible ``PolicyCapture`` record ids.
+        method: The EG ``TrainingMethod`` wire form (``grpo``/``dpo``/``sft``/
+            ``klpo`` with its estimator).
+        adapter: The EG ``AdapterSpec`` wire form (LoRA only).
+        hyperparameters_digest: SHA-256 hex of the canonical hyperparameters.
+        output_destination_ref: Where the new artifact is written; never the
+            live one.
+    """
+
+    capability_id: str
+    base_version_id: str
+    capture_ids: tuple[str, ...]
+    method: dict[str, Any]
+    adapter: dict[str, Any]
+    hyperparameters_digest: str
+    output_destination_ref: str
 
 
 # Submit a job spec to the gradient substrate (DSM). Returns True when accepted.
@@ -222,11 +257,40 @@ class SubstrateTrainer:
             corpus=corpus,
             status="recorded",
         )
+        # An unreachable substrate (DSM down / GPU fault) degrades gracefully:
+        # the job is kept rather than crashing the slow loop.
+        return self._dispatch(spec)
+
+    def policy_job(self, inputs: PolicyJobInputs) -> TrainingJobSpec:
+        """Emit one digest-bound open-weight policy job (EH-347).
+
+        The spec names immutable EG capture ids rather than carrying a corpus,
+        and its id is derived from those inputs, so re-emitting the same job is
+        idempotent. It is recorded like every other spec and handed to the same
+        injected ``dispatch_fn``; the gradient step stays external.
+        """
+        identity = "|".join(
+            (
+                inputs.capability_id,
+                inputs.base_version_id,
+                *inputs.capture_ids,
+                inputs.hyperparameters_digest,
+            )
+        )
+        spec = TrainingJobSpec(
+            job_id=f"policy-job-{hashlib.sha256(identity.encode()).hexdigest()[:24]}",
+            task_key=inputs.base_version_id,
+            method=str(inputs.method.get("method", "")),
+            n_samples=len(inputs.capture_ids),
+            mean_advantage=0.0,
+            policy=inputs,
+        )
+        return self._dispatch(spec)
+
+    def _dispatch(self, spec: TrainingJobSpec) -> TrainingJobSpec:
         try:
             accepted = self._dispatch_fn(spec)
         except Exception:
-            # The substrate is unreachable (DSM down / GPU fault). Degrade
-            # gracefully: keep the job rather than crashing the slow loop.
             spec.status = "skipped_no_substrate"
         else:
             spec.status = "dispatched" if accepted else "recorded"
