@@ -31,14 +31,13 @@ class RoutingConfig:
     """Ordered pipeline of strategy names plus a terminal fallback name.
 
     Reproduces the *sequence* of behaviours from the monolith (e.g. fast_path →
-    team_reuse → kg_materialization → enrich → llm_planner → optimization →
+    kg_materialization → enrich → llm_planner → optimization →
     fallback) as named, reorderable steps.
     """
 
     pipeline: list[str] = field(
         default_factory=lambda: [
             "fast_path",
-            "team_reuse",
             "kg_materialization",
             "self_model",
             "llm_planner",

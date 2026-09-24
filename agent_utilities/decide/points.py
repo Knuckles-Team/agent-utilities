@@ -107,7 +107,15 @@ POINTS: dict[str, DecisionPoint] = {
             safety="policy",
             proposal_only=True,
         ),
-        _point("EH-048", "au.swarm.topology", "route"),
+        # EH-464 (ST-12): the statistical rung over a topology plan's legal
+        # (template, width, rounds) options; advisory until a head is
+        # calibrated, never explored (ruling 2026-09-24, Q2).
+        _point(
+            "EH-464", "au.swarm.topology", "template_choice", log_mode=LogMode.NEVER
+        ),
+        # EH-463 (ST-11): continue / narrow / stop between rounds; evaluate-only
+        # and sampled (§4.5), options narrow-only.
+        _point("EH-463", "au.swarm.continue", "route", **_SAMPLED),
         _point("EH-041", "au.connector.triage", "classify", **_SAMPLED),
         _point("EH-042", "au.connector.tool", "route", **_SAMPLED),
         _point(

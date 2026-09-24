@@ -9,7 +9,11 @@ the engine selects and materializes only the relevant subgraph based on:
 
     - Task domain (general, finance, medical, legal, government)
     - Task complexity (1-5 scale)
-    - KG-stored ``TopologyTemplateNode`` success rates
+    - EG's certified topology plan (SWARM-TOPOLOGY-DECIDE-DESIGN): widths,
+      depth and token share arrive as a committed ``TopologyPlan`` and are
+      enforced through :class:`ElasticTopologyAdmission` built from it
+      (:mod:`agent_utilities.graph.plan_admission`); no success rate is read
+      or written here (invariant T5)
     - Available adaptive_agent_router and tools
 
 The engine supports all pydantic-graph execution patterns:
@@ -371,6 +375,9 @@ class ElasticTopologyAdmission:
         default_factory=SandboxResourceLimits
     )
     schema_version: str = "elastic-topology-admission.v1"
+    #: The committed ``DecisionRecord`` whose topology plan these caps are
+    #: (``decision:<hex>``); empty for an admission no plan produced.
+    decision_record_id: str = ""
 
     def __post_init__(self) -> None:
         tenant, delegation_id = _check_tenant_and_delegation(
@@ -431,6 +438,8 @@ class ElasticTopologyAdmission:
             "deadline_unix": self.deadline_unix,
             "resource_limits": self.resource_limits.as_dict(),
         }
+        if self.decision_record_id:
+            payload["decision_record_id"] = self.decision_record_id
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
@@ -987,77 +996,3 @@ class TopologyEngine:
             )
         except Exception as e:  # noqa: BLE001 — docstring: "Record the materialization event in the KG for provenance"; no caller reads the return value, and a write failure doesn't affect the materialization it's merely describing
             logger.debug("Failed to record materialization: %s", e)
-
-    def record_outcome(
-        self,
-        topology_id: str,
-        success: bool,
-        quality_score: float = 0.5,
-    ) -> None:
-        """Record execution outcome to update topology template success rates.
-
-        This is the evolutionary feedback loop — successful topologies get
-        higher success_rate and are preferred in future selections.
-
-        Args:
-            topology_id: The TopologyTemplate ID.
-            success: Whether execution succeeded.
-            quality_score: Quality of the result (0-1).
-        """
-        if not self.engine or not topology_id:
-            return
-
-        if self.engine.backend:
-            try:
-                # Update rolling success rate with exponential moving average
-                alpha = 0.15
-                score = quality_score if success else 0.0
-
-                self.engine.backend.execute(
-                    "MATCH (t:TopologyTemplate) WHERE t.id = $tid "
-                    "SET t.success_rate = (1 - $alpha) * t.success_rate + $alpha * $score, "
-                    "t.usage_count = t.usage_count + 1",
-                    {"tid": topology_id, "alpha": alpha, "score": score},
-                )
-                logger.info(
-                    "[CONCEPT:AU-ORCH.execution.dynamic-topology-materialization] Updated topology '%s': success=%s, quality=%.2f",
-                    topology_id,
-                    success,
-                    quality_score,
-                )
-            except Exception as e:  # noqa: BLE001 — the EMA success_rate/usage_count update is skipped on failure with no other consumer reading a return value (method returns None unconditionally); this stalls the evolutionary feedback loop this method drives, but nothing downstream is falsely marked successful
-                logger.debug("Failed to record topology outcome: %s", e)
-
-    def get_topology_stats(self) -> list[dict[str, Any]]:
-        """Get statistics for all topology templates.
-
-        Returns:
-            List of topology stats (id, name, success_rate, usage_count).
-        """
-        stats: list[dict[str, Any]] = []
-
-        if self.engine and self.engine.backend:
-            try:
-                results = self.engine.backend.execute(
-                    "MATCH (t:TopologyTemplate) "
-                    "RETURN t.id AS id, t.name AS name, "
-                    "t.success_rate AS success_rate, "
-                    "t.usage_count AS usage_count, "
-                    "t.execution_mode AS mode "
-                    "ORDER BY t.success_rate DESC",
-                    {},
-                )
-                for r in results:
-                    stats.append(
-                        {
-                            "id": r.get("id", ""),
-                            "name": r.get("name", ""),
-                            "success_rate": r.get("success_rate", 0),
-                            "usage_count": r.get("usage_count", 0),
-                            "mode": r.get("mode", ""),
-                        }
-                    )
-            except Exception:
-                pass  # nosec
-
-        return stats

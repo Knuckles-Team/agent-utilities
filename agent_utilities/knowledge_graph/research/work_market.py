@@ -60,14 +60,21 @@ def _namespace(engine: Any, name: str) -> Any:
     return namespace
 
 
-def offer_inputs(gap: Mapping[str, Any]) -> dict[str, Any]:
+def offer_inputs(
+    gap: Mapping[str, Any], plan_cost: int | None = None
+) -> dict[str, Any]:
     """The deterministic ``WorkOffer`` inputs for a Gap view, from its own evidence.
 
     Utility scales with severity; closure probability, cost and blast radius come
     from the source prior; a Gap reopened after a failed attempt cools down from
-    the time EG recorded that outcome.
+    the time EG recorded that outcome. ``plan_cost`` -- the EVALUATE-ONLY
+    topology plan's declared cost (SWARM-TOPOLOGY-DECIDE-DESIGN §7.4) --
+    replaces the source prior's cost when the swarm question was answered.
     """
-    closure_ppm, cost, blast = _PRICING.get(str(gap.get("source")), _DEFAULT_PRICING)
+    closure_ppm, prior_cost, blast = _PRICING.get(
+        str(gap.get("source")), _DEFAULT_PRICING
+    )
+    cost = prior_cost if plan_cost is None else plan_cost
     evidence = [e for e in gap.get("evidence") or [] if isinstance(e, Mapping)]
     outcomes = [
         int(e.get("recorded_at_ms") or 0)
@@ -96,13 +103,14 @@ def needs_price(gap: Mapping[str, Any]) -> bool:
     return bool(live and offer.get("work_item_id") != gap.get("work_item_id"))
 
 
-def price_gap(engine: Any, gap: Mapping[str, Any]) -> str:
-    """Record the Gap's derived offer (``WorkOfferPut``, CAS on its offer version)."""
+def price_gap(engine: Any, gap: Mapping[str, Any], plan_cost: int | None = None) -> str:
+    """Record the Gap's derived offer (``WorkOfferPut``, CAS on its offer version);
+    ``plan_cost`` is the evaluate-only topology plan's cost, when one was asked."""
     answer = _namespace(engine, "work_market").put_offer(
         tenant=gap_tenant(),
         gap_id=str(gap["gap_id"]),
         expected_offer_version=int(gap.get("offer_version") or 0),
-        offer=offer_inputs(gap),
+        offer=offer_inputs(gap, plan_cost),
         idempotency_key=f"offer:{gap['gap_id']}:{gap.get('offer_version') or 0}",
     )
     return str(answer["outcome"])
@@ -137,6 +145,30 @@ def claim_gap_work(
         }
     )
     return answer if answer.get("claimed") else None
+
+
+def claim_planned_gap_work(
+    engine: Any,
+    gap: Mapping[str, Any],
+    *,
+    committed_cost: int,
+    tolerance_ppm: int,
+    worker: str,
+    now_ms: int,
+) -> dict[str, Any] | None:
+    """Claim a Gap WorkItem under its COMMITTED topology plan (§7.4).
+
+    The committed plan's cost replaces the offer's; a drift past the policy
+    tolerance refuses the claim and re-prices the offer from the plan.
+    """
+    from agent_utilities.decide.consumers.topology_learning import claim_cost_drift
+
+    inputs = ((gap.get("offer") or {}).get("offer")) or {}
+    offered = int(inputs.get("expected_cost_microunits") or 0)
+    if claim_cost_drift(offered, committed_cost, tolerance_ppm):
+        price_gap(engine, gap, committed_cost)
+        return None
+    return claim_gap_work(engine, gap, worker=worker, now_ms=now_ms)
 
 
 def settle_gap_work(engine: Any, gap_id: str) -> str:
@@ -206,6 +238,7 @@ def run_market_stage(engine: Any, *, now_ms: int | None = None) -> dict[str, Any
 __all__ = [
     "FAILURE_COOLDOWN_MS",
     "claim_gap_work",
+    "claim_planned_gap_work",
     "needs_price",
     "offer_inputs",
     "price_gap",

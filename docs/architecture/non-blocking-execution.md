@@ -60,7 +60,7 @@ and gated on vLLM availability.
 | `_resolve_agent_from_kg` | sync KG round-trips | 1–3 `backend.execute` calls on the async path (not `to_thread`). |
 | `get_recent_mementos` | 1 sync KG query | On the async path; cheap query, but blocks the loop. |
 | `create_graph_agent` (warm) | ~18–20 ms/turn | Rebuilt **every turn**: graph topology + `discover_agents()` + (when configured) `load_mcp_servers_from_config`. Cheap when `mcp_config`/`mcp_url` are `None` (the messaging default), but see §5. |
-| Router pre-LLM KG discovery | **N+1 sync calls** | `find_agent_for_tool` **per query word**, plus `search_hybrid`, `find_relevant_policies`, `find_relevant_processes`, `find_matching_team_config`, `designate_specialists` — all synchronous, all on the event loop. |
+| Router pre-LLM KG discovery | **N+1 sync calls** | `find_agent_for_tool` **per query word**, plus `search_hybrid`, `find_relevant_policies`, `find_relevant_processes`, `designate_specialists` — all synchronous, all on the event loop. |
 | **Router LLM round** | up to **300 s** | `DEFAULT_GRAPH_ROUTER_TIMEOUT = 300`. |
 | Dispatcher → expert → **verifier (+repair)** → synthesizer | each up to **300 s** | `DEFAULT_GRAPH_VERIFIER_TIMEOUT = 300`. Multiple **sequential** LLM rounds. |
 
@@ -287,7 +287,7 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
    `_resolve_agent_from_kg` via `to_thread`; `graph/_router_impl.py::router_step` runs the
    whole pre-LLM discovery bundle (`find_agent_for_tool` + `designate_specialists` +
    `search_hybrid` + `find_relevant_policies` + `find_relevant_processes`) in ONE `to_thread`
-   pass, plus `find_matching_team_config` off the loop. The router **N+1** is collapsed:
+   pass (the former TeamConfig success-rate lookup is deleted, ST-7). The router **N+1** is collapsed:
    `find_agent_for_tool` is called once over the **unique** keyword set (deduped), not per
    query word. A `TODO(CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2)` references the engine `discover()` contract.
    (CONCEPT:AU-ORCH.routing.offload-sync-roundtrip)

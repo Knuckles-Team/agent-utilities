@@ -117,6 +117,38 @@ class RunToolset(_Frozen):
         return head + self.mcp_servers
 
 
+#: What a harness can bound about its NATIVE sub-agents from outside.
+SubagentLimit = Literal["count", "depth", "tokens", "cost"]
+#: How a negotiated run may use native sub-agents (ruling 2026-09-24, Q1).
+SubagentMode = Literal["disabled", "enforced", "budget_capped"]
+
+
+class SubagentAllowance(_Frozen):
+    """What a committed topology plan lets one harness node spawn natively.
+
+    The EG ``SubagentAllowance`` of the node (SWARM-TOPOLOGY-DECIDE-DESIGN
+    §7.2): the harness improvises only inside it. ``fallback`` is the
+    per-harness policy opt-in the plan recorded for a harness that cannot
+    enforce a child count: ``token_budget`` lets native sub-agents run under
+    the run's strict token/cost budget; anything else disables them.
+    """
+
+    max_children: int = Field(default=0, ge=0, le=16)
+    max_depth: int = Field(default=0, ge=0, le=8)
+    max_tokens: int | None = Field(default=None, ge=1)
+    fallback: Literal["disabled", "token_budget"] = "disabled"
+    record_ref: str | None = Field(default=None, max_length=512)
+
+
+class SubagentGrant(_Frozen):
+    """What negotiation granted: native sub-agents off, enforced, or budget-capped."""
+
+    mode: SubagentMode = "disabled"
+    max_children: int = Field(default=0, ge=0, le=16)
+    max_depth: int = Field(default=0, ge=0, le=8)
+    max_tokens: int | None = Field(default=None, ge=1)
+
+
 class RunBudget(_Frozen):
     max_tokens: int | None = Field(default=None, ge=1)
     max_cost_usd: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -155,6 +187,9 @@ class RunSpec(_Frozen):
         default="authz:unverified", min_length=1, max_length=512
     )
     side_effects: SideEffectPolicy = "none"
+    #: The native sub-agent allowance the committed topology plan derived for
+    #: this node; ``None`` (no plan) grants no native sub-agents.
+    subagents: SubagentAllowance | None = None
     #: Adapter-specific execution options; negotiation refuses any key the
     #: selected harness does not declare in ``HarnessDescriptor.runtime_options``.
     runtime_options: dict[str, JsonValue] = Field(default_factory=dict)
@@ -203,6 +238,9 @@ class HarnessDescriptor(_Frozen):
     reconciliation: ReconciliationSupport
     vendor_terms: VendorTerms
     runtime_options: frozenset[str] = frozenset()
+    #: Bounds the harness can put on its native sub-agents from outside;
+    #: empty for a harness that cannot enforce a child count or depth.
+    subagent_limits: frozenset[SubagentLimit] = frozenset()
 
 
 class NegotiatedRunSpec(_Frozen):
@@ -217,6 +255,7 @@ class NegotiatedRunSpec(_Frozen):
     granted_capabilities: frozenset[HarnessCapability]
     absent_optional: frozenset[HarnessCapability]
     usage_quality: UsageQuality
+    subagents: SubagentGrant = SubagentGrant()
 
 
 class UsageRecord(_Frozen):
@@ -342,6 +381,10 @@ __all__ = [
     "SandboxBoundaryError",
     "SideEffectPolicy",
     "SkillRef",
+    "SubagentAllowance",
+    "SubagentGrant",
+    "SubagentLimit",
+    "SubagentMode",
     "TraceCompleteness",
     "TraceFidelity",
     "UsageQuality",

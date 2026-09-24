@@ -16,9 +16,7 @@ flowchart LR
         HOOK -->|"_record_success()"| TRACKER["DistillationTracker Node"]
         TRACKER -->|"threshold met"| PROMOTE["Paired Promotion"]
         PROMOTE --> SCAFFOLD["_scaffold_skill()"]
-        PROMOTE --> TC_UPDATE["record_team_outcome()"]
         SCAFFOLD --> SKILL_DIR["universal_skills/workflows/distilled/"]
-        TC_UPDATE --> KG2["KG: TeamConfigNode"]
     end
 
     subgraph SkillExecution ["Skill-as-Workflow"]

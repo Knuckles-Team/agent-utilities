@@ -18,21 +18,36 @@ def test_serving_includes_the_minimal_rdf_ingestion_extra() -> None:
     assert "[owl]" not in serving
 
 
-def test_unified_image_installs_and_checks_the_rdf_runtime() -> None:
+def test_unified_image_carries_no_eg_owned_semantic_library() -> None:
     dockerfile = (ROOT / "docker" / "graphos-unified.Dockerfile").read_text(
         encoding="utf-8"
     )
 
-    # `docker/graphos-unified.Dockerfile`'s own "reconcile runtime stack" commit
-    # (5b177b0d) deliberately widened the unified image from the lightweight
-    # `rdf` extra to the full `owl` extra (owlready2 + rdflib + pyshacl) — the
-    # unified server needs real OWL-DL reasoning + SHACL validation (the
-    # hosted-ontology activation-ICV-fallback path), not just RDF parsing, and
-    # the build's own smoke-test import (below) was updated in that same
-    # commit to match. `owl` is a strict superset of `rdf` (both ship
-    # rdflib), so this still satisfies the "carries an RDF parser" contract —
-    # just via the fuller extra the image actually needs.
-    assert "agent-headless,owl,logfire" in dockerfile
-    assert "import owlready2" in dockerfile
-    assert "import pyshacl" in dockerfile
-    assert "import rdflib" in dockerfile
+    # RDF/OWL/SHACL semantics are EG-owned (RF-ADR-009 clean cut): the unified
+    # image installs neither the deleted `owl` extra nor the `rdf` extra, and
+    # its smoke check imports no rdflib/owlready2/pyshacl.
+    assert "agent-headless,logfire" in dockerfile
+    for library in ("owlready2", "pyshacl", "import rdflib"):
+        assert library not in dockerfile, library
+
+
+def test_no_runtime_module_imports_an_eg_owned_semantic_library() -> None:
+    """SHACL/OWL are EG-owned (RF-ADR-009 clean cut): AU declares none of
+    pyshacl/owlrl/owlready2 (the schema-authority cutover gate) and no runtime
+    module imports one -- AU shapes are validated by the engine."""
+    import ast
+
+    owned = {"pyshacl", "owlrl", "owlready2"}
+    importers = []
+    for module in (ROOT / "agent_utilities").rglob("*.py"):
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            names = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            if any(name.split(".")[0] in owned for name in names):
+                importers.append(str(module.relative_to(ROOT)))
+    assert importers == [], "a runtime module imports an EG-owned semantic library"

@@ -162,3 +162,44 @@ def test_open_gaps_is_a_listing_not_a_ranking(engine, market):
             )
         listed = [g["id"] for g in gaps.open_gaps(engine)]
     assert listed == ["gap:audit:a-low", "gap:audit:b-high"], "EG key order, no AU sort"
+
+
+# --- ST-12: the offer is priced from the evaluate-only topology plan (§7.4) ---
+
+
+def test_a_topology_plan_prices_the_offer_and_a_drifted_claim_is_refused(
+    engine, market
+):
+    from agent_utilities.decide.consumers.topology_learning import plan_expected_cost
+
+    plan = {
+        "slots": [{"tokens": 4000}, {"tokens": 12000}],
+        "lease": {"per_cell": [{"amount": 4}]},
+    }
+    cost = plan_expected_cost(plan, micros_per_token=2, micros_per_lease_unit=100)
+    assert cost == 32_400
+    assert plan_expected_cost({"slots": [{"tokens": None}]}, micros_per_token=1) is None
+    with verified_fleet_session():
+        gap = _signal(engine, "trace:1")
+        assert work_market.price_gap(engine, _view(market), cost)
+        priced = _view(market)
+        assert priced["offer"]["offer"]["expected_cost_microunits"] == cost
+        refused = work_market.claim_planned_gap_work(
+            engine,
+            priced,
+            committed_cost=cost * 2,
+            tolerance_ppm=100_000,
+            worker="w-1",
+            now_ms=2_000,
+        )
+        assert refused is None, "drift past tolerance refuses the claim"
+        assert _view(market)["offer"]["offer"]["expected_cost_microunits"] == cost * 2
+        claimed = work_market.claim_planned_gap_work(
+            engine,
+            _view(market),
+            committed_cost=cost * 2,
+            tolerance_ppm=100_000,
+            worker="w-1",
+            now_ms=2_000,
+        )
+    assert claimed is not None and gap["work_item_id"]

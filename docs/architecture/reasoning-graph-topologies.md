@@ -33,7 +33,7 @@ closest existing building blocks, reused rather than reimplemented:
 | `agent_utilities.harness.graph_search_evolution.GraphSearchEvolver` (real UCT + backprop MCTS for code/ML-algorithm evolution search, MLEvolve arXiv:2606.06473) | `.rap`'s algorithmic shape (UCT selection + full-path backprop), generalized off the code-evolution specifics |
 | `agent_utilities.security.execution_stability_engine.DoomLoopDetector` | `.react`'s grounding/termination detection |
 | `agent_utilities.graph.reactive.budget.BudgetGuard` (time/token/cost) | `.budgets.BudgetTracker` (adds loop-count + tool-call-count, the two axes it doesn't cover) |
-| `agent_utilities.graph.topology_engine.TopologyEngine` (KG-tracked team-topology resource + EMA outcome update) | `.topology`'s `register_topology`/`record_topology_outcome` (same pattern, reasoning-topology resource kind) |
+| (formerly `TopologyEngine`'s EMA outcome update, deleted by SWARM-TOPOLOGY ST-7) | `.topology`'s `register_topology`/`record_topology_outcome` (reasoning-topology resource kind) |
 | `agent_utilities.models.knowledge_graph.ArtifactVersionNode` (content-addressed, versioned, evolvable artifact — the same contract skills/prompts/specs already use) | `ReasoningTopologyVersionNode`, the KG-modeled topology resource |
 
 ## The shared-state thesis

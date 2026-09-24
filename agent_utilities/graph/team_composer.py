@@ -8,17 +8,13 @@ static ``discover_agents()`` registration.  The KG becomes the single
 source of truth for *who* participates in a task, *what tools* they get,
 *which model* they use, and *how* they collaborate.
 
-Composition flow:
-    1. Embed the task query via the engine's hybrid search.
-    2. Search for a proven ``TeamConfigNode`` (AHE-3.3 reuse).
-    3. If match found with high enough success_rate: reuse directly.
-    4. If no match: compose from scratch using KG topology:
-       - Walk ``PROVIDES`` / ``HAS_CAPABILITY`` edges for tool affinity.
-       - Walk ``SIMILAR_TO`` edges for semantic relevance.
-       - Check ``MCPServer`` health (circuit breaker state).
-       - Match domain ontology alignment (OWL classes).
-    5. Materialize the ``TopologyTemplateNode`` into a ``TeamComposition``.
-    6. On success: promote to ``TeamConfigNode`` for future reuse.
+Composition synthesizes the team from KG topology (tool affinity, semantic
+relevance, server health, domain alignment) through
+``AgentOrchestrationEngine.synthesize_team``. There is no success-rate reuse
+and no promotion of outcomes (SWARM-TOPOLOGY-DECIDE-DESIGN ST-7, invariant
+T5): reusing a composition is L3 promotion under policy, and learning which
+topology works is EG's calibrated, independently labelled, slate-credited
+statistical rung -- never a self-reported threshold.
 
 This replaces the ad-hoc ``if deps.knowledge_engine:`` pattern in
 ``routing.py`` with a single call: ``composer.compose_team(query, deps)``.
@@ -26,8 +22,6 @@ This replaces the ad-hoc ``if deps.knowledge_engine:`` pattern in
 
 
 import logging
-import time
-import uuid
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -53,7 +47,6 @@ class KGTeamComposer:
 
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
         self.engine = engine
-        self._topologies_seeded = False
 
     def compose_team(
         self,
@@ -66,27 +59,10 @@ class KGTeamComposer:
     ) -> TeamComposition:
         """Compose the optimal specialist team for a task dynamically.
 
-        Flow:
-            1. Try reusing a proven TeamConfigNode (AHE-3.3)
-            2. If no proven team: dynamically synthesize subgraph using KG primitives
-            3. Return a fully specified TeamComposition
+        Synthesizes the subgraph from KG primitives and returns a fully
+        specified ``TeamComposition``.
         """
-        team_id = f"team:{uuid.uuid4().hex}"
-
-        # Step 1: Try to reuse a proven team configuration
-        proven = self._try_reuse_proven_team(query)
-        if proven is not None:
-            proven.team_id = team_id
-            logger.info(
-                "[CONCEPT:AU-ORCH.dispatch.kg-team-composition] Reusing proven team config '%s' "
-                "(success_rate=%.2f, usage=%d)",
-                proven.team_config_id,
-                proven.confidence,
-                0,
-            )
-            return proven
-
-        # Step 2: Dynamically synthesize the topology using ORCH-1.19
+        # Dynamically synthesize the topology (ORCH-1.19).
         from ..orchestration.engine import AgentOrchestrationEngine
 
         orchestrator = AgentOrchestrationEngine(engine=self.engine)
@@ -100,129 +76,3 @@ class KGTeamComposer:
         )
 
         return composition
-
-    def promote_to_team_config(
-        self,
-        composition: TeamComposition,
-        success: bool,
-        quality_score: float = 0.5,
-    ) -> str | None:
-        """Promote a successful composition to a reusable TeamConfigNode.
-
-        Called after execution completes successfully. This is how the
-        KG learns which team compositions work — the evolutionary
-        feedback loop.
-
-        Args:
-            composition: The team composition to promote.
-            success: Whether the execution succeeded.
-            quality_score: Quality of the result (0-1).
-
-        Returns:
-            The TeamConfigNode ID if promoted, else None.
-        """
-        if not success or quality_score < 0.6:
-            return None
-        if not self.engine:
-            return None
-
-        from ..models.knowledge_graph import RegistryNodeType
-
-        # Build a TeamConfigNode from the composition
-        specialist_ids = [
-            s.get("agent_id", s.get("role", ""))
-            for s in composition.adaptive_agent_router
-        ]
-        tool_assignments = {}
-        for s in composition.adaptive_agent_router:
-            role = s.get("role", "")
-            tools = s.get("tools", [])
-            if tools:
-                tool_assignments[role] = tools
-
-        node_id = f"tc:{uuid.uuid4().hex}"
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-        node_data = {
-            "id": node_id,
-            "name": f"Proven team: {composition.execution_mode} ({len(specialist_ids)} agents)",
-            "type": RegistryNodeType.TEAM_CONFIG.value,
-            "task_pattern": composition.reasoning[:200]
-            if composition.reasoning
-            else "",
-            "specialist_ids": specialist_ids,
-            "tool_assignments": tool_assignments,
-            "success_rate": quality_score,
-            "usage_count": 1,
-            "origin": "local",
-            "timestamp": timestamp,
-        }
-
-        try:
-            if hasattr(self.engine, "add_node"):
-                self.engine.add_node(node_id, "TeamConfig", node_data)
-            elif hasattr(self.engine, "_upsert_node"):
-                self.engine._upsert_node("TeamConfig", node_id, node_data)
-            logger.info(
-                "[CONCEPT:AU-ORCH.dispatch.kg-team-composition] Promoted composition to TeamConfig '%s'",
-                node_id,
-            )
-            return node_id
-        except Exception as e:
-            logger.warning("Failed to promote team composition: %s", e)
-            return None
-
-    # -----------------------------------------------------------------------
-    # Private methods
-    # -----------------------------------------------------------------------
-
-    def _try_reuse_proven_team(self, query: str) -> TeamComposition | None:
-        """Search KG for a proven TeamConfigNode matching this query."""
-        if not self.engine:
-            return None
-
-        from ..models.knowledge_graph import TeamComposition
-
-        try:
-            # Try to find matching team configs via the registry mixin
-            from ..core.registry.kg_adapter import RegistryMixin
-
-            if isinstance(self.engine, RegistryMixin) and hasattr(
-                self.engine, "find_matching_team_config"
-            ):
-                matching_teams = self.engine.find_matching_team_config(query)
-                if matching_teams:
-                    best = matching_teams[0]
-                    # Only reuse if success rate is high enough
-                    if best.get("success_rate", 0) >= 0.7:
-                        adaptive_agent_router = []
-                        for sid in best.get("specialist_ids", []):
-                            tool_map = best.get("tool_assignments", {})
-                            adaptive_agent_router.append(
-                                {
-                                    "role": sid,
-                                    "agent_id": sid,
-                                    "tools": tool_map.get(sid, []),
-                                    "model_id": "",
-                                    "system_prompt": "",
-                                }
-                            )
-
-                        return TeamComposition(
-                            team_id="",
-                            source="reused",
-                            team_config_id=best.get("id", ""),
-                            adaptive_agent_router=adaptive_agent_router,
-                            execution_mode="sequential",
-                            confidence=best.get("success_rate", 0.7),
-                            reasoning=f"Reused proven team '{best.get('name', '')}' "
-                            f"(success_rate={best.get('success_rate', 0):.2f})",
-                        )
-        except Exception as e:  # noqa: BLE001 — compose_team already treats None as "no proven team", falling through to dynamic synthesis via AgentOrchestrationEngine.synthesize_team — the documented two-step "reuse, else synthesize" architecture already covers this path
-            logger.debug("Team config reuse lookup failed: %s", e)
-
-        return None
-
-    def seed_default_topologies(self) -> int:
-        """No-op. Default topologies are deprecated in favor of dynamic synthesis."""
-        return 0

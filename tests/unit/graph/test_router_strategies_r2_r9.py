@@ -29,23 +29,19 @@ from agent_utilities.graph.routing.strategies.optimization import (
     format_specialist_step_info,
     prune_by_telemetry,
 )
-from agent_utilities.graph.routing.strategies.team_reuse import select_reusable_team
 
 
 def _spec(name, description="d"):
     return types.SimpleNamespace(name=name, description=description)
 
 
-# ---- R2: TeamConfig reuse -----------------------------------------------------
+# ---- R2: TeamConfig reuse is deleted (ST-7): no success-rate selection ------
 
 
-def test_r2_select_reusable_team():
-    team = types.SimpleNamespace(success_rate=0.9, reuse_threshold=0.7)
-    assert select_reusable_team([team]) is team
-    weak = types.SimpleNamespace(success_rate=0.5, reuse_threshold=0.7)
-    assert select_reusable_team([weak]) is None
-    assert select_reusable_team([]) is None
-    assert select_reusable_team(None) is None
+def test_r2_team_reuse_is_gone_from_the_pipeline():
+    from agent_utilities.graph.routing.strategy import RoutingConfig
+
+    assert "team_reuse" not in RoutingConfig().pipeline
 
 
 # ---- R4 / R5: self-model context ---------------------------------------------

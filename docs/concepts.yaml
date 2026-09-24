@@ -231,7 +231,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/capabilities/teams.py
-  - agent_utilities/graph/routing/strategies/team_reuse.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/harness/continuous_evaluation_engine.py
@@ -777,7 +776,6 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
-  - agent_utilities/graph/trading_team_seed.py
   doc: AU-AHE.harness.trading-team-seed
 - id: AU-AHE.harness.unified-artifact-lineage
   name: skill

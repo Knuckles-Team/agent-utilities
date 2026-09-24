@@ -93,84 +93,32 @@ class TestPatternSelection:
         assert decision.timestamp
 
 
-# ── Decision Persistence ───────────────────────────────────────────────
+# ── No outcome store (ST-7, invariant T5) ─────────────────────────────
 
 
-class TestDecisionPersistence:
-    """Tests for KG persistence of pattern decisions."""
+class TestNoOutcomeStore:
+    """The router neither persists decisions nor learns from self-reported outcomes."""
 
-    def test_decision_persisted_to_graph(self, router, mock_engine):
+    def test_selection_writes_nothing_to_the_graph(self, router, mock_engine):
+        before = list(mock_engine.graph.nodes(data=True))
         router.select_pattern(task_complexity=PatternComplexity.SIMPLE)
+        assert list(mock_engine.graph.nodes(data=True)) == before
 
-        # Check that a decision node was added
-        decision_nodes = [
-            (nid, data)
-            for nid, data in mock_engine.graph.nodes(data=True)
-            if data.get("node_type") == "subagent_pattern_decision"
-        ]
-        assert len(decision_nodes) == 1
-        assert decision_nodes[0][1]["pattern"] == SubagentPattern.INLINE_TOOL.value
-
-    def test_no_persistence_without_engine(self, router_no_engine):
-        decision = router_no_engine.select_pattern()
-        assert decision.pattern  # Should still work, just no persistence
-
-
-# ── Outcome Recording ──────────────────────────────────────────────────
-
-
-class TestOutcomeRecording:
-    """Tests for pattern outcome learning."""
-
-    def test_record_success_outcome(self, router, mock_engine):
-        decision = router.select_pattern(task_complexity=PatternComplexity.SIMPLE)
-        router.record_outcome(decision, success=True, duration_ms=150.0)
-
-        # Verify outcome was recorded in graph
-        for nid, data in mock_engine.graph.nodes(data=True):
-            if data.get("node_type") == "subagent_pattern_decision":
-                assert data["outcome_success"] is True
-                assert data["outcome_duration_ms"] == 150.0
-
-    def test_record_failure_outcome(self, router, mock_engine):
-        decision = router.select_pattern(task_complexity=PatternComplexity.MODERATE)
-        router.record_outcome(decision, success=False, duration_ms=5000.0)
-
-        for nid, data in mock_engine.graph.nodes(data=True):
-            if data.get("node_type") == "subagent_pattern_decision":
-                assert data["outcome_success"] is False
-
-
-# ── Historical Adjustment ──────────────────────────────────────────────
-
-
-class TestHistoricalAdjustment:
-    """Tests for confidence adjustment from historical data."""
-
-    def test_confidence_adjusts_with_history(self, router, mock_engine):
-        # Add 5 historical successful inline decisions
+    def test_history_in_the_graph_does_not_move_the_confidence(
+        self, router, mock_engine
+    ):
         for i in range(5):
             mock_engine.graph.add_node(
                 f"hist_{i}",
                 node_type="subagent_pattern_decision",
                 pattern="inline_tool",
-                outcome_success=True,
+                outcome_success=False,
             )
-
         decision = router.select_pattern(task_complexity=PatternComplexity.SIMPLE)
-        # Confidence should be adjusted from historical 100% success rate
-        assert decision.confidence > 0.85
+        assert decision.confidence == 0.9
 
-    def test_low_history_raises_no_error(self, router, mock_engine):
-        # Only 1 historical decision (below min_sample_size of 3)
-        mock_engine.graph.add_node(
-            "hist_0",
-            node_type="subagent_pattern_decision",
-            pattern="inline_tool",
-            outcome_success=True,
-        )
-        decision = router.select_pattern(task_complexity=PatternComplexity.SIMPLE)
-        assert decision.confidence > 0.0
+    def test_the_outcome_api_is_gone(self, router):
+        assert not hasattr(router, "record_outcome")
 
 
 # ── Infrastructure Mapping ─────────────────────────────────────────────

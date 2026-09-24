@@ -421,8 +421,6 @@ tags: [evolved]
                         "capability_overrides": team_config.get(
                             "capability_overrides", {}
                         ),
-                        "success_rate": 1.0,
-                        "usage_count": 0,
                         "type": RegistryNodeType.TEAM_CONFIG,
                     }
 

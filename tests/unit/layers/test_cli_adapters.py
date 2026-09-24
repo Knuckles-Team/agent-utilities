@@ -79,6 +79,9 @@ async def test_claude_delivers_mcp_skills_fence_and_credentials(tmp_path) -> Non
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
     assert argv[argv.index("--setting-sources") + 1] == "project"
     assert argv[argv.index("--allowedTools") + 1] == "Bash(echo:*)"
+    assert argv[argv.index("--disallowedTools") + 1] == "Task", (
+        "no plan: native sub-agents are disabled (ruling 2026-09-24 Q1)"
+    )
     assert argv[argv.index("--max-budget-usd") + 1] == "0.5000"
     assert launch["stdin"] == "do it"
     assert launch["env"]["ANTHROPIC_API_KEY"] == "api-secret"
@@ -178,3 +181,23 @@ def test_child_environment_is_an_allowlist(monkeypatch, tmp_path) -> None:
     assert env["HOME"] == str(tmp_path)
     assert env["AU_MCP_TOKEN_0"] == "t"
     assert "OPENAI_API_KEY" not in env
+
+
+async def test_claude_runs_native_sub_agents_only_under_a_budget_capped_grant(
+    tmp_path,
+) -> None:
+    from agent_utilities.layers.contracts import SubagentAllowance
+
+    launcher = TranscriptLauncher(_lines("claude_code_success.jsonl"))
+    spec = RunSpec(
+        run_id="c-sub",
+        task="fan out",
+        agent_ref="a",
+        budget=RunBudget(max_cost_usd=1.0, mode="strict"),
+        subagents=SubagentAllowance(max_children=2, fallback="token_budget"),
+    )
+    harness = ClaudeCodeHarness(launcher=launcher, credentials=_Secrets())
+    _lease, outcome = await _run(harness, spec, tmp_path)
+    assert outcome.result.status == "succeeded"
+    (launch,) = launcher.launches
+    assert "--disallowedTools" not in launch["argv"]
