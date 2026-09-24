@@ -46,13 +46,15 @@ Distillation is only faithful if the KG actually retains document text. Previous
 This was consolidated (strangler-then-delete) into **one** verbatim contract — the same
 regardless of file / directory / URL:
 
-```mermaid
-flowchart LR
-    SRC["document<br/>(file · dir · URL)"] --> UNIT["_ingest_document_file<br/>(canonical per-doc unit)"]
-    UNIT --> DOC["Document{content: full verbatim}"]
-    UNIT --> CHUNK["IdeaBlock{trusted_answer: chunk}<br/>(PART_OF Document)"]
-    UNIT --> CONC["Concept{summary}<br/>(MENTIONS)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One canonical per-document unit, three node types</p>
+
+A document (file, dir, or URL) always reaches `_ingest_document_file`
+(the canonical per-doc unit), which writes three node types: a
+`Document` (full verbatim content), `IdeaBlock` chunks (`trusted_answer`,
+linked `PART_OF` the Document), and `Concept` nodes (summary, linked via
+`MENTIONS`).
+</div>
 
 - **`Document{content}`** — full verbatim body, re-materialisable.
 - **`IdeaBlock`** chunks (`distillation_engine.chunk_text`, deterministic ids `{doc.id}:chunk:{i}`) linked `PART_OF` the Document — the retrieval/dedup substrate.
@@ -74,13 +76,15 @@ and materialises a neutral `reference/` tree + `kg_manifest.json` — format-agn
 that `skill-graph-builder` consumes verbatim as a "local directory" source (no change to
 the existing TOC/SKILL.md generator).
 
-```mermaid
-flowchart LR
-    SEL["select<br/>seed id OR semantic_search → BFS to depth"] --> SUB
-    SUB["fetch_subgraph<br/>one GetSubgraph round-trip"] --> TAX
-    TAX["taxonomy<br/>community_detection → folders"] --> MAT
-    MAT["materialize<br/>content → reference/*.md · edges → cross-links"] --> OUT["reference/ + kg_manifest.json"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Distillation: select, fetch, taxonomize, materialize</p>
+
+`select` (seed id, or `semantic_search` -> BFS to depth) feeds
+`fetch_subgraph` (one `GetSubgraph` round-trip), which feeds `taxonomy`
+(`community_detection` -> folders), which feeds `materialize` (content
+-> `reference/*.md`, edges -> cross-links), producing the final
+`reference/` tree + `kg_manifest.json`.
+</div>
 
 Mapping, KG-native → skill-graph-native:
 
@@ -113,13 +117,14 @@ idempotent. `corpus_name="dedup"` runs the existing IdeaBlock deduplicator
 (`engine.distill_knowledge`) so two packages on the same topic **converge** instead of
 duplicating.
 
-```mermaid
-flowchart LR
-    KG1["KG (source of truth)"] -->|distill| PKG["skill-graph package<br/>reference/ + kg_manifest.json"]
-    PKG -->|pip / registry| SHARE((share))
-    SHARE -->|import_pack| KG2["recipient KG"]
-    KG2 -->|dedup-merge| KG2
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Round-trip: distill, share, import, dedup-merge</p>
+
+The source-of-truth KG distills into a skill-graph package
+(`reference/` + `kg_manifest.json`), which is shared via pip/registry, then
+imported (`import_pack`) into a recipient KG, which dedup-merges it
+against its own existing content.
+</div>
 
 `distill = serialize a subgraph` · `share = pip/registry` · `import = ingest + dedup-merge`.
 
@@ -161,23 +166,21 @@ pass covers them all:
 | an unresolved `manual:` task (ProcessPlanCompiler gap) | atomic-skill candidate (automation gap) |
 | a recurring cross-process inference (OntologyReasoningDriver) | cross-process candidate |
 
-```mermaid
-flowchart LR
-    subgraph CONN["connectors → KG (already mapped)"]
-        C1["camunda"]:::c --> KG
-        C2["aris"]:::c --> KG
-        C3["egeria"]:::c --> KG
-        C4["leanix"]:::c --> KG
-    end
-    KG["KG ontology<br/>BusinessProcess · BusinessTask · flowsTo · Capability"] --> DISC
-    DISC["discover<br/>processes + unresolved manual: gaps + OWL patterns"] --> CLS
-    CLS["classify<br/>action→atomic · flowsTo-chain→workflow"] --> DED
-    DED["dedup<br/>ConceptMatcher / skill registry → covered|related|novel"] --> PROP
-    PROP["propose (PROPOSE-ONLY)<br/>SkillProposal / SkillWorkflowProposal<br/>+ AUTOMATES · DERIVED_FROM · COMPOSES"] --> REV
-    REV{{"human / Claude<br/>review + approve"}} -->|approve| MAT
-    MAT["materialize<br/>PhysicalDistillationEngine → SKILL.md (STAGING dir)"]
-    classDef c fill:#eef,stroke:#88a;
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Connector-to-skill synthesis: discover, classify, dedup, propose, review</p>
+
+Four connectors (camunda, aris, egeria, leanix) all map their processes
+into the same KG ontology (`BusinessProcess`, `BusinessTask`, `flowsTo`,
+`Capability`). From there: `discover` finds processes, unresolved
+`manual:` gaps, and OWL patterns; `classify` sorts a lone action into
+`atomic` and a `flowsTo` chain into `workflow`; `dedup`
+(`ConceptMatcher`/skill registry) marks each candidate `covered`,
+`related`, or `novel`; `propose` (propose-only) emits a `SkillProposal`
+or `SkillWorkflowProposal` with `AUTOMATES`/`DERIVED_FROM`/`COMPOSES`
+edges; a human or Claude reviews and approves; only on approval does
+`materialize` (`PhysicalDistillationEngine`) write `SKILL.md` into a
+staging directory.
+</div>
 
 **Ontology additions (AU-KG.compute.automates):** `SkillProposal` / `SkillWorkflowProposal`
 interfaces (`ontology/interfaces.py`) + node types + the object properties
