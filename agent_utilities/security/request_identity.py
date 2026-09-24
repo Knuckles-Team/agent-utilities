@@ -119,8 +119,20 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # EXACT scope, so it must reach the session as-is. It is never implied by the
 # hierarchy (``kg:admin`` does not expand to it) and is granted to people
 # through the Keycloak ``elevation-approvers`` group, never to a service.
+# ``capacity:throttle`` and ``capacity:admin`` (EH-406/EH-347) are exact
+# capacity-ledger capabilities for graph-os's process identity: throttle steps
+# and cell declarations without handing it ``kg:admin``. Neither implies the
+# other and the kg hierarchy implies neither.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "fleet:events", "rbac:approve-elevation"}
+    {
+        "kg:read",
+        "kg:write",
+        "kg:admin",
+        "fleet:events",
+        "rbac:approve-elevation",
+        "capacity:throttle",
+        "capacity:admin",
+    }
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512

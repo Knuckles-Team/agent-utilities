@@ -257,6 +257,37 @@ class TestActorFromClaims:
         assert "rbac:approve-elevation" in _mint(approver).scopes
         assert "rbac:approve-elevation" not in _mint(admin).scopes
 
+    @pytest.mark.parametrize(
+        ("granted", "expected"),
+        [
+            ("capacity:throttle", {"capacity:throttle"}),
+            ("capacity:admin", {"capacity:admin"}),
+            (
+                "capacity:throttle capacity:admin",
+                {"capacity:throttle", "capacity:admin"},
+            ),
+            ("kg:admin", set()),
+            ("capacity:* capacity:lease", set()),
+        ],
+    )
+    def test_capacity_scopes_are_exact_and_independent(self, granted, expected):
+        """EH-406/EH-347: graph-os gets capacity:throttle + capacity:admin without
+        kg:admin; kg:admin never implies them, they never imply each other, and
+        no wildcard or neighbouring capacity scope is projected."""
+        actor = actor_from_claims(
+            {
+                "sub": "service:graph-os",
+                "scope": granted,
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        scopes = _mint(actor).scopes
+        capacity = {scope for scope in scopes if scope.startswith("capacity:")}
+        assert capacity == expected
+        if "kg:admin" not in granted:
+            assert "kg:admin" not in scopes, "capacity never implies graph admin"
+
     def test_generic_admin_role_does_not_grant_graph_administration(self):
         actor = actor_from_claims(
             {
