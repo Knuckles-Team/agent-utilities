@@ -41,11 +41,10 @@ You do **not** need to own an edge-ingress node. `cloudflared` runs **on the hom
 itself** and dials **outbound** to Cloudflare; Cloudflare *is* the public edge (TLS, DDoS,
 and **Zero-Trust Access** for human gating). Nothing listens on a public IP at your site.
 
-```
-Telegram ──HTTPS──▶ Cloudflare edge ──(outbound tunnel)──▶ cloudflared (homelab)
-                         │  Access (Zero Trust) gates HUMAN routes
-                         └─ forwards ONLY /messaging/webhook/* ▶ 127.0.0.1:MESSAGING_WEBHOOK_PORT
-```
+Telegram reaches the Cloudflare edge over HTTPS, which reaches
+`cloudflared` (running on the homelab) over an outbound tunnel. Cloudflare
+Access (Zero Trust) gates human routes; only `/messaging/webhook/*` is
+forwarded, to `127.0.0.1:MESSAGING_WEBHOOK_PORT`.
 
 Setup (high level): create a Cloudflare Tunnel, run `cloudflared` on the host, map a
 hostname (e.g. `hooks.<your-domain>`) to `http://127.0.0.1:${MESSAGING_WEBHOOK_PORT}`, set

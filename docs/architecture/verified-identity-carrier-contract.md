@@ -46,16 +46,12 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
 Two verified, already-fail-closed, already-tested primitives, one per
 language, connected by one wire dict. **This lane does not invent a third.**
 
-```
-AU:  ActorContext  →  GraphSession  →  GraphSession.engine_verified_context()
-                                              │  (Python dict, MessagePack over eg2.)
-                                              ▼
-EG:  RequestContextClaims  →  server::auth::VerifiedRequestContext (post-verify)
-                                              │
-                                              ▼
-                                    server::access::CarrierAuthority
-                                    (tenant_scope / actor_scope / owner_scope / admin)
-```
+On the AU side: `ActorContext` -> `GraphSession` ->
+`GraphSession.engine_verified_context()`, which crosses the wire as a
+Python dict over MessagePack (eg2). On the EG side, that wire dict
+becomes `RequestContextClaims` -> `server::auth::VerifiedRequestContext`
+(post-verify) -> `server::access::CarrierAuthority` (tenant_scope /
+actor_scope / owner_scope / admin).
 
 * **AU identity primitive:** `agent_utilities.security.brain_context.ActorContext`
   (`security/brain_context.py`) — minted only from validated credentials
