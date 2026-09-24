@@ -113,3 +113,22 @@ def test_a_sync_transport_without_an_engine_loop_refuses_instead_of_blocking() -
     loop.close()
     with pytest.raises(LayerUnavailable):
         GeneratedTransport(client=object(), loop=loop).run(never())
+
+
+def test_a_bound_evaluator_is_named_at_commit() -> None:
+    """EH-395: the binding's evaluator rides the commit as an expiring grant."""
+    from agent_utilities.decide import Binding
+    from agent_utilities.decide.outcome import commit_op
+
+    binding = Binding(
+        feature_schema={},
+        policy={"policy": "default"},
+        evaluator="principal:sha256:ab",
+        evaluator_ttl_s=60,
+    )
+    op = commit_op({"record_id": "r"}, binding, 1_000)
+    assert op["evaluator"] == {
+        "principal": "principal:sha256:ab",
+        "expires_at_ms": 61_000,
+    }
+    assert commit_op({"record_id": "r"}, None, 1_000)["evaluator"] is None

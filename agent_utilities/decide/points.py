@@ -127,6 +127,11 @@ class Binding:
     feature_schema: dict[str, Any]
     policy: dict[str, Any]
     head: dict[str, Any] | None = None
+    #: EH-395: the principal (EG persistence id) named at commit to evaluate
+    #: this point's records -- the only way a committer-only record can be
+    #: judged independently -- and how long that grant lives.
+    evaluator: str | None = None
+    evaluator_ttl_s: int = 3600
 
 
 class Bindings(Protocol):
