@@ -256,10 +256,10 @@ def _validate_node_arity(argument_map: ArgumentMap, n: AIFNode) -> list[str]:
 
 
 def validate_argument_map(argument_map: ArgumentMap) -> list[str]:
-    """Structural arity checks — the SAME rules ``shapes/argumentation.shapes.ttl``
-    enforces at engine-admission time, run locally first so a bad map fails
-    fast with a readable reason instead of a SHACL rejection deep in the
-    ingest path. Returns an empty list when the map is well-formed.
+    """Structural arity checks mirroring what engine-admission SHACL enforces,
+    run locally first so a bad map fails fast with a readable reason instead
+    of a SHACL rejection deep in the ingest path. Returns an empty list when
+    the map is well-formed.
     """
     violations = _find_duplicate_node_ids(argument_map.nodes)
     violations += _find_dangling_edges(argument_map)

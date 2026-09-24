@@ -1,10 +1,12 @@
-"""Harness-foundry benchmark (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard) — all surpass claims reproduce."""
+"""Harness-foundry benchmark (CONCEPT:AU-AHE.evaluation.parity-surpass-scoreboard) — all surpass claims reproduce.
+
+EH-431: exercises ``HarnessGate``, which validates through the engine's real
+``shacl_validate_ad_hoc`` surface, never local ``pyshacl`` — requires a real
+engine and skips cleanly (via the standard AU engine-availability check) when
+none is available in this environment.
+"""
 
 from __future__ import annotations
-
-import pytest
-
-pytest.importorskip("pyshacl")
 
 from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdown
 
