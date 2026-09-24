@@ -327,7 +327,7 @@ class TestActorFromClaims:
     def test_graph_os_infrastructure_scopes_reach_its_session_exactly(self):
         granted = (
             "compute:finance timeseries:read timeseries:write broker:admin "
-            "broker:publish broker:consume broker:ack broker:*"
+            "broker:publish broker:consume broker:ack security:check broker:*"
         )
         actor = actor_from_claims(
             {

@@ -133,8 +133,9 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # needs). graph-os's process identity holds the INFRASTRUCTURE scopes it
 # executes with on a verified caller's behalf -- ``compute:finance``,
 # ``timeseries:read``/``timeseries:write`` and ``broker:admin``/``publish``/
-# ``consume``/``ack`` -- after checking the caller's domain scope and read
-# authority. All are exact: none implies another, the kg hierarchy implies
+# ``consume``/``ack`` -- plus ``security:check``, the EG ``CheckAccess``
+# question it asks about the caller's (and, per alert, each subscriber's)
+# read authority first. All are exact: none implies another, the kg hierarchy implies
 # none, and no wildcard is projected.
 _FINANCE_DOMAIN_SCOPES: frozenset[str] = frozenset(
     {
@@ -157,6 +158,7 @@ _FINANCE_INFRASTRUCTURE_SCOPES: frozenset[str] = frozenset(
         "connector:write-back",
         "lease:read",
         "lease:write",
+        "security:check",
     }
 )
 _GRAPH_AUTH_SCOPES: frozenset[str] = (
