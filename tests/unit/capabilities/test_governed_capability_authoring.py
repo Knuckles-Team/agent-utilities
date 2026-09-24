@@ -23,9 +23,18 @@ from agent_utilities.knowledge_graph.research.spec_proposals import (
     get_spec,
     review_spec,
 )
-from tests.unit.fleet_autonomy_fakes import FakeEngine
+from tests.unit.fleet_autonomy_fakes import FakeEngine, verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.canonical-gap-lifecycle")
+
+
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
+
 
 _VALID_CAPABILITY_SOURCE = """
 from pydantic_ai.capabilities import AbstractCapability
@@ -41,7 +50,12 @@ _INVALID_CAPABILITY_SOURCE = "this is not even python syntax :::"
 
 class LifecycleEngine(FakeEngine):
     """Same in-memory double as ``tests/test_wave6_gap_lifecycle.py`` — the
-    backend-agnostic Cypher shapes ``get_gap``/``get_spec``/``review_spec`` use."""
+    backend-agnostic Cypher shapes ``get_spec``/``review_spec`` use, plus the typed
+    EG Gap surfaces the canonical Gap lives behind (EH-348)."""
+
+    def __init__(self):
+        super().__init__()
+        self.market = attach_market(self)
 
     def add_edge(self, src, dst, rel_type, properties=None):
         self.edges.append((src, dst, rel_type))
@@ -55,15 +69,6 @@ class LifecycleEngine(FakeEngine):
         if m:
             lbl = m.group(1)
             return [{"n": dict(v)} for v in self.nodes.values() if v.get("type") == lbl]
-        if "[:RESOLVES]->" in query:
-            lid = params.get("id")
-            return [
-                {"id": dst}
-                for (s, dst, r) in self.edges
-                if s == lid
-                and r == "RESOLVES"
-                and self.nodes.get(dst, {}).get("type") == gaps.GAP_LABEL
-            ]
         return super().query_cypher(query, params)
 
 
@@ -113,7 +118,7 @@ def test_invalid_capability_source_never_opens_a_gap(tmp_path):
     assert result["status"] == "validation_failed"
     assert "gap_id" not in result
     # Nothing entered the review lifecycle for code that fails even static validation.
-    assert not [n for n in eng.nodes.values() if n.get("type") == gaps.GAP_LABEL]
+    assert not eng.market.gap_rows
 
 
 def test_load_governed_active_capabilities_ignores_an_unreviewed_authored_capability(

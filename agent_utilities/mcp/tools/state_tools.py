@@ -974,7 +974,8 @@ async def _loops_gaps_action(engine: Any, p: _LoopsParams) -> str:
     """``"gaps"`` action of ``register_state_tools``'s ``graph_loops``: the
     canonical :Gap backlog (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle,
     Wave 6) every discovery track (failure/research/skill/audit) files
-    into — highest priority (lowest bucket) first, excludes resolved.
+    into — in EG's listing order (ranking is the Decide layer's), excludes
+    resolved.
 
     Extracted verbatim (pure extract-method, no behaviour change).
     """
@@ -1066,33 +1067,21 @@ async def _loops_submit_gap_action(engine: Any, p: _LoopsParams) -> str:
     return _json.dumps({"action": "submit_gap", "gap": gap}, default=str)
 
 
-async def _resolve_gap_provenance(engine: Any, gap_id: str) -> dict[str, Any]:
-    """Best-effort SPECIFIED_BY/RESOLVES provenance lookup for the
-    ``"gap"`` action of ``graph_loops`` (D6): the SpecProposal ``gap_id``
-    was SPECIFIED_BY and the develop-Loop that RESOLVES it, when either hop
-    exists yet.
-
-    Extracted verbatim (pure extract-method, no behaviour change).
+def _gap_provenance(gap: dict[str, Any]) -> dict[str, Any]:
+    """The unified provenance chain of one Gap (D6), read off EG's own Gap view:
+    the SpecProposal it was SPECIFIED_BY (its latest spec reference) and the
+    publication that resolved it (the ``resolved`` evidence entry's reference).
     """
-    provenance: dict[str, Any] = {
-        "specified_by_spec_id": None,
-        "resolved_by_loop_id": None,
+    spec_refs = gap.get("spec_refs") or []
+    resolved = [
+        e.get("reference")
+        for e in gap.get("evidence") or []
+        if isinstance(e, dict) and e.get("kind") == "resolved"
+    ]
+    return {
+        "specified_by_spec_id": spec_refs[-1] if spec_refs else None,
+        "resolved_by": resolved[-1] if resolved else None,
     }
-    try:
-        rows = await run_blocking_ordered(
-            engine.query_cypher,
-            "MATCH (g:Gap) WHERE g.id = $id "
-            "OPTIONAL MATCH (g)-[:SPECIFIED_BY]->(s) "
-            "OPTIONAL MATCH (l)-[:RESOLVES]->(g) "
-            "RETURN s.id AS spec_id, l.id AS loop_id LIMIT 1",
-            {"id": gap_id},
-        )
-        row = rows[0] if rows else {}
-        provenance["specified_by_spec_id"] = row.get("spec_id")
-        provenance["resolved_by_loop_id"] = row.get("loop_id")
-    except Exception as e:  # noqa: BLE001 — provenance is best-effort
-        logger.debug("graph_loops gap provenance query failed: %s", type(e).__name__)
-    return provenance
 
 
 async def _loops_gap_action(engine: Any, p: _LoopsParams) -> str:
@@ -1113,9 +1102,8 @@ async def _loops_gap_action(engine: Any, p: _LoopsParams) -> str:
     gap = await run_blocking_ordered(get_gap, engine, gap_id)
     if gap is None:
         return _json.dumps({"action": "gap", "id": gap_id, "error": "gap not found"})
-    provenance = await _resolve_gap_provenance(engine, gap_id)
     return _json.dumps(
-        {"action": "gap", "gap": gap, "provenance": provenance}, default=str
+        {"action": "gap", "gap": gap, "provenance": _gap_provenance(gap)}, default=str
     )
 
 
