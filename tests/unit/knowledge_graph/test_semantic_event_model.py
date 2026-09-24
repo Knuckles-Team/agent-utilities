@@ -297,10 +297,16 @@ def test_contract_types_remain_directly_constructible_for_owned_consumers() -> N
     )
 
 
-def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes() -> None:
-    """Prove the executable ChangeEnvelope names match the semantic contract."""
+def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes(
+    engine_graph,
+) -> None:
+    """Prove the executable ChangeEnvelope names match the semantic contract.
+
+    EH-431: checked through the engine's real ``shacl_validate_ad_hoc``
+    surface, not a local ``pyshacl`` call (AU never validates shapes itself).
+    Requires a real engine; skips cleanly when none is available.
+    """
     rdflib = pytest.importorskip("rdflib")
-    pyshacl = pytest.importorskip("pyshacl")
     from rdflib.namespace import RDF, XSD
 
     model = ObjectCentricGraphSlice.model_validate(_slice_payload())
@@ -345,12 +351,13 @@ def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes() -> Non
         / "shapes"
         / "process_intelligence.shapes.ttl"
     )
-    conforms, _, report = pyshacl.validate(
-        graph,
-        shacl_graph=str(shapes_path),
-        inference="none",
+    data_ttl = graph.serialize(format="turtle")
+    if isinstance(data_ttl, bytes):
+        data_ttl = data_ttl.decode()
+    report = engine_graph.shacl_validate_ad_hoc(
+        data_ttl, shapes_path.read_text(encoding="utf-8")
     )
-    assert conforms, report
+    assert report.conforms, report.results
 
 
 # ── graph round-trip (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip) ───────────

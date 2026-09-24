@@ -2,7 +2,7 @@
 (``agent_utilities.observability.lifecycle_orchestrator``) — the keystone that
 diffs any spine node against the required lifecycle shape and emits REPORT-ONLY
 gap-fill ``:LifecycleStep`` proposals (``reports/autonomous-sdlc-loop-design.md``
-§3). Plus a pyshacl check that the required-shape TTL flags a missing
+§3). Plus a real-engine SHACL check that the required-shape TTL flags a missing
 ``:PipelineRun`` for a merged change (§1.3). Mirrors
 ``test_observability_incidents.py``'s fake-KG style.
 """
@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 import agent_utilities.observability.health_ingest as hi
@@ -210,35 +208,35 @@ def test_sweep_skips_resolved_nodes(monkeypatch):
 
 
 # --- the SHACL required-shape itself (design §1.3) ------------------------ #
-def test_shacl_required_shape_flags_missing_pipeline_run():
-    """The declarative source of truth: pyshacl over
-    ``shapes/sdlc_lifecycle.shapes.ttl`` flags a :CodeChangeProposal with no
-    :triggersPipeline, and conforms once a :PipelineRun is linked."""
-    rdflib = pytest.importorskip("rdflib")
-    pyshacl = pytest.importorskip("pyshacl")
-
+def test_shacl_required_shape_flags_missing_pipeline_run(engine_graph):
+    """The declarative source of truth, checked through the engine's real
+    ``shacl_validate_ad_hoc`` surface (EH-431 — AU never validates shapes
+    itself): ``shapes/sdlc_lifecycle.shapes.ttl`` flags a :CodeChangeProposal
+    with no :triggersPipeline, and conforms once a :PipelineRun is linked.
+    Requires a real engine; skips cleanly when none is available."""
     import agent_utilities.knowledge_graph as kg
 
     shapes_path = Path(kg.__file__).parent / "shapes" / "sdlc_lifecycle.shapes.ttl"
-    sg = rdflib.Graph().parse(str(shapes_path), format="turtle")
+    shapes_text = shapes_path.read_text(encoding="utf-8")
 
     missing = """@prefix : <http://knuckles.team/kg#> .
 :mr1 a :CodeChangeProposal .
 """
-    dg = rdflib.Graph().parse(data=missing, format="turtle")
-    conforms, _results, text = pyshacl.validate(dg, shacl_graph=sg, inference="none")
-    assert conforms is False
-    assert "PipelineRun" in text
+    report = engine_graph.shacl_validate_ad_hoc(missing, shapes_text)
+    assert report.conforms is False
+    assert any(
+        "MergeRequestMergeableShape" in (result.source_shape or "")
+        for result in report.results
+    ), report.results
 
     present = """@prefix : <http://knuckles.team/kg#> .
 :mr1 a :CodeChangeProposal ; :triggersPipeline :pr1 .
 :pr1 a :PipelineRun .
 """
-    dg2 = rdflib.Graph().parse(data=present, format="turtle")
-    conforms2, _r2, _t2 = pyshacl.validate(dg2, shacl_graph=sg, inference="none")
+    report2 = engine_graph.shacl_validate_ad_hoc(present, shapes_text)
     # the MergeRequestMergeableShape no longer fires (TicketRoutedShape etc. target
     # other classes and have no instances here).
-    assert conforms2 is True
+    assert report2.conforms is True
 
 
 # --- reuse-lookup (Atomic Task Graph paper idea #2) ------------------------ #

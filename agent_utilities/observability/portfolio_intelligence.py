@@ -794,11 +794,11 @@ def _decide_verdict(
 def validate_verdict_shape(
     recommendation: dict[str, Any], *, engine: Any
 ) -> dict[str, Any]:
-    """ADDITIVE SHACL audit of the computed verdict
-    (``shapes/portfolio_intelligence.shapes.ttl``) — confirms the
-    ``:Recommendation``/``:Assessment`` the engine would write is well-formed
-    (valid verdict enum, non-empty rationale, a recorded score). Never itself
-    decides the verdict; mirrors
+    """ADDITIVE SHACL audit of the computed verdict against EG's COMMITTED
+    schema — confirms the ``:Recommendation``/``:Assessment`` the engine would
+    write is well-formed (valid verdict enum, non-empty rationale, a recorded
+    score) under whatever shapes are currently attached to GraphSchema. Never
+    itself decides the verdict; mirrors
     :meth:`~agent_utilities.knowledge_graph.research.promotion_governance.PromotionGovernanceValidator._check_shacl`.
     Epistemic Graph is the sole validator; an unavailable engine fails closed."""
     import rdflib

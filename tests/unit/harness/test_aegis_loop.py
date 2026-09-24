@@ -4,13 +4,14 @@ The integration win over HarnessX: because the Critic is the SHACL gate reasonin
 over accumulated edits, a naive evolver that keeps hammering one dimension is
 **stopped before** the coupling tipping point — and a landscape-aware evolver that
 diversifies ships every round.
+
+EH-431: the Critic (``HarnessGate``) validates through the engine's real
+``shacl_validate_ad_hoc`` surface, never local ``pyshacl`` — these tests
+require a real engine and skip cleanly (via the standard AU
+engine-availability check) when none is available in this environment.
 """
 
 from __future__ import annotations
-
-import pytest
-
-pytest.importorskip("pyshacl")
 
 from agent_utilities.harness.aegis_loop import AegisLoop
 
