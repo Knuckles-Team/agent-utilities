@@ -61,6 +61,7 @@ __all__ = [
     "DISPATCH_SESSION_LOCK_REGISTRY_SIZE",
     "DISPATCH_TURNS",
     "DISPATCH_WORKERS",
+    "CACHE_FRESHNESS_FEED_AGE_SECONDS",
     "ENGINE_BREAKER_STATE",
     "ENGINE_REQUESTS",
     "ENGINE_REQUEST_LATENCY",
@@ -454,6 +455,14 @@ ENGINE_REQUEST_LATENCY = _histogram(
     "visible at a glance without a profiler. Pairs with a slow-call WARN log in "
     "engine_breaker so the same signal reaches logs and metrics.",
     ("op",),
+)
+# EH-401: seconds since each graph's invalidation-feed poller last read its feed
+# (agent_utilities.caching.freshness_poller). Cardinality: one series per polled graph.
+CACHE_FRESHNESS_FEED_AGE_SECONDS = _gauge(
+    "agent_utilities_cache_freshness_feed_age_seconds",
+    "Seconds since the engine invalidation feed of a graph was last read successfully "
+    "(CONCEPT:AU-KG.memory.semantic-response-cache, EH-401).",
+    ("graph",),
 )
 ENGINE_BREAKER_STATE = _gauge(
     "agent_utilities_gateway_engine_breaker_state",

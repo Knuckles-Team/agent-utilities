@@ -184,7 +184,7 @@ class FreshnessHub:
         self.policy = VolatilityPolicy()
         self._clock = clock
         self._rates = rates or ChangeRateEstimator()
-        self._max_feed_lag_s = max_feed_lag_s
+        self.max_feed_lag_s = max_feed_lag_s
         self._last_read: float | None = None
         self._targets: list[ClassInvalidatable] = []
         self._lock = threading.Lock()
@@ -244,7 +244,7 @@ class FreshnessHub:
     def _feed_is_current(self) -> bool:
         if self._last_read is None:
             return False
-        return self._clock() - self._last_read <= self._max_feed_lag_s
+        return self._clock() - self._last_read <= self.max_feed_lag_s
 
     def _apply_events(self, feed: Mapping[str, Any]) -> int:
         """Apply a page's events and advance the cursor past them. An empty page means nothing
@@ -324,13 +324,20 @@ async def poll_engine(hub: FreshnessHub, send: FeedSend) -> int:
 
 
 def feed_mapping(raw: Any) -> Mapping[str, Any]:
-    """The feed body of an engine response: a mapping, or a result wrapper carrying one."""
-    if isinstance(raw, Mapping):
-        return raw
-    payload = getattr(raw, "payload", None)
-    if isinstance(payload, Mapping):
-        return payload
+    """The feed body of an engine response: a mapping, a result wrapper carrying one, or the
+    MessagePack bytes of one."""
+    body = _unwrap_feed(raw)
+    if isinstance(body, Mapping):
+        return body
     raise TypeError(f"unexpected FreshnessFeed result: {type(raw).__name__}")
+
+
+def _unwrap_feed(raw: Any) -> Any:
+    if isinstance(raw, bytes | bytearray):
+        import msgpack
+
+        return msgpack.unpackb(raw, raw=False)
+    return raw if isinstance(raw, Mapping) else getattr(raw, "payload", None)
 
 
 def store_scoped(
