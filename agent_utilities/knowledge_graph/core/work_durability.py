@@ -355,7 +355,10 @@ def _claim_resource_class(
         return resource_class
     if item is None:
         return None
-    return str(row.get("resource_class") or "default")
+    # An exact-id claim filters on the row's OWN class. A row admitted by
+    # EG-native SubmitWorkItem carries no resource class (``""``); coercing that
+    # to "default" made the engine answer ``empty`` for a ready item.
+    return row.get("resource_class") or None
 
 
 def _claim_fairness_group(

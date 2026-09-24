@@ -94,50 +94,6 @@ def _bounded_text(value: Any, limit: int) -> str:
     return f"{text[:limit]}\n…[truncated {len(text) - limit} characters]"
 
 
-def _search_hit_properties(hit: dict[str, Any]) -> dict[str, Any]:
-    node = hit.get("node")
-    if not isinstance(node, dict):
-        return dict(hit)
-    return {**node, **hit}
-
-
-def _search_hit_kind(hit: dict[str, Any]) -> str:
-    """Classify one ``search_hybrid`` hit's capability kind.
-
-    Delegates to the shared, table-driven
-    :func:`~agent_utilities.core.capability_contract.capability_kind_from_node`
-    (CONCEPT:AU-KG.retrieval.unified-capability-contract) — the same
-    classifier ``find``/``find_tools`` use — so a ``Tool`` node resolves to
-    ``"tool"`` here too instead of being silently dropped as unclassified.
-    """
-    from agent_utilities.core.capability_contract import capability_kind_from_node
-
-    props = _search_hit_properties(hit)
-    node_type = str(
-        props.get("node_type")
-        or props.get("type")
-        or props.get("label")
-        or props.get("kind")
-        or ""
-    )
-    resource_type = str(props.get("resource_type") or "")
-    node_id = str(props.get("id") or "")
-    return capability_kind_from_node(
-        node_type=node_type, resource_type=resource_type, node_id=node_id
-    )
-
-
-def _search_hit_score(hit: dict[str, Any], rank: int) -> float:
-    for key in ("score", "_score", "similarity", "confidence"):
-        try:
-            value = hit.get(key)
-            if value is not None:
-                return float(value)
-        except (TypeError, ValueError):
-            continue
-    return 1.0 / (rank + 1)
-
-
 def _coerce_approval_payload(payload: Any) -> dict[str, Any] | None:
     if isinstance(payload, str):
         try:
@@ -657,119 +613,6 @@ class Orchestrator:
                 )
         return result
 
-    def _search_hybrid_candidates(self, task: str) -> list[Any]:
-        try:
-            return list(self.engine.search_hybrid(task, top_k=24) or [])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("GraphOS capability resolution degraded: %s", exc)
-            return []
-
-    @staticmethod
-    def _candidate_from_hit(hit: Any, rank: int) -> dict[str, Any] | None:
-        if not isinstance(hit, dict):
-            return None
-        kind = _search_hit_kind(hit)
-        if not kind:
-            return None
-        props = _search_hit_properties(hit)
-        if bool(props.get("disabled")):
-            return None
-        name = str(props.get("name") or "").strip()
-        if not name:
-            return None
-        return {
-            "kind": kind,
-            "name": name,
-            "id": str(props.get("id") or ""),
-            "score": _search_hit_score(hit, rank),
-            "source": "kg_hybrid",
-            # Owning MCP server for a "tool" (or a fleet-served "skill") kind
-            # — "" for a purely local skill/agent. Carried so a resolved
-            # capability can be bound without the caller re-deriving it
-            # (CONCEPT:AU-KG.retrieval.unified-capability-contract).
-            "server": str(props.get("mcp_server") or ""),
-        }
-
-    @staticmethod
-    def _filter_permitted_candidates(
-        candidates: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        if not candidates:
-            return candidates
-        from agent_utilities.knowledge_graph.core.secured_reads import permit
-
-        candidate_ids = [
-            str(candidate["id"]) for candidate in candidates if candidate["id"]
-        ]
-        try:
-            permitted_ids = set(permit(candidate_ids))
-        except PermissionError as exc:
-            logger.warning("GraphOS capability permission filter denied: %s", exc)
-            permitted_ids = set()
-        return [
-            candidate
-            for candidate in candidates
-            if candidate["id"] and candidate["id"] in permitted_ids
-        ]
-
-    @staticmethod
-    def _best_candidate_resolution(
-        candidates: list[dict[str, Any]],
-    ) -> dict[str, Any] | None:
-        if not candidates:
-            return None
-        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
-        chosen = dict(candidates[0])
-        chosen["alternatives"] = [
-            {
-                "kind": candidate["kind"],
-                "name": candidate["name"],
-                "score": candidate["score"],
-            }
-            for candidate in candidates[1:4]
-        ]
-        return chosen
-
-    def resolve_capability(self, task: str, agent_name: str = "") -> dict[str, Any]:
-        """Resolve a task to an ingested skill/workflow, or the default expert.
-
-        CONCEPT:AU-ORCH.execution.execution-seam-closure — the GraphOS gateway
-        resolves against the KG's hybrid index before local-vLLM execution. An
-        explicit agent remains authoritative; an unresolved task routes to the
-        KG-bound ``agent-utilities-expert`` instead of exposing skill bodies or
-        fleet tool schemas to the calling harness.
-        """
-        if agent_name.strip():
-            return {
-                "kind": "agent",
-                "name": agent_name.strip(),
-                "id": "",
-                "score": 1.0,
-                "source": "caller",
-                "alternatives": [],
-            }
-
-        hits = self._search_hybrid_candidates(task)
-        candidates = [
-            candidate
-            for rank, hit in enumerate(hits)
-            if (candidate := self._candidate_from_hit(hit, rank)) is not None
-        ]
-        candidates = self._filter_permitted_candidates(candidates)
-
-        resolution = self._best_candidate_resolution(candidates)
-        if resolution is not None:
-            return resolution
-
-        return {
-            "kind": "agent",
-            "name": _DEFAULT_DELEGATE,
-            "id": "",
-            "score": 0.0,
-            "source": "default",
-            "alternatives": [],
-        }
-
     def _run_provenance(self, run_id: str) -> dict[str, Any]:
         trace = self.get_run_trace(run_id)
         trace = trace if isinstance(trace, dict) else {}
@@ -798,36 +641,6 @@ class Orchestrator:
             ],
         }
 
-    def _workflow_provenance(self, session_id: str) -> dict[str, Any]:
-        session = self.get_session_runs(session_id)
-        runs = session.get("runs") if isinstance(session, dict) else []
-        if not isinstance(runs, list):
-            runs = []
-        compact_runs = []
-        total_tool_calls = 0
-        for run in runs[:_GATEWAY_TRACE_TOOL_LIMIT]:
-            if not isinstance(run, dict):
-                continue
-            total_tool_calls += int(run.get("tool_call_count") or 0)
-            compact_runs.append(
-                {
-                    "run_id": run.get("run_id"),
-                    "trace_ref": run.get("trace_id"),
-                    "status": run.get("status"),
-                    "tool_call_count": run.get("tool_call_count", 0),
-                }
-            )
-        return {
-            "session_id": session_id,
-            "run_count": int(
-                session.get("run_count", len(runs))
-                if isinstance(session, dict)
-                else len(runs)
-            ),
-            "tool_call_count": total_tool_calls,
-            "runs": compact_runs,
-        }
-
     def _validate_capability_request(
         self,
         *,
@@ -854,68 +667,22 @@ class Orchestrator:
         )
         return execution_mode, allowed_tools, required_tools
 
-    async def _resolve_capability_target(
-        self, task: str, agent_name: str, skill_name: str
-    ) -> dict[str, Any]:
-        target = await asyncio.to_thread(
-            self.resolve_capability, task, agent_name=skill_name or agent_name
-        )
-        if skill_name:
-            target = {
-                **target,
+    @staticmethod
+    def _capability_target(agent_name: str, skill_name: str) -> dict[str, Any]:
+        """The caller-named capability, or the KG-bound default expert.
+
+        Task-to-capability resolution is the agent control plane's typed EG
+        search (``agent_utilities.api``); this gateway never searches.
+        """
+        if skill_name.strip():
+            return {
                 "kind": "skill",
-                "name": skill_name,
+                "name": skill_name.strip(),
                 "source": "caller_skill",
             }
-        return target
-
-    async def _execute_workflow_capability(
-        self,
-        target: dict[str, Any],
-        task: str,
-        max_steps: int,
-        grounding: GroundingPolicy,
-    ) -> dict[str, Any]:
-        from agent_utilities.knowledge_graph.core.workflow_gate import (
-            gate_workflow_execution,
-        )
-
-        gate = await asyncio.to_thread(
-            gate_workflow_execution, self.engine, target["name"]
-        )
-        if gate.get("allowed") is not True:
-            return {
-                "output": "Workflow execution was refused by the ontology/ACL gate.",
-                "run_id": None,
-                "mermaid": None,
-                "resolution": target,
-                "provenance": {
-                    "workflow_id": gate.get("workflow_id"),
-                    "violations": gate.get("violations", [])[:10],
-                },
-                "approval_request": None,
-            }
-        result = await self.execute_workflow(
-            workflow_id=target["name"],
-            task=task,
-            max_steps=max_steps,
-            grounding=grounding,
-        )
-        run_id = str(result.get("run_id") or result.get("session_id") or "")
-        provenance = await asyncio.to_thread(self._workflow_provenance, run_id)
-        return {
-            "output": _bounded_text(
-                json.dumps(result, default=str), _GATEWAY_OUTPUT_LIMIT
-            ),
-            "run_id": run_id or None,
-            "mermaid": _bounded_text(
-                result.get("mermaid") or "", _GATEWAY_MERMAID_LIMIT
-            )
-            or None,
-            "resolution": target,
-            "provenance": provenance,
-            "approval_request": _approval_request(result),
-        }
+        if agent_name.strip():
+            return {"kind": "agent", "name": agent_name.strip(), "source": "caller"}
+        return {"kind": "agent", "name": _DEFAULT_DELEGATE, "source": "default"}
 
     @staticmethod
     def _parse_agent_raw_payload(raw: Any) -> dict[str, Any]:
@@ -976,11 +743,11 @@ class Orchestrator:
         response_format: ResponseFormat = "text",
         grounding: GroundingPolicy = "required",
     ) -> dict[str, Any]:
-        """Resolve and execute one task through the bounded GraphOS skill gateway.
+        """Execute one task on a caller-named agent/skill or the default expert.
 
-        ``grounding`` forwards to :meth:`execute_agent` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)
-        for the ``agent``/``skill`` resolution path, and to :meth:`execute_workflow` for
-        a resolved ``workflow`` — every step in the run opens the same scope.
+        This gateway does not resolve tasks to capabilities; that is the agent
+        control plane's typed EG search. ``grounding`` forwards to
+        :meth:`execute_agent` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract).
         """
         execution_mode, allowed_tools, required_tools = (
             self._validate_capability_request(
@@ -993,44 +760,11 @@ class Orchestrator:
             )
         )
         self._scan_task(task)
-        target = await self._resolve_capability_target(task, agent_name, skill_name)
-
-        if target["kind"] == "workflow":
-            return await self._execute_workflow_capability(
-                target, task, max_steps, grounding
-            )
-
-        # A ``target`` resolved (not caller-supplied — an explicit skill_name
-        # was already folded into ``target["kind"] == "skill"`` above) to a
-        # bare ``Tool`` node binds through the SAME Capability contract a
-        # ranked ``find``/``find_tools`` result would (CONCEPT:AU-KG.retrieval.unified-capability-contract):
-        # run the default expert scoped to just that one fleet tool, rather
-        # than the wrong-shaped ``agent_name=<tool name>``.
+        target = self._capability_target(agent_name, skill_name)
         call_agent_name = target["name"]
+        call_skill_name = _prefer(skill_name, None)
         call_tool_server = _prefer(tool_server, None)
         call_allowed_tools = allowed_tools
-        call_skill_name = _prefer(skill_name, None)
-        if target["kind"] == "tool":
-            from agent_utilities.core.capability_contract import Capability
-
-            binding = Capability(
-                kind="tool",
-                id=str(target.get("id") or ""),
-                name=target["name"],
-                server=str(target.get("server") or "") or None,
-            ).to_binding()
-            call_agent_name = _DEFAULT_DELEGATE
-            call_tool_server = _prefer(binding.get("tool_server"), call_tool_server)
-            call_allowed_tools = _prefer(
-                binding.get("allowed_tools"), call_allowed_tools
-            )
-            # ``run_agent`` enforces both "tool_server requires skill_name" AND
-            # "skill_name must match the dispatched agent_name", so the delegate
-            # has to be named on BOTH keywords. Leaving skill_name empty here
-            # made every auto-resolved Tool raise ValueError inside run_agent --
-            # and every fleet Tool node carries a non-empty mcp_server, so this
-            # was every real resolution of this kind, not an edge case.
-            call_skill_name = _DEFAULT_DELEGATE
 
         raw = await self.execute_agent(
             agent_name=call_agent_name,

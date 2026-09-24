@@ -353,6 +353,34 @@ def _set_sdk_stub_present(tree: Path, present: bool) -> None:
         shutil.rmtree(sibling)
 
 
+#: A workflow flag that EXCLUDES a package from resolution. It names what CI
+#: deliberately leaves out, not which build step this is, so it is not part of
+#: a step's baseline identity (entries predating an added exclusion still name
+#: the same step).
+_EXCLUSION_FLAG = "--no-install-package"
+
+
+def command_key(command: str) -> tuple[str, ...]:
+    """Whitespace- and exclusion-insensitive identity of one sync command.
+
+    Tokens are compared after ``shlex`` splitting, so spacing, line folding
+    and quoting differences never make a baseline entry silently miss its
+    build. ``--no-install-package <pkg>`` pairs are dropped (see
+    :data:`_EXCLUSION_FLAG`); every other token, in order, is identity.
+    """
+    tokens = shlex.split(command)
+    kept: list[str] = []
+    skip_next = False
+    for token in tokens:
+        if skip_next:
+            skip_next = False
+        elif token == _EXCLUSION_FLAG:
+            skip_next = True
+        elif not token.startswith(f"{_EXCLUSION_FLAG}="):
+            kept.append(token)
+    return tuple(kept)
+
+
 def load_baseline(repo_root: Path) -> set[tuple[str, str]]:
     """``{(workflow, command)}`` already known not to resolve.
 
@@ -374,6 +402,35 @@ def load_baseline(repo_root: Path) -> set[tuple[str, str]]:
     return entries
 
 
+def _baseline_index(
+    baseline: set[tuple[str, str]],
+) -> dict[tuple[str, tuple[str, ...]], tuple[str, str]]:
+    """Baseline entries keyed by ``(workflow, command_key)``."""
+    return {
+        (workflow, command_key(command)): (workflow, command)
+        for workflow, command in baseline
+    }
+
+
+#: ``(ok, baselined) -> (status, counts as a failure, is a stale entry)``.
+_RATCHET: dict[tuple[bool, bool], tuple[str, bool, bool]] = {
+    (False, True): ("known-broken (baselined)", False, False),
+    (False, False): ("NEW FAILURE", True, False),
+    (True, True): ("FIXED — remove from baseline", True, True),
+    (True, False): ("resolved", False, False),
+}
+
+
+def orphaned_baseline_entries(
+    baseline: set[tuple[str, str]], builds: list[EnvBuild]
+) -> list[tuple[str, str]]:
+    """Baseline entries that match no discovered build (workflow/step gone)."""
+    live = {(build.workflow, command_key(build.command)) for build in builds}
+    return sorted(
+        entry for key, entry in _baseline_index(baseline).items() if key not in live
+    )
+
+
 def check(repo_root: Path) -> tuple[int, dict]:
     builds = discover(repo_root)
     enforced = [b for b in builds if b.enforced]
@@ -393,6 +450,7 @@ def check(repo_root: Path) -> tuple[int, dict]:
         }
 
     baseline = load_baseline(repo_root)
+    index = _baseline_index(baseline)
     provisioned = _provisioned_jobs_by_workflow(repo_root)
     with tempfile.TemporaryDirectory(prefix="ci-env-contract-") as tmp:
         tree = Path(tmp) / "tracked"
@@ -405,21 +463,11 @@ def check(repo_root: Path) -> tuple[int, dict]:
                 tree, build.job in provisioned.get(build.workflow, set())
             )
             ok, detail = replay(tree, build)
-            key = (build.workflow, build.command)
-            baselined = key in baseline
-            if not ok and baselined:
-                # Known-broken (D-CIP-2): reported, not counted. The ratchet.
-                status = "known-broken (baselined)"
-            elif not ok:
-                status = "NEW FAILURE"
-                failures += 1
-            elif baselined:
-                # Ratchet tightening: it resolves now, so the line must go.
-                status = "FIXED — remove from baseline"
-                failures += 1
+            baselined = (build.workflow, command_key(build.command)) in index
+            status, failed, is_stale = _RATCHET[(ok, baselined)]
+            failures += int(failed)
+            if is_stale:
                 stale.append({"workflow": build.workflow, "command": build.command})
-            else:
-                status = "resolved"
             results.append(
                 {
                     "workflow": build.workflow,
@@ -431,6 +479,9 @@ def check(repo_root: Path) -> tuple[int, dict]:
                 }
             )
 
+    orphaned = orphaned_baseline_entries(baseline, enforced)
+    failures += len(orphaned)
+    stale.extend({"workflow": w, "command": c} for w, c in orphaned)
     payload = {
         "ok": failures == 0,
         "baselinedKnownBroken": sorted(f"{w}: {c}" for w, c in baseline),
@@ -504,26 +555,38 @@ def self_check(repo_root: Path) -> None:
     finally:
         empty.cleanup()
 
-    # 4 + 5. The ratchet must move in BOTH directions, or baselining would be
-    # a silent exemption rather than tracked debt.
-    baseline = load_baseline(repo_root)
-    if not baseline:
+    _self_check_ratchet()
+
+
+def _self_check_ratchet() -> None:
+    """Steps 4-6: the ratchet moves in BOTH directions and the matcher is exact.
+
+    Proven on synthetic entries so the proof does not depend on the real
+    baseline still carrying debt -- a fully burned-down (empty) baseline is
+    the goal state, not a broken gate.
+    """
+    if _RATCHET[(False, True)][1] or not _RATCHET[(False, False)][1]:
         raise AssertionError(
-            f"self-check: {BASELINE_PATH} parsed to ZERO entries — either it "
-            "was lost or its format drifted. An empty baseline silently turns "
-            "every known-broken build into a hard failure, so verify it is "
-            "genuinely burned down before accepting this"
+            "self-check: a known-broken build must be excused and a new one must fail"
         )
-    known_broken = {
-        (r["workflow"], r["command"])
-        for r in check(repo_root)[1].get("enforced", [])
-        if r.get("baselined") and not r.get("ok")
-    }
-    if not known_broken:
+    if not (_RATCHET[(True, True)][1] and _RATCHET[(True, True)][2]):
         raise AssertionError(
-            "self-check: no baselined entry is actually failing — every line "
-            f"in {BASELINE_PATH} is stale and must be removed (the ratchet "
-            "only shrinks); a baseline that excuses nothing real is dead weight"
+            "self-check: a baselined build that resolves must fail as stale"
+        )
+    entry = ("synthetic.yml", "uv sync --frozen --group g")
+    folded = EnvBuild(
+        "synthetic.yml",
+        "uv  sync --frozen --group g --no-install-package epistemic-graph",
+        enforced=True,
+    )
+    if orphaned_baseline_entries({entry}, [folded]):
+        raise AssertionError(
+            "self-check: the matcher missed an exclusion/whitespace variant"
+        )
+    other = EnvBuild("synthetic.yml", "uv sync --frozen --group other", enforced=True)
+    if orphaned_baseline_entries({entry}, [other]) != [entry]:
+        raise AssertionError(
+            "self-check: a baseline entry naming no live build was not flagged"
         )
 
 
