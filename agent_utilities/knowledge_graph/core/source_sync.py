@@ -2352,6 +2352,9 @@ def _sync_ops_mcp_connector(
         live = _ops_live_ids(docs, package)
         return _reconcile(engine, package, live) | {"source": package}
 
+    gate = _ops_drift_gate(engine, docs, package, sync)
+    if not gate.proceed:
+        return _ops_quarantined(package, mode, docs, since, gate)
     state = _ops_apply_envelopes(engine, docs, package, sync, since)
     return {
         "status": "partial" if state.failed else "ok",
@@ -2363,7 +2366,76 @@ def _sync_ops_mcp_connector(
         "failed": state.failed,
         "since": since,
         "watermark": state.watermark,
+        "schema_drift": _ops_commit_contract(engine, gate, state),
     }
+
+
+def _ops_repair_context(
+    engine: Any, docs: list[Any], package: str, sync: Any
+) -> Any | None:
+    """The EH-403 repair seam for one drained ops delta, or ``None``.
+
+    Containment never depends on it: when the engine exposes no approval /
+    schema surface, a drifted delta is still quarantined, only unproposed.
+    """
+    from ...orchestration.action_policy import approval_lease_tenant
+    from ..schema_drift.eg_port import EngineSchemaRepairPort
+    from ..schema_drift.repair import RepairContext
+
+    def shadow_ingest(graph: str) -> tuple[int, int]:
+        shadow = _ops_apply_envelopes(
+            engine.for_graph(graph), docs, package, sync, None
+        )
+        return shadow.processed, shadow.failed
+
+    try:
+        port = EngineSchemaRepairPort.of(engine.graph_compute)
+        tenant = approval_lease_tenant()
+    except Exception as exc:
+        logger.warning("%s schema repair seam unavailable: %s", package, exc)
+        return None
+    return RepairContext(engine, port, tenant, shadow_ingest)
+
+
+def _ops_drift_gate(engine: Any, docs: list[Any], package: str, sync: Any) -> Any:
+    """EH-402: measure the drained delta against the source's approved contract."""
+    from ..schema_drift.gate import GateRequest, run_gate
+
+    records = [_ops_record(doc, package, sync) for doc in docs]
+    return run_gate(
+        GateRequest(
+            engine=engine,
+            source=package,
+            records=records,
+            record_ids=[str(record.get("id") or "") for record in records],
+            repair=lambda: _ops_repair_context(engine, docs, package, sync),
+        )
+    )
+
+
+def _ops_quarantined(
+    package: str, mode: str, docs: list[Any], since: str | None, gate: Any
+) -> dict[str, Any]:
+    """A drifted delta held back: nothing applied, the checkpoint unchanged."""
+    return {
+        "status": "quarantined",
+        "source": package,
+        "mode": mode,
+        "records_seen": len(docs),
+        "ingested": 0,
+        "failed": 0,
+        "since": since,
+        "watermark": since,
+        "schema_drift": gate.detail,
+    }
+
+
+def _ops_commit_contract(engine: Any, gate: Any, state: Any) -> dict[str, Any]:
+    """Advance the approved contract only together with a clean apply."""
+    from ..schema_drift.gate import commit_contract
+
+    applied = commit_contract(engine, gate, applied_cleanly=not state.failed)
+    return {**gate.detail, "contract": applied}
 
 
 def _sync_microsoft_agent(

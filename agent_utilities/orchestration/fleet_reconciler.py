@@ -86,6 +86,9 @@ from agent_utilities.orchestration.fleet_observation import (
 
 logger = logging.getLogger(__name__)
 
+#: Approval kinds consumed by their own activation path, never the fleet drain.
+_NON_FLEET_APPROVAL_KINDS = frozenset({"merge_promotion", "schema_repair"})
+
 _APPROVAL_DRAIN_LIMIT = 20
 
 _MAX_SCALING_REPLICAS = 100_000
@@ -1878,12 +1881,14 @@ class FleetReconciler:
         props = row.get("a") if isinstance(row, dict) else None
         if not isinstance(props, dict) or not props.get("id"):
             return None
-        if str(props.get("kind") or "") == "merge_promotion":
+        if str(props.get("kind") or "") in _NON_FLEET_APPROVAL_KINDS:
             # Code-evolution publications are NOT fleet actuations: a
             # granted merge_promotion approval is consumed by the
             # evolution→branch bridge's ``publish_proposal`` action
             # (CONCEPT:AU-AHE.harness.evolution-branch-bridge), never by the fleet actuator — which
-            # would dry-run/fail it and silently eat the grant.
+            # would dry-run/fail it and silently eat the grant. A granted
+            # schema_repair approval is activated by the next sync of its
+            # source through EG GraphSchema.AttachApproved (EH-403).
             return None
         return props
 

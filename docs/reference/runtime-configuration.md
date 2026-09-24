@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 372 runtime-only call-site inputs.
+575 typed fields · 374 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -274,6 +274,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `KG_AUTH_TOKEN_REF` | `Union` | `unset` |
 | `KG_IDENTITY_OAUTH2` | `Union` | `unset` |
+| `KG_LOCAL_PROCESS_ADMIN_SCOPE` | `bool` | `False` |
 | `KG_ADMIN_BROKER_OAUTH2` | `Union` | `unset` |
 
 ## Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
@@ -764,6 +765,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ARPO_MAX_BRANCHES` | 1 |
 | `ASSIMILATION_ENGINE_PAGERANK` | 1 |
 | `ASSIMILATION_SYNTH_TIMEOUT_S` | 1 |
+| `AUDIT_PSEUDONYM_HMAC_KEY_REF` | 1 |
 | `AUDIT_REVIEW_TIMEOUT_S` | 1 |
 | `AU_PROMPT_CACHE` | 1 |
 | `AU_SEMANTIC_CACHE` | 1 |
@@ -1052,6 +1054,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SKILL_GRAPH_CRAWL_TIMEOUT` | 1 |
 | `SKILL_GRAPH_MAX_PAGES` | 1 |
 | `SLACK_APP_TOKEN` | 1 |
+| `SOURCE_CONTRACT_EVOLUTION_POLICY` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
 | `STARDOG_DATABASE` | 4 |
