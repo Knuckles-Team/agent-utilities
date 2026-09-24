@@ -22,35 +22,28 @@ a single-GPU job discipline. Those are the four pieces this subsystem adds.
 
 ## System flow
 
-```mermaid
-flowchart TD
-    subgraph Input
-        T[Pasted text]
-        U[URL]
-        F[Local file]
-    end
-    U -->|readability| R["ReaderConnector<br/>KG-2.66<br/>Jina / trafilatura / strip"]
-    T --> X
-    F --> X
-    R --> X
+<div class="admonition architecture" markdown>
+<p class="admonition-title">System flow: input to persisted edges, streamed live to three frontends</p>
 
-    subgraph Core["fact_extractor — KG-2.64"]
-        X[extract_facts] --> P["make_streaming_extract_fn<br/>vLLM, JSON-schema, sampling profile"]
-        P -->|token deltas| I["parse_facts_incremental<br/>brace-match partial stream"]
-        I --> D{"FactDeduper<br/>vectorized cosine<br/>shared embedder"}
-        D -->|unique| K[(kept facts)]
-        D -->|duplicate| DUP[mark is_duplicate]
-    end
+Input (pasted text, a URL, or a local file) reaches `extract_facts`
+(`fact_extractor`, KG-2.64) — a URL first passes through `ReaderConnector`
+(KG-2.66, Jina/trafilatura/strip). `extract_facts` drives
+`make_streaming_extract_fn` (vLLM, JSON-schema, sampling profile), whose
+token deltas feed `parse_facts_incremental` (brace-match partial
+stream), which feeds `FactDeduper` (vectorized cosine, shared embedder):
+unique facts are kept, duplicates are marked `is_duplicate`.
 
-    K --> PERSIST["persist_facts → engine edges<br/>confidence/evidence/tags/source<br/>variant node-keys merged"]
-    PERSIST --> EG[("epistemic-graph<br/>durable backends")]
+Kept facts reach `persist_facts`, which writes engine edges
+(confidence/evidence/tags/source, variant node-keys merged) into the
+epistemic-graph durable backends, and are also written to
+`/extract/jsonl` -> `facts.jsonl`.
 
-    X -. events .-> SSE["/api/enhanced/extract/stream<br/>round_start·fact·metrics·round_end·done·job_done/"]
-    SSE --> WEB["agent-webui<br/>Sigma.js graph"]
-    SSE --> TUI["agent-terminal-ui<br/>fact rows"]
-    SSE --> GB["geniusbot<br/>QGraphicsView force graph"]
-    K --> JSONL[/extract/jsonl → facts.jsonl/]
-```
+The same extraction emits events over
+`/api/enhanced/extract/stream` (`round_start`/`fact`/`metrics`/
+`round_end`/`done`/`job_done`), consumed live by all three frontends:
+`agent-webui` (Sigma.js graph), `agent-terminal-ui` (fact rows), and
+`geniusbot` (QGraphicsView force graph).
+</div>
 
 The same `extract_facts` async generator drives **both** persistence and the SSE
 stream, so what a user watches stream in is exactly what lands in the graph.
@@ -80,24 +73,20 @@ The durable Kafka queue (KG-2.55–2.57) fans work across hosts; the slot schedu
 governs the **one** GPU inference slot a host contends on. A fresh foreground
 submission preempts the running job, which is checkpointed and auto-resumes.
 
-```mermaid
-stateDiagram-v2
-    [*] --> queued: submit
-    queued --> running: slot free (FIFO)
-    running --> pausing: preempted by new foreground / user hold
-    pausing --> paused: cooperative checkpoint at file boundary
-    pausing --> held: user hold
-    paused --> queued: auto-backfill (preempted tier first)
-    held --> queued: explicit resume
-    running --> done: finished
-    running --> failed: error
-    running --> [*]
-    note right of paused
-        checkpoint = done_files / round,
-        persisted graph-natively
-        (GraphCheckpointStore) → survives redeploy
-    end note
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">GPU-slot scheduler: preemptible, checkpointed, auto-resuming</p>
+
+A job is `submit`ted to `queued`, moves to `running` when the slot frees
+(FIFO). From `running`, a new foreground submission or a user hold moves
+it to `pausing`, which resolves to either `paused` (a cooperative
+checkpoint at a file boundary) or `held` (a user hold). `paused` jobs
+auto-backfill back to `queued` (preempted tier first); `held` jobs return
+to `queued` only on an explicit resume. `running` otherwise ends in
+`done` (finished) or `failed` (error).
+
+A `paused` job's checkpoint (`done_files`/round) is persisted
+graph-natively (`GraphCheckpointStore`), so it survives a redeploy.
+</div>
 
 The runner (`ExtractionJobManager._run_job`) checks `scheduler.should_pause()` at
 each file boundary, persists its checkpoint, and yields. On restart,
@@ -106,30 +95,23 @@ it rejoins backfill — nothing is lost across a deploy.
 
 ## Live streaming sequence
 
-```mermaid
-sequenceDiagram
-    participant UI as Frontend
-    participant GW as /api/enhanced/extract/*
-    participant M as ExtractionJobManager
-    participant S as GpuSlotScheduler
-    participant V as vLLM
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A late subscriber replays history before tailing live events</p>
 
-    UI->>GW: POST /extract/submit {text|url}
-    GW->>M: submit() → job_id
-    M->>S: enqueue (preempt running if foreground)
-    GW-->>UI: {job_id}
-    UI->>GW: GET /extract/stream/{job_id} (SSE)
-    GW->>M: stream(job_id) — replay buffer + live
-    S->>M: run job on the slot
-    loop per fact
-        M->>V: streaming completion (JSON schema)
-        V-->>M: token deltas → parse_facts_incremental
-        M-->>UI: data: {type:"fact", fact:{...}}
-    end
-    M-->>UI: data: {type:"job_done"}
-    UI->>GW: GET /extract/jsonl/{job_id}
-    GW-->>UI: facts.jsonl
-```
+The frontend `POST`s `/extract/submit {text|url}`, which the gateway
+forwards to `ExtractionJobManager.submit()` (returning a `job_id`); the
+manager enqueues it on `GpuSlotScheduler` (preempting a running job if
+this one is foreground). The frontend then opens
+`GET /extract/stream/{job_id}` (SSE), and the gateway calls
+`manager.stream(job_id)`, which replays the buffer before tailing live.
+
+Once the scheduler runs the job on the slot, the manager streams each
+fact: a streaming completion request to vLLM (JSON schema) returns token
+deltas, parsed incrementally (`parse_facts_incremental`) and sent to the
+frontend as `data: {type:"fact", fact:{...}}`. A final
+`data: {type:"job_done"}` event lets the frontend fetch
+`GET /extract/jsonl/{job_id}` for `facts.jsonl`.
+</div>
 
 A late subscriber misses nothing: the manager keeps a bounded per-job event
 buffer and replays history before tailing live events.
@@ -138,25 +120,18 @@ buffer and replays history before tailing live events.
 
 One gateway contract, three native renderings:
 
-```mermaid
-flowchart LR
-    GW[("Gateway<br/>/api/enhanced/extract/*")]
-    GW --- WEB
-    GW --- TUI
-    GW --- GB
-    subgraph WEB[agent-webui · React]
-        W1[ExtractionView]
-        W2["Sigma.js + ForceAtlas2<br/>edge-fact hover cards<br/>longest-path · JSONL"]
-    end
-    subgraph TUI[agent-terminal-ui · Textual]
-        T1[/ingest command/]
-        T2["live colorized fact rows<br/>JSONL export"]
-    end
-    subgraph GB[geniusbot · Qt]
-        G1[ExtractionCockpitPanel]
-        G2["native QGraphicsView force graph<br/>relax_layout · edge cards · JSONL"]
-    end
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One gateway contract, three native renderings</p>
+
+The gateway (`/api/enhanced/extract/*`) serves three frontends directly,
+each with its own native rendering: `agent-webui` (React) —
+`ExtractionView` rendering a Sigma.js + ForceAtlas2 graph with edge-fact
+hover cards, longest-path, and JSONL export; `agent-terminal-ui`
+(Textual) — an `/ingest` command driving live colorized fact rows with
+JSONL export; `geniusbot` (Qt) — `ExtractionCockpitPanel` rendering a
+native QGraphicsView force graph with `relax_layout`, edge cards, and
+JSONL export.
+</div>
 
 | Frontend | Graph | Edge metadata | Live stream | Export |
 |----------|-------|---------------|-------------|--------|
