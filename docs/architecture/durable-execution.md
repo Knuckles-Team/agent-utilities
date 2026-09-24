@@ -29,29 +29,31 @@ exists to close.
 
 ## Architecture
 
-```text
- agent / tool code
-        │  durable_run() · durable_sleep() · [durable_call/state_get/state_set: see gaps below]
-        ▼
-   agent_utilities.orchestration.durable_tool_surface  (DE2 — the ONE mental model,
-        │                                                the ctx.* analog)
-        │        eg-durable  (crates/eg-durable — the routing CONTRACT, DE0)
-        │
-        ├─ keyed single-writer state  → eg-statechart (MachineInstance, OCC)        [not Python-reachable yet]
-        ├─ async/checkpointed work    → eg-jobs (AnalyticsJob, fenced leases)        [not Python-reachable yet]
-        ├─ cross-store atomic step    → eg-mutation-store (saga/2PC coordinator)     [not Python-reachable yet]
-        └─ agent-loop continuations   → DurableRun (Python step checkpoints)         [LIVE — durable_run/durable_sleep]
-        │
-        ▼  every path already commits through
-   eg-mutation-store  (commit-before-ack journal: BATCHES/IDEMPOTENCY/VERSIONS/OUTBOX)
-        │
-        ▼  mirrored as KG nodes/edges (DE1 — implemented for :DurableRun only, see gap below)
-   :DurableExecutionUnit  ⊂ {:StatechartInstance, :AnalyticsJob, :SagaCoordination, :DurableRun}
-        │  ─PRODUCED→ RunTrace/ToolCall   ─AWAITS→ :DurableExecutionUnit   ─COORDINATED_BY→ :SagaCoordination
-        ▼
-   durable_tool_surface.durable_status() / graph_durable(action="status")
-   "what is durably in flight, for whom, waiting on what" — today: :DurableRun only
-```
+Agent/tool code calls `durable_run()`/`durable_sleep()` (with
+`durable_call`/`state_get`/`state_set` as gaps, see below) into
+`agent_utilities.orchestration.durable_tool_surface` (DE2 — the one
+mental model, the `ctx.*` analog), which routes through `eg-durable`
+(`crates/eg-durable` — the routing contract, DE0) to one of four
+backends by kind of work: keyed single-writer state goes to
+`eg-statechart` (`MachineInstance`, OCC — not Python-reachable yet);
+async/checkpointed work goes to `eg-jobs` (`AnalyticsJob`, fenced leases
+— not Python-reachable yet); a cross-store atomic step goes to
+`eg-mutation-store` (saga/2PC coordinator — not Python-reachable yet);
+and agent-loop continuations go to `DurableRun` (Python step checkpoints
+— live, via `durable_run`/`durable_sleep`).
+
+Every path already commits through `eg-mutation-store` (a
+commit-before-ack journal: batches/idempotency/versions/outbox), which is
+mirrored as KG nodes/edges (DE1 — implemented for `:DurableRun` only, see
+gap below) as `:DurableExecutionUnit` — a superclass of
+`:StatechartInstance`, `:AnalyticsJob`, `:SagaCoordination`, and
+`:DurableRun` — linked `PRODUCED` from `RunTrace`/`ToolCall`, `AWAITS`
+another `:DurableExecutionUnit`, and `COORDINATED_BY` a
+`:SagaCoordination`.
+
+`durable_tool_surface.durable_status()` /
+`graph_durable(action="status")` answers "what is durably in flight, for
+whom, waiting on what" — today, for `:DurableRun` only.
 
 The routing decision itself (which backend serves which call shape) is
 `crates/eg-durable`'s `CallShape`/`WorkShape`/`DurableBackendKind` contract
