@@ -32,6 +32,9 @@ from ...models.knowledge_graph import (
 
 logger = logging.getLogger(__name__)
 
+#: Self-reported outcome counters a TeamConfig bundle may still carry.
+_OUTCOME_COUNTERS = ("success_rate", "usage_count", "reuse_threshold")
+
 
 def _canonical_node_payload(value: Any, node_type: str) -> dict[str, Any]:
     """Serialize a registry DTO into canonical graph-node properties."""
@@ -925,71 +928,9 @@ class RegistryMixin(_Base):
         return builder.render()
 
     # ─────────────────────────────────────────────────────────────────────
-    #  TeamConfig: Proven Team Reuse (CONCEPT:AU-AHE.harness.proven-team-reuse)
+    #  TeamConfig promotion (CONCEPT:AU-AHE.harness.proven-team-reuse); a
+    #  TeamConfig is never SELECTED by a success rate (ST-7, invariant T5)
     # ─────────────────────────────────────────────────────────────────────
-
-    def _team_configs_from_backend(self, query: str) -> list[Any]:
-        # Simple keyword matching (cosine similarity can be added later)
-        from ...models.knowledge_graph import TeamConfigNode
-
-        assert self.backend is not None  # guaranteed by the caller's `if self.backend`
-        results: list[TeamConfigNode] = []
-        rows = self.backend.execute("MATCH (tc:TeamConfig) RETURN tc", {})
-        query_lower = query.lower()
-        for row in rows:
-            data = row.get("tc", row)
-            try:
-                node = TeamConfigNode.model_validate(data)
-            except Exception as e:  # noqa: BLE001 — per-row defensive skip: a malformed TeamConfig row is excluded from results (not counted as a match), so downstream ranking/return only ever sees successfully-parsed nodes
-                logger.debug(f"Failed to parse TeamConfig: {e}")
-                continue
-            pattern_lower = node.task_pattern.lower()
-            overlap = len(set(query_lower.split()) & set(pattern_lower.split()))
-            if overlap > 0:
-                results.append(node)
-        return results
-
-    def _team_configs_from_memory(self, results: list[Any]) -> None:
-        from ...models.knowledge_graph import TeamConfigNode
-
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            if str(data.get("node_type", "")).lower() != "team_config":
-                continue
-            try:
-                node = TeamConfigNode.model_validate({"id": nid, **data})
-            except Exception:  # nosec B110
-                continue  # Defensive: skip malformed in-memory nodes
-            if node not in results:
-                results.append(node)
-
-    def find_matching_team_config(
-        self,
-        query: str,
-        top_k: int = 3,
-    ) -> list:
-        """Find TeamConfig nodes whose task_pattern semantically matches the query.
-
-        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
-
-        Uses hybrid search on TeamConfig nodes to find previously
-        successful team compositions for similar tasks.
-
-        Args:
-            query: The user query to match against.
-            top_k: Maximum number of matches to return.
-
-        Returns:
-            A list of ``TeamConfigNode`` instances, sorted by success_rate.
-        """
-        results: list[Any] = (
-            self._team_configs_from_backend(query) if self.backend else []
-        )
-        # Also check in-memory
-        self._team_configs_from_memory(results)
-        # Sort by success_rate descending
-        results.sort(key=lambda t: t.success_rate, reverse=True)
-        return results[:top_k]
 
     def promote_coalition_to_template(
         self,
@@ -1038,8 +979,6 @@ class RegistryMixin(_Base):
             description=f"Proven team for: {task_pattern}",
             task_pattern=task_pattern,
             specialist_ids=coalition_data.get("specialist_ids", []),
-            success_rate=1.0,  # Initial success (just promoted)
-            usage_count=0,
             timestamp=ts,
             importance_score=0.8,
         )
@@ -1078,73 +1017,6 @@ class RegistryMixin(_Base):
             task_pattern,
         )
         return node.model_dump()
-
-    def record_team_outcome(
-        self,
-        team_config_id: str,
-        reward: float,
-    ) -> None:
-        """Update a TeamConfig's success_rate after a reuse outcome.
-
-        CONCEPT:AU-AHE.harness.proven-team-reuse — Proven Team Reuse
-
-        Uses an exponential moving average (alpha=0.3) to update the
-        rolling success rate.  Also increments the usage counter.
-
-        Args:
-            team_config_id: The TeamConfig node ID.
-            reward: The outcome reward (0.0 to 1.0).
-        """
-        alpha = 0.3
-
-        old_rate = 0.5
-        usage_count = 0
-        if self.graph.has_node(team_config_id):
-            data = self.graph._get_node_properties(team_config_id)
-            old_rate = data.get("success_rate", 0.5)
-            usage_count = data.get("usage_count", 0)
-        elif self.backend:
-            # Compute-layer cache miss (e.g. a fresh process with a warm
-            # backend): read the current counters so the increment below is
-            # still correct rather than assuming a cold start.
-            rows = self.backend.execute(
-                "MATCH (tc:TeamConfig {id: $id}) "
-                "RETURN tc.success_rate, tc.usage_count",
-                {"id": team_config_id},
-            )
-            if rows:
-                old_rate = rows[0].get("tc.success_rate") or 0.5
-                usage_count = rows[0].get("tc.usage_count") or 0
-
-        new_rate = alpha * reward + (1 - alpha) * old_rate
-        new_usage_count = usage_count + 1
-
-        if self.graph.has_node(team_config_id):
-            data = self.graph._get_node_properties(team_config_id)
-            data["success_rate"] = new_rate
-            data["usage_count"] = new_usage_count
-            # _get_node_properties returns a detached snapshot; persist the
-            # mutated values back to the graph store so reads see the update.
-            self.graph.add_node(team_config_id, data)
-
-        if self.backend:
-            # ``SET tc.usage_count = COALESCE(tc.usage_count, 0) + 1`` is a
-            # function-call SET value, outside the native write subset (SET
-            # values must be literals; epistemic-graph/crates/eg-query/src/
-            # cypher/parser.rs:1184). The increment is now computed as a
-            # Python literal above; ``_upsert_node`` is the typed field-merge
-            # upsert equivalent of the old MATCH+SET for an existing node.
-            self._upsert_node(
-                "TeamConfig",
-                team_config_id,
-                {"success_rate": new_rate, "usage_count": new_usage_count},
-            )
-
-        logger.info(
-            "Recorded team outcome for %s: reward=%.2f",
-            team_config_id,
-            reward,
-        )
 
     def link_prompt_to_agent(
         self,
@@ -1406,6 +1278,10 @@ class RegistryMixin(_Base):
         config["origin"] = "community"
         config["node_type"] = "team_config"
         config["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # A bundle's self-reported outcome counters are never imported: team
+        # reuse is not selected by a success rate (SWARM-TOPOLOGY ST-7, T5).
+        for counter in _OUTCOME_COUNTERS:
+            config.pop(counter, None)
 
         if hasattr(self, "backend") and self.backend:
             try:
@@ -1429,82 +1305,6 @@ class RegistryMixin(_Base):
             new_id,
         )
         return new_id
-
-    def _team_config_summaries_from_backend(
-        self, min_success_rate: float
-    ) -> list[dict[str, Any]]:
-        assert (
-            self.backend is not None
-        )  # guaranteed by the caller's `if ... self.backend:`
-        configs: list[dict[str, Any]] = []
-        try:
-            results = self.backend.execute(
-                "MATCH (t:TeamConfig) "
-                "WHERE t.success_rate >= $min_rate "
-                "RETURN t.id AS id, t.name AS name, "
-                "t.success_rate AS success_rate, "
-                "t.usage_count AS usage_count, "
-                "t.origin AS origin "
-                "ORDER BY t.success_rate DESC",
-                {"min_rate": min_success_rate},
-            )
-        except Exception:
-            return configs  # nosec
-        for r in results:
-            # Filter client-side: some backends (in-memory
-            # EpistemicGraph) do not evaluate the WHERE clause, so apply
-            # the success-rate threshold here as well.
-            rate = r.get("success_rate", 0) or 0
-            if rate < min_success_rate:
-                continue
-            configs.append(
-                {
-                    "id": r.get("id", ""),
-                    "name": r.get("name", ""),
-                    "success_rate": rate,
-                    "usage_count": r.get("usage_count", 0),
-                    "origin": r.get("origin", ""),
-                }
-            )
-        return configs
-
-    def _add_memory_team_config_summaries(
-        self, configs: list[dict[str, Any]], min_success_rate: float
-    ) -> None:
-        # Also include NX graph entries
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            if data.get("node_type") != "team_config":
-                continue
-            rate = data.get("success_rate", 0)
-            if rate < min_success_rate:
-                continue
-            if any(c["id"] == nid for c in configs):
-                continue
-            configs.append(
-                {
-                    "id": nid,
-                    "name": data.get("name", ""),
-                    "success_rate": rate,
-                    "usage_count": data.get("usage_count", 0),
-                    "origin": data.get("origin", "local"),
-                }
-            )
-
-    def list_team_configs(self, min_success_rate: float = 0.0) -> list[dict[str, Any]]:
-        """List all team configurations, optionally filtered by success rate.
-
-        Args:
-            min_success_rate: Minimum success rate filter (0-1).
-
-        Returns:
-            List of team config summaries.
-        """
-        configs: list[dict[str, Any]] = []
-        if hasattr(self, "backend") and self.backend:
-            configs = self._team_config_summaries_from_backend(min_success_rate)
-        self._add_memory_team_config_summaries(configs, min_success_rate)
-        return configs
 
     # ------------------------------------------------------------------
     # AgentTemplate CRUD (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)

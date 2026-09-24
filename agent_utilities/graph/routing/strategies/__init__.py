@@ -31,7 +31,6 @@ from .policy import (
     SubagentLifecyclePolicy,
     SwarmPresetPolicy,
 )
-from .team_reuse import select_reusable_team
 from .workflow_context import ShieldedResult, WorkflowContextRouter
 
 __all__ = [
@@ -51,7 +50,6 @@ __all__ = [
     "CostAwareRouter",
     "TopologicalRoutingPolicy",
     "RoutingDecision",
-    "select_reusable_team",
     "filter_by_pheromone",
     "prune_by_telemetry",
     "format_specialist_step_info",

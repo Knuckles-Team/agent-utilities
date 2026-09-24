@@ -168,19 +168,6 @@ class WorkflowDistillationHook:
             outcome["reason"] = f"scaffold_failed: {e}"
             return outcome
 
-        if team_config_id:
-            try:
-                from ..core.registry.kg_adapter import RegistryMixin
-
-                if isinstance(self.engine, RegistryMixin):
-                    await asyncio.to_thread(
-                        self.engine.record_team_outcome,
-                        team_config_id,
-                        reward=quality_score,
-                    )
-            except Exception as e:  # noqa: BLE001 — reward-signal telemetry only; outcome["promoted"] is set unconditionally below regardless of this call's success
-                logger.debug("[ORCH-1.8] TeamConfig reward update failed: %s", e)
-
         outcome["promoted"] = True
         outcome["reason"] = "threshold_met"
         logger.info(

@@ -13,9 +13,3 @@
     ]),
   })
 # ---
-# name: test_team_reuse
-  dict({
-    'reuse_team': True,
-    'team_id': 'summarizer_team',
-  })
-# ---

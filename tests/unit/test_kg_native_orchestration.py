@@ -478,8 +478,6 @@ class TestShareableTeamConfigs:
             "tc:test",
             node_type="team_config",
             name="Test Team",
-            success_rate=0.85,
-            usage_count=5,
             origin="local",
         )
         bundle = engine.export_team_config("tc:test")
@@ -500,45 +498,13 @@ class TestShareableTeamConfigs:
         assert new_id.startswith("tc:imported:")
         assert new_id in engine.graph.nodes
         assert engine.graph.nodes[new_id]["origin"] == "community"
+        assert "success_rate" not in engine.graph.nodes[new_id]
 
     def test_export_missing_returns_none(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_or_create()
         assert engine.export_team_config("nonexistent") is None
-
-    def test_list_team_configs(self):
-        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-        engine = IntelligenceGraphEngine.get_or_create()
-        g = engine.graph_compute
-        # Isolate on this engine's own connection: wipe team_config nodes leaked
-        # by other tests into the shared __commons__ graph before asserting counts.
-        try:
-            g._client.graph.clear()
-        except Exception:
-            pass
-        g.add_node(
-            "tc:a",
-            node_type="team_config",
-            name="A",
-            success_rate=0.9,
-            usage_count=3,
-            origin="local",
-        )
-        g.add_node(
-            "tc:b",
-            node_type="team_config",
-            name="B",
-            success_rate=0.5,
-            usage_count=1,
-            origin="local",
-        )
-        all_configs = engine.list_team_configs()
-        assert len(all_configs) == 2
-        high_rate = engine.list_team_configs(min_success_rate=0.7)
-        assert len(high_rate) == 1
-        assert high_rate[0]["name"] == "A"
 
 
 # --- Pydantic Model Tests ---

@@ -2,9 +2,8 @@
 
 Validates:
     - ``TeamConfigNode`` model creation and field defaults
-    - ``find_matching_team_config()`` query and ranking
     - ``promote_coalition_to_template()`` lifecycle + cache invalidation
-    - ``record_team_outcome()`` EMA updates
+    - no success-rate store or selection on a TeamConfig (ST-7, invariant T5)
     - ``link_prompt_to_agent()`` edge creation
 """
 
@@ -71,9 +70,8 @@ class TestTeamConfigNode:
         assert tc.task_pattern == "code audit"
         assert tc.specialist_ids == []
         assert tc.capability_overrides == {}
-        assert tc.success_rate == 0.0
-        assert tc.usage_count == 0
-        assert tc.reuse_threshold == 0.72
+        for counter in ("success_rate", "usage_count", "reuse_threshold"):
+            assert counter not in TeamConfigNode.model_fields
 
     def test_team_config_with_capability_overrides(self):
         """capability_overrides should correctly store RLM synergy mappings."""
@@ -98,52 +96,31 @@ class TestTeamConfigNode:
             name="Serial Test",
             task_pattern="build API client",
             specialist_ids=["api_builder"],
-            success_rate=0.85,
         )
         data = tc.model_dump()
         restored = TeamConfigNode.model_validate(data)
         assert restored.id == tc.id
-        assert restored.success_rate == 0.85
+        assert restored.specialist_ids == ["api_builder"]
 
 
 @pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
-class TestTeamConfigLookup:
-    """Test suite for find_matching_team_config()."""
+class TestNoSuccessRateSelection:
+    """ST-7: the success-rate lookup, EMA and listing are gone."""
 
-    def test_find_with_keyword_match(self, engine):
-        """Should find TeamConfigs that share keywords with the query."""
-        # Add a TeamConfig to the graph
-        tc = TeamConfigNode(
-            id="tc:audit",
-            name="Audit Team",
-            task_pattern="audit the codebase for security issues",
-            specialist_ids=["security_analyst"],
-            success_rate=0.9,
+    def test_the_success_rate_api_is_gone(self, engine):
+        for name in (
+            "find_matching_team_config",
+            "record_team_outcome",
+            "list_team_configs",
+        ):
+            assert not hasattr(engine, name), name
+
+    def test_an_imported_bundle_drops_its_outcome_counters(self, engine):
+        new_id = engine.import_team_config(
+            {"config": {"name": "Shared", "success_rate": 0.99, "usage_count": 7}}
         )
-        engine.graph.add_node(tc.id, **_node_kwargs(tc))
-
-        results = engine.find_matching_team_config("audit the repository")
-        assert len(results) >= 1
-        assert results[0].task_pattern == tc.task_pattern
-
-    def test_find_returns_empty_for_no_match(self, engine):
-        """Should return empty list when no TeamConfigs match."""
-        results = engine.find_matching_team_config("build a spaceship")
-        assert results == []
-
-    def test_find_respects_top_k(self, engine):
-        """Should limit results to top_k."""
-        for i in range(5):
-            tc = TeamConfigNode(
-                id=f"tc:match_{i}",
-                name=f"Match {i}",
-                task_pattern=f"deploy service number {i}",
-                success_rate=0.5 + i * 0.1,
-            )
-            engine.graph.add_node(tc.id, **_node_kwargs(tc))
-
-        results = engine.find_matching_team_config("deploy service", top_k=2)
-        assert len(results) <= 2
+        data = engine.graph._get_node_properties(new_id)
+        assert "success_rate" not in data and "usage_count" not in data
 
 
 @pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
@@ -168,7 +145,7 @@ class TestPromoteCoalition:
 
         assert "id" in result
         assert result["task_pattern"] == "repository analysis"
-        assert result["success_rate"] == 1.0  # Initial promotion
+        assert "success_rate" not in result
 
     def test_promote_creates_reused_team_edge(self, engine):
         """Should create a REUSED_TEAM edge from TeamConfig to coalition."""
@@ -187,42 +164,6 @@ class TestPromoteCoalition:
 
         # Check edge exists in NetworkX
         assert engine.graph.has_edge(tc_id, coalition.id)
-
-
-@pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")
-class TestRecordTeamOutcome:
-    """Test suite for record_team_outcome()."""
-
-    def test_updates_success_rate(self, engine):
-        """Should update success_rate using EMA."""
-        tc = TeamConfigNode(
-            id="tc:outcome",
-            name="Outcome Team",
-            task_pattern="test outcome",
-            success_rate=0.5,
-        )
-        engine.graph.add_node(tc.id, **_node_kwargs(tc))
-
-        engine.record_team_outcome("tc:outcome", reward=1.0)
-
-        data = engine.graph.nodes["tc:outcome"]
-        assert data["success_rate"] > 0.5  # EMA should increase
-        assert data["usage_count"] == 1
-
-    def test_increments_usage_count(self, engine):
-        """Usage count should increment on each outcome recording."""
-        tc = TeamConfigNode(
-            id="tc:count",
-            name="Count Team",
-            task_pattern="test count",
-            usage_count=5,
-        )
-        engine.graph.add_node(tc.id, **_node_kwargs(tc))
-
-        engine.record_team_outcome("tc:count", reward=0.8)
-
-        data = engine.graph.nodes["tc:count"]
-        assert data["usage_count"] == 6
 
 
 @pytest.mark.concept("CONCEPT:AU-AHE.evaluation.interpretability-tests")

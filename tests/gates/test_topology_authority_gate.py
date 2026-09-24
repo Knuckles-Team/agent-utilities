@@ -30,9 +30,34 @@ def test_the_tree_holds_one_topology_authority() -> None:
     ("source", "path", "rule"),
     [
         (
-            'q = "MATCH (t:TopologyTemplate) SET t.success_rate = 1"',
+            'q = "MATCH (t:TopologyTemplate) SET t.name = 1"',
             ELSEWHERE,
             "cypher-topology-write",
+        ),
+        (
+            "class TeamConfigNode:\n    success_rate: float = 0.0",
+            ELSEWHERE,
+            "team-success-rate",
+        ),
+        (
+            "def f():\n    return TeamConfigNode(id='t', usage_count=0)",
+            ELSEWHERE,
+            "team-success-rate",
+        ),
+        (
+            'q = "MATCH (tc:TeamConfig) RETURN tc.success_rate"',
+            ELSEWHERE,
+            "team-success-rate",
+        ),
+        (
+            "def f(top):\n    return top.reuse_threshold",
+            ELSEWHERE,
+            "team-success-rate",
+        ),
+        (
+            "def f(team):\n    return team.success_rate > 0.5",
+            "agent_utilities/graph/routing/strategies/x.py",
+            "success-rate-selection",
         ),
         (
             "def f(best):\n    return best.success_rate > 0.7",

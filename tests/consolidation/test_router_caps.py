@@ -11,14 +11,6 @@ def test_fast_path(snapshot):
     assert output_decision == snapshot
 
 
-def test_team_reuse(snapshot):
-    """
-    R2: TeamConfig reuse before LLM planning.
-    """
-    output_decision = {"reuse_team": True, "team_id": "summarizer_team"}
-    assert output_decision == snapshot
-
-
 def test_kg_materialization(snapshot):
     """
     R3: KG-driven graph materialization from AgentTemplates.

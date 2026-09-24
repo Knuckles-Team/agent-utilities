@@ -328,69 +328,6 @@ def _router_build_discovery_context(discovery: dict[str, Any]) -> str:
     )
 
 
-async def _router_try_team_config_reuse(ctx: StepContext, deps: Any) -> str | None:
-    """CONCEPT:AU-AHE.harness.team-config-precheck — Check for matching TeamConfig before LLM planning.
-
-    Extracted verbatim from ``_router_topological_pre_routing`` (pure extract-method,
-    no behaviour change; the nested ``if deps.knowledge_engine:`` / ``if isinstance(...)
-    and hasattr(...):`` / ``if team:`` chain is flattened to early returns). Returns
-    "dispatcher" (having already set ``ctx.state.plan`` and emitted events) on a
-    successful reuse, else None to fall through to LLM planning.
-    """
-    if not deps.knowledge_engine:
-        return None
-    try:
-        from ..core.registry.kg_adapter import RegistryMixin
-
-        if not (
-            isinstance(deps.knowledge_engine, RegistryMixin)
-            and hasattr(deps.knowledge_engine, "find_matching_team_config")
-        ):
-            return None
-
-        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — sync KG round-trip; run off the event loop.
-        matching_teams = await asyncio.to_thread(
-            deps.knowledge_engine.find_matching_team_config,
-            ctx.state.query,
-            1,
-        )
-        # R2 (CONCEPT:AU-AHE.harness.team-config-precheck): reuse decision owned by the team_reuse
-        # strategy (single source of truth).
-        from .routing.strategies.team_reuse import select_reusable_team
-
-        team = select_reusable_team(matching_teams)
-        if not team:
-            return None
-
-        logger.info(
-            f"Router: Reusing TeamConfig '{team.task_pattern}' "
-            f"(success_rate={team.success_rate:.0%}, usage={team.usage_count})"
-        )
-        steps = [
-            ExecutionStep(id=sid, description=ctx.state.query)
-            for sid in team.specialist_ids
-        ]
-        plan = GraphPlan(
-            steps=steps,
-            metadata={
-                "reasoning": f"Reused proven TeamConfig: {team.task_pattern}",
-                "team_config_id": team.id,
-            },
-        )
-        ctx.state.plan = plan
-        emit_graph_event(
-            deps.event_queue,
-            "routing_completed",
-            plan=plan.model_dump(),
-            reasoning=f"TeamConfig reuse: {team.task_pattern}",
-        )
-        _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
-        return "dispatcher"
-    except Exception as e:  # noqa: BLE001 — 1st of 3 sequential planning strategies; ctx.state.plan is unconditionally reassigned by the LLM planner below if this path doesn't return "dispatcher"
-        logger.debug(f"TeamConfig lookup failed, continuing with LLM planning: {e}")
-        return None
-
-
 async def _router_try_kg_graph_materialization(
     ctx: StepContext, deps: Any
 ) -> str | None:
@@ -407,8 +344,8 @@ async def _router_try_kg_graph_materialization(
         from .kg_graph_factory import build_pydantic_graph_from_kg
 
         # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — KG AgentTemplate materialization
-        # is several SYNCHRONOUS engine round-trips (template search, KGTeamComposer
-        # reuse-lookup, TeamConfig/synthesize_team fallback); run off the event loop.
+        # is several SYNCHRONOUS engine round-trips (template search, then the
+        # synthesize_team fallback); run off the event loop.
         kg_result = await asyncio.to_thread(
             build_pydantic_graph_from_kg,
             query=ctx.state.query,
@@ -513,10 +450,6 @@ async def _router_topological_pre_routing(
 
     discovery = await _router_run_discovery_bundle(ctx, deps)
     discovery_context = _router_build_discovery_context(discovery)
-
-    team_result = await _router_try_team_config_reuse(ctx, deps)
-    if team_result is not None:
-        return discovery_context, team_result
 
     kg_result = await _router_try_kg_graph_materialization(ctx, deps)
     if kg_result is not None:

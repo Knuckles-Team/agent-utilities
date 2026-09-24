@@ -3606,9 +3606,10 @@ class TeamConfigNode(RegistryNode):
     CONCEPT:AU-AHE.evaluation.interpretability-tests — Proven Team Reuse
 
     When a ``SwarmCoalition`` completes successfully (reward > threshold),
-    it is promoted into a ``TeamConfigNode``.  The router queries matching
-    TeamConfigs before LLM-based planning — if a proven template exists
-    with a high enough ``success_rate``, it is reused directly.
+    it is promoted into a ``TeamConfigNode``: a reusable composition an
+    operator or an L3 promotion may reference. It carries no success rate
+    and nothing selects it by one (SWARM-TOPOLOGY-DECIDE-DESIGN ST-7,
+    invariant T5): topology is EG's certified decision.
 
     The ``capability_overrides`` field enables RLM + TeamConfig synergy:
     adaptive_agent_router that historically receive large data can have the ``rlm``
@@ -3636,19 +3637,6 @@ class TeamConfigNode(RegistryNode):
     capability_overrides: dict[str, list[str]] = Field(
         default_factory=dict,
         description="Mapping of agent_id → capability types to auto-attach",
-    )
-    success_rate: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Rolling average success rate from OutcomeEvaluations",
-    )
-    usage_count: int = Field(default=0, description="Number of times reused")
-    reuse_threshold: float = Field(
-        default=0.72,
-        ge=0.0,
-        le=1.0,
-        description="Minimum cosine similarity to consider reuse (adaptive)",
     )
     # ECO-4.3 Community Telemetry
     origin: Literal["local", "community", "upstream"] = "local"
@@ -3713,9 +3701,10 @@ class TopologyTemplateNode(RegistryNode):
     At runtime, the TopologyEngine selects the best template based on domain
     and complexity, then materializes it into a live ``pydantic-graph``.
 
-    Templates are authored as YAML and ingested into the KG.  Successful
-    executions increase ``success_rate``; poor ones decrease it, enabling
-    evolutionary selection over time.
+    Templates are authored as YAML and ingested into the KG. They carry no
+    success rate: which topology runs is EG's certified decision, and
+    learning which one works is EG's calibrated rung over independent
+    evaluations (SWARM-TOPOLOGY-DECIDE-DESIGN ST-7, invariant T5).
     """
 
     type: RegistryNodeType = RegistryNodeType.TOPOLOGY_TEMPLATE
@@ -3767,13 +3756,6 @@ class TopologyTemplateNode(RegistryNode):
         default_factory=list,
         description="KG memory channels this topology reads/writes",
     )
-    success_rate: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Rolling success rate from outcome evaluations",
-    )
-    usage_count: int = Field(default=0, description="Number of times materialized")
     origin: Literal["local", "community", "upstream"] = "local"
 
 

@@ -14,7 +14,11 @@ authorities into EG's assembly decision. This static gate keeps them gone
 * ``pattern-outcome-store`` -- no ``SubagentPatternDecision`` persisted as a
   generic node (the self-reported outcome store is deleted);
 * ``second-topology-selector`` -- no ``choose(...)`` call routing on the
-  ``au.swarm.topology`` question: the topology is ONE AgentAssemble question.
+  ``au.swarm.topology`` question: the topology is ONE AgentAssemble question;
+* ``team-success-rate`` -- no success-rate store or threshold on a
+  ``TeamConfig``/``TopologyTemplate`` (a declared field, a constructor
+  argument, a Cypher string, a ``reuse_threshold`` read): the router's former
+  R2 TeamConfig reuse selected on exactly that.
 
 Usage:
   python3 scripts/check_topology_authority.py [ROOT]
@@ -39,7 +43,14 @@ SELECTION_MODULES = (
     "agent_utilities/graph/plan_admission.py",
     "agent_utilities/decide/consumers/topology.py",
 )
-SELECTION_PACKAGES = ("agent_utilities/decide/topology/",)
+SELECTION_PACKAGES = (
+    "agent_utilities/decide/topology/",
+    "agent_utilities/graph/routing/",
+    "agent_utilities/graph/_router_impl.py",
+)
+#: Records a success rate may never be stored on or selected by.
+_TEAM_RECORDS = ("TeamConfig", "TopologyTemplate")
+_COUNTERS = frozenset({"success_rate", "usage_count", "reuse_threshold"})
 _WRITE = re.compile(r"\b(SET|MERGE|CREATE|DELETE)\b")
 
 
@@ -105,12 +116,47 @@ def _second_selector(tree: ast.AST, path: str) -> Iterator[Violation]:
             yield Violation(path, node.lineno, "second-topology-selector", "choose()")
 
 
+def _team_record(name: str) -> bool:
+    return name.startswith(_TEAM_RECORDS)
+
+
+def _counter_fields(tree: ast.AST, path: str) -> Iterator[Violation]:
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and _team_record(node.name)):
+            continue
+        for item in node.body:
+            target = getattr(item, "target", None)
+            if isinstance(target, ast.Name) and target.id in _COUNTERS:
+                yield Violation(path, item.lineno, "team-success-rate", target.id)
+
+
+def _counter_arguments(tree: ast.AST, path: str) -> Iterator[Violation]:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _team_record(_call_name(node)):
+            for keyword in node.keywords:
+                if keyword.arg in _COUNTERS:
+                    yield Violation(path, node.lineno, "team-success-rate", keyword.arg)
+
+
+def _counter_queries(tree: ast.AST, path: str) -> Iterator[Violation]:
+    for node in _strings(tree):
+        text = str(node.value)
+        if any(r in text for r in _TEAM_RECORDS) and "success_rate" in text:
+            yield Violation(path, node.lineno, "team-success-rate", text[:60])
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "reuse_threshold":
+            yield Violation(path, node.lineno, "team-success-rate", "reuse_threshold")
+
+
 Rule = Callable[[ast.AST, str], Iterator[Violation]]
 RULES: tuple[Rule, ...] = (
     _cypher_topology_writes,
     _success_rate_reads,
     _pattern_outcome_store,
     _second_selector,
+    _counter_fields,
+    _counter_arguments,
+    _counter_queries,
 )
 
 

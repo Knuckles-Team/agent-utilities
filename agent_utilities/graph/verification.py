@@ -797,28 +797,6 @@ async def synthesizer_step(
         except Exception as e:  # noqa: BLE001 — learning-signal update only; execution_success was already correctly computed above before this block
             logger.debug(f"Self-Model feedback failed: {e}")
 
-        # TeamConfig outcome recording
-        try:
-            plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
-            team_config_id = plan_meta.get("team_config_id")
-            if team_config_id:
-                from ..core.registry.kg_adapter import RegistryMixin
-
-                if isinstance(ctx.deps.knowledge_engine, RegistryMixin):
-                    reward = 1.0 if execution_success else 0.0
-                    await asyncio.to_thread(
-                        ctx.deps.knowledge_engine.record_team_outcome,
-                        team_config_id,
-                        reward=reward,
-                    )
-                    logger.info(
-                        "[CONCEPT:AU-AHE.evaluation.interpretability-tests] TeamConfig '%s' outcome recorded: reward=%.1f",
-                        team_config_id,
-                        reward,
-                    )
-        except Exception as e:  # noqa: BLE001 — lost reward data point for future team-reuse scoring, not a false-success mark; the reward value itself was already computed correctly
-            logger.debug(f"TeamConfig feedback failed: {e}")
-
         # CONCEPT:AU-ORCH.optimization.workflow-distillation — Workflow Distillation Hook (async background)
         # If the execution was successful, fire the distillation hook to
         # potentially promote this workflow pattern to a reusable template.
