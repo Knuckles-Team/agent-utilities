@@ -1314,7 +1314,6 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "source_connector": "/connector/source",
     "graph_writeback": "/graph/writeback",
     "spec_ticket": "/spec/ticket",
-    "concept_registry": "/concept/registry",
     "source_sync": "/source/sync",
     "source_drain": "/source/drain",
     "graph_etl": "/graph/etl",

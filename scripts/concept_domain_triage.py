@@ -34,7 +34,7 @@ Five dispositions
     A genuine trade-off with a rejected alternative. Earns its own design doc.
 ``parent``
     A marker on code realising an already-documented decision. Points at that
-    decision's doc via ``agent_utilities/governance/concept_lineage.yaml``.
+    decision's doc via ``docs/concept_lineage.yaml``.
 ``retire``
     A marker that never named a decision — most often an id auto-derived from a
     prose fragment (``…compute.when-exposes``, minted from the sentence "when
@@ -44,9 +44,9 @@ Five dispositions
 ``rename``
     The marker names a real decision, kept whole, that simply needs a
     different id — most often because its domain word is not (or is no longer)
-    in the closed vocabulary (``agent_utilities/governance/domain_vocab.yaml``).
+    in the closed vocabulary (repository-manager's ``repository_manager/governance/domain_vocab.yaml``).
     Every site (source, tests, any design doc quoting the id) is rewritten to
-    the new id in one step, and ``agent_utilities/governance/concept_lineage.yaml``
+    the new id in one step, and ``docs/concept_lineage.yaml``
     records the old-to-new mapping so re-introducing the OLD id fails the gate
     (the same ratchet ``retire`` has) instead of silently reviving a name that
     was deliberately moved away from. Needs ``rename_to`` (a valid id whose
@@ -114,21 +114,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    is_valid_domain,
-    iter_okf_markers,
-    parse_okf_id,
-)
-from agent_utilities.governance.concept_lineage import (  # noqa: E402
-    LINEAGE_PATH,
-    LineageError,
-    parse_lineage,
-)
 from scripts.check_concept_governance import (  # noqa: E402
+    LINEAGE_PATH,
     all_registered_concepts,
     has_design_doc,
     undocumented_concepts,
 )
+from scripts.governance_tool import governance
+
+_hierarchy = governance("concept_hierarchy")
+_lineage = governance("concept_lineage")
+is_valid_domain = _hierarchy.is_valid_domain
+iter_okf_markers = _hierarchy.iter_okf_markers
+parse_okf_id = _hierarchy.parse_okf_id
+LineageError = _lineage.LineageError
+parse_lineage = _lineage.parse_lineage
 
 #: Proposals live under ``.specify/`` (the spec-driven-development state
 #: tree), NOT ``reports/`` — the repo gitignores ``reports/`` wholesale, and a

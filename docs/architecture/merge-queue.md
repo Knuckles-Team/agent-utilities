@@ -5,8 +5,16 @@
 > worktree and branch on the way out. Merging is not deploying.
 >
 > Rules summary: `AGENTS.md` → *Concurrent development — lanes, arbitration
-> classes*. Mechanism: [`agent_utilities/governance/merge_queue.py`][mod].
-> Sibling design: [lane concurrency](lane-concurrency.md).
+> classes*. Mechanism: repository-manager's generic queue
+> ([`repository_manager/merge_queue.py`][mod]), driven by this repository's
+> root `.mergequeue.yaml`. Sibling design: [lane concurrency](lane-concurrency.md).
+>
+> **OQ-3 (2026-09-24):** development governance belongs to repository-manager.
+> The agent-utilities-only implementation (`agent_utilities/governance/merge_queue.py`)
+> and its `agent-utilities merge-queue` verb were deleted; the generic queue is its
+> generalized successor, and every gate the old fast tier hard-coded is declared in
+> `.mergequeue.yaml`. The design below is unchanged; the commands are
+> repository-manager's.
 
 CONCEPT:AU-OS.governance.serialized-merge-queue ·
 CONCEPT:AU-OS.governance.tiered-merge-gate ·
@@ -14,7 +22,7 @@ CONCEPT:AU-OS.governance.merged-tree-verification ·
 CONCEPT:AU-OS.governance.cross-branch-duplicate-symbol ·
 CONCEPT:AU-OS.governance.merge-deploy-decoupling
 
-[mod]: https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/governance/merge_queue.py
+[mod]: https://github.com/Knuckles-Team/repository-manager/blob/main/repository_manager/merge_queue.py
 
 ## Why this replaced bulk reconciliation
 
@@ -53,7 +61,7 @@ un-landed and still invisible to both lanes.
 ```mermaid
 flowchart TD
     subgraph lane["Each lane (its own worktree, its own branch)"]
-        W[work + commit] --> P[pre-commit green] --> E["agent-utilities merge-queue enqueue"]
+        W[work + commit] --> P[pre-commit green] --> E["repository-manager --merge-queue enqueue"]
     end
     E -->|"one APPEND-ONLY fragment per lane<br/>in the shared --git-common-dir"| Q[(merge queue)]
     Q --> R{"runner holds the<br/>reconciliation-merge LEASE"}
@@ -76,7 +84,7 @@ Nothing here is a new arbitration mechanism. Serialization is the **existing**
 `reconciliation-merge` LEASE; the queue is an **existing** APPEND-ONLY
 `FragmentStore`; scratch and pytest basetemp are **existing** PARTITION-class
 paths. Both rows live in
-[`lane_resources.yaml`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/governance/lane_resources.yaml).
+[`lane_resources.yaml`](https://github.com/Knuckles-Team/repository-manager/blob/main/repository_manager/governance/lane_resources.yaml).
 
 ## The latency budget — and why the gate must be cheap
 
@@ -503,7 +511,7 @@ arbitration class, and the same fast-forward-only discipline the queue already u
 for `main`. It also gives **rollback** a meaning it does not currently have:
 `deployed` can be moved back to a known-good SHA without touching `main` at all.
 
-`agent-utilities merge-queue promotion` reports the state, and says *undecoupled*
+`repository-manager-governance promotion` reports the state, and says *undecoupled*
 in plain words while the ref does not exist — because a fleet that is one eviction
 away from an unplanned deploy should not look healthy.
 
@@ -542,12 +550,12 @@ competent actors with the rule in front of them.** These are structural.
 
 ```bash
 # in your lane, after pre-commit is green and everything is committed
-agent-utilities merge-queue enqueue            # offers this branch; returns immediately
+repository-manager --merge-queue enqueue --repo-path .   # offers this branch; returns immediately
 
-agent-utilities merge-queue status             # depth, order, budget, recent outcomes
-agent-utilities merge-queue run                # drain a batch (holds the lease; exit 75 = defer)
-agent-utilities merge-queue withdraw --branch <b> --reason "…"
-agent-utilities merge-queue promotion          # how far `deployed` lags `main`
+repository-manager --merge-queue status --repo-path .    # depth, order, recent outcomes
+repository-manager --merge-queue run --repo-path .       # drain a batch (holds the lease; exit 75 = defer)
+repository-manager --merge-queue withdraw --repo-path .  # pull a candidate back out
+repository-manager-governance promotion                  # how far `deployed` lags `main`
 ```
 
 Exit codes match `lane lease`: **75** = the lease is held, defer and do not proceed;

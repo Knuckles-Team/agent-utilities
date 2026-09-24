@@ -26,7 +26,9 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_utilities.governance import concept_hierarchy as ch  # noqa: E402
+from scripts.governance_tool import governance
+
+ch = governance("concept_hierarchy")
 
 NS = "http://knuckles.team/kg#"
 HDR = """\

@@ -9,7 +9,7 @@ here instead of moving or duplicating that script: the canonical sweep
 in ``AGENTS.md``'s Wire-First step 4, and ``.config/pre-commit.yaml``'s
 ``check-wire-first`` hook already runs it locally. Neither the pre-commit
 hook nor a push-triggered workflow is wired into the merge queue's fast tier
-(``agent_utilities/governance/merge_queue.py`` discovers gates by globbing
+(``scripts/security/run_contract_checks.py`` discovers gates by globbing
 ``scripts/security/check_*.py`` only) — this forwarder closes that gap so
 the check actually gates every merge, not just a developer's local commit.
 

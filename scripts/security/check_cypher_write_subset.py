@@ -54,9 +54,8 @@ impossible to "hand-add" to silence an unrelated real violation without
 touching the flagged line itself, unlike a separate allowlist file entry.
 
 **Fail-closed vs. an honest absence** (a project-wide, codified distinction —
-see ``run_contract_checks`` in ``agent_utilities/governance/merge_queue.py``,
-"'Fewer contracts than the base' is the degraded read; 'this repo has none'
-is a genuine empty and passes below"): this gate raises
+see ``scripts/security/run_contract_checks.py``,
+whose discovery refuses an empty contract set rather than reporting a pass): this gate raises
 ``CypherWriteSubsetGateError`` — and ``main()`` exits 1 — if it cannot read
 the tree it was asked to check (the target directory is absent, or a file
 that content-matched the scan can't be read/decoded). It exits 0, reporting

@@ -15,15 +15,16 @@ CONCEPT:AU-OS.governance.concept-hierarchy-standardization
 CONCEPT:EG-KG.storage.redb
 ```
 
-The grammar is implemented once in
-`agent_utilities/governance/concept_hierarchy.py`. The concept registry is
+The grammar is implemented once in repository-manager's
+`repository_manager/governance/concept_hierarchy.py` (moved there by OQ-3; this
+repository's gates resolve it through `scripts/governance_tool.py`). The concept registry is
 generated from source markers, not edited by hand.
 
 ## Workflow
 
 1. Choose a registered repository slug, pillar, and domain.
 2. For linked worktrees on one host, reserve the complete ID with
-   `agent-utilities concept reserve --id <ID>`. For separate hosts, use the
+   `repository-manager-governance concept reserve --id <ID>`. For separate hosts, use the
    graph-os native reservation service; the CLI/file ledger is not globally
    atomic and must not be used as a fallback. Native callers must inject the
    authority-owned, versioned namespace/range policy.
@@ -35,7 +36,7 @@ generated from source markers, not edited by hand.
    docs/concepts.yaml --out
    agent_utilities/knowledge_graph/ontology_concepts.ttl`.
 
-`agent-utilities concept resolve --id <ID>` returns the parsed slug, pillar,
+`repository-manager-governance concept resolve --id <ID>` returns the parsed slug, pillar,
 domain, semantic segments, OKF path, and IRI. It rejects every noncanonical
 form.
 
@@ -43,10 +44,11 @@ form.
 
 | File | Purpose |
 |---|---|
-| `agent_utilities/governance/concept_hierarchy.py` | Grammar and projections |
-| `agent_utilities/governance/domain_vocab.yaml` | Closed domain vocabulary |
-| `agent_utilities/governance/slug_registry.yaml` | Unique repository slugs |
+| `repository_manager/governance/concept_hierarchy.py` | Grammar and projections |
+| `repository_manager/governance/domain_vocab.yaml` | Closed domain vocabulary |
+| `repository_manager/governance/slug_registry.yaml` | Unique repository slugs |
 | `docs/concepts.yaml` | Generated exact-ID registry |
 | `docs/concept_reservations.yaml` | Generated compatibility projection of exact-ID claims |
-| `agent_utilities/governance/concept_reservation.py` | Cross-host authority port, native adapter, lifecycle, and read-only reconciliation |
+| `docs/concept_lineage.yaml` | Hand-authored lineage record (parents, retirements, renames) |
+| `repository_manager/governance/concept_reservation.py` | Cross-host authority port, native adapter, lifecycle, and read-only reconciliation |
 | `agent_utilities/knowledge_graph/ontology_concepts.ttl` | Generated concept RDF |

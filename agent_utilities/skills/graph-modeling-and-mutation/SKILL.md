@@ -24,7 +24,6 @@ smallest governed mutation with a verification and rollback plan.
 | `graph_ontology` + object layer | `graph_ontology`: `load`/`list`/`get`/`update`/`delete`/`validate`/`activate`/`deactivate`/`sync_packages` (SHACL-validated, versioned, native-reasoner-loaded); `ontology_property_types`/`ontology_value_types` (type registry: list/describe/validate/coerce); `ontology_interface` (`implementers`/`conforms`/`owl`, `registry='enterprise'` for standard contracts); `ontology_sampling_profile` (task-aware LLM sampling profiles — list/describe/resolve/set/evolve/owl); `ontology_function` (typed versioned functions, `list`/`invoke`); `ontology_derive` (compute derived properties live at read time); `ontology_link_materialize` (reify a many-to-many link as a junction triple); `ontology_leanix_sync` (mirror the live LeanIX metamodel as OWL/RDF, `dry_run` first); `object_edits` (durable object-edit ledger — record/revert/history/as_of, optimistic `expect`); `object_index` (search-index lifecycle — sync/reindex/status); `object_permissioning` (`redact`/`restricted_view`/`mark`, ambient actor); `object_set` (Foundry-style object sets — `of_type`/`search`/`filter`/`pivot`/`aggregate`/`union`/`intersect`/`subtract`) | the whole ontology + Foundry-style object layer, one skill wraps all thirteen tools |
 | `ontology_classification_claims` | the reviewed claim lifecycle for a classification: `propose_identity`/`record` to raise one, `review`/`promote`/`reject`/`supersede` to move it, `query`/`history`/`lifecycle_history`/`categories`/`resolve_evidence` to read it back | a claim is a REVIEWED assertion, not a direct ontology edit — promotion, not `graph_write`, is what makes it authoritative |
 | `ontology_repository_provenance` | `branch`, `tag`, `snapshot`, `change_event` | write-only: every action constructs one typed provenance node and commits it through the shared envelope-ingest write path, so repository history becomes queryable KG structure rather than free text |
-| `concept_registry` (text → structured concepts) | parses unstructured text (transcripts/papers/specs) into `Concept`/`Reference` nodes + `SUB_CLASS_OF`/`DEFINED_IN` edges, then compiles idempotent parameterized `MERGE` Cypher for `graph_write` | 3-step pipeline: parse extracted terms → structure into node/edge schemas → compile the transaction; validate parameter-backed bindings before writing (no injection) |
 
 ### Reversible derivations (truth maintenance)
 
@@ -84,7 +83,6 @@ Use `graph_ontology`, `ontology_property_types`, `ontology_value_types`, and
 |---|---|
 | Canonical nodes or relationships | `graph_write` |
 | Episodic, semantic, spatial, or RL memories | `graph_memory` |
-| Concept registration | `concept_registry` |
 | Object edits and sets | `object_edits`, `object_set` |
 | Object indexes | `object_index` |
 | Object access rules | `object_permissioning` |

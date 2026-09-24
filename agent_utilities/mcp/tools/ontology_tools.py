@@ -33,26 +33,6 @@ logger = logging.getLogger(__name__)
 _OBJECT_SET_HARD_CAP = 10_000
 
 
-def _run_coro(coro: Any) -> Any:
-    """Run an async coroutine from a sync MCP handler, loop-running or not.
-
-    The concept tools are registered sync (FastMCP runs them off the event loop)
-    but ``kg_server._execute_tool`` is async. When no loop is running we
-    ``asyncio.run``; when one is, we run on a worker thread with its own loop so
-    we never re-enter a running loop.
-    """
-    import asyncio
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(lambda: asyncio.run(coro)).result()
-
-
 _ONTOLOGY_CATALOG_ACTIONS = frozenset({"load", "list", "get", "update", "delete"})
 
 
@@ -444,74 +424,6 @@ def _spec_ticket_link(
             dry_run=ctx.dry_run,
         )
     )
-
-
-def _concept_registry_list(repo_root: Any, status: str) -> str:
-    from agent_utilities.governance import concept_allocator as ca
-
-    return json.dumps(
-        {
-            "reservations": ca.list_reservations(
-                repo_root=repo_root, status=status or None
-            )
-        }
-    )
-
-
-def _concept_registry_reconcile(repo_root: Any) -> str:
-    from agent_utilities.governance import concept_allocator as ca
-
-    return json.dumps(ca.reconcile(repo_root=repo_root))
-
-
-def _concept_registry_release(repo_root: Any, concept_id: str) -> str:
-    from agent_utilities.governance import concept_allocator as ca
-
-    if not concept_id:
-        return json.dumps({"error": "release requires concept_id"})
-    return json.dumps(
-        {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
-    )
-
-
-def _concept_registry_reserve(
-    repo_root: Any,
-    concept_id: str,
-    session_id: str,
-    design_doc: str,
-    ttl_seconds: int,
-) -> str:
-    import uuid
-
-    from agent_utilities.governance import concept_allocator as ca
-
-    if not concept_id:
-        return json.dumps({"error": "reserve requires concept_id"})
-    sid = session_id or f"session-{uuid.uuid4().hex}"
-    record = ca.reserve_concept_id(
-        concept_id,
-        session_id=sid,
-        design_doc=design_doc or None,
-        ttl_seconds=int(ttl_seconds),
-        repo_root=repo_root,
-    )
-    # Compatibility projection through this already-authenticated
-    # GraphOS execution context. The local ledger is authoritative
-    # for this legacy path only; it is not a separate-host authority.
-    try:
-        _run_coro(
-            kg_server._execute_tool(
-                "graph_write",
-                action="add_node",
-                node_id=record["id"],
-                node_type="ConceptReservation",
-                properties=json.dumps(record),
-            )
-        )
-        record["kg_projected"] = True
-    except Exception:  # noqa: BLE001 - projection is advisory
-        record["kg_projected"] = False
-    return json.dumps(record)
 
 
 def _source_sync_resolve_engine(connection: str, graph: str) -> tuple[Any, str | None]:
@@ -1847,68 +1759,6 @@ def register_ontology_tools(mcp):
             return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["spec_ticket"] = spec_ticket
-
-    @mcp.tool(
-        name="concept_registry",
-        description=(
-            "Coordinate canonical OKF-CIS concept ids for linked worktrees on one host "
-            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). This compatibility "
-            "ledger path is not a separate-host authority; cross-host callers must use "
-            "the graph-os native concept reservation contract and fail closed when it is "
-            "unavailable. action='reserve' validates and claims concept_id, then appends "
-            "it to the committed, merge=union ledger; 'list' shows reservations; "
-            "'release' frees one; 'reconcile' marks landed/expired."
-        ),
-        tags=["graph-os", "governance", "concept"],
-    )
-    def concept_registry(
-        action: str = Field(
-            default="list",
-            description="'reserve', 'list', 'release', or 'reconcile'.",
-        ),
-        session_id: str = Field(
-            default="",
-            description="Optional claiming session value; only a digest is persisted.",
-        ),
-        design_doc: str = Field(
-            default="",
-            description="Optional design reference; only a digest is persisted.",
-        ),
-        concept_id: str = Field(
-            default="", description="Canonical ID for reserve or release."
-        ),
-        status: str = Field(
-            default="",
-            description="For 'list': filter by status (reserved/materialized/landed/released/expired/tombstoned).",
-        ),
-        ttl_seconds: int = Field(
-            default=86_400, description="Reservation TTL before it is reclaimable."
-        ),
-        repo: str = Field(
-            default="",
-            description="Repo root whose ledger to use (defaults to agent-utilities).",
-        ),
-    ) -> str:
-        """Concept-ID reservation ledger operations (see docs/concept_coordination.md)."""
-        from pathlib import Path
-
-        try:
-            repo_root = Path(repo).expanduser().resolve() if repo else None
-            if str(action) == "list":
-                return _concept_registry_list(repo_root, status)
-            if str(action) == "reconcile":
-                return _concept_registry_reconcile(repo_root)
-            if str(action) == "release":
-                return _concept_registry_release(repo_root, concept_id)
-            if str(action) == "reserve":
-                return _concept_registry_reserve(
-                    repo_root, concept_id, session_id, design_doc, ttl_seconds
-                )
-            return json.dumps({"error": f"unknown action: {action!r}"})
-        except Exception as e:  # noqa: BLE001
-            return public_error_json(e)
-
-    kg_server.REGISTERED_TOOLS["concept_registry"] = concept_registry
 
     @mcp.tool(
         name="source_sync",

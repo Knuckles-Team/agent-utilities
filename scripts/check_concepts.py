@@ -23,7 +23,9 @@ CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 # Single source of the marker grammar — shared with build_concepts_yaml.py and
 # the allocator so the three scanners can never drift.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_hierarchy import iter_okf_markers  # noqa: E402
+from scripts.governance_tool import governance
+
+iter_okf_markers = governance("concept_hierarchy").iter_okf_markers
 from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 

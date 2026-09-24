@@ -40,10 +40,11 @@ EXTERNAL_PATH = ROOT / "docs" / "external_concepts.yaml"
 # generator, the validator (check_concepts.py), and the allocator never drift.
 # Adding ROOT lets this resolve to the local source even without an install.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    iter_okf_markers,
-    parse_okf_id,
-)
+from scripts.governance_tool import governance
+
+_hierarchy = governance("concept_hierarchy")
+iter_okf_markers = _hierarchy.iter_okf_markers
+parse_okf_id = _hierarchy.parse_okf_id
 
 _PRIVATE_DOC_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
@@ -213,9 +214,7 @@ def main() -> None:
     # in code becomes 'landed', and stale (TTL-expired) reservations are freed.
     # Best-effort — never let ledger reconciliation break doc generation.
     try:
-        from agent_utilities.governance.concept_allocator import reconcile
-
-        result = reconcile(repo_root=ROOT)
+        result = governance("concept_allocator").reconcile(repo_root=ROOT)
         if result["landed"] or result["expired"]:
             print(
                 f"Reconciled reservations: {len(result['landed'])} landed, "

@@ -10,7 +10,8 @@ guardrail those workflows run has been silently un-gating every merge since).
 The operator's decision (D-ML-1) is to port the checks those workflows run
 into the merge queue's fast tier instead of restoring push CI.
 
-The fast tier (``agent_utilities/governance/merge_queue.py``) discovers gates
+The fast tier (the ``contract-checks`` gate in ``.mergequeue.yaml``, run by
+``scripts/security/run_contract_checks.py``) discovers gates
 by globbing ``scripts/security/check_*.py`` **only** — a directory-scoped
 glob, deliberately, so it can't accidentally pick up an unrelated top-level
 script. Several of the dark workflows' checks are healthy, already-reviewed
@@ -32,8 +33,7 @@ restoring push CI later needs no further change — and the fast tier gets a
 **Fail-closed vs. an honest absence.** If the canonical target script is
 missing, or the interpreter can't even be launched, that is a *degraded
 read* (this repo's codified distinction — see
-``agent_utilities/governance/merge_queue.py``'s ``run_contract_checks``
-docstring) and :func:`forward` raises :class:`ForwardError` rather than
+``scripts/security/run_contract_checks.py``'s ``ContractRunnerError``) and :func:`forward` raises :class:`ForwardError` rather than
 reporting a clean pass. A target that runs and exits 0 is a genuine pass;
 a target that exits nonzero is relayed as nonzero, never swallowed.
 """

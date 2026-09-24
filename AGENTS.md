@@ -107,7 +107,7 @@ pre-commit run --config .config/pre-commit.yaml public-surface --all-files
 Run the normal all-files gate only through the shared lease and safety wrapper:
 
 ```bash
-agent-utilities lane lease --resource precommit-all-files --operation gate -- \
+repository-manager-governance lane lease --resource precommit-all-files --operation gate -- \
   python3 scripts/safe_precommit_all_files.py
 ```
 
@@ -202,8 +202,8 @@ linked worktree from current `main`:
 git worktree add \
   "${XDG_STATE_HOME}/repository-worktrees/agent-utilities/<topic>" \
   -b "<branch>" main
-agent-utilities lane status
-agent-utilities lane env
+repository-manager-governance lane status
+repository-manager-governance lane env
 ```
 
 Do not use harness-managed worktree isolation for this repository. Do not
@@ -211,7 +211,7 @@ switch branches, reset, clean, or restore paths in a checkout another lane may
 use.
 
 Never use `git stash`: the stash reference is shared by every linked worktree.
-Use a small scratch commit or `agent-utilities lane park` when work must be
+Use a small scratch commit or `repository-manager-governance lane park` when work must be
 parked. Never stage with `git add -A` or `git add .`; inspect status and the full
 diff, then stage an explicit reviewed path list. Re-read the staged name list
 and patch before committing.

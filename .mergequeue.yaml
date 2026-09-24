@@ -1,15 +1,12 @@
 # Merge-queue gate declaration for `agent-utilities` (a PYTHON repository).
 #
-# Copy to the repository root as `.mergequeue.yaml`.
-#
-# This is the migration target for agent_utilities/governance/merge_queue.py:
-# every gate its fast tier hard-codes, re-expressed as declarative config. Read
-# side by side with epistemic-graph.mergequeue.yaml -- the two repositories share
-# ZERO gates and one mechanism, which is the whole point of the split.
-#
-# NOT YET IN EFFECT. The au queue is live and actively landing branches; see the
-# migration plan in docs/merge-queue.md. Placing the file in a repo is what
-# switches that repo over, so this preset is inert until it is copied.
+# Read by repository-manager's generic merge queue (`repository-manager
+# --merge-queue …`). Since OQ-3 (2026-09-24) this is THE queue configuration for
+# agent-utilities: the repository's own `agent_utilities/governance/merge_queue.py`
+# was deleted, and every gate its fast tier hard-coded is re-expressed here as
+# declarative config. Read side by side with epistemic-graph.mergequeue.yaml --
+# the two repositories share ZERO gates and one mechanism, which is the whole
+# point of the split.
 
 base: main
 batch_size: 8

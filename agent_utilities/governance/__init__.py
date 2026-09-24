@@ -1,9 +1,8 @@
-"""Governance subpackage: concept-ID allocation and multi-session coordination.
+"""Governance subpackage: relational authority.
 
-This package owns the concept-ID coordination protocols.  The legacy
-(:mod:`agent_utilities.governance.concept_allocator`) path arbitrates linked
-worktrees on one host; :mod:`agent_utilities.governance.concept_reservation`
-uses the graph's existing atomic create/CAS primitives as the authority port
-for separate hosts and fails closed when the native surface or authority-owned
-policy is unavailable.
+Development governance (lane arbitration, the merge queue, concept-ID grammar,
+lineage, reservation and authority) moved to repository-manager
+(``repository_manager.governance``) under operator ruling OQ-3. What remains
+here is the relational-authority table, which AUD-21b routes to
+epistemic-graph separately.
 """

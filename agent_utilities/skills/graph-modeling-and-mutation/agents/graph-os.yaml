@@ -2,7 +2,6 @@ schema_version: 2
 tier: domain
 claims:
   core:
-    - concept_registry
     - graph_memory
     - graph_ontology
     - graph_write

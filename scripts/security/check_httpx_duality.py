@@ -39,8 +39,8 @@ positives for a heuristic this narrow; mypy remains the broader, if noisier,
 backstop for shapes outside this gate's specific vocabulary.
 
 **Fail-closed vs. an honest absence** (the same codified distinction
-``check_cypher_write_subset.py`` and ``run_contract_checks`` in
-``agent_utilities/governance/merge_queue.py`` use): this gate raises
+``check_cypher_write_subset.py`` and
+``scripts/security/run_contract_checks.py`` use): this gate raises
 ``HttpxDualityGateError`` — and ``main()`` exits 1 — if it cannot read the
 tree it was asked to check (the target directory is absent, or a candidate
 file can't be read/decoded/parsed). It exits 0, reporting the count, when the

@@ -194,7 +194,6 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 | `kg-etl` | `graph_etl` | write |
 | `kg-evaluate` | `graph_evaluate` | why |
 | `kg-explain` | `graph_explain` | why |
-| `kg-extract-concepts` | `concept_registry` | find |
 | `kg-feedback` | `graph_feedback` | why |
 | `kg-feeds` | `graph_feeds` | act |
 | `kg-fork` | `graph_fork` | act |
