@@ -123,8 +123,9 @@ Detailed explanation of what this module does.
 - Tools list references MCP server names or tool function names
 - Workflow SKILL.md frontmatter references prompt by name via `agent: <name>`
 
-### OWL Ontology Conventions
-- All ontologies use `@prefix : <http://knuckles.team/kg#>` namespace
-- Aligned to BFO (Basic Formal Ontology) upper ontology
-- Domain-specific files: `ontology_<domain>.ttl`
-- Import core: `owl:imports <http://knuckles.team/kg>`
+### Ontology and shapes — not authored here
+- agent-utilities owns no ontology, SHACL, RDF or OWL: new classes and shapes go to
+  epistemic-graph (`core:<module>@<N>` schema sources) or to the owning connector's
+  SDK-certified pack. Never add a `.ttl` to this repo or import rdflib/pyshacl/owlrl/owlready2.
+- Shared development rules (lanes, build hosts, gates, landing): the
+  `graphos-ecosystem-development` skill; repo rules: the bundled `agent-utilities-development` skill.

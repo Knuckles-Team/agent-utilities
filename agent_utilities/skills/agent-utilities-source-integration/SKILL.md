@@ -3,7 +3,8 @@ name: agent-utilities-source-integration
 skill_type: skill
 description: >
   One standardized, config-complete path to connect ANY external source to the
-  agent-utilities Knowledge Graph — OWL/RDF-natively and bidirectionally. Covers the
+  Knowledge Graph (stored and reasoned over by epistemic-graph, reached through
+  graph-os and agent-connector-sdk) — typed and bidirectional. Covers the
   whole source fleet under one model: LeanIX (EA fact sheets), Camunda + ARIS (BPMN/EPC
   processes), ServiceNow/GLPI (ITSM), Egeria (governance), GitLab/GitHub, Twenty (CRM),
   Jira/Plane, and databases. The same flow every time — configure credentials, discover
@@ -54,6 +55,10 @@ writes are ambiguous or the target system's blast radius is high.
 | 4. Sync | bite-sized delta + deletion reconcile | `source_sync {"source":"<X>","mode":"delta"\|"reconcile"}` + `deploy/schedules.yml` |
 | 5. Backfeed | push KG knowledge back (fail-closed) | `graph_writeback {"target":"<X>", ...}` (unified) — incl. `inventory:true` to create CMDB CIs / ERP items |
 
+Ownership: every connector goes through agent-connector-sdk (transport, packs,
+write-back effects); epistemic-graph owns the resulting ontology, SHACL and records.
+agent-utilities keeps no ontology file and no source toolkit of its own.
+
 `source_sync` is the **single entrypoint for every source**: LeanIX runs an incremental
 watermark delta; Camunda/ARIS/Egeria route through the materialize core; the rest hydrate
 via the capability registry. Sources without a native delta fall back to a full hydrate
@@ -84,7 +89,7 @@ LeanIX has a queryable metamodel → mirror it natively as OWL:
 
 ```
 graph-os call ontology_leanix_sync {"dry_run": true}    # preview generated OWL
-graph-os call ontology_leanix_sync {"dry_run": false}   # apply (regenerates ontology_leanix.ttl)
+graph-os call ontology_leanix_sync {"dry_run": false}   # apply: the vocabulary is committed to EG as a pack
 ```
 
 Camunda/ARIS/ServiceNow map to the fixed **canonical ArchiMate crosswalk**

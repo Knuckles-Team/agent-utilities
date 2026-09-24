@@ -56,8 +56,8 @@ skill or reference — that is the declarative contract.
 The authoritative map of every configured connector: its `source_sync` source key,
 the entities it ingests, and the OWL ontology classes they map to. The KG is
 OWL-native — a connector's records are not generic Documents but **typed entities**
-whose `type` is promoted to its OWL class (`core/owl_bridge.py`
-`PROMOTABLE_NODE_TYPES` → a class in the canonical ontology library). Three
+whose `type` is promoted to its OWL class — a class in an epistemic-graph schema
+source (`core:<module>@<N>`) or in the connector's own certified pack. Three
 ingestion shapes (a "maximum-ingestion" connector uses every one that applies):
 
 - **Typed entity rebuild** (`_DELTA_HANDLERS` in `core/source_sync.py`): drains
@@ -171,8 +171,8 @@ hydrated with the physical and virtual topology:
   (default `$HOME/.config/agent-utilities/inventory.yaml`) → a `HardwareNode`
   per host (`hostname`, `ip_address`, `group`, `status`, ssh fields, extended
   metadata) + `HAS_INTERFACE`/`CONNECTS_VIA` edges.
-- **Ontology authority** — EG committed GraphSchema sources and
-  `ontology_infrastructure.ttl` as ingestion targets, providing the formal
+- **Ontology authority** — EG committed GraphSchema sources, including the
+  engine-owned `core:infrastructure@1` module, providing the formal
   BFO-aligned class hierarchy for infrastructure nodes.
 - **Workflow catalog** — `agent_utilities/workflows/catalog.yaml` →
   `WorkflowDefinition` nodes with `HAS_STEP`/`REQUIRES_TOOL` edges.
@@ -192,7 +192,6 @@ $XDG_CONFIG_HOME/agent-utilities/inventory.yaml
 $XDG_CONFIG_HOME/agent-utilities/mcp_config.json
 $XDG_CONFIG_HOME/agent-utilities/config.json
 $XDG_DATA_HOME/agent-utilities/topology/
-agent_utilities/knowledge_graph/ontology_infrastructure.ttl
 agent_utilities/workflows/catalog.yaml
 ```
 

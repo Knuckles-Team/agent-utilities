@@ -2,7 +2,9 @@
 name: agent-utilities-development
 skill_type: skill
 description: >-
-  Review or implement a concrete agent-utilities repository change. Use for
+  Review or implement a concrete agent-utilities repository change — AU is only
+  the agent orchestration plane; shared ecosystem rules (boundaries, lanes,
+  build hosts, gates, landing) are in graphos-ecosystem-development. Use for
   read-only orientation, impact or diff review, concept-aware design, approved
   implementation, tests, wiring, REST and MCP parity, documentation, regression
   gates, and isolated lane delivery through the repository-manager lane and
@@ -18,11 +20,20 @@ description: >-
 Review a proposed change without mutation, or implement an approved change in an
 isolated **lane** and prove its live path and relevant gates.
 
-This repository is worked by dozens of agents and humans concurrently, so
-delivery is not "branch, commit, merge." It is the repository-manager lane
-mechanism: **`--lane start` → work → gates → `--lane finish` → the queue lands
-and prunes it.** The mechanism owns isolation, differential gating, landing, and
-pruning; this skill owns what to build and how to prove it.
+**Load `graphos-ecosystem-development` first.** AU is only the agent
+orchestration plane: it coordinates, persists and generates agent-graph DAGs
+through EG. Ontology, SHACL, RDF/OWL, memory, storage and external graph
+databases belong to epistemic-graph; connectors to agent-connector-sdk; the
+served runtime (gateway, messaging daemon, fleet, deployment) to graph-os. AU
+must not import `rdflib`/`pyshacl`/`owlrl`/`owlready2` or ship `.ttl`/`.owl`.
+Code still here on its way out is never extended — put new work at its owner.
+
+Delivery has two modes. In a **coordinated program** (a lane briefed by an
+orchestrator) follow the ecosystem skill's lane protocol: own `git worktree add`
+worktree, targeted checks, `--no-verify` commits, STATE.md, and the orchestrator
+lands trains. **Standalone**, use the repository-manager lane mechanism:
+**`--lane start` → work → gates → `--lane finish` → the queue lands and prunes
+it.** This skill owns what to build and how to prove it.
 
 - Isolation, the traps, preflight, finishing → `repository-manager-lane-lifecycle`
 - Landing, gates, conflicts → `repository-manager-merge-and-reconcile`
@@ -104,11 +115,9 @@ top-level importable packages** — first-level directories carrying their own
 git ls-files agent_utilities | awk -F/ 'NF==3 && $3=="__init__.py"{print $2}' | sort -u | wc -l   # 47
 ```
 
-★ **State which definition you used** — three neighbouring ones give three
-answers (measured 2026-09-03): **47** first-level dirs with their own
-`__init__.py`, **48** first-level dirs containing a tracked `.py` anywhere below
-(`agent_chat/` has no top-level `__init__.py`), **51** first-level tracked dirs at all
-(`.agent_data/`, `data/`, `images/` hold no Python).
+★ **State which definition you used** — "dirs with `__init__.py`", "dirs with any
+`.py`" and "tracked dirs" give three different answers; these counts shrink as AU is
+deconstructed, so re-measure before quoting one.
 
 Nobody reads 1,712 modules. So read the *layer* table, then the *size* table
 (both in the reference below), then `scripts/find_callers.py` — in that order —
@@ -206,8 +215,9 @@ Run all five. Any "no" that you cannot answer is a stop, not a caveat.
    (`agent-utilities --json concept reserve --id …`).
 5. **Where does the weight belong?** Heavy AI/ML → `agents/data-science-mcp`.
    Finance/quant → `emerald-exchange`. Any KG compute, ANN, vector similarity, or
-   graph algorithm → the Rust `epistemic-graph` engine. A new ontology class →
-   **into the existing domain `.ttl`**, never a per-feature file. A new capability
+   graph algorithm → the Rust `epistemic-graph` engine. A new ontology class or
+   shape → **EG** (a `core:<module>` schema source) or the owning connector's
+   SDK-certified pack — never a `.ttl` in AU. A new capability
    → an action on an existing service, or a declarative connector preset — almost
    never a new daemon.
 
@@ -346,9 +356,10 @@ the correct environment, ≈44 is the stale one.** A verdict from an unproven
 interpreter is not evidence. A worktree-local `.venv` has the same effect (~167
 phantom failures) — `--lane doctor` refuses one.
 
-Run the narrow tests first, then every gate touched by the change. Run the full
-pre-commit suite before delivery, and take the lease for it — it is LEASE-class
-because it can destroy unstaged work:
+Run the narrow tests first, then every gate touched by the change. In a
+coordinated program stop there — the orchestrator runs the full suite on the
+merged train. Standalone, run the full pre-commit suite before delivery, and
+take the lease for it — it is LEASE-class because it can destroy unstaged work:
 
 ```bash
 # NEVER run `pre-commit run --all-files` bare: in a shared worktree it stashes
@@ -358,7 +369,8 @@ agent-utilities lane lease --resource precommit-all-files --operation gate -- \
   python3 scripts/safe_precommit_all_files.py
 ```
 
-Never `--no-verify`, and never mask a gate to force green: `noqa`, `type:
+`--no-verify` only for coordinated-lane commits (the orchestrator gates the
+merged tree); never to dodge a red gate. Never mask a gate to force green: `noqa`, `type:
 ignore`, `nosec`, `skip`, and `xfail` appearing in a delivery diff are what a
 reviewer greps for first.
 
@@ -378,7 +390,9 @@ day; one concluded a branch had deleted a guard the merged tree in fact kept.
 Inspect the final diff for generated churn, stale names, sensitive data, and
 stray files. Commit with a neutral repository identity.
 
-### 7. Deliver through the queue
+### 7. Deliver through the queue (standalone) or the train (coordinated)
+
+Coordinated lanes stop at `lane done` (WRAPUP + REVIEW-HOTSPOTS); the orchestrator lands.
 
 ```bash
 repository-manager --lane finish --lane-path . --lane-base main
@@ -401,12 +415,6 @@ merge **arms** a deploy that fires on the next unplanned restart — it does not
 ship one. **Merge freely to `main`**; you **MUST** ship only by an explicit
 fast-forward of `refs/heads/deployed` to a SHA the full suite has since passed.
 Check with `merge-queue promotion`.
-
-An earlier revision of this skill stated the opposite ("a merge to `main` is a
-live deploy", via a `hostPath` mount over `site-packages`). Both the conclusion
-and the mechanism were wrong, and following it would make you hesitate to merge
-against an explicit MUST while leaving you unable to actually ship. Corrected
-against `AGENTS.md` 2026-09-03.
 
 Use an economy model for inventory, search, mechanical edits, and deterministic
 checks. Reserve stronger reasoning for ambiguous design, security review, and
@@ -452,23 +460,18 @@ does not hold. Run `repository-manager --lane doctor --lane-path .` and it will
 tell you which of them you are currently violating, with the exact remedy command.
 
 - **Never edit the canonical checkout.** Work in the lane worktree.
-- **Never use the harness's worktree-isolation tool** (`Agent(isolation:"worktree")`
-  / `EnterWorktree`) on this repo. It writes `core.bare = true` into the **shared**
-  `$GIT_COMMON_DIR/config` and never restores it, so every one of the 26+ linked
-  worktrees then fails `git status`/`git commit` with *"this operation must be run
-  in a work tree"* — invisibly. Upstream defect, closed as not-planned. Use
-  `repository-manager --lane start` (or a real `git worktree add`).
+- **Never use the harness's worktree-isolation tool** (`EnterWorktree`): it sets
+  `core.bare = true` in the shared config and breaks every linked worktree. Use
+  `repository-manager --lane start` or a real `git worktree add`.
 - **Never `update-ref` to advance a branch.** It moves the ref without the
   worktree, and the NEXT commit there silently reverts everything in between while
   `git status` reads clean and `--is-ancestor` says yes. Use `git merge --ff-only`,
   then verify by TREE: `git cat-file -e HEAD:<path>` (see *Validate* → measure the
   merged tree).
-- **Never `git stash`.** `refs/stash` is ONE ref shared by every worktree here.
-  To read a pristine file while yours is dirty: `git show HEAD:<path>`. To park
-  work: a `wip:` commit on your branch, or `agent-utilities lane park`.
-- **Never export a shared `CARGO_TARGET_DIR`** — it corrupts concurrent worktree
-  builds, it does not merely serialize them. Use `--target-dir ./target-isolated`
-  and prune it; `agent-utilities lane bind-cargo` makes the partition structural.
+- **Never `git stash`** (one repo-wide ref). Read a pristine file with
+  `git show HEAD:<path>`; park work as a `wip:` commit or `agent-utilities lane park`.
+- **Never export a shared `CARGO_TARGET_DIR`** (it corrupts concurrent builds); Rust
+  builds run on build hosts via `eg-lane-run`, never on the dev host.
 - **Never run with the shared `PRE_COMMIT_HOME`.** pre-commit writes your
   unstaged work to a patch file there and restores it in a `finally:`; a crash
   inside that window loses it. `--lane env` sets a private one.
@@ -483,13 +486,10 @@ tell you which of them you are currently violating, with the exact remedy comman
   performs command substitution on backticks — silently executing them. This has
   already truncated live entries and triggered an accidental `uv sync` against
   the shared workspace `.venv` (D-ORC-22).
-- **Never `git add -A` / `git add .`.** A shared worktree routinely holds handoff
-  notes, baseline markers, logs, caches, and another concern's edits. Read `git
-  status --short`, then stage an explicit reviewed allowlist (`git add -- path…`,
-  `git add -u -- exact/path` for deletions), then re-read `git diff --cached
-  --name-status` and `git diff --cached` before committing. `*-NOTES.md`,
-  scratchpads, logs, caches, test output, and branch-divergence markers are never
-  product artifacts.
+- **Never `git add -A` / `git add .`.** Stage an explicit reviewed allowlist
+  (`git add -- path…`, `git add -u -- exact/path` for deletions) and re-read
+  `git diff --cached` before committing; notes, logs, caches and scratch files are
+  never product artifacts.
 - **Regenerate `uv.lock` exactly once, after every `pyproject.toml` in the change
   has frozen.** Regenerating per-edit produces a lock that churns against every
   other lane and an `uv-lock --locked` failure nobody can attribute. Verify the
