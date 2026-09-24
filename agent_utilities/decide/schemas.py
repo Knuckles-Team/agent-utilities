@@ -73,6 +73,12 @@ _FEATURES: dict[str, list[dict[str, Any]]] = {
         _imputed("pooled.width", 0),
     ],
     "au.swarm.continue": [_number("width")],
+    "au.reasoning.topology": [
+        _number("rung"),
+        _number("loop_budget"),
+        _number("heuristic"),
+        _text("shape_fit", "shape", "task"),
+    ],
     "au.connector.triage": [_number("severity_rank"), _number("heuristic")],
     "au.connector.tool": [_number("heuristic")],
     "au.connector.writeback": [_number("heuristic")],

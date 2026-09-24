@@ -190,13 +190,11 @@ async def _run_reasoning_topology(
     the reasoning-topology package lacked (built + unit-tested, zero live
     callers). Drives the real ``run_cot``/``run_self_consistent_cot``/``run_tot``
     entry points with an LLM-backed step/expansion function
-    (:func:`_reasoning_step_fn`/:func:`_tot_functions`), then registers/updates
-    the run as a versioned, graph-addressable topology resource through
-    :mod:`agent_utilities.graph.reasoning.topology`'s own API
-    (:func:`~.topology.register_topology`, :func:`~.topology.
-    record_topology_outcome`) — the SAME best-effort, engine-optional pattern
-    :class:`agent_utilities.graph.topology_engine.TopologyEngine` already uses
-    for team-composition topologies, reused here rather than reimplemented.
+    (:func:`_reasoning_step_fn`/:func:`_tot_functions`), then registers the
+    run's topology as a versioned, graph-addressable resource
+    (:func:`~agent_utilities.graph.reasoning.topology.register_topology`).
+    ``topology`` is already resolved here (see :func:`_resolve_reasoning_topology`);
+    the run records no outcome of its own (EH-474).
 
     ``topology in {"tot_bfs", "tot_dfs"}`` runs Tree-of-Thought (D-5.3-5.6-3):
     unlike CoT's single linear chain, each expanded node fans out to up to
@@ -210,7 +208,6 @@ async def _run_reasoning_topology(
         TOT_BFS_SPEC,
         TOT_DFS_SPEC,
         Budgets,
-        record_topology_outcome,
         register_topology,
         run_cot,
         run_self_consistent_cot,
@@ -276,15 +273,7 @@ async def _run_reasoning_topology(
             terminal = next((n for n in state.nodes.values() if n.is_terminal), None)
             answer = terminal.content if terminal is not None else ""
 
-    clean_success = bool(proof.success) and not proof.degraded
     register_topology(engine, spec)
-    record_topology_outcome(
-        engine,
-        spec.topology_id,
-        success=proof.success,
-        quality_score=0.8 if clean_success else 0.0,
-        proof=proof,
-    )
 
     return {
         "topology": spec.name,
@@ -294,6 +283,33 @@ async def _run_reasoning_topology(
         "rationale_summary": list(state.rationale_summary),
         "termination": proof.as_report(),
     }
+
+
+#: The topologies the ``reason`` action runs; ``auto`` asks the decision point.
+REASONING_TOPOLOGIES = frozenset({"cot", "self_consistent_cot", "tot_bfs", "tot_dfs"})
+
+
+async def _resolve_reasoning_topology(topology: str, task: str) -> dict[str, Any]:
+    """The topology to run and how it was chosen (EH-474).
+
+    A named topology is the caller's instruction and runs as named. ``auto``
+    asks EG's ``au.reasoning.topology`` decision point, whose fallback is the
+    cheapest-adequate escalation ladder.
+    """
+    from agent_utilities.decide.consumers.reasoning_topology import (
+        select_reasoning_topology,
+    )
+
+    name = (topology or "auto").strip().lower()
+    if name == "auto":
+        selection = await select_reasoning_topology(task)
+        return {"topology": selection.topology, "selection": selection.report()}
+    if name not in REASONING_TOPOLOGIES:
+        raise ValueError(
+            f"unknown topology {name!r} for reason; choose 'auto', 'cot', "
+            "'self_consistent_cot', 'tot_bfs', or 'tot_dfs'"
+        )
+    return {"topology": name, "selection": {"by": "caller"}}
 
 
 async def _run_swarm(
@@ -380,8 +396,10 @@ def register_agent_execution_tools(mcp: Any) -> None:
             "WorkItem DAG; 'reason' runs a versioned graph/reasoning topology (CoT, "
             "self-consistent CoT, or Tree-of-Thought BFS/DFS — "
             "CONCEPT:AU-ORCH.planning.reasoning-graph-topologies) over 'task' via a real "
-            "LLM step/expansion function, then registers/updates the run as a "
-            "graph-addressable topology resource. Single-agent delegation remains "
+            "LLM step/expansion function; topology='auto' lets EG's "
+            "au.reasoning.topology decision choose (cheapest-adequate fallback), and "
+            "the topology is registered as a graph-addressable resource. "
+            "Single-agent delegation remains "
             "graph_orchestrate."
         ),
         tags=["graph-os", "agents", "swarm", "computer-use", "org", "reasoning"],
@@ -407,9 +425,11 @@ def register_agent_execution_tools(mcp: Any) -> None:
             description="JSON options; org actions accept {domains:[...]}.",
         ),
         topology: str = Field(
-            default="cot",
+            default="auto",
             description=(
-                "reason only: 'cot' | 'self_consistent_cot' | 'tot_bfs' | 'tot_dfs'."
+                "reason only: 'auto' (EG's au.reasoning.topology decision, "
+                "cheapest-adequate fallback) | 'cot' | 'self_consistent_cot' | "
+                "'tot_bfs' | 'tot_dfs'."
             ),
         ),
         num_samples: int = Field(
@@ -454,30 +474,19 @@ def register_agent_execution_tools(mcp: Any) -> None:
             if action == "reason":
                 if not task:
                     raise ValueError("task is required for reason")
-                topology_norm = (topology or "cot").strip().lower()
-                if topology_norm not in {
-                    "cot",
-                    "self_consistent_cot",
-                    "tot_bfs",
-                    "tot_dfs",
-                }:
-                    raise ValueError(
-                        f"unknown topology {topology_norm!r} for reason; choose "
-                        "'cot', 'self_consistent_cot', 'tot_bfs', or 'tot_dfs'"
-                    )
-                return json.dumps(
-                    await _run_reasoning_topology(
-                        engine,
-                        topology=topology_norm,
-                        task=task,
-                        num_samples=num_samples,
-                        branching_factor=branching_factor,
-                        beam_width=beam_width,
-                        max_depth=max_depth,
-                        loop_budget=max_steps,
-                    ),
-                    default=str,
+                resolved = await _resolve_reasoning_topology(topology, task)
+                result = await _run_reasoning_topology(
+                    engine,
+                    topology=resolved["topology"],
+                    task=task,
+                    num_samples=num_samples,
+                    branching_factor=branching_factor,
+                    beam_width=beam_width,
+                    max_depth=max_depth,
+                    loop_budget=max_steps,
                 )
+                result["selection"] = resolved["selection"]
+                return json.dumps(result, default=str)
 
             if action == "computer_use":
                 from agent_utilities.orchestration.computer_use_agent import (

@@ -106,6 +106,9 @@ POINTS: dict[str, DecisionPoint] = {
         _point(
             "EH-464", "au.swarm.topology", "template_choice", log_mode=LogMode.NEVER
         ),
+        # EH-474: which reasoning-graph topology (CoT, self-consistent CoT, ToT)
+        # runs a ``reason`` task; the cheapest-adequate ladder is the fallback.
+        _point("EH-474", "au.reasoning.topology", "route"),
         # EH-463 (ST-11): continue / narrow / stop between rounds; evaluate-only
         # and sampled (§4.5), options narrow-only.
         _point("EH-463", "au.swarm.continue", "route", **_SAMPLED),

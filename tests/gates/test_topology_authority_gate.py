@@ -79,6 +79,31 @@ def test_the_tree_holds_one_topology_authority() -> None:
             ELSEWHERE,
             "second-topology-selector",
         ),
+        (
+            'async def f(d, o):\n    return await d.achoose("au.swarm.topology", o, None)',
+            ELSEWHERE,
+            "second-topology-selector",
+        ),
+        (
+            'def f(d, o):\n    return d.choose("au.reasoning.topology", o, None)',
+            "agent_utilities/mcp/tools/agent_execution_tools.py",
+            "second-topology-selector",
+        ),
+        (
+            'q = "MATCH (t:ReasoningTopologyVersion) WHERE t.id = $i SET t.reward = $r"',
+            ELSEWHERE,
+            "reasoning-outcome-store",
+        ),
+        (
+            "def f(s):\n    return ReasoningTopologyVersionNode(id=s, task_count=1)",
+            ELSEWHERE,
+            "reasoning-outcome-store",
+        ),
+        (
+            "def f(stats):\n    return stats.success_rate > 0.5",
+            "agent_utilities/graph/reasoning/policy.py",
+            "success-rate-selection",
+        ),
     ],
 )
 def test_each_planted_second_authority_is_named(
@@ -89,3 +114,9 @@ def test_each_planted_second_authority_is_named(
 
 def test_success_rate_outside_selection_modules_is_not_this_gate_s_business() -> None:
     assert gate.check_source("def f(t):\n    return t.success_rate", ELSEWHERE) == []
+
+
+def test_the_reasoning_topology_consumer_is_the_one_sanctioned_call_site() -> None:
+    home = "agent_utilities/decide/consumers/reasoning_topology.py"
+    source = 'async def f(d, o):\n    return await d.achoose("au.reasoning.topology", o, None)'
+    assert gate.check_source(source, home) == []

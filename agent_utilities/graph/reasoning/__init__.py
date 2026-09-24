@@ -38,10 +38,10 @@ resource. The closest prior art:
 * :class:`agent_utilities.graph.reactive.budget.BudgetGuard` (time/token/cost)
   is reused by :mod:`.budgets` rather than re-implemented; loop-count and
   tool-call-count are the two axes it does not cover, added here.
-* :mod:`.topology` tracks reasoning-topology resources in the KG with a
-  best-effort EMA outcome update. (Multi-agent SWARM topology no longer keeps
-  such a store: it is EG's certified decision, SWARM-TOPOLOGY-DECIDE-DESIGN
-  ST-7.)
+* :mod:`.topology` registers reasoning-topology resources in the KG. It keeps
+  no outcome store: choosing a topology is EG's ``au.reasoning.topology``
+  decision (EH-474), as the swarm topology is (SWARM-TOPOLOGY-DECIDE-DESIGN
+  ST-7).
 
 None of CoT / self-consistent CoT / ToT / GoT / ReAct / RAP existed as such —
 all six are newly implemented here.
@@ -61,7 +61,7 @@ from .policy import DEFAULT_LADDER, EscalationDecision, EscalationPolicy
 from .rap import RAP_SPEC, run_rap
 from .react import REACT_SPEC, run_react
 from .state import CandidateVote, NodeKind, ReasoningState, ThoughtNode, ToolCallRecord
-from .topology import TopologySpec, record_topology_outcome, register_topology
+from .topology import TopologySpec, register_topology
 from .tot import TOT_BFS_SPEC, TOT_DFS_SPEC, PruningPolicy, run_tot
 
 __all__ = [
@@ -94,7 +94,6 @@ __all__ = [
     "ToolCallRecord",
     "TopologySpec",
     "register_topology",
-    "record_topology_outcome",
     "TOT_BFS_SPEC",
     "TOT_DFS_SPEC",
     "PruningPolicy",

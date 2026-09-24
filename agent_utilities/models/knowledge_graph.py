@@ -1965,10 +1965,12 @@ class ReasoningTopologyVersionNode(ArtifactVersionNode):
     contracts + edge/routing functions) over one shared state, not separate
     frameworks. Mirrors :class:`SkillVersionNode`/:class:`SpecVersionNode`'s exact
     content-addressed-lineage contract (``version_hash`` = the topology digest,
-    inherited ``status``/``origin``/``reward``/``task_count``/``notes``) so a
-    topology is graph-addressable and versioned exactly like a skill or a spec —
-    the reward is a held-out :mod:`agent_utilities.graph.reasoning.benchmark` score,
-    not a hand-picked constant.
+    inherited ``status``/``origin``/``notes``) so a topology is graph-addressable
+    and versioned exactly like a skill or a spec. The inherited
+    ``reward``/``task_count`` are never written for a topology: which topology
+    runs is EG's ``au.reasoning.topology`` decision, learned from independent
+    evaluations in the decision log, not from runs scoring themselves (EH-474;
+    ``scripts/check_topology_authority.py`` rule ``reasoning-outcome-store``).
     """
 
     type: RegistryNodeType = RegistryNodeType.REASONING_TOPOLOGY_VERSION

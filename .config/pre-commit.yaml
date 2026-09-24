@@ -282,7 +282,7 @@ repos:
     pass_filenames: false
     always_run: true
   - id: check-topology-authority
-    name: One topology authority (no AU TopologyTemplate Cypher, success-rate selection or second selector, ST-7)
+    name: One topology authority (no AU TopologyTemplate Cypher, success-rate selection, second selector or reasoning-topology outcome store, ST-7/EH-474)
     entry: python3 scripts/check_topology_authority.py
     language: system
     pass_filenames: false

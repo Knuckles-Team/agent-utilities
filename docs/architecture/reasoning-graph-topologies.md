@@ -33,7 +33,7 @@ closest existing building blocks, reused rather than reimplemented:
 | `agent_utilities.harness.graph_search_evolution.GraphSearchEvolver` (real UCT + backprop MCTS for code/ML-algorithm evolution search, MLEvolve arXiv:2606.06473) | `.rap`'s algorithmic shape (UCT selection + full-path backprop), generalized off the code-evolution specifics |
 | `agent_utilities.security.execution_stability_engine.DoomLoopDetector` | `.react`'s grounding/termination detection |
 | `agent_utilities.graph.reactive.budget.BudgetGuard` (time/token/cost) | `.budgets.BudgetTracker` (adds loop-count + tool-call-count, the two axes it doesn't cover) |
-| (formerly `TopologyEngine`'s EMA outcome update, deleted by SWARM-TOPOLOGY ST-7) | `.topology`'s `register_topology`/`record_topology_outcome` (reasoning-topology resource kind) |
+| (formerly `TopologyEngine`'s EMA outcome update, deleted by SWARM-TOPOLOGY ST-7; the reasoning-topology copy was deleted by EH-474) | `.topology`'s `register_topology` (registration only; no outcome store) |
 | `agent_utilities.models.knowledge_graph.ArtifactVersionNode` (content-addressed, versioned, evolvable artifact — the same contract skills/prompts/specs already use) | `ReasoningTopologyVersionNode`, the KG-modeled topology resource |
 
 ## The shared-state thesis
@@ -61,9 +61,23 @@ flowchart TB
     State -->|goal / converged| Proof
 
     Proof --> Benchmark["benchmark.BenchmarkHarness<br/>accuracy/pass-rate/grounding/tokens/<br/>wall-time/tool-calls/cache-reuse/cost/reliability"]
-    Benchmark --> Policy["policy.EscalationPolicy<br/>cheapest adequate → escalate on<br/>measured low-confidence/unreliability"]
-    Policy -->|chooses next run's topology| CoT
+    Decide["EG Decide: au.reasoning.topology<br/>calibrated score or abstain (EH-474)"] -->|chooses the topology| CoT
+    Policy["policy.EscalationPolicy<br/>cheapest adequate (the fallback)"] -->|on abstention| CoT
 ```
+
+## Choosing a topology (EH-474)
+
+`graph_agents(action="reason", topology="auto")` asks EG's `au.reasoning.topology`
+decision point (`agent_utilities.decide.consumers.reasoning_topology`). Each runnable
+topology is one declared option: its escalation rung (cost order), its declared loop budget,
+whether it is the ladder's pick, and a short shape description that EG scores against the
+task text (candidate-local BM25). A bound, calibrated head picks; otherwise EG abstains and
+`EscalationPolicy`'s cheapest rung answers. The decision record is logged, so an independent
+evaluator can credit an outcome to it (`DecisionLog.evaluate`). A run never scores itself:
+the EMA `reward`/`task_count` store this package once kept on `ReasoningTopologyVersion` nodes
+is deleted, and `scripts/check_topology_authority.py` (rules `reasoning-outcome-store` and
+`second-topology-selector`) keeps it deleted. A named topology is the caller's instruction
+and runs as named; the response's `selection` says which way the topology was chosen.
 
 ## The versioned topology resource
 
@@ -71,10 +85,9 @@ Each topology module publishes exactly one `TopologySpec` (`topology.py`): a con
 digest over its name/version/node-contracts/state-schema/budgets/termination-conditions, a
 `topology_id` (`topology:<name>:<digest>`), and `to_node()` — the same content-addressed,
 versioned-artifact contract this repo already uses for skills and specs
-(`ArtifactVersionNode` → `ReasoningTopologyVersionNode`). `register_topology`/
-`record_topology_outcome` write/update it in the KG with the exact best-effort,
-engine-optional pattern `TopologyEngine` already uses for team-composition topologies (an
-`add_node` at registration, an EMA `reward` update after each run) — reused, not duplicated.
+(`ArtifactVersionNode` → `ReasoningTopologyVersionNode`). `register_topology` writes it to
+the KG best-effort and engine-optional (one `add_node` at registration); nothing is written
+back after a run.
 Checkpoint (memento) semantics are uniform across all six: `ReasoningState.to_memento()` /
 `from_memento()` serializes the whole run, so a budget-halted run resumes exactly where it
 stopped rather than losing partial progress.

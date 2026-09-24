@@ -19,9 +19,13 @@ is the same content-addressed-artifact contract applied to a reasoning
 topology instead of a skill.
 
 KG provenance is written best-effort and engine-optional: ``add_node`` at
-registration plus an exponential-moving-average outcome update after each
-run, for the reasoning-topology resource kind. (Multi-agent swarm topology
-keeps no such store -- SWARM-TOPOLOGY-DECIDE-DESIGN ST-7.)
+registration, nothing after a run. WHICH topology runs is not decided here:
+it is the ``au.reasoning.topology`` decision point
+(:mod:`agent_utilities.decide.consumers.reasoning_topology`, EH-474), where EG
+scores the runnable topologies with a calibrated head or abstains. The former
+self-reported EMA outcome store on the topology node is deleted, as ST-7
+deleted the swarm-topology one; ``scripts/check_topology_authority.py`` keeps
+it deleted.
 """
 
 import hashlib
@@ -31,7 +35,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...models.knowledge_graph import ReasoningTopologyVersionNode
-from .budgets import TerminationProof
 
 logger = logging.getLogger(__name__)
 
@@ -129,61 +132,3 @@ def register_topology(engine: Any, spec: TopologySpec) -> None:
         )
     except Exception as exc:  # noqa: BLE001 — registration is provenance, never fatal
         logger.debug("register_topology: failed to record %s: %s", spec.name, exc)
-
-
-def record_topology_outcome(
-    engine: Any,
-    topology_id: str,
-    *,
-    success: bool,
-    quality_score: float = 0.5,
-    proof: TerminationProof | None = None,
-) -> None:
-    """Best-effort EMA success-rate update for a topology resource.
-
-    An exponential moving average (alpha 0.15) over the
-    ``ReasoningTopologyVersion`` node kind. A degraded (budget-halted) run
-    NEVER counts as a clean success here, matching the truthfulness contract:
-    ``score`` is zero unless the run both succeeded AND was not degraded.
-    """
-    if engine is None or topology_id == "" or not getattr(engine, "backend", None):
-        return
-    degraded = bool(proof and proof.degraded)
-    clean_success = success and not degraded
-    try:
-        alpha = 0.15
-        score = quality_score if clean_success else 0.0
-        # D-W2C-5: the original single-statement rewrite SET a function-call
-        # value (``coalesce(...)``), which the native engine's write subset
-        # rejects (SET values must be literals/parameters). Split into a
-        # bounded read (a plain MATCH, no write keyword — outside the write
-        # subset's scope entirely) that resolves the PRIOR reward/task_count,
-        # the EMA math done in Python, then the SAME MATCH+SET write with
-        # only literal/parameter values (no function call).
-        rows = engine.backend.execute(
-            "MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid "
-            "RETURN t.reward AS reward, t.task_count AS task_count",
-            {"tid": topology_id},
-        )
-        prior = rows[0] if rows else {}
-        prior_reward = prior.get("reward")
-        prior_reward = 0.5 if prior_reward is None else float(prior_reward)
-        prior_task_count = prior.get("task_count")
-        prior_task_count = 0 if prior_task_count is None else int(prior_task_count)
-        new_reward = prior_reward * (1 - alpha) + alpha * score
-        new_task_count = prior_task_count + 1
-        engine.backend.execute(
-            "MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid "
-            "SET t.reward = $reward, t.task_count = $task_count",
-            {"tid": topology_id, "reward": new_reward, "task_count": new_task_count},
-        )
-        logger.info(
-            "[CONCEPT:AU-ORCH.planning.reasoning-graph-topologies] Updated topology "
-            "'%s': success=%s degraded=%s quality=%.2f",
-            topology_id,
-            clean_success,
-            degraded,
-            quality_score,
-        )
-    except Exception as exc:  # noqa: BLE001 — outcome recording is best-effort telemetry
-        logger.debug("record_topology_outcome: failed for %s: %s", topology_id, exc)

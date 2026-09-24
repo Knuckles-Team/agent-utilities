@@ -455,13 +455,11 @@ async def test_graph_agents_reason_live_path_drives_real_cot_topology(
     ``agent_utilities.graph.reasoning`` package (CONCEPT:AU-ORCH.planning.
     reasoning-graph-topologies) -- not merely import it. Before this test's
     wiring, NOTHING outside ``tests/`` and the ``graph/reasoning`` package
-    itself referenced ``run_cot``/``register_topology``/
-    ``record_topology_outcome`` -- a fully built, unit-tested capability with
-    zero live callers. This drives the tool end to end with a scripted LLM
-    step function and asserts the OUTPUT is derived from the real
-    ``run_cot``/``TopologySpec``/``register_topology``/
-    ``record_topology_outcome`` machinery, not a standalone unit test of the
-    topology module.
+    itself referenced ``run_cot``/``register_topology`` -- a fully built,
+    unit-tested capability with zero live callers. This drives the tool end
+    to end with a scripted LLM step function and asserts the OUTPUT is derived
+    from the real ``run_cot``/``TopologySpec``/``register_topology``
+    machinery, not a standalone unit test of the topology module.
     """
     from agent_utilities.mcp.tools import agent_execution_tools
 
@@ -555,15 +553,10 @@ async def test_graph_agents_reason_live_path_drives_real_cot_topology(
     assert props["artifact_id"] == "cot"
     assert props["version_hash"] == COT_SPEC.digest
 
-    assert engine.backend.calls, "record_topology_outcome never reached the backend"
-    # ``record_topology_outcome`` (D-W2C-5) issues a bounded READ then a
-    # literal-only SET write -- it never persists the raw ``quality_score`` as
-    # a ``score`` param. It folds it into an EMA'd ``reward`` (alpha=0.15,
-    # defaulting the prior reward to 0.5 on a fresh node) plus ``task_count``.
-    _query, params = engine.backend.calls[-1]
-    assert params["tid"] == COT_SPEC.topology_id
-    assert params["reward"] == pytest.approx(0.5 * (1 - 0.15) + 0.15 * 0.8)
-    assert params["task_count"] == 1
+    # EH-474: a named topology is the caller's instruction, and the run writes
+    # no outcome of its own (the self-reported EMA store is deleted).
+    assert payload["selection"] == {"by": "caller"}
+    assert engine.backend.calls == []
 
 
 @pytest.mark.asyncio
@@ -668,7 +661,7 @@ async def test_graph_agents_reason_live_path_drives_real_tot_topology(
     assert node_type == "reasoning_topology_version"
     assert props["artifact_id"] == "tot_bfs"
     assert props["version_hash"] == TOT_BFS_SPEC.digest
-    assert engine.backend.calls, "record_topology_outcome never reached the backend"
+    assert engine.backend.calls == []
 
 
 @pytest.mark.asyncio
