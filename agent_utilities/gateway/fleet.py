@@ -384,10 +384,15 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
     if str(job_id).startswith("action_approval:"):
         try:
             from agent_utilities.mcp.kg_server import _get_engine
-            from agent_utilities.orchestration.approval import decide_action_approval
+            from agent_utilities.orchestration.approval import (
+                ApprovalSurface,
+                decide_action_approval,
+            )
 
             engine = _get_engine()
-            result = decide_action_approval(engine, str(job_id), str(decision))
+            result = decide_action_approval(
+                engine, str(job_id), str(decision), ApprovalSurface.OPERATOR_CONSOLE
+            )
             return JSONResponse(
                 {
                     "status": "success",
