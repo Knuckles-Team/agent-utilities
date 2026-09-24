@@ -104,13 +104,6 @@ python3 scripts/docs_contract.py --check
 pre-commit run --config .config/pre-commit.yaml public-surface --all-files
 ```
 
-Run the normal all-files gate only through the shared lease and safety wrapper:
-
-```bash
-repository-manager-governance lane lease --resource precommit-all-files --operation gate -- \
-  python3 scripts/safe_precommit_all_files.py
-```
-
 Useful focused checks:
 
 ```bash
@@ -118,9 +111,6 @@ python3 scripts/check_current_only_contract.py
 python3 scripts/check_tracked_privacy.py
 python3 scripts/check_version_consistency.py
 ```
-
-Exit code 75 from a lane command means another lane owns the resource. Defer;
-do not bypass the lease or start a competing global operation.
 
 ## Quality gates
 
@@ -132,9 +122,11 @@ Evidence must match the claim being made:
 - **Live-path** tests use the real transport and dependencies needed for a
   deployability claim.
 
-Run focused tests first, then every affected gate, then the leased all-files
-suite. Fix failures at their source; do not weaken assertions, hide findings,
-skip a failing test, use `--no-verify`, or relabel a failure as unrelated.
+Run focused tests first, then every affected gate; the full all-files suite
+runs under the shared lease (see the `agent-utilities-development` skill) or, in
+a coordinated program, once on the merged tree at landing. Fix failures at their
+source; do not weaken assertions, hide findings, skip a failing test, bypass a
+red hook, or relabel a failure as unrelated.
 
 Keep generated files generated. Change their source and rerun the owning
 generator. Documentation changes must pass the shared `public-surface` hook,
@@ -149,6 +141,23 @@ Publishing is performed by the reviewed GitHub release workflow, not an
 interactive local upload.
 
 ## Development rules
+
+### Developing here
+
+The development workflow lives in skills; load them before editing:
+
+- `graphos-ecosystem-development` — architecture boundaries, the lane protocol,
+  dedicated build hosts, gate caps, contract regeneration, landing (the
+  release-workflow gate fanned out across hosts by default) and the decisions
+  protocol.
+- `agent-utilities-development` — this repository's inventory, anti-sprawl
+  checklist, gates and validation commands.
+
+This repository is only the agent orchestration plane. Ontology, SHACL, RDF/OWL,
+memory and external graph databases belong to epistemic-graph, connectors to
+agent-connector-sdk, and the served runtime to graph-os.
+
+### Rules
 
 - Read the relevant source, tests, architecture guide, and public entry points
   before editing. Revalidate assumptions against the current checkout.
@@ -184,7 +193,7 @@ architecture, configuration, deployment, operations, and generated references.
 `docs/status.md` is the release-aware capability registry, and `llms.txt` is the
 machine-oriented documentation index.
 
-This file is the contributor and automation contract. Edit `AGENTS.head.md`,
+This file is the contributor and automation contract. Edit `.config/AGENTS.head.md`,
 then run `python3 scripts/gen_agents_md.py`; do not edit the generated
 `AGENTS.md` directly. Keep examples synthetic and repository-relative. Do not
 publish planning notes, checkout details, task chronology, or machine-specific
@@ -221,8 +230,9 @@ Take the declared lease before changing shared locks, generated global views,
 or running all-files hooks. A contender defers rather than forcing access.
 
 Commit each coherent unit with the repository-configured author identity.
-Submit completed work through the serialized merge queue; do not merge into
-shared `main` by hand. The queue validates the
+Submit completed work through the serialized merge queue, or in a coordinated
+program stop at lane done and let the orchestrator land the train; never merge
+into shared `main` by hand. The queue validates the
 candidate as merged and retains a recovery reference before pruning. Pushes,
 tags, releases, deployments, and destructive cleanup require explicit scope
 from the user.

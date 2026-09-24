@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-575 typed fields · 374 runtime-only call-site inputs.
+574 typed fields · 376 runtime-only call-site inputs.
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Generation and drift-gate flow</p>
@@ -269,7 +269,6 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `KG_AUTH_TOKEN_REF` | `Union` | `unset` |
 | `KG_IDENTITY_OAUTH2` | `Union` | `unset` |
-| `KG_LOCAL_PROCESS_ADMIN_SCOPE` | `bool` | `False` |
 | `KG_ADMIN_BROKER_OAUTH2` | `Union` | `unset` |
 
 ## Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
@@ -884,6 +883,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES` | 1 |
 | `KG_ASR_MODEL` | 1 |
 | `KG_CARD_MODEL` | 1 |
+| `KG_CODEBASE_DELTA_VIA_SDK_TRANSPORT` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
 | `KG_DAEMON_LOG_LEVEL` | 1 |
 | `KG_DAEMON_METRICS` | 1 |
@@ -898,6 +898,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_ENRICH_MAX_CHUNKS` | 1 |
 | `KG_EVAL_CAPTURE` | 1 |
 | `KG_EXTRACT_MAX_RETRIES` | 1 |
+| `KG_FLEET_SYNC_INTERVAL_SECS` | 1 |
 | `KG_GRAPH_NAME` | 1 |
 | `KG_GRAPH_OWNERSHIP_ENFORCED` | 1 |
 | `KG_INGEST_INFLIGHT` | 1 |
