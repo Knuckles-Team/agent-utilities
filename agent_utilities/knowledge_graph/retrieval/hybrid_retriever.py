@@ -2161,7 +2161,9 @@ class HybridRetriever:
         if trivial is not None:
             return trivial
 
-        plan = _resolve_hyde_plan(self, query, mode)
+        from agent_utilities.decide.consumers.retrieval import choose_retrieval_plan
+
+        plan = _resolve_hyde_plan(self, query, choose_retrieval_plan(query, mode))
         threshold = threshold_for_mode(plan.search_mode)
         queries = plan.effective_queries(query)
         sub_window = max(2, context_window)

@@ -217,8 +217,13 @@ def register_candidate_claim_tools(mcp):
                         {"error": f"invalid records_json entry: {type(exc).__name__}"}
                     )
 
-                candidates = resolve_identity_candidates(
-                    records, min_confidence=min_confidence
+                from agent_utilities.decide.consumers.identity import (
+                    proposed_candidates,
+                )
+
+                candidates = proposed_candidates(
+                    records,
+                    resolve_identity_candidates(records, min_confidence=min_confidence),
                 )
                 persisted = 0
                 if persist and candidates:

@@ -1900,6 +1900,13 @@ def propose_mapping_profile(
     )
     target_set = set(ontology_classes)
     type_map, methods = _propose_mapping_profile_deterministic_map(deterministic)
+    from agent_utilities.decide.consumers.schema_mapping import (
+        apply_decided_mappings,
+    )
+
+    # EH-033: EG decides the labels the crosswalk left unmapped; the semantic
+    # suggestion is its fallback, then fills whatever is still unmapped.
+    apply_decided_mappings(schema.labels, ontology_classes, semantic, type_map, methods)
     _propose_mapping_profile_apply_semantic(
         schema, semantic, target_set, type_map, methods
     )

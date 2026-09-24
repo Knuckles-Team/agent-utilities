@@ -2008,9 +2008,15 @@ class IngestionEngine:
         broken classifier can never silently drop a document's facts.
         """
         try:
+            from agent_utilities.decide.consumers.ingestion import (
+                choose_ingestion_lane,
+            )
+
             from ..extraction.structure_router import classify_text
 
-            return classify_text(text, doc_type=source_type)
+            return choose_ingestion_lane(
+                source_type, lambda: classify_text(text, doc_type=source_type)
+            )
         except Exception:  # noqa: BLE001 — routing never breaks ingest
             return "prose"
 

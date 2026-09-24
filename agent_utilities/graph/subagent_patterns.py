@@ -90,6 +90,28 @@ class PatternComplexity(IntEnum):
     EXPERT = 5
 
 
+def _decided_pattern(
+    pattern: SubagentPattern,
+    reasoning: str,
+    complexity: int,
+    flags: tuple[bool, bool, bool],
+    specialist_count: int,
+) -> tuple[SubagentPattern, str]:
+    """The tree's pattern, unless EG decides another (EH-048)."""
+    from agent_utilities.decide.consumers.topology import TaskShape, decided_topology
+
+    parallelizable, needs_collaboration, has_a2a_peers = flags
+    shape = TaskShape(
+        int(complexity),
+        parallelizable,
+        needs_collaboration,
+        specialist_count,
+        has_a2a_peers,
+    )
+    chosen, why = decided_topology(pattern.value, reasoning, shape)
+    return SubagentPattern(chosen), why
+
+
 class SubagentPatternDecision(BaseModel):
     """Records a pattern selection decision for KG persistence.
 
@@ -208,6 +230,15 @@ class SubagentPatternRouter:
             pattern = SubagentPattern.INLINE_TOOL
             reasoning = "Default fallback to inline tool execution."
             confidence = 0.6
+
+        # EH-048: EG Decide over the topology family; the tree above is the fallback.
+        pattern, reasoning = _decided_pattern(
+            pattern,
+            reasoning,
+            complexity,
+            (parallelizable, needs_collaboration, has_a2a_peers),
+            specialist_count,
+        )
 
         # Append read-only note to reasoning
         if read_only:

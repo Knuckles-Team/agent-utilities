@@ -96,19 +96,55 @@ class AgentClient(_Bound):
 
 
 class AgentGraphClient(_Bound):
-    """L3: decision-ladder assembly and the decision commit."""
+    """L3: decision-ladder assembly, the decision commit and the graph publish."""
 
     async def assemble(self, request: Any) -> Any:
+        """``AgentAssemble`` -- normalized to JSON (EH-377a: the send returns a
+        typed ``AssemblyResult`` model; every Mapping-style consumer, notably
+        :mod:`agent_utilities.decide.consumers.assembly`, indexes the result
+        with ``.get``/``[]``, so the boundary decodes it here, once)."""
         send = generated("storage", "send_agent_assemble")
-        return await send(self.client, {"request": _json(request)}, self.graph)
+        return _json(await send(self.client, {"request": _json(request)}, self.graph))
 
     async def commit_decision(
         self, request: Any, *, idempotency_key: str | None = None
     ) -> Any:
+        """``DecisionCommit`` -- normalized to JSON (see :meth:`assemble`; the
+        send returns a typed ``DecisionCommitResult`` model)."""
         send = generated("storage", "send_decision_commit")
+        return _json(
+            await send(
+                self.client,
+                {"request": _json(request)},
+                self.graph,
+                idempotency_key=idempotency_key,
+            )
+        )
+
+    async def publish_graph(
+        self,
+        draft: Any,
+        context: Any,
+        *,
+        evidence: Any = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Publish one agent graph (``AgentGraph.publish``).
+
+        ``evidence`` -- a ``ComponentDependency`` pinning the committed
+        ``DecisionRecord`` -- becomes the draft's ``synthesis_evidence``, which is
+        inside the graph's definition digest, so a delegation of the graph
+        resolves to the decision that chose it (EH-044, DECIDE §4.6).
+        ``context`` is the ``AgentLibraryMutationContext`` the policy owner minted.
+        """
+        send = generated("storage", "send_agent_graph")
+        graph = dict(_json(draft))
+        if evidence is not None:
+            graph["synthesis_evidence"] = dict(_json(evidence))
+        request = {"context": _json(context), "graph": graph}
         return await send(
             self.client,
-            {"request": _json(request)},
+            {"op": {"op": "publish", "request": request}},
             self.graph,
             idempotency_key=idempotency_key,
         )
