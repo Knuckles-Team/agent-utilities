@@ -100,6 +100,13 @@ POINTS: dict[str, DecisionPoint] = {
             **_SAMPLED,
         ),
         _point("EH-039", "au.route.cost", "route"),
+        _point(
+            "EH-407",
+            "au.guardrail.profile",
+            "classify",
+            safety="policy",
+            proposal_only=True,
+        ),
         _point("EH-048", "au.swarm.topology", "route"),
         _point("EH-041", "au.connector.triage", "classify", **_SAMPLED),
         _point("EH-042", "au.connector.tool", "route", **_SAMPLED),
