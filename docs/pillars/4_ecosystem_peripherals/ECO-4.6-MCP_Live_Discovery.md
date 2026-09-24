@@ -20,22 +20,18 @@ verification to ensure cached tool metadata stays current.
 
 ## How It Works
 
-```mermaid
-sequenceDiagram
-    participant I as Ingestion Pipeline
-    participant D as MCPDiscoveryMixin
-    participant S as MCP Server (subprocess)
-    participant KG as Knowledge Graph
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Live discovery: spawn, list tools, ingest, stamp freshness</p>
 
-    I->>D: discover_mcp_tools(server_config)
-    D->>S: Start subprocess (command + args)
-    D->>S: stdio_client → ClientSession.initialize()
-    D->>S: session.list_tools()
-    S-->>D: [Tool(name, description, inputSchema)]
-    D-->>I: [{name, description, input_schema}]
-    I->>KG: ingest_mcp_server(tools=...)
-    I->>KG: SET s.config_hash, s.timestamp
-```
+The ingestion pipeline calls `MCPDiscoveryMixin.discover_mcp_tools
+(server_config)`, which starts the MCP server as a subprocess (command +
+args), connects via `stdio_client` -> `ClientSession.initialize()`, and
+calls `session.list_tools()`. The server returns
+`[Tool(name, description, inputSchema)]`, which the mixin returns to the
+pipeline as `[{name, description, input_schema}]`. The pipeline then
+calls `ingest_mcp_server(tools=...)` on the Knowledge Graph and sets
+`s.config_hash`/`s.timestamp` for the freshness check.
+</div>
 
 ## Key Methods
 

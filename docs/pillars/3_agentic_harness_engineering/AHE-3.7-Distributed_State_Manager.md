@@ -5,17 +5,18 @@ The `BranchMergeStateLocker` handles parallel state branching, versioned optimis
 
 ## Component Architecture
 
-```mermaid
-graph TD
-    A[expert_executor_step] -->|1. fork_state| B[BranchMergeStateLocker]
-    B -->|2. Create Fork branch_node_id| C[Local/Redis Branch Cache]
-    A -->|3. update_branch_state| C
-    A -->|4. Execute Specialist Task| D[Specialist Agent / Node]
-    D -->|5. Write Staged Output| C
-    A -->|6. merge_state| B
-    B -->|7. Three-Way / FF Merge| E[Base Main State]
-    B -->|8. Clean up Stale Branch| C
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Fork, execute, stage, merge, clean up — eight steps</p>
+
+`expert_executor_step` (1) calls `fork_state` on
+`BranchMergeStateLocker`, which (2) creates a fork (`branch_node_id`) in
+the local/Redis branch cache. The step then (3) calls
+`update_branch_state` into that cache and (4) executes the specialist
+task on a specialist agent/node, which (5) writes its staged output back
+into the branch cache. The step then (6) calls `merge_state` on
+`BranchMergeStateLocker`, which (7) three-way/fast-forward merges into
+the base main state and (8) cleans up the stale branch from the cache.
+</div>
 
 ## Core Abstractions
 
