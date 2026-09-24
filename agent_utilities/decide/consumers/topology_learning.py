@@ -230,14 +230,41 @@ def gold_dataset(
     return dataset, digest_of(dataset)
 
 
+def plan_expected_cost(
+    plan: Mapping[str, Any], *, micros_per_token: int, micros_per_lease_unit: int = 0
+) -> int | None:
+    """A plan's declared cost in microunits: tokens plus leased amount, priced.
+
+    ``None`` when a slot declares no tokens: an unknown cost is never zero.
+    """
+    tokens = [s.get("tokens") for s in plan.get("slots") or ()]
+    if not tokens or any(not isinstance(t, int) for t in tokens):
+        return None
+    leased = sum(
+        int(c.get("amount") or 0)
+        for c in (plan.get("lease") or {}).get("per_cell") or ()
+    )
+    return (
+        sum(int(t) for t in tokens) * micros_per_token + leased * micros_per_lease_unit
+    )
+
+
+def claim_cost_drift(offered: int, committed: int, tolerance_ppm: int) -> bool:
+    """Whether the committed plan's cost drifted past the policy tolerance from
+    the priced offer: the claim is then refused and the offer re-priced."""
+    return abs(committed - offered) * 1_000_000 > tolerance_ppm * max(offered, 1)
+
+
 __all__ = [
     "CENSORED",
     "QUESTION",
     "GoldItem",
     "TopologyOutcome",
+    "claim_cost_drift",
     "credit_topology_outcome",
     "evaluation_op",
     "gold_dataset",
     "gold_items",
+    "plan_expected_cost",
     "plan_features",
 ]
