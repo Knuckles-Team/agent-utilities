@@ -125,18 +125,56 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # steps, cell declarations, lease acquire/release and status reads without
 # handing it ``kg:admin``. None implies another and the kg hierarchy implies
 # none of them.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
+# Finance (EH-416/419/423, coordinator ruling 2026-09-24 "domain capability
+# scopes"): people hold only the DOMAIN scopes ``finance:alerts``,
+# ``finance:track``, ``finance:backfill``, ``finance:propose-order`` (and, for
+# the ``live-order-approvers`` group, ``finance:approve-live-order`` plus the
+# ``connector:write-back``/``lease:read``/``lease:write`` their approval record
+# needs). graph-os's process identity holds the INFRASTRUCTURE scopes it
+# executes with on a verified caller's behalf -- ``compute:finance``,
+# ``timeseries:read``/``timeseries:write`` and ``broker:admin``/``publish``/
+# ``consume``/``ack`` -- after checking the caller's domain scope and read
+# authority. All are exact: none implies another, the kg hierarchy implies
+# none, and no wildcard is projected.
+_FINANCE_DOMAIN_SCOPES: frozenset[str] = frozenset(
     {
-        "kg:read",
-        "kg:write",
-        "kg:admin",
-        "fleet:events",
-        "rbac:approve-elevation",
-        "capacity:throttle",
-        "capacity:admin",
-        "capacity:lease",
-        "capacity:read",
+        "finance:alerts",
+        "finance:track",
+        "finance:backfill",
+        "finance:propose-order",
+        "finance:approve-live-order",
     }
+)
+_FINANCE_INFRASTRUCTURE_SCOPES: frozenset[str] = frozenset(
+    {
+        "compute:finance",
+        "timeseries:read",
+        "timeseries:write",
+        "broker:admin",
+        "broker:publish",
+        "broker:consume",
+        "broker:ack",
+        "connector:write-back",
+        "lease:read",
+        "lease:write",
+    }
+)
+_GRAPH_AUTH_SCOPES: frozenset[str] = (
+    _FINANCE_DOMAIN_SCOPES
+    | _FINANCE_INFRASTRUCTURE_SCOPES
+    | frozenset(
+        {
+            "kg:read",
+            "kg:write",
+            "kg:admin",
+            "fleet:events",
+            "rbac:approve-elevation",
+            "capacity:throttle",
+            "capacity:admin",
+            "capacity:lease",
+            "capacity:read",
+        }
+    )
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512

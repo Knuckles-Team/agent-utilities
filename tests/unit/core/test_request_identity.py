@@ -296,6 +296,51 @@ class TestActorFromClaims:
         if "kg:admin" not in granted:
             assert "kg:admin" not in scopes, "capacity never implies graph admin"
 
+    @pytest.mark.parametrize(
+        ("granted", "expected"),
+        [
+            ("finance:alerts", {"finance:alerts"}),
+            (
+                "finance:track finance:backfill finance:propose-order",
+                {"finance:track", "finance:backfill", "finance:propose-order"},
+            ),
+            ("finance:approve-live-order", {"finance:approve-live-order"}),
+            ("kg:admin", set()),
+            ("finance:* finance:trade", set()),
+        ],
+    )
+    def test_finance_domain_scopes_are_exact_and_independent(self, granted, expected):
+        """Coordinator ruling 2026-09-24: people hold only exact finance DOMAIN
+        scopes; kg:admin implies none, and no wildcard or undeclared finance
+        scope is projected."""
+        actor = actor_from_claims(
+            {
+                "sub": "principal:trader",
+                "scope": granted,
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        scopes = _mint(actor).scopes
+        assert {scope for scope in scopes if scope.startswith("finance:")} == expected
+
+    def test_graph_os_infrastructure_scopes_reach_its_session_exactly(self):
+        granted = (
+            "compute:finance timeseries:read timeseries:write broker:admin "
+            "broker:publish broker:consume broker:ack broker:*"
+        )
+        actor = actor_from_claims(
+            {
+                "sub": "service:graph-os",
+                "scope": granted,
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        scopes = _mint(actor).scopes
+        assert set(granted.split()) - {"broker:*"} <= scopes
+        assert "broker:*" not in scopes and "kg:admin" not in scopes
+
     def test_generic_admin_role_does_not_grant_graph_administration(self):
         actor = actor_from_claims(
             {
