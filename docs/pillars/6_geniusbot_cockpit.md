@@ -4,25 +4,18 @@
 
 The **GeniusBot Desktop Cockpit** (`geniusbot`) represents the premium multi-platform desktop client and visual trading cockpit for the `agent-utilities` ecosystem. Built on PySide6 (Qt for Python), it provides a fast, snappy, and hardware-accelerated GUI that serves as the ultimate systems command center for both human developers and autonomous agent swarms.
 
-```
-┌────────────────────────────────────────────────────────┐
-│               geniusbot Desktop Cockpit                 │
-├────────────────────────────────────────────────────────┤
-│  [ Systems View ]  [ Finance Cockpit ]  [ Agent Logs ] │
-├────────────────────────────────────────────────────────┤
-│  ┌───────────────────────┐   ┌──────────────────────┐  │
-│  │   Topological Memory  │   │  Snappy Trading Chart│  │
-│  │   Virtual Context VCB │   │  [ Emerald Exchange ]│  │
-│  │                       │   │  ▲                    │  │
-│  │   Active node focus:  │   │  │   /\   /\  [Buy]   │  │
-│  │   (CONCEPT:AU-KG.research.research-pipeline-runner)    │   │  └───\/───\/─────────│  │
-│  └───────────────────────┘   └──────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │  Embedded Terminal Sandbox (CONCEPT:AU-GBOT.cockpit.concept-2)     │  │
-│  │  $ agent-utilities run --swarm                   │  │
-│  └──────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The geniusbot Desktop Cockpit window layout</p>
+
+The main window has three tabs across the top — Systems View, Finance
+Cockpit, Agent Logs — above a two-panel body: a Topological Memory panel
+(Virtual Context VCB, showing active node focus,
+`CONCEPT:AU-KG.research.research-pipeline-runner`) beside a Snappy
+Trading Chart panel (Emerald Exchange, with a live candlestick chart and
+a Buy control). Below both panels sits an embedded terminal sandbox
+(`CONCEPT:AU-GBOT.cockpit.concept-2`) running commands such as
+`agent-utilities run --swarm`.
+</div>
 
 ---
 
@@ -77,25 +70,18 @@ The cockpit is partitioned into seven distinct, highly optimized architectural l
 
 ## 📈 Integration & Data Flow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Dev as Developer / User
-    participant GB as geniusbot GUI (PySide6)
-    participant Bridge as AgentBridge
-    participant AU as agent-utilities Core
-    participant EM as Emerald Exchange API
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Finance tab data flow: exchange ticks to a sub-16ms rendered chart</p>
 
-    Dev->>GB: Launch Finance Tab
-    GB->>Bridge: Subscribe to Feed
-    Bridge->>EM: WebSocket Connection (Ticks)
-    EM-->>Bridge: Raw Market Trades
-    Bridge->>AU: RiskManager.evaluate_var()
-    AU-->>Bridge: VaR Limit / Kelly Sizing
-    Bridge->>GB: Emit Qt Signals (Update Charts)
-    Note over GB: Accelerated QtCharts render (Candlesticks + VaR limits)
-    GB-->>Dev: Snappy visual feedback (<16ms frame budget)
-```
+The developer launches the Finance Tab, and the geniusbot GUI (PySide6)
+subscribes to the feed through `AgentBridge`. `AgentBridge` opens a
+WebSocket connection to the Emerald Exchange API for ticks and receives
+raw market trades back. It calls `RiskManager.evaluate_var()` on
+agent-utilities Core, which returns a VaR limit / Kelly sizing.
+`AgentBridge` emits Qt signals to update the charts; the GUI renders
+accelerated QtCharts (candlesticks + VaR limits) and returns snappy
+visual feedback to the developer within a sub-16ms frame budget.
+</div>
 
 ---
 
