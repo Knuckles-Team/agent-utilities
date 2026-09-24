@@ -100,29 +100,47 @@ class _EphemeralCompute:
     stateless path) — records exactly what reaches the wire."""
 
     def __init__(self):
-        self.ephemeral_calls: list[tuple[list[str], list[tuple[str, str]], float]] = []
+        self.ephemeral_calls: list[
+            tuple[list[str], list[tuple[str, str, float]], float]
+        ] = []
 
     def community_detect_ephemeral(self, node_ids, edges, resolution):
         self.ephemeral_calls.append((node_ids, edges, resolution))
         return [["a", "b"]]
 
 
-def test_make_community_fn_strips_confidence_before_the_ephemeral_rpc():
-    """EH-284/EH-274: ``CommunityDetectEphemeral``'s wire method has no
-    properties/weight slot (epistemic-graph ``method_02.rs`` /
-    ``handlers/graph_ops/algorithms.rs`` — confirmed by reading both), so
-    confidence must never be sent there; it would either be silently dropped
-    downstream or (worse) raise on an unexpected tuple arity. Prove AU strips
-    it to plain (source, target) pairs before calling this RPC."""
+def test_make_community_fn_carries_confidence_as_weight_to_the_ephemeral_rpc():
+    """EH-314: ``CommunityDetectEphemeral``'s wire method now carries a
+    per-edge weight, closing the gap ``test_make_community_fn_strips_...``
+    used to document. A real resolver confidence rides through as that
+    weight; a missing one (the Python name-only fallback resolver) defaults
+    to the pre-EH-284 uniform weight ``1.0`` rather than a fabricated value."""
     gc = _EphemeralCompute()
     fn = make_community_fn(gc)
-    result = fn(["a", "b", "c"], [("a", "b", "0.95"), ("b", "c", None)])
+    result = fn(["a", "b", "c"], [("a", "b", 0.95), ("b", "c", None)])
     assert result == [["a", "b"]]
     assert len(gc.ephemeral_calls) == 1
     node_ids, edges, resolution = gc.ephemeral_calls[0]
     assert node_ids == ["a", "b", "c"]
-    assert edges == [("a", "b"), ("b", "c")]  # confidence stripped, plain pairs
+    assert edges == [("a", "b", 0.95), ("b", "c", 1.0)]
     assert resolution == 1.0
+
+
+def test_scoped_confidence_binds_harder_than_unique_confidence():
+    """EH-284's own ledger example: a ``scoped`` resolver call (0.95) must
+    carry a materially higher weight than a ``unique`` name-only guess
+    (0.60) once both reach the wire — proving AU threads the FULL confidence
+    value through (not just "some truthy weight")."""
+    gc = _EphemeralCompute()
+    fn = make_community_fn(gc)
+    fn(["a", "b"], [("a", "b", 0.95)])
+    fn(["a", "b"], [("a", "b", 0.60)])
+    assert len(gc.ephemeral_calls) == 2
+    _, scoped_edges, _ = gc.ephemeral_calls[0]
+    _, unique_edges, _ = gc.ephemeral_calls[1]
+    assert scoped_edges == [("a", "b", 0.95)]
+    assert unique_edges == [("a", "b", 0.60)]
+    assert scoped_edges[0][2] > unique_edges[0][2]
 
 
 def _cls(name, bases=None, methods=None, decorators=None, is_abstract=False):
