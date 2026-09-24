@@ -79,33 +79,22 @@ shape the engine's real decoder expects — reading citations back always goes
 through epistemic-graph's own `Method::ExplainEvidence`, never a second,
 AU-side implementation of the same resolution logic.
 
-```mermaid
-flowchart LR
-    subgraph AU["agent-utilities (Python)"]
-        SM["MediaStore.store_media()\n(unchanged, AU-P1-4)"]
-        SD["MediaStore.store_document_page_evidence()\n(NEW, opt-in)"]
-        SD --> SM
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">AU writes the occurrence + evidence chain; the engine decodes it</p>
 
-    SM -->|AddNode/AddEdge| SO[":SourceObject"]
-    SM -->|AddNode/AddEdge, hasBlob| OC[":AssetOccurrence"]
-    OC --> BL[":Blob"]
-    SD -->|hasOccurrence| SO
-    SO --> OC
-    SD -->|AddNode: evidence_locus/occurrence_id/blob_ref| EV[":Evidence"]
-    SD -->|extractedFrom| OC
-    SD -->|"SUPPORTS (relationship_type)"| CL[":Claim"]
-    EV --> CL
+In `agent-utilities` (Python), `MediaStore.store_media()` (unchanged,
+AU-P1-4) writes `:SourceObject` and `:AssetOccurrence` (via `hasBlob`,
+pointing to `:Blob`). The new, opt-in
+`MediaStore.store_document_page_evidence()` calls `store_media()`, then
+adds `hasOccurrence` from `:SourceObject` to `:AssetOccurrence`, writes an
+`:Evidence` node carrying `evidence_locus`/`occurrence_id`/`blob_ref`,
+links it `extractedFrom` the `:AssetOccurrence`, and links it to a
+`:Claim` via a `SUPPORTS` relationship.
 
-    subgraph EG["epistemic-graph engine (Rust)"]
-        BGV["BeliefGraph::from_graph_view()"]
-        EC["evidence_citations() /\nMethod::ExplainEvidence"]
-        BGV --> EC
-    end
-
-    EV -.decoded by.-> BGV
-    CL -.decoded by.-> BGV
-```
+In the epistemic-graph engine (Rust), `BeliefGraph::from_graph_view()`
+decodes both `:Evidence` and `:Claim`, feeding
+`evidence_citations()`/`Method::ExplainEvidence`.
+</div>
 
 ## Proof (the vertical slice)
 
@@ -338,33 +327,30 @@ modality adapter (`pdf_sidecar.py`, `image_sidecar.py`, `audio_sidecar.py`,
 `video_sidecar.py` — the last two landed in GOC-07) shares one
 fleet-call/decode/provenance loop instead of reimplementing it:
 
-```mermaid
-flowchart LR
-    subgraph AU["agent-utilities (Python)"]
-        MCP["graph_media_sidecar MCP/REST tool"]
-        ADAPT["pdf_sidecar.py / image_sidecar.py\n(modality write-back mapping)"]
-        DEL["sidecar_delegate.delegate_extract\n(ONE reusable fleet-call loop)"]
-        CAP["sidecar_contract.py\nfail-closed capability manifest"]
-        MS["MediaStore\n(EXISTING ArtifactBundle/EvidenceLocus API)"]
-        MCP --> ADAPT --> DEL
-        DEL --> CAP
-        ADAPT --> MS
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One reusable fleet-call loop shared by every modality sidecar</p>
 
-    DEL -- "call_tool_once\n(digest + media_type + artifact_b64)" --> SC["Fleet sidecar\n(stirlingpdf-mcp / data-science-mcp / ...)"]
-    SC -- "decoded pages/regions/pHash/embeddings" --> DEL
+In `agent-utilities` (Python), the `graph_media_sidecar` MCP/REST tool
+calls a modality adapter (`pdf_sidecar.py` / `image_sidecar.py`, doing
+modality write-back mapping), which calls
+`sidecar_delegate.delegate_extract` — the one reusable fleet-call loop —
+which in turn checks `sidecar_contract.py`'s fail-closed capability
+manifest and calls the adapter's `MediaStore` (the existing
+`ArtifactBundle`/`EvidenceLocus` API).
 
-    MS --> EV[":Evidence loci\n(PageBox/DocumentSpan/ImageRegion)"]
-    ADAPT -- "record_media_sidecar_claim" --> CL[":Claim\n(confidence=1.0, is_verified=True)"]
-    EV -- "SUPPORTS" --> CL
-    DEL -- "record_media_sidecar_activity" --> ACT[":PROVENANCE_ACTIVITY"]
+`delegate_extract` calls the fleet sidecar (`stirlingpdf-mcp`,
+`data-science-mcp`, etc.) via `call_tool_once` (digest + media_type +
+artifact_b64) and receives back decoded pages/regions/pHash/embeddings.
+It also records a `:PROVENANCE_ACTIVITY` node.
 
-    subgraph EG["epistemic-graph engine (Rust) — unchanged"]
-        BGV["BeliefGraph::from_graph_view()"]
-    end
-    EV -.decoded by.-> BGV
-    CL -.decoded by.-> BGV
-```
+`MediaStore` writes `:Evidence` loci (`PageBox`/`DocumentSpan`/
+`ImageRegion`); the adapter's `record_media_sidecar_claim` writes a
+`:Claim` (`confidence=1.0`, `is_verified=True`) linked from the evidence
+via `SUPPORTS`.
+
+In the epistemic-graph engine (Rust, unchanged),
+`BeliefGraph::from_graph_view()` decodes both `:Evidence` and `:Claim`.
+</div>
 
 Governance closes the loop the same way the page-box seam above does — no
 second resolver, no new engine write endpoint: `delegate_extract` records

@@ -13,24 +13,21 @@ other into one property: *the platform ingests, reasons, and acts continuously, 
 hardware utilization, without any one workload starving another, and with every delegated
 action fully visible.*
 
-```mermaid
-flowchart TB
-    subgraph NS["The north-star property"]
-      direction LR
-      A["Saturate the hardware"]:::g
-      B["Never block yourself"]:::g
-      C["Delegate everything,<br/>stay in control"]:::g
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five pillars reinforce one north-star property</p>
 
-    P1["1 · One engine that<br/>saturates a box<br/>(epistemic-graph)"]:::p --> A
-    P2["2 · A non-blocking,<br/>capacity-guarded pipeline"]:::p --> B
-    P3["3 · The resource-priority edict<br/>(interactive ≻ ingestion)"]:::p --> B
-    P4["4 · Split-GPU inference<br/>(dedicate + failover)"]:::p --> A
-    P5["5 · Transparent self-evolution<br/>+ 100% delegation w/ provenance"]:::p --> C
+The north-star property has three facets — **saturate the hardware**,
+**never block yourself**, and **delegate everything, stay in control** —
+each fed by specific pillars:
 
-    classDef g fill:#0b6,stroke:#063,color:#fff;
-    classDef p fill:#e6f0ff,stroke:#36c;
-```
+- **Saturate the hardware** ← Pillar 1 (one engine that saturates a box —
+  epistemic-graph) and Pillar 4 (split-GPU inference: dedicate + failover).
+- **Never block yourself** ← Pillar 2 (a non-blocking, capacity-guarded
+  pipeline) and Pillar 3 (the resource-priority edict: interactive over
+  ingestion).
+- **Delegate everything, stay in control** ← Pillar 5 (transparent
+  self-evolution + 100% delegation with provenance).
+</div>
 
 ---
 
@@ -157,28 +154,19 @@ The platform is built so the **local LLM + graph-os do the work** and the human/
 
 ## How the pillars compose (one loop)
 
-```mermaid
-flowchart LR
-    H["Human / harness<br/>(orchestrate + resolve exceptions)"]:::h
-    EXP["agent-utilities-expert<br/>(local LLM, KG-bound)"]:::l
-    SEAM["Execution seam<br/>:ToolCall / RunTrace"]:::s
-    ENG["epistemic-graph engine<br/>(durable, sharded, reserved read lane)"]:::e
-    ING["24/7 ingestion<br/>(chunked drain, intelligent)"]:::i
-    EVO["Self-evolution flywheel<br/>(review-veto, hardening)"]:::v
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One loop: delegate, execute, trace, resolve, harden</p>
 
-    H -->|delegate| EXP --> SEAM --> ENG
-    ING -->|capacity-guarded| ENG
-    H -. resource-priority edict .-> ENG
-    SEAM -->|provenance| H
-    H -->|resolve exception → harden| EVO --> EXP
-
-    classDef h fill:#fde,stroke:#a37;
-    classDef l fill:#e6f0ff,stroke:#36c;
-    classDef s fill:#eef,stroke:#66c;
-    classDef e fill:#efe,stroke:#393;
-    classDef i fill:#ffe,stroke:#aa3;
-    classDef v fill:#f0e6ff,stroke:#83c;
-```
+The human/harness (orchestrate + resolve exceptions) delegates to
+`agent-utilities-expert` (local LLM, KG-bound), which runs through the
+execution seam (`:ToolCall`/`RunTrace`) to the epistemic-graph engine
+(durable, sharded, reserved read lane). 24/7 ingestion (chunked drain,
+intelligent) writes to the same engine, capacity-guarded, while the
+human/harness's resource-priority edict governs that engine's contention.
+The execution seam reports provenance back to the human/harness, which
+resolves any exception by hardening the self-evolution flywheel
+(review-veto), which in turn feeds back into `agent-utilities-expert`.
+</div>
 
 The edict (Pillar 3) keeps ingestion (Pillar 2) from starving interactive delegation
 (Pillar 5) on the shared engine + GPUs (Pillars 1, 4); provenance (Pillar 5) makes the

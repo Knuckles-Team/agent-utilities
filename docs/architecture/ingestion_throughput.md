@@ -36,18 +36,17 @@ periodic-tick backlog can never expand into the spare workers the throughput
 lanes need. It is *capped, not starved*: below the floor it falls through to the
 normal min-coverage steering, so maint always makes progress on ≥1 worker.
 
-```mermaid
-flowchart TD
-    W[free worker offered a candidate lane] --> H{"codebase type<br/>over cap?"}
-    H -- yes --> D1[deny: codebase_cap]
-    H -- no --> B{"best-effort lane<br/>at its floor?"}
-    B -- yes --> D2[deny: best-effort cap]
-    B -- no --> S{"covered lane while<br/>another lane uncovered?"}
-    S -- yes --> D3[deny: steer to uncovered]
-    S -- no --> R{"would drop below<br/>the hot spare?"}
-    R -- yes --> D4[deny: reserve spare]
-    R -- no --> A[admit]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Admission gate: four denial checks before a free worker is admitted</p>
+
+A free worker offered a candidate lane is checked in order: deny with
+`codebase_cap` if the codebase type is over cap; else deny with
+`best-effort cap` if the best-effort lane is at its floor; else deny with
+`steer to uncovered` if this lane is already covered while another lane
+is uncovered; else deny with `reserve spare` if admitting would drop
+below the hot spare. Only if none of the four denials fire is the worker
+admitted.
+</div>
 
 #### Shard-writer floor on the codebase cap (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap)
 
@@ -125,31 +124,30 @@ off-queue passes activate one and persist a `:ProfileSpan` node on the
 `__control__` graph so the same report covers them. `profile_report` then folds
 WorkItems **and** `:ProfileSpan` rows together.
 
-```mermaid
-flowchart TB
-    subgraph ONE["One ingest unit — profile_ingest() contextvar"]
-        direction LR
-        S1["stage('read')<br/>read_any()"] --> S2["stage('extract')<br/>LLM concept extraction"]
-        S2 --> S3["embed<br/>make_embed_fn (auto-record)"]
-        S3 --> S4["graph-write<br/>add_node / edges"]
-    end
-    LLMW["make_llm_fn → record_llm_usage()"] -. "prompt/completion tokens" .-> PROF["IngestProfile<br/>stages_ms + tokens + cost (AU-OS.observability.ingestion-profile-report/70)"]
-    EMBW["make_embed_fn → record_embed_usage()"] -. "embed tokens" .-> PROF
-    ONE --> PROF
-    PROF -->|"on-queue lifecycle"| TASK["WorkItems"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One IngestProfile per unit, folding on-queue and off-queue work into one report</p>
 
-    subgraph OFFQ["Off-queue passes (AU-OS.observability.embed-stage-profile)"]
-        BF["embed backfill"]
-        CR["concept-registry embedding"]
-        AS["assimilation passes"]
-    end
-    OFFQ -->|"profile_ingest() + record_offqueue_span()"| SPAN[":ProfileSpan nodes<br/>(__control__ graph)"]
+**One ingest unit** runs under a `profile_ingest()` contextvar through
+four stages in sequence: `stage('read')` (`read_any()`) ->
+`stage('extract')` (LLM concept extraction) -> embed (`make_embed_fn`,
+auto-record) -> graph-write (`add_node`/edges). The shared
+`make_llm_fn` -> `record_llm_usage()` wrapper records prompt/completion
+tokens, and `make_embed_fn` -> `record_embed_usage()` records embed
+tokens, both into the same `IngestProfile` (stages_ms + tokens + cost).
+The ingest unit's `IngestProfile` feeds its on-queue lifecycle as a
+`WorkItem`.
 
-    TASK --> RPT["profile_report(group_by=lane|type|tkind)<br/>(AU-OS.observability.per-lane-latency-metrics)"]
-    SPAN --> RPT
-    RPT --> OUT["per-group: p50/p95/max_ms · tokens · cost ·<br/>stages_ms{read,extract,embed,write} ·<br/>dead_letter · parallelism_factor"]
-    OUT --> TOOL["graph_ingest action=profile<br/>(corpus_name → group_by)"]
-```
+**Off-queue passes** (embed backfill, concept-registry embedding,
+assimilation passes) separately call `profile_ingest()` +
+`record_offqueue_span()`, persisting `:ProfileSpan` nodes on the
+`__control__` graph.
+
+Both `WorkItems` and `:ProfileSpan` nodes feed
+`profile_report(group_by=lane|type|tkind)`, which outputs, per group:
+p50/p95/max_ms, tokens, cost, `stages_ms{read,extract,embed,write}`,
+dead_letter, and parallelism_factor — surfaced through
+`graph_ingest action=profile` (`corpus_name` -> `group_by`).
+</div>
 
 **Reading the report.** `parallelism_factor` = Σ per-task `total_ms` ÷ wall-clock
 span — how much pipelining the staged lanes actually buy (a profiling run proves a

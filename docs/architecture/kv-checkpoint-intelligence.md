@@ -27,42 +27,31 @@ rule.
 
 ## Shape
 
-```mermaid
-flowchart TB
-    subgraph triggers["Three trigger paths"]
-        U["👤 User<br/>'checkpoint now'"]
-        A["🤖 Agent<br/>reads the advisory,<br/>decides"]
-        S["⚙️ System<br/>autonomous, no LLM"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Three triggers, one scorer, a gated promotion to disk</p>
 
-    subgraph scoring["Worthiness scoring — worthiness.py"]
-        OBS["CheckpointObservation<br/><i>None = not measured</i>"]
-        REG["CheckpointScorerRegistry<br/><i>register / unregister / replace</i>"]
-        ADV["CheckpointAdvisor<br/>weighted mean over<br/>non-abstaining signals"]
-        REC["CheckpointRecommendation<br/>score · tier · drivers ·<br/>blockers · abstained"]
-        OBS --> ADV
-        REG --> ADV
-        ADV --> REC
-    end
+Three trigger paths feed `TieredCheckpointManager`: the User ("checkpoint
+now"), the Agent (reads the advisory and decides), and the System
+(autonomous, no LLM).
 
-    subgraph tiers["Tiering — tiering.py"]
-        RAM["RAMCheckpointStore<br/><b>the default</b><br/>bounded · LRU · tenant-isolated"]
-        GATE{"PersistenceEligibilityGate<br/><b>default: DENY</b>"}
-        DISK["KVCheckpointStore<br/>content-addressed blob<br/>+ :KVCheckpoint node"]
-    end
+`TieredCheckpointManager` calls into **worthiness scoring**
+(`worthiness.py`): `CheckpointObservation` (`None` = not measured) and
+`CheckpointScorerRegistry` (register/unregister/replace) both feed
+`CheckpointAdvisor`, a weighted mean over non-abstaining signals, which
+produces a `CheckpointRecommendation` (score, tier, drivers, blockers,
+abstained).
 
-    U --> MGR["TieredCheckpointManager"]
-    A --> MGR
-    S --> MGR
-    MGR --> ADV
-    MGR --> RAM
-    RAM -- "promote()<br/><i>re-gated every time</i>" --> GATE
-    GATE -- permitted --> DISK
-    GATE -- refused --> REFUSAL["recorded on the RAM record<br/>+ returned in the outcome"]
+`TieredCheckpointManager` also writes to **tiering** (`tiering.py`):
+`RAMCheckpointStore` is the default (bounded, LRU, tenant-isolated).
+Every `promote()` call is re-gated through `PersistenceEligibilityGate`
+(default: DENY); when permitted, it reaches `KVCheckpointStore`
+(content-addressed blob + `:KVCheckpoint` node); when refused, the
+refusal is recorded on the RAM record and returned in the outcome.
 
-    REC -. "publish (ContextVar)" .-> INSTR["@agent.instructions<br/>in agent/factory.py"]
-    INSTR -. "'checkpoint-worthy: score 0.82,<br/>drivers: …'" .-> A
-```
+Separately, `CheckpointRecommendation` publishes via a `ContextVar` to
+`@agent.instructions` (`agent/factory.py`), which surfaces
+"checkpoint-worthy: score 0.82, drivers: …" back to the Agent.
+</div>
 
 ## The scorer contract
 
@@ -173,18 +162,17 @@ things the platform already carries:
 | **Authority** | the verified `GraphSession` (`actor` / `tenant` / `scopes` / `policy_version`) ∩ the active `SpawnDelegation.ceiling` | intersection — a delegate never exceeds its delegator |
 | **Labels** | each contributing source's classification, residency regions, retention limit and mandatory markings | classification = **max**, residency = **set intersection**, retention = **min**, markings = **union** |
 
-```mermaid
-flowchart TD
-    S["Verified GraphSession — actor · tenant · scopes"] --> A["Effective authority"]
-    D["SpawnDelegation.ceiling — the ultimate principal's capabilities"] -->|"intersect, always"| A
-    C1["source A labels"] --> L["Composed label — most restrictive"]
-    C2["source B labels"] --> L
-    C3["source N labels"] --> L
-    A --> G{"authority dominates the composed label, in the same tenancy?"}
-    L --> G
-    G -->|"yes"| P["write to the durable blob store"]
-    G -->|"no"| R["refuse, naming the source or the missing label"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Effective authority must dominate the composed label to write</p>
+
+The verified `GraphSession` (actor, tenant, scopes) is always intersected
+with `SpawnDelegation.ceiling` (the ultimate principal's capabilities) to
+produce the effective authority. Separately, every contributing source's
+labels (A, B, … N) compose into one label using the most-restrictive rule
+per field. The write is permitted only when the effective authority
+dominates the composed label within the same tenancy — if not, it is
+refused, naming the source or the missing label.
+</div>
 
 * **Inheritance is restrictive; delegation is non-increasing.** Adding a source can only
   make a checkpoint *less* persistable (the intersection, never the union). Adding a
