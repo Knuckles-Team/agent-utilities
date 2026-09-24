@@ -471,7 +471,7 @@ tell you which of them you are currently violating, with the exact remedy comman
 - **Never `git stash`** (one repo-wide ref). Read a pristine file with
   `git show HEAD:<path>`; park work as a `wip:` commit or `agent-utilities lane park`.
 - **Never export a shared `CARGO_TARGET_DIR`** (it corrupts concurrent builds); Rust
-  builds run on build hosts via `eg-lane-run`, never on the dev host.
+  builds run on dedicated build hosts, never on the shared workstation.
 - **Never run with the shared `PRE_COMMIT_HOME`.** pre-commit writes your
   unstaged work to a patch file there and restores it in a `finally:`; a crash
   inside that window loses it. `--lane env` sets a private one.

@@ -147,8 +147,9 @@ interactive local upload.
 The development workflow lives in skills; load them before editing:
 
 - `graphos-ecosystem-development` — architecture boundaries, the lane protocol,
-  build hosts (`eg-lane-run`), gate caps, contract regeneration, landing
-  (`eg-land-gate --fanout` by default) and the decisions protocol.
+  dedicated build hosts, gate caps, contract regeneration, landing (the
+  release-workflow gate fanned out across hosts by default) and the decisions
+  protocol.
 - `agent-utilities-development` — this repository's inventory, anti-sprawl
   checklist, gates and validation commands.
 
