@@ -45,6 +45,7 @@ from contextvars import ContextVar
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 
+from agent_utilities.caching.freshness import combine_tolerance, freshness_hub
 from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
@@ -334,6 +335,8 @@ class _InProcessBundleCache:
         self._lock = threading.Lock()
         # value = (monotonic expiry timestamp, opaque blob)
         self._store: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+        # EH-401: key -> (graph, classes) for bundles stored class-scoped.
+        self._scopes: dict[str, tuple[str, frozenset[str]]] = {}
 
     def get(self, key: str) -> bytes | None:
         now = time.monotonic()
@@ -344,21 +347,62 @@ class _InProcessBundleCache:
             expires_at, blob = entry
             if expires_at <= now:
                 del self._store[key]
+                self._scopes.pop(key, None)
                 return None
             self._store.move_to_end(key)
             return blob
 
     def put(self, key: str, blob: bytes) -> bool:
         with self._lock:
-            self._store[key] = (time.monotonic() + self._ttl_s, blob)
-            self._store.move_to_end(key)
-            while len(self._store) > self._maxsize:
-                self._store.popitem(last=False)
+            self._write_locked(key, blob, self._ttl_s)
+            self._scopes.pop(key, None)
         return True
+
+    def put_scoped(
+        self, key: str, blob: bytes, *, graph: str, classes: frozenset[str]
+    ) -> bool:
+        """Store a bundle that depends on KG ``classes`` (EH-401): its TTL is capped by their
+        declared volatility, and an engine write to any of them drops it. Refuses (``False``)
+        when the classes forbid caching (a ``live`` class, or a stale invalidation feed)."""
+        hub = freshness_hub(graph)
+        hub.attach(self)
+        ttl = combine_tolerance(self._ttl_s, hub.ttl_for(classes))
+        if ttl is None:
+            return False
+        with self._lock:
+            self._write_locked(key, blob, ttl)
+            self._scopes[key] = (graph, frozenset(classes))
+        return True
+
+    def _write_locked(self, key: str, blob: bytes, ttl_s: float) -> None:
+        self._store[key] = (time.monotonic() + ttl_s, blob)
+        self._store.move_to_end(key)
+        while len(self._store) > self._maxsize:
+            evicted, _ = self._store.popitem(last=False)
+            self._scopes.pop(evicted, None)
+
+    def invalidate_classes(self, graph: str, classes: frozenset[str]) -> int:
+        """Drop the class-scoped bundles of ``graph`` that depend on any of ``classes``."""
+        return self._drop_scoped(
+            lambda scope: scope[0] in ("", graph) and not scope[1].isdisjoint(classes)
+        )
+
+    def invalidate_graph(self, graph: str) -> int:
+        """Drop every class-scoped bundle of ``graph``."""
+        return self._drop_scoped(lambda scope: scope[0] in ("", graph))
+
+    def _drop_scoped(self, doomed: Any) -> int:
+        with self._lock:
+            keys = [key for key, scope in self._scopes.items() if doomed(scope)]
+            for key in keys:
+                self._scopes.pop(key, None)
+                self._store.pop(key, None)
+        return len(keys)
 
     def delete(self, key: str) -> bool:
         """Best-effort eviction — the TMS revalidation sweep's optional hook."""
         with self._lock:
+            self._scopes.pop(key, None)
             return self._store.pop(key, None) is not None
 
 

@@ -19,6 +19,7 @@ never stop a call site, and the choice says so in ``reason``.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -29,11 +30,18 @@ from agent_utilities.decide.options import Option, declared_source
 from agent_utilities.decide.outcome import (
     Choice,
     Reading,
+    commit_op,
     read_batch,
     request_for,
     sampled,
 )
-from agent_utilities.decide.points import POINTS, Bindings, DecisionPoint, LogMode
+from agent_utilities.decide.points import (
+    POINTS,
+    Binding,
+    Bindings,
+    DecisionPoint,
+    LogMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +80,7 @@ class _Prepared:
     point: DecisionPoint
     request: dict[str, Any] | None
     offered: frozenset[str]
+    binding: Binding | None = None
 
 
 def _loggable(point: DecisionPoint, record: Mapping[str, Any]) -> bool:
@@ -156,15 +165,15 @@ class DecisionRunner:
             candidates=context.get("candidates") or declared_source(options),
             params=context.get("params") or (),
         )
-        return _Prepared(point, request, offered)
+        return _Prepared(point, request, offered, binding)
 
-    async def _log(
-        self, point: DecisionPoint, record: Mapping[str, Any] | None
-    ) -> bool:
+    async def _log(self, prepared: _Prepared, record: Mapping[str, Any] | None) -> bool:
+        point = prepared.point
         if record is None or not _loggable(point, record):
             return False
         try:
-            await self.transport.log({"op": "commit", "record": dict(record)})
+            op = commit_op(record, prepared.binding, int(time.time() * 1000))
+            await self.transport.log(op)
         except Exception as exc:  # noqa: BLE001 — a log failure keeps the answer; the cause is logged
             logger.warning("decision %s not logged: %s", point.question_id, exc)
             return False
@@ -182,7 +191,7 @@ class DecisionRunner:
             )
             return _unavailable(exc), False
         reading = read_batch(batch, prepared.offered)
-        return reading, await self._log(prepared.point, reading.record)
+        return reading, await self._log(prepared, reading.record)
 
     async def _resolve(self, choice: Choice, answer: Any) -> None:
         if not _needs_resolution(choice, answer):

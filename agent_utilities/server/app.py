@@ -17,6 +17,10 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agent_utilities.agent.factory import create_agent
+from agent_utilities.caching.freshness_poller import (
+    start_process_feed_poller,
+    stop_process_feed_poller,
+)
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
     DEFAULT_A2A_CONFIG,
@@ -985,6 +989,9 @@ async def _app_lifespan(
     # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Boot SynthesisEngine daemon
     synthesis_task = asyncio.create_task(_run_synthesis_daemon(workspace=workspace))
 
+    # EH-401: keep the caches' engine invalidation feed read for this process's graph.
+    freshness_poller = await start_process_feed_poller()
+
     shutdown_event = anyio.Event()
 
     try:
@@ -998,6 +1005,7 @@ async def _app_lifespan(
 
         shutdown_event.set()
     finally:
+        await stop_process_feed_poller(freshness_poller)
         processor_task.cancel()
         synthesis_task.cancel()
         try:

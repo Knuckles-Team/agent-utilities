@@ -2,7 +2,7 @@
 
 :class:`DecideTransport` is the port; :class:`GeneratedTransport` is the one
 adapter, over EG's generated senders (``send_decide``,
-``send_decision_log``). Async callers await it directly; sync call sites run
+``send_decision_log``, ``send_sql`` for the decision views). Async callers await it directly; sync call sites run
 the same coroutine on the engine client's own loop, the pattern
 ``GraphCompute`` already uses for every other engine call, bounded by a
 timeout so a slow engine can only ever cost the fallback.
@@ -27,6 +27,10 @@ class DecideTransport(Protocol):
     async def decide(self, request: Mapping[str, Any]) -> Any: ...
 
     async def log(self, op: Mapping[str, Any]) -> Any: ...
+
+    async def sql(self, query: str) -> Any:
+        """One read-only SQL statement (the decision views are relations)."""
+        ...
 
     def run(self, call: Any) -> Any:
         """Drive one of the coroutines above from a sync call site."""
@@ -61,6 +65,11 @@ class GeneratedTransport:
     async def log(self, op: Mapping[str, Any]) -> Any:
         send = generated("coordination", "send_decision_log")
         return _payload(await send(self.client, {"op": dict(op)}, self.graph))
+
+    async def sql(self, query: str) -> Any:
+        send = generated("query", "send_sql")
+        params = {"query": query, "params_msgpack": b""}
+        return _payload(await send(self.client, params, self.graph))
 
     def run(self, call: Any) -> Any:
         if self.loop is None or self.loop.is_closed() or _on_loop(self.loop):

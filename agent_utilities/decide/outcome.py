@@ -72,6 +72,23 @@ def request_for(
     }
 
 
+def commit_op(
+    record: Mapping[str, Any], binding: Binding | None, now_ms: int
+) -> dict[str, Any]:
+    """The ``DecisionLog.commit`` of ``record``, naming the binding's
+    evaluator (EG issues it an expiring, record-scoped evaluation grant)."""
+    evaluator = None if binding is None else binding.evaluator
+    named = (
+        None
+        if evaluator is None
+        else {
+            "principal": evaluator,
+            "expires_at_ms": now_ms + 1000 * binding.evaluator_ttl_s,
+        }
+    )
+    return {"op": "commit", "record": dict(record), "evaluator": named}
+
+
 def _record_of(batch: Any) -> Mapping[str, Any] | None:
     records = batch.get("records") if isinstance(batch, Mapping) else None
     if not records or not isinstance(records[0], Mapping):
@@ -124,4 +141,4 @@ def sampled(point: DecisionPoint, record: Mapping[str, Any]) -> bool:
         return False
 
 
-__all__ = ["Choice", "Reading", "read_batch", "request_for", "sampled"]
+__all__ = ["Choice", "Reading", "commit_op", "read_batch", "request_for", "sampled"]

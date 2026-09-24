@@ -34,9 +34,12 @@ that optimizes six axes and returns a fully-cited, provenance-bearing bundle:
 4. **Freshness** — bi-temporal recency decay against ``event_time`` /
    ``valid_from`` / ``timestamp`` / ``created_at`` (same half-life-decay shape
    ``HybridRetriever._recency_boost`` uses), neutral for undated results.
-5. **Token cost** — the existing ``RetrievalBudgetManager`` (CONCEPT:AU-KG.memory.tiered-memory-caching)
-   greedily fits the MMR-ranked list to the caller's token budget; nothing is
-   silently truncated — every drop is logged.
+5. **Token cost** — with a sizing policy installed (EH-399,
+   :mod:`.context_knapsack`) the MMR-ranked list is fitted by EG's certified
+   multi-resolution knapsack over exact token counts and the model's capacity;
+   otherwise the existing ``RetrievalBudgetManager`` (CONCEPT:AU-KG.memory.tiered-memory-caching)
+   greedily fits it to the caller's token budget. Nothing is silently
+   truncated — every drop is logged.
 6. **Policy** — every candidate is passed through the SAME fine-grained
    permissioning gate the live read path uses,
    :func:`~agent_utilities.knowledge_graph.ontology.permissioning.enforce`
@@ -98,6 +101,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from agent_utilities.caching.freshness import store_scoped
 from agent_utilities.observability.trace_ontology import trace_candidate_quality
 from agent_utilities.security.persistence_privacy import (
     persistence_reference,
@@ -105,9 +109,14 @@ from agent_utilities.security.persistence_privacy import (
 )
 
 from ..core.engine import cosine_similarity
-from ..core.session import GraphSession, resolve_session, use_session
+from ..core.session import (
+    GraphSession,
+    current_session,
+    resolve_session,
+    use_session,
+)
 from ..ontology.permissioning import enforce
-from .budget import RetrievalBudgetManager
+from .context_knapsack import fit_to_budget, sizing_key
 from .hybrid_retriever import _parse_instant
 
 logger = logging.getLogger(__name__)
@@ -463,6 +472,15 @@ def compute_bundle_cache_key(
     canonical = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f"ctxbundle:{digest}"
+
+
+def _bundle_scope(bundle: ContextBundle) -> tuple[str, frozenset[str]]:
+    """The graph and KG classes a compiled bundle depends on (EH-401): the ambient session's
+    graph and the kind of every selected item. A class-scoped bundle is dropped from the cache
+    the moment the engine reports a write to one of its classes."""
+    session = current_session()
+    graph = str(getattr(session, "graph", "") or "") if session is not None else ""
+    return graph, frozenset(item.kind for item in bundle.items if item.kind)
 
 
 def _record_kv_cache_outcome(outcome: str) -> None:
@@ -1120,8 +1138,11 @@ class ContextCompiler:
         )
 
         # ---- 5. TOKEN COST — fit the MMR-ranked selection within budget.
-        mgr = RetrievalBudgetManager(token_budget)
-        budget_result = mgr.fit(selected, text_of=lambda r: self._text_of(r["node"]))
+        # EH-399: the installed sizer's certified multi-resolution knapsack
+        # (exact tokens, model capacity), else the greedy fit.
+        budget_result = fit_to_budget(
+            selected, token_budget, text_of=lambda r: self._text_of(r["node"])
+        )
         kept_ids = {r["nid"] for r in budget_result.kept}
         for rec in selected:
             if rec["nid"] not in kept_ids:
@@ -1268,7 +1289,9 @@ class ContextCompiler:
             if prompt_copied or _privacy_report.changed:
                 stored = False
             else:
-                stored = kv_backend.put(cache_key, encoded)
+                stored = store_scoped(
+                    kv_backend, cache_key, encoded, *_bundle_scope(bundle)
+                )
         except Exception as exc:  # noqa: BLE001 — store is best-effort
             logger.debug(
                 "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "
@@ -1373,7 +1396,7 @@ class ContextCompiler:
             mask_redactions=mask_redactions,
             token_budget=token_budget,
             evidence_ordering_version=evidence_ordering_version,
-            model_version=model_version,
+            model_version=sizing_key(model_version),
             redaction_version=redaction_version,
             snapshot=snapshot,
         )
