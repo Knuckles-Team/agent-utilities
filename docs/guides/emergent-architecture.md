@@ -119,8 +119,8 @@ composition = composer.compose_team(
     domain="general",
     complexity=3,
 )
-# After execution, promote a successful coalition for future reuse
-composer.promote_to_team_config(composition, success=True, quality_score=0.9)
+# Promoting a successful coalition is `promote_coalition_to_template()`; no
+# success rate is stored, and reuse is never selected by one (ST-7).
 ```
 
 ---

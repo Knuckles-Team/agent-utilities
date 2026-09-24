@@ -323,9 +323,9 @@ Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with
 - **Deep-Dive**: [registry-cache.md](registry-cache.md)
 
 ### 11. TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)
-Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
-- **Module**: `agent_utilities/core/registry/kg_adapter.py` (`record_team_outcome`); team composition in `agent_utilities/graph/team_composer.py`
-- **Features**: Coalition promotion, domain-pattern matching, EMA-based success rate tracking, RLM + TeamConfig synergy
+Proven specialist coalitions are persisted as reusable `TeamConfigNode` compositions in the Knowledge Graph. They are referenced, never selected by a success rate: the topology a task runs is EG's certified plan (SWARM-TOPOLOGY-DECIDE-DESIGN ST-7).
+- **Module**: `agent_utilities/core/registry/kg_adapter.py` (`promote_coalition_to_template`); team composition in `agent_utilities/graph/team_composer.py`
+- **Features**: Coalition promotion, shareable export/import, RLM + TeamConfig synergy
 
 ### 12. AgentCapability Type System (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. Capabilities like RLM, critic, and summarizer activate automatically based on input constraints.
@@ -341,12 +341,9 @@ A2A-native routing entry point that bypasses LLM orchestration overhead. When a 
 
 ## Post-Execution Feedback Loop
 
-The verification synthesizer (`graph/verification.py`) now feeds execution outcomes back to two learning systems:
+The verification synthesizer (`graph/verification.py`) feeds execution outcomes back to the Self-Model: `SelfModel.update_after_session(state)` aggregates domain success rates, tool proficiency, and failure patterns into the versioned metacognitive self-model. TeamConfigs carry no reward: a topology's outcome is an independent evaluation credited by EG to the committed plan's whole slate (ST-12).
 
-1. **Self-Model Update**: `SelfModel.update_after_session(state)` aggregates domain success rates, tool proficiency, and failure patterns into the versioned metacognitive self-model.
-2. **TeamConfig Reward**: `record_team_outcome(config_id, success)` updates the success rate of the used team template via exponential moving average.
-
-Both updates trigger **registry cache invalidation** (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation), ensuring future routing decisions reflect the latest knowledge.
+The update triggers **registry cache invalidation** (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation), ensuring future routing decisions reflect the latest knowledge.
 
 ---
 
@@ -445,7 +442,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **A2A-Native Graph Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
 - **A2A Config File (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
 - **Unified Specialist Model (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
-- **Post-Execution Feedback Loop (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Verification outcomes feed back to both the Self-Model (domain success rates, tool proficiency) and TeamConfig (reward tracking), enabling continuous routing improvement.
+- **Post-Execution Feedback Loop (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Verification outcomes feed back to the Self-Model (domain success rates, tool proficiency); TeamConfigs carry no reward (SWARM-TOPOLOGY ST-7).
 - **Process Lifecycle Management (CONCEPT:AU-OS.state.cognitive-scheduler-preemption)**: `atexit` and signal handlers ensure all child processes (MCP servers, TUI, background threads) are gracefully killed on server exit.
 - **Flexible Skill Loading (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
 - **Advanced Graph Orchestration (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.

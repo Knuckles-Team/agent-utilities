@@ -38,10 +38,10 @@ resource. The closest prior art:
 * :class:`agent_utilities.graph.reactive.budget.BudgetGuard` (time/token/cost)
   is reused by :mod:`.budgets` rather than re-implemented; loop-count and
   tool-call-count are the two axes it does not cover, added here.
-* :class:`agent_utilities.graph.topology_engine.TopologyEngine` already
-  demonstrates the "KG-tracked topology resource with an EMA success-rate
-  outcome update" pattern for multi-agent team topologies — :mod:`.topology`
-  reuses that exact pattern for reasoning topologies.
+* :mod:`.topology` tracks reasoning-topology resources in the KG with a
+  best-effort EMA outcome update. (Multi-agent SWARM topology no longer keeps
+  such a store: it is EG's certified decision, SWARM-TOPOLOGY-DECIDE-DESIGN
+  ST-7.)
 
 None of CoT / self-consistent CoT / ToT / GoT / ReAct / RAP existed as such —
 all six are newly implemented here.

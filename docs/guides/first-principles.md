@@ -109,7 +109,7 @@ The cache is invalidated by 4 event sources, ensuring it stays in sync:
 | MCP Sync | `mcp/agent_manager.py` → `sync_mcp_agents()` | New tools may create new specialists |
 | Pipeline Completion | `knowledge_graph/pipeline/runner.py` → `PipelineRunner.run()` | Code graph changes may affect routing |
 | Self-Model Update | `knowledge_graph/retrieval/memory_retriever.py` | New proficiency data should influence specialist ranking |
-| TeamConfig Promotion | `core/registry/kg_adapter.py` → `promote_coalition_to_template()` | New team templates change routing priorities |
+| TeamConfig Promotion | `core/registry/kg_adapter.py` → `promote_coalition_to_template()` | A new reusable composition is available to reference |
 
 ---
 
@@ -123,7 +123,7 @@ The LLM planner would rediscover the same specialist combinations for recurring 
 
 ### Solution
 
-**TeamConfig** nodes persist proven specialist coalitions as reusable templates in the Knowledge Graph. When a similar query arrives, the router checks for a matching TeamConfig *before* invoking the LLM planner.
+**TeamConfig** nodes persist proven specialist coalitions as reusable compositions in the Knowledge Graph. They are *referenced*, never *selected by a success rate*: the router has no TeamConfig reuse step, and no AU component stores or reads a TeamConfig success rate (SWARM-TOPOLOGY-DECIDE-DESIGN ST-7, invariant T5). Which topology a task runs is EG's certified decision (`AgentAssemble` with `requirements.topology`); learning which topology works is EG's calibrated rung over independent, slate-credited evaluations.
 
 ### TeamConfig Lifecycle
 
@@ -137,18 +137,11 @@ graph TD
     subgraph Promotion ["2. Promotion (on success)"]
         Coalition --> Verify["AHE-3.1: Verifier Score ≥ 0.7"]
         Verify --> Promote["AHE-3.3: promote_coalition_to_template()"]
-        Promote --> TC["ORCH-1.2: TeamConfigNode\n(domain_pattern='deploy*staging*')"]
+        Promote --> TC["ORCH-1.2: TeamConfigNode (reusable composition)"]
     end
 
-    subgraph Reuse ["3. Future Queries"]
-        Q2["ORCH-1.0: Query: 'deploy app to staging env'"] --> Match["ORCH-1.2: find_matching_team_config()"]
-        Match --> TC
-        TC --> Bypass["ORCH-1.2: Skip LLM planning\nDirect dispatch"]
-    end
-
-    subgraph Learning ["4. Continuous Learning"]
-        Bypass --> Outcome["AHE-3.1: Execution Outcome"]
-        Outcome --> Reward["AHE-3.1: record_team_outcome()\nsuccess_rate += EMA"]
+    subgraph Decide ["3. Future Queries"]
+        Q2["ORCH-1.0: typed task"] --> Plan["EG AgentAssemble: certified topology plan"]
     end
 ```
 
@@ -156,33 +149,20 @@ graph TD
 
 ```python
 class TeamConfigNode(RegistryNode):
-    """CONCEPT:AU-AHE.evaluation.interpretability-tests — Proven Team Reuse"""
+    """CONCEPT:AU-AHE.evaluation.interpretability-tests — reusable composition"""
     node_type: str = "TEAM_CONFIG"
-    domain_pattern: str           # e.g., "deploy*staging*"
+    task_pattern: str             # what the team solves
     specialist_ids: list[str]     # Ordered specialist node IDs
-    success_rate: float = 0.5     # EMA-updated after each use
-    uses_count: int = 0
     capability_overrides: dict    # e.g., {"rlm": True} for large inputs
-```
-
-### RLM + TeamConfig Synergy
-
-When a TeamConfig is selected and the input exceeds a size threshold, the system auto-attaches the RLM capability to specialists:
-
-```python
-# In routing.py — when TeamConfig match is found:
-if len(query) > 5000 and "rlm" not in team_config.capability_overrides:
-    team_config.capability_overrides["rlm"] = True
-    # RLM becomes part of the proven team template
+    # No success_rate / usage_count / reuse_threshold: nothing selects on them.
 ```
 
 ### Key Functions
 
 | Function | Purpose |
 |----------|---------|
-| `find_matching_team_config(domain, query)` | Search for a reusable TeamConfig matching the query |
-| `promote_coalition_to_template(specialists, domain, query)` | Create a new TeamConfig from a successful coalition |
-| `record_team_outcome(config_id, success)` | Update TeamConfig success_rate via EMA |
+| `promote_coalition_to_template(coalition_id, task_pattern)` | Create a reusable TeamConfig from a successful coalition |
+| `export_team_config(team_id)` / `import_team_config(bundle)` | Share a composition (imported outcome counters are dropped) |
 | `link_prompt_to_agent(agent_id, prompt_id)` | Create USES_PROMPT edges for traceability |
 
 ---

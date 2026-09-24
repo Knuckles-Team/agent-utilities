@@ -18,11 +18,10 @@ for skills/prompts/specs
 is the same content-addressed-artifact contract applied to a reasoning
 topology instead of a skill.
 
-KG provenance is written with the SAME best-effort, engine-optional pattern
-:class:`agent_utilities.graph.topology_engine.TopologyEngine` already uses for
-team-composition topologies (``add_node`` at registration + an
-exponential-moving-average ``record_outcome`` update after each run) — reused
-here for the reasoning-topology resource kind rather than reimplemented.
+KG provenance is written best-effort and engine-optional: ``add_node`` at
+registration plus an exponential-moving-average outcome update after each
+run, for the reasoning-topology resource kind. (Multi-agent swarm topology
+keeps no such store -- SWARM-TOPOLOGY-DECIDE-DESIGN ST-7.)
 """
 
 import hashlib
@@ -142,8 +141,7 @@ def record_topology_outcome(
 ) -> None:
     """Best-effort EMA success-rate update for a topology resource.
 
-    Reuses :meth:`agent_utilities.graph.topology_engine.TopologyEngine.
-    record_outcome`'s exact formula and Cypher shape, applied to the
+    An exponential moving average (alpha 0.15) over the
     ``ReasoningTopologyVersion`` node kind. A degraded (budget-halted) run
     NEVER counts as a clean success here, matching the truthfulness contract:
     ``score`` is zero unless the run both succeeded AND was not degraded.
