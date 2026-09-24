@@ -99,6 +99,7 @@ they degrade to no-ops when the `metrics` extra is absent.
 | `agent_utilities_mcp_child_breaker_state` | Gauge | `server` | Per-child circuit-breaker state (0=closed, 1=half-open, 2=open) | `mcp/child_resilience.py` | AU-ECO.mcp.profile-differences-from-client |
 | `agent_utilities_mcp_child_restarts_total` | Counter | `server` | Automatic restarts of crashed child servers | `mcp/child_resilience.py` | AU-ECO.mcp.profile-differences-from-client |
 | `agent_utilities_mcp_child_queue_depth` | Gauge | `server` | Tool calls queued behind a child's concurrency limit right now | `mcp/child_resilience.py` | AU-ECO.mcp.profile-differences-from-client |
+| `agent_utilities_mcp_child_throttle_ceiling` | Gauge | `server`, `mode` | Error-budget throttle ceiling from the child's EG CapacityCell; `mode=observe` is exported only, `mode=enforce` limits admission | graph-os `fleet/throttle_controller.py` | EH-406 |
 
 ## Queue-driven agent dispatch (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch)
 

@@ -11,6 +11,7 @@ from agent_utilities.security.guardrail_profile import (
     ErrorBudgetDeclaration,
     GuardrailBounds,
     ProfileMove,
+    ThrottleMode,
     ThrottlePolicy,
     level_of,
     plan_move,
@@ -108,3 +109,12 @@ def test_a_declaration_must_start_on_its_ladder_and_under_capacity() -> None:
         ErrorBudgetDeclaration.model_validate(
             {**declared, "policy": {**policy_at(0), "floor": 9}}
         )
+
+
+def test_a_declaration_observes_unless_enforcement_is_opted_into() -> None:
+    declared = {"capacity": 8, "policy": policy_at(0)}
+    assert ErrorBudgetDeclaration.model_validate(declared).mode is ThrottleMode.OBSERVE
+    enforced = ErrorBudgetDeclaration.model_validate({**declared, "mode": "enforce"})
+    assert enforced.mode is ThrottleMode.ENFORCE
+    with pytest.raises(ValidationError):
+        ErrorBudgetDeclaration.model_validate({**declared, "mode": "shadow"})

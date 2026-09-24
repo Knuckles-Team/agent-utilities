@@ -96,6 +96,7 @@ __all__ = [
     "MCP_CHILD_PROCESS_RUNNING",
     "MCP_CHILD_QUEUE_DEPTH",
     "MCP_CHILD_RESTARTS",
+    "MCP_CHILD_THROTTLE_CEILING",
     "MCP_CHILD_TOOLS_DISPATCHABLE",
     "MCP_CHILD_TOOLS_MOUNTED",
     "MCP_SERVERS_DISPATCHABLE",
@@ -593,6 +594,13 @@ MCP_CHILD_BREAKER_STATE = _gauge(
     "agent_utilities_mcp_child_breaker_state",
     "Per-child circuit-breaker state (0=closed, 1=half-open, 2=open).",
     ("server",),
+)
+MCP_CHILD_THROTTLE_CEILING = _gauge(
+    "agent_utilities_mcp_child_throttle_ceiling",
+    "Error-budget throttle ceiling per child (EH-406): the concurrency the EG "
+    "CapacityCell allows. mode=observe is computed and exported only, never "
+    "enforced; mode=enforce is applied to the child's admission.",
+    ("server", "mode"),
 )
 MCP_CHILD_RESTARTS = _counter(
     "agent_utilities_mcp_child_restarts_total",

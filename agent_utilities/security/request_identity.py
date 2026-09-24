@@ -114,8 +114,13 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # prefixed stream (eg-workitem WRAPUP §3d, ``fleet_streams_need_the_fleet_
 # authority``) — graph-os's fleet-event publishers request it explicitly
 # rather than being handed ``kg:admin`` just to post an event.
+# ``rbac:approve-elevation`` (EH-404/405) is the other independent capability:
+# EG accepts an elevation approval only from a direct identity holding that
+# EXACT scope, so it must reach the session as-is. It is never implied by the
+# hierarchy (``kg:admin`` does not expand to it) and is granted to people
+# through the Keycloak ``elevation-approvers`` group, never to a service.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "fleet:events"}
+    {"kg:read", "kg:write", "kg:admin", "fleet:events", "rbac:approve-elevation"}
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512

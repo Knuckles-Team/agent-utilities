@@ -31,6 +31,7 @@ __all__ = [
     "ProfileMove",
     "ProfilePlan",
     "ThrottleKnobs",
+    "ThrottleMode",
     "ThrottlePolicy",
     "level_of",
     "plan_move",
@@ -103,12 +104,25 @@ class GuardrailBounds(_Declared):
         )
 
 
+class ThrottleMode(StrEnum):
+    """Whether a throttle ceiling is only observed or also enforced.
+
+    ``observe`` (the default, operator ruling 2026-09-24) computes, records
+    and exports the ceiling but never limits admission; ``enforce`` is a
+    per-resource opt-in.
+    """
+
+    OBSERVE = "observe"
+    ENFORCE = "enforce"
+
+
 class ErrorBudgetDeclaration(_Declared):
     """One resource's declared throttle: capacity, policy and optional bounds."""
 
     capacity: int = Field(ge=1, le=1_000_000)
     policy: ThrottlePolicy
     bounds: GuardrailBounds | None = None
+    mode: ThrottleMode = ThrottleMode.OBSERVE
 
     @model_validator(mode="after")
     def _consistent(self) -> ErrorBudgetDeclaration:
