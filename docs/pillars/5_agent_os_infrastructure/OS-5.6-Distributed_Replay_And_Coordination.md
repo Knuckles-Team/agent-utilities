@@ -11,26 +11,14 @@ To satisfy strict regulatory compliance and debugging requirements in an ecosyst
 Every logical transition (prompt, tool call, memory retrieval, response) is registered as a first-class OWL sub-graph under the **PROV-O (Provenance Ontology)**.
 
 ### Data Model Schema
-```mermaid
-classDiagram
-    class ReplayManifestNode {
-        +String id
-        +String process_id
-        +String agent_id
-        +DateTime created_at
-        +Float initial_budget_usd
-    }
-    class InteractionRecordNode {
-        +String step_id
-        +String step_type
-        +Int index
-        +String payload_json
-        +Float step_cost_usd
-        +Int step_tokens
-        +Int elapsed_ms
-    }
-    ReplayManifestNode --> InteractionRecordNode : HAS_STEP
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Data model: a manifest owns an ordered chain of interaction steps</p>
+
+`ReplayManifestNode` (`id`, `process_id`, `agent_id`, `created_at`,
+`initial_budget_usd`) links `HAS_STEP` to `InteractionRecordNode`
+(`step_id`, `step_type`, `index`, `payload_json`, `step_cost_usd`,
+`step_tokens`, `elapsed_ms`).
+</div>
 
 ---
 

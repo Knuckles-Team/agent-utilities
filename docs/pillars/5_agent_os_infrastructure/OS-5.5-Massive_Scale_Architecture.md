@@ -21,20 +21,20 @@ This concept resolves these limitations by introducing a unified **Compiled Micr
 
 A single pattern—**reactive log-centric message passing combined with lightweight sandboxed tasks**—is utilized across all scales. The infrastructure remains identical; only the backend implementations swap under the hood.
 
-```mermaid
-graph TD
-    AgentSystem["Agent-Utilities Core Interface"]
-    -->|1. Event Distribution| EventFabric["QueueBackend Abstraction"]
-    -->|2. Graph Traversals| GraphCompute["GraphComputeEngine"]
-    -->|3. Computation Runtime| WASMRunner["WasmAgentRunner"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One interface, three swappable backends by scale</p>
 
-    EventFabric -->|Scale 1-100| MemQueue["MemoryQueueBackend"]
-    EventFabric -->|Scale 100-1M| NATSQueue["NatsQueueBackend"]
-    EventFabric -->|Scale 1M-100M| KafkaQueue["KafkaQueueBackend"]
+The Agent-Utilities Core Interface distributes events through the
+`QueueBackend` abstraction, runs graph traversals through
+`GraphComputeEngine`, and runs computation through `WasmAgentRunner`.
 
-    GraphCompute -->|Compute Backend| RXGraph["epistemic-graph (Rust, out-of-process UDS/TCP client)"]
-    WASMRunner -->|Isolation Sandbox| Wasmtime["Wasmtime Runtime / Emulated Fallback"]
-```
+`QueueBackend` swaps implementation by scale: `MemoryQueueBackend`
+(scale 1-100), `NatsQueueBackend` (scale 100-1M), `KafkaQueueBackend`
+(scale 1M-100M). `GraphComputeEngine`'s compute backend is
+`epistemic-graph` (Rust, out-of-process UDS/TCP client).
+`WasmAgentRunner`'s isolation sandbox is the Wasmtime runtime (or an
+emulated fallback).
+</div>
 
 ---
 
