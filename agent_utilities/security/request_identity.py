@@ -118,8 +118,30 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # (``CreateGraph``/``DeleteGraph``/``ClearGraph``): it lets a graph-lifecycle
 # authority provision graphs without the blanket ``kg:admin`` that EG's
 # ``allows_method`` treats as "every action" (CONCEPT:X1).
+# ``rbac:approve-elevation`` (EH-404/405) is the other independent capability:
+# EG accepts an elevation approval only from a direct identity holding that
+# EXACT scope, so it must reach the session as-is. It is never implied by the
+# hierarchy (``kg:admin`` does not expand to it) and is granted to people
+# through the Keycloak ``elevation-approvers`` group, never to a service.
+# ``capacity:throttle``, ``capacity:admin``, ``capacity:lease`` and
+# ``capacity:read`` (EH-406/EH-347, operator ruling 2026-09-24) are exact
+# capacity-ledger capabilities for graph-os's process identity: throttle
+# steps, cell declarations, lease acquire/release and status reads without
+# handing it ``kg:admin``. None implies another and the kg hierarchy implies
+# none of them.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "fleet:events", "graph:admin"}
+    {
+        "kg:read",
+        "kg:write",
+        "kg:admin",
+        "fleet:events",
+        "graph:admin",
+        "rbac:approve-elevation",
+        "capacity:throttle",
+        "capacity:admin",
+        "capacity:lease",
+        "capacity:read",
+    }
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512

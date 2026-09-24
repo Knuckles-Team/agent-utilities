@@ -1034,6 +1034,14 @@ class ActionPolicy:
 
     # ── side effects: approval queue, audit ledger, notification ────
 
+    def granted_approval(self, request: ActionRequest) -> str | None:
+        """The durable approval bound to exactly ``request``; files nothing.
+
+        The read-only probe a caller that must never self-authorize (EH-407's
+        guardrail loosening) uses instead of :meth:`decide`, which may queue.
+        """
+        return self._granted_approval_id(request)
+
     def _granted_approval_id(self, request: ActionRequest) -> str | None:
         """Return an approval bound to this exact request, never a target match."""
         if self.engine is None:

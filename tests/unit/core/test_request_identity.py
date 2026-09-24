@@ -232,6 +232,67 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
+    def test_the_elevation_approval_scope_reaches_the_session_only_as_itself(self):
+        """EH-405: an ``elevation-approvers`` member's realm role projects as the
+        exact scope EG requires; ``kg:admin`` never implies it."""
+        approver = actor_from_claims(
+            {
+                "sub": "principal:approver",
+                "realm_access": {"roles": ["kg:read", "rbac:approve-elevation"]},
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        admin = actor_from_claims(
+            {
+                "sub": "principal:admin",
+                "scope": "kg:admin",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        assert "rbac:approve-elevation" in _mint(approver).scopes
+        assert "rbac:approve-elevation" not in _mint(admin).scopes
+
+    @pytest.mark.parametrize(
+        ("granted", "expected"),
+        [
+            ("capacity:throttle", {"capacity:throttle"}),
+            ("capacity:admin", {"capacity:admin"}),
+            ("capacity:lease", {"capacity:lease"}),
+            ("capacity:read", {"capacity:read"}),
+            (
+                "capacity:throttle capacity:admin capacity:lease capacity:read",
+                {
+                    "capacity:throttle",
+                    "capacity:admin",
+                    "capacity:lease",
+                    "capacity:read",
+                },
+            ),
+            ("kg:admin", set()),
+            ("capacity:* capacity:write", set()),
+        ],
+    )
+    def test_capacity_scopes_are_exact_and_independent(self, granted, expected):
+        """EH-406/EH-347: graph-os gets exactly capacity:throttle/admin/lease/read
+        without kg:admin; kg:admin implies none, none implies another (each
+        single grant projects only itself), and no wildcard or undeclared
+        capacity scope is projected."""
+        actor = actor_from_claims(
+            {
+                "sub": "service:graph-os",
+                "scope": granted,
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        scopes = _mint(actor).scopes
+        capacity = {scope for scope in scopes if scope.startswith("capacity:")}
+        assert capacity == expected
+        if "kg:admin" not in granted:
+            assert "kg:admin" not in scopes, "capacity never implies graph admin"
+
     def test_generic_admin_role_does_not_grant_graph_administration(self):
         actor = actor_from_claims(
             {

@@ -10,13 +10,43 @@ or ``revoked`` (denied), CAS'd on the lease's own ``revision``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from enum import StrEnum
 from typing import Any
 
 
+class ApprovalSurface(StrEnum):
+    """Where an approval decision came from."""
+
+    AGENT_TOOL = "agent_tool"
+    OPERATOR_CONSOLE = "operator_console"
+
+
+#: Approval kinds only a person at the operator console may decide -- never an
+#: agent through a tool, whatever scopes its session carries. A guardrail
+#: loosening (EH-407) is the case: learned signals may only tighten.
+CONSOLE_ONLY_KINDS = frozenset({"guardrail.loosen"})
+
+
+def _refuse_console_only(current: Mapping[str, Any], surface: ApprovalSurface) -> None:
+    grant = current.get("grant")
+    kind = grant.get("kind") if isinstance(grant, Mapping) else None
+    if kind in CONSOLE_ONLY_KINDS and surface is not ApprovalSurface.OPERATOR_CONSOLE:
+        raise PermissionError("this approval is decided only at the operator console")
+
+
 def decide_action_approval(
-    engine: Any, approval_id: str, decision: str
+    engine: Any,
+    approval_id: str,
+    decision: str,
+    surface: ApprovalSurface = ApprovalSurface.AGENT_TOOL,
 ) -> dict[str, str]:
-    """Atomically decide one pending ``action.approval`` lease through the verified graph session."""
+    """Atomically decide one pending ``action.approval`` lease through the verified graph session.
+
+    ``surface`` defaults to the agent-tool surface; only the console route
+    passes :attr:`ApprovalSurface.OPERATOR_CONSOLE`, which alone may decide a
+    :data:`CONSOLE_ONLY_KINDS` approval.
+    """
     if not str(approval_id).startswith("action_approval:"):
         raise ValueError("approval_id must identify an ActionApproval")
     normalized = str(decision).strip().lower()
@@ -47,6 +77,7 @@ def decide_action_approval(
         current = leases.get(tenant=tenant, lease_id=str(approval_id))
         if not isinstance(current, dict) or current.get("status") != "active":
             raise LookupError("approval is missing or no longer pending")
+        _refuse_console_only(current, surface)
         result = leases.transition(
             tenant=tenant,
             lease_id=str(approval_id),
