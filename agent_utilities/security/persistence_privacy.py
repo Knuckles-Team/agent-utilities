@@ -260,6 +260,30 @@ def persistence_reference(kind: str, value: Any, *, namespace: str = "") -> str:
     return f"pref_{label}_{digest}"
 
 
+#: Patterns that identify a PERSON's machine location. A structural id that
+#: embeds one is pseudonymized, not preserved (EH-380): exempting ``source``
+#: from redaction let ``{"source": "/home/<user>/..."}`` provenance persist.
+#: IBAN/phone-style patterns stay exempt for structural ids -- they false-match
+#: uuid hex ids, the collision ``bdaca1b81`` fixed.
+_STRUCTURAL_USER_PATH_LABELS = frozenset({"posix_user_path", "windows_user_path"})
+_STRUCTURAL_USER_PATH_PATTERNS = tuple(
+    pattern for label, pattern in _PATTERNS if label in _STRUCTURAL_USER_PATH_LABELS
+)
+
+
+def _structural_value(item: str, counts: dict[str, int]) -> str:
+    """Keep a structural id intact unless it embeds a user path.
+
+    A user path becomes a stable keyed reference (:func:`persistence_reference`)
+    so distinct ids stay distinct and every edge endpoint using the same raw id
+    still resolves to the same value.
+    """
+    if not any(p.search(item) for p in _STRUCTURAL_USER_PATH_PATTERNS):
+        return item
+    counts["structural_user_path"] = counts.get("structural_user_path", 0) + 1
+    return persistence_reference("structural_user_path", item)
+
+
 def _field_name(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
 
@@ -405,12 +429,11 @@ class PersistencePrivacyGuard:
                     continue
                 if field in _STRUCTURAL_ID_FIELDS and isinstance(item, str):
                     # Structural identifiers are exempt from the free-text
-                    # regex pass only (see `_STRUCTURAL_ID_FIELDS`): the raw
-                    # value is preserved so primary keys and graph edges
-                    # cannot be collapsed into a shared "[REDACTED_*]"
-                    # literal. Non-string values under these keys still fall
-                    # through to the recursive walk below.
-                    clean[key] = item
+                    # regex pass only (see `_STRUCTURAL_ID_FIELDS`): primary
+                    # keys and graph edges must never collapse into a shared
+                    # "[REDACTED_*]" literal. Non-string values under these
+                    # keys still fall through to the recursive walk below.
+                    clean[key] = _structural_value(item, counts)
                     continue
                 personal = field in _PERSON_FIELDS or (
                     field == "name" and any(part in _PERSON_CONTEXT for part in context)

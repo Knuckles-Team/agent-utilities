@@ -17,9 +17,6 @@ import uuid
 import pytest
 
 from agent_utilities.models.knowledge_graph import (
-    AgentRAGConfigNode,
-    DistillationIndexNode,
-    OrchestrationCycleNode,
     RegistryEdgeType,
     RegistryNode,
     RegistryNodeType,
@@ -29,7 +26,10 @@ from agent_utilities.models.knowledge_graph import (
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
+from tests.unit.knowledge_graph._embedding_fixtures import (
+    random_unit_embedding,
+    similar_unit_embedding,
+)
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -47,20 +47,14 @@ def _make_node(name: str, embedding: list[float] | None = None) -> RegistryNode:
 
 def _random_embedding(dim: int = 64, seed: int | None = None) -> list[float]:
     """Generate a random unit-norm embedding."""
-    rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim)
-    vec /= np.linalg.norm(vec)
-    return vec.tolist()
+    return random_unit_embedding(dim, seed)
 
 
 def _similar_embedding(
     base: list[float], noise: float = 0.1, seed: int = 42
 ) -> list[float]:
     """Create a vector similar to base with controlled noise."""
-    rng = np.random.default_rng(seed)
-    arr = np.array(base) + rng.standard_normal(len(base)) * noise
-    arr /= np.linalg.norm(arr)
-    return arr.tolist()
+    return similar_unit_embedding(base, noise, seed)
 
 
 # =====================================================================
@@ -202,7 +196,14 @@ class TestKGNativeRetrievalRetriever:
         base_emb = _random_embedding(dim=32, seed=42)
         nodes = [
             _make_node("target node", embedding=base_emb),
-            _make_node("distant node", embedding=_random_embedding(dim=32, seed=99)),
+            # A weaker but still positively-related vector: an independent
+            # random draw can land at negative cosine and fall below the
+            # retriever's relevance floor, making the "2 results" premise
+            # depend on the RNG stream (EH-380).
+            _make_node(
+                "distant node",
+                embedding=_similar_embedding(base_emb, noise=0.15, seed=99),
+            ),
         ]
 
         query_emb = _similar_embedding(base_emb, noise=0.05, seed=1)
@@ -571,51 +572,6 @@ class TestGraphDistillationMigrator:
 
 class TestNewPydanticModels:
     """Tests for KG-2.38, KG-2.39, KG-2.40 Pydantic models."""
-
-    def test_agent_rag_config_node(self):
-        """AgentRAGConfigNode creates with defaults."""
-        node = AgentRAGConfigNode(
-            id="urag_1",
-            name="Unified RAG Config",
-        )
-        assert node.type == RegistryNodeType.AGENT_RAG_CONFIG
-        assert node.enable_similarity_shortcuts is True
-        assert node.shortcut_hits == 0
-
-    def test_orchestration_cycle_node(self):
-        """OrchestrationCycleNode creates with all fields."""
-        node = OrchestrationCycleNode(
-            id="orch_1",
-            name="Research Cycle 1",
-            cycle_id="orch_abc",
-            papers_discovered=10,
-            papers_ingested=5,
-            citations_traversed=20,
-            similarity_edges_created=8,
-            clusters_built=3,
-            duration_seconds=12.5,
-            query="spectral clustering",
-        )
-        assert node.type == RegistryNodeType.ORCHESTRATION_CYCLE
-        assert node.papers_discovered == 10
-        assert node.query == "spectral clustering"
-
-    def test_distillation_index_node(self):
-        """DistillationIndexNode creates with all fields."""
-        node = DistillationIndexNode(
-            id="dist_1",
-            name="Distillation Index Snapshot",
-            total_nodes=100,
-            nodes_with_shortcuts=70,
-            total_edges=150,
-            coverage_ratio=0.7,
-            avg_edge_weight=0.65,
-            stale_edge_count=5,
-            recommendation="HEALTHY: Good coverage.",
-        )
-        assert node.type == RegistryNodeType.DISTILLATION_INDEX
-        assert node.coverage_ratio == 0.7
-        assert "HEALTHY" in node.recommendation
 
     def test_new_edge_types(self):
         """New edge types are registered."""

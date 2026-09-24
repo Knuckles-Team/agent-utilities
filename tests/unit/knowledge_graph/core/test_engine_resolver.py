@@ -1122,7 +1122,7 @@ def test_local_graph_readiness_never_bootstraps_a_nonlocal_session_in_tiny(
 
 def test_local_graph_readiness_skips_bootstrap_mint_when_session_already_admin():
     """An ambient session that already carries kg:admin (a real configured
-    identity, or the KG_LOCAL_PROCESS_ADMIN_SCOPE opt-in) is used unchanged --
+    identity) is used unchanged --
     no bootstrap authority is minted and no extra provisioning path is taken."""
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
@@ -1806,3 +1806,43 @@ def test_configured_endpoints_disable_autostart_and_graph_bootstrap(monkeypatch)
 
     with pytest.raises(ConnectionError):
         gc.GraphComputeEngine(graph_name=graph_name)
+
+
+@pytest.mark.parametrize(
+    ("graph_name", "expected"),
+    [
+        ("tenant__local__:default", ["__control__", "tenant__local__:default"]),
+        ("__commons__", ["__control__"]),
+        (None, ["__control__"]),
+    ],
+)
+def test_local_graph_readiness_provisions_control_graph_first(
+    monkeypatch, graph_name, expected
+):
+    """EH-187: a packaged local engine's open() creates only ``__commons__``;
+    this process is the whole cluster, so ``__control__`` (the WorkItem
+    authority) is materialized with the session graph, before either is used."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    provisioned: list[str] = []
+    session = object()
+    engine = object.__new__(gc.GraphComputeEngine)
+    engine.graph_name = graph_name
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.current_session",
+        lambda: session,
+    )
+
+    def _record(_client, name, bound_session):
+        assert bound_session is session
+        provisioned.append(name)
+
+    monkeypatch.setattr(
+        gc.GraphComputeEngine, "_ensure_local_session_graph", staticmethod(_record)
+    )
+    engine._ensure_local_graph_ready(object(), autostart_allowed=True)
+    assert provisioned == expected
+
+    provisioned.clear()
+    engine._ensure_local_graph_ready(object(), autostart_allowed=False)
+    assert provisioned == []

@@ -827,6 +827,10 @@ async def test_discover_server_level_fallback_on_no_match(tmp_path):
     discovery = await mux.discover_tools("zzznomatch", top_k=5)
     results = discovery["results"]
     assert results and all(r["tool"] == "*" for r in results)
+    # D-OBC-1: a whole-server row never claims dispatch-level "mounted";
+    # the spawned-child fact is reported under its own name.
+    assert all(r["mounted"] is False for r in results)
+    assert all("process_running" in r for r in results)
 
 
 async def test_discover_all_unreachable_yields_empty_results(tmp_path):
@@ -860,6 +864,36 @@ async def test_probe_catalog_returns_partial_results_within_budget(tmp_path):
     assert result["slow-mcp"]["pending"] is True
     assert "still probing" in result["slow-mcp"]["error"]
     await mux.aclose()  # let the still-running background probe be cancelled cleanly
+
+
+async def test_budget_miss_distinguishes_queued_from_running_probes(
+    tmp_path, monkeypatch
+):
+    """EH-368 (D-OBC-3): a probe still waiting for a semaphore slot is not
+    reported as a slow server. Each pending entry says whether its own probe
+    started."""
+    mux = _mux_with_children(tmp_path, {"slow-a": [], "slow-b": []})
+    mux._probe_semaphore = asyncio.Semaphore(1)
+    release = asyncio.Event()
+
+    async def blocked_probe(server, **_kwargs):
+        await release.wait()
+        return {"tools": [], "error": None}
+
+    probe = AsyncMock(side_effect=blocked_probe)
+    monkeypatch.setattr(mux, "probe_server", probe)
+    result = await mux.probe_catalog(budget=0.05)
+
+    states = sorted(result[name]["probe_state"] for name in ("slow-a", "slow-b"))
+    assert states == ["queued", "running"]
+    queued = next(v for v in result.values() if v.get("probe_state") == "queued")
+    running = next(v for v in result.values() if v.get("probe_state") == "running")
+    assert "has not been contacted" in queued["error"]
+    assert "still probing" in running["error"]
+    assert probe.await_count == 1
+    release.set()
+    await mux.aclose()
+    assert mux._probe_started_at == {}
 
 
 async def test_slow_server_degrades_alone_fast_servers_unaffected(tmp_path):

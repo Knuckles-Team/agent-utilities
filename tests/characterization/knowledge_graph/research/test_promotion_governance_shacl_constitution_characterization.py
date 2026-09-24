@@ -1,5 +1,5 @@
-"""Characterization tests for ``PromotionGovernanceValidator._check_shacl`` and
-``._check_constitution`` (CX-AU-09).
+"""Characterization tests for ``PromotionGovernanceValidator._check_constitution``
+(CX-AU-09); the ``_check_shacl`` half was retired with local SHACL (EH-380).
 
 CCN at time of writing: ``_check_shacl`` 12, ``_check_constitution`` 12
 (``agent_utilities/knowledge_graph/research/promotion_governance.py``). Both
@@ -13,8 +13,6 @@ and must not change during the refactor commit that follows.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import MergePolicy
@@ -48,80 +46,11 @@ class _RuleEngine:
         return self.rule_rows
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# _check_shacl
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_shacl_not_installed_is_not_applicable(monkeypatch) -> None:
-    from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
-
-    monkeypatch.setattr(shacl_gate, "SHACL_SUPPORT", False)
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not installed" in check.reason
-
-
-def test_shacl_missing_shapes_file_is_not_applicable() -> None:
-    v = PromotionGovernanceValidator(
-        None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-    )
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not found" in check.reason
-
-
-def test_shacl_pydantic_spec_conforms_vacuously_no_team_shape() -> None:
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert check.reason == "conforms"
-    assert check.name == "shacl"
-
-
-def test_shacl_dict_spec_agent_without_name_violates() -> None:
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl({"type": "Agent", "goal": "do things"})
-    assert check.passed is False
-    assert check.reason  # non-empty violation message(s)
-
-
-def test_shacl_dict_spec_named_agent_conforms() -> None:
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
-    assert check.passed is True
-
-
-def test_shacl_violation_messages_join_up_to_three() -> None:
-    # ADRShape requires context/decision/authority -- an ADR spec with none of
-    # them set produces exactly 3 violations, and all 3 must appear in the
-    # joined message (the cap is [:3], not [:1] or unlimited).
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl({"type": "ArchitectureDecisionRecord", "name": "x"})
-    assert check.passed is False
-    assert "context" in check.reason
-    assert "decision" in check.reason
-    assert "authority" in check.reason
-
-
-def test_shacl_exception_during_validation_holds_not_passes(monkeypatch) -> None:
-    # OBSERVED: any exception anywhere in the SHACL path degrades to a FAILING
-    # check (cannot prove conformance -> hold), unlike the not-applicable
-    # short-circuits above, which pass.
-    from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
-
-    def _boom(*_a, **_kw):
-        raise RuntimeError("graph build exploded")
-
-    monkeypatch.setattr(shacl_gate, "build_data_graph", _boom)
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is False
-    assert "validation error" in check.reason
+# _check_shacl characterizations were removed (EH-380). They pinned the
+# retired local-shapes contract (a shapes_path, pyshacl, and "not applicable"
+# passes), which 43197d7c6 replaced with EG's committed-GraphSchema authority
+# (``engine.shacl_validate_committed``, fail closed when absent). The current
+# contract is covered by tests/unit/test_promotion_governance.py::TestShaclRule.
 
 
 # ─────────────────────────────────────────────────────────────────────────

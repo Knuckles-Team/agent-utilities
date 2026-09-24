@@ -870,17 +870,9 @@ def test_get_engine_binds_optional_application_capabilities_after_construction()
             self.backend = backend
             self.defer_background_start = defer_background_start
 
-        def __setattr__(self, name: str, value: Any) -> None:
-            if name == "_ontology_package_sync":
-                events.append(("ontology", self))
-            object.__setattr__(self, name, value)
-
     def register_data_prep(engine: Any) -> bool:
         events.append(("data_prep", engine))
         return True
-
-    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
-        return {"action": "sync_packages"}
 
     backend = object()
     with (
@@ -897,35 +889,28 @@ def test_get_engine_binds_optional_application_capabilities_after_construction()
             "agent_utilities.mcp.tools.data_prep_tools.register_process_data_prep_runtime",
             side_effect=register_data_prep,
         ),
-        patch(
-            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
-            side_effect=sync_packages,
-        ) as sync,
     ):
         resolved = kg_server._get_engine()
         assert kg_server._get_engine() is resolved
+        # Constructed once; the optional capabilities are (re)bound on every
+        # resolution, always onto the resolved engine. The former ontology
+        # package-sync binding is gone: ontology attach is EG GraphSchema
+        # (43197d7c6), covered by
+        # tests/unit/knowledge_graph/ontology/test_graphschema_lifecycle.py.
         assert [name for name, _value in events] == [
             "construct",
             "data_prep",
-            "ontology",
             "data_prep",
         ]
-        assert [name for name, _value in events].count("ontology") == 1
-        assert events[1][1] is resolved
-        assert resolved._ontology_package_sync is sync
+        assert all(value is resolved for _name, value in events)
 
-        # A replacement engine starts a fresh composition lifecycle and must
-        # bind its own callback instead of inheriting a process-global marker.
+        # A replacement engine starts a fresh composition lifecycle and gets
+        # its own bindings instead of inheriting a process-global marker.
         Engine._active = None
-        with patch(
-            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
-            side_effect=sync_packages,
-        ) as replacement_sync:
-            replacement = kg_server._get_engine()
+        replacement = kg_server._get_engine()
 
         assert replacement is not resolved
-        assert replacement._ontology_package_sync is replacement_sync
-        assert [name for name, _value in events].count("ontology") == 2
+        assert events[-2:] == [("construct", replacement), ("data_prep", replacement)]
 
 
 def test_get_engine_survives_missing_optional_data_prep_capability() -> None:
@@ -1000,41 +985,6 @@ def test_get_engine_survives_optional_data_prep_registration_error() -> None:
         resolved = kg_server._get_engine()
 
     assert isinstance(resolved, Engine)
-
-
-def test_boot_ontology_sync_uses_bound_capability_after_activation() -> None:
-    from agent_utilities.mcp import kg_server
-
-    events: list[str] = []
-
-    class Lifecycle:
-        def __init__(self, *, engine: Any) -> None:
-            events.append("lifecycle")
-            self.engine = engine
-
-        def activate_graph(self) -> dict[str, Any]:
-            events.append("activate")
-            return {"activated": True}
-
-    def sync_packages(_lifecycle: Any) -> dict[str, Any]:
-        events.append("sync")
-        return {"providers_loaded": 1}
-
-    engine = SimpleNamespace(_ontology_package_sync=sync_packages)
-    with patch(
-        "agent_utilities.knowledge_graph.ontology.lifecycle.OntologyLifecycle",
-        Lifecycle,
-    ):
-        kg_server._sync_ontologies_at_boot(engine)
-
-    assert events == ["lifecycle", "activate", "sync"]
-
-
-def test_boot_ontology_sync_reports_missing_bound_capability() -> None:
-    from agent_utilities.mcp import kg_server
-
-    with pytest.raises(AttributeError, match="_ontology_package_sync"):
-        kg_server._sync_ontologies_at_boot(SimpleNamespace())
 
 
 def test_materialization_gate_precedes_skill_and_background_bootstrap(
@@ -1336,10 +1286,6 @@ def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
         ),
-        patch(
-            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
-            return_value={},
-        ),
     ):
         kg_server._start_engine_bootstrap(session)
 
@@ -1398,10 +1344,6 @@ def test_host_with_background_sync_runs_boot_hydration_once() -> None:
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             side_effect=authorized,
         ),
-        patch(
-            "agent_utilities.mcp.tools.ontology_tools._sync_package_ontologies",
-            return_value={},
-        ),
     ):
         kg_server._start_engine_bootstrap(session)
 
@@ -1411,8 +1353,9 @@ def test_host_with_background_sync_runs_boot_hydration_once() -> None:
 def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work() -> (
     None
 ):
-    """The plan is stable: runnable metadata first, then prompts, ontology,
-    and only then the incremental code/connector owners."""
+    """The plan is stable: runnable metadata first, then prompts, and only
+    then the incremental code/connector owners. There is no ontology leg:
+    ontology attach is EG GraphSchema (43197d7c6)."""
     from agent_utilities.mcp import kg_server
 
     calls: list[str] = []
@@ -1441,11 +1384,6 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
         ),
         patch.object(
             kg_server,
-            "_sync_ontologies_at_boot",
-            side_effect=lambda *_a: calls.append("ontologies"),
-        ),
-        patch.object(
-            kg_server,
             "_hydrate_code_and_configured_connectors",
             side_effect=lambda *_a: calls.append("sources"),
         ),
@@ -1464,7 +1402,6 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
         "self",
         "capabilities",
         "prompts",
-        "ontologies",
         "sources",
     ]
     assert [
@@ -1474,7 +1411,6 @@ def test_boot_hydration_plan_uses_fixed_priority_and_queues_only_configured_work
         ("graphos_tool_surface", 1),
         ("capabilities", 1),
         ("prompts", 2),
-        ("ontologies", 3),
         ("code_and_connectors", 4),
     ]
 

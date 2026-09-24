@@ -3686,40 +3686,6 @@ class AgentConfig(BaseSettings):
     """OAuth2 client-credentials block used to acquire a short-lived graph
     process JWT. Client secrets must be runtime secret references."""
 
-    kg_local_process_admin_scope: StrictBool = Field(
-        default=False, alias="KG_LOCAL_PROCESS_ADMIN_SCOPE"
-    )
-    """Explicit opt-in granting the ``tiny``-profile local-process authority
-    ``kg:admin``, in addition to its default ``kg:read``/``kg:write``
-    (CONCEPT:X1, ``security/request_identity.py::mint_local_process_session``).
-
-    The zero-infrastructure local mint is a private, in-memory,
-    process-ephemeral authority with no external IdP behind it, and it is the
-    identity every stdio tool call and background write runs under -- so by
-    default it carries only ``kg:read``/``kg:write``, never ``kg:admin``.
-    Setting this to ``true`` is a deliberate, narrow escalation for an
-    operator who wants ambient graph administration on every local call in
-    the zero-infra profile (what every local process implicitly held before
-    X1's fix); it does not affect, and is not required by, the one-shot
-    admin authority the packaged local engine mints for its own first-run
-    graph provisioning (``mint_local_process_bootstrap_authority``), and it
-    has no effect outside the ``tiny`` profile, where scopes come from the
-    configured external identity instead. Unset (default): fail closed --
-    no admin scope. Environment values are limited to canonical lowercase
-    ``true``/``false``."""
-
-    @field_validator("kg_local_process_admin_scope", mode="before")
-    @classmethod
-    def _validate_kg_local_process_admin_scope(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str) and value in {"true", "false"}:
-            return value == "true"
-        raise ValueError(
-            "KG_LOCAL_PROCESS_ADMIN_SCOPE must be exactly the canonical string "
-            "'true' or 'false'"
-        )
-
     kg_admin_broker_oauth2: dict[str, Any] | None = Field(
         default=None, alias="KG_ADMIN_BROKER_OAUTH2"
     )

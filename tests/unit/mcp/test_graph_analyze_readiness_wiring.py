@@ -104,8 +104,8 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     # synthetic-query wiring) — stub it ready, like the connector-coverage
     # stub above isolates its own unrelated check.
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
+        "agent_utilities.knowledge_graph.readiness._graph_schema_view",
+        lambda engine: {"count": 0, "schema_version": 1, "composed_digest": "d:1"},
     )
     monkeypatch.setattr(
         "agent_utilities.observability.runtime_health.collect_health",

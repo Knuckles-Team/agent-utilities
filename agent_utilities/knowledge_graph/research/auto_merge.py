@@ -39,8 +39,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent_utilities.observability.audit_logger import AuditLogger
+from agent_utilities.orchestration.action_policy import PolicyDisposition
 
 logger = logging.getLogger(__name__)
+
+#: Merge-gate dispositions under which the KG-internal proposal->active flip
+#: proceeds. HOLD proceeds because publication keeps its own approval gate.
+_PROCEEDING_DISPOSITIONS = frozenset(
+    {PolicyDisposition.APPROVE, PolicyDisposition.HOLD}
+)
 
 AUDIT_AUTO_MERGE = "loop_engine.auto_merge"
 
@@ -357,18 +364,24 @@ class GovernedAutoMerger:
         """
         denied_reason = ""
         if promote:
-            decision = self._consult_action_policy(spec)
-            if decision is not None:
+            outcome = self._consult_action_policy(spec)
+            if outcome is not None:
+                # EH-380: ``promote()`` returns a PromotionOutcome, which has a
+                # closed ``disposition`` and no ``decision`` attribute. Reading
+                # ``decision`` defaulted to "deny", so every auto-merge was
+                # blocked whatever the policy said. APPROVE proceeds. HOLD
+                # proceeds too: the KG flip is internal, and publication stays
+                # approval-gated (AHE-3.21). DENY and UNAVAILABLE block.
+                disposition = PolicyDisposition(outcome.disposition)
                 evaluation.action_decision = {
-                    "decision": getattr(decision, "decision", "deny"),
-                    "reason": getattr(decision, "reason", ""),
-                    "approval_id": getattr(decision, "approval_id", None),
+                    "decision": disposition.value,
+                    "reason": outcome.reason,
+                    "approval_id": outcome.approval_id,
                 }
-                if evaluation.action_decision["decision"] == "deny":
+                if disposition not in _PROCEEDING_DISPOSITIONS:
                     promote = False
                     denied_reason = (
-                        "blocked by action policy (merge_promotion): "
-                        f"{evaluation.action_decision['reason']}"
+                        f"blocked by action policy (merge_promotion): {outcome.reason}"
                     )
         return promote, denied_reason
 
@@ -428,6 +441,8 @@ class GovernedAutoMerger:
             promote as promote_gate,
         )
 
+        from .change_publisher import _proposal_provenance_receipts
+
         return promote_gate(
             self.engine,
             PromotionCandidate(
@@ -449,6 +464,12 @@ class GovernedAutoMerger:
                         or ""
                     ),
                 },
+                # EH-380: 5a4dd9a2f made a provenance receipt mandatory, but
+                # this call site never passed one, so every auto-merge failed
+                # closed as "promotion provenance unavailable". Bind the
+                # decision to the exact proposal payload, with the same receipt
+                # governed_publish uses for its shared merge_promotion approval.
+                provenance_receipts=_proposal_provenance_receipts(spec, target),
             ),
             policy=self._action_policy,
         )

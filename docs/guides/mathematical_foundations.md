@@ -24,48 +24,6 @@
 
 **Source**: *Mathematics for Computer Science* (Lehman, Leighton, Meyer — MIT 6.042J)
 
-### DAG Critical Path Analysis
-
-A **DAG** (Directed Acyclic Graph) is a directed graph with no cycles.  The
-**critical path** is the longest weighted path from any source node to any
-sink node.  Its length equals the **makespan** — the minimum possible
-completion time regardless of how many parallel workers you use.
-
-- **Topological Sort**: A linear ordering of DAG vertices such that for
-  every directed edge (u, v), u appears before v in the ordering.
-  Prerequisite for critical path computation.
-- **Earliest Start Time**: The earliest time a node (task) can begin,
-  considering all predecessor dependencies.
-- **Slack**: The amount of time a task can be delayed without increasing
-  the makespan.  Critical path tasks have zero slack.
-
-**Module**: `formal_reasoning_core.dag_critical_path()`
-
-### Graph Connectivity
-
-- **Vertex Connectivity κ(G)**: The minimum number of vertices whose
-  removal disconnects the graph.  Measures structural resilience.
-- **Edge Connectivity λ(G)**: The minimum number of edges whose removal
-  disconnects the graph.
-- **Whitney's Theorem**: κ(G) ≤ λ(G) ≤ δ(G) where δ is the minimum vertex degree.
-- **Minimum Vertex Cut**: The actual set of vertices forming the minimum cut.
-  These are the "chokepoint" nodes in the Knowledge Graph.
-
-**Module**: `formal_reasoning_core.vertex_connectivity()`, `edge_connectivity()`, `minimum_vertex_cut()`
-
-### Euler Tour
-
-An **Euler tour** (or circuit) is a closed walk that traverses every edge of
-a graph exactly once and returns to the starting vertex.
-
-**Euler's Theorem**: A connected graph has an Euler tour if and only if every
-vertex has even degree.
-
-Used for O(E) serialization of the entire Knowledge Graph — visiting every
-relationship exactly once for efficient checkpointing.
-
-**Module**: `formal_reasoning_core.euler_tour()`
-
 ### Graph Coloring & Chromatic Scheduling
 
 A **proper k-coloring** assigns one of k colors to each vertex such that no
@@ -79,7 +37,7 @@ For agent scheduling, edges represent conflicts (two agents that cannot run
 concurrently), and colors represent execution slots.  k colors = k parallel
 execution slots.
 
-**Module**: `formal_reasoning_core.chromatic_schedule()`, `chromatic_number_upper_bound()`
+**Module**: `formal_reasoning_core.chromatic_schedule()`
 
 ### Personalized PageRank
 
@@ -94,18 +52,6 @@ for each node — its long-run importance.
 "seed" nodes, making the importance scores context-dependent.
 
 **Module**: `GraphComputeEngine.personalized_pagerank()` (`knowledge_graph/core/graph_compute.py`)
-
-### Adjacency Matrix Power Theorem
-
-For a graph with adjacency matrix A, the entry **(A^k)[i][j]** equals the
-number of distinct walks of length k from vertex i to vertex j.
-
-This enables answering queries like "How many reasoning paths of length 3
-connect concept A to concept B?"
-
-**Module**: `formal_reasoning_core.count_paths_of_length()`
-
----
 
 ## Embedding Alignment Diagnostics (KG-2.42)
 
@@ -220,14 +166,6 @@ underlying SCM by verifying:
 
 **Module**: `CausalVerifier.verify_chain()`
 
-### Counterfactual Reasoning
-
-"What if X had been different?"  Given a causal model and observed evidence,
-generates counterfactual queries for each causal ancestor of a target variable,
-sorted by causal proximity.
-
-**Module**: `CounterfactualGenerator.generate_counterfactuals()`
-
 ### Spuriousness Detection
 
 Identifies edges that represent **spurious correlations** rather than true
@@ -311,31 +249,6 @@ graph edges.  The update strength decays exponentially with graph distance:
 **dampened_LR = 1 + (LR - 1) × decay^depth**
 
 **Module**: `BayesianBeliefPropagator.propagate()`
-
-### Law of Total Probability
-
-**P(B) = Σᵢ P(B|Aᵢ) × P(Aᵢ)** where {Aᵢ} partitions the sample space.
-
-Applied to multi-source retrieval: combines relevance scores from multiple
-KG sources weighted by each source's reliability.  Avoids **Simpson's Paradox**
-(where aggregate trends reverse when data is partitioned by a confounding
-variable).
-
-**Module**: `total_probability_aggregation()`
-
-### Birthday Paradox
-
-In a set of n randomly chosen items from d possibilities, the probability
-of at least one **collision** (duplicate) is:
-
-**P(collision) ≈ 1 - e^(-n²/2d)**
-
-The collision probability exceeds 50% when **n ≈ 1.2√d**.
-
-Applied to KG: estimates the probability of hash collisions in node IDs,
-enabling probabilistic deduplication that's faster than pairwise comparison.
-
-**Module**: `birthday_collision_probability()`
 
 ### Random Walk Exploration
 

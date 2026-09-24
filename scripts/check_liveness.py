@@ -611,7 +611,9 @@ def _placeholder_ids(an, src: str):
     masked = _masked_lines(src, tree)
     stub_lines = _stub_marker_lines(an, tree)
 
-    for lineno, (raw, masked_line) in enumerate(zip(lines, masked), start=1):
+    for lineno, (raw, masked_line) in enumerate(
+        zip(lines, masked, strict=True), start=1
+    ):
         if an._PLACEHOLDER_RE.search(masked_line) or lineno in stub_lines:
             yield _hash("placeholder", _stable_analyzer_id(an, raw.strip()))
 
@@ -812,6 +814,24 @@ def _run_census(analyzer: Path) -> tuple[dict[str, int], dict[str, list[str]], b
 # ── deferrals ────────────────────────────────────────────────────────────────
 
 
+def _warn_expiring(entries: list) -> None:
+    """EH-176: announce deferrals nearing review-by on every run, so the ledger
+    cannot age silently into a wall of simultaneous expiries. Advisory only;
+    the expiry itself still fails the gate below."""
+    expiring = liveness_deferred.expiring_entries(entries, date.today())
+    if not expiring:
+        return
+    print(
+        f"\n⚠ scripts/liveness_deferred.tsv entries due within "
+        f"{liveness_deferred.EXPIRY_WARNING_DAYS} days (resolve on evidence before "
+        "they fail every commit):"
+    )
+    for e in expiring:
+        print(
+            f"  - {e.category}\t{e.pattern} (owner={e.owner}, review-by={e.review_by})"
+        )
+
+
 def _check_deferrals() -> bool:
     """GOC-68: a deferral without an expiry becomes permanent. Failing entries
     are a policy violation, independent of any count."""
@@ -832,6 +852,7 @@ def _check_deferrals() -> bool:
         for e in malformed:
             print(f"  - line {e.line_no}: {e.category}\t{e.pattern}")
 
+    _warn_expiring(entries)
     stale = liveness_deferred.stale_entries(entries, date.today())
     if stale:
         failed = True

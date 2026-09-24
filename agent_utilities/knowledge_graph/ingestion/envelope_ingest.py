@@ -304,6 +304,15 @@ def _shacl_data_graph(rows: list[tuple[str, dict[str, Any]]]) -> str:
     return "\n".join(triples) + "\n"
 
 
+#: AU's published governance-shape pack (``pack:agent-utilities``). EH-380:
+#: 43197d7c6 moved it from ``knowledge_graph/shapes/`` to ``ontology/shapes/``
+#: without updating this reader, so every connector ChangeEnvelope failed
+#: closed with "connector SHACL validation could not complete".
+_GOVERNANCE_SHAPES = files("agent_utilities").joinpath(
+    "ontology", "shapes", "governance.shapes.ttl"
+)
+
+
 def _shacl_validate_rows(
     client: Any,
     rows: list[tuple[str, dict[str, Any]]],
@@ -316,11 +325,7 @@ def _shacl_validate_rows(
     ChangeEnvelope is constructed. Invalid rows are never materialized.
     """
     try:
-        shapes = (
-            files("agent_utilities.knowledge_graph")
-            .joinpath("shapes", "governance.shapes.ttl")
-            .read_text(encoding="utf-8")
-        )
+        shapes = _GOVERNANCE_SHAPES.read_text(encoding="utf-8")
         rdf = getattr(client, "rdf", None)
         validate = getattr(rdf, "validate_shacl", None)
         if not callable(validate):

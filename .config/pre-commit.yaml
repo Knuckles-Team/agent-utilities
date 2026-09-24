@@ -928,6 +928,9 @@ repos:
     entry: python3 scripts/check_liveness.py
     language: system
     pass_filenames: false
+    # EH-176: show the census and the review-by early warning on passing runs
+    # too; a silent pass is how five deferrals expired unnoticed.
+    verbose: true
     # NOT scoped, despite being the single most expensive default-stage
     # local hook measured (~65s standalone, 2026-08-15): its own docstring
     # names a TIME-based invariant a file diff cannot detect -- "a past-due

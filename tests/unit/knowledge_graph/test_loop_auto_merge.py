@@ -16,8 +16,19 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
+from tests.unit.fleet_autonomy_fakes import ApprovingActionPolicy
 
 pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
+
+
+@pytest.fixture(autouse=True)
+def _approving_merge_gate(monkeypatch):
+    """These tests cover merge mechanics; the ``merge_promotion`` gate itself
+    is covered by ``test_auto_merge_action_policy.py`` (EH-380)."""
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.artifact_promotion.get_action_policy",
+        lambda engine=None: ApprovingActionPolicy(),
+    )
 
 
 def _strong_team() -> TeamSpec:

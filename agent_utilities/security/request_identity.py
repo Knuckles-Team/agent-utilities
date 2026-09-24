@@ -16,18 +16,17 @@ existing JWKS machinery in
 * :func:`actor_from_claims` — the single claims→ActorContext mapping.
 * :func:`mint_local_process_session` — creates the private, in-memory authority
   used only by tiny packaged-local stdio startup. Least-privilege
-  (``kg:read``/``kg:write``) unless ``KG_LOCAL_PROCESS_ADMIN_SCOPE`` opts in
-  (CONCEPT:X1).
-* :func:`mint_local_process_bootstrap_authority` — a one-shot ``kg:admin``
-  authority for the one genuinely admin-scoped tiny-profile action (first-run
-  local graph provisioning); never ambient, never served.
+  (``kg:read``/``kg:write``/``fleet:events``), never ``kg:admin`` (CONCEPT:X1).
+* :func:`mint_local_process_bootstrap_authority` — a one-shot authority carrying
+  exactly the engine's ``graph:admin`` lifecycle scope, for the one
+  admin-scoped tiny-profile action (first-run local graph provisioning); never
+  ambient, never served, never ``kg:admin``.
 * :func:`acquire_process_identity_token` — resolves a configured secret
   reference or performs OAuth2 client credentials for every external topology.
 * :func:`mint_actor_from_token_sync` — validates that acquired token.
 External authority configuration (typed, on ``AgentConfig``):
 ``KG_AUTH_TOKEN_REF`` or ``KG_IDENTITY_OAUTH2``, ``AUTH_JWT_JWKS_URI``,
-``AUTH_JWT_ISSUER``, ``AUTH_JWT_AUDIENCE``, ``KG_POLICY_VERSION``, and
-``KG_LOCAL_PROCESS_ADMIN_SCOPE``.
+``AUTH_JWT_ISSUER``, ``AUTH_JWT_AUDIENCE``, and ``KG_POLICY_VERSION``.
 
 Identity, not topology (D-SP-1)
 -------------------------------
@@ -72,6 +71,7 @@ import json
 import logging
 import threading
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .actor_identity import ActorType
@@ -114,8 +114,12 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # prefixed stream (eg-workitem WRAPUP §3d, ``fleet_streams_need_the_fleet_
 # authority``) — graph-os's fleet-event publishers request it explicitly
 # rather than being handed ``kg:admin`` just to post an event.
+# ``graph:admin`` is likewise an exact, non-hierarchical EG capability scope
+# (``CreateGraph``/``DeleteGraph``/``ClearGraph``): it lets a graph-lifecycle
+# authority provision graphs without the blanket ``kg:admin`` that EG's
+# ``allows_method`` treats as "every action" (CONCEPT:X1).
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "fleet:events"}
+    {"kg:read", "kg:write", "kg:admin", "fleet:events", "graph:admin"}
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
@@ -620,23 +624,59 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
 _LOCAL_PROCESS_BOOTSTRAP_SUBJECT = "graph-os:local-process-bootstrap"
 
 
-def _mint_local_process_authority(
-    role: str, subject: str, *, extra_roles: tuple[str, ...] = ()
-) -> GraphSession:
-    """Mint one private, process-ephemeral authority carrying ``role``.
+class LocalProcessGrant(Enum):
+    """The closed set of authorities a tiny-profile local process may mint.
 
-    An asymmetric key signs one short-lived JWT entirely in memory. The token is
-    validated by the same decoder used for external bearer identities, then the
-    token and private-key references are discarded before the resulting actor is
-    projected into a graph session. Claims are fixed neutral service values; no
-    username, host name, filesystem path, endpoint, or other local identifier is
-    represented or persisted. ``role`` is expanded to its coarse-scope hierarchy
-    by :func:`_resolve_authenticated_scopes` (``kg:admin`` implies ``kg:write``
-    implies ``kg:read``), so passing ``"kg:write"`` yields
-    ``{"kg:read", "kg:write"}`` and never ``kg:admin``. ``extra_roles`` are
-    independent, non-hierarchical capabilities (e.g. ``fleet:events``) granted
-    alongside ``role`` unchanged — they pass through
-    :func:`_resolve_authenticated_scopes`'s allowlist intersection as-is.
+    CONCEPT:X1. The local mint is the one credential-free identity path, so
+    what it may carry is fixed here rather than chosen by a caller or a
+    setting: :data:`_LOCAL_PROCESS_GRANTS` maps each member to its subject and
+    exact roles. Nothing in the table carries ``kg:admin`` (which EG's
+    ``allows_method`` treats as every action, including ``admin:*``,
+    ``security:*``, ``blob:admin`` and ``*:control``), and
+    :func:`_mint_local_process_authority` refuses any grant that would.
+    Anything needing administration beyond these grants goes through a real
+    configured identity (``KG_AUTH_TOKEN_REF``/``KG_IDENTITY_OAUTH2``, or the
+    ``KG_ADMIN_BROKER_OAUTH2`` broker for placement), never the local mint.
+    """
+
+    AMBIENT = "ambient"
+    GRAPH_PROVISIONING = "graph-provisioning"
+
+
+#: Subject and exact roles per grant. ``AMBIENT`` is the identity every stdio
+#: tool call and background write runs under: ``kg:write`` (expands to
+#: ``kg:read``) plus ``fleet:events`` for fleet-event publishing, which EG's
+#: native broker authority requires as an exact scope on ``fleet.`` streams
+#: (eg-workitem WRAPUP §3d). ``GRAPH_PROVISIONING`` materializes the packaged
+#: local engine's own tenant graph: ``kg:read`` for ``PlacementRoute`` /
+#: ``ListGraphs`` and the exact ``graph:admin`` scope ``CreateGraph`` needs.
+_LOCAL_PROCESS_GRANTS: dict[LocalProcessGrant, tuple[str, tuple[str, ...]]] = {
+    LocalProcessGrant.AMBIENT: (_LOCAL_PROCESS_SUBJECT, ("kg:write", "fleet:events")),
+    LocalProcessGrant.GRAPH_PROVISIONING: (
+        _LOCAL_PROCESS_BOOTSTRAP_SUBJECT,
+        ("kg:read", "graph:admin"),
+    ),
+}
+
+#: Scopes a local-process authority can never carry, whatever the table says.
+_LOCAL_PROCESS_FORBIDDEN_SCOPES: frozenset[str] = frozenset({"kg:admin", "*"})
+
+
+def _mint_local_process_authority(grant: LocalProcessGrant) -> GraphSession:
+    """Mint one private, process-ephemeral authority for ``grant``.
+
+    This is the single chokepoint for credential-free local authority
+    (CONCEPT:X1). An asymmetric key signs one short-lived JWT entirely in
+    memory. The token is validated by the same decoder used for external
+    bearer identities, then the token and private-key references are
+    discarded before the resulting actor is projected into a graph session.
+    Claims are fixed neutral service values; no username, host name,
+    filesystem path, endpoint, or other local identifier is represented or
+    persisted. Roles come only from :data:`_LOCAL_PROCESS_GRANTS`; a projected
+    session that would carry ``kg:admin`` or ``*`` is refused.
+
+    Raises:
+        PermissionError: The grant would project an administrative scope.
     """
     import secrets
     import time
@@ -646,7 +686,7 @@ def _mint_local_process_authority(
 
     from .auth import _decode_jwt
 
-    roles = (role, *extra_roles)
+    subject, roles = _LOCAL_PROCESS_GRANTS[grant]
     key = RSAKey.generate_key(2048)
     public_jwks = {"keys": [key.as_dict(is_private=False)]}
     now = int(time.time())
@@ -679,11 +719,18 @@ def _mint_local_process_authority(
     # destroying proof material must never turn a bounded credential into an
     # indefinite process grant.
     actor = _actor_with_credential_lease(actor_from_claims(claims))
-    return _mint_graph_session(
+    session = _mint_graph_session(
         actor,
         audience=_LOCAL_PROCESS_AUDIENCE,
         policy_version=_LOCAL_PROCESS_POLICY_VERSION,
     )
+    forbidden = session.scopes & _LOCAL_PROCESS_FORBIDDEN_SCOPES
+    if forbidden:
+        raise PermissionError(
+            f"local-process authority may not carry {sorted(forbidden)}; "
+            "administration requires a configured external identity"
+        )
+    return session
 
 
 def mint_local_process_session() -> GraphSession:
@@ -691,56 +738,31 @@ def mint_local_process_session() -> GraphSession:
 
     This is the identity every stdio tool call, the ``_PROCESS_SESSION``
     fallback, and background/system writes (:func:`system_write_session`) run
-    under, so it is least-privilege by default (CONCEPT:X1 --
-    ``security/request_identity.py`` X1): it carries ``kg:read``/``kg:write``,
-    never ``kg:admin``. Before this fix every ``tiny``-profile local process
-    was minted ``kg:admin`` unconditionally, which passed every engine scope
-    check including ``admin:*``/``security:*``/``*:control`` actions for any
-    local caller with zero configuration.
-
-    An operator who deliberately wants ambient graph administration on every
-    local call in the zero-infra profile must opt in explicitly with
-    ``KG_LOCAL_PROCESS_ADMIN_SCOPE=true`` (``AgentConfig.
-    kg_local_process_admin_scope``, default ``false`` -- fail closed). That
-    opt-in is unrelated to the one genuinely admin-scoped action this profile
-    performs without it -- first-run local graph provisioning -- which instead
-    uses the narrowly-scoped, one-shot
-    :func:`mint_local_process_bootstrap_authority`.
+    under, so it is least-privilege (CONCEPT:X1): ``kg:read``/``kg:write`` and
+    ``fleet:events``, never ``kg:admin``. Before X1 every ``tiny``-profile
+    local process was minted ``kg:admin`` unconditionally, which passed every
+    engine scope check including ``admin:*``/``security:*``/``*:control``
+    actions for any local caller with zero configuration. There is no setting
+    that widens it: administration needs a configured external identity.
     """
-    from agent_utilities.core.config import config
-
-    # AgentConfig validates this as a real bool.  Keep the identity boundary
-    # fail-closed for lightweight test/config objects too: values such as the
-    # string ``"false"`` must never become truthy ambient admin.
-    role = {True: "kg:admin", False: "kg:write"}.get(
-        getattr(config, "kg_local_process_admin_scope", False) is True,
-        "kg:write",
-    )
-    # ``fleet:events`` alongside kg:read/write: this identity is also what
-    # background/system fleet-event publishing runs under
-    # (:func:`system_write_session`), and EG's native broker authority
-    # requires the exact ``fleet:events`` scope (or ``fleet:*``/``kg:admin``)
-    # for a write to a ``fleet.``-prefixed stream — a plain ``kg:write`` no
-    # longer suffices (eg-workitem WRAPUP §3d).
-    return _mint_local_process_authority(
-        role, _LOCAL_PROCESS_SUBJECT, extra_roles=("fleet:events",)
-    )
+    return _mint_local_process_authority(LocalProcessGrant.AMBIENT)
 
 
 def mint_local_process_bootstrap_authority() -> GraphSession:
-    """Mint a one-shot ``kg:admin`` authority for tiny-profile graph provisioning.
+    """Mint a one-shot graph-lifecycle authority for tiny-profile provisioning.
 
-    NOT for ambient or served use. :func:`mint_local_process_session` -- the
-    identity behind stdio tool calls and background writes -- is
-    least-privilege and never carries ``kg:admin`` (CONCEPT:X1). Materializing
-    a fresh packaged local engine's OWN tenant graph on first start
-    (``GraphComputeEngine._ensure_local_session_graph``) is the one genuinely
-    admin-scoped action a zero-infra ``tiny`` deployment must still perform
-    with no external IdP behind it. Callers MUST use the returned session for
-    exactly that one provisioning call and MUST NOT install it as ambient or
-    served identity.
+    NOT for ambient or served use. Materializing a fresh packaged local
+    engine's OWN tenant graph on first start
+    (``GraphComputeEngine._ensure_local_session_graph``) is the one
+    admin-scoped engine action a zero-infra ``tiny`` deployment must perform
+    with no external IdP behind it. The returned session carries exactly
+    ``kg:read`` and the engine's ``graph:admin`` scope -- never ``kg:admin`` --
+    so it cannot reach ``admin:*``, ``security:*``, ``blob:admin`` or
+    ``*:control`` actions (CONCEPT:X1). Callers MUST use it for exactly that
+    one provisioning call and MUST NOT install it as ambient or served
+    identity.
     """
-    return _mint_local_process_authority("kg:admin", _LOCAL_PROCESS_BOOTSTRAP_SUBJECT)
+    return _mint_local_process_authority(LocalProcessGrant.GRAPH_PROVISIONING)
 
 
 _system_write_session: GraphSession | None = None
@@ -1263,6 +1285,7 @@ __all__ = [
     "ActorIdentityMiddleware",
     "CARRIER_CLAIM_FIELDS",
     "HEALTH_PATHS",
+    "LocalProcessGrant",
     "OPTIONAL_CARRIER_CLAIM_FIELDS",
     "SERVED_TRANSPORTS",
     "UNAUTHENTICATED_PATHS",

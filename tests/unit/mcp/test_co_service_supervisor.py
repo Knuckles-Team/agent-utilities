@@ -33,6 +33,7 @@ import os
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -137,7 +138,15 @@ def test_token_only_client_does_not_poll_but_remains_send_capable(monkeypatch):
         return None
 
     monkeypatch.setattr(MessagingService, "get_backend", _fake_get_backend)
-    monkeypatch.setattr(MessagingService, "_gate", lambda *args, **kwargs: None)
+    # ``_gate`` returning ``None`` means "policy unavailable" and the send is
+    # refused (fail closed); stub an allowing decision instead (EH-380).
+    monkeypatch.setattr(
+        MessagingService,
+        "_gate",
+        lambda *args, **kwargs: SimpleNamespace(
+            allowed=True, decision="allow", reason="test"
+        ),
+    )
     monkeypatch.setattr(MessagingService, "_ingest_outbound", _no_ingest)
 
     session = _verified_session()
@@ -470,7 +479,13 @@ def test_start_co_services_live_path_starts_messaging(monkeypatch):
     )
 
     def _serve_without_renewal(engine, leases, stop_event, serve):
-        serve([item.platform for item in leases], stop_event)
+        # ``serve`` takes the per-platform stop-event map as its third argument
+        # (``intake_lease.run_with_intake_leases``' contract).
+        serve(
+            [item.platform for item in leases],
+            stop_event,
+            {item.platform: threading.Event() for item in leases},
+        )
 
     monkeypatch.setattr(intake_lease, "run_with_intake_leases", _serve_without_renewal)
 

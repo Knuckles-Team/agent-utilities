@@ -27,7 +27,11 @@ class _ClaimStubEngine:
     not just an in-process cache."""
 
     def __init__(self) -> None:
+        from tests.unit.fleet_autonomy_fakes import approval_lease_client_surface
+
         self.nodes: dict[str, dict[str, Any]] = {}
+        # EH-380: approval-tier holds queue on an EG ControlLease (fe45551a8).
+        self.client = approval_lease_client_surface()
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
@@ -289,7 +293,9 @@ async def test_real_unstubbed_action_policy_denies_by_default(registered, stub_e
         )
     )
     assert res["error"] == "policy_denied"
-    assert res["policy"]["decision"] in ("queue_approval", "deny")
+    assert res["policy"]["decision"] == "queue_approval"
+    # ...and the hold is a real queued approval lease, not a fail-closed stub.
+    assert len(stub_engine.client.control_leases._leases) == 1
 
     get_res = json.loads(
         await kg_server._execute_tool(
