@@ -57,6 +57,55 @@ def test_sprawl_gate_passes_clean(tmp_path):
     assert _run("check_sprawl.py", str(tmp_path)) == 0
 
 
+_BIG_BINARY = bytes(range(256)) * 8192  # 2 MiB of non-text: over the 1 MB cap
+
+
+def _generated_artifact_repo(tmp_path, pinned):
+    """A target repo with one large binary and, if `pinned`, a ledger entry for it."""
+    import hashlib
+
+    (tmp_path / "codec.wasm").write_bytes(_BIG_BINARY)
+    if pinned == "correct":
+        pinned = hashlib.sha256(_BIG_BINARY).hexdigest()
+    if pinned is not None:
+        (tmp_path / ".config").mkdir()
+        (tmp_path / ".config" / "generated-artifacts.toml").write_text(
+            '[[artifact]]\npath = "codec.wasm"\n'
+            f'sha256 = "{pinned}"\n'
+            'reproducer = "python3 scripts/build.py --check"\n'
+            'proven_by = "language-clients"\nreason = "embedded codec"\n'
+        )
+    return tmp_path
+
+
+def test_sprawl_gate_exempts_a_listed_binary_with_its_pinned_sha(tmp_path):
+    repo = _generated_artifact_repo(tmp_path, "correct")
+    assert _run("check_sprawl.py", str(repo)) == 0
+
+
+def test_sprawl_gate_trips_on_a_listed_binary_whose_sha_changed(tmp_path):
+    repo = _generated_artifact_repo(tmp_path, "0" * 64)
+    assert _run("check_sprawl.py", str(repo)) == 1
+
+
+def test_sprawl_gate_still_trips_on_an_unlisted_large_binary(tmp_path):
+    repo = _generated_artifact_repo(tmp_path, None)
+    assert _run("check_sprawl.py", str(repo)) == 1
+
+
+def test_sprawl_gate_trips_on_a_listed_artifact_that_is_missing(tmp_path):
+    repo = _generated_artifact_repo(tmp_path, "correct")
+    (repo / "codec.wasm").unlink()
+    assert _run("check_sprawl.py", str(repo)) == 1
+
+
+def test_sprawl_gate_fails_closed_on_a_malformed_ledger(tmp_path):
+    repo = _generated_artifact_repo(tmp_path, None)
+    (repo / ".config").mkdir()
+    (repo / ".config" / "generated-artifacts.toml").write_text('allow = ["*"]\n')
+    assert _run("check_sprawl.py", str(repo)) == 1
+
+
 # ---- no_stub gate (check_no_stub.py) ----------------------------------------
 
 

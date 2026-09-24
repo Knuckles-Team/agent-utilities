@@ -356,12 +356,12 @@ python -m pytest tests/test_workspace_attention.py -v  # CONCEPT:AU-ORCH.adapter
 # First Principles Architecture tests
 python -m pytest tests/unit/core/test_config_helpers.py -v       # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 python -m pytest tests/test_team_config.py -v                    # CONCEPT:AU-AHE.evaluation.interpretability-tests
-python -m pytest tests/unit/core/test_capabilities.py -v         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
+python -m pytest tests/unit/core/test_capabilities_core.py tests/unit/core/test_capabilities_advanced.py -v  # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 
 # All emergent + first-principles tests
 python -m pytest tests/test_kg_ogm.py tests/test_variant_pool.py \
     tests/test_memory_retriever.py tests/test_workspace_attention.py \
     tests/unit/core/test_config_helpers.py \
     tests/test_team_config.py \
-    tests/unit/core/test_capabilities.py -v
+    tests/unit/core/test_capabilities_core.py tests/unit/core/test_capabilities_advanced.py -v
 ```

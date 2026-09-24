@@ -318,13 +318,13 @@ python -m pytest tests/unit/core/test_config_helpers.py -v
 python -m pytest tests/test_team_config.py -v
 
 # AgentCapability node and auto-activation
-python -m pytest tests/unit/core/test_capabilities.py \
+python -m pytest tests/unit/core/test_capabilities_core.py tests/unit/core/test_capabilities_advanced.py \
     tests/unit/graph/test_capability_designation.py -v
 
 # All first-principles tests
 python -m pytest tests/unit/core/test_config_helpers.py \
     tests/test_team_config.py \
-    tests/unit/core/test_capabilities.py -v
+    tests/unit/core/test_capabilities_core.py tests/unit/core/test_capabilities_advanced.py -v
 ```
 
 ---
