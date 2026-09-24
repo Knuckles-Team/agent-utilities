@@ -11,7 +11,7 @@
 id_rsa*
 id_ed25519*
 # Neither target builds from source. The only non-wheel context files a build reads are
-# overrides.txt (uv pin override) and docker/requirements-multiplexer.txt (the slim
+# .config/uv-overrides.txt (uv pin override) and docker/requirements-multiplexer.txt (the slim
 # mcp leg). Everything below is dev/test/CI scaffolding or caches that bloat the context.
 .git/
 .github/

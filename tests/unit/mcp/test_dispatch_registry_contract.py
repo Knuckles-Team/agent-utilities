@@ -124,7 +124,7 @@ class TestDispatchRegistryContract:
         ``tests/test_verbose_tools.py`` exercises ``register_tool_surface`` against
         a synthetic ``MockMCP``, proving the *mechanism*; it does not prove
         graph-os is wired to it (and, being at ``tests/`` root, it is outside
-        ``pytest.ini``'s ``testpaths`` and does not run in the default suite at
+        ``[tool.pytest.ini_options]``'s ``testpaths`` and does not run in the default suite at
         all). This asserts the edge ``_build_server`` → ``register_tool_surface``
         with the real registrar list, and that the list is not silently empty.
         """

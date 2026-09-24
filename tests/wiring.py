@@ -42,7 +42,7 @@ What is here
     module that may no longer exist.
 :func:`assert_collected_by_pytest`
     A test file CI never collects is worse than no test. Assert a path is inside
-    ``pytest.ini``'s ``testpaths``.
+    pyproject.toml's ``[tool.pytest.ini_options] testpaths``.
 
 What a wiring test **cannot** prove
 -----------------------------------
@@ -55,9 +55,9 @@ infrastructure — real transports, real auth, real engines, real serialisation
 
 from __future__ import annotations
 
-import configparser
 import functools
 import inspect
+import tomllib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -426,7 +426,7 @@ def require_module(name: str, *, extra: str | None = None) -> ModuleType:
     A test gated behind an optional extra that CI does not install has never run;
     it reports green forever. If a test genuinely may not be runnable everywhere,
     mark it (``@pytest.mark.live`` / ``slow``) so the exclusion is *declared* in
-    ``pytest.ini`` and visible, rather than decided silently at import time by
+    pyproject.toml's ``[tool.pytest.ini_options]`` and visible, rather than decided silently at import time by
     whatever happens to be installed.
     """
     try:
@@ -434,7 +434,7 @@ def require_module(name: str, *, extra: str | None = None) -> ModuleType:
     except ImportError as exc:
         hint = (
             f" Install it (`pip install -e '.[{extra}]'`) or mark this test so its "
-            "exclusion is declared in pytest.ini."
+            "exclusion is declared in the pytest markers."
             if extra
             else " Install it or declare the exclusion via a pytest marker."
         )
@@ -460,21 +460,22 @@ def assert_not_faked(obj: Any, *, name: str) -> None:
 
 
 def assert_collected_by_pytest(path: str | Path) -> None:
-    """Assert ``path`` sits inside ``pytest.ini``'s ``testpaths``.
+    """Assert ``path`` sits inside the configured pytest ``testpaths``.
 
     A test file outside ``testpaths`` runs only when someone points pytest at it
     by hand — which is how the fleet's entire default transport stayed broken
     under a green suite. Use it in a meta-test over a directory you care about.
     """
-    ini = _REPO_ROOT / "pytest.ini"
-    parser = configparser.ConfigParser()
-    parser.read(ini, encoding="utf-8")
-    testpaths = [
-        (_REPO_ROOT / raw).resolve()
-        for raw in parser.get("pytest", "testpaths", fallback="").split()
-    ]
+    config = _REPO_ROOT / "pyproject.toml"
+    options = (
+        tomllib.loads(config.read_text(encoding="utf-8"))
+        .get("tool", {})
+        .get("pytest", {})
+        .get("ini_options", {})
+    )
+    testpaths = [(_REPO_ROOT / raw).resolve() for raw in options.get("testpaths", [])]
     if not testpaths:  # pragma: no cover - defensive
-        raise AssertionError(f"{ini} declares no testpaths")
+        raise AssertionError(f"{config} declares no pytest testpaths")
 
     resolved = Path(path).resolve()
     if not any(resolved == root or root in resolved.parents for root in testpaths):
@@ -484,7 +485,7 @@ def assert_collected_by_pytest(path: str | Path) -> None:
             else resolved
         )
         raise AssertionError(
-            f"{rel} is not under pytest.ini testpaths "
+            f"{rel} is not under the pytest testpaths "
             f"({[str(p.relative_to(_REPO_ROOT)) for p in testpaths]}), so the default "
             "suite never collects it. Move it under a collected path — a test CI "
             "does not run manufactures confidence instead of providing it."

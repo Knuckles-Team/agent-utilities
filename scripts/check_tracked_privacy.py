@@ -820,7 +820,8 @@ def _is_runtime_source_path(path: Path) -> bool:
 
     if not path.parts:
         return False
-    return path.parts[0].casefold() in {
+    parts = tuple(part.casefold() for part in path.parts)
+    return parts[:2] == (".config", "security") or parts[0] in {
         "agent_utilities",
         "deploy",
         "docker",
@@ -828,7 +829,6 @@ def _is_runtime_source_path(path: Path) -> bool:
         "helm",
         "k8s",
         "tests",
-        ".security",
         ".specify",
     }
 

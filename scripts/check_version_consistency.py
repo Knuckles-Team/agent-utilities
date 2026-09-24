@@ -101,7 +101,9 @@ def bumpversion_targets(root: Path) -> tuple[str, ...]:
 
     parser = configparser.ConfigParser()
     try:
-        parser.read_string((root / ".bumpversion.cfg").read_text(encoding="utf-8"))
+        parser.read_string(
+            (root / ".config" / "bumpversion.cfg").read_text(encoding="utf-8")
+        )
     except (OSError, configparser.Error) as exc:
         raise ValueError("bumpversion configuration is unreadable") from exc
     targets: list[str] = []

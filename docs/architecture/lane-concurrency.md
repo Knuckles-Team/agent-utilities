@@ -461,7 +461,7 @@ set, and every flag-shaped rule here was bypassed:
 
 * a merge/rebase/cherry-pick in progress (git's own `MERGE_HEAD`) — the sanctioned
   merge-back at the end of a lane;
-* a pure version bump, where every staged file is declared in `.bumpversion.cfg`.
+* a pure version bump, where every staged file is declared in the bumpversion config (`.config/bumpversion.cfg`, or a legacy root `.bumpversion.cfg`).
 
 ## Working example
 

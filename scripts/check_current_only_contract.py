@@ -73,7 +73,7 @@ SCAN_ROOTS = (
 )
 SCAN_FILES = (
     ROOT / ".env.example",
-    ROOT / "AGENTS.head.md",
+    ROOT / ".config" / "AGENTS.head.md",
     ROOT / "AGENTS.md",
     ROOT / "README.md",
     ROOT / "pyproject.toml",

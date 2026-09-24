@@ -5,6 +5,8 @@ import textwrap
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).parents[2]
 
 _PYPROJECT = textwrap.dedent(
@@ -138,3 +140,16 @@ def test_both_artifacts_stale_reports_both(tmp_path: Path) -> None:
     findings = gate.validate(tmp_path)
 
     assert len(findings) == 2
+
+
+@pytest.mark.parametrize("config", [".config/bumpversion.cfg", ".bumpversion.cfg"])
+def test_dynamic_version_falls_back_to_the_bumpversion_config(
+    tmp_path: Path, config: str
+) -> None:
+    gate = _gate_module()
+    (tmp_path / config).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / config).write_text(
+        "[bumpversion]\ncurrent_version = 4.5.6\n", encoding="utf-8"
+    )
+
+    assert gate._project_version({"project": {}}, tmp_path) == "4.5.6"

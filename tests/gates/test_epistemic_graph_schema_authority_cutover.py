@@ -111,7 +111,7 @@ REFERENCE_ROOTS = (
     Path("docs"),
     Path("scripts"),
     Path("tests"),
-    Path("AGENTS.head.md"),
+    Path(".config/AGENTS.head.md"),
     Path("AGENTS.md"),
     Path("MANIFEST.in"),
     Path("mkdocs.yml"),

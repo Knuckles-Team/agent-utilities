@@ -11,7 +11,7 @@ registered, since there is nothing durable to invalidate.
 
 Deliberately placed under ``tests/unit/`` (not ``tests/retrieval/``, where the
 compiler's OTHER tests live) — ``tests/retrieval/`` is outside both
-``pytest.ini``'s ``testpaths`` and the pre-commit ``pytest`` hook's
+``[tool.pytest.ini_options]``'s ``testpaths`` and the pre-commit ``pytest`` hook's
 ``tests/unit`` target, so nothing there is ever actually run; every one of its
 four ``test_context_compiler*.py`` files also independently fails offline
 (a hardcoded custom ``GraphSession`` fighting the real ambient-session

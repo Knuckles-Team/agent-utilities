@@ -346,8 +346,12 @@ def _single_source_snapshot(root: pathlib.Path) -> tuple[pathlib.Path, ...]:
 
 
 def load_acceptances(repository: pathlib.Path) -> tuple[Acceptance, ...]:
-    path = repository / ".security-audit-allow.txt"
-    if not path.exists():
+    ledgers = (
+        repository / ".config" / "security-audit-allow.txt",
+        repository / ".security-audit-allow.txt",
+    )
+    path = next((ledger for ledger in ledgers if ledger.exists()), None)
+    if path is None:
         return ()
     try:
         if path.is_symlink() or path.stat().st_size > 1024 * 1024:

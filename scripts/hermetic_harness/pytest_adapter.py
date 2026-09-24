@@ -15,7 +15,7 @@ Two-phase run, deliberately not one:
 2. **Execution phase** -- the real run, launched through
    :class:`~scripts.hermetic_harness.launcher.ProcessGroupLauncher` so a
    hang is killed by process group rather than relying on
-   ``pytest.ini``'s ``--timeout=300``, which does not fire for a test
+   ``[tool.pytest.ini_options]``'s ``--timeout=300``, which does not fire for a test
    blocked in an anyio worker thread.
 
 Both phases exec the venv's interpreter directly (``<venv>/bin/python3 -m

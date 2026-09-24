@@ -34,7 +34,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Optional published-package override file. It is currently empty: first-party
 # Harness ACP follows the same Pydantic AI line as the rest of the application.
-COPY overrides.txt /tmp/overrides.txt
+COPY .config/uv-overrides.txt /tmp/overrides.txt
 ENV UV_OVERRIDE=/tmp/overrides.txt
 
 # Full serving-plane dependency closure, from the published PyPI wheel.

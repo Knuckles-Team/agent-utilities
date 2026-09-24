@@ -39,17 +39,18 @@ check_wiring = _load_check_wiring()
 
 
 def _synthetic_config_paths(tmp_path):
-    """An isolated ``pytest.ini``/``.config/pre-commit.yaml``/workflows-dir
+    """An isolated ``pyproject.toml``/``.config/pre-commit.yaml``/workflows-dir
     triple, so ``find_orphaned_test_files`` can be exercised without falling
     back to reading THIS repo's own live config (which would make the
     fixture's verdict depend on whatever ``testpaths`` this repo currently
     happens to declare, rather than on the synthetic scenario under test)."""
-    pytest_ini = tmp_path / "pytest.ini"
-    pytest_ini.write_text(
-        "[pytest]\ntestpaths = tests/unit tests/integration tests/retrieval\n"
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.pytest.ini_options]\n"
+        'testpaths = ["tests/unit", "tests/integration", "tests/retrieval"]\n'
     )
     return {
-        "pytest_ini": pytest_ini,
+        "pyproject": pyproject,
         "precommit_config": tmp_path / ".config" / "pre-commit.yaml",  # absent -> empty
         "workflows_dir": tmp_path / ".github" / "workflows",  # absent -> empty
     }

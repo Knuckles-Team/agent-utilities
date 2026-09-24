@@ -109,7 +109,7 @@ meta-tool: `find_tools`, `load_tools`, `list_catalog`, `unload_tools`,
 
 The fix is to carry the override into the build by the same mechanism:
 
-* `overrides.txt` (repo root) is the build-side **mirror** of the workspace root's
+* `.config/uv-overrides.txt` is the build-side **mirror** of the workspace root's
   `override-dependencies`. `docker/Dockerfile` already wires it via `UV_OVERRIDE`;
   `docker/graphos-unified.Dockerfile` passes it as `uv pip install --override`.
 * `--no-sources` is what makes uv usable in an isolated context at all — it ignores the
@@ -120,7 +120,7 @@ The fix is to carry the override into the build by the same mechanism:
   prerelease signal uv needs for that one package. A global prerelease mode bleeds
   (verified: it pulled `sqlalchemy 2.1.0b3`).
 
-**Keep `overrides.txt` in sync with the workspace root whenever that table changes.**
+**Keep `.config/uv-overrides.txt` in sync with the workspace root whenever that table changes.**
 
 ## Why a metadata-only floor check could not have caught this
 

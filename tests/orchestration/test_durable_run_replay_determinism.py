@@ -75,7 +75,7 @@ def _run_script(
 @pytest.mark.slow  # property/fuzz suite: 25 Hypothesis examples x 2 real SQLite
 # stores each — excluded from the fast pre-commit gate (`-m "not slow"`), runs
 # in the full/nightly suite per this repo's existing `slow` marker convention
-# (pytest.ini's default addopts filter only `live`, not `slow`, so a plain
+# (pyproject.toml [tool.pytest.ini_options]'s default addopts filter only `live`, not `slow`, so a plain
 # `pytest tests/` — e.g. the merge queue's declared, if not queue-enforced,
 # `full-suite` gate — still exercises it).
 @settings(

@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_EXAMPLES = (
     ".env.example",
-    "AGENTS.head.md",
+    ".config/AGENTS.head.md",
     "AGENTS.md",
     "CHANGELOG.md",
     "README.md",

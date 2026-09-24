@@ -285,7 +285,7 @@ class TestCollectionGuard:
         assert_collected_by_pytest(__file__)
 
     def test_a_path_outside_testpaths_is_rejected(self) -> None:
-        with pytest.raises(AssertionError, match="not under pytest.ini testpaths"):
+        with pytest.raises(AssertionError, match="not under the pytest testpaths"):
             assert_collected_by_pytest(REPO_ROOT / "scripts" / "test_nowhere.py")
 
     def test_the_wiring_helpers_live_under_a_collected_path(self) -> None:

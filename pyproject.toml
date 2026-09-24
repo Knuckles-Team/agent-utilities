@@ -1256,15 +1256,60 @@ pages_url = "https://knuckles-team.github.io/agent-utilities/"
 mcp_server = false
 
 
-# Pytest configuration lives in pytest.ini, not here. Both files used to carry
-# a [tool.pytest.ini_options]/[pytest] block that silently disagreed (timeout
-# 30 vs 300, testpaths tests/unit+tests/integration vs the whole tests/ tree)
-# -- pytest's own config-file precedence (pytest.ini > pyproject.toml) means
-# pytest.ini always won and this block was dead weight that only misled
-# readers. Removed 2026-08-13; see pytest.ini for the effective config.
-# (VALIDATION_MODE=true here was also redundant even when live: DEFAULT_
-# VALIDATION_MODE in agent_utilities/core/config.py already ORs in
-# AGENT_UTILITIES_TESTING, which pytest.ini sets unconditionally.)
+# The ONE effective pytest configuration (formerly the root pytest.ini, folded
+# here when repository-root tool configuration moved into .config/ or
+# pyproject.toml). --timeout=300 and testpaths=tests (the whole tree:
+# unit+integration+gates+scale+retrieval+...) are the behaviour CI and
+# pre-commit depend on (release.yml's bare `pytest -q`).
+#
+# Parallel by default. 17,974 tests ran in ONE process, which is why the
+# pre-push gate exceeded 90 minutes and never returned a verdict.
+#   -n auto          scale to the box; a constrained CI runner gets its own core
+#                    count, not a hardcoded number.
+#   --maxprocesses   cap it. `_session_engine` is session-scoped AND autouse, so
+#                    every worker spawns its own epistemic-graph engine; 12
+#                    bounds that cost.
+#   --dist loadfile  keep every test in a file on ONE worker. The suite has
+#                    order-dependent module state, so per-test round-robin
+#                    would turn latent coupling into flakes.
+#   -p no:logfire / -p no:pytest_logfire
+#                    the `logfire` distribution autoloads TWO pytest11 plugins
+#                    in the controller and every worker; no test uses their
+#                    fixtures, and loading them cost ~26% of collection wall
+#                    time (min-of-8 A/B on tests/unit/agents/ --collect-only).
+#
+# `certification` is the 24-72h production soak campaign (explicit invocation
+# only); `slow` is deliberately NOT excluded -- it runs in the full/pre-push tier.
+# (VALIDATION_MODE is not set here: DEFAULT_VALIDATION_MODE in
+# agent_utilities/core/config.py already ORs in AGENT_UTILITIES_TESTING.)
+[tool.pytest.ini_options]
+addopts = '--timeout=300 -m "not live and not certification" -n auto --maxprocesses=12 --dist loadfile -p no:logfire -p no:pytest_logfire'
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "integration: Integration tests using subprocess/TestClient (no external services)",
+    "live: Tests requiring live external services (LLM endpoints, real networks)",
+    "slow: Slow / real-resource timing tests excluded from the fast pre-commit gate (run in full/nightly)",
+    "certification: Exact-release 24-72h production soak/chaos campaign (explicit invocation only)",
+    "engine: Requires the real ephemeral epistemic-graph test engine (the `tiny_engine`/`engine_graph` fixtures in tests/conftest.py) -- skips cleanly (not a hard failure) when no prebuilt engine binary is available in this environment",
+    "quarantine: Real test, currently RED (or requires infra unavailable in the standard sandbox: a live model class, the native epistemic-graph engine binary, an embedding-model API key). Still COLLECTED and RUN (never skip/xfail) so the failure stays visible. Enumerated in reports/test-collection-audit.md; each site names its deferred-item ID. Remove the marker only when the underlying cause is actually fixed.",
+    "concept(id): Mark test as validating a specific documentation concept (e.g., CONCEPT:ORCH-1.2).",
+]
+env = [
+    "AGENT_UTILITIES_TESTING=true",
+    "GRAPH_DB_PATH=:memory:",
+    # Production trips the model breaker on the FIRST overload
+    # (fail_threshold=1). Under `-n auto` that hair-trigger makes the suite
+    # flaky: 12 workers contend for CPU, an incidental slow call trips the
+    # process-wide breaker, and unrelated tests fail with
+    # `circuit_breaker_open`. A test-only floor, so no production default
+    # changes; test_embedding_failover and test_model_server_capacity_guard
+    # opt back into 1 explicitly.
+    "MODEL_BREAKER_FAIL_THRESHOLD=4",
+    "MODEL_BREAKER_BASE_COOLDOWN_S=0.01",
+    "MODEL_BREAKER_MAX_COOLDOWN_S=0.05",
+]
 
 [tool.coverage.run]
 source = ["agent_utilities"]

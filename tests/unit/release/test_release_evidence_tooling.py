@@ -367,7 +367,9 @@ def test_actual_generated_sbom_passes_strict_license_policy(tmp_path: Path) -> N
     assert sbom["metadata"]["component"]["licenses"] == [{"expression": "MIT"}]
     assert all(component.get("licenses") for component in sbom["components"])
     (tmp_path / "sbom.json").write_text(json.dumps(sbom), encoding="utf-8")
-    contract = security_contract.load_contract(ROOT, ".security/security-contract.json")
+    contract = security_contract.load_contract(
+        ROOT, ".config/security/security-contract.json"
+    )
     security_contract.check_licenses(
         tmp_path, contract, "sbom.json", "license-evidence.json"
     )

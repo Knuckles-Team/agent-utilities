@@ -34,7 +34,7 @@ the eager/deferred/TYPE_CHECKING split. Do not "simplify" it away.
 
 ★ THIS GATE IS THE NAMED OWNER OF THREE kiss METRICS (WD10-B-004, 2026-08-28)
 
-``.kiss/kiss.toml`` parks kiss's ``cycle_size``, ``dependency_depth`` and
+``.config/kiss.toml`` parks kiss's ``cycle_size``, ``dependency_depth`` and
 ``indirect_dependencies`` at 999999. That is NOT "we gave up": it is the same
 delegation this repo already applies to ``branches_per_function`` (owned by
 ``check_complexity.py``) and ``orphan_module_enabled`` (owned by
@@ -294,7 +294,7 @@ def _report_reach(graph: nx.DiGraph) -> None:
     """Print the eager-graph reach distribution. ALWAYS, pass or fail.
 
     ★ THIS PRINT IS THE NO-RATCHET POLICY IN CODE (BUG-CX-004 / WD10-B-004).
-    ``.kiss/kiss.toml`` parks kiss's ``cycle_size``/``dependency_depth``/
+    ``.config/kiss.toml`` parks kiss's ``cycle_size``/``dependency_depth``/
     ``indirect_dependencies`` at 999999 because kiss measures them on the
     ALL-IMPORTS graph, where 63% of the edges are function-local or
     ``TYPE_CHECKING``-guarded and never execute -- i.e. it scores this

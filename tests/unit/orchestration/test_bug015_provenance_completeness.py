@@ -35,7 +35,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from agent_utilities.orchestration import agent_dispatch_worker as worker
 from agent_utilities.orchestration import agent_runner
 
-# ``asyncio_mode = "auto"`` (pyproject.toml/pytest.ini) discovers async tests
+# ``asyncio_mode = "auto"`` (pyproject.toml [tool.pytest.ini_options]) discovers async tests
 # without a marker; no blanket ``pytestmark`` here, since two tests below are
 # deliberately synchronous (the agent_dispatch_worker fault injections).
 

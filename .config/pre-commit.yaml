@@ -57,7 +57,7 @@ repos:
   hooks:
   - id: vulture
     pass_filenames: false
-    args: [".", "vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests"]
+    args: [".", ".config/vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests"]
     require_serial: true
 - repo: https://github.com/codespell-project/codespell
   rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
@@ -82,7 +82,7 @@ repos:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: 444b232c7975e125a24b17d53ff615f5ad26a4cd # public docs contract
+  rev: main # sanctioned exception to immutable pins; public docs contract; gate inputs under .config/
   hooks:
   - id: public-surface
     stages: [pre-commit, pre-push, manual]
@@ -115,7 +115,7 @@ repos:
     name: audit dependencies for known CVEs (OSV)
     entry: python3 scripts/audit_dependencies.py uv.lock
     language: system
-    files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt)$
+    files: ^(uv\.lock|pyproject\.toml|\.config/security-audit-allow\.txt)$
     pass_filenames: false
   - id: supply-chain-source-contract
     name: enforce immutable workflow, container, and dependency sources
@@ -514,8 +514,8 @@ repos:
     name: pytest
     # test_target intentionally left unquoted below: once the tests/unit-style
     # layout is detected, it is expanded to the same multi-directory scope as
-    # pytest.ini's own `testpaths` (tests/unit tests/integration tests/retrieval)
-    # so this hook and `pytest.ini` never drift — tests/retrieval was
+    # pyproject.toml [tool.pytest.ini_options]'s own `testpaths` (tests/unit tests/integration tests/retrieval)
+    # so this hook and `[tool.pytest.ini_options]` never drift — tests/retrieval was
     # previously reachable by neither (CONCEPT:AU-KG.retrieval.context-compiler dead-coverage fix).
     entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ "$test_target" = "tests/unit" ]; then test_target="tests/unit tests/integration tests/retrieval"; fi; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest $test_target -q --tb=short -m "not slow" --timeout=60; else pytest $test_target -q --tb=short -m "not slow" --timeout=60; fi'
     language: system
@@ -604,7 +604,7 @@ repos:
     # "command not found" stand in for the diagnosis.
     entry: |-
       bash -c '
-        if [ ! -f ".bumpversion.cfg" ]; then exit 0; fi
+        if [ ! -f ".config/bumpversion.cfg" ]; then echo "check-bumpversion: .config/bumpversion.cfg is missing" >&2; exit 1; fi
         bump2version_bin=""
         for candidate in bump2version "$HOME/.local/bin/bump2version" "$HOME/.local/pipx/venvs/bump2version/bin/bump2version"; do
           if command -v "$candidate" >/dev/null 2>&1; then
@@ -617,7 +617,7 @@ repos:
           echo "This is a MISSING TOOL, not a version-bump config defect: install it (\`pipx install bump2version\` or \`pip install --user bump2version\`), or make sure \$HOME/.local/bin is on PATH for whatever is running this hook (a systemd unit / CI runner with a minimal PATH= is the usual cause)." >&2
           exit 127
         fi
-        "$bump2version_bin" patch --dry-run --allow-dirty
+        "$bump2version_bin" --config-file .config/bumpversion.cfg patch --dry-run --allow-dirty
       '
     language: system
     pass_filenames: false

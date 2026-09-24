@@ -187,7 +187,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # 'MCPError' from 'mcp.shared.exceptions'` — mcp 2.0.0 renamed `McpError`) and took every
 # fleet meta-tool (`find_tools`/`load_tools`/`list_catalog`) down with it.
 #
-# `overrides.txt` (context root) is the build-side MIRROR of that root table, and
+# `.config/uv-overrides.txt` is the build-side MIRROR of that root table, and
 # `--override` applies it. The historical reason uv was dropped here — au's own
 # `[tool.uv.sources] epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph" }`,
 # which uv cannot resolve outside the full workspace — is handled by `--no-sources`, which makes uv
@@ -210,7 +210,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # --ignore-installed (Debian/Ubuntu resolve dist-packages with /usr/local taking
 # precedence over /usr/lib, so this shadows the apt-owned copy at import time without
 # needing to uninstall it).
-COPY overrides.txt /tmp/overrides.txt
+COPY .config/uv-overrides.txt /tmp/overrides.txt
 RUN pip install --break-system-packages --no-cache-dir --ignore-installed "packaging>=26.2.0"
 RUN uv pip install --system --break-system-packages --no-cache \
         --no-sources \

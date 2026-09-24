@@ -11,8 +11,8 @@ enforces:
    unrecoverable is precisely the window (mid-pre-commit) in which the lane
    cannot yet commit it. A merge/rebase/cherry-pick in progress is the sanctioned
    canonical mutation and is detected from git's own state, and a pure version
-   bump is allowed because every file it touches is declared in
-   ``.bumpversion.cfg``. Neither carve-out is a flag an agent can set. **Generic
+   bump is allowed because every file it touches is declared in the bumpversion
+   config (``.config/bumpversion.cfg``, or a legacy root ``.bumpversion.cfg``). Neither carve-out is a flag an agent can set. **Generic
    over any repo** — see ``current_tree()`` below.
 
 2. **A generated view stays generated.** ``docs/concept_reservations.yaml`` is the
@@ -98,15 +98,18 @@ def _staged_files(tree: Path) -> list[str]:
 #: version line, once for the `agent-utilities:` dependency entry), and the key
 #: is the only thing making those section names unique.
 _BUMPVERSION_SECTION = re.compile(r"^bumpversion:file(?:\([^)]*\))?:(?P<path>.+)$")
+#: bump2version config locations, the relocated ``.config/`` file first; a
+#: repository that has not moved its root tool configuration keeps the root file.
+_BUMPVERSION_CONFIGS = (".config/bumpversion.cfg", ".bumpversion.cfg")
 
 
 def _bumpversion_files(tree: Path) -> set[str]:
-    """Files a version bump is allowed to rewrite, per ``.bumpversion.cfg``.
+    """Files a version bump is allowed to rewrite, per the bumpversion config.
 
     Two things this MUST include beyond the obvious, both learned by the
     carve-out silently failing to fire during a fleet release:
 
-    1. ``.bumpversion.cfg`` itself. bump2version rewrites its own
+    1. The config file itself. bump2version rewrites its own
        ``current_version`` and stages it, but the file is never declared as a
        ``[bumpversion:file:...]`` section -- so a set-containment check against
        the declared sections alone can never match a real bump.
@@ -121,18 +124,20 @@ def _bumpversion_files(tree: Path) -> set[str]:
     the index with no commit and no tag. The gate was right to exist and simply
     never matched the thing it was written to permit.
     """
-    cfg_path = tree / ".bumpversion.cfg"
-    if not cfg_path.is_file():
+    cfg_name = next(
+        (name for name in _BUMPVERSION_CONFIGS if (tree / name).is_file()), None
+    )
+    if cfg_name is None:
         return set()
     parser = configparser.ConfigParser()
-    parser.read(cfg_path, encoding="utf-8")
+    parser.read(tree / cfg_name, encoding="utf-8")
     declared = {
         match.group("path")
         for section in parser.sections()
         if (match := _BUMPVERSION_SECTION.match(section))
     }
     # bump2version rewrites its own config as part of every bump.
-    return declared | {".bumpversion.cfg"}
+    return declared | {cfg_name}
 
 
 def _check_canonical(scope: lanes.LaneScope, staged: list[str]) -> str | None:
