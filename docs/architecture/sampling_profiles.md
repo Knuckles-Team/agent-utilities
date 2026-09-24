@@ -24,20 +24,20 @@ A **`SamplingProfile`** (`agent/sampling_profile.py`) bundles the per-call knobs
 Every knob is optional; `None` means *inherit the agent's base setting*. It moves
 through the system exactly the way model selection already does:
 
-```mermaid
-flowchart LR
-    Q["Question / task text"] --> CL["classify_task / router features"]
-    CL --> SEL["ModelRegistry.pick_profile_for_task/role"]
-    SEL --> P["SamplingProfile"]
-    P -->|"to_model_settings over static base"| MS["per-call ModelSettings"]
-    MS --> RUN["Agent.run model_settings=..."]
-    RUN --> VLLM[("vLLM / OpenAI-compatible<br/>temperature·top_p·extra_body")]
-    RUN --> OUT["outcome"]
-    OUT -->|"reward EMA"| EV["AHE-3.38 evolve_profile"]
-    EV -->|"promote winner"| REG[("registry.task_class_profiles")]
-    REG -.->|"next call"| SEL
-    P -.->|"projected"| OWL[("OWL: InferenceProfile / Model")]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">SamplingProfile flows from classification through evolution back to selection</p>
+
+Question/task text is classified (`classify_task`/router features), which
+feeds `ModelRegistry.pick_profile_for_task`/`role`, selecting a
+`SamplingProfile`. That profile's `to_model_settings` (over the static
+base) produces per-call `ModelSettings`, passed to `Agent.run`, which
+calls vLLM/OpenAI-compatible (`temperature`/`top_p`/`extra_body`) and
+produces an outcome. The outcome's reward EMA feeds `evolve_profile`
+(AHE-3.38), which promotes a winner into
+`registry.task_class_profiles` — read on the next call's selection,
+closing the loop. The profile is also projected into the OWL ontology
+(`InferenceProfile`/`Model`).
+</div>
 
 ## Layer A — per-call threading (CONCEPT:AU-ORCH.routing.sampling-profile-selection)
 
@@ -52,25 +52,18 @@ in `factory.create_agent`, so **every** call resolves a profile from the prompt 
 the caller passes an explicit `model_settings`. `DEFAULT_PROFILE` (all-`None`) reproduces
 today's behaviour exactly, guaranteeing zero change when no specific profile is resolved.
 
-```mermaid
-sequenceDiagram
-    participant C as Caller
-    participant W as run-wrapper (attach_profile_resolver)
-    participant R as resolve_sampling_profile
-    participant Reg as ModelRegistry
-    participant A as pydantic-ai Agent
-    C->>W: agent.run("extract fields from invoice")
-    alt caller passed model_settings
-        W->>A: run(... model_settings=caller's)
-    else resolve per task
-        W->>R: classify_task(prompt)
-        R->>Reg: pick_profile_for_task("extraction")
-        Reg-->>R: SamplingProfile(temp 0.0, top_k 20, min_p 0.0)
-        R-->>W: profile
-        W->>A: run(... model_settings=profile.to_model_settings(base))
-    end
-    A->>A: extra_body merged, base knobs preserved
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The run-wrapper resolves a profile unless the caller overrides it</p>
+
+The caller calls `agent.run("extract fields from invoice")`, which
+reaches the run-wrapper (`attach_profile_resolver`). If the caller
+already passed `model_settings`, the wrapper runs with those directly. Otherwise
+it resolves per task: `classify_task(prompt)` -> `ModelRegistry
+.pick_profile_for_task("extraction")` -> a `SamplingProfile` (e.g. temp
+0.0, top_k 20, min_p 0.0) -> the wrapper runs with
+`profile.to_model_settings(base)`. Either way, the agent merges
+`extra_body` while preserving base knobs.
+</div>
 
 RLM (`rlm/repl.py`) threads a depth-tiered profile explicitly: the root is the strong
 reasoner (`rlm-root` → reasoning profile), recursive sub-calls are deterministic
@@ -108,17 +101,17 @@ capability-reward EMA (`CapabilityIndex.record_outcome`), and tournament-promote
 winner into `registry.task_class_profiles` — which Layer B reads on the next route.
 **No new RL machinery**: it reuses the existing reward EMA and tournament.
 
-```mermaid
-flowchart TD
-    INC["incumbent profile (task_class)"] --> MUT["mutate_profile<br/>bounded + SHACL-gated"]
-    MUT --> CANDS["candidate profiles"]
-    CANDS --> EVAL["evaluator → reward 0..1"]
-    INC --> EVAL
-    EVAL --> EMA["CapabilityIndex.record_outcome<br/>EMA per profile id"]
-    EMA --> TOUR["tournament: highest EMA"]
-    TOUR --> PROMO["registry.set_task_profile<br/>source=learned"]
-    PROMO -->|"process-global registry"| LIVE["router/factory pick it next run"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Evolution: mutate, evaluate, tournament-promote</p>
+
+The incumbent profile (per task_class) feeds `mutate_profile` (bounded +
+SHACL-gated), producing candidate profiles. Both the incumbent and its
+candidates are scored by an evaluator (reward 0..1), recorded via
+`CapabilityIndex.record_outcome` (an EMA per profile id). A tournament
+selects the highest EMA, and `registry.set_task_profile`
+(`source=learned`) promotes it into the process-global registry — where
+the router/factory picks it up on the next run.
+</div>
 
 ## Layer D — ontology mapping (CONCEPT:AU-KG.ontology.sampling-profile-coupling / 2.95 / 2.96)
 
@@ -126,15 +119,16 @@ Models, profiles, and the sampling knobs are first-class in the one OWL/RDF onto
 (reached only via `kg.ontology`), so OWL reasoning can extrapolate which profile fits
 a task class from how related models/roles are tuned.
 
-```mermaid
-flowchart TD
-    M["Model (model_id, tier)"] -->|"HAS_PROFILE / PROFILE_OF"| IP["InferenceProfile<br/>task_class + SHACL-bounded knobs"]
-    IP -->|"TUNED_FOR"| TC["TaskClass"]
-    IP -->|"BOUND_TO_ROLE"| RO["Role"]
-    AG["Agent"] -->|"USES_PROFILE"| IP
-    M -.->|"implements"| SC["SamplingConfigurable (interface)"]
-    IP -.->|"validated by"| VT["value types: Temperature 0..2, TopP 0..1, TopK ≥1, ..."]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Models, profiles, task classes, and roles as first-class OWL entities</p>
+
+`Model` (model_id, tier) links `HAS_PROFILE`/`PROFILE_OF` to
+`InferenceProfile` (task_class + SHACL-bounded knobs), which links
+`TUNED_FOR` to `TaskClass` and `BOUND_TO_ROLE` to `Role`. `Agent` links
+`USES_PROFILE` to `InferenceProfile`. `Model` implements the
+`SamplingConfigurable` interface, and `InferenceProfile` is validated by
+typed value ranges (Temperature 0..2, TopP 0..1, TopK >= 1, …).
+</div>
 
 - **Value types (KG-2.94, `ontology/value_types.py`)** — `Temperature` [0,2], `TopP`/`MinP`
   [0,1], `TopK`/`MaxTokens` (int ≥1), `RepetitionPenalty` (>0), `PresencePenalty`/
