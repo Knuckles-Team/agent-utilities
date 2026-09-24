@@ -61,7 +61,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "object_index": ("ask", "find"),
         "object_set": ("ask", "write"),
         "research_artifact": ("ask", "write"),
-        "quant": ("ask", "act"),
         "engine_query": ("ask",),
         "engine_analytics": ("ask",),
         "engine_datascience": ("ask",),

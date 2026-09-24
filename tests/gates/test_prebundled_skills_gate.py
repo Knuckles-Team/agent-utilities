@@ -44,12 +44,14 @@ def test_validation_contract_is_distribution_owned() -> None:
 def test_tool_spec_universe_is_immutable_and_profile_aware() -> None:
     core = canonical_tool_names()
     granular = canonical_tool_names(include_intent=False)
-    finance = canonical_tool_names(features=frozenset({"finance"}))
 
     assert set(INTENT_VERBS) <= core
     assert core - granular == set(INTENT_VERBS)
+    # The finance ``quant`` family left agent-utilities (EH-423 / AUD-30); an
+    # undeclared feature profile is refused, never silently empty.
     assert "quant" not in core
-    assert finance - core == {"quant"}
+    with pytest.raises(ValueError, match="unknown Graph-OS features"):
+        canonical_tool_names(features=frozenset({"finance"}))
     assert len(TOOL_SPECS) == len(TOOL_SPECS_BY_NAME)
     with pytest.raises(TypeError):
         TOOL_SPECS_BY_NAME["new_tool"] = TOOL_SPECS[0]  # type: ignore[index]

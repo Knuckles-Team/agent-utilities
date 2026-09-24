@@ -815,25 +815,13 @@ async def _analysis_action_context(
         return public_error_text(e)
 
 
-async def _analysis_action_evaluate_alpha(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'evaluate_alpha'
-    from agent_utilities.knowledge_graph.core.quant_tasks import (
-        execute_quant_task,
-    )
-
-    res = execute_quant_task(engine, "run_qlib_backtest", {"target": target or query})
-    return json.dumps(res)
-
-
 async def _analysis_action_evaluate(
     engine, action, query, top_k, node_id, depth, target
 ):
     # action(s): 'evaluate', 'evolve_model', 'forecast', 'causal', 'invariant'
     _NOT_IMPLEMENTED_HINT = {
         "evaluate": (
-            "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
+            "'evaluate_harness', "
             "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
         ),
         "evolve_model": (
@@ -1675,286 +1663,6 @@ async def _analysis_action_pick_skill(
     )
 
 
-async def _analysis_action_quant_banking(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_banking'
-    from agent_utilities.domains.finance.banking import KYCAMLEngine
-
-    if not query:
-        return "Error: quant_banking needs a transaction_id in `query`."
-    # Use query as transaction_id; derive account_id and amount from context
-    # or use sensible defaults for a compliance check
-    engine_instance = KYCAMLEngine()
-    alert = engine_instance.check_transaction(
-        transaction_id=query,
-        account_id=f"account:{query[:8]}",
-        amount=float(target)
-        if target and target.replace(".", "").isdigit()
-        else 10000.0,
-    )
-    if alert is None:
-        return json.dumps({"status": "compliant", "transaction_id": query})
-    return json.dumps(
-        {
-            "status": "alert",
-            "alert_id": alert.id,
-            "transaction_id": alert.transaction_id,
-            "account_id": alert.account_id,
-            "severity": alert.severity.value,
-            "alert_type": alert.alert_type,
-            "amount": alert.amount,
-        },
-        default=str,
-    )
-
-
-async def _analysis_action_quant_arb(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_arb'
-    from agent_utilities.domains.finance.cross_market_arb import (
-        EventArbitrageEngine,
-    )
-
-    if not query:
-        return "Error: quant_arb needs market parameters in `query` (JSON: {model_probability, market_a_price, market_b_price} or comma-separated values)."
-    try:
-        if query.startswith("{"):
-            params = json.loads(query)
-            model_prob = float(params.get("model_probability", 0.5))
-            market_a = float(params.get("market_a_price", 0.5))
-            market_b = float(params.get("market_b_price", 0.5))
-            exec_costs = float(params.get("execution_costs", 0.08))
-        else:
-            parts = query.split(",")
-            model_prob = float(parts[0].strip())
-            market_a = float(parts[1].strip()) if len(parts) > 1 else 0.5
-            market_b = float(parts[2].strip()) if len(parts) > 2 else 0.5
-            exec_costs = float(parts[3].strip()) if len(parts) > 3 else 0.08
-    except (ValueError, IndexError, json.JSONDecodeError) as e:
-        return public_error_text(e, code="invalid_request")
-    result = EventArbitrageEngine.evaluate_dual_markets(
-        model_probability=model_prob,
-        market_a_price=market_a,
-        market_b_price=market_b,
-        execution_costs=exec_costs,
-    )
-    return json.dumps(result, default=str)
-
-
-async def _analysis_action_quant_crypto(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_crypto'
-    from agent_utilities.domains.finance.crypto_connector import (
-        CryptoConnector,
-    )
-
-    if not query:
-        return "Error: quant_crypto needs a symbol in `query` (e.g., 'BTC/USD')."
-    connector = CryptoConnector()
-    result = connector.get_asset_context(query)
-    return json.dumps(result, default=str)
-
-
-async def _analysis_action_quant_exchange(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_exchange'
-    from agent_utilities.domains.finance.exchange_bridge import (
-        ExchangeBridge,
-    )
-
-    if not query:
-        return (
-            "Error: quant_exchange needs a symbol (e.g., BTC/USDT or AAPL) in `query`."
-        )
-    bridge = ExchangeBridge(paper_mode=True)
-    exec_result = bridge.execute(
-        symbol=query,
-        side="buy",
-        qty=float(target.split(":")[1]) if target and ":" in target else 1.0,
-        order_type="market",
-        limit_price=None,
-    )
-    return json.dumps(
-        {
-            "order_id": exec_result.order_id,
-            "status": exec_result.status,
-            "filled_qty": exec_result.filled_qty,
-            "average_price": exec_result.average_price,
-            "fees": exec_result.fees,
-            "exchange": exec_result.exchange,
-        },
-        default=str,
-    )
-
-
-async def _analysis_action_quant_microstructure(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_microstructure'
-    from agent_utilities.domains.finance.microstructure import (
-        ConvergenceFilter,
-        MicroPriceCalculator,
-        OrderBookImbalance,
-    )
-
-    if not query:
-        return "Error: quant_microstructure needs order book data in `query` (JSON: {bid_price, ask_price, bid_volume, ask_volume}) or set via target/depth."
-    try:
-        import json as _json
-
-        if isinstance(query, str):
-            try:
-                params = _json.loads(query)
-            except Exception:
-                params = {}
-        else:
-            params = query if isinstance(query, dict) else {}
-        bid_price = float(
-            params.get("bid_price", target.split(",")[0] if target else 99.5)
-        )
-        ask_price = float(
-            params.get(
-                "ask_price",
-                target.split(",")[1] if target and "," in target else 100.5,
-            )
-        )
-        bid_volume = float(params.get("bid_volume", top_k * 100))
-        ask_volume = float(params.get("ask_volume", depth * 100))
-
-        obi = OrderBookImbalance.calculate(bid_volume, ask_volume)
-        spread = ask_price - bid_price
-        micro_price = MicroPriceCalculator.calculate(
-            bid_price, ask_price, bid_volume, ask_volume
-        )
-        micro_price_from_imbalance = MicroPriceCalculator.from_imbalance(
-            (bid_price + ask_price) / 2.0, spread, obi
-        )
-        is_consensus = ConvergenceFilter.check_agreement(
-            [True] * min(5, max(1, int(obi * 5 + 2.5))), threshold=5
-        )
-        result = {
-            "order_book": {
-                "bid_price": bid_price,
-                "ask_price": ask_price,
-                "bid_volume": bid_volume,
-                "ask_volume": ask_volume,
-                "spread": spread,
-            },
-            "imbalance": {"obi": float(obi), "consensus": is_consensus},
-            "micro_price": {
-                "direct_calculation": float(micro_price),
-                "from_imbalance": float(micro_price_from_imbalance),
-            },
-            "status": "ok",
-        }
-        return _json.dumps(result, default=str)
-    except Exception as e:
-        return public_error_text(e)
-
-
-async def _analysis_action_quant_strategy(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_strategy'
-    from agent_utilities.domains.finance.strategy_engine import (
-        StrategyEngine,
-        StrategyMetrics,
-    )
-
-    if not query:
-        return "Error: quant_strategy needs a strategy_id in `query`."
-    if engine is None:
-        return "Error: quant_strategy requires an active knowledge graph engine."
-    se = StrategyEngine(engine)
-    metrics = StrategyMetrics(
-        sharpe=2.5,
-        max_drawdown=-0.10,
-        win_rate=0.55,
-        profit_factor=1.5,
-        total_trades=max(100, top_k),
-    )
-    promotable = se.record_backtest(query, metrics)
-    return json.dumps(
-        {
-            "strategy_id": query,
-            "promotable": promotable,
-            "metrics": {
-                "sharpe": metrics.sharpe,
-                "max_drawdown": metrics.max_drawdown,
-                "win_rate": metrics.win_rate,
-                "profit_factor": metrics.profit_factor,
-                "total_trades": metrics.total_trades,
-            },
-        },
-        default=str,
-    )
-
-
-async def _analysis_action_quant_regime(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_regime'
-    from agent_utilities.domains.finance.regime_detector import (
-        RegimeDetector,
-    )
-
-    if not query:
-        return "Error: quant_regime needs a ticker symbol in `query`."
-
-    # Create bounded synthetic close data for demonstration. Each
-    # numeric operation crosses into the engine once as a batch.
-    from agent_utilities.numeric import xp
-
-    base_price = 100.0
-    returns = xp.random.default_rng(0).normal(0.0005, 0.02, 100)
-    close_multipliers = xp.cumprod([1.0 + float(change) for change in returns])
-    close_prices = [base_price * value for value in close_multipliers]
-
-    detector = RegimeDetector(engine)
-    regime = detector.detect_close_prices(close_prices, ticker=query)
-    return regime
-
-
-async def _analysis_action_quant_insider(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_insider'
-    import json as _json
-
-    from agent_utilities.domains.finance.insider_equilibrium import (
-        InsiderEquilibriumInputs,
-        penalty_policy_analysis,
-        solve_equilibrium,
-    )
-
-    try:
-        overrides = _json.loads(query) if query else {}
-    except Exception:
-        overrides = {}
-    inputs = InsiderEquilibriumInputs(
-        **{
-            k: v
-            for k, v in overrides.items()
-            if k in InsiderEquilibriumInputs.__dataclass_fields__
-        }
-    )
-    import dataclasses as _dc
-
-    def _ser(o):
-        return _dc.asdict(o) if _dc.is_dataclass(o) and not isinstance(o, type) else o
-
-    eq = solve_equilibrium(inputs)
-    policy = penalty_policy_analysis(inputs)
-    return _json.dumps(
-        {"status": "ok", "equilibrium": _ser(eq), "policy": _ser(policy)},
-        default=str,
-    )
-
-
 async def _analysis_action_workforce_plan(
     engine, action, query, top_k, node_id, depth, target
 ):
@@ -2403,11 +2111,6 @@ async def _analysis_action_code_metrics(
         build_code_metrics,
     )
 
-    # Named distinctly from the `metrics` local used by the unrelated
-    # `quant_strategy` branch above (a `StrategyMetrics` instance) —
-    # this whole dispatch function shares one scope, so reusing the
-    # name there made mypy unify the two branches' incompatible types
-    # onto a single inferred variable type.
     code_metrics_result = await run_blocking_ordered(
         build_code_metrics,
         engine,
@@ -2573,7 +2276,6 @@ _ANALYSIS_ACTION_DISPATCH = {
     "enrichment_coverage": _analysis_action_enrichment_coverage,
     "process_writeback": _analysis_action_process_writeback,
     "context": _analysis_action_context,
-    "evaluate_alpha": _analysis_action_evaluate_alpha,
     "evaluate": _analysis_action_evaluate,
     "evolve_model": _analysis_action_evaluate,
     "forecast": _analysis_action_evaluate,
@@ -2606,14 +2308,6 @@ _ANALYSIS_ACTION_DISPATCH = {
     "cleanup_documents": _analysis_action_cleanup_documents,
     "epistemic_sync": _analysis_action_epistemic_sync,
     "pick_skill": _analysis_action_pick_skill,
-    "quant_banking": _analysis_action_quant_banking,
-    "quant_arb": _analysis_action_quant_arb,
-    "quant_crypto": _analysis_action_quant_crypto,
-    "quant_exchange": _analysis_action_quant_exchange,
-    "quant_microstructure": _analysis_action_quant_microstructure,
-    "quant_strategy": _analysis_action_quant_strategy,
-    "quant_regime": _analysis_action_quant_regime,
-    "quant_insider": _analysis_action_quant_insider,
     "workforce_plan": _analysis_action_workforce_plan,
     "close": _analysis_action_close,
     "call_graph": _analysis_action_call_graph,

@@ -12,28 +12,12 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-OPTIONAL_TOOL_FEATURES = MappingProxyType({"quant": "finance"})
-OPTIONAL_TOOL_ROUTES = MappingProxyType({"quant": "/quant"})
-OPTIONAL_TOOL_ACTIONS = MappingProxyType(
-    {
-        "quant": (
-            "analyze",
-            "balances",
-            "cancel_order",
-            "debate",
-            "ensemble_predict",
-            "fundamentals",
-            "historical",
-            "optimize",
-            "order_book",
-            "positions",
-            "regime",
-            "risk_metrics",
-            "status",
-            "submit_order",
-        )
-    }
-)
+# The finance ``quant`` family left with agent-utilities' finance math
+# (EH-423 / AUD-30): trend signals, flip alerts and live-order proposals are the
+# graph-os ``graph_finance`` tool. No optional family is declared today.
+OPTIONAL_TOOL_FEATURES: MappingProxyType[str, str] = MappingProxyType({})
+OPTIONAL_TOOL_ROUTES: MappingProxyType[str, str] = MappingProxyType({})
+OPTIONAL_TOOL_ACTIONS: MappingProxyType[str, tuple[str, ...]] = MappingProxyType({})
 SUPPORTED_FEATURES: frozenset[str] = frozenset(OPTIONAL_TOOL_FEATURES.values())
 
 __all__ = [

@@ -1,4 +1,4 @@
-"""Investor personas + forensic/pattern agents wired to the debate (CONCEPT:AU-KG.research.research-pipeline-runner).
+"""Investor personas + forensic agents wired to the debate (CONCEPT:AU-KG.research.research-pipeline-runner).
 
 Engine-grounded numbers (forensic_report / momentum / mean_reversion / regimes)
 are exercised with an in-process fake client so the suite never requires a live
@@ -27,11 +27,6 @@ from agent_utilities.domains.finance.investor_debate import (
     build_financial_debate_team,
     persona_for_role,
     seed_financial_debate_team,
-)
-from agent_utilities.domains.finance.pattern_classifier import (
-    EdgeLabel,
-    PatternClassifier,
-    PricePattern,
 )
 from agent_utilities.domains.finance.trading_swarm import SwarmRole
 
@@ -107,12 +102,8 @@ class _FakeFinance:
 
 
 class _FakeClient:
-    def __init__(self, report=None, **finance_kwargs):
-        self.finance = (
-            _FakeFinance(report)
-            if report is not None
-            else _FakeFinanceSignals(**finance_kwargs)
-        )
+    def __init__(self, report):
+        self.finance = _FakeFinance(report)
 
 
 def test_forensic_screener_grounds_in_engine():
@@ -191,87 +182,6 @@ def test_filing_diff_agent_falls_back_to_deterministic_offline():
     assert {f.change_type for f in result.findings} == {"NEW", "REMOVED"}
 
 
-# ── price-action pattern classifier (engine-grounded numerics) ────────────────
-class _FakeFinanceSignals:
-    def __init__(self, momentum=None, mean_reversion=None, zscore=None):
-        self._mom = momentum or [0.0]
-        self._mr = mean_reversion or [0.0]
-        self._z = zscore or [0.0]
-
-    def momentum(self, prices, lookback):
-        return self._mom
-
-    def mean_reversion(self, values, window):
-        return self._mr
-
-    def rolling_zscore(self, values, window):
-        return self._z
-
-    def detect_regimes(self, observations, n_states=2, **kw):
-        return {"n_states": n_states}
-
-
-def _large_green_candle():
-    # body ~ full range, almost no wick → LARGE_BODY momentum
-    return {"open": 100.0, "high": 110.2, "low": 99.9, "close": 110.0}
-
-
-def test_pattern_large_body_is_momentum_and_engine_confirmed():
-    client = _FakeClient(momentum=[0.05])  # positive momentum confirms up-direction
-    clf = PatternClassifier(engine_client=client)
-    window = [
-        {"open": 100, "high": 101, "low": 99, "close": 100.2},
-        {"open": 100.2, "high": 101, "low": 99.5, "close": 100.5},
-        _large_green_candle(),
-    ]
-    res = clf.classify(window)
-    assert res.pattern == PricePattern.LARGE_BODY
-    assert res.edge == EdgeLabel.MOMENTUM
-    assert res.direction == 1
-    assert res.engine_confirmed is True
-    assert res.metrics["momentum"] == 0.05
-
-
-def test_pattern_wick_into_level_is_mean_reversion():
-    client = _FakeClient(mean_reversion=[-0.01], zscore=[2.0])  # stretched up → fade
-    clf = PatternClassifier(engine_client=client)
-    # Upper wick rejecting a level at 105 (3 candles for engine confirmation).
-    window = [
-        {"open": 99.5, "high": 100.2, "low": 99.0, "close": 100.0},
-        {"open": 100, "high": 101, "low": 99, "close": 100.5},
-        {"open": 100.5, "high": 105.0, "low": 100.4, "close": 100.6},
-    ]
-    res = clf.classify(window, levels=[105.0])
-    assert res.pattern == PricePattern.WICK_INTO_LEVEL
-    assert res.edge == EdgeLabel.MEAN_REVERSION
-    assert res.direction == -1  # fade the upside rejection
-    assert res.engine_confirmed is True
-
-
-def test_pattern_choppy_has_no_edge():
-    clf = PatternClassifier(engine_client=_FakeClient(momentum=[0.0]))
-    window = [
-        {"open": 100, "high": 100.4, "low": 99.6, "close": 100.05},
-        {"open": 100.05, "high": 100.3, "low": 99.7, "close": 99.95},
-    ]
-    res = clf.classify(window)
-    assert res.pattern == PricePattern.CHOPPY
-    assert res.edge == EdgeLabel.NO_EDGE
-
-
-def test_pattern_no_engine_marks_unconfirmed():
-    from agent_utilities.domains.finance import pattern_classifier as pc
-
-    pc.reset_engine_cache()
-    clf = PatternClassifier(engine_client=None)
-    res = clf.classify([{"open": 100, "high": 110.2, "low": 99.9, "close": 110.0}])
-    # Shape still classified; edge just not numerically confirmed by the engine.
-    if not res.engine_confirmed:
-        assert res.pattern == PricePattern.LARGE_BODY
-        assert res.metrics.get("momentum") is None
-
-
-# ── team seeding via the shared write_batch path ──────────────────────────────
 from tests.kg_recording_backend import RecordingGraphBackend as _FakeBackend
 
 

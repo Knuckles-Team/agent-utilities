@@ -40,9 +40,6 @@ EXTERNAL_GRAPHOS_TOOL_NAMES: frozenset[str] = frozenset({"graph_rlm"})
 # reason.
 INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
     {
-        # ``quant`` is the emerald-exchange finance domain tool, not part of the
-        # generic graph-os surface; it carries a pre-existing surface-parity waiver.
-        "quant",
         # AU-P0-6: ``engine_rbac``/``engine_admin`` are the two newly-exposed
         # ADMIN-family low-level namespaces (RBAC policy administration; ops
         # backup/restore) — gated behind ``kg:admin`` (see
