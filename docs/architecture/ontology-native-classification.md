@@ -18,18 +18,19 @@
 > one the dispatcher already reads (`config._fetch_tools` → `MATCH (t:Tool)`), so **the same data
 > fixes the classification gate *and* the "no fleet specialist" dispatcher hole**.
 >
-> ```mermaid
-> flowchart LR
->   cfg["mcp_config.json (~62 fleet servers)"] --> mux["MCPMultiplexer.probe_catalog: connect→list_tools→release"]
->   mux --> sync["_sync_fleet (source=fleet)"]
->   boot["graph-os boot: _ingest_capabilities step 4"] --> sync
->   rest["REST /source/sync + MCP source_sync"] --> sync
->   sync --> tools[("Tool nodes: name/mcp_server/tags/synonyms")]
->   sync --> srv[("MCPServer nodes +synonyms")]
->   srv -- SERVES --> tools
->   tools --> gate["ontology lexical gate (Phase B: match_ontology_terms)"]
->   tools --> disp["dispatcher _fetch_tools: MATCH (t:Tool) → specialist"]
-> ```
+> <div class="admonition architecture" markdown>
+> <p class="admonition-title">Fleet catalog probe feeds both the KG and the dispatcher</p>
+>
+> `mcp_config.json` (~62 fleet servers) feeds `MCPMultiplexer.probe_catalog`
+> (connect -> list_tools -> release), which feeds `_sync_fleet`
+> (`source=fleet`) — triggered either at graph-os boot
+> (`_ingest_capabilities` step 4) or via REST `/source/sync` + MCP
+> `source_sync`. `_sync_fleet` writes `Tool` nodes
+> (name/mcp_server/tags/synonyms) and `MCPServer` nodes (+synonyms), linked
+> by a `SERVES` edge. Those `Tool` nodes feed both the ontology lexical
+> gate (Phase B: `match_ontology_terms`) and the dispatcher's
+> `_fetch_tools` (`MATCH (t:Tool)` -> specialist).
+> </div>
 
 > **Addendum (relational tier, `CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables`):**
 > the KG write above (`:MCPServer`/`:Tool`/`:Skill` via Cypher) was, until now, the
@@ -56,15 +57,19 @@
 > `ingest_runnable_skill` call site (boot ingest, atomic-skill sweep, fleet-skill
 > harvest) from the corpus's own frontmatter — closing the "256/324 skills render
 > Unclassified" gap without a runtime KG-dependent lookup.
-> ```mermaid
-> flowchart LR
->   cat["probed catalog\n(servers/tools/skills/prompts)"] --> rel["fleet_catalog_tables.write_fleet_catalog\n(engine.sql_exec — cheap, sync)"]
->   cat --> kg["_write_fleet_nodes entities loop\n(Cypher ApplyChangeEnvelope)"]
->   rel --> tabs[("mcp_servers / mcp_tools / mcp_prompts\nmcp_resources / skills")]
->   kg --> nodes[(":MCPServer / :Tool / :Skill")]
->   tabs -.->|"primary read path\n(sibling lane: API + frontend)"| ui["agent-webui"]
->   nodes -.->|"secondary enrichment\n(KG queries, reasoning)"| enrich["KG / vector enrichment"]
-> ```
+> <div class="admonition architecture" markdown>
+> <p class="admonition-title">Relational tables are the primary read path; KG nodes are secondary enrichment</p>
+>
+> The same probed catalog (servers/tools/skills/prompts) feeds two writes:
+> `fleet_catalog_tables.write_fleet_catalog` (`engine.sql_exec`, cheap and
+> sync) writes the relational tables (`mcp_servers`/`mcp_tools`/
+> `mcp_prompts`/`mcp_resources`/`skills`), and `_write_fleet_nodes`'
+> entities loop (Cypher `ApplyChangeEnvelope`) writes the KG nodes
+> (`:MCPServer`/`:Tool`/`:Skill`). The relational tables are the primary
+> read path, consumed by `agent-webui` (a sibling lane: API + frontend);
+> the KG nodes are secondary enrichment, consumed by KG queries and vector
+> enrichment/reasoning.
+> </div>
 
 ---
 

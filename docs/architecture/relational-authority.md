@@ -8,21 +8,24 @@ the executable drift/security gate is
 This ADR records the ownership decision so a convenient mirror cannot quietly
 become a second authority.
 
-```mermaid
-flowchart LR
-    Probe[Governed fleet discovery] -->|resolve exact grant when OAuth-gated| Broker[Process-owned OAuth broker]
-    Probe -->|verified local visibility when non-OAuth| Local[Process-owned tenant-local binding]
-    Broker -->|grant-scoped write binding| Engine[(Epistemic Graph SQL\nfleet catalog)]
-    Local -->|tenant-local write binding| Engine
-    Engine -->|tenant + (local OR principal + grant) scoped read| Registry[Read-only registry API]
-    Runtime[Usage recorder] -->|authoritative write| Usage[(Usage store)]
-    Sessions[Session/dispatch lifecycle] -->|authoritative write| State[(State store)]
-    Usage --> UsageView[Derived usage read models]
-    State --> FleetView[Derived fleet topology]
-    Registry --> RegistryView[Derived registry pages]
-    Usage -. no dual write .- Engine
-    State -. no dual write .- Engine
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Three relational domains, each with exactly one authoritative writer</p>
+
+**Fleet catalog.** Governed fleet discovery resolves an exact grant via
+the process-owned OAuth broker when OAuth-gated, or verified local
+visibility via a process-owned tenant-local binding when not. Either path
+writes to the Epistemic Graph SQL fleet catalog (grant-scoped or
+tenant-local), which serves a tenant + (local OR principal + grant)
+scoped read through the read-only registry API, producing derived
+registry pages.
+
+**Usage store.** The usage recorder is the sole authoritative writer,
+feeding derived usage read models. It never dual-writes to the engine.
+
+**State store.** The session/dispatch lifecycle is the sole authoritative
+writer, feeding derived fleet topology views. It never dual-writes to the
+engine either.
+</div>
 
 ## Decisions
 
@@ -103,21 +106,22 @@ monotonic per-aggregate sequence, exact SHA-256 digests, a bounded redacted
 summary and (for deletion) a digest-only tombstone.  It never contains a
 secret, grant, argument, result, private evidence or raw body.
 
-```mermaid
-flowchart LR
-    Change[Typed authority mutation] --> Commit[Atomic repository protocol]
-    Commit --> Authority[(Relational authority)]
-    Commit --> Outbox[(Versioned durable outbox)]
-    Outbox --> Read[Bounded aggregate keyset reader]
-    Read --> Apply[GraphOS projector]
-    Apply -->|success / idempotent replay| Cursor[Fenced CAS checkpoint]
-    Apply -->|failure| Drift[Typed drift record]
-    Cursor --> Graph[(GraphOS projection)]
-    Graph -. reverse sync rejected .-> Reject[No authority write]
-    Observe[Graph observation] --> Policy{Explicit promotion policy}
-    Policy -->|allowed + fresh + evidence ref| Commit
-    Policy -->|otherwise| Drift
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Transactional outbox projects into GraphOS; reverse sync is rejected</p>
+
+A typed authority mutation commits atomically through the repository
+protocol into both the relational authority and a versioned durable
+outbox, in the same transaction. A bounded aggregate keyset reader drains
+the outbox into the GraphOS projector: success or idempotent replay
+advances a fenced CAS checkpoint into the GraphOS projection; failure
+produces a typed drift record instead. The GraphOS projection never
+writes back to the authority — reverse sync is rejected outright.
+
+The only way a graph observation can reach the authority is through an
+explicit promotion policy: allowed, fresh, and evidence-referenced
+observations are committed as a new typed authority mutation (re-entering
+this same flow); anything else produces a typed drift record.
+</div>
 
 Projection is downstream-only.  The projector applies an event before moving
 its checkpoint, so an unavailable GraphOS adapter cannot mutate or falsely
