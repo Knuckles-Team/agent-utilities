@@ -1,87 +1,63 @@
-"""A schema-repair candidate: the new record contract as SHACL (EH-403).
+"""A schema-repair candidate: the new record contract, as typed data (EH-403).
 
-The candidate is what an approval approves. It is rendered deterministically
-from the proposed record shape as one SHACL shapes document under the source's
-own namespace, keyed ``approved:<source>`` in the graph's schema sources, and
-identified by :func:`approved_candidate_digest` -- byte-for-byte the digest EG
-recomputes when the candidate is attached (``eg_types::graph_schema::approval``).
+The candidate is what an approval approves. EG owns every SHACL/RDF document
+(DECISIONS 2026-09-24, AUD-27), so AU never renders one: the candidate is the
+proposed record shape as a typed ``RecordContract`` (field -> required + JSON
+type set), which EG renders into SHACL itself when it validates
+(``GraphSchema.ValidateRepair``) or attaches (``GraphSchema.AttachApproved``) it
+under ``approved:<source>``. :func:`approved_candidate_digest` is byte-for-byte
+the digest EG recomputes from the same contract
+(``eg_types::graph_schema::approval``) -- a hash over data, not over RDF.
 """
 
 from __future__ import annotations
 
 import hashlib
-import re
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
-from .shape import FieldShape, RecordShape
+from .shape import JSON_TYPES, RecordShape
 
 #: Key prefix EG reserves for approval-bound schema sources.
 APPROVED_SOURCE_PREFIX = "approved:"
 #: Domain separator EG frames the candidate digest with.
 APPROVED_CANDIDATE_DOMAIN = "eg/approved-schema-candidate/v1"
 
-_XSD = {
-    "string": "xsd:string",
-    "boolean": "xsd:boolean",
-    "integer": "xsd:integer",
-    "number": "xsd:decimal",
-}
-_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+def record_contract(shape: RecordShape) -> dict[str, Any]:
+    """EG's ``RecordContract`` wire form of a record shape (types in EG's order)."""
+    return {
+        "fields": {
+            name: {
+                "required": spec.required,
+                "types": [kind for kind in JSON_TYPES if kind in spec.types],
+            }
+            for name, spec in shape.fields
+        }
+    }
 
 
-def approved_candidate_digest(
-    source_id: str, shapes_ttl: str | None, ontology_ttl: str | None
-) -> str:
-    """EG's candidate identity: key and document digests, NUL-terminated."""
-
-    def document(body: str | None) -> str:
-        return "" if body is None else hashlib.sha256(body.encode()).hexdigest()
-
-    parts = (
-        APPROVED_CANDIDATE_DOMAIN,
-        source_id,
-        document(shapes_ttl),
-        document(ontology_ttl),
+def canonical_contract_json(contract: Mapping[str, Any]) -> str:
+    """The exact text EG's ``RecordContract::canonical_json`` produces."""
+    return json.dumps(
+        contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
+
+
+def approved_candidate_digest(source_id: str, contract: Mapping[str, Any]) -> str:
+    """EG's candidate identity: domain, key and canonical contract, NUL-terminated."""
+    parts = (APPROVED_CANDIDATE_DOMAIN, source_id, canonical_contract_json(contract))
     return hashlib.sha256("".join(f"{part}\0" for part in parts).encode()).hexdigest()
-
-
-def _local(name: str) -> str:
-    """An IRI-safe local name (every other character percent-encoded)."""
-    return _UNSAFE.sub(lambda m: "".join(f"%{b:02X}" for b in m.group().encode()), name)
-
-
-def _property_shape(source_ns: str, name: str, shape: FieldShape) -> str:
-    lines = [f"  sh:property [ sh:path <{source_ns}{_local(name)}>"]
-    if shape.required and "null" not in shape.types:
-        lines.append("    ; sh:minCount 1")
-    scalars = sorted(shape.types - {"null"})
-    if len(scalars) == 1 and scalars[0] in _XSD:
-        lines.append(f"    ; sh:datatype {_XSD[scalars[0]]}")
-    return "\n".join(lines) + " ]"
-
-
-def render_shapes(source: str, shape: RecordShape) -> str:
-    """The SHACL document of ``shape`` for ``source`` (deterministic)."""
-    source_ns = f"urn:au:source:{_local(source)}#"
-    header = (
-        "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
-        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n"
-        f"<{source_ns}RecordShape> a sh:NodeShape ;\n"
-        f"  sh:targetClass <{source_ns}Record>"
-    )
-    properties = [_property_shape(source_ns, name, spec) for name, spec in shape.fields]
-    return " ;\n".join([header, *properties]) + " .\n"
 
 
 @dataclass(frozen=True, slots=True)
 class RepairCandidate:
-    """The proposed contract, its SHACL rendering and its identity."""
+    """The proposed contract and its identity."""
 
     source: str
     shape: RecordShape
-    shapes_ttl: str
     renames: Mapping[str, str] = field(default_factory=dict)
 
     @property
@@ -89,14 +65,18 @@ class RepairCandidate:
         return f"{APPROVED_SOURCE_PREFIX}{self.source}"
 
     @property
+    def contract(self) -> dict[str, Any]:
+        return record_contract(self.shape)
+
+    @property
     def digest(self) -> str:
-        return approved_candidate_digest(self.source_id, self.shapes_ttl, None)
+        return approved_candidate_digest(self.source_id, self.contract)
 
 
 def build_candidate(
     source: str, shape: RecordShape, renames: Mapping[str, str]
 ) -> RepairCandidate:
-    return RepairCandidate(source, shape, render_shapes(source, shape), dict(renames))
+    return RepairCandidate(source, shape, dict(renames))
 
 
 __all__ = [
@@ -105,5 +85,6 @@ __all__ = [
     "RepairCandidate",
     "approved_candidate_digest",
     "build_candidate",
-    "render_shapes",
+    "canonical_contract_json",
+    "record_contract",
 ]

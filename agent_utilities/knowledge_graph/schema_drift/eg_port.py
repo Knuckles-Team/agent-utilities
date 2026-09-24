@@ -1,6 +1,7 @@
 """The EG surface schema repair drives, bound to ONE request graph.
 
-Repair touches two EG authorities that must agree on the graph: the approval
+AU sends EG typed record contracts only, never RDF (AUD-27): EG renders and
+validates the SHACL. Repair touches two EG authorities that must agree on the graph: the approval
 lease (``IssueControlLease``/``GetControlLease``/``TransitionControlLease``)
 and the schema sources (``GraphSchema``). EG reads an ``AttachApproved``
 request's lease from that request's own graph, so every call here names the
@@ -34,10 +35,10 @@ class SchemaRepairPort(Protocol):
 
     def close_approval(self, tenant: str, lease_id: str, revision: int) -> None: ...
 
-    def attach_shadow(self, source_id: str, shapes_ttl: str) -> Any: ...
+    def validate_repair(self, source_id: str, contract: Mapping[str, Any]) -> Any: ...
 
     def attach_approved(
-        self, source_id: str, shapes_ttl: str, approval_lease_id: str
+        self, source_id: str, contract: Mapping[str, Any], approval_lease_id: str
     ) -> Any: ...
 
     def for_graph(self, graph: str) -> SchemaRepairPort: ...
@@ -105,17 +106,21 @@ class EngineSchemaRepairPort:
     def _schema(self, op: dict[str, Any], key: str) -> Any:
         return _as_mapping(self._run("reasoning", "send_graph_schema", {"op": op}, key))
 
-    def attach_shadow(self, source_id: str, shapes_ttl: str) -> Any:
-        op = {"op": "attach", "source_id": source_id, "shapes_ttl": shapes_ttl}
-        return self._schema(op, f"schema-shadow:{self.graph}:{source_id}")
+    def validate_repair(self, source_id: str, contract: Mapping[str, Any]) -> Any:
+        op = {
+            "op": "validate_repair",
+            "source_id": source_id,
+            "contract": dict(contract),
+        }
+        return self._schema(op, f"schema-validate:{self.graph}:{source_id}")
 
     def attach_approved(
-        self, source_id: str, shapes_ttl: str, approval_lease_id: str
+        self, source_id: str, contract: Mapping[str, Any], approval_lease_id: str
     ) -> Any:
         op = {
             "op": "attach_approved",
             "source_id": source_id,
-            "shapes_ttl": shapes_ttl,
+            "contract": dict(contract),
             "approval_lease_id": approval_lease_id,
         }
         return self._schema(op, f"schema-approved:{approval_lease_id}")

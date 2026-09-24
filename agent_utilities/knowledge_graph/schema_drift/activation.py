@@ -2,7 +2,8 @@
 
 A repair proposal becomes the source's contract only after a human approved
 its ``action.approval`` lease (``active -> consumed``). :func:`activate_approved`
-finds such a proposal, attaches its exact candidate to the live graph through
+finds such a proposal, attaches its exact typed contract (EG renders the
+SHACL) to the live graph through
 EG ``GraphSchema.AttachApproved`` -- which re-reads the lease and refuses on
 any mismatch, so an unapproved or altered candidate can never reach the
 ontology from here or anywhere else -- then advances the approved contract to
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 _PROPOSALS = (
     "MATCH (n:SchemaRepairProposal {source: $source}) "
     "RETURN n.id AS id, n.status AS status, n.approval_lease_id AS lease_id, "
-    "n.candidate_digest AS digest, n.shape AS shape, n.shapes_ttl AS shapes_ttl"
+    "n.candidate_digest AS digest, n.shape AS shape, n.contract AS contract"
 )
 
 
@@ -82,11 +83,21 @@ def _mark(engine: Any, proposal_id: str, status: str) -> None:
         )
 
 
+def _stored_contract(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        contract = json.loads(str(row.get("contract") or ""))
+    except ValueError:
+        return None
+    return contract if isinstance(contract, dict) else None
+
+
 def _intact(source: str, row: Mapping[str, Any]) -> bool:
-    """The stored candidate still hashes to the digest that was approved."""
+    """The stored contract still hashes to the digest that was approved."""
+    contract = _stored_contract(row)
     source_id = f"{APPROVED_SOURCE_PREFIX}{source}"
-    ttl = str(row.get("shapes_ttl") or "")
-    return approved_candidate_digest(source_id, ttl, None) == row.get("digest")
+    return contract is not None and approved_candidate_digest(
+        source_id, contract
+    ) == row.get("digest")
 
 
 def _close(port: SchemaRepairPort, tenant: str, lease: Mapping[str, Any]) -> bool:
@@ -111,7 +122,7 @@ def _activate(
 ) -> Activation:
     lease_id = str(row["lease_id"])
     port.attach_approved(
-        f"{APPROVED_SOURCE_PREFIX}{source}", str(row["shapes_ttl"]), lease_id
+        f"{APPROVED_SOURCE_PREFIX}{source}", _stored_contract(row) or {}, lease_id
     )
     shape = RecordShape.from_json(json.loads(str(row["shape"])))
     save_contract(engine, ApprovedContract(source, shape, lease_id))

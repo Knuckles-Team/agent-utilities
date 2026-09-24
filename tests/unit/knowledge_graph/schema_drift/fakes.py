@@ -81,7 +81,7 @@ class FakePort:
 
     graph: str = "live"
     leases: dict[str, dict[str, Any]] = field(default_factory=dict)
-    attached: list[tuple[str, str, str, str]] = field(default_factory=list)
+    attached: list[tuple[str, str, str, Any]] = field(default_factory=list)
     refuse_approved: str = ""
 
     def issue_approval(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -111,16 +111,16 @@ class FakePort:
         assert lease["revision"] == revision
         self.decide(lease_id, "expired")
 
-    def attach_shadow(self, source_id: str, shapes_ttl: str) -> Any:
-        self.attached.append((self.graph, "attach", source_id, shapes_ttl))
-        return {"changed": True}
+    def validate_repair(self, source_id: str, contract: Mapping[str, Any]) -> Any:
+        self.attached.append((self.graph, "validate", source_id, dict(contract)))
+        return {"changed": False}
 
     def attach_approved(
-        self, source_id: str, shapes_ttl: str, approval_lease_id: str
+        self, source_id: str, contract: Mapping[str, Any], approval_lease_id: str
     ) -> Any:
         if self.refuse_approved:
             raise RuntimeError(self.refuse_approved)
-        self.attached.append((self.graph, approval_lease_id, source_id, shapes_ttl))
+        self.attached.append((self.graph, approval_lease_id, source_id, dict(contract)))
         return {"changed": True}
 
     def for_graph(self, graph: str) -> FakePort:

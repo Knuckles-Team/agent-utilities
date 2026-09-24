@@ -16,7 +16,7 @@ from agent_utilities.knowledge_graph.schema_drift import (
 from agent_utilities.knowledge_graph.schema_drift.candidate import (
     APPROVED_CANDIDATE_DOMAIN,
     approved_candidate_digest,
-    render_shapes,
+    record_contract,
 )
 from agent_utilities.knowledge_graph.schema_drift.repair import (
     RepairContext,
@@ -107,13 +107,15 @@ def test_breaking_drift_is_quarantined_reported_gapped_and_proposed(
     assert detail["gap_id"] in harness.engine.labelled("Gap")
     repair = detail["repair"]
     assert repair["renames"] == {"title": "name"}
-    assert repair["shadow"]["attached"] and repair["shadow"]["ingested"] == 2
+    assert repair["shadow"]["validated"] and repair["shadow"]["ingested"] == 2
     (lease,) = harness.port.leases.values()
     assert lease["kind"] == "action.approval" and lease["status"] == "active"
     assert lease["grant"]["target"] == f"approved:{SOURCE}"
     assert lease["grant"]["candidate_digest"] == repair["candidate_digest"]
-    # verified on the shadow graph, never attached to the live one
-    assert [g for g, *_ in harness.port.attached] == [repair["shadow"]["graph"]]
+    # validated by EG on the shadow graph (typed contract, no RDF), never attached
+    assert [(g, op) for g, op, *_ in harness.port.attached] == [
+        (repair["shadow"]["graph"], "validate")
+    ]
     assert harness.shadow_ingested == [repair["shadow"]["graph"]]
     (contract,) = harness.engine.labelled("SourceRecordContract").values()
     assert contract["approved_by"] == "bootstrap"
@@ -138,7 +140,7 @@ def test_only_an_approved_repair_is_activated_and_then_the_delta_flows(
     assert after.detail["activation"]["approval_lease_id"] == lease_id
     live = [a for a in harness.port.attached if a[0] == "live"]
     assert live == [
-        ("live", lease_id, f"approved:{SOURCE}", render_shapes(SOURCE, infer_shape(V2)))
+        ("live", lease_id, f"approved:{SOURCE}", record_contract(infer_shape(V2)))
     ]
     assert harness.port.leases[lease_id]["status"] == "expired"
     (contract,) = harness.engine.labelled("SourceRecordContract").values()
@@ -203,13 +205,14 @@ def test_renames_are_one_to_one_and_follow_the_decision() -> None:
 
 
 def test_the_candidate_digest_is_egs_framing() -> None:
-    shapes = render_shapes(SOURCE, infer_shape(V2))
-    source_id = f"approved:{SOURCE}"
+    # Pins the same bytes EG's approval tests pin for this one-field contract.
+    contract = {"fields": {"name": {"required": True, "types": ["string"]}}}
+    source_id = "approved:container-manager-mcp"
     framed = f"{APPROVED_CANDIDATE_DOMAIN}\0{source_id}\0"
-    framed += hashlib.sha256(shapes.encode()).hexdigest() + "\0\0"
+    framed += '{"fields":{"name":{"required":true,"types":["string"]}}}\0'
     expected = hashlib.sha256(framed.encode()).hexdigest()
-    assert approved_candidate_digest(source_id, shapes, None) == expected
-    assert "sh:minCount 1" in shapes and "xsd:string" in shapes
+    assert approved_candidate_digest(source_id, contract) == expected
+    assert record_contract(infer_shape([{"name": "x"}])) == contract
 
 
 def test_the_fleet_drain_never_actuates_a_schema_repair_approval() -> None:

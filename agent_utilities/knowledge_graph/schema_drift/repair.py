@@ -6,12 +6,14 @@ For a quarantined drift, :func:`propose_repair`:
    point: a policy-safety question that never explores and may abstain). Each
    new field is a question over the fields the delta lost plus ``unmapped``;
    the classifier's deterministic rename candidate is the fallback.
-2. **Builds the candidate** contract (the observed shape) and renders it as
-   SHACL under ``approved:<source>`` (:mod:`.candidate`).
-3. **Verifies it on a shadow graph**: the candidate is attached there (EG runs
-   its full entering-schema validation, the ABox check) and the held delta is
-   ingested into that shadow graph -- never the live one, whose checkpoint the
-   quarantine left where it was. The diff report records what happened.
+2. **Builds the candidate**: the observed shape as EG's typed
+   ``RecordContract`` under ``approved:<source>`` (:mod:`.candidate`). AU never
+   renders SHACL -- EG owns it (AUD-27).
+3. **Verifies it on a shadow graph**: the held delta is ingested into a shadow
+   graph -- never the live one, whose checkpoint the quarantine left where it
+   was -- and EG ``GraphSchema.ValidateRepair`` renders the candidate and runs
+   its full entering-schema validation over that data (the ABox check)
+   without attaching it. The diff report records what happened.
 4. **Queues the approval**: an ``action.approval`` control lease (the fleet
    approvals queue a human decides) whose grant binds the exact candidate
    digest. Nothing here attaches to the live graph; :mod:`.activation` does,
@@ -96,7 +98,7 @@ class ShadowResult:
     """What the candidate did on the shadow graph."""
 
     graph: str
-    attached: bool
+    validated: bool
     ingested: int
     failed: int
     error: str = ""
@@ -104,7 +106,7 @@ class ShadowResult:
     def to_json(self) -> dict[str, Any]:
         return {
             "graph": self.graph,
-            "attached": self.attached,
+            "validated": self.validated,
             "ingested": self.ingested,
             "failed": self.failed,
             "error": self.error,
@@ -122,24 +124,27 @@ def shadow_graph_name(source: str, candidate: RepairCandidate) -> str:
 def verify_on_shadow(
     port: SchemaRepairPort, candidate: RepairCandidate, ingest: ShadowIngest
 ) -> ShadowResult:
-    """Attach the candidate to a shadow graph, then ingest the held delta there."""
+    """Ingest the held delta into a shadow graph, then have EG validate the
+    candidate against it (render + entering-schema check, nothing attached)."""
     graph = shadow_graph_name(candidate.source, candidate)
-    shadow = port.for_graph(graph)
-    shadow_key = f"admin:schema-candidate.{candidate.source}"
-    try:
-        shadow.attach_shadow(shadow_key, candidate.shapes_ttl)
-    except Exception as exc:
-        logger.warning(
-            "schema repair shadow attach refused for %s: %s", candidate.source, exc
-        )
-        return ShadowResult(graph, False, 0, 0, f"attach refused: {exc}")
     try:
         ingested, failed = ingest(graph)
     except Exception as exc:
         logger.warning(
             "schema repair shadow ingest failed for %s: %s", candidate.source, exc
         )
-        return ShadowResult(graph, True, 0, 0, f"ingest failed: {exc}")
+        return ShadowResult(graph, False, 0, 0, f"ingest failed: {exc}")
+    try:
+        port.for_graph(graph).validate_repair(candidate.source_id, candidate.contract)
+    except Exception as exc:
+        logger.warning(
+            "schema repair candidate refused on the shadow graph for %s: %s",
+            candidate.source,
+            exc,
+        )
+        return ShadowResult(
+            graph, False, ingested, failed, f"validation refused: {exc}"
+        )
     return ShadowResult(graph, True, ingested, failed)
 
 
@@ -232,7 +237,7 @@ def record_proposal(engine: Any, proposal: RepairProposal) -> None:
         "candidate_digest": candidate.digest,
         "approval_lease_id": proposal.approval_lease_id,
         "shape": json.dumps(candidate.shape.to_json(), sort_keys=True),
-        "shapes_ttl": candidate.shapes_ttl,
+        "contract": json.dumps(candidate.contract, sort_keys=True),
         "renames": json.dumps(dict(candidate.renames), sort_keys=True),
         "diff": json.dumps(dict(proposal.diff), sort_keys=True, default=str),
     }
