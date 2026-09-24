@@ -58,7 +58,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
     ActionRequest,
+    approval_lease_client,
+    approval_lease_tenant,
+    approval_lease_to_props,
     get_action_policy,
 )
 from agent_utilities.orchestration.fleet_actuation import (
@@ -1679,14 +1683,29 @@ class FleetReconciler:
             return None
 
     def _scan_approved_candidates(self) -> list[Any]:
+        """List the ``consumed`` (= human-approved) ``action.approval`` leases.
+
+        Rows are shaped ``{"a": <legacy ActionApproval property dict>}`` so
+        :meth:`_approval_candidate_props`/:meth:`_build_approval_request`
+        keep reading exactly the fields the retired generic node carried.
+        """
         try:
-            return self.engine.query_cypher(
-                "MATCH (a:ActionApproval {status: 'approved'}) "
-                f"RETURN a LIMIT {_APPROVAL_DRAIN_LIMIT}"
+            leases = approval_lease_client(self.engine)
+            tenant = approval_lease_tenant()
+            page = leases.list(
+                tenant=tenant,
+                kind=ACTION_APPROVAL_KIND,
+                status="consumed",
+                limit=_APPROVAL_DRAIN_LIMIT,
             )
-        except Exception as e:  # noqa: BLE001 — read-only candidate scan; on failure nothing is mutated (no approvals drained, budget untouched) and every approved row is re-selected on the next tick
+        except Exception as e:  # noqa: BLE001 — read-only candidate scan; on failure nothing is mutated (no approvals drained, budget untouched) and every consumed lease is re-selected on the next tick
             logger.debug("fleet_reconciler: approval drain scan failed: %s", e)
             return []
+        return [
+            {"a": approval_lease_to_props(lease)}
+            for lease in (page or {}).get("leases") or []
+            if isinstance(lease, dict)
+        ]
 
     def _build_approval_request(self, props: dict[str, Any]) -> ActionRequest:
         try:
@@ -1762,25 +1781,47 @@ class FleetReconciler:
     ) -> None:
         # A real action's outbox completion is the atomic approval-close
         # boundary. Never perform a second best-effort approval write after
-        # the side effect: if completion was lost, leave the row approved
+        # the side effect: if completion was lost, leave the lease consumed
         # so the next delivery retries completion without re-running the
         # actuator. Dry-runs, intent acceptance, rejections, and legacy
-        # non-actuating paths still use the existing status stamp.
+        # non-actuating paths still drain the lease here.
+        #
+        # The lease itself only distinguishes consumed (drain candidate) from
+        # expired (drained); the fine-grained disposition (``new_status``,
+        # e.g. "executed"/"failed"/"scale_intent_accepted") is not writable
+        # onto it (EG ControlLease grant/status enum has no such field) —
+        # it is already durable on the ``ActionExecution`` audit node
+        # ``execute_action`` writes (or, for the scale-intent bypass paths
+        # that skip ``execute_action``, in this method's own log line below).
         stamp_approval = not execution.get("outbox_prepared") and not execution.get(
             "durability_unavailable"
         )
         if not stamp_approval:
             return
+        try:
+            leases = approval_lease_client(self.engine)
+            tenant = approval_lease_tenant()
+        except Exception as e:  # noqa: BLE001 — no typed surface; leave consumed for retry
+            logger.warning(
+                "fleet_reconciler: control-lease surface unavailable, approval %s "
+                "left consumed for retry: %s",
+                props.get("id"),
+                e,
+            )
+            return
         for _attempt in (1, 2):
             try:
-                self.engine.backend.execute(
-                    "MATCH (a:ActionApproval {id: $id}) "
-                    "SET a.status = $status, a.executed_at = $ts",
-                    {
-                        "id": props["id"],
-                        "status": new_status,
-                        "ts": _now_iso(),
-                    },
+                leases.transition(
+                    tenant=tenant,
+                    lease_id=str(props["id"]),
+                    expected_revision=props["revision"],
+                    to="expired",
+                    idempotency_key=f"drain:{props['id']}:{new_status}",
+                )
+                logger.info(
+                    "fleet_reconciler: approval %s drained (disposition=%s)",
+                    props.get("id"),
+                    new_status,
                 )
                 break
             except Exception as e:  # noqa: BLE001 — retry once for non-outbox status-only paths

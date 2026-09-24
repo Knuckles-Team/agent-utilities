@@ -38,10 +38,14 @@ Decision pipeline (most-specific rule wins; KG rules beat file rules):
 Every decision is audit-logged as an ``ActionDecision`` KG node; rate/blast
 accounting reads those same nodes back, so the ledger is durable and shared
 across processes. Queue-approval reuses the existing fleet approvals flow:
-it files an ``ActionApproval`` node that ``GET /api/fleet/approvals`` lists
-and ``POST /api/fleet/approvals/grant`` resolves; the fleet reconciler tick
-executes granted entries through the durable action-outbox fence
-(CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
+it issues an ``action.approval`` EG ``ControlLease`` that
+``GET /api/fleet/approvals`` lists and ``POST /api/fleet/approvals/grant``
+transitions (``active`` → ``consumed``/``revoked``); the fleet reconciler tick
+executes granted (``consumed``) leases through the durable action-outbox
+fence (CONCEPT:AU-OS.config.desired-state-fleet-reconciler). A generic
+``add_node("ActionApproval")``/compare-and-set is refused by the connected
+engine's native row guard — every approval read/write goes through the typed
+``control_leases`` surface (see :func:`approval_lease_client`).
 """
 
 import fnmatch
@@ -56,6 +60,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar
+
+from agent_utilities.layers.clients import LayerUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +84,68 @@ _ALLOWING = {DECISION_ALLOW, DECISION_ALLOW_NOTIFY}
 _LEDGER_SCAN_LIMIT = 500
 
 POLICY_RECEIPT_SCHEMA = "policy-receipt.v1"
+
+# CONCEPT:AU-OS.governance.action-policy-decision-point — the fleet approval
+# queue is a native EG ControlLease (graph-os EG-2/eg-workitem WRAPUP §3d), not
+# a generic ``ActionApproval`` node: the connected engine's row guard refuses
+# any generic add_node/CAS that creates, changes or removes one.
+ACTION_APPROVAL_KIND = "action.approval"
+#: EG ControlLease timing invariant: 0 < issued <= expires <= hard_expires,
+#: span <= 24h. A pending approval never auto-progresses past this window;
+#: an operator still deciding after 24h re-triggers ``queue_approval`` on the
+#: next decision (dedup finds no matching *active* lease and issues a new one).
+APPROVAL_LEASE_TTL_MS = 24 * 60 * 60 * 1000
+
+
+def approval_lease_client(engine: Any) -> Any:
+    """Fail-closed accessor for the EG ``control_leases`` surface.
+
+    The ``action.approval`` queue/decision/drain now lives entirely on typed
+    ``ControlLease`` records (``IssueControlLease``/``GetControlLease``/
+    ``TransitionControlLease``/``ListControlLeases``) reached through
+    ``engine.client.control_leases``; a connected engine build that does not
+    generate this surface fails closed here rather than falling back to the
+    retired generic-node path.
+    """
+    namespace = getattr(getattr(engine, "client", None), "control_leases", None)
+    if namespace is None:
+        raise LayerUnavailable("connected engine has no control_leases surface")
+    return namespace
+
+
+def approval_lease_tenant(*, required_scope: str = "kg:write") -> str:
+    """Resolve the tenant EG requires on every ``action.approval`` lease call.
+
+    Mirrors ``work_durability._work_tenant``: every ControlLease/WorkItem
+    write binds its body tenant to the ambient VERIFIED ``GraphSession`` — never
+    a caller-supplied value — with no ``kg:admin`` exception
+    (eg-workitem WRAPUP §3d, ``refuse_foreign_native_write``).
+    """
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    session = resolve_session(required_scope=required_scope)
+    tenant = str(session.tenant or session.graph or "").strip()
+    if not tenant:
+        raise LayerUnavailable("the verified session is not bound to a tenant/graph")
+    return tenant
+
+
+def approval_lease_to_props(lease: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a ``ControlLease`` view into the legacy ``ActionApproval`` shape.
+
+    ``fleet_reconciler``/``gateway.fleet`` consumers keep reading ``id`` /
+    ``status`` / the grant's own fields (``kind``/``target``/``params_json``/
+    ``source``/``reason``/``request_digest``/``receipt_schema``) exactly as
+    they did off the retired generic node's properties.
+    """
+    raw_grant = lease.get("grant")
+    grant: dict[str, Any] = raw_grant if isinstance(raw_grant, dict) else {}
+    return {
+        **grant,
+        "id": lease.get("lease_id"),
+        "status": lease.get("status"),
+        "revision": lease.get("revision"),
+    }
 
 
 class PolicyDisposition(StrEnum):
@@ -971,52 +1039,78 @@ class ActionPolicy:
         if self.engine is None:
             return None
         try:
-            rows = self.engine.query_cypher(
-                "MATCH (a:ActionApproval {status: 'approved', "
-                "request_digest: $request_digest}) RETURN a.id AS id LIMIT 1",
-                {"request_digest": request.digest()},
+            leases = approval_lease_client(self.engine)
+            tenant = approval_lease_tenant()
+            page = leases.list(
+                tenant=tenant,
+                kind=ACTION_APPROVAL_KIND,
+                status="consumed",
+                grant_match={"request_digest": request.digest()},
+                limit=1,
             )
-            for row in rows or []:
-                approval = row.get("a", row)
-                if approval.get("request_digest") == request.digest() and approval.get(
-                    "id"
-                ):
-                    return str(approval["id"])
+            for lease in (page or {}).get("leases") or []:
+                if isinstance(lease, dict) and lease.get("lease_id"):
+                    return str(lease["lease_id"])
         except Exception as exc:  # noqa: BLE001 — missing evidence fails closed
             logger.debug("action_policy: granted approval probe failed: %s", exc)
         return None
 
     def queue_approval(self, request: ActionRequest, reason: str = "") -> str | None:
-        """File an ``ActionApproval`` node for the existing fleet approvals flow.
+        """Issue an ``action.approval`` EG ControlLease for the fleet approvals flow.
 
         Listed by ``GET /api/fleet/approvals``; resolved by
-        ``POST /api/fleet/approvals/grant`` (job_id = this node id); executed
+        ``POST /api/fleet/approvals/grant`` (job_id = this lease id); executed
         by the fleet reconciler's approved-action drain (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
         Deliberately not a WorkItem: the immutable approval request cannot be
         claimed or executed before a separate authorized action-outbox intent
         exists. The approval id becomes the replay identity for the granted
         action; completion is closed by that same durable boundary.
+
+        A generic ``add_node("ActionApproval")`` is refused by the connected
+        engine's native row guard — this issues a typed ``ControlLease``
+        instead (eg-workitem WRAPUP §3d); fails closed (returns ``None``) when
+        the connected engine build does not serve ``control_leases`` or the
+        ambient session has no verified tenant.
         """
         if self.engine is None:
             return None
-        # Dedup: a still-pending approval for the same kind+target is reused so
-        # a recurring divergence doesn't flood the queue one entry per tick.
         try:
-            rows = self.engine.query_cypher(
-                "MATCH (a:ActionApproval {kind: $kind, target: $target, "
-                "status: 'pending'}) RETURN a.id AS id LIMIT 1",
-                {"kind": request.kind, "target": request.target},
+            leases = approval_lease_client(self.engine)
+            tenant = approval_lease_tenant()
+        except Exception as e:  # noqa: BLE001 — no typed surface, fail closed
+            logger.warning(
+                "action_policy: control-lease surface unavailable for approval queue: %s",
+                e,
             )
-            if rows and rows[0].get("id"):
-                return str(rows[0]["id"])
+            return None
+        # Dedup: a still-pending (active) approval for the same kind+target is
+        # reused so a recurring divergence doesn't flood the queue one entry
+        # per tick.
+        try:
+            dup = leases.list(
+                tenant=tenant,
+                kind=ACTION_APPROVAL_KIND,
+                status="active",
+                grant_match={"kind": request.kind, "target": request.target},
+                limit=1,
+            )
+            existing = (dup or {}).get("leases") or []
+            if (
+                existing
+                and isinstance(existing[0], dict)
+                and existing[0].get("lease_id")
+            ):
+                return str(existing[0]["lease_id"])
         except Exception as e:  # noqa: BLE001 — dedup is best-effort
             logger.debug("action_policy: approval dedup probe failed: %s", e)
         approval_id = f"action_approval:{uuid.uuid4().hex}"
+        now_ms = int(_now() * 1000)
         try:
-            self.engine.add_node(
-                approval_id,
-                "ActionApproval",
-                properties={
+            answer = leases.issue(
+                tenant=tenant,
+                lease_id=approval_id,
+                kind=ACTION_APPROVAL_KIND,
+                grant={
                     "kind": request.kind,
                     "target": request.target,
                     "params_json": json.dumps(request.params, default=str)[:2000],
@@ -1024,13 +1118,20 @@ class ActionPolicy:
                     "reason": reason or request.reason,
                     "request_digest": request.digest(),
                     "receipt_schema": POLICY_RECEIPT_SCHEMA,
-                    "status": "pending",
-                    "created_at": _now_iso(),
-                    "created_unix": _now(),
                 },
+                issued_at_ms=now_ms,
+                expires_at_ms=now_ms + APPROVAL_LEASE_TTL_MS,
+                hard_expires_at_ms=now_ms + APPROVAL_LEASE_TTL_MS,
+                idempotency_key=f"approval:{request.digest()}",
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("action_policy: approval queue write failed: %s", e)
+            return None
+        if not isinstance(answer, dict) or answer.get("outcome") != "issued":
+            logger.warning(
+                "action_policy: approval queue write returned outcome=%r",
+                answer.get("outcome") if isinstance(answer, dict) else answer,
+            )
             return None
         self._notify(
             f"[fleet-autonomy] approval required: {request.summary()} "

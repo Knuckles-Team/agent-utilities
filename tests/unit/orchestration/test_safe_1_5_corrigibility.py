@@ -13,7 +13,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent / "unit"))
 
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
+from fleet_autonomy_fakes import (  # noqa: E402
+    FakeEngine,
+    verified_fleet_session,
+)
 
 from agent_utilities.core.corrigibility import (  # noqa: E402
     corrigibility_decision,
@@ -95,7 +98,8 @@ def _policy(tmp_path, monkeypatch, *, aversion):
 class TestActionPolicyAversion:
     def test_irreversible_auto_action_downgraded_when_on(self, tmp_path, monkeypatch):
         pol = _policy(tmp_path, monkeypatch, aversion=True)
-        d = pol.decide(ActionRequest(kind="delete_service", target="vector-mcp"))
+        with verified_fleet_session():
+            d = pol.decide(ActionRequest(kind="delete_service", target="vector-mcp"))
         assert d.decision == "queue_approval" and not d.allowed
         assert "irreversible" in d.reason
 

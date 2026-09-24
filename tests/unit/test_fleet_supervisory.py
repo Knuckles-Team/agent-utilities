@@ -16,8 +16,11 @@ import pytest
 from agent_utilities.gateway import fleet
 from agent_utilities.observability import runtime_health
 from agent_utilities.orchestration import fleet_health
+from agent_utilities.orchestration.action_policy import ACTION_APPROVAL_KIND
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
+
+from .fleet_autonomy_fakes import FakeControlLeaseClient, verified_fleet_session
 
 
 @pytest.fixture(autouse=True)
@@ -354,37 +357,35 @@ async def test_fleet_pause_requires_target(session_db):
 
 
 class _ApprovalEngine:
-    """Engine double exposing one pending ActionApproval node."""
+    """Engine double exposing one pending ``action.approval`` ControlLease."""
+
+    _TENANT = "fleet-autonomy"
 
     def __init__(self):
-        self.nodes = {
-            "action_approval:1": {
-                "id": "action_approval:1",
+        self.control_leases = FakeControlLeaseClient()
+        self.client = type("_Client", (), {"control_leases": self.control_leases})()
+        self.graph_compute = self
+        self.control_leases.issue(
+            tenant=self._TENANT,
+            lease_id="action_approval:1",
+            kind=ACTION_APPROVAL_KIND,
+            grant={
                 "kind": "restart_service",
                 "target": "caddy-mcp",
-                "status": "pending",
-            }
-        }
-        self.graph_compute = self
+                "params_json": "{}",
+                "source": "reconciler",
+                "reason": "",
+                "request_digest": "0" * 64,
+                "receipt_schema": "policy-receipt.v1",
+            },
+            issued_at_ms=0,
+            expires_at_ms=1,
+            hard_expires_at_ms=1,
+            idempotency_key="seed:action_approval:1",
+        )
 
     def for_graph(self, _graph):
         return self
-
-    def compare_and_set_node_fields(self, node_id, conditions, updates):
-        node = self.nodes.get(node_id)
-        if node is None or any(node.get(k) != v for k, v in conditions.items()):
-            return False
-        node.update(updates)
-        return True
-
-    def query_cypher(self, query, params=None):
-        if "ActionApproval" in query:
-            return [
-                {"a": dict(n)}
-                for n in self.nodes.values()
-                if n.get("status") == "pending"
-            ]
-        return []
 
 
 @pytest.mark.asyncio
@@ -397,8 +398,9 @@ async def test_fleet_approvals_lists_action_approvals(monkeypatch):
     eng = _ApprovalEngine()
     monkeypatch.setattr(kg, "_execute_tool", _no_tasks)
     monkeypatch.setattr(kg, "_get_engine", lambda: eng)
-    resp = await fleet.fleet_approvals(_Req())
-    data = await _payload(resp)
+    with verified_fleet_session():
+        resp = await fleet.fleet_approvals(_Req())
+        data = await _payload(resp)
     assert data["status"] == "success"
     ids = [p.get("id") for p in data["pending"]]
     assert "action_approval:1" in ids
@@ -410,14 +412,20 @@ async def test_fleet_grant_resolves_action_approval_in_place(monkeypatch):
 
     eng = _ApprovalEngine()
     monkeypatch.setattr(kg, "_get_engine", lambda: eng)
-    resp = await fleet.fleet_grant_approval(
-        _Req({"job_id": "action_approval:1", "decision": "approved"})
-    )
-    data = await _payload(resp)
-    assert data["status"] == "success"
-    assert data["result"]["decision"] == "approved"
-    # The node was stamped — the reconciler's drain will execute it next tick.
-    assert eng.nodes["action_approval:1"]["status"] == "approved"
+    with verified_fleet_session():
+        resp = await fleet.fleet_grant_approval(
+            _Req({"job_id": "action_approval:1", "decision": "approved"})
+        )
+        data = await _payload(resp)
+        assert data["status"] == "success"
+        assert data["result"]["decision"] == "approved"
+        # The lease is now consumed — the reconciler's drain will execute it
+        # next tick (control_leases.list(status="consumed")).
+        lease = eng.control_leases.get(
+            tenant=_ApprovalEngine._TENANT, lease_id="action_approval:1"
+        )
+        assert lease is not None
+    assert lease["status"] == "consumed"
 
 
 @pytest.mark.asyncio
@@ -426,12 +434,17 @@ async def test_fleet_grant_denial_stamps_denied(monkeypatch):
 
     eng = _ApprovalEngine()
     monkeypatch.setattr(kg, "_get_engine", lambda: eng)
-    resp = await fleet.fleet_grant_approval(
-        _Req({"job_id": "action_approval:1", "decision": "denied"})
-    )
-    data = await _payload(resp)
-    assert data["result"]["decision"] == "denied"
-    assert eng.nodes["action_approval:1"]["status"] == "denied"
+    with verified_fleet_session():
+        resp = await fleet.fleet_grant_approval(
+            _Req({"job_id": "action_approval:1", "decision": "denied"})
+        )
+        data = await _payload(resp)
+        assert data["result"]["decision"] == "denied"
+        lease = eng.control_leases.get(
+            tenant=_ApprovalEngine._TENANT, lease_id="action_approval:1"
+        )
+        assert lease is not None
+    assert lease["status"] == "revoked"
 
 
 @pytest.fixture

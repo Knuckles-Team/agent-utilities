@@ -108,7 +108,15 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # never from request JSON/headers. Only the explicit ``kg:admin`` capability —
 # supplied directly or through the configured identity mapping — grants graph
 # administration; a generic application role named ``admin`` is not equivalent.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
+# ``fleet:events`` is a narrow, independent capability (not part of the
+# kg:read/write/admin hierarchy): it is the ONLY scope besides ``kg:admin``
+# that EG's native broker authority accepts for a write to a ``fleet.``-
+# prefixed stream (eg-workitem WRAPUP §3d, ``fleet_streams_need_the_fleet_
+# authority``) — graph-os's fleet-event publishers request it explicitly
+# rather than being handed ``kg:admin`` just to post an event.
+_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
+    {"kg:read", "kg:write", "kg:admin", "fleet:events"}
+)
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
@@ -612,8 +620,10 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
 _LOCAL_PROCESS_BOOTSTRAP_SUBJECT = "graph-os:local-process-bootstrap"
 
 
-def _mint_local_process_authority(role: str, subject: str) -> GraphSession:
-    """Mint one private, process-ephemeral authority carrying exactly ``role``.
+def _mint_local_process_authority(
+    role: str, subject: str, *, extra_roles: tuple[str, ...] = ()
+) -> GraphSession:
+    """Mint one private, process-ephemeral authority carrying ``role``.
 
     An asymmetric key signs one short-lived JWT entirely in memory. The token is
     validated by the same decoder used for external bearer identities, then the
@@ -623,7 +633,10 @@ def _mint_local_process_authority(role: str, subject: str) -> GraphSession:
     represented or persisted. ``role`` is expanded to its coarse-scope hierarchy
     by :func:`_resolve_authenticated_scopes` (``kg:admin`` implies ``kg:write``
     implies ``kg:read``), so passing ``"kg:write"`` yields
-    ``{"kg:read", "kg:write"}`` and never ``kg:admin``.
+    ``{"kg:read", "kg:write"}`` and never ``kg:admin``. ``extra_roles`` are
+    independent, non-hierarchical capabilities (e.g. ``fleet:events``) granted
+    alongside ``role`` unchanged — they pass through
+    :func:`_resolve_authenticated_scopes`'s allowlist intersection as-is.
     """
     import secrets
     import time
@@ -633,6 +646,7 @@ def _mint_local_process_authority(role: str, subject: str) -> GraphSession:
 
     from .auth import _decode_jwt
 
+    roles = (role, *extra_roles)
     key = RSAKey.generate_key(2048)
     public_jwks = {"keys": [key.as_dict(is_private=False)]}
     now = int(time.time())
@@ -645,8 +659,8 @@ def _mint_local_process_authority(role: str, subject: str) -> GraphSession:
             "iss": _LOCAL_PROCESS_ISSUER,
             "jti": secrets.token_hex(16),
             "nbf": now - 1,
-            "roles": [role],
-            "scope": role,
+            "roles": list(roles),
+            "scope": " ".join(roles),
             "sub": subject,
             "tenant_id": _LOCAL_PROCESS_TENANT,
         },
@@ -702,7 +716,15 @@ def mint_local_process_session() -> GraphSession:
         getattr(config, "kg_local_process_admin_scope", False) is True,
         "kg:write",
     )
-    return _mint_local_process_authority(role, _LOCAL_PROCESS_SUBJECT)
+    # ``fleet:events`` alongside kg:read/write: this identity is also what
+    # background/system fleet-event publishing runs under
+    # (:func:`system_write_session`), and EG's native broker authority
+    # requires the exact ``fleet:events`` scope (or ``fleet:*``/``kg:admin``)
+    # for a write to a ``fleet.``-prefixed stream — a plain ``kg:write`` no
+    # longer suffices (eg-workitem WRAPUP §3d).
+    return _mint_local_process_authority(
+        role, _LOCAL_PROCESS_SUBJECT, extra_roles=("fleet:events",)
+    )
 
 
 def mint_local_process_bootstrap_authority() -> GraphSession:

@@ -24,13 +24,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
+from fleet_autonomy_fakes import (  # noqa: E402
+    FakeEngine,
+    verified_fleet_session,
+)
 
 from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
     GovernedAutoMerger,
     MergePolicy,
 )
 from agent_utilities.orchestration.action_policy import (  # noqa: E402
+    ACTION_APPROVAL_KIND,
     ActionDecision,
     ActionPolicy,
     ActionRequest,
@@ -209,15 +213,18 @@ class TestRealActionPolicy:
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
-        ev = merger.consider(_spec())
-        assert ev.merged is True
-        assert ev.action_decision["decision"] == "queue_approval"
-        assert ev.publication["status"] == "approval_queued"
-        approvals = engine.by_type("ActionApproval")
+        with verified_fleet_session():
+            ev = merger.consider(_spec())
+            assert ev.merged is True
+            assert ev.action_decision["decision"] == "queue_approval"
+            assert ev.publication["status"] == "approval_queued"
+            approvals = engine.control_leases.list(
+                tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+            )["leases"]
         assert len(approvals) == 1, "merger + publisher must dedup to one approval"
-        assert approvals[0]["id"] == ev.action_decision["approval_id"]
-        assert approvals[0]["id"] == ev.publication["approval_id"]
-        assert approvals[0]["target"] == "proposal:policy-1"
+        assert approvals[0]["lease_id"] == ev.action_decision["approval_id"]
+        assert approvals[0]["lease_id"] == ev.publication["approval_id"]
+        assert approvals[0]["grant"]["target"] == "proposal:policy-1"
 
     def test_kg_rule_can_relax_promotion_to_auto(self):
         engine = FakeEngine()
@@ -239,4 +246,6 @@ class TestRealActionPolicy:
         ev = merger.consider(_spec())
         assert ev.merged is True
         assert ev.action_decision["decision"] == "allow"
-        assert not engine.by_type("ActionApproval")
+        assert not engine.control_leases.list(
+            tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+        )["leases"]
