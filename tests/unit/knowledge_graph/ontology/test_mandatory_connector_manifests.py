@@ -16,6 +16,7 @@ from agent_utilities.knowledge_graph.ontology import connector_manifest_gate as 
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
 )
+from tests import canonical_ttl_hash_stub
 
 NAMED_CONNECTOR_PACKAGES: tuple[str, ...] = tuple(
     sorted(gate.mandatory_connector_packages())
@@ -136,7 +137,10 @@ def test_named_connector_has_bundled_manifest(package: str):
 
 
 @pytest.mark.parametrize("package", NAMED_CONNECTOR_PACKAGES)
-def test_named_connector_manifest_passes_gate(package: str):
+def test_named_connector_manifest_passes_gate(package: str, engine_graph, monkeypatch):
+    # The pinned `provenance.integrity.hash` is recomputed by EG's real
+    # OntologyInspect (EH-471), so this runs against the engine.
+    canonical_ttl_hash_stub.use_engine_for_canonical_hash(monkeypatch, engine_graph)
     path = gate.bundled_manifests_root() / package / "connector_manifest.yml"
     # Bundled in-repo manifests are `UNSIGNED-PREVIEW` by design -- in-repo
     # signature verification was removed deliberately (git already supplies
@@ -190,7 +194,9 @@ def test_all_source_connectors_resolve_through_precheck_source(monkeypatch):
         )
 
 
-def test_mandatory_precheck_rejects_missing_provider(monkeypatch):
+def test_mandatory_precheck_rejects_missing_provider(
+    monkeypatch, stub_canonical_ttl_hash
+):
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.connectors.mcp_tool.provider_tool_presets",
         lambda _provider: None,

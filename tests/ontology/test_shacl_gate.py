@@ -11,10 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("rdflib")
-
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.knowledge_graph.core.typed_triples import RDF_TYPE, kg
 from agent_utilities.knowledge_graph.pipeline.phases.shacl_gate import (
+    build_data_triples,
     execute_shacl_gate,
     shacl_gate_phase,
     validate_graph,
@@ -46,10 +46,17 @@ def _bind_report(
     *node_ids: str,
 ) -> None:
     report = _report(*node_ids)
-    monkeypatch.setattr(graph, "shacl_validate_committed", lambda _data: report)
 
-    async def _validate(_data: str) -> SimpleNamespace:
+    def _validate_sync(**kwargs: object) -> SimpleNamespace:
+        # An engine-backed graph sends no data: EG validates its own live RDF.
+        assert kwargs == {}
         return report
+
+    async def _validate(**kwargs: object) -> SimpleNamespace:
+        assert kwargs == {}
+        return report
+
+    monkeypatch.setattr(graph, "shacl_validate_committed", _validate_sync)
 
     monkeypatch.setattr(graph, "shacl_validate_committed_async", _validate)
 
@@ -152,3 +159,39 @@ def test_gate_wired_before_commit() -> None:
     assert "shacl_gate" in by_name
     assert shacl_gate_phase.name == "shacl_gate"
     assert "shacl_gate" in by_name["sync"].deps
+
+
+class _PlainGraph:
+    """An in-memory LPG with no engine RDF surface."""
+
+    def __init__(self, nodes: dict[str, dict]) -> None:
+        self._nodes = nodes
+
+    def nodes(self, data: bool = False):
+        return list(self._nodes.items()) if data else list(self._nodes)
+
+
+def test_engine_graph_sends_no_data_and_plain_graph_sends_typed_triples() -> None:
+    """EH-472: an engine-backed graph is validated by EG over its own live RDF
+    (no AU projection round-trip); a plain LPG is sent as typed triples."""
+    assert build_data_triples(GraphComputeEngine()) is None
+
+    triples = build_data_triples(
+        _PlainGraph(
+            {
+                "bad agent": {"node_type": "agent", "embedding": [0.1], "score": 2},
+                "t": {"node_type": "service_capability", "flag": True},
+            }
+        )
+    )
+    types = {
+        (t["subject"], t["object"]["iri"])
+        for t in triples
+        if t["predicate"] == RDF_TYPE
+    }
+    assert types == {
+        (kg("bad_agent"), kg("Agent")),
+        (kg("t"), kg("ServiceCapability")),
+    }
+    predicates = {t["predicate"] for t in triples} - {RDF_TYPE}
+    assert predicates == {kg("score")}  # embeddings and booleans never cross

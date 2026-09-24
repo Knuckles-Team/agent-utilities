@@ -473,7 +473,7 @@ class InfrastructureEngineMixin(_Base):
         def _local_id(uri: str | None) -> str:
             """The bare node id from a SPARQL-bound URI.
 
-            The engine-native SPARQL surface (and rdflib's SELECT bindings)
+            The engine-native SPARQL surface's SELECT bindings
             return full URI terms wrapped in angle brackets
             (``<http://.../ontology#node:id>``), not bare strings — splitting
             on ``#`` alone left a trailing ``>`` glued onto the id, so it never

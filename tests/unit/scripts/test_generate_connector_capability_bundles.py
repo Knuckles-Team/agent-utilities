@@ -40,6 +40,9 @@ gate = importlib.util.module_from_spec(_GATE_SPEC)
 assert _GATE_SPEC.loader is not None
 _GATE_SPEC.loader.exec_module(gate)
 
+pytestmark = pytest.mark.usefixtures("stub_canonical_ttl_hash")
+
+
 
 @pytest.fixture
 def signer(monkeypatch: pytest.MonkeyPatch) -> ontology_integrity.ReleaseSigner:

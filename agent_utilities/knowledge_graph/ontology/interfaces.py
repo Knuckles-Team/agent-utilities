@@ -322,8 +322,7 @@ class Interface(BaseModel):
 
         The returned Turtle is self-contained (prefixes included) so it can be
         appended to a pack's ``owl_extensions`` ``.ttl`` and loaded by the OWL
-        reasoner / SHACL gate alongside the hand-authored shapes in
-        ``knowledge_graph/shapes/``.
+        reasoner / SHACL gate alongside EG's committed core shapes.
         """
         local = _camel(self.name)
         lines: list[str] = [
@@ -668,7 +667,7 @@ class InterfaceRegistry:
         CONCEPT:AU-KG.ontology.conformance-check — concatenates each interface's :meth:`Interface.to_owl`
         and appends the ``rdfs:subClassOf`` / ``sh:node`` assertions linking each
         implementing object-type class to the interface class + shape. The result
-        is loadable alongside the hand-authored ``knowledge_graph/shapes/`` TTL.
+        is loadable alongside EG's committed core shapes.
         """
         chunks: list[str] = []
         for iface in self._interfaces.values():

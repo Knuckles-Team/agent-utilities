@@ -39,6 +39,12 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
+
+@pytest.fixture(autouse=True)
+def _eg_core_vocabulary(monkeypatch):
+    _fixtures.use_eg_core_vocabulary(monkeypatch)
+
+
 RUNBOOK_MD = """---
 status: active
 owner: alice
@@ -73,10 +79,10 @@ class _Nodes:
 class _Rdf:
     def __init__(self) -> None:
         self.reports = [{"conforms": True, "results": []}]
-        self.validations: list[tuple[str, str]] = []
+        self.validations: list[list[dict]] = []
 
-    def validate_shacl(self, shapes: str, data_graph: str):
-        self.validations.append((shapes, data_graph))
+    def validate_committed(self, *, data_triples: list[dict]):
+        self.validations.append(list(data_triples))
         return self.reports[0]
 
 

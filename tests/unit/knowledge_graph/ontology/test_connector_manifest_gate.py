@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_utilities.knowledge_graph.ontology import connector_manifest_gate as gate
+from agent_utilities.knowledge_graph.ontology import ontology_integrity
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
     IntegrityInfo,
@@ -31,7 +32,6 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
 from agent_utilities.knowledge_graph.ontology.ontology_integrity import (
     DEFAULT_SIGNER_ID,
     ReleaseSigner,
-    canonical_hash,
     canonical_manifest_hash,
 )
 
@@ -48,6 +48,9 @@ def release_signing_key(monkeypatch):
     )
     signer = ReleaseSigner.from_runtime()
     monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
+
+
+pytestmark = pytest.mark.usefixtures("stub_canonical_ttl_hash")
 
 
 def _write_clean_manifest(root: Path, pkg: str) -> Path:
@@ -83,11 +86,7 @@ def _write_clean_manifest(root: Path, pkg: str) -> Path:
     )
     spec = compile_manifest(manifest)
     ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
-    import rdflib
-
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    digest, n = canonical_hash(g)
+    digest, n = ontology_integrity.canonical_ttl_hash(ttl)
     signer = ReleaseSigner.from_runtime()
     unsigned = manifest.model_copy(
         update={
@@ -558,30 +557,27 @@ def test_manifest_required_empty_by_default():
     assert gate.manifest_required("") is False
 
 
-# ── rdflib packaging gap (kg-exhaustive-smoke.md): the compile-before-sync
-# gate needs rdflib (deliberately excluded from the lean `serving` plane,
-# CONCEPT:AU-KG.ontology.connector-manifest-gate — it lives only in the `[owl]`
-# extra) to parse/hash the
-# compiled manifest. When it's absent this must degrade to ONE clear,
-# actionable violation line, not a bare ModuleNotFoundError bubbling up as a
-# generic "manifest does not compile cleanly" message. ──────────────────────
+# ── EG unavailable: the compile-before-sync gate hashes the compiled ontology
+# through epistemic-graph's OntologyInspect (EH-471). When the engine cannot
+# answer, this must degrade to ONE clear, actionable violation line, not an
+# exception bubbling up as a generic "manifest does not compile cleanly". ──
 
 
-def test_check_manifest_bytes_degrades_clearly_when_rdflib_missing(
+def test_check_manifest_bytes_degrades_clearly_when_eg_is_unavailable(
     tmp_path: Path, monkeypatch
 ):
     path = _write_clean_manifest(tmp_path, "widget-mcp")
 
-    # Force `import rdflib` to raise, without needing to actually uninstall it
-    # from the dev/test environment (which has it via the `[owl]`/`[test]` extras).
-    monkeypatch.setitem(__import__("sys").modules, "rdflib", None)
+    def _unavailable(_ttl: str) -> tuple[str, int]:
+        raise RuntimeError("no engine loop available for OntologyInspect")
+
+    monkeypatch.setattr(ontology_integrity, "canonical_ttl_hash", _unavailable)
 
     violations = gate.check_manifest_bytes(path)
 
     assert len(violations) == 1
     assert violations[0].startswith("[dependency]")
-    assert "owl" in violations[0]
-    assert "pip install" in violations[0]
+    assert "OntologyInspect" in violations[0]
     # must NOT be conflated with a generic compile failure
     assert "does not compile cleanly" not in violations[0]
 

@@ -95,7 +95,8 @@ class _FakeChanges:
 
 
 class _FakeRdf:
-    def validate_shacl(self, _shapes: str, _data_graph: str) -> dict[str, Any]:
+    def validate_committed(self, *, data_triples: list[Any]) -> dict[str, Any]:
+        assert data_triples
         return {"conforms": True, "results": []}
 
 

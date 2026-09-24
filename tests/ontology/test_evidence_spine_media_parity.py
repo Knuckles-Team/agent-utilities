@@ -22,17 +22,7 @@ import importlib.util
 import re
 from pathlib import Path
 
-import pytest
-
-rdflib = pytest.importorskip("rdflib")
-
 KG_NS = "http://knuckles.team/kg#"
-
-
-def _kg_dir() -> Path:
-    spec = importlib.util.find_spec("agent_utilities.knowledge_graph")
-    assert spec is not None and spec.origin is not None
-    return Path(spec.origin).parent
 
 
 def _media_store_source() -> str:
@@ -43,10 +33,12 @@ def _media_store_source() -> str:
     return Path(spec.origin).read_text(encoding="utf-8")
 
 
-def _canonical_graph() -> rdflib.Graph:
-    g = rdflib.Graph()
-    g.parse(_kg_dir() / "ontology.ttl", format="turtle")
-    return g
+def _declared(terms) -> set[str]:
+    return {
+        str(term.iri).removeprefix(KG_NS)
+        for term in terms
+        if str(term.iri).startswith(KG_NS)
+    }
 
 
 # Node types MediaStore actually writes via ``client.nodes.add(id, {"node_type": ...})``.
@@ -86,26 +78,22 @@ def test_media_store_still_emits_the_vocabulary_this_test_pins() -> None:
         )
 
 
-def test_every_media_store_node_type_has_a_declared_owl_class() -> None:
-    g = _canonical_graph()
-    declared = {
-        str(s).removeprefix(KG_NS)
-        for s in g.subjects(rdflib.RDF.type, rdflib.OWL.Class)
-        if str(s).startswith(KG_NS)
-    }
+# The canonical vocabulary is EG's composed GraphSchema, read through
+# ``OntologyInspect`` (EH-471): Agent Utilities parses no ontology itself.
+
+
+def test_every_media_store_node_type_has_a_declared_owl_class(engine_graph) -> None:
+    declared = _declared(engine_graph.ontology_inspect().classes)
     missing = _EXPECTED_NODE_TYPES - declared
     assert not missing, (
-        f"node_type(s) written by MediaStore with no owl:Class in ontology.ttl: {missing}"
+        f"node_type(s) written by MediaStore with no owl:Class in the EG core: {missing}"
     )
 
 
-def test_every_media_store_edge_relationship_has_a_declared_owl_property() -> None:
-    g = _canonical_graph()
-    declared = {
-        str(s).removeprefix(KG_NS)
-        for s in g.subjects(rdflib.RDF.type, rdflib.OWL.ObjectProperty)
-        if str(s).startswith(KG_NS)
-    }
+def test_every_media_store_edge_relationship_has_a_declared_owl_property(
+    engine_graph,
+) -> None:
+    declared = _declared(engine_graph.ontology_inspect().object_properties)
     missing = {
         relationship: prop_name
         for relationship, prop_name in _EXPECTED_EDGE_PROPERTIES.items()
@@ -113,18 +101,13 @@ def test_every_media_store_edge_relationship_has_a_declared_owl_property() -> No
     }
     assert not missing, (
         f"edge relationship(s) written by MediaStore with no owl:ObjectProperty "
-        f"in ontology.ttl: {missing}"
+        f"in the EG core: {missing}"
     )
 
 
-def test_a_fabricated_never_written_node_type_is_honestly_absent() -> None:
+def test_a_fabricated_never_written_node_type_is_honestly_absent(engine_graph) -> None:
     """Known-bad proof: the check above is not vacuously true — a class this
     repo never declared and MediaStore never writes is correctly reported
     missing, not silently treated as present."""
-    g = _canonical_graph()
-    declared = {
-        str(s).removeprefix(KG_NS)
-        for s in g.subjects(rdflib.RDF.type, rdflib.OWL.Class)
-        if str(s).startswith(KG_NS)
-    }
+    declared = _declared(engine_graph.ontology_inspect().classes)
     assert "TotallyFabricatedNodeTypeGOC05" not in declared

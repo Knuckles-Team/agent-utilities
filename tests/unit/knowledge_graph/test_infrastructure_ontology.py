@@ -153,10 +153,7 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     gpu_edge = engine.graph.get_edge_data(accelerator_host, accelerator_id)[0]
     assert gpu_edge["relationship"] == "HAS_ACCELERATOR"
 
-    # Matchmaking runs SPARQL over the OWL backend, which needs owlready2
-    # (an optional extra). Skip that portion when it isn't installed, matching
-    # the importorskip convention used by the other OWL test modules.
-    pytest.importorskip("owlready2")
+    # Matchmaking runs SPARQL natively in epistemic-graph; no Python OWL stack.
 
     # generate_matchmaking_recommendations() only ever produces a recommendation
     # per PlatformService node found via SPARQL (`?service rdf:type

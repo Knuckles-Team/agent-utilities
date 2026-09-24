@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from agent_utilities.knowledge_graph.ontology import connector_manifest_gate as gate
+from agent_utilities.knowledge_graph.ontology import ontology_integrity
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
     IntegrityInfo,
@@ -47,8 +48,6 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
 from agent_utilities.knowledge_graph.ontology.ontology_integrity import (
     DEFAULT_SIGNER_ID,
     ReleaseSigner,
-    ReleaseSigningError,
-    canonical_hash,
     canonical_manifest_hash,
 )
 
@@ -66,6 +65,9 @@ def release_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     signer = ReleaseSigner.from_runtime()
     monkeypatch.setenv("ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS", signer.public_key)
+
+
+pytestmark = pytest.mark.usefixtures("stub_canonical_ttl_hash")
 
 
 def _install_widget_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,11 +143,7 @@ def _write_signed_widget_manifest(
     )
     spec = compile_manifest(manifest)
     ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
-    import rdflib
-
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    digest, n = canonical_hash(g)
+    digest, n = ontology_integrity.canonical_ttl_hash(ttl)
     signer = ReleaseSigner.from_runtime()
     unsigned = manifest.model_copy(
         update={

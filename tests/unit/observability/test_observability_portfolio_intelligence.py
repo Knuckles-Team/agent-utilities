@@ -9,6 +9,7 @@ fake-KG style.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
@@ -324,40 +325,51 @@ def test_rationalize_portfolio_writes_recommendations_when_write_true(monkeypatc
 # ── 4. adopt/reject/consolidate/migrate verdict via the SHACL shapes ──────────
 
 
-def test_shacl_shape_conforms_for_every_valid_verdict():
-    for verdict in ("adopt", "reject", "consolidate", "migrate"):
-        report = pi.validate_verdict_shape(
-            {
-                "candidateId": "prod-a",
-                "verdict": verdict,
-                "rationale": "some rationale text",
-                "assessmentScore": 0.75,
-            }
+def _verdict(verdict: str, rationale: str = "some rationale text") -> dict[str, Any]:
+    return {
+        "candidateId": "prod-a",
+        "verdict": verdict,
+        "rationale": rationale,
+        "assessmentScore": 0.75,
+    }
+
+
+class _RecordingCommittedShacl:
+    def __init__(self) -> None:
+        self.sent: list[list[dict[str, Any]]] = []
+
+    def shacl_validate_committed(self, data_graph: str = "", *, data_triples=()):
+        assert data_graph == ""
+        self.sent.append(list(data_triples))
+        return SimpleNamespace(
+            conforms=True, results=[], schema_digests=["d"], composed_digest="d"
         )
+
+
+def test_verdict_is_sent_to_eg_as_typed_triples():
+    """EH-472: AU builds typed triples; EG's committed portfolio shapes judge them."""
+    engine = _RecordingCommittedShacl()
+    report = pi.validate_verdict_shape(_verdict("adopt"), engine=engine)
+    assert report["conforms"] is True
+    [triples] = engine.sent
+    by_predicate = {t["predicate"].rsplit("#", 1)[-1]: t["object"] for t in triples}
+    assert by_predicate["verdict"]["lexical"] == "adopt"
+    assert by_predicate["assessmentScore"]["datatype"].endswith("#float")
+
+
+def test_shacl_shape_conforms_for_every_valid_verdict(engine_graph):
+    for verdict in ("adopt", "reject", "consolidate", "migrate"):
+        report = pi.validate_verdict_shape(_verdict(verdict), engine=engine_graph)
         assert report["conforms"] is True, (verdict, report["violations"])
 
 
-def test_shacl_shape_rejects_an_invalid_verdict_value():
-    report = pi.validate_verdict_shape(
-        {
-            "candidateId": "prod-a",
-            "verdict": "maybe",
-            "rationale": "some rationale text",
-            "assessmentScore": 0.75,
-        }
-    )
+def test_shacl_shape_rejects_an_invalid_verdict_value(engine_graph):
+    report = pi.validate_verdict_shape(_verdict("maybe"), engine=engine_graph)
     assert report["conforms"] is False
 
 
-def test_shacl_shape_rejects_a_missing_rationale():
-    report = pi.validate_verdict_shape(
-        {
-            "candidateId": "prod-a",
-            "verdict": "adopt",
-            "rationale": "",
-            "assessmentScore": 0.5,
-        }
-    )
+def test_shacl_shape_rejects_a_missing_rationale(engine_graph):
+    report = pi.validate_verdict_shape(_verdict("adopt", ""), engine=engine_graph)
     assert report["conforms"] is False
 
 

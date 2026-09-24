@@ -28,18 +28,13 @@ flowchart LR
 - AU never discovers entry points, walks local imports, or interprets Turtle in
   the serving path.
 
-AU's provider is:
-
-```python
-from agent_utilities.content import agent_utilities_content
-
-provider = agent_utilities_content()
-```
-
-Its canonical operational-shape resource is
-`agent_utilities/ontology/shapes/governance.shapes.ttl`. Core ADR,
-Capability, Policy, and Tool shapes remain immutable EG sources. GraphOS owns
-its runtime consent and scheduling shapes in its own pack.
+AU contributes no semantic content (operator ruling 2026-09-24, EH-470): its
+former operational governance, harness, process-intelligence, SDLC, temporal and
+portfolio shapes are immutable EG core sources (`core:agent-governance-shapes@1`,
+`core:harness-shapes@1`, …) beside the core ADR, Capability, Policy and Tool
+shapes. AU validates with `shapes` omitted and sends typed triples
+(`ShaclValidate.data_triples`); it reads vocabulary through `OntologyInspect`.
+GraphOS owns its runtime consent and scheduling shapes in its own pack.
 
 ## Adding component-owned semantic content
 

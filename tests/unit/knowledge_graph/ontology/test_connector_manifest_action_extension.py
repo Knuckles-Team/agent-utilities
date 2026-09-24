@@ -48,6 +48,9 @@ _MANIFESTS_ROOT = (
     / "connector_manifests"
 )
 
+pytestmark = pytest.mark.usefixtures("stub_canonical_ttl_hash")
+
+
 
 def _manifest(actions: list[ActionSpec], *, resources=None) -> ConnectorManifest:
     return ConnectorManifest(

@@ -36,8 +36,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("rdflib")
-
 pytestmark = pytest.mark.concept("AU-ORCH.execution.ontology-validation-execution-path")
 
 

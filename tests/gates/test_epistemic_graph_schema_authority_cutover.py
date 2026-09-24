@@ -1,5 +1,13 @@
-"""Enforce the final one-writer core-schema boundary between AU and EG."""
+"""Enforce the final one-writer core-schema boundary between AU and EG.
 
+Operator ruling 2026-09-24 (EH-470..EH-473): epistemic-graph owns ALL ontology
+lifecycle, SHACL, RDF and OWL semantics; agent-utilities is only the agent
+orchestration plane. AU therefore ships no shape/ontology documents, declares no
+RDF/SHACL/OWL library, and imports none — in runtime code, tests or scripts.
+"""
+
+import ast
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +51,22 @@ MIGRATED_ASSETS = frozenset(
             for name in MIGRATED_ONTOLOGY_NAMES
         ),
         Path("agent_utilities/knowledge_graph/shapes/governance.shapes.ttl"),
+        # EH-470: moved to EG core sources (`core:*-shapes@1`) or deleted as dead.
+        *(
+            Path("agent_utilities/knowledge_graph/shapes") / f"{name}.shapes.ttl"
+            for name in (
+                "argumentation",
+                "documentation",
+                "feed",
+                "harness",
+                "portfolio_intelligence",
+                "process_intelligence",
+                "sdlc_lifecycle",
+                "temporal",
+            )
+        ),
+        Path("agent_utilities/ontology/shapes/governance.shapes.ttl"),
+        Path("agent_utilities/content.py"),
     }
 )
 PROVEN_CUTOVER_LOCAL_AUTHORITIES = frozenset(
@@ -120,9 +144,11 @@ REFERENCE_ROOTS = (
 TEXT_SUFFIXES = frozenset(
     {".in", ".json", ".md", ".py", ".toml", ".ttl", ".yaml", ".yml"}
 )
-COMPONENT_PACK_ASSET = Path("agent_utilities/ontology/shapes/governance.shapes.ttl")
 MIGRATED_REFERENCE_TOKENS = frozenset(
     {
+        "agent_utilities.content",
+        "agent_utilities/ontology/shapes",
+        "knowledge_graph/shapes/",
         "agent_utilities/knowledge_graph/shapes/governance.shapes.ttl",
         "knowledge_graph/shapes/governance.shapes.ttl",
         "knowledge_graph.core.owl_bridge",
@@ -158,7 +184,7 @@ def _stale_references() -> list[str]:
 def _stale_references_in_path(root: Path, *, this_file: Path) -> list[str]:
     findings: list[str] = []
     for path in _text_paths(root):
-        if path.resolve() == this_file or path == ROOT / COMPONENT_PACK_ASSET:
+        if path.resolve() == this_file:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         findings.extend(
@@ -194,11 +220,13 @@ def test_generated_graph_schema_is_the_only_core_schema_contract() -> None:
     )
 
     request_fields = reasoning.ShaclValidateRequest.model_fields
-    assert set(request_fields) == {"data_graph", "shapes"}
+    assert set(request_fields) == {"data_graph", "shapes", "data_triples"}
     assert request_fields["data_graph"].annotation == str | None
     assert request_fields["shapes"].annotation == str | None
     assert request_fields["data_graph"].default is None
     assert request_fields["shapes"].default is None
+    # EH-472: typed triples are optional; AU sends them instead of RDF text.
+    assert not request_fields["data_triples"].is_required()
 
     report_fields = rdf_report.ShaclValidationReport.model_fields
     assert set(report_fields) == {
@@ -352,3 +380,120 @@ def test_proven_local_ontology_and_shape_authorities_are_absent() -> None:
         "AU still declares dependencies owned by the proven GraphSchema/SHACL cutover: "
         f"{forbidden_dependencies}"
     )
+
+
+# ── EH-472/EH-473: no RDF/SHACL/OWL library anywhere in AU ─────────────────────
+
+FORBIDDEN_SEMANTIC_LIBRARIES = frozenset({"rdflib", "pyshacl", "owlrl", "owlready2"})
+SEMANTIC_SCAN_ROOTS = (Path("agent_utilities"), Path("tests"), Path("scripts"))
+_DYNAMIC_IMPORTERS = frozenset(
+    {"importorskip", "import_module", "find_spec", "__import__"}
+)
+_SEMANTIC_DOCUMENT_SUFFIXES = frozenset({".ttl", ".owl", ".nt", ".rdf", ".jsonld"})
+
+
+def _callee(func: ast.expr) -> str:
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return func.id if isinstance(func, ast.Name) else ""
+
+
+def _imported_names(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if isinstance(node, ast.ImportFrom) and node.level == 0:
+        return [node.module or ""]
+    if (
+        isinstance(node, ast.Call)
+        and _callee(node.func) in _DYNAMIC_IMPORTERS
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        return [node.args[0].value]
+    return []
+
+
+def semantic_library_imports(root: Path, *, relative_to: Path) -> list[str]:
+    """Every static or dynamic import of a forbidden library under ``root``."""
+    findings: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        findings.extend(
+            f"{path.relative_to(relative_to)}:{node.lineno}: {name}"
+            for node in ast.walk(tree)
+            for name in _imported_names(node)
+            if name.split(".", 1)[0] in FORBIDDEN_SEMANTIC_LIBRARIES
+        )
+    return findings
+
+
+def test_au_runtime_tests_and_scripts_import_no_semantic_library() -> None:
+    findings = [
+        finding
+        for root in SEMANTIC_SCAN_ROOTS
+        for finding in semantic_library_imports(ROOT / root, relative_to=ROOT)
+    ]
+    assert not findings, "AU imports an EG-owned semantic library:\n" + "\n".join(
+        findings
+    )
+
+
+def test_the_semantic_import_gate_catches_a_planted_import(tmp_path: Path) -> None:
+    """Known-bad proof: the scan reports every import shape and ignores prose."""
+    planted = {
+        "static.py": "import rdflib\n",
+        "from_import.py": "from pyshacl import validate\n",
+        "skip.py": "import pytest\n\nowlrl = pytest.importorskip('owlrl')\n",
+        "dynamic.py": "import importlib\n\nimportlib.import_module('owlready2.reasoning')\n",
+        "prose.py": "# rdflib is gone\nNOTE = 'pyshacl was removed'\n",
+    }
+    for name, text in planted.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+
+    findings = semantic_library_imports(tmp_path, relative_to=tmp_path)
+
+    assert findings == [
+        "dynamic.py:3: owlready2.reasoning",
+        "from_import.py:1: pyshacl",
+        "skip.py:3: owlrl",
+        "static.py:1: rdflib",
+    ]
+
+
+def _declared_requirements() -> list[str]:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = list(project["project"].get("dependencies", []))
+    for values in project["project"].get("optional-dependencies", {}).values():
+        declared.extend(values)
+    for values in project.get("dependency-groups", {}).values():
+        declared.extend(value for value in values if isinstance(value, str))
+    return declared
+
+
+def test_packaging_declares_and_installs_no_semantic_library() -> None:
+    declared = [
+        requirement
+        for requirement in _declared_requirements()
+        if any(
+            requirement.casefold().startswith(name)
+            for name in FORBIDDEN_SEMANTIC_LIBRARIES
+        )
+    ]
+    assert not declared, f"AU declares EG-owned semantic libraries: {declared}"
+    dockerfile = (ROOT / "docker" / "graphos-unified.Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    smoke_imports = sorted(
+        name for name in FORBIDDEN_SEMANTIC_LIBRARIES if f"import {name}" in dockerfile
+    )
+    assert not smoke_imports, f"the unified image imports {smoke_imports}"
+
+
+def test_au_ships_no_ontology_or_shape_document() -> None:
+    shipped = sorted(
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "agent_utilities").rglob("*")
+        if path.suffix in _SEMANTIC_DOCUMENT_SUFFIXES
+    )
+    assert not shipped, f"AU ships EG-owned semantic documents: {shipped}"

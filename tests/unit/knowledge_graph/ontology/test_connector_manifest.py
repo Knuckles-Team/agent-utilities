@@ -3,7 +3,8 @@
 Covers (CONCEPT:AU-KG.ontology.connector-manifest-schema / -compiler / supply-chain-integrity):
 
   * schema round-trips (pydantic validate/dump),
-  * canonical-hash **serialization-order invariance** (URDNA2015-equivalent),
+  * the canonical hash comes from EG's ``OntologyInspect`` (its serialization-order
+    invariance is pinned in EG; AU parses no RDF — EH-471),
   * Ed25519 release signing + fail-closed verification,
   * the **golden-file LeanIX regression** — the generalized compiler reproduces the
     existing ``leanix_metamodel`` OWL output losslessly (LeanIX = first caller),
@@ -16,7 +17,6 @@ import base64
 import secrets
 
 import pytest
-import rdflib
 
 from agent_utilities.knowledge_graph.ontology import ontology_integrity as oi
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
@@ -36,6 +36,8 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
     export_manifest_ttl,
     manifest_from_leanix_spec,
 )
+
+pytestmark = pytest.mark.usefixtures("stub_canonical_ttl_hash")
 
 # A LeanIX slice reused by the golden test (mirrors test_leanix_metamodel.META_MODEL).
 META_MODEL = {
@@ -90,9 +92,7 @@ def _signed_manifest(connector: str = "servicenow") -> ConnectorManifest:
     )
     spec = compile_manifest(base)
     ttl = export_manifest_ttl(spec, source=base.resolved_ontology_source)
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    digest, n = oi.canonical_hash(g)
+    digest, n = oi.canonical_ttl_hash(ttl)
     signer = oi.ReleaseSigner.from_runtime()
     prov = ProvenanceSpec(
         integrity=IntegrityInfo(hash=digest, triple_count=n),
@@ -133,38 +133,6 @@ def test_resolved_ontology_source_defaults_to_connector():
     assert m.resolved_ontology_source == "gitlab-api"
     m2 = m.model_copy(update={"ontology_source": "gitlab"})
     assert m2.resolved_ontology_source == "gitlab"
-
-
-# ── canonicalization invariance (X6) ───────────────────────────────────────────
-
-
-def test_canonical_hash_is_serialization_order_invariant():
-    """Hash a graph, reserialize it differently (Turtle→N-Triples→JSON-LD), re-parse:
-    the canonical hash MUST be identical — that is the whole X6 integrity guarantee."""
-    src = """\
-@prefix : <http://knuckles.team/kg#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-:Beta a owl:Class ; rdfs:label "Beta" .
-:Alpha a owl:Class ; rdfs:label "Alpha" ; rdfs:subClassOf :Beta .
-:rel a owl:ObjectProperty ; rdfs:domain :Alpha ; rdfs:range :Beta .
-"""
-    g = rdflib.Graph()
-    g.parse(data=src, format="turtle")
-    h0, n0 = oi.canonical_hash(g)
-
-    for fmt in ("nt", "json-ld", "xml"):
-        reserialized = g.serialize(format=fmt)
-        g2 = rdflib.Graph()
-        g2.parse(data=reserialized, format=fmt)
-        h2, n2 = oi.canonical_hash(g2)
-        assert h2 == h0, f"hash changed after {fmt} round-trip"
-        assert n2 == n0
-
-    # A semantically different graph MUST hash differently.
-    g3 = rdflib.Graph()
-    g3.parse(data=src + ":Gamma a owl:Class .\n", format="turtle")
-    assert oi.canonical_hash(g3)[0] != h0
 
 
 def test_release_sign_verify_is_public_and_deterministic():
@@ -259,36 +227,34 @@ def test_compile_manifest_projects_classes_relations_fields():
 # ── golden-file LeanIX regression (LeanIX = first caller of the generalized compiler) ──
 
 
-def test_generalized_compiler_reproduces_leanix_ontology_losslessly():
+def _structure(view) -> tuple:
+    """Classes + subClassOf, object-property domain/range and datatype-property
+    ranges of an EG ``OntologyInspect`` view (labels/comments are cosmetic)."""
+    return (
+        sorted((c.iri, tuple(c.parents)) for c in view.classes),
+        sorted(
+            (p.iri, tuple(p.domains), tuple(p.ranges)) for p in view.object_properties
+        ),
+        sorted((p.iri, tuple(p.ranges)) for p in view.datatype_properties),
+    )
+
+
+def test_generalized_compiler_reproduces_leanix_ontology_losslessly(engine_graph):
     """The generalized manifest compiler reproduces the OWL graph the existing
     ``leanix_metamodel`` produces — same classes, subClassOf, object-property
-    domain/range, and datatype-property ranges (labels/comments are cosmetic)."""
+    domain/range, and datatype-property ranges (labels/comments are cosmetic).
+    EG reads both documents; AU parses no RDF (EH-471)."""
     lx_spec = compile_leanix_metamodel(META_MODEL)
-    golden_ttl = export_leanix_ttl(lx_spec)
+    golden = engine_graph.ontology_inspect([export_leanix_ttl(lx_spec)])
 
     manifest = manifest_from_leanix_spec(lx_spec)
-    gen_ttl = export_manifest_ttl(compile_manifest(manifest), source="leanix")
-
-    def _structural(ttl: str) -> rdflib.Graph:
-        g = rdflib.Graph()
-        g.parse(data=ttl, format="turtle")
-        ont_subjects = set(
-            g.subjects(
-                predicate=rdflib.RDF.type,
-                object=rdflib.URIRef("http://www.w3.org/2002/07/owl#Ontology"),
-            )
-        )
-        out = rdflib.Graph()
-        for s, p, o in g:
-            if s in ont_subjects or p in (rdflib.RDFS.comment, rdflib.RDFS.label):
-                continue
-            out.add((s, p, o))
-        return out
-
-    h_gold, n_gold = oi.canonical_hash(_structural(golden_ttl))
-    h_gen, n_gen = oi.canonical_hash(_structural(gen_ttl))
-    assert n_gold == n_gen and n_gold > 0
-    assert h_gold == h_gen, "generalized compiler diverged from leanix_metamodel output"
+    generated = engine_graph.ontology_inspect(
+        [export_manifest_ttl(compile_manifest(manifest), source="leanix")]
+    )
+    assert golden.classes, "the golden LeanIX ontology declares no classes"
+    assert _structure(golden) == _structure(generated), (
+        "generalized compiler diverged from leanix_metamodel output"
+    )
 
 
 # ── ontology.lock ──────────────────────────────────────────────────────────────

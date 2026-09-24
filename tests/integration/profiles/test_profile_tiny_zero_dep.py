@@ -3,7 +3,7 @@
 The headline guarantee: agent-utilities + epistemic-graph cold-boot and *serve*
 the Knowledge Graph + local OWL over the gateway with **no external services** —
 no Kafka, no Postgres, no remote SPARQL/OWL server — using the self-contained
-epistemic-graph authority and a local owlready2 reasoner.
+epistemic-graph authority, which also serves OWL reasoning natively.
 
 This module is deliberately **not** ``@pytest.mark.live`` — it must pass in the
 default PR suite as the continuously-enforced zero-dep contract. (The KG/engine
@@ -49,7 +49,6 @@ def _tiny_profile_env(monkeypatch, tmp_path):
     # the singleton-host daemon path.
     monkeypatch.setenv("KG_DAEMON_ROLE", "host")
     monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "agent-data"))
-    monkeypatch.setenv("OWL_BACKEND", "owlready2")
     monkeypatch.setenv("TASK_QUEUE_BACKEND", "sqlite")
     for ext in (
         "GRAPH_DB_CONNECTION_PROFILE_REF",

@@ -219,3 +219,17 @@ def _isolate_content_graph_routing():
         yield
     finally:
         ingest_routing._reset_for_tests()
+
+
+@pytest.fixture
+def stub_canonical_ttl_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt-in EG-free canonical-hash stand-in for synthetic-manifest tests (EH-471).
+
+    See :mod:`tests.canonical_ttl_hash_stub`: the connector-manifest gate and its
+    generator scripts hash compiled ontologies through EG's ``OntologyInspect``;
+    tests that build their own synthetic manifests only need the gate to
+    recompute the digest they pinned, so they route the hash through the stand-in.
+    """
+    from tests import canonical_ttl_hash_stub
+
+    canonical_ttl_hash_stub.install(monkeypatch)

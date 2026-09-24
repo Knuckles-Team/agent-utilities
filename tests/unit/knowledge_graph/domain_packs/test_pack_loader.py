@@ -14,6 +14,7 @@ import _fixtures
 import pytest
 import yaml
 
+from agent_utilities.knowledge_graph.domain_packs import pack_loader
 from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     ColumnMapping,
     EvaluationCase,
@@ -30,6 +31,8 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
 )
 from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 
+_REAL_INSPECT = pack_loader._inspect_ontology
+
 
 def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
     manifest = _fixtures.build_manifest()
@@ -41,7 +44,23 @@ def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
     assert "Runbook" in loaded.own_class_names
 
 
-def test_canonical_ontology_class_names_includes_document_and_person():
+@pytest.fixture(autouse=True)
+def _eg_core_vocabulary(monkeypatch):
+    _fixtures.use_eg_core_vocabulary(monkeypatch)
+
+
+def test_canonical_ontology_class_names_come_from_the_eg_core(
+    engine_graph, monkeypatch
+):
+    """The canonical library is EG's composed GraphSchema (OntologyInspect)."""
+    from agent_utilities.knowledge_graph.core import graph_compute
+
+    monkeypatch.setattr(pack_loader, "_inspect_ontology", _REAL_INSPECT)
+    monkeypatch.setattr(
+        graph_compute.GraphComputeEngine,
+        "get_or_create",
+        lambda *_a, **_k: engine_graph,
+    )
     names = canonical_ontology_class_names()
     assert "Document" in names
     assert "Person" in names

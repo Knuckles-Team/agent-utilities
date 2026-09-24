@@ -180,8 +180,9 @@ edited processor actually instantiates and runs before it can reach the gate.
 
 ## 5. Layer 3 — The SHACL Critic gate (AHE-3.53, AU-KG.ontology.harness-gate)
 
-The Critic builds a harness-evolution RDF graph from the accumulated + candidate
-facts and validates it against five shapes in `harness.shapes.ttl`:
+The Critic sends the accumulated + candidate facts to epistemic-graph as typed
+triples, which validates them against the five shapes of its committed core source
+`core:harness-shapes@1` (AU owns neither the shapes nor any RDF):
 
 | Shape | Blocks | Why it surpasses HarnessX |
 |------|--------|---------------------------|
@@ -320,7 +321,7 @@ diversifies it — the code graph feeds the Loop, and the Loop drives the next e
 |---|---|
 | Harness ontology + hooks/algebra | `agent_utilities/knowledge_graph/ontology_harness.ttl` |
 | OWL promotion + inverses | `agent_utilities/knowledge_graph/core/owl_bridge.py` |
-| SHACL gate shapes (5) | `agent_utilities/knowledge_graph/shapes/harness.shapes.ttl` |
+| SHACL gate shapes (5) | EG core source `core:harness-shapes@1` (`crates/eg-core/ontology/harness-v1.shapes.ttl`) |
 | Gate (the formal seesaw + algebra checks) | `agent_utilities/harness/harness_gate.py` |
 | AEGIS loop (stages, gate sequence, variant pool, reputation) | `agent_utilities/harness/aegis_loop.py` |
 | Falsifiable manifest + verifier | `agent_utilities/harness/manifest.py`, `agent_utilities/harness/verifier.py` |

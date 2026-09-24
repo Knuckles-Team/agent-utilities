@@ -1,7 +1,7 @@
 """Execution-time workflow ontology gate (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path).
 
-A stored WorkflowDefinition is SHACL-validated (WorkflowDefinitionShape /
-WorkflowStepShape in governance.shapes.ttl) before dispatch — malformed
+A stored WorkflowDefinition is SHACL-validated by EG (WorkflowDefinitionShape /
+WorkflowStepShape in the committed agent-governance core shapes) before dispatch — malformed
 definitions are refused with a structured report; the mandatory ontology
 permissioning row gate (markings + ACLs, fail-closed) is applied
 to the workflow node for the current actor.
@@ -15,8 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("rdflib")
-
+from agent_utilities.knowledge_graph.core.typed_triples import RDF_TYPE, kg
 from agent_utilities.knowledge_graph.core.workflow_gate import (
     gate_workflow_execution,
     workflow_shape_gate_enabled,
@@ -54,12 +53,16 @@ class FakeGraph:
         rows = [(s, t, p) for s, t, p in self._edges if s == node_id]
         return rows if data else [(s, t) for s, t, _ in rows]
 
-    def shacl_validate_committed(self, turtle: str):
-        import rdflib
-
-        graph = rdflib.Graph()
-        graph.parse(data=turtle, format="turtle")
-        kg = rdflib.Namespace("http://knuckles.team/kg#")
+    def shacl_validate_committed(self, data_graph: str = "", *, data_triples=()):
+        """Stand-in for EG's committed Workflow shapes over the typed triples."""
+        assert data_graph == ""
+        facts: dict[str, dict[str, list]] = {}
+        for item in data_triples:
+            obj = item["object"]
+            value = obj.get("iri") if obj["kind"] == "iri" else obj["lexical"]
+            facts.setdefault(item["subject"], {}).setdefault(
+                item["predicate"], []
+            ).append(value)
         results = []
 
         class Result:
@@ -70,16 +73,17 @@ class FakeGraph:
                 assert mode == "json"
                 return {"message": self.message}
 
-        for subject in graph.subjects(rdflib.RDF.type, kg.WorkflowDefinition):
-            if graph.value(subject, kg.name) is None:
-                results.append(Result("WorkflowDefinition must have a name."))
-            step_count = graph.value(subject, kg.step_count)
-            if step_count is None or int(step_count) < 1:
-                results.append(
-                    Result("WorkflowDefinition must have at least one step.")
-                )
-        for subject in graph.subjects(rdflib.RDF.type, kg.WorkflowStep):
-            if graph.value(subject, kg.node_id) is None:
+        for values in facts.values():
+            types = values.get(RDF_TYPE, [])
+            if kg("WorkflowDefinition") in types:
+                if not values.get(kg("name")):
+                    results.append(Result("WorkflowDefinition must have a name."))
+                counts = values.get(kg("step_count"), [])
+                if not counts or int(counts[0]) < 1:
+                    results.append(
+                        Result("WorkflowDefinition must have at least one step.")
+                    )
+            if kg("WorkflowStep") in types and not values.get(kg("node_id")):
                 results.append(Result("WorkflowStep must carry node_id."))
         return SimpleNamespace(conforms=not results, results=results)
 

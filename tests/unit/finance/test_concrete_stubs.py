@@ -11,9 +11,6 @@ from agent_utilities.domains.finance.exchange_bridge import (
     ExchangeBridge,
 )
 from agent_utilities.harness.trace_backend import OTelTraceBackend
-from agent_utilities.knowledge_graph.core.ontological_team_sharing import (
-    OntologicalTeamExporter,
-)
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.messaging.backends.imessage import IMessageBackend
 from agent_utilities.security.zero_day_immunity import ZeroDayImmunity
@@ -109,42 +106,6 @@ def test_zero_day_immunity():
     assert "code:prompt" in sub_code["nodes"]
     assert "function:my_func" in sub_code["nodes"]
     assert ("code:prompt", "function:my_func") in sub_code["edges"]
-
-
-# 3. Test Ontological Turtle Import
-def test_ontological_turtle_import():
-    ttl = """
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix agent: <http://example.org/agent-ontology#> .
-
-agent:test_team a agent:TeamComposition ;
-    agent:hasSource "test_src" ;
-    agent:hasTopologyTemplate "test_topo" ;
-    agent:executionMode "sequential" ;
-    agent:confidence 0.95 .
-
-agent:test_team agent:hasSpecialist agent:test_team_spec_0 .
-agent:test_team_spec_0 a agent:Specialist ;
-    agent:hasRole "analyst" ;
-    agent:hasAgentId "agent_0" ;
-    agent:usesTool "tool_A" ;
-    agent:usesTool "tool_B" .
-"""
-    # 3.1. Test manual regex fallback (rdflib might not be present or we can force fallback)
-    res = OntologicalTeamExporter.import_from_turtle(ttl)
-    assert res["team_id"] == "test_team"
-    assert res["source"] == "test_src"
-    assert res["topology_template_id"] == "test_topo"
-    assert res["execution_mode"] == "sequential"
-    assert res["confidence"] == 0.95
-    assert len(res["adaptive_agent_router"]) == 1
-    spec = res["adaptive_agent_router"][0]
-    assert spec["role"] == "analyst"
-    assert spec["agent_id"] == "agent_0"
-    assert "tool_A" in spec["tools"]
-    assert "tool_B" in spec["tools"]
 
 
 # 4. Test OTel Trace Ingestion

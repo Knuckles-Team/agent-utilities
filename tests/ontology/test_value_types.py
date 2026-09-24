@@ -3,8 +3,8 @@
 
 Covers per-built-in constraint pass/fail (runtime validator), the
 schema_definition/base coercion bridge, and asserts the emitted SHACL turtle and
-OWL datatype-restriction turtle parse (via rdflib when available, else a
-structural fallback).
+OWL datatype-restriction turtle carry the expected structure and parse in
+epistemic-graph (``OntologyInspect``; AU owns no RDF parser — EH-471).
 """
 
 import pytest
@@ -145,36 +145,14 @@ def test_get_and_unknown():
 
 
 # --- SHACL turtle emission ---------------------------------------------------
-def _try_rdflib_parse(turtle: str):
-    try:
-        import rdflib
-    except ImportError:  # pragma: no cover
-        return None
-    g = rdflib.Graph()
-    g.parse(data=turtle, format="turtle")
-    return g
-
-
 def test_to_shacl_reusable_node_shape_parses():
     vt = VALUE_TYPES["EmailAddress"]
     from agent_utilities.knowledge_graph.ontology.value_types import SHAPES_PREFIXES
 
     turtle = SHAPES_PREFIXES + "\n" + vt.to_shacl()
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        from rdflib.namespace import SH
-
-        # The reusable shape is a sh:NodeShape (a path-less PropertyShape is
-        # invalid SHACL) declaring sh:pattern and an sh:datatype.
-        node_shapes = set(g.subjects(predicate=None, object=SH.NodeShape))
-        assert node_shapes, "EmailAddress reusable shape must be a sh:NodeShape"
-        patterns = list(g.subject_objects(SH.pattern))
-        assert patterns, "EmailAddress SHACL shape must carry sh:pattern"
-        assert list(g.subject_objects(SH.datatype))
-    else:  # structural fallback
-        assert "a sh:NodeShape" in turtle
-        assert "sh:pattern" in turtle and "sh:datatype" in turtle
-        assert turtle.rstrip().endswith(".")
+    assert "a sh:NodeShape" in turtle
+    assert "sh:pattern" in turtle and "sh:datatype" in turtle
+    assert turtle.rstrip().endswith(".")
 
 
 def test_to_shacl_node_shape_with_path_parses():
@@ -184,30 +162,13 @@ def test_to_shacl_node_shape_with_path_parses():
     turtle = (
         SHAPES_PREFIXES + "\n" + vt.to_shacl(path="completionRate", target_class="Task")
     )
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        from rdflib.namespace import SH
-
-        assert list(g.subjects(predicate=SH.targetClass))
-        # numeric bounds present
-        assert list(g.subject_objects(SH.minInclusive))
-        assert list(g.subject_objects(SH.maxInclusive))
-    else:  # structural fallback
-        assert "sh:targetClass" in turtle
-        assert "sh:minInclusive" in turtle and "sh:maxInclusive" in turtle
+    assert "sh:targetClass" in turtle
+    assert "sh:minInclusive" in turtle and "sh:maxInclusive" in turtle
 
 
 def test_full_registry_shapes_ttl_parses():
     turtle = value_types_shapes_ttl()
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        from rdflib.namespace import SH
-
-        shapes = set(g.subjects(predicate=None, object=SH.NodeShape))
-        # one reusable NodeShape per registered value type
-        assert len(shapes) >= len(list_value_types())
-    else:  # structural fallback
-        assert turtle.count("a sh:NodeShape") >= len(list_value_types())
+    assert turtle.count("a sh:NodeShape") >= len(list_value_types())
 
 
 # --- OWL datatype restriction emission ---------------------------------------
@@ -216,18 +177,7 @@ def test_to_owl_facet_restriction_parses():
     from agent_utilities.knowledge_graph.ontology.value_types import SHAPES_PREFIXES
 
     turtle = SHAPES_PREFIXES + "\n" + vt.to_owl()
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        import rdflib
-
-        rdfs = rdflib.RDFS
-        # The value type is declared as an rdfs:Datatype.
-        kg = rdflib.Namespace("http://knuckles.team/kg#")
-        assert (kg.ISOCurrencyCode, rdflib.RDF.type, rdfs.Datatype) in g
-        owl = rdflib.OWL
-        assert list(g.subject_objects(owl.withRestrictions))
-    else:  # structural fallback
-        assert "rdfs:Datatype" in turtle and "owl:withRestrictions" in turtle
+    assert "rdfs:Datatype" in turtle and "owl:withRestrictions" in turtle
 
 
 def test_to_owl_enum_oneof_parses():
@@ -239,25 +189,12 @@ def test_to_owl_enum_oneof_parses():
     from agent_utilities.knowledge_graph.ontology.value_types import SHAPES_PREFIXES
 
     turtle = SHAPES_PREFIXES + "\n" + vt.to_owl()
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        import rdflib
-
-        assert list(g.subject_objects(rdflib.OWL.oneOf))
-    else:  # structural fallback
-        assert "owl:oneOf" in turtle
+    assert "owl:oneOf" in turtle
 
 
 def test_full_registry_owl_ttl_parses():
     turtle = value_types_owl_ttl()
-    g = _try_rdflib_parse(turtle)
-    if g is not None:
-        import rdflib
-
-        datatypes = set(g.subjects(rdflib.RDF.type, rdflib.RDFS.Datatype))
-        assert len(datatypes) >= len(list_value_types())
-    else:  # structural fallback
-        assert turtle.count("a rdfs:Datatype") >= len(list_value_types())
+    assert turtle.count("a rdfs:Datatype") >= len(list_value_types())
 
 
 # --- live-path materialization to shapes/ ------------------------------------
@@ -266,17 +203,13 @@ def test_write_value_shapes_ttl_materializes_loadable_file(tmp_path):
     written = write_value_shapes_ttl(str(target))
     assert written == str(target)
     content = target.read_text(encoding="utf-8")
-    g = _try_rdflib_parse(content)
-    if g is not None:
-        assert len(g) > 0
-    else:  # structural fallback
-        assert "sh:NodeShape" in content
+    assert "sh:NodeShape" in content
 
 
-def test_value_type_shapes_render_to_loadable_graph():
-    """The registry renders to a turtle doc that parses into an rdflib.Graph —
-    the in-memory layer validate_kg now appends (no file written)."""
-    rdflib = pytest.importorskip("rdflib")
-    g = rdflib.Graph()
-    g.parse(data=value_types_shapes_ttl(), format="turtle")
-    assert len(g) > 0
+def test_value_type_documents_parse_in_eg(engine_graph):
+    """The registry's SHACL and OWL renderings are well-formed Turtle — EG, the
+    only RDF parser, reads both (the in-memory layer validate_kg appends)."""
+    shapes = engine_graph.ontology_inspect([value_types_shapes_ttl()])
+    assert shapes.triple_count > 0
+    owl = engine_graph.ontology_inspect([value_types_owl_ttl()])
+    assert owl.triple_count > 0

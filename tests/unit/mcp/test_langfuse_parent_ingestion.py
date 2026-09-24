@@ -119,7 +119,8 @@ class _EnvelopeChanges:
 
 class _EnvelopeRdf:
     @staticmethod
-    def validate_shacl(_shapes: str, _data_graph: str) -> dict[str, object]:
+    def validate_committed(*, data_triples: list[object]) -> dict[str, object]:
+        assert data_triples
         return {"conforms": True, "results": []}
 
 

@@ -7,20 +7,34 @@ prompt (Wire-First).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from agent_utilities.knowledge_graph.core import graph_compute
+from agent_utilities.knowledge_graph.extraction import extraction_schema
 from agent_utilities.knowledge_graph.extraction.extraction_schema import (
     EntityType,
     ExtractionSchema,
     Relation,
     _camel_to_snake,
-    _module_paths,
+    _source_ids,
     load_extraction_schema,
 )
 
-# rdflib lives in the [owl] extra; the loader degrades to None without it. These
-# parse tests need it.
-rdflib = pytest.importorskip("rdflib")
+KG = "http://knuckles.team/kg#"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_schema_cache():
+    load_extraction_schema.cache_clear()
+    yield
+    load_extraction_schema.cache_clear()
+
+
+def _term(local: str, **fields) -> SimpleNamespace:
+    base = {"iri": f"{KG}{local}", "label": None, "comment": None}
+    return SimpleNamespace(**{**base, **fields})
 
 
 def test_camel_to_snake():
@@ -32,21 +46,74 @@ def test_camel_to_snake():
     ).startswith("has")
 
 
-def test_module_paths_skip_and_domain():
+def test_source_ids_skip_and_domain():
     # non-prose content types skip ontology guidance entirely
-    assert _module_paths("codebase") is None
-    assert _module_paths("config") is None
-    assert _module_paths("") is None
-    # prose content gets the core module
-    assert _module_paths("document") == ("ontology",)
-    # a domain source type adds its module on top of the core
-    sn = _module_paths("servicenow")
-    assert sn is not None and "ontology" in sn and "ontology_servicenow" in sn
+    assert _source_ids("codebase") is None
+    assert _source_ids("config") is None
+    assert _source_ids("") is None
+    # prose content gets the EG core foundation
+    assert _source_ids("document") == ("core:foundation@1",)
+    # a domain source type adds its EG core module on top of the foundation
+    medical = _source_ids("medical")
+    assert medical == ("core:foundation@1", "core:medical@1")
     # substring match works (connector-qualified names)
-    assert "ontology_legal" in (_module_paths("connector:legal") or ())
+    assert "core:hr@1" in (_source_ids("connector:hr") or ())
 
 
-def test_load_core_schema_has_typed_relations():
+def test_schema_is_built_from_the_eg_vocabulary_view(monkeypatch):
+    """The TBox comes from EG's OntologyInspect (EH-471); AU parses no RDF."""
+    requested: list[list[str]] = []
+    view = SimpleNamespace(
+        classes=[
+            _term("Person", comment="A human."),
+            _term("Organization", label="Organization"),
+            SimpleNamespace(iri="http://other.example/Thing", label=None, comment=None),
+        ],
+        object_properties=[
+            _term(
+                "worksFor",
+                label="works for",
+                domains=[f"{KG}Person"],
+                ranges=[f"{KG}Organization"],
+                symmetric=False,
+            ),
+            _term("knows", domains=[f"{KG}Person"], ranges=[], symmetric=True),
+        ],
+    )
+
+    class _Engine:
+        def ontology_inspect(self, documents=(), *, source_ids=()):
+            assert list(documents) == []
+            requested.append(list(source_ids))
+            return view
+
+    monkeypatch.setattr(
+        graph_compute.GraphComputeEngine, "get_or_create", lambda *_a, **_k: _Engine()
+    )
+    schema = load_extraction_schema("document")
+    assert requested == [["core:foundation@1"]]
+    assert schema is not None
+    assert [e.name for e in schema.entity_types] == ["Organization", "Person"]
+    assert schema.entity_types[1].description == "A human."
+    works_for = schema.relations_by_predicate()["works_for"]
+    assert (works_for.domain, works_for.range) == (("Person",), ("Organization",))
+    assert schema.relations_by_predicate()["knows"].symmetric
+
+
+def test_unavailable_eg_degrades_to_free_vocabulary(monkeypatch):
+    def _no_engine(*_a, **_k):
+        raise RuntimeError("no engine loop available for OntologyInspect")
+
+    monkeypatch.setattr(extraction_schema, "_inspect_sources", _no_engine)
+    assert load_extraction_schema("document") is None
+
+
+def test_load_core_schema_has_typed_relations(engine_graph, monkeypatch):
+    monkeypatch.setattr(
+        graph_compute.GraphComputeEngine,
+        "get_or_create",
+        lambda *_a, **_k: engine_graph,
+    )
     schema = load_extraction_schema("document")
     assert schema is not None
     assert not schema.is_empty
@@ -61,16 +128,6 @@ def test_load_core_schema_has_typed_relations():
 
 def test_codebase_returns_none():
     assert load_extraction_schema("codebase") is None
-
-
-def test_servicenow_superset_of_core():
-    core = load_extraction_schema("document")
-    sn = load_extraction_schema("servicenow")
-    assert core is not None and sn is not None
-    # the domain schema name records both modules
-    assert "servicenow" in sn.name
-    # adding a domain module never drops core classes
-    assert len(sn.entity_types) >= len(core.entity_types)
 
 
 def test_prompt_block_render():

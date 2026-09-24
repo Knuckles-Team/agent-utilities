@@ -14,13 +14,10 @@ resources and attaches the resulting pack through `GraphSchema.AttachPack`.
 `GraphSchemaList` returns immutable and dynamic source sets plus the catalog and
 composed digests for the requested graph snapshot.
 
-Agent Utilities contributes one pack resource:
-
-- `agent_utilities/ontology/shapes/governance.shapes.ttl`
-
-The public provider is `agent_utilities.content.agent_utilities_content()`. It
-declares package content only; it does not interpret, attach, or write semantic
-data.
+Agent Utilities contributes no pack resource and carries no RDF library
+(EH-470..EH-472). Its former operational shapes are EG core sources, validated
+with `shapes` omitted; AU sends typed triples (`ShaclValidate.data_triples`) and
+reads vocabulary, SHACL targets and canonical digests through `OntologyInspect`.
 
 ## Runtime contracts
 

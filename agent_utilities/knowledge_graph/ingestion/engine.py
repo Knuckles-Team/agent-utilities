@@ -1695,7 +1695,7 @@ class IngestionEngine:
         Ontology-guided extraction (KG-2.255): the schema is injected into the
         extractor prompt so subjects/objects come out as canonical ontology types
         and predicates respect rdfs:domain/range direction. ``None`` (non-prose,
-        or rdflib absent on the lean serving plane) → unchanged free-vocab
+        or EG's OntologyInspect unavailable) → unchanged free-vocab
         extraction, i.e. no regression rather than no extraction.
         """
         try:

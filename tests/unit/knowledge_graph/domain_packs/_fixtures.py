@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
+from agent_utilities.knowledge_graph.domain_packs import pack_loader
 from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     ColumnMapping,
     DomainPackManifest,
@@ -206,3 +208,25 @@ def write_pack(root: Path, manifest: DomainPackManifest) -> Path:
         encoding="utf-8",
     )
     return pack_dir
+
+
+# EG's OntologyInspect stand-in for pack loading (EH-471): the canonical classes
+# this fixture pack crosswalks onto. An inline pack document is refused, exactly
+# as EG refuses a document it cannot parse; this stand-in parses nothing.
+CANONICAL_CLASSES = ("Document", "Person")
+
+
+def eg_core_vocabulary(documents: list[str]) -> SimpleNamespace:
+    if documents:
+        raise ValueError("inline document is not Turtle (test stand-in)")
+    return SimpleNamespace(
+        classes=[
+            SimpleNamespace(iri=f"http://knuckles.team/kg#{name}")
+            for name in CANONICAL_CLASSES
+        ],
+        shape_target_classes=[],
+    )
+
+
+def use_eg_core_vocabulary(monkeypatch) -> None:
+    monkeypatch.setattr(pack_loader, "_inspect_ontology", eg_core_vocabulary)

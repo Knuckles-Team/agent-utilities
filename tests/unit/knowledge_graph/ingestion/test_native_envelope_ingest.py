@@ -20,6 +20,7 @@ from agent_utilities.knowledge_graph.core.session import (
     reset_session,
     set_session,
 )
+from agent_utilities.knowledge_graph.core.typed_triples import RDF_TYPE, kg
 from agent_utilities.knowledge_graph.enrichment.semantic import (
     configured_embedding_dimension,
 )
@@ -178,10 +179,10 @@ class _Changes:
 class _Rdf:
     def __init__(self) -> None:
         self.reports: list[dict[str, object]] = [{"conforms": True, "results": []}]
-        self.validations: list[tuple[str, str]] = []
+        self.validations: list[list[dict]] = []
 
-    def validate_shacl(self, shapes: str, data_graph: str):
-        self.validations.append((shapes, data_graph))
+    def validate_committed(self, *, data_triples: list[dict]):
+        self.validations.append(list(data_triples))
         if len(self.reports) > 1:
             return self.reports.pop(0)
         return self.reports[0]
@@ -686,10 +687,9 @@ def test_native_apply_commits_auxiliary_nodes_edges_and_policy_together() -> Non
     assert result["write_result"]["nodes"] == 3
     assert result["write_result"]["edges"] == 2
     assert len(compute.client.rdf.validations) == 1
-    _shapes, data_graph = compute.client.rdf.validations[0]
-    assert "Document" in data_graph
-    assert "Chunk" in data_graph
-    assert "Section" in data_graph
+    [triples] = compute.client.rdf.validations
+    classes = {t["object"]["iri"] for t in triples if t["predicate"] == RDF_TYPE}
+    assert {kg("Document"), kg("Chunk"), kg("Section")} <= classes
     assert all(
         compute.client.nodes.values[node_id]["tenant_id"] == "fixture-tenant"
         for node_id in ("object-1", "chunk-1", "section-1")

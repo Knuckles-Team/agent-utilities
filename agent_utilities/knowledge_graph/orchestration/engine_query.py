@@ -791,7 +791,7 @@ class QueryMixin(_Base):
         its REST twin ``/graph/query`` — the SPARQL sibling of :meth:`sql`. Routes to
         the active backend's ``GraphComputeEngine.sparql`` (``backend.graph.sparql`` →
         the engine's ``client.rdf.sparql`` wire op), which queries the engine's RDF
-        projection of the live property graph (NOT a rdflib materialization). Returns
+        projection of the live property graph. Returns
         one dict per result row keyed by the projected variable (an ``ASK`` returns a
         single ``{"boolean": ...}`` row, per the engine's projection).
 

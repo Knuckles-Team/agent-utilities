@@ -72,11 +72,15 @@ def test_export_ttl_is_valid_turtle_with_generated_marker():
     assert "rdfs:subClassOf :ApplicationComponent" in ttl
     assert ":relApplicationToITComponent a owl:ObjectProperty" in ttl
 
-    # rdflib must parse it (proves it is well-formed OWL/Turtle).
-    rdflib = pytest.importorskip("rdflib")
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    assert len(g) > 0
+
+def test_export_ttl_parses_in_eg(engine_graph):
+    """EG must parse the export (proves it is well-formed OWL/Turtle); AU owns no
+    RDF parser (EH-471)."""
+    view = engine_graph.ontology_inspect(
+        [export_leanix_ttl(compile_leanix_metamodel(META_MODEL))]
+    )
+    assert view.triple_count > 0
+    assert any(term.iri.endswith("#Application") for term in view.classes)
 
 
 def test_apply_dry_run_writes_nothing(tmp_path):
