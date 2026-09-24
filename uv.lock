@@ -240,7 +240,6 @@ all = [
     { name = "pytest-xdist" },
     { name = "python-multipart" },
     { name = "python-telegram-bot" },
-    { name = "rdflib" },
     { name = "ruff" },
     { name = "setuptools" },
     { name = "skill-graphs" },
@@ -304,7 +303,6 @@ finance-kronos = [
 ]
 fuseki = [
     { name = "httpx" },
-    { name = "rdflib" },
 ]
 gateway-widgets = [
     { name = "ansible-tower-mcp" },
@@ -452,9 +450,6 @@ postgresql = [
 pyarrow = [
     { name = "pyarrow" },
 ]
-rdf = [
-    { name = "rdflib" },
-]
 sandbox = [
     { name = "pydantic-monty" },
     { name = "wasmtime" },
@@ -508,7 +503,6 @@ serving = [
     { name = "python-multipart" },
     { name = "python-telegram-bot" },
     { name = "qbittorrent-agent" },
-    { name = "rdflib" },
     { name = "repository-manager" },
     { name = "servicenow-api" },
     { name = "skill-graphs" },
@@ -523,7 +517,6 @@ serving = [
 ]
 stardog = [
     { name = "pystardog" },
-    { name = "rdflib" },
 ]
 terminal = [
     { name = "agent-terminal-ui" },
@@ -562,7 +555,6 @@ test = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "python-multipart" },
-    { name = "rdflib" },
     { name = "ruff" },
     { name = "setuptools" },
     { name = "skill-graphs" },
@@ -613,7 +605,6 @@ test-backends = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "python-multipart" },
-    { name = "rdflib" },
     { name = "ruff" },
     { name = "setuptools" },
     { name = "skill-graphs" },
@@ -645,25 +636,23 @@ guardrails = [
     { name = "jsonschema" },
     { name = "pytest" },
     { name = "pyyaml" },
-    { name = "rdflib" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "agent-connector-sdk", editable = ".uv-workspace-siblings/agent-connector-sdk" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "graph", "langfuse", "logfire", "mcp", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-runtime", "event-kafka", "feeds", "finance", "graph", "rdf", "sandbox"], marker = "extra == 'test'" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "graph", "langfuse", "logfire", "mcp", "messaging", "pyarrow", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
+    { name = "agent-utilities", extras = ["acp", "agent-runtime", "event-kafka", "feeds", "finance", "graph", "sandbox"], marker = "extra == 'test'" },
     { name = "agent-utilities", extras = ["ag-ui", "mcp", "sandbox", "terminal"], marker = "extra == 'agent-runtime'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "falkordb", "feeds", "gateway-widgets", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "neo4j", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
+    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "falkordb", "feeds", "gateway-widgets", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "neo4j", "otel", "vault"], marker = "extra == 'serving'" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["falkordb", "fuseki", "kafka", "neo4j", "postgresql", "rdf", "test"], marker = "extra == 'test-backends'" },
+    { name = "agent-utilities", extras = ["falkordb", "fuseki", "kafka", "neo4j", "postgresql", "test"], marker = "extra == 'test-backends'" },
     { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'" },
     { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'" },
-    { name = "agent-utilities", extras = ["rdf"], marker = "extra == 'stardog'" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=2.4.0" },
     { name = "aiohttp", marker = "extra == 'test'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
@@ -793,8 +782,6 @@ requires-dist = [
     { name = "python-telegram-bot", marker = "extra == 'messaging-telegram'", specifier = ">=22.8" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "qbittorrent-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
-    { name = "rdflib", marker = "extra == 'fuseki'", specifier = ">=7.6.0" },
-    { name = "rdflib", marker = "extra == 'rdf'", specifier = ">=7.6.0" },
     { name = "repository-manager", marker = "extra == 'gateway-widgets'", specifier = ">=2.0.1" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "ruff", marker = "extra == 'test'", specifier = "==0.16.0" },
@@ -826,7 +813,7 @@ requires-dist = [
     { name = "wger-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "yfinance", marker = "extra == 'finance'", specifier = ">=1.5.1" },
 ]
-provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "ag-ui", "terminal", "browser", "computer-use", "gateway-widgets", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "graph", "ann", "neo4j", "falkordb", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
+provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "ag-ui", "terminal", "browser", "computer-use", "gateway-widgets", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "graph", "ann", "neo4j", "falkordb", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -838,7 +825,6 @@ guardrails = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "rdflib", specifier = ">=7.6.0" },
 ]
 
 [[package]]
@@ -2132,6 +2118,7 @@ source = { editable = ".uv-workspace-siblings/epistemic-graph" }
 dependencies = [
     { name = "httpx" },
     { name = "msgpack" },
+    { name = "pydantic" },
     { name = "pyoxigraph" },
 ]
 
@@ -2141,6 +2128,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.0,<2.0" },
     { name = "msgpack", specifier = ">=1.2.1" },
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "pyoxigraph", specifier = ">=0.3.22" },
     { name = "pyoxigraph", marker = "extra == 'owl'", specifier = ">=0.3.22" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
