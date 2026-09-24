@@ -193,11 +193,9 @@ This ensures the Knowledge Graph stays synchronized with the active development 
 
 All graph nodes follow a converged lifecycle state machine:
 
-```
-ACTIVE ──(soft-delete)──▶ ARCHIVED ──(hard-delete)──▶ REMOVED
-   ▲                         │
-   └──────(restore)──────────┘
-```
+`ACTIVE` moves to `ARCHIVED` via soft-delete, and `ARCHIVED` moves to
+`REMOVED` via hard-delete; `ARCHIVED` can also move back to `ACTIVE` via
+restore.
 
 - **`status: ACTIVE`** — Default state. Node is included in all search and retrieval operations.
 - **`status: ARCHIVED`** — Soft-deleted. Excluded from `search_hybrid()`, `_search_keyword()`, and `discover_all_capabilities()`. Can be restored via `DocumentDeletionPipeline.restore_document()`.
@@ -309,17 +307,15 @@ Domain deployments import via `owl:imports <http://knuckles.team/kg/enterprise>`
 
 The ontology is organized into domain modules following the `owl:imports` pattern:
 
-```
-ontology.ttl                → Core upper ontology (BFO, PROV-O, SKOS)
-├── owl:imports enterprise  → ArchiMate, ADR, governance
-├── owl:imports sdd         → Spec-driven development classes
-└── Domain modules:
-    ├── ontology_banking.ttl     → ISO 20022, KYC/AML, Basel III
-    ├── ontology_government.ttl  → Government-specific
-    ├── ontology_hr.ttl          → Human resources
-    ├── ontology_legal.ttl       → Legal domain
-    └── ontology_medical.ttl     → Healthcare/medical
-```
+- `ontology.ttl` — core upper ontology (BFO, PROV-O, SKOS)
+    - `owl:imports enterprise` — ArchiMate, ADR, governance
+    - `owl:imports sdd` — spec-driven development classes
+    - Domain modules:
+        - `ontology_banking.ttl` — ISO 20022, KYC/AML, Basel III
+        - `ontology_government.ttl` — government-specific
+        - `ontology_hr.ttl` — human resources
+        - `ontology_legal.ttl` — legal domain
+        - `ontology_medical.ttl` — healthcare/medical
 
 The `OntologyLoader` (`core/ontology_loader.py`) resolves `owl:imports` declarations at runtime, fetching remote ontologies via HTTP with TTL-based caching.
 
@@ -395,64 +391,30 @@ enrichment coverage is reported via `graph_analyze(action="enrichment_coverage")
 
 ### Architecture
 
-```mermaid
-graph TD
-    subgraph Ingestion_Pipeline ["graph-os Ingestion [KG-2.0]"]
-        direction LR
-        S1["Stage 1: Context [KG-2.0]"] --> S2["Stage 2: Structure [KG-2.0]"] --> S3["Stage 3: Topology [KG-2.5]"] --> S4["Stage 4: Epistemic [KG-2.2]"] --> S5["Stage 5: Governance [AU-ORCH.planning.legal-automation-roadmap]"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five-stage ingestion pipeline, syncing memory into an authoritative engine</p>
 
-        subgraph S1 ["Stage 1: Context [KG-2.0]"]
-            direction LR
-            Mem["Memory [KG-2.1]"] --> Scan["Scan [KG-2.0]"] --> WS["WS Sync [KG-2.0]"] --> Reg["Reg [KG-2.0]"]
-        end
+The `graph-os` ingestion pipeline (KG-2.0) runs five stages in sequence:
 
-        subgraph S2 ["Stage 2: Structure [KG-2.0]"]
-            direction LR
-            Parse["Parse [KG-2.0]"] --> Resolve["Resolve [KG-2.0]"] --> MRO["MRO [KG-2.0]"] --> Ref["Ref [KG-2.0]"]
-        end
+1. **Context** (KG-2.0): Memory (KG-2.1) -> Scan -> WS Sync -> Reg.
+2. **Structure** (KG-2.0): Parse -> Resolve -> MRO -> Ref.
+3. **Topology** (KG-2.5): Community detection -> Centrality -> Embed
+   (KG-2.1).
+4. **Epistemic** (KG-2.2): Sync -> OWL -> Extract (KG-2.6) -> Knowledge
+   Base (KG-2.6).
+5. **Governance** (AU-ORCH.planning.legal-automation-roadmap): Validate
+   -> Distill (AHE-3.1) -> (async) Evolution (AHE-3.2).
 
-        subgraph S3 ["Stage 3: Topology [KG-2.5]"]
-            direction LR
-            Comm["Comm [KG-2.5]"] --> Cent["Cent [KG-2.5]"] --> Emb["Embed [KG-2.1]"]
-        end
+The pipeline mutates the in-memory graph layer (NetworkX, KG-2.0, with
+its own topological self-edges, KG-2.5), which syncs to the persistence
+layer — the epistemic-graph engine (compute + cache + semantic + durable,
+KG-2.0; writes fan out to optional mirrors; self-referential via Cypher).
+The query layer (Impact, KG-2.5; Query, KG-2.3) reads directly from the
+persistence layer.
 
-        subgraph S4 ["Stage 4: Epistemic [KG-2.2]"]
-            direction LR
-            Sync["Sync [KG-2.0]"] --> OWL["OWL [KG-2.2]"] --> Ext["Ext [KG-2.6]"] --> KB["KB [KG-2.6]"]
-        end
-
-        subgraph S5 ["Stage 5: Governance [AU-ORCH.planning.legal-automation-roadmap]"]
-            direction LR
-            Val["Validate [AU-ORCH.planning.legal-automation-roadmap]"] --> Exp["Distill [AHE-3.1]"] -.->|Async| Evo["Evolution [AHE-3.2]"]
-        end
-    end
-
-    subgraph Memory_Layer ["In-Memory Graph [KG-2.0]"]
-        NX[("NetworkX [KG-2.0]")]
-        NX -- "Topological [KG-2.5]" --> NX
-    end
-
-    subgraph Persistence_Layer ["Authority — epistemic-graph engine [KG-2.0]"]
-        LDB["epistemic-graph engine<br/>compute + cache + semantic + durable<br/>(writes fan out to optional mirrors) [KG-2.0]"]
-        LDB -- "Cypher [KG-2.0]" --> LDB
-    end
-
-    subgraph Query_Layer ["Query / Interface [KG-2.3]"]
-        Q_Impact["Impact [KG-2.5]"]
-        Q_Query["Query [KG-2.3]"]
-    end
-
-    Ingestion_Pipeline -- "Mutates" --> Memory_Layer
-    Memory_Layer -- "Syncs To" --> Persistence_Layer
-    Query_Layer -- "Query" --> Persistence_Layer
-
-    subgraph Autonomous_Loop ["Self-Improvement Loop [AHE-3.2]"]
-        direction TB
-        Outcome["Outcome [AHE-3.1]"] --> Critique["Critique [AHE-3.2]"]
-        Critique --> Evolution["Evolve [AHE-3.2]"]
-        Evolution --> Persistence_Layer
-    end
-```
+A separate self-improvement loop (AHE-3.2) runs Outcome (AHE-3.1) ->
+Critique -> Evolve, feeding back into the persistence layer.
+</div>
 
 ### MAGMA-Inspired Orthogonal Reasoning Views
 The graph engine supports policy-guided retrieval across four orthogonal views:
@@ -680,13 +642,14 @@ graph). `CodemapGenerator.skeleton()` produces it from a focused subgraph **with
 expensive LLM hierarchy pass**, cheap enough to inject every turn, and the live
 `POST /api/codemap` endpoint returns it via the `skeleton` / `max_tokens` request flags.
 
-```mermaid
-flowchart LR
-    Q[prompt] --> SG[extract_focused_subgraph]
-    SG --> R[rank nodes by importance]
-    R --> BS{binary-search\nprefix that fits\nmax_tokens}
-    BS --> SK[per-file symbol skeleton\n+ omitted-count note]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cheap-enough-to-inject-every-turn codemap generation</p>
+
+A prompt feeds `extract_focused_subgraph`, which produces a subgraph
+whose nodes are ranked by importance, then binary-searched for the
+prefix that fits `max_tokens`, producing a per-file symbol skeleton with
+an omitted-count note.
+</div>
 
 ### KG-2.73b — Persistent Latent Rollout Memory
 The learned world-model rollout (AU-KG.compute.kg-3) now **carries the predicted next-state
