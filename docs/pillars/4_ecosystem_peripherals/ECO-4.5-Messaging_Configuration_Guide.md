@@ -468,20 +468,18 @@ material even when a platform uses a less obvious field name.
 
 ## XDG Directory Layout
 
-```
-~/.config/agent-utilities/
-├── config.json                    ← All messaging config lives here
-├── mcp_config.json
-└── a2a_config.json
+- `~/.config/agent-utilities/`
+    - `config.json` — all messaging config lives here
+    - `mcp_config.json`
+    - `a2a_config.json`
 
-~/.local/share/agent-utilities/
-├── kg/
-│   └── knowledge_graph.db         ← Messages stored here as memory nodes
-├── messaging/
-│   ├── sessions/                  ← Backend-specific auth state (neonize QR, etc.)
-│   └── history/                   ← Local message history cache
-└── ...
-```
+- `~/.local/share/agent-utilities/`
+    - `kg/`
+        - `knowledge_graph.db` — messages stored here as memory nodes
+    - `messaging/`
+        - `sessions/` — backend-specific auth state (neonize QR, etc.)
+        - `history/` — local message history cache
+    - `...`
 
 ## Programmatic Access
 

@@ -29,64 +29,37 @@ The architecture follows three proven patterns already in agent-utilities:
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph "agent_utilities/messaging/"
-        BASE["base.py<br/>MessagingBackend ABC"]
-        MODELS["models.py<br/>Pydantic Models"]
-        REG["registry.py<br/>Entry-point Discovery"]
-        ROUTER["router.py<br/>Inbound Event Router"]
-        CAP["capabilities.py<br/>Capability Matrix"]
-        KGI["kg_ingest.py<br/>KG Auto-Ingest"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">17 backends share one ABC; the router bridges to the planner and KG</p>
 
-    subgraph "backends/ (17 platforms)"
-        D[discord.py] --> BASE
-        S[slack.py] --> BASE
-        T[telegram.py] --> BASE
-        W[whatsapp.py] --> BASE
-        MS[teams.py] --> BASE
-        GC[googlechat.py] --> BASE
-        GM[googlemeet.py] --> BASE
-        MM[mattermost.py] --> BASE
-        MX[matrix.py] --> BASE
-        IR[irc.py] --> BASE
-        SG[signal.py] --> BASE
-        IM[imessage.py] --> BASE
-        LN[line.py] --> BASE
-        TW[twitch.py] --> BASE
-        SY[synology.py] --> BASE
-        VC[voicecall.py] --> BASE
-        NC[nextcloud.py] --> BASE
-    end
+`agent_utilities/messaging/` provides `base.py` (`MessagingBackend` ABC),
+`models.py` (Pydantic models), `registry.py` (entry-point discovery),
+`router.py` (inbound event router), `capabilities.py` (capability
+matrix), and `kg_ingest.py` (KG auto-ingest). All 17 platform backends
+(discord, slack, telegram, whatsapp, teams, googlechat, googlemeet,
+mattermost, matrix, irc, signal, imessage, line, twitch, synology,
+voicecall, nextcloud) implement `MessagingBackend`.
 
-    ROUTER -->|"route to"| PLANNER["Planner Graph Agent<br/>(CONCEPT:AU-ORCH.planning.recursion-nesting-depth)"]
-    KGI -->|"store_memory()"| KG["Knowledge Graph<br/>(CONCEPT:AU-KG.memory.tiered-memory-caching)"]
-    PLANNER -->|"recall_memory()"| KG
-```
+`router.py` routes to the Planner Graph Agent
+(`AU-ORCH.planning.recursion-nesting-depth`). `kg_ingest.py` calls
+`store_memory()` on the Knowledge Graph
+(`AU-KG.memory.tiered-memory-caching`), and the Planner calls
+`recall_memory()` on the same Knowledge Graph.
+</div>
 
 ## Inbound Message Flow
 
-```mermaid
-sequenceDiagram
-    participant P as Platform (Discord/Slack/...)
-    participant B as MessagingBackend
-    participant R as InboundRouter
-    participant KG as Knowledge Graph
-    participant PL as Planner Graph Agent
-    participant S as Specialist Agents
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Inbound message flow: store, recall, route, orchestrate, deliver</p>
 
-    P->>B: New message event
-    B->>R: yield InboundEvent
-    R->>KG: store_memory(episodic)
-    R->>KG: recall_memory(context)
-    KG-->>R: Related memories
-    R->>PL: Route with KG context
-    PL->>S: Orchestrate specialists
-    S-->>PL: Response
-    PL->>B: send_message(response)
-    B->>P: Deliver response
-```
+A platform (Discord, Slack, …) sends a new message event to its
+`MessagingBackend`, which yields an `InboundEvent` to `InboundRouter`.
+The router stores episodic memory and recalls context from the Knowledge
+Graph, then routes to the Planner Graph Agent with that KG context. The
+planner orchestrates specialist agents, which return a response; the
+planner calls `send_message(response)` on the backend, which delivers it
+back to the platform.
+</div>
 
 ---
 
@@ -159,13 +132,15 @@ credential values do not belong in `config.json`.
 
 ### How It Works
 
-```mermaid
-flowchart LR
-    CFG["config.json"] -->|"_load_xdg_json_config()"| ENV["Environment Variables"]
-    ENV -->|"AgentConfig (Pydantic)"| FIELDS["config.messaging_*"]
-    ENV -->|"MessagingRegistry._auto_config()"| BACKEND["Backend Instance"]
-    FIELDS -->|"config.reload()"| HOT["Swap validated proxy snapshot"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">config.json to environment variables to typed fields and backends</p>
+
+`config.json` loads via `_load_xdg_json_config()` into environment
+variables, which `AgentConfig` (Pydantic) parses into
+`config.messaging_*` fields and which `MessagingRegistry._auto_config()`
+reads to create a backend instance. `config.reload()` swaps in a newly
+validated proxy snapshot of those fields.
+</div>
 
 All `messaging_*` keys in `config.json` are:
 1. Loaded at startup by `_load_xdg_json_config()` (uppercased to env vars)
@@ -174,19 +149,17 @@ All `messaging_*` keys in `config.json` are:
 
 ### XDG Directory Layout
 
-```
-~/.config/agent-utilities/
-├── config.json                    ← All messaging config lives here
-├── mcp_config.json
-└── a2a_config.json
+- `~/.config/agent-utilities/`
+    - `config.json` — all messaging config lives here
+    - `mcp_config.json`
+    - `a2a_config.json`
 
-~/.local/share/agent-utilities/
-├── kg/knowledge_graph.db          ← Messages stored here as memory nodes
-├── messaging/
-│   ├── sessions/                  ← Backend-specific auth state
-│   └── history/                   ← Local message history cache
-└── ...
-```
+- `~/.local/share/agent-utilities/`
+    - `kg/knowledge_graph.db` — messages stored here as memory nodes
+    - `messaging/`
+        - `sessions/` — backend-specific auth state
+        - `history/` — local message history cache
+    - `...`
 
 ### WhatsApp Dual Mode
 
