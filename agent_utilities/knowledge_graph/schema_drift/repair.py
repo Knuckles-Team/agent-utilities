@@ -63,23 +63,28 @@ def decide_rename(
     return str(chosen) if chosen in candidates else None
 
 
+_ADDED = frozenset(
+    {
+        DriftClass.RENAME_CANDIDATE,
+        DriftClass.ADDITIVE_NULLABLE,
+        DriftClass.ADDITIVE_REQUIRED,
+    }
+)
+
+
+def _lost_fields(changes: Sequence[DriftChange]) -> list[str]:
+    """The approved fields the delta no longer carries."""
+    removed = {c.field for c in changes if c.kind is DriftClass.REMOVAL}
+    return sorted(removed | {c.renamed_from for c in changes if c.renamed_from})
+
+
 def resolve_renames(
     changes: Sequence[DriftChange], decide: RenameDecider = decide_rename
 ) -> dict[str, str]:
     """New field -> the lost field it replaces; one-to-one, first claim wins."""
-    lost = sorted(
-        {c.field for c in changes if c.kind is DriftClass.REMOVAL}
-        | {c.renamed_from for c in changes if c.renamed_from}
-    )
-    if not lost:
-        return {}
-    added = (
-        DriftClass.RENAME_CANDIDATE,
-        DriftClass.ADDITIVE_NULLABLE,
-        DriftClass.ADDITIVE_REQUIRED,
-    )
+    lost = _lost_fields(changes)
     renames: dict[str, str] = {}
-    for change in (c for c in changes if c.kind in added):
+    for change in (c for c in changes if lost and c.kind in _ADDED):
         chosen = decide(change.field, lost, change.renamed_from or None)
         if chosen and chosen not in renames.values():
             renames[change.field] = chosen
