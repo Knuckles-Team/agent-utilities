@@ -523,7 +523,7 @@ def _uql_rank_text_spans(text: str) -> list[tuple[int, int, str]]:
 
     A leg is ``~`` immediately (whitespace allowed) followed by a double-quoted
     string — mirrors ``eg-plan``'s parser (`RANK BY ~<vector_ref>` where a `"`
-    lookahead is the `Text` arm, `crates/eg-plan/src/uql/parser.rs::parse_vector_ref`)
+    lookahead is the `Text` arm, `crates/eg-plan/src/uql/parser/rank.rs::rank`)
     and its lexer's double-quoted-string escaping (`lexer.rs::lex_string`): a
     doubled quote (``""``) or a backslash-escaped ``\\"``/``\\\\`` is an escaped
     character, anything else closes the string. Returns ``(start, end, literal)``

@@ -39,6 +39,7 @@ from ...models.knowledge_graph import RegistryNodeType
 from ..retrieval.iterative_expansion import IterativeQueryExpander
 from ..retrieval.score_gate import score_gate
 from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
+from .uql_result import uql_rows
 
 logger = logging.getLogger(__name__)
 
@@ -863,7 +864,7 @@ class QueryMixin(_Base):
                 "'query' feature)."
             )
         rows = _governed_engine_surface_rows(
-            list(uql_fn(query) or []), surface="uql", query=query
+            uql_rows(uql_fn(query)), surface="uql", query=query
         )
         fetch = getattr(graph, "explain_provenance_by_ids", None)
         if include_epistemic:

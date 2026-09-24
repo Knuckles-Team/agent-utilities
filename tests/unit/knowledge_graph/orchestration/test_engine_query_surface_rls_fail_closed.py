@@ -55,7 +55,8 @@ class _SqlNamespace:
         return self._rows
 
     def uql(self, query):
-        return self._rows
+        # EG's QueryClient.uql returns a ``kind``-tagged result, not a list.
+        return {"kind": "rows", "columns": [], "rows": self._rows, "warnings": []}
 
 
 class _Client:
