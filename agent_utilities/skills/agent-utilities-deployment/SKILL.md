@@ -155,16 +155,33 @@ Roles are read from `realm_access.roles` / `resource_access.*.roles` / `scope`
 and normalized IdP-agnostically (an Okta group maps the same way a Keycloak
 realm role does), so this table holds regardless of IdP:
 
-| Role | Grants | Notes |
-|---|---|---|
-| `kg:read` | read-only graph access | base scope |
-| `kg:write` | graph mutation | **hierarchical** — expands to include `kg:read` |
-| `kg:admin` | graph administration | **hierarchical** — expands to `kg:read` + `kg:write` |
-| `admin:cluster-read` | the engine's `PlacementRoute` capability | required by every placement resolution; missing it fails as `ACCESS_DENIED: verified request context lacks required scope 'admin:cluster-read'` |
-| `webui:admin` | UI-level admin surfaces in agent-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
+The scopes a verified identity may carry into a GraphSession are EXACTLY the
+scopes epistemic-graph registers: `agent_utilities/security/scope_registry.py`
+is GENERATED from EG's `epistemic_graph/contract/scopes.json`
+(`python scripts/gen_scope_registry.py --write`). A role the registry does not
+list is dropped at the session boundary, so a new scope needs an EG release, not
+an AU edit. Each scope has a class the EG identity store enforces:
+`user`/`domain` (humans and services), `service-only` (never a human),
+`approver` (humans only, through its one built-in group), `admin` (humans only).
 
+| Role | Class | Grants | Notes |
+|---|---|---|---|
+| `kg:read` | user | read-only graph access | base scope |
+| `kg:write` | user | graph mutation | **hierarchical** — expands to include `kg:read` |
+| `kg:admin` | admin | graph administration | **hierarchical** — expands to `kg:read` + `kg:write` |
+| `admin:cluster-read` | service-only | the engine's `PlacementRoute` capability | required by every placement resolution a service performs; missing it fails as `ACCESS_DENIED: verified request context lacks required scope 'admin:cluster-read'` |
+| `fleet:events` | service-only | the fleet event stream | graph-os's service identity |
+| `capacity:throttle` / `capacity:admin` / `capacity:lease` / `capacity:read` | service-only | capacity control | graph-os's service identity holds exactly these four |
+| `finance:alerts` / `finance:track` / `finance:backfill` / `finance:propose-order` | domain | the finance domain | users hold domain scopes; graph-os executes the infrastructure on their behalf |
+| `rbac:approve-elevation` | approver | approve a just-in-time elevation | only via the `elevation-approvers` group; never a service |
+| `finance:approve-live-order` | approver | approve a live order | only via `live-order-approvers` |
+| `identity:admin` / `identity:read` | admin | the EG identity store | exact scopes; `kg:admin` does not imply them |
+| `identity:authenticate` | service-only | the identity broker (graph-os) | sign-ins, sessions, token redemption |
+| `webui:admin` | admin | UI-level admin surfaces in agent-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
+
+The full list, with every class, is `contract/scopes.json` in epistemic-graph.
 (Hierarchy source: `agent_utilities/security/request_identity.py`,
-`_GRAPH_AUTH_SCOPES`.)
+`_resolve_authenticated_scopes`.)
 
 ### Required assignments
 

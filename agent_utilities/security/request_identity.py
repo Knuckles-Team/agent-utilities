@@ -69,6 +69,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from .actor_identity import ActorType
+from .scope_registry import SESSION_SCOPES
 from .brain_context import (
     ActorContext,
     CredentialExpiredError,
@@ -98,11 +99,14 @@ UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 
 # The only graph authorization scopes a served identity may project into a
-# GraphSession. They come from validated JWT capabilities (``ActorContext.roles``),
-# never from request JSON/headers. Only the explicit ``kg:admin`` capability —
-# supplied directly or through the configured identity mapping — grants graph
-# administration; a generic application role named ``admin`` is not equivalent.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
+# GraphSession: exactly the scopes epistemic-graph registers (IDM-05), GENERATED
+# from EG's scope registry into ``scope_registry.py`` -- never a hand-maintained
+# list. They come from validated JWT capabilities (``ActorContext.roles``),
+# never from request JSON/headers; EG re-checks every one against the verified
+# token and enforces each scope's class. Only the explicit ``kg:admin``
+# capability grants graph administration; a generic application role named
+# ``admin`` is not equivalent.
+_GRAPH_AUTH_SCOPES: frozenset[str] = SESSION_SCOPES
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
