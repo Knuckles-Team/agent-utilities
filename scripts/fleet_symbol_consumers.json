@@ -1,12 +1,12 @@
 {
   "_comment": "Fleet consumer index for check_removed_symbol_consumers.py. Maps a fully-qualified agent_utilities dotted target (module path + symbol name, OR a bare module path for a whole-module import) to every agents/*  and skills/* repo+file+line that imports it. Regenerate with `python3 scripts/gen_fleet_symbol_consumers.py --update` after any fleet-wide checkout refresh; the gate FAILS closed if this file is missing or older than its staleness threshold \u2014 see that script's docstring.",
-  "generated_at": "2026-09-02T17:43:51+00:00",
-  "workspace_manifest_sha256": "b3ec959806ace64a512b4b5e47d2eecc6b320ed7fca941e8f4424f0c0df29c7f",
-  "workspace_root": "/home/apps/workspace",
+  "generated_at": "2026-09-24T23:15:07+00:00",
+  "workspace_manifest_sha256": "c67110abf391c50425fb52242f5db4e98c82ab1e098f9a039cae8f6486bf5328",
+  "workspace_root": "/var/tmp/l9/wave-b-rest/ws-view",
   "repos_scanned": {
     "ansible-tower-mcp": {
       "kind": "agents",
-      "head_sha": "4c7effdd208a1dcddd3754f7a6d47070fbf28c4d"
+      "head_sha": "447ed4e529d21343fed01bc406381d71718a43c3"
     },
     "archimate-mcp": {
       "kind": "agents",
@@ -14,15 +14,15 @@
     },
     "archivebox-api": {
       "kind": "agents",
-      "head_sha": "1beaf3b896e7f3049ae3bf3e10fc9e2c96b79707"
+      "head_sha": "f29b0028c21884b4306f8e5d690ddfa05a5cd3c9"
     },
     "aris-mcp": {
       "kind": "agents",
-      "head_sha": "6fbdd585f9ef55caf82ef450e7d7194d2e2f883b"
+      "head_sha": "ec24de42c183129834abf30fcacbcfe099355be1"
     },
     "arr-mcp": {
       "kind": "agents",
-      "head_sha": "db41f285208c78aeee4440f2bebbfe9318fc97d6"
+      "head_sha": "fe0657145488d082c1faaa0e10208155d9181ff6"
     },
     "atlassian-agent": {
       "kind": "agents",
@@ -30,15 +30,15 @@
     },
     "audio-transcriber": {
       "kind": "agents",
-      "head_sha": "84b6218ff03b8281a8dac2fe3048c25311b2d948"
+      "head_sha": "f612ef4f1cce6a3669874390a1ed9c7a11cd55da"
     },
     "audiobookshelf-mcp": {
       "kind": "agents",
-      "head_sha": "98a8a921bcc3578068f54f8ab0750cfbd8511c9f"
+      "head_sha": "19c0d53f2f31137db603bcf6532f9f561409920e"
     },
     "caddy-mcp": {
       "kind": "agents",
-      "head_sha": "de69019487610b2ee580b226cf559b441e4f7ae2"
+      "head_sha": "91858f0e6d2f96405165871cb966c5bedf1357ad"
     },
     "camunda-mcp": {
       "kind": "agents",
@@ -46,15 +46,15 @@
     },
     "ciso-assistant-api": {
       "kind": "agents",
-      "head_sha": "f122e91cc42062adc06ec65dab7d7f5a6bb821cf"
+      "head_sha": "04992b722adf9c0e9eb9b528bf22da403eaeb0a6"
     },
     "clarity-api": {
       "kind": "agents",
-      "head_sha": "bf1af9c6e4cbd4a2255058259eccc08f757e26b6"
+      "head_sha": "11343c7c6b5c3ba23614248d0df6a3c50c0c9c9f"
     },
     "container-manager-mcp": {
       "kind": "agents",
-      "head_sha": "2a5d1200072c92c9024b7ce203b7e1a4f307498c"
+      "head_sha": "0e2014e4b21f8b4c289ec0f64b3f2312a55513cb"
     },
     "data-science-mcp": {
       "kind": "agents",
@@ -62,11 +62,11 @@
     },
     "dockerhub-api": {
       "kind": "agents",
-      "head_sha": "9b5ce3fbe0014f40ee37537ba163ad63ae9da551"
+      "head_sha": "d8632507256a08824db2d52f82dcd7b7a4214a40"
     },
     "documentdb-mcp": {
       "kind": "agents",
-      "head_sha": "5acb3d059b903e609f6e7d1d6e42d9e6164c16db"
+      "head_sha": "da9a32c4aa4fb80b661bc74d5383d9c6e4418de6"
     },
     "egeria-mcp": {
       "kind": "agents",
@@ -74,31 +74,31 @@
     },
     "emerald-exchange": {
       "kind": "agents",
-      "head_sha": "bcff30041a3053d5666a7c23ac8c71486c533b6e"
+      "head_sha": "5f96846137b71deee2b4b7fb6736f4ad319bb393"
     },
     "erpnext-agent": {
       "kind": "agents",
-      "head_sha": "abcbc19ede942195c459533c97a04328c83bda10"
+      "head_sha": "2b185e80d58e19965de97dff3d72de0851c3c3dc"
     },
     "fan-manager": {
       "kind": "agents",
-      "head_sha": "64484f461c993ae13dc2abc1f82865875751414b"
+      "head_sha": "f91ffed50ee18f8b6502fc47f4b97a2d6bc49777"
     },
     "firefly-iii-mcp": {
       "kind": "agents",
-      "head_sha": "65934469695f7bc30252e71143a3e73292145446"
+      "head_sha": "b4feeb1fe804451eceef91e6ee71e6b892934cb2"
     },
     "freshrss-agent": {
       "kind": "agents",
-      "head_sha": "2fdb90f3391b130e6601e0d278413707a5ed71f9"
+      "head_sha": "8a84a273ca0aee44d5eb4c841eec583861f1e082"
     },
     "genius-agent": {
       "kind": "agents",
-      "head_sha": "b311545f31a2fa4a0338748967d4b24fd85ad579"
+      "head_sha": "82dd3ec8ab6fdf569103c71cd35dc632914ffcf0"
     },
     "github-agent": {
       "kind": "agents",
-      "head_sha": "1c1392b1f602ad323111a56c6b86af2e3429a131"
+      "head_sha": "2be26eabeb72f60b53840912e00a6faf78f60d1c"
     },
     "gitlab-api": {
       "kind": "agents",
@@ -110,11 +110,11 @@
     },
     "hdhomerun-mcp": {
       "kind": "agents",
-      "head_sha": "210f3125cf4d0665886aa28efa3860997d484361"
+      "head_sha": "90b928040e95bfc5fb400ad7e2a88874b5ecc318"
     },
     "home-assistant-agent": {
       "kind": "agents",
-      "head_sha": "89bca87164a5d15d7f90e1a33be8d038e4a8bd43"
+      "head_sha": "bd47bc2014402e043dd6b519c0cb46c284ba9e5f"
     },
     "jellyfin-mcp": {
       "kind": "agents",
@@ -126,23 +126,23 @@
     },
     "kafka-mcp": {
       "kind": "agents",
-      "head_sha": "6141a9cf6f71f463f356dd96c666aad8673dcaa1"
+      "head_sha": "a3b519279d3ed89aed354c55ad2e9ffcc5cf8997"
     },
     "keycloak-agent": {
       "kind": "agents",
-      "head_sha": "8e82f12df80367a2ee49fec52b05b2ff99bb88bb"
+      "head_sha": "470e7b63147f608ff26d5f09a5e37542fb1af2ce"
     },
     "lakekeeper-mcp": {
       "kind": "agents",
-      "head_sha": "89c4d597cd6c570bc9ea913a0b4acd99333fcfb5"
+      "head_sha": "8d6f12cfcaca2f238aee00fab78f1326b22848a6"
     },
     "langfuse-agent": {
       "kind": "agents",
-      "head_sha": "f92209a9dbcbccaad470541b4565ad3cf7341f0d"
+      "head_sha": "4d3dffcfefcbd670a6bdcde7dace11d383296ab5"
     },
     "leanix-agent": {
       "kind": "agents",
-      "head_sha": "52302b25087265ec7abe20e6747f9a7a43338ba1"
+      "head_sha": "b116085d7df29756c4a5dc55ce18ddb11a1d8beb"
     },
     "legal-peripherals-mcp": {
       "kind": "agents",
@@ -150,7 +150,7 @@
     },
     "lgtm-mcp": {
       "kind": "agents",
-      "head_sha": "6532fcc3eb62382ed6d7ba6a90e1cac0f264c81c"
+      "head_sha": "69114effdf1bcca729040c084860583bd35ac54c"
     },
     "listmonk-api": {
       "kind": "agents",
@@ -158,23 +158,23 @@
     },
     "mattermost-mcp": {
       "kind": "agents",
-      "head_sha": "88819f54811fd201839dd3ea4f6f7ccde311732b"
+      "head_sha": "7f3a30afb1f31363578ffacfea9934d5da8290bb"
     },
     "mealie-mcp": {
       "kind": "agents",
-      "head_sha": "966f5df997e6834734b2ef2b486778715b062ce5"
+      "head_sha": "f0a6b0fa7781c4dd8d0d01de85fe535e6fbe0afd"
     },
     "media-downloader": {
       "kind": "agents",
-      "head_sha": "2a60db38c7d182c142325f8d1cbe2727def8c456"
+      "head_sha": "39bfcc59eb78b71ae6afe474741abe2168684d62"
     },
     "microsoft-agent": {
       "kind": "agents",
-      "head_sha": "c0e86758bf20e4ea0df36cc27d44ac0ac927c64a"
+      "head_sha": "e5c07083947aa420e9b5051800726d00ba396c08"
     },
     "nextcloud-agent": {
       "kind": "agents",
-      "head_sha": "60ff5ed1bbabec6833a3a76ae1cb06b8ad83a079"
+      "head_sha": "dac024ff593a1d4da19053bb1af8d720951ff1c5"
     },
     "objectstore-mcp": {
       "kind": "agents",
@@ -194,15 +194,15 @@
     },
     "opensearch-mcp": {
       "kind": "agents",
-      "head_sha": "ea8d6569475a23a42a91da22e5cbeba32e703718"
+      "head_sha": "e7b3f71b17d1c59522696260b8c0eec84072d9bc"
     },
     "owncast-agent": {
       "kind": "agents",
-      "head_sha": "d510ecf2a532599728d532ee094847dc5f3e64d7"
+      "head_sha": "a4acd8c6a52df3e450d23198c8af024f68fe1fed"
     },
     "paperless-ngx-mcp": {
       "kind": "agents",
-      "head_sha": "b8ff87f801dfb8a86c67a52465bd0128ed44b7f2"
+      "head_sha": "8f01b82f87895da0289e295e751183acdf2ffde9"
     },
     "plane-agent": {
       "kind": "agents",
@@ -214,7 +214,7 @@
     },
     "postiz-agent": {
       "kind": "agents",
-      "head_sha": "d558eac7fff1e191d6f9381633fa92b6bce455a1"
+      "head_sha": "b29e6191dfbf21bb5461240c709beaedad208f6e"
     },
     "pulselink-mcp": {
       "kind": "agents",
@@ -222,43 +222,43 @@
     },
     "qbittorrent-agent": {
       "kind": "agents",
-      "head_sha": "96aab0a4c115714e1f104c1bb3ebd8e7431203d6"
+      "head_sha": "12f6fdc0a77e35e000fe493e774af08b1346e4cc"
     },
     "repository-manager": {
       "kind": "agents",
-      "head_sha": "64064acdfbf06f0c36cc66fa67a19b68c5754768"
+      "head_sha": "15227b632c59bbd0963a39ebd002fb233bea259d"
     },
     "rom-manager": {
       "kind": "agents",
-      "head_sha": "8e251c7a8e56586ebd06d034fff9f452f1b8eb63"
+      "head_sha": "85a1be142d30051e0b26f808103902008ff6ce06"
     },
     "salesforce-agent": {
       "kind": "agents",
-      "head_sha": "447a3573365f7d48a94640476997302ee001450d"
+      "head_sha": "d800200b064a19b6c6ad3cbb417353eb38c438a0"
     },
     "scholarx": {
       "kind": "agents",
-      "head_sha": "83eb1dc9451a8c05355cba4cf5710c14d00d67ff"
+      "head_sha": "5461435f4157ab75e925d5d9fb2551ee5f151590"
     },
     "searxng-mcp": {
       "kind": "agents",
-      "head_sha": "ea86717ceaf6edf1b88ef07c4a914a29086b8a17"
+      "head_sha": "e6a5c8224495575081af074e4549d960d4114f94"
     },
     "servicenow-api": {
       "kind": "agents",
-      "head_sha": "8dabe2be79b00920ecc4c3e6487d124ba228341d"
+      "head_sha": "927c3f888fdee8bc9bdfb49c5b48a29eaa701bd7"
     },
     "spark-mcp": {
       "kind": "agents",
-      "head_sha": "83bb4f423a5a23f51d913fa4fa93b59c3bf724b6"
+      "head_sha": "87b683f81fe8c6d8495f6a7c1fb836da217079c0"
     },
     "sql-mcp": {
       "kind": "agents",
-      "head_sha": "a090c11225bfa6cd40176982c2d63accb5f416ae"
+      "head_sha": "4cdce7d09ddc654e7de16c954b126a57eb2bd2fb"
     },
     "stirlingpdf-agent": {
       "kind": "agents",
-      "head_sha": "a08e4d8f02f13da9f18a7cf7a5e005bc67570eb2"
+      "head_sha": "59a839de506d1691cf0c635d19958837cea0fc79"
     },
     "systems-manager": {
       "kind": "agents",
@@ -266,27 +266,31 @@
     },
     "technitium-dns-mcp": {
       "kind": "agents",
-      "head_sha": "21d32ede4a3853b986e0943145dd7987628f7682"
+      "head_sha": "a7d03d30de1a40ed8552c93b8460891d42774b59"
     },
     "tunnel-manager": {
       "kind": "agents",
-      "head_sha": "aa43e8b2f3726911ef830ecc62e226315b7703b0"
+      "head_sha": "9e575b4779c4a88af455514779a5e8534b83f820"
     },
     "twenty-mcp": {
       "kind": "agents",
-      "head_sha": "29415243bc968729705a40ff24aad05f36b8c7be"
+      "head_sha": "130eea93dece4d418411f5184275cad64a77ce78"
     },
     "uptime-kuma-agent": {
       "kind": "agents",
-      "head_sha": "a9f7c77f33f7ade04e708cee516f7862b7e1529d"
+      "head_sha": "efceda640cdb60bef8103700f92a0603572825ed"
+    },
+    "vaultwarden-mcp": {
+      "kind": "agents",
+      "head_sha": "2118ba7ad95ebbbed508e900c5c28093719af4eb"
     },
     "vector-mcp": {
       "kind": "agents",
-      "head_sha": "6a7ca1316feb2e4ace4dc563e72714d2da0256b9"
+      "head_sha": "4b338b78d966a45c086743a5181773d67433915d"
     },
     "wger-agent": {
       "kind": "agents",
-      "head_sha": "b5476348ebff5bb0a98bc87993fb3c67643420ab"
+      "head_sha": "8d7540c696b49481c071145ac231f38b007f6311"
     },
     "skill-graphs": {
       "kind": "skills",
@@ -294,7 +298,7 @@
     },
     "universal-skills": {
       "kind": "skills",
-      "head_sha": "0bb8efa5f7d559813a14af2414997ca8b433818d"
+      "head_sha": "90d97ea62d07d1fda8665aea64b4d5d11c886cee"
     }
   },
   "repos_missing_locally": [],
@@ -473,7 +477,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/api/api_client_base.py",
-        "line": 9
+        "line": 8
       },
       {
         "repo": "freshrss-agent",
@@ -844,6 +848,16 @@
         "repo": "universal-skills",
         "file": "universal_skills/docs/document-converter/scripts/convert.py",
         "line": 10
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 19
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp_server.py",
+        "line": 7
       }
     ],
     "agent_utilities.base_utilities.retrieve_package_name": [
@@ -854,11 +868,6 @@
       }
     ],
     "agent_utilities.base_utilities.to_boolean": [
-      {
-        "repo": "aris-mcp",
-        "file": "aris_mcp/auth.py",
-        "line": 4
-      },
       {
         "repo": "aris-mcp",
         "file": "aris_mcp/mcp/mcp_aris.py",
@@ -898,11 +907,6 @@
         "repo": "tunnel-manager",
         "file": "tunnel_manager/mcp/mcp_inventory.py",
         "line": 13
-      },
-      {
-        "repo": "vector-mcp",
-        "file": "tests/test_auth.py",
-        "line": 5
       }
     ],
     "agent_utilities.base_utilities.to_integer": [
@@ -1249,6 +1253,11 @@
         "line": 23
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 19
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/agent_server.py",
         "line": 27
@@ -1310,6 +1319,11 @@
         "repo": "universal-skills",
         "file": "universal_skills/research/web-search/scripts/http_runtime.py",
         "line": 13
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 20
       }
     ],
     "agent_utilities.core.config.config": [
@@ -1398,7 +1412,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 31
+        "line": 34
       },
       {
         "repo": "data-science-mcp",
@@ -1538,7 +1552,7 @@
       {
         "repo": "media-downloader",
         "file": "media_downloader/mcp_server.py",
-        "line": 27
+        "line": 28
       },
       {
         "repo": "microsoft-agent",
@@ -1679,6 +1693,11 @@
         "repo": "uptime-kuma-agent",
         "file": "uptime_kuma_agent/mcp_server.py",
         "line": 26
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp_server.py",
+        "line": 8
       },
       {
         "repo": "vector-mcp",
@@ -2231,6 +2250,11 @@
       },
       {
         "repo": "repository-manager",
+        "file": "repository_manager/governance/lanes.py",
+        "line": 70
+      },
+      {
+        "repo": "repository-manager",
         "file": "repository_manager/mcp_server.py",
         "line": 29
       },
@@ -2420,14 +2444,14 @@
         "line": 7
       },
       {
-        "repo": "vector-mcp",
-        "file": "vector_mcp/agent_server.py",
-        "line": 9
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 6
       },
       {
         "repo": "vector-mcp",
-        "file": "vector_mcp/auth.py",
-        "line": 3
+        "file": "vector_mcp/agent_server.py",
+        "line": 9
       },
       {
         "repo": "vector-mcp",
@@ -2696,7 +2720,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 295
+        "line": 301
       },
       {
         "repo": "dockerhub-api",
@@ -2803,7 +2827,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 295
+        "line": 301
       },
       {
         "repo": "dockerhub-api",
@@ -2838,7 +2862,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/api/api_client_base.py",
-        "line": 10
+        "line": 9
       },
       {
         "repo": "freshrss-agent",
@@ -3149,6 +3173,11 @@
         "repo": "stirlingpdf-agent",
         "file": "tests/test_coverage_enhancement.py",
         "line": 11
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 21
       },
       {
         "repo": "wger-agent",
@@ -3891,7 +3920,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 295
+        "line": 301
       },
       {
         "repo": "dockerhub-api",
@@ -3911,7 +3940,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/api/api_client_base.py",
-        "line": 10
+        "line": 9
       },
       {
         "repo": "freshrss-agent",
@@ -4184,6 +4213,11 @@
         "line": 11
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 21
+      },
+      {
         "repo": "wger-agent",
         "file": "tests/test_coverage_booster.py",
         "line": 10
@@ -4236,6 +4270,11 @@
         "repo": "universal-skills",
         "file": "universal_skills/research/web-crawler/scripts/security_runtime.py",
         "line": 22
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/api/api_client_base.py",
+        "line": 26
       }
     ],
     "agent_utilities.core.http_client.pinned_egress_transport": [
@@ -4320,19 +4359,26 @@
       {
         "repo": "universal-skills",
         "file": "universal_skills/research/comparative-analysis/scripts/rank_relevance.py",
-        "line": 349
+        "line": 348
       }
     ],
     "agent_utilities.core.paths.log_dir": [
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 828
+        "line": 847
       },
       {
         "repo": "repository-manager",
         "file": "tests/test_agent_integration.py",
         "line": 51
+      }
+    ],
+    "agent_utilities.core.paths.skills_dir": [
+      {
+        "repo": "media-downloader",
+        "file": "media_downloader/media_downloader.py",
+        "line": 775
       }
     ],
     "agent_utilities.core.provider_runtime.PreparedProviderChildRuntime": [
@@ -4359,6 +4405,11 @@
         "repo": "leanix-agent",
         "file": "tests/test_official_mcp_live_path.py",
         "line": 11
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 22
       }
     ],
     "agent_utilities.core.provider_runtime.get_provider_runtime_profile": [
@@ -4380,6 +4431,11 @@
         "repo": "leanix-agent",
         "file": "leanix_agent/official_mcp.py",
         "line": 24
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 22
       }
     ],
     "agent_utilities.core.provider_runtime.resolve_selected_provider_runtime_profile": [
@@ -4413,6 +4469,21 @@
         "repo": "archivebox-api",
         "file": "archivebox_api/api/api_client_base.py",
         "line": 9
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "aris_mcp/api/api_client_aris.py",
+        "line": 22
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "aris_mcp/api/api_client_base.py",
+        "line": 7
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "aris_mcp/auth.py",
+        "line": 6
       },
       {
         "repo": "arr-mcp",
@@ -4720,6 +4791,16 @@
         "line": 22
       },
       {
+        "repo": "freshrss-agent",
+        "file": "freshrss_agent/api/api_client_base.py",
+        "line": 10
+      },
+      {
+        "repo": "freshrss-agent",
+        "file": "freshrss_agent/auth.py",
+        "line": 20
+      },
+      {
         "repo": "github-agent",
         "file": "github_agent/api/api_client_base.py",
         "line": 16
@@ -4758,6 +4839,16 @@
         "repo": "gramps-mcp",
         "file": "gramps_mcp/auth.py",
         "line": 10
+      },
+      {
+        "repo": "hdhomerun-mcp",
+        "file": "hdhomerun_mcp/api/api_client_base.py",
+        "line": 18
+      },
+      {
+        "repo": "hdhomerun-mcp",
+        "file": "hdhomerun_mcp/auth.py",
+        "line": 28
       },
       {
         "repo": "home-assistant-agent",
@@ -5025,6 +5116,11 @@
         "line": 28
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/api/api_client_base.py",
+        "line": 27
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/vector_api.py",
         "line": 24
@@ -5072,6 +5168,16 @@
         "repo": "archivebox-api",
         "file": "archivebox_api/auth.py",
         "line": 5
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "aris_mcp/api/api_client_base.py",
+        "line": 7
+      },
+      {
+        "repo": "aris-mcp",
+        "file": "aris_mcp/auth.py",
+        "line": 6
       },
       {
         "repo": "atlassian-agent",
@@ -5184,6 +5290,16 @@
         "line": 12
       },
       {
+        "repo": "freshrss-agent",
+        "file": "freshrss_agent/api/api_client_base.py",
+        "line": 10
+      },
+      {
+        "repo": "freshrss-agent",
+        "file": "freshrss_agent/auth.py",
+        "line": 20
+      },
+      {
         "repo": "github-agent",
         "file": "github_agent/api/api_client_base.py",
         "line": 16
@@ -5217,6 +5333,16 @@
         "repo": "gramps-mcp",
         "file": "scripts/validate_a2a_agent.py",
         "line": 12
+      },
+      {
+        "repo": "hdhomerun-mcp",
+        "file": "hdhomerun_mcp/api/api_client_base.py",
+        "line": 18
+      },
+      {
+        "repo": "hdhomerun-mcp",
+        "file": "hdhomerun_mcp/auth.py",
+        "line": 28
       },
       {
         "repo": "home-assistant-agent",
@@ -6160,6 +6286,11 @@
         "line": 23
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 19
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/agent_server.py",
         "line": 27
@@ -6497,6 +6628,11 @@
         "line": 23
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 19
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/agent_server.py",
         "line": 27
@@ -6659,259 +6795,6 @@
         "repo": "fan-manager",
         "file": "tests/test_concept_parity.py",
         "line": 8
-      }
-    ],
-    "agent_utilities.governance.lanes": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/lane_doctor.py",
-        "line": 129
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/prune_guard.py",
-        "line": 61
-      }
-    ],
-    "agent_utilities.governance.lanes.DEFAULT_LEASE_TTL_SECONDS": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      }
-    ],
-    "agent_utilities.governance.lanes.FragmentStore": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      }
-    ],
-    "agent_utilities.governance.lanes.LaneArbitrationError": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_queue.py",
-        "line": 70
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/cli_commands/build_queue.py",
-        "line": 11
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/cli_commands/merge_queue.py",
-        "line": 11
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/mcp_tools/build.py",
-        "line": 100
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/mcp_tools/merge_queue.py",
-        "line": 115
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      }
-    ],
-    "agent_utilities.governance.lanes.LaneScope": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_p06_invariants.py",
-        "line": 15
-      }
-    ],
-    "agent_utilities.governance.lanes.LeaseUnavailable": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_queue.py",
-        "line": 70
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/cli_commands/merge_queue.py",
-        "line": 11
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/mcp_tools/merge_queue.py",
-        "line": 115
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 3475
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1312
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1652
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_task_queue.py",
-        "line": 200
-      }
-    ],
-    "agent_utilities.governance.lanes.guarded_tree_mutation": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      }
-    ],
-    "agent_utilities.governance.lanes.hold_lease": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_queue.py",
-        "line": 70
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      }
-    ],
-    "agent_utilities.governance.lanes.is_pid_alive": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      }
-    ],
-    "agent_utilities.governance.lanes.lane_name": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/safe_commit.py",
-        "line": 37
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/stash_guard.py",
-        "line": 201
-      }
-    ],
-    "agent_utilities.governance.lanes.lane_scope": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_artifacts.py",
-        "line": 32
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_queue.py",
-        "line": 70
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 970
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1082
-      }
-    ],
-    "agent_utilities.governance.lanes.lease_status": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1652
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1698
-      }
-    ],
-    "agent_utilities.governance.lanes.partitioned_paths": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/build_queue.py",
-        "line": 70
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/merge_queue.py",
-        "line": 103
-      },
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_merge_queue.py",
-        "line": 1082
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/test_p06_invariants.py",
-        "line": 15
-      }
-    ],
-    "agent_utilities.governance.lanes.workspace_arbitration_dir": [
-      {
-        "repo": "repository-manager",
-        "file": "repository_manager/task_queue.py",
-        "line": 116
       }
     ],
     "agent_utilities.graph.builder": [
@@ -7467,6 +7350,11 @@
         "line": 23
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 19
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/agent_server.py",
         "line": 27
@@ -7529,7 +7417,7 @@
       {
         "repo": "universal-skills",
         "file": "universal_skills/research/comparative-analysis/scripts/rank_relevance.py",
-        "line": 348
+        "line": 347
       },
       {
         "repo": "universal-skills",
@@ -7541,12 +7429,22 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/build_artifacts.py",
-        "line": 33
+        "line": 32
       },
       {
         "repo": "repository-manager",
         "file": "repository_manager/fairness.py",
         "line": 25
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/concept_allocator.py",
+        "line": 55
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/lanes.py",
+        "line": 75
       },
       {
         "repo": "repository-manager",
@@ -7556,7 +7454,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/task_queue.py",
-        "line": 129
+        "line": 116
       }
     ],
     "agent_utilities.knowledge_graph.core.file_lock.lock_exclusive_nb": [
@@ -7575,7 +7473,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/build_artifacts.py",
-        "line": 33
+        "line": 32
       },
       {
         "repo": "repository-manager",
@@ -7586,6 +7484,16 @@
         "repo": "repository-manager",
         "file": "repository_manager/fairness.py",
         "line": 25
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/concept_allocator.py",
+        "line": 55
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/lanes.py",
+        "line": 75
       },
       {
         "repo": "repository-manager",
@@ -7600,7 +7508,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/task_queue.py",
-        "line": 129
+        "line": 116
       }
     ],
     "agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine": [
@@ -7680,6 +7588,13 @@
         "line": 41
       }
     ],
+    "agent_utilities.knowledge_graph.core.owl_bridge.register_promotable_node_types": [
+      {
+        "repo": "leanix-agent",
+        "file": "leanix_agent/metamodel.py",
+        "line": 477
+      }
+    ],
     "agent_utilities.knowledge_graph.core.session.GraphSession": [
       {
         "repo": "ansible-tower-mcp",
@@ -7719,7 +7634,7 @@
       {
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "camunda-mcp",
@@ -7769,7 +7684,7 @@
       {
         "repo": "erpnext-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 14
       },
       {
         "repo": "fan-manager",
@@ -7819,7 +7734,7 @@
       {
         "repo": "keycloak-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "langfuse-agent",
@@ -7839,7 +7754,7 @@
       {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "listmonk-api",
@@ -7849,7 +7764,7 @@
       {
         "repo": "mattermost-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "mealie-mcp",
@@ -7959,7 +7874,7 @@
       {
         "repo": "twenty-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "uptime-kuma-agent",
@@ -8042,7 +7957,7 @@
       {
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "camunda-mcp",
@@ -8092,7 +8007,7 @@
       {
         "repo": "erpnext-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 14
       },
       {
         "repo": "fan-manager",
@@ -8142,7 +8057,7 @@
       {
         "repo": "keycloak-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "langfuse-agent",
@@ -8162,7 +8077,7 @@
       {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "listmonk-api",
@@ -8172,7 +8087,7 @@
       {
         "repo": "mattermost-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "mealie-mcp",
@@ -8282,7 +8197,7 @@
       {
         "repo": "twenty-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "uptime-kuma-agent",
@@ -8334,7 +8249,7 @@
       {
         "repo": "universal-skills",
         "file": "universal_skills/research/comparative-analysis/scripts/discover_projects.py",
-        "line": 397
+        "line": 502
       }
     ],
     "agent_utilities.knowledge_graph.enrichment.extractors.social.extract_structured_entities": [
@@ -8570,7 +8485,7 @@
       {
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "camunda-mcp",
@@ -8590,7 +8505,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 1335
+        "line": 1352
       },
       {
         "repo": "container-manager-mcp",
@@ -8625,7 +8540,7 @@
       {
         "repo": "erpnext-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 14
+        "line": 15
       },
       {
         "repo": "fan-manager",
@@ -8675,7 +8590,7 @@
       {
         "repo": "keycloak-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 17
       },
       {
         "repo": "langfuse-agent",
@@ -8705,7 +8620,7 @@
       {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "listmonk-api",
@@ -8720,7 +8635,7 @@
       {
         "repo": "mattermost-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "mattermost-mcp",
@@ -8890,7 +8805,7 @@
       {
         "repo": "twenty-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 17
       },
       {
         "repo": "uptime-kuma-agent",
@@ -8992,7 +8907,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/kg_ingest.py",
-        "line": 32
+        "line": 35
       },
       {
         "repo": "genius-agent",
@@ -9002,7 +8917,7 @@
       {
         "repo": "github-agent",
         "file": "github_agent/kg_ingest.py",
-        "line": 25
+        "line": 28
       },
       {
         "repo": "gramps-mcp",
@@ -9224,7 +9139,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/kg_ingest.py",
-        "line": 32
+        "line": 38
       },
       {
         "repo": "genius-agent",
@@ -9234,7 +9149,7 @@
       {
         "repo": "github-agent",
         "file": "github_agent/kg_ingest.py",
-        "line": 25
+        "line": 31
       },
       {
         "repo": "gitlab-api",
@@ -9627,7 +9542,7 @@
       {
         "repo": "universal-skills",
         "file": "universal_skills/research/comparative-analysis/scripts/discover_projects.py",
-        "line": 396
+        "line": 501
       }
     ],
     "agent_utilities.load_identity": [
@@ -9957,6 +9872,11 @@
         "line": 23
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/agent_server.py",
+        "line": 19
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/agent_server.py",
         "line": 27
@@ -10156,7 +10076,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 32
+        "line": 35
       },
       {
         "repo": "firefly-iii-mcp",
@@ -10926,12 +10846,12 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/concept_actions.py",
-        "line": 138
+        "line": 135
       },
       {
         "repo": "repository-manager",
         "file": "repository_manager/gate_runner.py",
-        "line": 443
+        "line": 484
       },
       {
         "repo": "repository-manager",
@@ -11012,6 +10932,31 @@
         "repo": "uptime-kuma-agent",
         "file": "uptime_kuma_agent/mcp_server.py",
         "line": 27
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/_dispatch.py",
+        "line": 17
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_ciphers.py",
+        "line": 6
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_folders.py",
+        "line": 5
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_maintenance.py",
+        "line": 6
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_system.py",
+        "line": 3
       },
       {
         "repo": "vector-mcp",
@@ -11318,7 +11263,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_docker_swarm.py",
-        "line": 11
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
@@ -11328,57 +11273,57 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_cluster.py",
-        "line": 11
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_config.py",
-        "line": 11
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_governance.py",
-        "line": 10
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_networking.py",
-        "line": 12
+        "line": 13
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_observability.py",
-        "line": 10
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_rbac.py",
-        "line": 12
+        "line": 13
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_storage.py",
-        "line": 12
+        "line": 13
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_workloads.py",
-        "line": 10
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_multi_context.py",
-        "line": 10
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_podman.py",
-        "line": 12
+        "line": 13
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 33
+        "line": 36
       },
       {
         "repo": "container-manager-mcp",
@@ -12096,6 +12041,31 @@
         "line": 28
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/_dispatch.py",
+        "line": 18
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_ciphers.py",
+        "line": 7
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_folders.py",
+        "line": 6
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_maintenance.py",
+        "line": 7
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp/mcp_system.py",
+        "line": 4
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/mcp_server.py",
         "line": 30
@@ -12105,7 +12075,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 62
+        "line": 65
       },
       {
         "repo": "systems-manager",
@@ -12181,7 +12151,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 142
+        "line": 145
       },
       {
         "repo": "systems-manager",
@@ -12233,7 +12203,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 41
+        "line": 44
       },
       {
         "repo": "tunnel-manager",
@@ -12307,7 +12277,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/auth.py",
-        "line": 44
+        "line": 52
       },
       {
         "repo": "gitlab-api",
@@ -12327,7 +12297,7 @@
       {
         "repo": "hdhomerun-mcp",
         "file": "hdhomerun_mcp/auth.py",
-        "line": 39
+        "line": 43
       },
       {
         "repo": "leanix-agent",
@@ -12363,6 +12333,11 @@
         "repo": "twenty-mcp",
         "file": "twenty_mcp/auth.py",
         "line": 75
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 59
       }
     ],
     "agent_utilities.mcp.delegated_auth.get_user_identity": [
@@ -12374,12 +12349,12 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/auth.py",
-        "line": 44
+        "line": 52
       },
       {
         "repo": "hdhomerun-mcp",
         "file": "hdhomerun_mcp/auth.py",
-        "line": 39
+        "line": 43
       },
       {
         "repo": "servicenow-api",
@@ -12390,6 +12365,11 @@
         "repo": "twenty-mcp",
         "file": "twenty_mcp/auth.py",
         "line": 75
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 59
       }
     ],
     "agent_utilities.mcp.delegated_auth.get_user_token": [
@@ -12433,7 +12413,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/auth.py",
-        "line": 44
+        "line": 52
       },
       {
         "repo": "gitlab-api",
@@ -12448,12 +12428,12 @@
       {
         "repo": "gramps-mcp",
         "file": "gramps_mcp/auth.py",
-        "line": 119
+        "line": 117
       },
       {
         "repo": "hdhomerun-mcp",
         "file": "hdhomerun_mcp/auth.py",
-        "line": 105
+        "line": 121
       },
       {
         "repo": "langfuse-agent",
@@ -12499,6 +12479,11 @@
         "repo": "twenty-mcp",
         "file": "twenty_mcp/auth.py",
         "line": 75
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/auth.py",
+        "line": 59
       }
     ],
     "agent_utilities.mcp.multiplexer": [
@@ -12586,7 +12571,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 34
+        "line": 37
       },
       {
         "repo": "data-science-mcp",
@@ -12726,7 +12711,7 @@
       {
         "repo": "media-downloader",
         "file": "media_downloader/mcp_server.py",
-        "line": 28
+        "line": 29
       },
       {
         "repo": "microsoft-agent",
@@ -12816,7 +12801,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 581
+        "line": 579
       },
       {
         "repo": "searxng-mcp",
@@ -12869,6 +12854,11 @@
         "line": 29
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp_server.py",
+        "line": 9
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/mcp_server.py",
         "line": 31
@@ -12883,12 +12873,12 @@
       {
         "repo": "github-agent",
         "file": "github_agent/auth.py",
-        "line": 154
+        "line": 158
       },
       {
         "repo": "github-agent",
         "file": "github_agent/auth.py",
-        "line": 187
+        "line": 191
       },
       {
         "repo": "listmonk-api",
@@ -12910,7 +12900,7 @@
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/mcp_server.py",
-        "line": 3646
+        "line": 3644
       }
     ],
     "agent_utilities.mcp.tools.intent_tools._approval_satisfied_by_session_load": [
@@ -12923,6 +12913,13 @@
         "repo": "spark-mcp",
         "file": "tests/test_ownership.py",
         "line": 124
+      }
+    ],
+    "agent_utilities.mcp.verbose_tools._domain_methods": [
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "tests/test_operations.py",
+        "line": 16
       }
     ],
     "agent_utilities.mcp.verbose_tools._provider_tools": [
@@ -12996,7 +12993,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 35
+        "line": 38
       },
       {
         "repo": "data-science-mcp",
@@ -13131,7 +13128,7 @@
       {
         "repo": "media-downloader",
         "file": "media_downloader/mcp_server.py",
-        "line": 29
+        "line": 30
       },
       {
         "repo": "microsoft-agent",
@@ -13269,6 +13266,11 @@
         "line": 30
       },
       {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/mcp_server.py",
+        "line": 10
+      },
+      {
         "repo": "vector-mcp",
         "file": "vector_mcp/mcp_server.py",
         "line": 32
@@ -13301,253 +13303,6 @@
         "repo": "genius-agent",
         "file": "tests/test_graph_flow_integration.py",
         "line": 342
-      }
-    ],
-    "agent_utilities.models.company_brain.ActorType": [
-      {
-        "repo": "ansible-tower-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "archivebox-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 19
-      },
-      {
-        "repo": "arr-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "audio-transcriber",
-        "file": "tests/test_kg_ingest.py",
-        "line": 19
-      },
-      {
-        "repo": "audiobookshelf-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
-      },
-      {
-        "repo": "caddy-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "clarity-api",
-        "file": "tests/conftest.py",
-        "line": 6
-      },
-      {
-        "repo": "clarity-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 19
-      },
-      {
-        "repo": "container-manager-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 21
-      },
-      {
-        "repo": "dockerhub-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "documentdb-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "emerald-exchange",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "erpnext-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 16
-      },
-      {
-        "repo": "fan-manager",
-        "file": "tests/test_kg_ingest.py",
-        "line": 21
-      },
-      {
-        "repo": "firefly-iii-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
-      },
-      {
-        "repo": "freshrss-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
-      },
-      {
-        "repo": "genius-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 25
-      },
-      {
-        "repo": "github-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 60
-      },
-      {
-        "repo": "gitlab-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 22
-      },
-      {
-        "repo": "gramps-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
-      },
-      {
-        "repo": "jellyfin-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "kafka-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "keycloak-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "langfuse-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "lgtm-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "mattermost-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "mealie-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 19
-      },
-      {
-        "repo": "objectstore-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "okta-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "onetrust-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "openbao-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "owncast-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 23
-      },
-      {
-        "repo": "plane-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "portainer-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 54
-      },
-      {
-        "repo": "postiz-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "qbittorrent-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 24
-      },
-      {
-        "repo": "repository-manager",
-        "file": "tests/conftest.py",
-        "line": 10
-      },
-      {
-        "repo": "rom-manager",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "salesforce-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "scholarx",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "searxng-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 19
-      },
-      {
-        "repo": "servicenow-api",
-        "file": "tests/test_kg_ingest.py",
-        "line": 55
-      },
-      {
-        "repo": "sql-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 21
-      },
-      {
-        "repo": "stirlingpdf-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "technitium-dns-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "tunnel-manager",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "twenty-mcp",
-        "file": "tests/test_kg_ingest.py",
-        "line": 18
-      },
-      {
-        "repo": "uptime-kuma-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
-      },
-      {
-        "repo": "wger-agent",
-        "file": "tests/test_kg_ingest.py",
-        "line": 17
       }
     ],
     "agent_utilities.models.domains.finance.MicrostructureSignalNode": [
@@ -13995,14 +13750,44 @@
     ],
     "agent_utilities.security.actor_identity.ActorType": [
       {
+        "repo": "ansible-tower-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
         "repo": "archimate-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 18
       },
       {
+        "repo": "archivebox-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 19
+      },
+      {
         "repo": "aris-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 24
+      },
+      {
+        "repo": "arr-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "audio-transcriber",
+        "file": "tests/test_kg_ingest.py",
+        "line": 19
+      },
+      {
+        "repo": "audiobookshelf-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "caddy-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
       },
       {
         "repo": "camunda-mcp",
@@ -14015,9 +13800,99 @@
         "line": 25
       },
       {
+        "repo": "clarity-api",
+        "file": "tests/conftest.py",
+        "line": 6
+      },
+      {
+        "repo": "clarity-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 19
+      },
+      {
+        "repo": "container-manager-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 21
+      },
+      {
+        "repo": "dockerhub-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "documentdb-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
         "repo": "egeria-mcp",
         "file": "tests/test_kg_ingest.py",
         "line": 18
+      },
+      {
+        "repo": "emerald-exchange",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "erpnext-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 16
+      },
+      {
+        "repo": "fan-manager",
+        "file": "tests/test_kg_ingest.py",
+        "line": 21
+      },
+      {
+        "repo": "firefly-iii-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "freshrss-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "genius-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 25
+      },
+      {
+        "repo": "github-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 60
+      },
+      {
+        "repo": "gitlab-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 22
+      },
+      {
+        "repo": "gramps-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "jellyfin-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "kafka-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "keycloak-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "langfuse-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
       },
       {
         "repo": "legal-peripherals-mcp",
@@ -14025,9 +13900,134 @@
         "line": 16
       },
       {
+        "repo": "lgtm-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
         "repo": "listmonk-api",
         "file": "tests/test_kg_ingest.py",
         "line": 26
+      },
+      {
+        "repo": "mattermost-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "mealie-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 19
+      },
+      {
+        "repo": "objectstore-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "okta-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "onetrust-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "openbao-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "owncast-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 23
+      },
+      {
+        "repo": "plane-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "portainer-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 54
+      },
+      {
+        "repo": "postiz-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "qbittorrent-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 24
+      },
+      {
+        "repo": "repository-manager",
+        "file": "tests/conftest.py",
+        "line": 10
+      },
+      {
+        "repo": "rom-manager",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "salesforce-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "scholarx",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "searxng-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 19
+      },
+      {
+        "repo": "servicenow-api",
+        "file": "tests/test_kg_ingest.py",
+        "line": 55
+      },
+      {
+        "repo": "sql-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 21
+      },
+      {
+        "repo": "stirlingpdf-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "technitium-dns-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "tunnel-manager",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "twenty-mcp",
+        "file": "tests/test_kg_ingest.py",
+        "line": 18
+      },
+      {
+        "repo": "uptime-kuma-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
+      },
+      {
+        "repo": "wger-agent",
+        "file": "tests/test_kg_ingest.py",
+        "line": 17
       }
     ],
     "agent_utilities.security.brain_context.ActorContext": [
@@ -14069,7 +14069,7 @@
       {
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "camunda-mcp",
@@ -14119,7 +14119,7 @@
       {
         "repo": "erpnext-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 17
       },
       {
         "repo": "fan-manager",
@@ -14169,7 +14169,7 @@
       {
         "repo": "keycloak-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "langfuse-agent",
@@ -14189,7 +14189,7 @@
       {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "listmonk-api",
@@ -14199,7 +14199,7 @@
       {
         "repo": "mattermost-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "mealie-mcp",
@@ -14319,7 +14319,7 @@
       {
         "repo": "twenty-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "uptime-kuma-agent",
@@ -14395,7 +14395,7 @@
       {
         "repo": "caddy-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "camunda-mcp",
@@ -14445,7 +14445,7 @@
       {
         "repo": "erpnext-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 17
       },
       {
         "repo": "fan-manager",
@@ -14495,7 +14495,7 @@
       {
         "repo": "keycloak-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "legal-peripherals-mcp",
@@ -14505,7 +14505,7 @@
       {
         "repo": "lgtm-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "listmonk-api",
@@ -14515,7 +14515,7 @@
       {
         "repo": "mattermost-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "mealie-mcp",
@@ -14625,7 +14625,7 @@
       {
         "repo": "twenty-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "uptime-kuma-agent",
@@ -14861,6 +14861,21 @@
         "line": 13
       },
       {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/concept_allocator.py",
+        "line": 566
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/concept_allocator.py",
+        "line": 637
+      },
+      {
+        "repo": "repository-manager",
+        "file": "repository_manager/governance/concept_reservation.py",
+        "line": 42
+      },
+      {
         "repo": "universal-skills",
         "file": "universal_skills/research/web-crawler/scripts/security_runtime.py",
         "line": 31
@@ -14900,7 +14915,7 @@
       {
         "repo": "repository-manager",
         "file": "repository_manager/repository_manager.py",
-        "line": 387
+        "line": 388
       },
       {
         "repo": "repository-manager",
@@ -14921,6 +14936,11 @@
         "repo": "universal-skills",
         "file": "universal_skills/research/web-crawler/scripts/security_runtime.py",
         "line": 31
+      },
+      {
+        "repo": "vaultwarden-mcp",
+        "file": "vaultwarden_mcp/error_authority.py",
+        "line": 21
       }
     ],
     "agent_utilities.security.request_identity.apply_served_security_profile": [
@@ -14932,7 +14952,7 @@
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/mcp_server.py",
-        "line": 3649
+        "line": 3647
       }
     ],
     "agent_utilities.security.secrets_client.InEpistemicGraphBackend": [
