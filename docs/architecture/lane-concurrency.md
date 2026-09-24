@@ -20,22 +20,17 @@ Implementation: [`agent_utilities/governance/lanes.py`](../../agent_utilities/go
 
 ## Why the shared git directory is the arbitration scope
 
-```mermaid
-flowchart LR
-    subgraph repo["one repository"]
-        canonical["canonical checkout<br/>(main worktree)<br/>READ-ONLY to lanes"]
-        w1["worktree: lane-a"]
-        w2["worktree: lane-b"]
-        w3["worktree: lane-c"]
-        common[(".git/ — the shared<br/>--git-common-dir")]
-        canonical --- common
-        w1 --- common
-        w2 --- common
-        w3 --- common
-    end
-    common --> arb["<b>.git/agent-lanes/</b><br/>leases · claims log · lane state"]
-    host[("host-wide state dir<br/>agent-lanes/")] --> arb2["workspace-scoped leases<br/>(the shared .venv / uv.lock)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The shared .git-common-dir is the arbitration scope</p>
+
+Within one repository, the canonical checkout (main worktree, read-only
+to lanes) and every lane worktree (lane-a, lane-b, lane-c) all share the
+same `.git/` (`--git-common-dir`). That shared `.git/` is where
+`.git/agent-lanes/` lives — leases, claims log, and lane state — making
+it the natural arbitration scope. Separately, a host-wide state dir
+(`agent-lanes/`) arbitrates workspace-scoped leases, such as the shared
+`.venv`/`uv.lock`.
+</div>
 
 Every worktree of a repository resolves to the **same** `--git-common-dir`. That
 directory is the only location that is simultaneously:
@@ -139,13 +134,13 @@ rejected, and the final open uses no-follow flags. `-`, stdout, and stderr are
 not valid sinks. The JSONL log stores the resource, slot, host identity,
 operation, and output path, never command output or a command body:
 
-```mermaid
-flowchart LR
-    job["heavy / global job"] --> identity["validated host identity"]
-    identity --> slot["bounded lease slot"]
-    slot --> output["explicit output file\nstdout + stderr"]
-    slot --> events["resource-leases.jsonl\nappend-only events"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A heavy job's identity gates a bounded lease slot</p>
+
+A heavy/global job validates its host identity, which claims a bounded
+lease slot. That slot both writes to an explicit output file
+(stdout + stderr) and appends events to `resource-leases.jsonl`.
+</div>
 
 For example:
 
@@ -360,13 +355,13 @@ into the calling repo's own environment.
 
 ## APPEND-ONLY — fragments in, one generated view out
 
-```mermaid
-flowchart LR
-    a["lane-a.yaml<br/><i>append-only</i>"] --> fold{{"fold<br/>(dedupe by id,<br/>latest event wins)"}}
-    b["lane-b.yaml<br/><i>append-only</i>"] --> fold
-    c["baseline.yaml"] --> fold
-    fold --> view["concept_reservations.yaml<br/><b>GENERATED — 1 file readers use</b>"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Append-only fragments fold into one generated view</p>
+
+`lane-a.yaml` (append-only), `lane-b.yaml` (append-only), and
+`baseline.yaml` all fold together (dedupe by id, latest event wins) into
+`concept_reservations.yaml` — the one generated file readers use.
+</div>
 
 A writer only ever appends to `<name>.d/<lane>.yaml`. Two lanes writing at once
 produce two different files, which git merges without a conflict and which no

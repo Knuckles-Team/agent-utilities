@@ -14,30 +14,28 @@
 
 A chat turn flows:
 
-```mermaid
-flowchart TD
-    BE[Backend.listen] --> RT[InboundRouter._dispatch]
-    RT --> PH[planner_handler]
-    PH --> CO["BurstCoalescer.submit<br/>(2.5s debounce window)"]
-    CO --> RB[_reply_to_burst]
-    RB --> GAR["_graph_agent_reply<br/>(asyncio.wait_for, 45s cap)"]
-    GAR --> OEA["Orchestrator.execute_agent"]
-    OEA --> SCAN["_scan_task (regex)"]
-    OEA --> RA["run_agent"]
-    RA --> RES["_resolve_agent_from_kg<br/>(sync KG queries)"]
-    RA --> CFG["_build_execution_config<br/>+ get_recent_mementos (sync)"]
-    RA --> EG["_execute_graph"]
-    EG --> CGA["create_graph_agent<br/>(rebuilt every turn)"]
-    EG --> EXG["AgentOrchestrationEngine.execute_graph"]
-    EXG --> ROUTER["router_step<br/>(N sync KG calls + LLM, 300s timeout)"]
-    ROUTER --> DISP[dispatcher]
-    DISP --> EXP["expert_executor<br/>(LLM)"]
-    EXP --> VER["verifier (+repair)<br/>(LLM, 300s timeout)"]
-    VER --> SYN["synthesizer<br/>(LLM)"]
-    SYN --> OUT[reply text]
-    GAR -. timeout/err .-> PC["_plain_chat_reply<br/>(fallback LLM)"]
-    RB --> BG["_persist_and_enrich<br/>(background, off reply path)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The hot path, chat-turn to reply</p>
+
+`Backend.listen` -> `InboundRouter._dispatch` -> `planner_handler` ->
+`BurstCoalescer.submit` (2.5s debounce window) -> `_reply_to_burst`,
+which forks two ways: `_graph_agent_reply` (`asyncio.wait_for`, 45s cap)
+on the reply path, and `_persist_and_enrich` (background, off the reply
+path).
+
+On the reply path, `_graph_agent_reply` calls
+`Orchestrator.execute_agent`, which runs `_scan_task` (regex) and
+`run_agent`. `run_agent` calls `_resolve_agent_from_kg` (sync KG
+queries) and `_build_execution_config` + `get_recent_mementos` (sync),
+then `_execute_graph`, which calls `create_graph_agent` (rebuilt every
+turn) and `AgentOrchestrationEngine.execute_graph`.
+
+`execute_graph` runs `router_step` (N sync KG calls + LLM, 300s
+timeout) -> `dispatcher` -> `expert_executor` (LLM) -> `verifier` (+
+repair, LLM, 300s timeout) -> `synthesizer` (LLM) -> the reply text. A
+timeout or error anywhere in `_graph_agent_reply` falls back to
+`_plain_chat_reply` (fallback LLM).
+</div>
 
 The **persist/enrich/memento-compress** work (ingest, episodic memory, the
 per-session memento) is already correctly pushed off the reply path into a
@@ -123,16 +121,18 @@ latent O(fleet) probe on the build path that must never reach the chat path.
 The universal path stays the **one** path; we make it *tiered* so a turn pays only
 for the altitude it needs.
 
-```mermaid
-flowchart TD
-    IN[chat turn] --> CLASS{"Tier classifier<br/>(rules-first, cheap)"}
-    CLASS -->|conversational / simple Q&A| FAST["Fast path<br/>1 LLM round, lite model<br/>cached agent, short timeout"]
-    CLASS -->|needs tools / specialists / multi-step| FULL["Full orchestration graph<br/>router→…→synthesizer"]
-    CLASS -->|heavy / optional enrichment| ENQ["Enqueue on durable queue<br/>(return fast, finish in background)"]
-    FAST --> REPLY[reply]
-    FULL --> REPLY
-    ENQ -. later .-> KG[(KG / mementos / ingest)]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A cheap tier classifier routes each turn to the altitude it needs</p>
+
+A chat turn hits a rules-first, cheap tier classifier, which routes it
+one of three ways: conversational/simple Q&A goes to the fast path (1
+LLM round, lite model, cached agent, short timeout) and returns a reply
+directly; a turn needing tools/specialists/multi-step goes to the full
+orchestration graph (router -> … -> synthesizer) and also returns a
+reply directly; heavy/optional enrichment work is enqueued on the
+durable queue, returning fast and finishing later against the
+KG/mementos/ingest.
+</div>
 
 ### 6.1 Fast path vs full-orchestration path (P0)
 
@@ -198,21 +198,24 @@ Build on the **existing** durable infrastructure — do not invent a new system:
 
 ### Tiers (who enqueues, who drains, backpressure)
 
-```mermaid
-flowchart LR
-    subgraph Reply["Reply path (latency-critical)"]
-      T0["Tier 0: interactive reply<br/>(in-process, fast path / chat profile)"]
-    end
-    subgraph Queue["Durable priority queue (AU-KG.ingest.hardened-priority-scheduled-task)"]
-      T1["Tier 1: agent dispatch<br/>(spawned specialists, A2A)"]
-      T2["Tier 2: ingestion / enrichment<br/>(episodic memory, memento, KG ingest)"]
-      T3["Tier 3: KG compute / maintenance<br/>(reindex, similarity, sweeps)"]
-    end
-    T0 -->|enqueue heavy/optional| T2
-    T0 -->|escalate multi-step| T1
-    Workers["kg-ingest-worker / agent-dispatch-worker<br/>(auto-sized, leader-elected)"] --> T1 & T2 & T3
-    Q[("STATE_DB_URI<br/>SKIP LOCKED")] --- Queue
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four tiers: one latency-critical, three drained from a durable queue</p>
+
+**Reply path (latency-critical):** Tier 0, interactive reply, runs
+in-process on the fast path / chat profile.
+
+**Durable priority queue**
+(`AU-KG.ingest.hardened-priority-scheduled-task`, backed by
+`STATE_DB_URI` with `SKIP LOCKED`): Tier 1 is agent dispatch (spawned
+specialists, A2A); Tier 2 is ingestion/enrichment (episodic memory,
+memento, KG ingest); Tier 3 is KG compute/maintenance (reindex,
+similarity, sweeps).
+
+Tier 0 enqueues heavy/optional work to Tier 2 and escalates multi-step
+work to Tier 1. Auto-sized, leader-elected workers
+(`kg-ingest-worker`/`agent-dispatch-worker`) drain all of Tiers 1, 2, and
+3.
+</div>
 
 - **Tier 0 (reply)** runs *in-process* on the chat profile and returns fast. It
   **enqueues** everything optional (Tier 2/3) and only **escalates** to Tier 1 when
