@@ -5,18 +5,15 @@ one harness port for every agent runtime, one sandbox port for local
 isolation, fail-closed capability negotiation, a conformance kit, the single
 L5 outcome writer and typed clients for layers L0-L5.
 
-```mermaid
-flowchart LR
-  Exec["HarnessAgentExecutor"] -->|RunSpec| Neg["negotiate()"]
-  Neg -->|NegotiatedRunSpec| Port["HarnessPort"]
-  Port --> PAI["pydantic-ai (in-process AU runtime)"]
-  Port --> CC["Claude Code CLI"]
-  Port --> CX["Codex CLI"]
-  Port --> GK["Grok Build CLI"]
-  Port --> DV["Devin API v3"]
-  Port -->|RunResult + trace| L5["RunOutcomeWriter"]
-  L5 -->|commit_result(outcome_extension)| EG[(Epistemic Graph)]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Harness execution path</p>
+
+`HarnessAgentExecutor` hands a `RunSpec` to `negotiate()`, which returns a
+`NegotiatedRunSpec` for one `HarnessPort`: pydantic-ai (the in-process AU
+runtime), the Claude Code CLI, the Codex CLI, the Grok Build CLI, or the Devin
+API v3. The port's `RunResult` and trace go to `RunOutcomeWriter`, which
+records them in the Epistemic Graph through `commit_result(outcome_extension)`.
+</div>
 
 ## RunSpec and negotiation
 

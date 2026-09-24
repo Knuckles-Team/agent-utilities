@@ -5,18 +5,17 @@ through one typed, transport-free API: `agent_utilities.api`. The host owns
 authentication, MCP/REST/A2A registration and deployment. Agent Utilities owns
 the behaviour. Epistemic Graph (EG) owns every durable record.
 
-```mermaid
-flowchart LR
-  Host["GraphOS (transport, auth)"] -->|verified GraphSession| Plane["AgentControlPlane"]
-  Plane --> Search["EgCapabilitySearch"]
-  Plane --> Store["EgWorkItemStore"]
-  Plane --> Exec["HarnessAgentExecutor"]
-  Plane --> Dispatch["SignedAgentDispatchPort (host-injected)"]
-  Search -->|AgentComponent.Search| EG[(Epistemic Graph)]
-  Store -->|SubmitWorkItem / GetWorkItem / ListWorkItems / CancelWorkItem| EG
-  Exec -->|RunSpec| Harness["HarnessPort (agent_utilities.layers)"]
-  Harness --> Runtime["AU agent runtime (pydantic-ai adapter)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The agent control plane and its ports</p>
+
+GraphOS (transport, auth) hands a verified `GraphSession` to
+`AgentControlPlane`, which composes `EgCapabilitySearch`
+(`AgentComponent.Search` on the Epistemic Graph), `EgWorkItemStore`
+(`SubmitWorkItem` / `GetWorkItem` / `ListWorkItems` / `CancelWorkItem`),
+`HarnessAgentExecutor` (a `RunSpec` to a `HarnessPort` from
+`agent_utilities.layers`, backed by the AU agent runtime's pydantic-ai
+adapter) and the host-injected `SignedAgentDispatchPort`.
+</div>
 
 ## Operations
 
