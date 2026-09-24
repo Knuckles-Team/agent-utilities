@@ -317,7 +317,8 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     # Read-only tenant/principal-scoped view over the engine-native fleet
     # catalog.  The registry module owns only transport/schema shaping; its
-    # writer remains ``fleet_catalog_tables`` and no live MCP probing occurs.
+    # writer is EG's typed ``FleetCatalogClient``/``ServerRegistryClient``
+    # (EH-345 — was ``fleet_catalog_tables``) and no live MCP probing occurs.
     from agent_utilities.gateway.registry_api import register_registry_routes
 
     register_registry_routes(app, prefix=prefix)

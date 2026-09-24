@@ -1,10 +1,34 @@
-"""Focused tenant, cursor, bound, and degraded-read registry contracts."""
+"""Registry API contracts post-EH-345: parsing, redaction, row-shape
+conversion from EG's typed fleet-catalog DTOs, cursor round-trip, and the
+dispatch layer over fake ``server_registry``/``fleet_catalog`` clients.
+
+EH-345 (2026-09-22) deleted the AU SQL fleet-catalog tier this route used to
+read and, with it, the WHERE-clause-building/keyset-predicate/row-scope-
+validation machinery the previous version of this test file exercised (a
+hand-written SQL interpreter over a fake engine). That machinery no longer
+exists in the production code -- tenant/principal/grant visibility,
+filtering, ordering and the total are now computed by EG itself, one round
+trip, never locally. This file tests what the rewritten route actually does:
+parse/validate caller input, convert EG's row shapes into the public
+response models, mint/verify the opaque pagination cursor, and dispatch to
+whichever typed client (``server_registry`` for ``servers``, ``fleet_catalog``
+for every other kind) a request's ``kind`` names -- using fake clients that
+implement the same synchronous method surface the real
+``SyncEpistemicGraphClient`` wrappers expose (see AU-CUTOVER.md §0), since
+the real generated ``epistemic_graph.generated.fleet_catalog``/
+``server_registry`` modules do not exist in this dev environment until the
+``eg-fleet-catalog`` lane's work compiles and lands (this route's own EG
+calls therefore also fail closed here, exactly as they will in any
+deployment before that lands -- see WRAPUP.md for the full evidence trail).
+
+Full tenant/principal/grant visibility-enforcement testing against the real
+mechanism is EG's own test suite's job now, not AU's -- this file cannot and
+does not attempt to re-prove that boundary locally, unlike its predecessor.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import re
-import time
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,262 +37,391 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from agent_utilities.gateway import registry_api
-from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
-    current_session,
-    suspend_session,
     use_session,
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
-# --- A small, faithful SQL WHERE-clause interpreter for the fake engine ---
-#
-# The production code (`registry_api._build_where`/`_keyset_predicate`) now
-# pushes the tenant/authorization/query/keyset predicate into the SQL text
-# itself, so a test double that just string-searches for a few markers (the
-# pre-pushdown approach) would no longer prove anything: it wouldn't catch a
-# predicate that is present in the statement but wrong. This tokenizes and
-# evaluates the WHERE clause for real, against each candidate row, so the
-# pagination/authorization/filter tests below exercise the actual predicate
-# the route builds rather than trusting the route's own bookkeeping.
-
-_TOKEN_RE = re.compile(
-    r"\s+|\(|\)|,|'(?:[^']|'')*'|>=|<=|>|<|=|[A-Za-z_][A-Za-z0-9_]*|[0-9]+"
-)
+# ---------------------------------------------------------------------------
+# Fake EG row/view/cursor objects -- plain SimpleNamespace, matching only the
+# attributes the production `_row_from_server_view`/`_row_from_fleet_row`
+# actually read (via `getattr`/`hasattr`), never the real generated pydantic
+# classes (which do not exist in this environment -- see module docstring).
+# ---------------------------------------------------------------------------
 
 
-def _tokenize_where(where: str) -> list[tuple[str, str]]:
-    tokens: list[tuple[str, str]] = []
-    for match in _TOKEN_RE.finditer(where):
-        text = match.group(0)
-        if text.isspace():
-            continue
-        if text in ("(", ")", ","):
-            tokens.append((text, text))
-        elif text.startswith("'"):
-            tokens.append(("literal", text[1:-1].replace("''", "'")))
-        elif text in (">", "<", "=", ">=", "<="):
-            tokens.append(("op", text))
-        elif text[0].isdigit():
-            tokens.append(("num", text))
-        else:
-            tokens.append(("word", text))
-    return tokens
+def _server_view(
+    name: str,
+    *,
+    url: str = "http://svc:1",
+    transport: str = "streamable_http",
+    desired: str = "enabled",
+) -> SimpleNamespace:
+    return SimpleNamespace(name=name, url=url, transport=transport, desired=desired)
 
 
-class _WhereParser:
-    """Recursive-descent parser over the small predicate grammar the route
-    generates: AND/OR of `col = 'lit'`, `col IN ('a','b')`,
-    `strpos(LOWER(col), LOWER('lit')) > 0`, and `LOWER(col) {=,>} LOWER('lit')`,
-    with arbitrary parenthesized nesting."""
-
-    def __init__(self, tokens: list[tuple[str, str]]):
-        self.tokens = tokens
-        self.pos = 0
-
-    def peek(self) -> tuple[str | None, str | None]:
-        return self.tokens[self.pos] if self.pos < len(self.tokens) else (None, None)
-
-    def take(self) -> tuple[str, str]:
-        tok = self.tokens[self.pos]
-        self.pos += 1
-        return tok
-
-    def expect(self, kind: str, value: str | None = None) -> tuple[str, str]:
-        tok = self.take()
-        assert tok[0] == kind and (value is None or tok[1].upper() == value), tok
-        return tok
-
-    def parse_or(self):
-        node = self.parse_and()
-        while self.peek() == ("word", "OR"):
-            self.take()
-            node = ("or", node, self.parse_and())
-        return node
-
-    def parse_and(self):
-        node = self.parse_factor()
-        while self.peek() == ("word", "AND"):
-            self.take()
-            node = ("and", node, self.parse_factor())
-        return node
-
-    def parse_factor(self):
-        if self.peek()[0] == "(":
-            self.take()
-            node = self.parse_or()
-            self.expect(")")
-            return node
-        return self.parse_predicate()
-
-    def parse_predicate(self):
-        kind, value = self.take()
-        assert kind == "word", (kind, value)
-        upper = value.upper()
-        if upper == "STRPOS":
-            self.expect("(")
-            self.expect("word", "LOWER")
-            self.expect("(")
-            _, col = self.expect("word")
-            self.expect(")")
-            self.expect(",")
-            self.expect("word", "LOWER")
-            self.expect("(")
-            _, lit = self.expect("literal")
-            self.expect(")")
-            self.expect(")")
-            self.expect("op", ">")
-            self.expect("num", "0")
-            return ("strpos", col, lit)
-        if upper == "LOWER":
-            self.expect("(")
-            _, col = self.expect("word")
-            self.expect(")")
-            _, op = self.expect("op")
-            self.expect("word", "LOWER")
-            self.expect("(")
-            _, lit = self.expect("literal")
-            self.expect(")")
-            return ("lower_cmp", op, col, lit)
-        if upper == "FALSE":
-            return ("false",)
-        col = value
-        peek_kind, peek_val = self.peek()
-        if peek_kind == "op":
-            self.take()
-            op = peek_val
-        elif peek_kind == "word" and (peek_val or "").upper() == "IN":
-            self.take()
-            op = "IN"
-        else:  # pragma: no cover - defensive; every generated predicate matches
-            raise AssertionError((peek_kind, peek_val))
-        if op == "IN":
-            self.expect("(")
-            _, lit = self.expect("literal")
-            lits = [lit]
-            while self.peek() == (",", ","):
-                self.take()
-                _, lit = self.expect("literal")
-                lits.append(lit)
-            self.expect(")")
-            return ("in", col, lits)
-        _, lit = self.expect("literal")
-        return ("cmp", op, col, lit)
+def _acl(tenant_id: str = "tenant-a") -> SimpleNamespace:
+    return SimpleNamespace(tenant_id=tenant_id)
 
 
-def _eval_where_node(node: tuple, row: dict[str, Any]) -> bool:
-    kind = node[0]
-    if kind == "and":
-        return _eval_where_node(node[1], row) and _eval_where_node(node[2], row)
-    if kind == "or":
-        return _eval_where_node(node[1], row) or _eval_where_node(node[2], row)
-    if kind == "false":
-        return False
-    if kind == "cmp":
-        _, op, col, lit = node
-        val = str(row.get(col) if row.get(col) is not None else "")
-        return val == lit if op == "=" else val > lit
-    if kind == "in":
-        _, col, lits = node
-        val = str(row.get(col) if row.get(col) is not None else "")
-        return val in lits
-    if kind == "strpos":
-        _, col, lit = node
-        val = str(row.get(col) if row.get(col) is not None else "")
-        return lit.lower() in val.lower()
-    if kind == "lower_cmp":
-        _, op, col, lit = node
-        val = str(row.get(col) if row.get(col) is not None else "").lower()
-        target = lit.lower()
-        return val == target if op == "=" else val > target
-    raise AssertionError(node)  # pragma: no cover - defensive
+def _component(
+    *,
+    id: str,
+    name: str,
+    server_name: str = "svc-a",
+    connector: str = "svc-a",
+    description: str = "a tool",
+    enabled: bool = True,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=id,
+        name=name,
+        server_name=server_name,
+        connector=connector,
+        description=description,
+        enabled=enabled,
+        acl=_acl(),
+    )
 
 
-def _eval_where(where: str, row: dict[str, Any]) -> bool:
-    parser = _WhereParser(_tokenize_where(where))
-    node = parser.parse_or()
-    return _eval_where_node(node, row)
+def _tool_row(
+    component: SimpleNamespace, *, digest: str = "sha256:" + "a" * 64
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        component=component, input_schema_digest=digest, tool_mode="condensed"
+    )
 
 
-_STATEMENT_RE = re.compile(
-    r"^SELECT (?P<cols>.+?) FROM (?P<table>[A-Za-z_][A-Za-z0-9_]*)"
-    r"(?: WHERE (?P<where>.+?))?"
-    r"(?: ORDER BY (?P<order>.+?))?"
-    r"(?: LIMIT (?P<limit>\d+))?$"
-)
+def _resource_row(component: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        component=component,
+        uri="skill://x",
+        media_type="text/markdown",
+        resource_kind="skill",
+    )
+
+
+def _skill_row(component: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        component=component,
+        uri="skill://x",
+        skill_type="skill",
+        classification="Atomic Skill",
+    )
+
+
+def _prompt_row(component: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(component=component, uri="prompt://x")
+
+
+def _discovery_row(
+    *,
+    id: str = "srvobs:svc-a:tenant_local",
+    server_name: str = "svc-a",
+    reachable: bool = True,
+    error: str = "",
+) -> SimpleNamespace:
+    outcome = (
+        SimpleNamespace(status="reachable")
+        if reachable
+        else SimpleNamespace(status="unreachable", error=error)
+    )
+    return SimpleNamespace(
+        id=id,
+        server_name=server_name,
+        outcome=outcome,
+        counts=SimpleNamespace(tools=3, skills=1, prompts=0, resources=0),
+        observed_at_ms=1234567,
+        acl=_acl(),
+    )
+
+
+def _row_entry(row: SimpleNamespace) -> SimpleNamespace:
+    """One ``FleetCatalogRow`` tagged-union entry: ``entry.row`` is the body."""
+    return SimpleNamespace(row=row)
+
+
+# ---------------------------------------------------------------------------
+# Row-shape conversion (the new logic EH-345 actually added)
+# ---------------------------------------------------------------------------
+
+
+def test_row_from_server_view_maps_desired_to_enabled():
+    row = registry_api._row_from_server_view(_server_view("svc-a", desired="enabled"))
+    assert row == {
+        "id": "mcp_server_svc-a",
+        "name": "svc-a",
+        "transport": "streamable_http",
+        "url": "http://svc:1",
+        "enabled": True,
+    }
+
+
+def test_row_from_server_view_disabled():
+    row = registry_api._row_from_server_view(_server_view("svc-b", desired="disabled"))
+    assert row["enabled"] is False
+
+
+def test_row_from_server_view_tolerates_missing_transport_desired():
+    """Fields not yet generated on RegisteredServerView (pre-eg-fleet-catalog-
+    landing) degrade to safe defaults rather than raising."""
+    bare = SimpleNamespace(name="svc-c", url="http://svc:3")
+    row = registry_api._row_from_server_view(bare)
+    assert row["transport"] == ""
+    assert row["enabled"] is True  # no "desired" field -> not "disabled" -> True
+
+
+def test_discovery_outcome_fields_reachable():
+    reachable, error = registry_api._discovery_outcome_fields(
+        SimpleNamespace(status="reachable")
+    )
+    assert (reachable, error) == (True, "")
+
+
+def test_discovery_outcome_fields_unreachable():
+    reachable, error = registry_api._discovery_outcome_fields(
+        SimpleNamespace(status="unreachable", error="connection refused")
+    )
+    assert (reachable, error) == (False, "connection refused")
+
+
+def test_row_from_fleet_row_discovery():
+    row = registry_api._row_from_fleet_row(_row_entry(_discovery_row()))
+    assert row["id"] == "srvobs:svc-a:tenant_local"
+    assert row["server_id"] == row["server_name"] == "svc-a"
+    assert row["reachable"] is True
+    assert row["tool_count"] == 3
+    assert row["tenant_id"] == "tenant-a"
+
+
+def test_row_from_fleet_row_discovery_unreachable_classifies_error():
+    row = registry_api._row_from_fleet_row(
+        _row_entry(_discovery_row(reachable=False, error="dns failure"))
+    )
+    assert row["reachable"] is False
+    assert row["last_error"] == "dns failure"
+
+
+def test_row_from_fleet_row_tool():
+    component = _component(id="mcp:svc-a/tool/t1", name="t1")
+    row = registry_api._row_from_fleet_row(_row_entry(_tool_row(component)))
+    assert row["id"] == "mcp:svc-a/tool/t1"
+    assert row["tool_mode"] == "condensed"
+    assert row["schema_digest"].startswith("sha256:")
+    assert row["provider"] == "svc-a"
+
+
+def test_row_from_fleet_row_resource():
+    component = _component(id="mcp:svc-a/resource/r1", name="r1")
+    row = registry_api._row_from_fleet_row(_row_entry(_resource_row(component)))
+    assert row["resource_kind"] == "skill"
+    assert row["mime_type"] == "text/markdown"
+
+
+def test_row_from_fleet_row_skill():
+    component = _component(id="mcp:skills/skill/s1", name="s1")
+    row = registry_api._row_from_fleet_row(_row_entry(_skill_row(component)))
+    assert row["skill_type"] == "skill"
+    assert row["classification"] == "Atomic Skill"
+
+
+def test_row_from_fleet_row_prompt():
+    component = _component(id="mcp:svc-a/prompt/p1", name="p1")
+    row = registry_api._row_from_fleet_row(_row_entry(_prompt_row(component)))
+    assert row["uri"] == "prompt://x"
+    assert "skill_type" not in row and "tool_mode" not in row
+
+
+# ---------------------------------------------------------------------------
+# Request parsing (unchanged behaviour)
+# ---------------------------------------------------------------------------
+
+
+def _request(query_string: str = "") -> Request:
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/registry",
+        "query_string": query_string.encode(),
+        "headers": [],
+    }
+    return Request(scope)
+
+
+def test_parse_request_defaults():
+    limit, query, cursor = registry_api._parse_request(_request())
+    assert limit == registry_api._DEFAULT_LIMIT
+    assert query == ""
+    assert cursor is None
+
+
+def test_parse_request_rejects_out_of_bounds_limit():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        registry_api._parse_request(_request("limit=0"))
+    with pytest.raises(HTTPException):
+        registry_api._parse_request(_request(f"limit={registry_api._MAX_LIMIT + 1}"))
+
+
+def test_parse_request_rejects_oversized_query():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        registry_api._parse_request(
+            _request("q=" + "x" * (registry_api._MAX_QUERY_BYTES + 1))
+        )
+
+
+def test_parse_registry_kinds_validates_against_kind_models():
+    from fastapi import HTTPException
+
+    assert registry_api._parse_registry_kinds("tools,skills,tools") == [
+        "tools",
+        "skills",
+    ]
+    with pytest.raises(HTTPException):
+        registry_api._parse_registry_kinds("not-a-kind")
+    with pytest.raises(HTTPException):
+        registry_api._parse_registry_kinds("")
+
+
+# ---------------------------------------------------------------------------
+# Redaction/safety helpers (unchanged behaviour)
+# ---------------------------------------------------------------------------
+
+
+def test_safe_url_keeps_bare_host_only():
+    assert (
+        registry_api._safe_url("https://example.com:8443/some/path")
+        == "https://example.com:8443"
+    )
+
+
+def test_safe_url_drops_credentialed_or_query_bearing_urls():
+    assert registry_api._safe_url("https://user:pw@example.com/x") == ""
+    assert registry_api._safe_url("https://example.com/x?token=secret") == ""
+
+
+def test_safe_url_rejects_non_http_scheme():
+    assert registry_api._safe_url("file:///etc/passwd") == ""
+
+
+def test_sanitize_discovery_row_classifies_error_and_drops_principal():
+    result = {"last_error": "some raw engine text", "discovery_principal": "p1"}
+    registry_api._sanitize_discovery_row(result)
+    assert result["last_error"] == "unavailable"
+    assert "discovery_principal" not in result
+
+
+# ---------------------------------------------------------------------------
+# Cursor mint/decode round trip (new dict-based `after`)
+# ---------------------------------------------------------------------------
+
+
+def test_cursor_round_trips_the_eg_cursor_payload():
+    after = {
+        "after_name": "svc-a",
+        "after_id": "mcp:svc-a/tool/t1",
+        "snapshot_digest": "d" * 64,
+    }
+    token = registry_api._cursor_token(
+        kind="tools", query="", after=after, tenant="tenant-a", principal="actor-a"
+    )
+    decoded = registry_api._decode_cursor(
+        token,
+        kind="tools",
+        query="",
+        tenant="tenant-a",
+        principal="actor-a",
+        grant_digests=(),
+    )
+    assert decoded == after
+
+
+def test_cursor_rejects_wrong_kind_or_tenant():
+    from fastapi import HTTPException
+
+    after = {"after_name": "svc-a", "after_id": "x"}
+    token = registry_api._cursor_token(
+        kind="tools", query="", after=after, tenant="tenant-a", principal="actor-a"
+    )
+    with pytest.raises(HTTPException):
+        registry_api._decode_cursor(
+            token,
+            kind="skills",
+            query="",
+            tenant="tenant-a",
+            principal="actor-a",
+            grant_digests=(),
+        )
+    with pytest.raises(HTTPException):
+        registry_api._decode_cursor(
+            token,
+            kind="tools",
+            query="",
+            tenant="tenant-b",
+            principal="actor-a",
+            grant_digests=(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Dispatch layer: fake server_registry / fleet_catalog clients
+# ---------------------------------------------------------------------------
+
+
+class _FakeServerRegistry:
+    def __init__(self, views: list[SimpleNamespace]) -> None:
+        self.views = views
+
+    def page(self, *, limit: int | None = None, cursor: Any = None) -> SimpleNamespace:
+        return SimpleNamespace(
+            entries=self.views[: limit or len(self.views)],
+            next_cursor=None,
+            total_live=len(self.views),
+        )
+
+    def list_all(self) -> tuple[SimpleNamespace, ...]:
+        return tuple(self.views)
+
+
+class _FakeFleetCatalog:
+    def __init__(self, rows: dict[str, list[SimpleNamespace]]) -> None:
+        self.rows = rows
+        self.last_request: Any = None
+
+    def page(self, request: Any) -> SimpleNamespace:
+        self.last_request = request
+        kind_rows = self.rows.get(request.kind, [])
+        limit = request.limit or len(kind_rows)
+        return SimpleNamespace(
+            rows=kind_rows[:limit], next_cursor=None, total=len(kind_rows)
+        )
+
+    def lookup(self, ids: list[str], grant_digests: Any = ()) -> SimpleNamespace:
+        wanted = set(ids)
+        all_rows = [row for kind_rows in self.rows.values() for row in kind_rows]
+        matched = [
+            entry
+            for entry in all_rows
+            if registry_api._row_from_fleet_row(entry).get("id") in wanted
+        ]
+        return SimpleNamespace(rows=matched)
 
 
 class _FakeGraphCompute:
-    """A real (if minimal) SQL engine for `mcp_*`-shaped tables: it actually
-    evaluates WHERE, ORDER BY, and LIMIT rather than trusting the caller —
-    so a test asserting on its output is exercising the production SQL text,
-    not restating the route's own logic."""
-
-    def __init__(self, rows: dict[str, list[dict[str, Any]]] | None = None):
-        self.rows = rows or {}
-        self.statements: list[str] = []
-        self.fail = False
-        self.return_raw = False
-        # Simulates a broken engine that ignores the requested LIMIT — used
-        # to prove the route's own bound-exceeded guard fires.
-        self.ignore_limit = False
-        # Per-table failure, for multi-kind "one kind degrades independently"
-        # tests — `fail` (above) fails every table uniformly; this fails only
-        # the named table(s), leaving the rest healthy.
-        self.fail_tables: set[str] = set()
-
-    def sql_exec(self, statement: str):
-        self.statements.append(statement)
-        if self.fail:
-            raise OSError("catalog backend unavailable")
-        table_match = re.match(r"SELECT .+? FROM (\S+)", statement)
-        if table_match and table_match.group(1) in self.fail_tables:
-            raise OSError("catalog backend unavailable for this table")
-        match = _STATEMENT_RE.match(statement)
-        assert match, statement
-        table = match.group("table")
-        cols = match.group("cols")
-        where = match.group("where")
-        order = match.group("order")
-        limit = match.group("limit")
-        rows_all = self.rows.get(table, [])
-        is_count = cols.strip().upper().startswith("COUNT(")
-        if self.return_raw:
-            # `return_raw` models a misbehaving/degraded engine projection
-            # that ignores the WHERE predicate entirely. A COUNT(*) query
-            # still returns a validly-shaped (if unfiltered) aggregate row,
-            # so the per-row scope-validation path (not the count-shape
-            # check) is what a malformed *page* actually exercises.
-            if is_count:
-                return [{"row_count": len(rows_all)}]
-            return list(rows_all)
-        matched = [row for row in rows_all if where is None or _eval_where(where, row)]
-        if is_count:
-            return [{"row_count": len(matched)}]
-        if order:
-            order_col = order.split(",")[0].strip()
-            if order_col.upper().startswith("LOWER("):
-                order_col = order_col[len("LOWER(") : -1]
-            matched = sorted(
-                matched,
-                key=lambda row: (
-                    str(row.get(order_col) or "").lower(),
-                    str(row.get("id") or ""),
-                ),
-            )
-        if limit is not None and not self.ignore_limit:
-            matched = matched[: int(limit)]
-        return matched
+    def __init__(self, server_registry: Any, fleet_catalog: Any) -> None:
+        self.client = SimpleNamespace(
+            server_registry=server_registry, fleet_catalog=fleet_catalog
+        )
 
 
 class _FakeEngine:
-    def __init__(self, rows: dict[str, list[dict[str, Any]]] | None = None):
-        self.graph_compute = _FakeGraphCompute(rows)
-        # Backs `get_toggle_states_batch`'s `engine.query_cypher(...)` call —
-        # a minimal in-memory Preference-node store keyed exactly the way the
-        # real toggle store keys it: `preference:toggle:<type>:<id>`.
+    def __init__(self, server_registry: Any = None, fleet_catalog: Any = None) -> None:
+        self.graph_compute = _FakeGraphCompute(server_registry, fleet_catalog)
         self.preferences: dict[str, str] = {}
         self.query_cypher_calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -282,26 +435,90 @@ class _FakeEngine:
         ]
 
 
+def test_authorized_page_servers_reads_server_registry():
+    engine = _FakeEngine(
+        server_registry=_FakeServerRegistry([_server_view("a"), _server_view("b")])
+    )
+    rows, next_cursor, total = registry_api._authorized_page(
+        "servers", grant_digests=(), query="", after=None, limit=10, engine=engine
+    )
+    assert [row["name"] for row in rows] == ["a", "b"]
+    assert total == 2
+    assert next_cursor is None
+
+
+def test_authorized_page_servers_unavailable_without_client():
+    engine = _FakeEngine()
+    with pytest.raises(registry_api.CatalogUnavailable):
+        registry_api._authorized_page(
+            "servers", grant_digests=(), query="", after=None, limit=10, engine=engine
+        )
+
+
+def test_authorized_page_tools_reads_fleet_catalog():
+    component = _component(id="mcp:svc-a/tool/t1", name="t1")
+    engine = _FakeEngine(
+        fleet_catalog=_FakeFleetCatalog({"tools": [_row_entry(_tool_row(component))]})
+    )
+    rows, next_cursor, total = registry_api._authorized_page(
+        "tools", grant_digests=("g1",), query="", after=None, limit=10, engine=engine
+    )
+    assert rows[0]["id"] == "mcp:svc-a/tool/t1"
+    assert total == 1
+
+
+def test_authorized_item_servers_finds_by_name():
+    engine = _FakeEngine(server_registry=_FakeServerRegistry([_server_view("target")]))
+    row = registry_api._authorized_item(
+        "servers", grant_digests=(), item_id="mcp_server_target", engine=engine
+    )
+    assert row is not None
+    assert row["name"] == "target"
+
+
+def test_authorized_item_missing_id_is_none():
+    engine = _FakeEngine(server_registry=_FakeServerRegistry([]))
+    assert (
+        registry_api._authorized_item(
+            "servers", grant_digests=(), item_id="mcp_server_nope", engine=engine
+        )
+        is None
+    )
+
+
+def test_authorized_item_tools_uses_lookup():
+    component = _component(id="mcp:svc-a/tool/t1", name="t1")
+    engine = _FakeEngine(
+        fleet_catalog=_FakeFleetCatalog({"tools": [_row_entry(_tool_row(component))]})
+    )
+    row = registry_api._authorized_item(
+        "tools", grant_digests=(), item_id="mcp:svc-a/tool/t1", engine=engine
+    )
+    assert row is not None
+    assert row["name"] == "t1"
+
+
+# ---------------------------------------------------------------------------
+# Route-level smoke tests (auth gate, 422s, catalog-unavailable degrade)
+# ---------------------------------------------------------------------------
+
+
 class _AuthorityMiddleware:
-    def __init__(self, app, actor: ActorContext, session: GraphSession):
+    def __init__(self, app: Any, actor: ActorContext, session: GraphSession) -> None:
         self.app = app
         self.actor = actor
         self.session = session
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope, receive, send) -> None:
         with use_actor(self.actor), use_session(self.session):
             await self.app(scope, receive, send)
 
 
 def _authority_app(
-    monkeypatch,
-    *,
-    engine: _FakeEngine,
-    actor_id: str = "actor-a",
-    tenant_id: str = "tenant-a",
-):
+    monkeypatch, *, engine: _FakeEngine, tenant_id: str = "tenant-a"
+) -> TestClient:
     actor = ActorContext(
-        actor_id=actor_id,
+        actor_id="actor-a",
         actor_type=ActorType.AUTOMATED_SERVICE,
         roles=("registry:read",),
         tenant_id=tenant_id,
@@ -317,1333 +534,79 @@ def _authority_app(
     )
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
+        registry_api, "_resolve_current_discovery_grants", lambda actor: ()
     )
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
     return TestClient(_AuthorityMiddleware(app, actor, session))
 
 
-def _grant_digest(actor_id: str, tenant_id: str = "tenant-a") -> str:
-    return OAuthGrantBinding(
-        tenant_id=tenant_id,
-        principal_id=actor_id,
-        provider_id="acme",
-        resource_url="https://protected-mcp.example.com/mcp",
-        audience="https://protected-mcp.example.com/mcp",
-        granted_scopes=("mcp:read",),
-        key_version=1,
-        grant_revision=f"registry-test-{tenant_id}-{actor_id}",
-    ).fingerprint
-
-
-def _rows() -> dict[str, list[dict[str, Any]]]:
-    grant_a = _grant_digest("actor-a")
-    grant_b = _grant_digest("actor-b")
-    return {
-        "mcp_servers": [
-            {
-                "id": "mcp_server_alpha",
-                "tenant_id": "tenant-a",
-                "name": "alpha",
-                "transport": "http",
-                "url": "https://user:password@example.test/api?token=secret",
-                "enabled": True,
-            },
-            {
-                "id": "mcp_server_beta",
-                "tenant_id": "tenant-a",
-                "name": "beta",
-                "transport": "stdio",
-                "url": "https://example.test/mcp/secret-token",
-                "enabled": False,
-            },
-            {
-                "id": "mcp_server_alpha",
-                "tenant_id": "tenant-b",
-                "name": "foreign",
-                "transport": "http",
-                "url": "https://foreign.test",
-                "enabled": True,
-            },
-        ],
-        "mcp_server_discovery": [
-            {
-                "id": "disc_alpha",
-                "tenant_id": "tenant-a",
-                "server_id": "mcp_server_alpha",
-                "server_name": "alpha",
-                "reachable": False,
-                "last_error": "/private/path/token=secret",
-                "tool_count": 1,
-                "skill_count": 0,
-                "prompt_count": 0,
-                "resource_count": 0,
-                "observed_at": "2026-08-18T00:00:00Z",
-                "discovery_authority_kind": "oauth_grant",
-                "discovery_principal": "actor-a",
-                "discovery_grant_digest": grant_a,
-            },
-            {
-                "id": "disc_other",
-                "tenant_id": "tenant-a",
-                "server_id": "mcp_server_alpha",
-                "server_name": "alpha",
-                "reachable": True,
-                "last_error": "",
-                "tool_count": 2,
-                "skill_count": 0,
-                "prompt_count": 0,
-                "resource_count": 0,
-                "observed_at": "2026-08-18T00:00:00Z",
-                "discovery_authority_kind": "oauth_grant",
-                "discovery_principal": "actor-b",
-                "discovery_grant_digest": grant_b,
-            },
-        ],
-        "mcp_tools": [
-            {
-                "id": "tool_alpha_a",
-                "tenant_id": "tenant-a",
-                "server_id": "mcp_server_alpha",
-                "server_name": "alpha",
-                "name": "only-a",
-                "description": "",
-                "schema_digest": "a",
-                "tool_mode": "verbose",
-                "enabled": True,
-                "discovery_authority_kind": "oauth_grant",
-                "discovery_principal": "actor-a",
-                "discovery_grant_digest": grant_a,
-            },
-            {
-                "id": "tool_alpha_b",
-                "tenant_id": "tenant-a",
-                "server_id": "mcp_server_alpha",
-                "server_name": "alpha",
-                "name": "only-b",
-                "description": "",
-                "schema_digest": "b",
-                "tool_mode": "verbose",
-                "enabled": True,
-                "discovery_authority_kind": "oauth_grant",
-                "discovery_principal": "actor-b",
-                "discovery_grant_digest": grant_b,
-            },
-        ],
-    }
-
-
-def _rows_with_local() -> dict[str, list[dict[str, Any]]]:
-    rows = _rows()
-    rows["mcp_server_discovery"].append(
-        {
-            **rows["mcp_server_discovery"][0],
-            "id": "disc_local",
-            "server_name": "local-alpha",
-            "server_id": "mcp_server_local-alpha",
-            "discovery_authority_kind": "tenant_local",
-            "discovery_principal": "",
-            "discovery_grant_digest": "",
-        }
+def test_route_servers_list_returns_registered_servers(monkeypatch):
+    # `_authorized_page`'s "servers" branch imports
+    # `epistemic_graph.generated.server_registry.RegisteredServerCursor` only
+    # when a cursor is actually supplied (`after` is truthy) -- there is none
+    # on a first page, so this route path itself needs no cursor type. But
+    # `page.next_cursor.model_dump(...)`/`RegisteredServerView` attribute
+    # access still goes through whatever `epistemic_graph` this venv has
+    # installed; skip cleanly (rather than asserting a specific degrade) when
+    # that installed copy predates the ``generated`` subpackage entirely --
+    # this dev host's `.venv` currently ships `epistemic_graph==2.27.0` built
+    # before ``generated/`` existed (confirmed: no `generated/` directory in
+    # the installed wheel), the same pre-existing gap WRAPUP.md documents for
+    # `agent_utilities.api`/`control_plane`.
+    pytest.importorskip(
+        "epistemic_graph.generated.server_registry",
+        reason="this venv's installed epistemic_graph predates the generated/ subpackage",
     )
-    rows["mcp_tools"].append(
-        {
-            **rows["mcp_tools"][0],
-            "id": "tool_local",
-            "server_name": "local-alpha",
-            "server_id": "mcp_server_local-alpha",
-            "name": "local-tool",
-            "discovery_authority_kind": "tenant_local",
-            "discovery_principal": "",
-            "discovery_grant_digest": "",
-        }
-    )
-    return rows
-
-
-def _registry_routes(app: Any) -> list[tuple[str, set[str]]]:
-    """Flatten FastAPI/Starlette route wrappers for a stable contract check."""
-
-    found: list[tuple[str, set[str]]] = []
-    pending = list(getattr(app, "routes", ()))
-    while pending:
-        route = pending.pop()
-        path = getattr(route, "path", None)
-        methods = getattr(route, "methods", None)
-        if isinstance(path, str) and "registry" in path:
-            found.append((path, set(methods or ())))
-        original = getattr(route, "original_router", None)
-        if original is not None:
-            pending.extend(getattr(original, "routes", ()))
-        pending.extend(getattr(route, "routes", ()) or ())
-    return found
-
-
-def test_registry_reads_native_catalog_with_tenant_and_principal_predicate(monkeypatch):
-    engine = _FakeEngine(_rows())
+    engine = _FakeEngine(server_registry=_FakeServerRegistry([_server_view("a")]))
     client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers", params={"q": "alpha"})
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["count"] == 1
-    assert body["items"][0]["name"] == "alpha"
-    assert (
-        body["items"][0]["url"] == ""
-    )  # userinfo/query credentials are never returned
-    # Both the count and the page read push the tenant/authorization AND the
-    # `q` filter into the SQL text itself (filter pushdown) — the last two
-    # statements are the count then the page.
-    statements = engine.graph_compute.statements[-2:]
-    for statement in statements:
-        assert "tenant_id = 'tenant-a'" in statement
-        assert "strpos(LOWER(name), LOWER('alpha')) > 0" in statement
-    assert "LIMIT" in statements[-1]  # page read carries a LIMIT
-    assert "tenant-b" not in response.text
+    resp = client.get("/api/registry/servers")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["items"][0]["name"] == "a"
 
 
-def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(monkeypatch):
-    """D-catalog-503-human root-cause regression.
-
-    The engine's native ``Method::Sql`` RPC opens an OWNER-SCOPED catalog
-    keyed by whichever verified actor issues the call (see
-    ``_catalog_service_session``'s docstring) -- so if the RPC ran under the
-    REQUESTING actor's own session, a distinct actor from whoever wrote the
-    fleet catalog tables would always get "table not found", exactly the
-    live 503 this fix closes. Prove ``_require_sql_exec``'s wrapper actually
-    swaps the ambient session for the duration of the SQL call rather than
-    handing the caller's own actor through: the SAME query text still gets
-    the caller's tenant/principal predicate (authorization is unaffected),
-    but the identity ``sql_exec`` observes as ambient must differ from the
-    HTTP caller's own actor id.
-    """
-    engine = _FakeEngine(_rows())
-    observed_actor_ids: list[str] = []
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def _recording_sql_exec(statement: str):
-        session = current_session()
-        observed_actor_ids.append(session.actor.actor_id if session else "")
-        return real_sql_exec(statement)
-
-    monkeypatch.setattr(engine.graph_compute, "sql_exec", _recording_sql_exec)
-    client = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
-
-    response = client.get("/api/registry/servers")
-
-    assert response.status_code == 200, response.text
-    assert observed_actor_ids, "sql_exec was never called"
-    assert all(actor_id != "actor-a" for actor_id in observed_actor_ids), (
-        "the catalog SQL RPC ran under the caller's own session "
-        f"({observed_actor_ids!r}) instead of the fixed catalog-service "
-        "identity -- this is the exact owner-scoped-catalog 503 the fix "
-        "closes"
-    )
-    # The row-level WHERE predicate is still the REAL caller's tenant/actor
-    # -- only the RPC-executing identity changed, never the authorization
-    # boundary.
-    assert "tenant_id = 'tenant-a'" in engine.graph_compute.statements[-1]
-
-
-def test_discovery_is_principal_scoped_and_error_is_classified(monkeypatch):
-    engine = _FakeEngine(_rows())
+def test_route_unknown_kind_multi_is_422(monkeypatch):
+    engine = _FakeEngine()
     client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/discoveries")
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["count"] == 1
-    assert body["items"][0]["last_error"] == "unavailable"
-    assert "actor-b" not in response.text
-    assert "discovery_principal = 'actor-a'" in engine.graph_compute.statements[-1]
+    resp = client.get("/api/registry?kinds=not-a-kind")
+    assert resp.status_code == 422
 
 
-def test_derived_catalog_is_disjoint_by_principal_and_grant(monkeypatch):
-    engine = _FakeEngine(_rows())
-    actor_a = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
-    response_a = actor_a.get("/api/registry/tools")
-    assert response_a.status_code == 200, response_a.text
-    assert [item["name"] for item in response_a.json()["items"]] == ["only-a"]
-    assert "discovery_grant_digest IN (" in engine.graph_compute.statements[-1]
-
-    actor_b = _authority_app(monkeypatch, engine=engine, actor_id="actor-b")
-    response_b = actor_b.get("/api/registry/tools")
-    assert response_b.status_code == 200, response_b.text
-    assert [item["name"] for item in response_b.json()["items"]] == ["only-b"]
-    assert "only-a" not in response_b.text
-
-
-def test_local_discovery_is_tenant_readable_without_oauth_grant(monkeypatch):
-    engine = _FakeEngine(_rows_with_local())
+def test_route_missing_kinds_param_is_422(monkeypatch):
+    engine = _FakeEngine()
     client = _authority_app(monkeypatch, engine=engine)
-    monkeypatch.setattr(
-        registry_api, "_resolve_current_discovery_grants", lambda _actor: ()
-    )
-
-    response = client.get("/api/registry/tools")
-
-    assert response.status_code == 200, response.text
-    assert [item["name"] for item in response.json()["items"]] == ["local-tool"]
-    statement = engine.graph_compute.statements[-1]
-    assert "discovery_authority_kind = 'tenant_local'" in statement
-    assert "discovery_grant_digest IN (" not in statement
+    resp = client.get("/api/registry")
+    assert resp.status_code == 422
 
 
-def test_local_visibility_does_not_broaden_oauth_principal_isolation(monkeypatch):
-    rows = _rows_with_local()
-    engine = _FakeEngine(rows)
-    client_a = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
-    response_a = client_a.get("/api/registry/tools")
-    assert response_a.status_code == 200, response_a.text
-    assert {item["name"] for item in response_a.json()["items"]} == {
-        "local-tool",
-        "only-a",
-    }
-
-    client_b = _authority_app(monkeypatch, engine=engine, actor_id="actor-b")
-    response_b = client_b.get("/api/registry/tools")
-    assert response_b.status_code == 200, response_b.text
-    assert {item["name"] for item in response_b.json()["items"]} == {
-        "local-tool",
-        "only-b",
-    }
-    assert "only-a" not in response_b.text
-
-
-# --- Generic per-kind fleet-public / user-scoped coverage -----------------
-#
-# The two tests above (`test_local_discovery_is_tenant_readable_without_oauth_grant`,
-# `test_local_visibility_does_not_broaden_oauth_principal_isolation`) prove the
-# public-fleet-row / private-OAuth-row design only for `tools`. Every kind that
-# carries the `discovery_*` columns (`discoveries`, `tools`, `prompts`,
-# `resources`, `skills`) shares the identical `_build_where` predicate, so the
-# same two properties must hold for each of them individually — this is the
-# harness/fleet-catalog tenant-public directive (AUTHZ LANE A): a `kg:read`
-# principal with no discovery grant must see every fleet-ingested (tenant_local)
-# row, and cross-principal isolation of OAuth-bound discovery rows must not be
-# broadened by that public visibility.
-
-_DISCOVERY_SCOPED_KINDS = ("discoveries", "tools", "prompts", "resources", "skills")
-
-
-def _generic_row(
-    kind: str, *, suffix: str, authority: str, principal: str, grant: str
-) -> dict[str, Any]:
-    """Build one row shaped for ``kind``'s table, using only real columns."""
-
-    spec = registry_api._KIND_SPECS[kind]
-    template = {
-        "id": f"{kind}_{suffix}",
-        "tenant_id": "tenant-a",
-        "server_id": "mcp_server_alpha",
-        "server_name": f"{kind}-{suffix}",
-        "name": f"{kind}-{suffix}",
-        "description": "",
-        "uri": "",
-        "skill_type": "",
-        "classification": "",
-        "provider": "",
-        "mcp_server": "",
-        "enabled": True,
-        "transport": "http",
-        "url": "",
-        "schema_digest": "",
-        "tool_mode": "verbose",
-        "mime_type": "",
-        "resource_kind": "",
-        "reachable": True,
-        "last_error": "",
-        "tool_count": 0,
-        "skill_count": 0,
-        "prompt_count": 0,
-        "resource_count": 0,
-        "observed_at": "2026-08-18T00:00:00Z",
-        "discovery_authority_kind": authority,
-        "discovery_principal": principal,
-        "discovery_grant_digest": grant,
-    }
-    return {column: template[column] for column in spec.columns}
-
-
-def _fleet_and_user_scoped_rows(kind: str) -> tuple[str, list[dict[str, Any]]]:
-    """One tenant_local (fleet) row plus one oauth_grant row per test actor."""
-
-    spec = registry_api._KIND_SPECS[kind]
-    grant_a = _grant_digest("actor-a")
-    grant_b = _grant_digest("actor-b")
-    rows = [
-        _generic_row(
-            kind, suffix="local", authority="tenant_local", principal="", grant=""
-        ),
-        _generic_row(
-            kind,
-            suffix="a",
-            authority="oauth_grant",
-            principal="actor-a",
-            grant=grant_a,
-        ),
-        _generic_row(
-            kind,
-            suffix="b",
-            authority="oauth_grant",
-            principal="actor-b",
-            grant=grant_b,
-        ),
-    ]
-    return spec.table, rows
-
-
-@pytest.mark.parametrize("kind", _DISCOVERY_SCOPED_KINDS)
-def test_fleet_rows_are_tenant_public_for_every_discovery_scoped_kind(
-    monkeypatch, kind
-):
-    """kg:read with NO discovery grants still sees every fleet (tenant_local)
-    row — the bug this lane fixes, proven for each affected kind, not just
-    ``tools``."""
-
-    table, rows = _fleet_and_user_scoped_rows(kind)
-    engine = _FakeEngine({table: rows})
+def test_route_catalog_unavailable_degrades_to_503(monkeypatch):
+    engine = _FakeEngine()  # no server_registry client configured
     client = _authority_app(monkeypatch, engine=engine)
-    monkeypatch.setattr(
-        registry_api, "_resolve_current_discovery_grants", lambda _actor: ()
-    )
-
-    response = client.get(f"/api/registry/{kind}")
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["count"] == 1
-    names = {item.get("name") or item.get("server_name") for item in body["items"]}
-    assert names == {f"{kind}-local"}
-    statement = engine.graph_compute.statements[-1]
-    assert "discovery_authority_kind = 'tenant_local'" in statement
-    assert "discovery_grant_digest IN (" not in statement
-    assert "actor-a" not in response.text
-    assert "actor-b" not in response.text
+    resp = client.get("/api/registry/servers")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "unavailable"
 
 
-@pytest.mark.parametrize("kind", _DISCOVERY_SCOPED_KINDS)
-def test_cross_principal_isolation_holds_alongside_public_fleet_rows(monkeypatch, kind):
-    """The load-bearing security test: making fleet rows tenant-public must
-    NOT leak one principal's OAuth-bound discovery rows to another principal,
-    for every affected kind — not just ``tools``."""
-
-    table, rows = _fleet_and_user_scoped_rows(kind)
-    engine = _FakeEngine({table: rows})
-
-    client_a = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
-    response_a = client_a.get(f"/api/registry/{kind}")
-    assert response_a.status_code == 200, response_a.text
-    names_a = {
-        item.get("name") or item.get("server_name")
-        for item in response_a.json()["items"]
-    }
-    assert names_a == {f"{kind}-local", f"{kind}-a"}
-    assert f"{kind}-b" not in response_a.text
-
-    client_b = _authority_app(monkeypatch, engine=engine, actor_id="actor-b")
-    response_b = client_b.get(f"/api/registry/{kind}")
-    assert response_b.status_code == 200, response_b.text
-    names_b = {
-        item.get("name") or item.get("server_name")
-        for item in response_b.json()["items"]
-    }
-    assert names_b == {f"{kind}-local", f"{kind}-b"}
-    assert f"{kind}-a" not in response_b.text
-
-
-def test_servers_kind_has_no_discovery_predicate_regression(monkeypatch):
-    """Regression guard: ``servers`` had no ``principal``/``grant`` columns
-    before this lane and must not gain one — it was already tenant-public."""
-
-    engine = _FakeEngine(_rows())
+def test_route_missing_item_is_404(monkeypatch):
+    engine = _FakeEngine(server_registry=_FakeServerRegistry([]))
     client = _authority_app(monkeypatch, engine=engine)
+    resp = client.get("/api/registry/servers/mcp_server_nope")
+    assert resp.status_code == 404
 
-    response = client.get("/api/registry/servers")
 
-    assert response.status_code == 200, response.text
-    statement = engine.graph_compute.statements[-1]
-    assert "discovery_" not in statement
-    assert "principal" not in statement
-    assert "grant" not in statement
-
-
-def test_registry_predicate_accepts_only_current_grants_for_one_principal(monkeypatch):
-    rows = _rows()
-    grant_a = _grant_digest("actor-a")
-    grant_refresh = _grant_digest("actor-a-refresh")
-    rows["mcp_tools"].append(
-        {
-            **rows["mcp_tools"][0],
-            "id": "tool_alpha_refresh",
-            "name": "only-a-refresh",
-            "discovery_grant_digest": grant_refresh,
-        }
-    )
-    engine = _FakeEngine(rows)
-    client = _authority_app(monkeypatch, engine=engine)
-    monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda _actor: (grant_a, grant_refresh),
-    )
-
-    response = client.get("/api/registry/tools")
-
-    assert response.status_code == 200, response.text
-    assert {item["name"] for item in response.json()["items"]} == {
-        "only-a",
-        "only-a-refresh",
-    }
-    statement = engine.graph_compute.statements[-1]
-    assert "discovery_grant_digest IN (" in statement
-
-
-def test_cursor_is_stable_scope_bound_and_tamper_evident(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    first = client.get("/api/registry/servers", params={"limit": 1})
-    assert first.status_code == 200
-    cursor = first.json()["next_cursor"]
-    assert cursor
-
-    second = client.get("/api/registry/servers", params={"limit": 1, "cursor": cursor})
-    assert second.status_code == 200
-    assert [item["name"] for item in second.json()["items"]] == ["beta"]
-    assert second.json()["items"][0]["url"] == "https://example.test"
-    assert "secret-token" not in second.text
-
-    tampered = client.get(
-        "/api/registry/servers", params={"limit": 1, "cursor": cursor + "x"}
-    )
-    assert tampered.status_code == 400
-    assert tampered.json()["detail"] == "invalid registry cursor"
-
-
-def test_cursor_is_bound_to_actor_tenant_filter_and_kind(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-    first = client.get("/api/registry/servers", params={"limit": 1})
-    cursor = first.json()["next_cursor"]
-    assert cursor
-
-    actor_client = _authority_app(monkeypatch, engine=engine, actor_id="actor-b")
-    assert (
-        actor_client.get(
-            "/api/registry/servers", params={"limit": 1, "cursor": cursor}
-        ).status_code
-        == 400
-    )
-    tenant_client = _authority_app(
-        monkeypatch, engine=engine, actor_id="actor-a", tenant_id="tenant-b"
-    )
-    assert (
-        tenant_client.get(
-            "/api/registry/servers", params={"limit": 1, "cursor": cursor}
-        ).status_code
-        == 400
-    )
-    assert (
-        client.get(
-            "/api/registry/servers",
-            params={"limit": 1, "q": "alpha", "cursor": cursor},
-        ).status_code
-        == 400
-    )
-    assert (
-        client.get(
-            "/api/registry/tools", params={"limit": 1, "cursor": cursor}
-        ).status_code
-        == 400
-    )
-
-
-def test_expired_cursor_is_rejected(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-    monkeypatch.setattr(registry_api, "_CURSOR_TTL_SECONDS", -1.0)
-    expired = registry_api._cursor_token(
-        kind="servers",
-        query="",
-        after=("alpha", "mcp_server_alpha"),
-        tenant="tenant-a",
-        principal="actor-a",
-        grant_digest="",
-    )
-
-    response = client.get(
-        "/api/registry/servers", params={"limit": 1, "cursor": expired}
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "invalid registry cursor"
-
-
-def test_cursor_round_trip_covers_every_row_exactly_once(monkeypatch):
-    source = _rows()["mcp_servers"][0]
-    rows = [
-        {**source, "id": f"mcp_server_{index:03d}", "name": f"server-{index:03d}"}
-        for index in range(37)
-    ]
-    engine = _FakeEngine({"mcp_servers": rows})
-    client = _authority_app(monkeypatch, engine=engine)
-
-    seen_ids: list[str] = []
-    cursor = None
-    for _ in range(100):
-        params: dict[str, Any] = {"limit": 5}
-        if cursor:
-            params["cursor"] = cursor
-        response = client.get("/api/registry/servers", params=params)
-        assert response.status_code == 200, response.text
-        body = response.json()
-        seen_ids.extend(item["id"] for item in body["items"])
-        cursor = body["next_cursor"]
-        if not cursor:
-            break
-    else:  # pragma: no cover - failure path only
-        raise AssertionError("pagination did not terminate")
-
-    assert len(seen_ids) == len(set(seen_ids)) == 37  # no duplicates, no gaps
-
-
-def test_authorization_holds_across_paginated_boundaries(monkeypatch):
-    """Interleave actor-a's and actor-b's rows in sort order and paginate one
-    row at a time (forcing a page boundary between every pair) — actor-a's
-    reader must see exactly its own rows, never a neighbor's, at any boundary."""
-    rows = _rows()
-    grant_a = _grant_digest("actor-a")
-    grant_b = _grant_digest("actor-b")
-    rows["mcp_tools"] = [
-        {
-            **rows["mcp_tools"][0],
-            "id": "tool_aa",
-            "name": "aa-tool",
-            "discovery_grant_digest": grant_a,
-        },
-        {
-            **rows["mcp_tools"][1],
-            "id": "tool_ab",
-            "name": "ab-tool",
-            "discovery_grant_digest": grant_b,
-        },
-        {
-            **rows["mcp_tools"][0],
-            "id": "tool_ac",
-            "name": "ac-tool",
-            "discovery_grant_digest": grant_a,
-        },
-        {
-            **rows["mcp_tools"][1],
-            "id": "tool_ad",
-            "name": "ad-tool",
-            "discovery_grant_digest": grant_b,
-        },
-    ]
-    engine = _FakeEngine(rows)
-    client = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
-
-    seen: list[str] = []
-    cursor = None
-    for _ in range(10):
-        params: dict[str, Any] = {"limit": 1}
-        if cursor:
-            params["cursor"] = cursor
-        response = client.get("/api/registry/tools", params=params)
-        assert response.status_code == 200, response.text
-        body = response.json()
-        seen.extend(item["name"] for item in body["items"])
-        cursor = body["next_cursor"]
-        if not cursor:
-            break
-
-    assert seen == ["aa-tool", "ac-tool"]
-    assert "ab-tool" not in seen
-    assert "ad-tool" not in seen
-
-
-def test_filter_is_literal_and_bounds_are_enforced(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    injection_like = client.get("/api/registry/servers", params={"q": "' OR 1=1 --"})
-    assert injection_like.status_code == 200
-    assert injection_like.json()["items"] == []
-    assert client.get("/api/registry/servers", params={"limit": 0}).status_code == 422
-    assert client.get("/api/registry/servers", params={"limit": 101}).status_code == 422
-
-
-def test_catalog_failure_is_explicit_unavailable(monkeypatch):
-    engine = _FakeEngine(_rows())
-    engine.graph_compute.fail = True
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-def test_get_kind_catalog_failure_is_explicit_unavailable(monkeypatch):
-    """`_get_kind` (the single-item handler) fails closed identically to
-    `_list_kind`: bare `JSONResponse(..., status_code=503)` served over the
-    declared `RegistryItemEnvelope[Any]` response_model. This pins the exact
-    wire behavior (status code + JSON body) of `_get_kind`'s unavailable
-    path -- lines 946/952/963 -- as a regression guard for the return-type
-    annotation widening to `RegistryItemEnvelope[Any] | JSONResponse`
-    (type-hygiene only; FastAPI already honors a returned Response object
-    over response_model, so this body/status must be byte-identical to
-    before that annotation change)."""
-    engine = _FakeEngine(_rows())
-    engine.graph_compute.fail = True
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers/mcp_server_alpha")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-@pytest.mark.parametrize("malformation", ["missing_tenant", "wrong_tenant"])
-def test_malformed_catalog_scope_is_explicitly_unavailable(monkeypatch, malformation):
-    engine = _FakeEngine(_rows())
-    engine.graph_compute.return_raw = True
-    row = engine.graph_compute.rows["mcp_servers"][0]
-    if malformation == "missing_tenant":
-        row.pop("tenant_id")
-    else:
-        row["tenant_id"] = "tenant-b"
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-def test_legacy_unbound_derived_row_is_not_relabelled_public(monkeypatch):
-    rows = {
-        "mcp_tools": [
-            {
-                "id": "legacy-tool",
-                "tenant_id": "tenant-a",
-                "server_id": "mcp_server_alpha",
-                "server_name": "alpha",
-                "name": "legacy",
-                "description": "",
-                "schema_digest": "legacy",
-                "tool_mode": "verbose",
-                "enabled": True,
-                "discovery_principal": "",
-                # The legacy row intentionally has no grant digest.
-            }
-        ]
-    }
-    engine = _FakeEngine(rows)
-    engine.graph_compute.return_raw = True
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/tools")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-@pytest.mark.parametrize(
-    ("authority_kind", "principal", "grant"),
-    [
-        ("unknown", "", ""),
-        ("tenant_local", "spoofed", ""),
-        ("tenant_local", "", "spoofed-grant"),
-    ],
-)
-def test_malformed_local_authority_is_unavailable(
-    monkeypatch, authority_kind, principal, grant
-):
-    rows = _rows_with_local()
-    rows["mcp_tools"] = [
-        {
-            **rows["mcp_tools"][1],
-            "discovery_authority_kind": authority_kind,
-            "discovery_principal": principal,
-            "discovery_grant_digest": grant,
-        }
-    ]
-    engine = _FakeEngine(rows)
-    engine.graph_compute.return_raw = True
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/tools")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-def test_invalid_catalog_model_field_is_explicitly_unavailable(monkeypatch):
-    engine = _FakeEngine(_rows())
-    engine.graph_compute.rows["mcp_servers"][0]["enabled"] = "not-a-boolean"
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers")
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-def _page_read(statements: list[str]) -> str:
-    """The page SELECT among the statements a route issued, by SHAPE not position.
-
-    Since BUG-CX-118 the page is read FIRST and the (unvalidatable) ``SELECT
-    COUNT(*)`` is issued only when that page turns out to be incomplete — so on
-    a multi-page path the count, not the page, is what ``statements[-1]`` holds.
-    """
-
-    for statement in statements:
-        if not statement.lstrip().upper().startswith("SELECT COUNT("):
-            return statement
-    raise AssertionError(f"no page read among {statements!r}")
-
-
-def test_a_huge_table_is_paged_not_materialized(monkeypatch):
-    """The defect this branch fixes: a table far past `_MAX_CATALOG_ROWS`
-    (10_000) used to force-fetch `_MAX_CATALOG_ROWS + 1` rows on every
-    request and fail closed. With LIMIT/COUNT pushdown, the same table is
-    served as an ordinary small page — the row count no longer determines
-    whether the read is safe."""
-    source = _rows()["mcp_servers"][0]
-    rows = [{**source, "id": f"mcp_server_{index:05d}"} for index in range(10_001)]
-    engine = _FakeEngine({"mcp_servers": rows})
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers", params={"limit": 5})
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["count"] == 10_001
-    assert len(body["items"]) == 5
-    assert body["next_cursor"]
-    page_statement = _page_read(engine.graph_compute.statements)
-    assert "LIMIT 6" in page_statement  # limit + 1, never the table size
-
-
-def test_engine_ignoring_limit_is_explicitly_unavailable(monkeypatch):
-    """Equivalent guard for the new design: if the engine ever returns more
-    rows than the LIMIT it was given (a broken/misconfigured projection),
-    the route fails closed instead of silently serving an oversized page."""
-    source = _rows()["mcp_servers"][0]
-    rows = [{**source, "id": f"mcp_server_{index}"} for index in range(5)]
-    engine = _FakeEngine({"mcp_servers": rows})
-    engine.graph_compute.ignore_limit = True
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers", params={"limit": 1})
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-
-
-def test_missing_item_is_privacy_safe_and_no_write_verbs_are_mounted(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers/does-not-exist")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "registry item not found"
-
-    routes = _registry_routes(client.app.app)
-    assert routes
-    assert all(methods == {"GET"} for _, methods in routes)
-
-
-def test_missing_graph_session_is_denied(monkeypatch):
-    monkeypatch.setattr(
-        registry_api, "_get_catalog_engine", lambda: _FakeEngine(_rows())
-    )
+def test_route_no_session_is_403():
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
-
-    with suspend_session():
-        response = TestClient(app).get("/api/registry/servers")
-
-    assert response.status_code == 403
-    assert response.json()["detail"] == "registry access denied"
+    client = TestClient(app)
+    resp = client.get("/api/registry/servers")
+    assert resp.status_code == 403
 
 
-# --- Event-loop offload (DEFECT A) ---
-#
-# `_list_kind` used to call `_authorized_count`/`_authorized_page` as plain
-# synchronous calls with no `run_in_executor`/`to_thread` offload anywhere,
-# so a slow engine RPC stalled the *entire* ASGI process, not just the one
-# request, and had no deadline at all. These tests exercise the fix
-# (`registry_api._offload_catalog_call`, `asyncio.wait_for(asyncio.to_thread(...))`)
-# directly against a fake engine whose `sql_exec` blocks synchronously.
-
-
-def _direct_authority(actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
-    """Build a bare actor/session pair for a direct (non-TestClient) coroutine
-    call, mirroring `_authority_app`'s middleware setup without the ASGI
-    plumbing -- needed so a test can `await` `_list_kind` concurrently with
-    another coroutine on the *same* event loop and observe whether the loop
-    stayed responsive."""
-
-    actor = ActorContext(
-        actor_id=actor_id,
-        actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("registry:read",),
-        tenant_id=tenant_id,
-        authenticated=True,
-    )
-    session = GraphSession(
-        actor=actor,
-        tenant=tenant_id,
-        scopes=frozenset({"kg:read"}),
-        graph=tenant_id,
-        policy_version="test",
-        audience="test",
-    )
-    return actor, session
-
-
-async def test_list_kind_offloads_the_blocking_engine_call_off_the_event_loop(
-    monkeypatch,
-):
-    """A concurrently scheduled coroutine must keep making progress *while*
-    `_list_kind`'s catalog SQL call is in flight, proving the blocking engine
-    RPC no longer runs inline on the event loop.
-
-    Before the fix, `_authorized_count`/`_authorized_page` ran synchronously
-    with no `await` in between, so once the event loop picked `_list_kind` to
-    run it would not yield back until both catalog calls finished -- the
-    heartbeat coroutine below would then show one large gap spanning the
-    whole blocking window instead of steady small gaps throughout it.
-    """
-
-    engine = _FakeEngine(_rows())
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def slow_sql_exec(statement: str):
-        time.sleep(0.3)
-        return real_sql_exec(statement)
-
-    engine.graph_compute.sql_exec = slow_sql_exec
-
-    actor, session = _direct_authority()
-    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
-    monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
-    )
-
-    request = Request({"type": "http", "query_string": b"", "headers": []})
-    ticks: list[float] = []
-
-    async def heartbeat() -> None:
-        start = time.monotonic()
-        for _ in range(60):
-            await asyncio.sleep(0.02)
-            ticks.append(time.monotonic() - start)
-
-    with use_actor(actor), use_session(session):
-        result, _ = await asyncio.gather(
-            registry_api._list_kind(
-                request, kind="servers", model=registry_api.RegistryServer
-            ),
-            heartbeat(),
-        )
-
-    assert isinstance(result, registry_api.RegistryPage)
-    assert result.status == "ok"
-    # `_list_kind` makes two sequential offloaded calls (count, then page) of
-    # 0.3s each -- ~0.6s of blocking work in total. The heartbeat must have
-    # kept ticking at its own ~0.02s cadence throughout that window: no gap
-    # between consecutive ticks anywhere near the 0.3s a single blocked call
-    # would produce if it still ran inline on the loop.
-    assert len(ticks) >= 20, ticks
-    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
-    assert max(gaps) < 0.2, gaps
-
-
-def test_list_kind_deadline_breach_fails_closed_and_bounded(monkeypatch):
-    """A genuinely hung engine call must fail this one request quickly and
-    cleanly -- not hang the request (or the ASGI process) indefinitely.
-    Regression guard for DEFECT A's "no deadline bound at all" finding."""
-
-    engine = _FakeEngine(_rows())
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def hung_sql_exec(statement: str):
-        time.sleep(2.0)
-        return real_sql_exec(statement)
-
-    engine.graph_compute.sql_exec = hung_sql_exec
-    monkeypatch.setattr(registry_api, "_CATALOG_READ_TIMEOUT_S", 0.2)
+def test_route_only_get_verbs_are_mounted(monkeypatch):
+    engine = _FakeEngine(server_registry=_FakeServerRegistry([]))
     client = _authority_app(monkeypatch, engine=engine)
-
-    # `time.sleep(2.0)` runs in a worker thread that `wait_for` abandons
-    # (rather than kills) once the deadline fires -- the OS thread keeps
-    # running in the background regardless, it just no longer holds up the
-    # request. Used outside a `with` block, Starlette's TestClient tears its
-    # portal down (and drains that stray executor thread) *after every
-    # single call*, which would fold that background 2s into this test's
-    # wall-clock measurement and defeat the point of the assertion. Keeping
-    # the portal open across the call measures what actually matters: how
-    # long the request itself took to come back.
-    with client:
-        start = time.monotonic()
-        response = client.get("/api/registry/servers")
-        elapsed = time.monotonic() - start
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "unavailable",
-        "reason": "catalog_unavailable",
-    }
-    # Bounded by the (patched) deadline, not by the 2s hang.
-    assert elapsed < 1.5, elapsed
-
-
-def test_success_path_response_shape_is_unchanged_by_the_offload(monkeypatch):
-    """Pin the exact 200 envelope for a known page so the offload change is
-    provably byte-identical on the success path: same rows, same shape."""
-
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers", params={"q": "alpha"})
-
-    assert response.status_code == 200, response.text
-    assert response.json() == {
-        "status": "ok",
-        "kind": "servers",
-        "items": [
-            {
-                "id": "mcp_server_alpha",
-                "name": "alpha",
-                "transport": "http",
-                "url": "",
-                "enabled": True,
-            }
-        ],
-        "count": 1,
-        "next_cursor": None,
-    }
-
-
-# --- Multi-kind: GET /api/registry?kinds=... -------------------------------
-
-
-def _rows_with_skills() -> dict[str, list[dict[str, Any]]]:
-    rows = _rows()
-    rows["skills"] = [
-        {
-            "id": "skill_alpha",
-            "tenant_id": "tenant-a",
-            "name": "alpha-skill",
-            "description": "",
-            "uri": "",
-            "skill_type": "skill",
-            "classification": "Skill",
-            "provider": "",
-            "mcp_server": "",
-            "enabled": True,
-            "discovery_authority_kind": "tenant_local",
-            "discovery_principal": "",
-            "discovery_grant_digest": "",
-        },
-    ]
-    return rows
-
-
-def test_multi_kind_matches_single_kind_reads_exactly(monkeypatch):
-    """No drift: the multi-kind envelope's per-kind slice must equal what the
-    equivalent standalone `/api/registry/{kind}` call returns, because both
-    paths reuse the exact same `_authorized_page`/`_authorized_count`
-    predicate — never a second, forked implementation."""
-
-    engine = _FakeEngine(_rows_with_skills())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    multi = client.get("/api/registry", params={"kinds": "servers,tools,skills"})
-    assert multi.status_code == 200, multi.text
-    body = multi.json()
-    assert body["status"] == "ok"
-    assert set(body["kinds"]) == {"servers", "tools", "skills"}
-
-    for kind in ("servers", "tools", "skills"):
-        single = client.get(f"/api/registry/{kind}")
-        assert single.status_code == 200, single.text
-        single_body = single.json()
-        multi_kind = body["kinds"][kind]
-        assert multi_kind["status"] == "ok"
-        assert multi_kind["items"] == single_body["items"]
-        assert multi_kind["count"] == single_body["count"]
-
-
-def test_multi_kind_one_failing_kind_does_not_discard_others(monkeypatch):
-    engine = _FakeEngine(_rows_with_skills())
-    engine.graph_compute.fail_tables = {"mcp_tools"}
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry", params={"kinds": "servers,tools,skills"})
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["kinds"]["tools"]["status"] == "unavailable"
-    assert body["kinds"]["tools"]["reason"] == "catalog_unavailable"
-    assert body["kinds"]["tools"]["items"] == []
-    # The healthy kinds are NOT discarded by the failing one.
-    assert body["kinds"]["servers"]["status"] == "ok"
-    assert body["kinds"]["servers"]["count"] >= 1
-    assert body["kinds"]["skills"]["status"] == "ok"
-    assert body["kinds"]["skills"]["count"] == 1
-
-
-def test_multi_kind_missing_kinds_param_is_422(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    assert client.get("/api/registry").status_code == 422
-    assert client.get("/api/registry", params={"kinds": ""}).status_code == 422
-
-
-def test_multi_kind_unknown_kind_is_422(monkeypatch):
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry", params={"kinds": "servers,bogus"})
-
-    assert response.status_code == 422
-
-
-def test_multi_kind_cursor_is_per_kind_not_global(monkeypatch):
-    """Each kind's `next_cursor` advances only THAT kind's page; feeding it
-    back as `cursor_<kind>` must not perturb a sibling kind requested in the
-    same call, and a cursor minted for one kind is rejected if replayed
-    under a different kind's `cursor_<kind>` parameter name."""
-
-    rows = _rows_with_skills()
-    source = rows["mcp_servers"][0]
-    rows["mcp_servers"] = [
-        {**source, "id": f"mcp_server_{i:02d}", "name": f"server-{i:02d}"}
-        for i in range(3)
-    ]
-    engine = _FakeEngine(rows)
-    client = _authority_app(monkeypatch, engine=engine)
-
-    first = client.get("/api/registry", params={"kinds": "servers,skills", "limit": 1})
-    assert first.status_code == 200, first.text
-    first_body = first.json()
-    servers_cursor = first_body["kinds"]["servers"]["next_cursor"]
-    assert servers_cursor
-    # `skills` has only one row at limit=1, so it is already exhausted.
-    assert first_body["kinds"]["skills"]["next_cursor"] is None
-    assert first_body["kinds"]["skills"]["items"][0]["name"] == "alpha-skill"
-
-    second = client.get(
-        "/api/registry",
-        params={
-            "kinds": "servers,skills",
-            "limit": 1,
-            "cursor_servers": servers_cursor,
-        },
-    )
-    assert second.status_code == 200, second.text
-    second_body = second.json()
-    # `servers` advanced to its next page...
-    assert second_body["kinds"]["servers"]["items"][0]["name"] != "server-00"
-    # ...while `skills` (no cursor supplied for it) served its own first
-    # page again, unaffected by the `servers` cursor riding along.
-    assert second_body["kinds"]["skills"]["items"][0]["name"] == "alpha-skill"
-
-    # A cursor minted for `servers` is bound to that kind; replaying it under
-    # a different kind's parameter name must be rejected, not silently
-    # accepted against the wrong kind's predicate.
-    wrong_kind = client.get(
-        "/api/registry",
-        params={
-            "kinds": "servers,skills",
-            "limit": 1,
-            "cursor_skills": servers_cursor,
-        },
-    )
-    assert wrong_kind.status_code == 400
-
-
-def test_multi_kind_include_toggle_issues_one_batched_query_and_reflects_disabled(
-    monkeypatch,
-):
-    engine = _FakeEngine(_rows_with_skills())
-    # Force the server "alpha" and skill "alpha-skill" toggle preference to
-    # disabled — the catalog rows themselves both say `enabled: true`, so
-    # this can ONLY be reflected via the toggle-store merge, not the
-    # catalog's own `enabled` column.
-    engine.preferences["preference:toggle:mcp_server:alpha"] = "disabled"
-    engine.preferences["preference:toggle:skill:alpha-skill"] = "disabled"
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get(
-        "/api/registry",
-        params={"kinds": "servers,skills", "include": "toggle"},
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    server_items = {item["name"]: item for item in body["kinds"]["servers"]["items"]}
-    assert server_items["alpha"]["enabled"] is False  # toggled off
-    # "beta" has no toggle preference recorded (defaults on) but is
-    # config-disabled in the catalog itself (`enabled: false`) — the AND
-    # override keeps it disabled either way.
-    assert server_items["beta"]["enabled"] is False
-    skill_item = body["kinds"]["skills"]["items"][0]
-    assert skill_item["enabled"] is False
-    # ONE batched engine round trip covering every item across every kind —
-    # never one call per item, and never one call per kind either.
-    assert len(engine.query_cypher_calls) == 1
-    _, call_params = engine.query_cypher_calls[0]
-    assert set(call_params["pref_ids"]) == {
-        "preference:toggle:mcp_server:alpha",
-        "preference:toggle:mcp_server:beta",
-        "preference:toggle:skill:alpha-skill",
-    }
-
-
-def test_multi_kind_without_include_toggle_issues_no_toggle_query(monkeypatch):
-    engine = _FakeEngine(_rows_with_skills())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry", params={"kinds": "servers,skills"})
-
-    assert response.status_code == 200, response.text
-    assert engine.query_cypher_calls == []
-
-
-def test_multi_kind_toggle_does_not_apply_to_kinds_without_a_convention(monkeypatch):
-    """`discoveries` has no evidenced toggle key convention and no `enabled`
-    field — `include=toggle` must not fabricate one; the kind's items are
-    unchanged."""
-
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get(
-        "/api/registry",
-        params={"kinds": "discoveries", "include": "toggle"},
-    )
-
-    assert response.status_code == 200, response.text
-    assert engine.query_cypher_calls == []
-    assert (
-        "enabled" not in (response.json()["kinds"]["discoveries"]["items"] or [{}])[0]
-    )
-
-
-def test_existing_single_kind_routes_are_unaffected_by_the_new_route(monkeypatch):
-    """Regression guard: mounting the new `/api/registry` route alongside the
-    existing per-kind routes changes neither their shape nor their
-    behavior."""
-
-    engine = _FakeEngine(_rows())
-    client = _authority_app(monkeypatch, engine=engine)
-
-    response = client.get("/api/registry/servers", params={"q": "alpha"})
-
-    assert response.status_code == 200, response.text
-    assert response.json() == {
-        "status": "ok",
-        "kind": "servers",
-        "items": [
-            {
-                "id": "mcp_server_alpha",
-                "name": "alpha",
-                "transport": "http",
-                "url": "",
-                "enabled": True,
-            }
-        ],
-        "count": 1,
-        "next_cursor": None,
-    }
-    routes = _registry_routes(client.app.app)
-    paths = {path for path, _methods in routes}
-    assert "/registry" in paths  # the new multi-kind route is mounted...
-    assert "/registry/servers" in paths  # ...alongside every old one
-    assert all(methods == {"GET"} for _, methods in routes)  # still read-only
-
-
-async def test_multi_kind_does_not_block_the_event_loop(monkeypatch):
-    """Reading N kinds concurrently must not serialize N blocking engine
-    calls onto the loop -- each kind's count+page pair runs on its own
-    worker thread via `_offload_catalog_call`, so a slow engine leaves the
-    loop free to keep servicing the heartbeat coroutine throughout."""
-
-    engine = _FakeEngine(_rows_with_skills())
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def slow_sql_exec(statement: str):
-        time.sleep(0.2)
-        return real_sql_exec(statement)
-
-    engine.graph_compute.sql_exec = slow_sql_exec
-
-    actor, session = _direct_authority()
-    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
-    monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
-    )
-
-    request = Request(
-        {
-            "type": "http",
-            "query_string": b"kinds=servers,tools,skills",
-            "headers": [],
-        }
-    )
-    ticks: list[float] = []
-
-    async def heartbeat() -> None:
-        start = time.monotonic()
-        for _ in range(60):
-            await asyncio.sleep(0.02)
-            ticks.append(time.monotonic() - start)
-
-    with use_actor(actor), use_session(session):
-        result, _ = await asyncio.gather(
-            registry_api._list_multi_kind(request),
-            heartbeat(),
-        )
-
-    assert isinstance(result, registry_api.RegistryMultiKindPage)
-    assert set(result.kinds) == {"servers", "tools", "skills"}
-    assert len(ticks) >= 20, ticks
-    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
-    assert max(gaps) < 0.2, gaps
+    for path in ("/api/registry/servers", "/api/registry/servers/x"):
+        resp = client.post(path, json={})
+        assert resp.status_code in (404, 405)

@@ -1795,6 +1795,28 @@ _CURRENT_DISCOVERY_BINDING: contextvars.ContextVar[Any | None] = contextvars.Con
 )
 
 
+class TenantLocalDiscoveryBinding:
+    """Process-owned authority for a non-OAuth MCP discovery snapshot.
+
+    Moved here from the deleted ``knowledge_graph.core.fleet_catalog_tables``
+    (EH-345) -- this multiplexer is the sole minter. Purely an internal
+    cache-key/provenance value: the EG wire shape a discovery write actually
+    sends (``{"authority": "tenant_local"}``, no ``tenant_id`` -- the engine
+    binds tenant from the verified request context) is derived from this at
+    the write site (``source_sync._discovery_scope_payload``), never sent
+    as-is.
+    """
+
+    __slots__ = ("tenant_id", "authority")
+
+    def __init__(self, *, tenant_id: str) -> None:
+        tenant = str(tenant_id or "").strip()
+        if not tenant:
+            raise ValueError("tenant-local discovery authority is malformed")
+        self.tenant_id = tenant
+        self.authority: str = "tenant_local"
+
+
 def _oauth_gated(cfg: Mapping[str, Any]) -> bool:
     """True when a remote MCP child catalog entry declares a per-principal
     OAuth provider (``oauth_provider``, a ``ProviderDescriptor``-shaped dict).
@@ -1806,18 +1828,21 @@ def _oauth_gated(cfg: Mapping[str, Any]) -> bool:
     return isinstance(provider_cfg, dict) and bool(provider_cfg)
 
 
-def _tenant_local_discovery_binding() -> Any | None:
+def _tenant_local_discovery_binding() -> TenantLocalDiscoveryBinding | None:
     """Mint the non-OAuth discovery visibility contract from verified state.
 
     Local/stdio children have no provider grant to resolve.  Their discovery
     is still not caller-authorized: the process-owned multiplexer may expose a
     tenant-local snapshot only while a verified graph session is ambient.  Do
     not derive an OAuth-like digest from roles/scopes or accept catalog fields.
+
+    EH-345: ``TenantLocalDiscoveryBinding`` is now defined here (moved out of
+    the deleted ``fleet_catalog_tables`` module) — it is purely this
+    multiplexer's own internal cache-key/provenance object; the EG wire shape
+    (``{"authority": "tenant_local"}``) is derived from it only at the write
+    site (``source_sync._discovery_scope_payload``), never sent as-is.
     """
     try:
-        from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
-            TenantLocalDiscoveryBinding,
-        )
         from agent_utilities.knowledge_graph.core.session import current_session
 
         session = current_session()
@@ -1827,7 +1852,7 @@ def _tenant_local_discovery_binding() -> Any | None:
         if not tenant:
             return None
         return TenantLocalDiscoveryBinding(tenant_id=tenant)
-    except (ImportError, PermissionError, TypeError, ValueError):
+    except (PermissionError, TypeError, ValueError):
         return None
 
 
@@ -1913,10 +1938,8 @@ def current_remote_oauth_grant_bindings(actor: Any) -> tuple[Any, ...]:
     closed when no exact grant remains.
     """
 
-    from agent_utilities.knowledge_graph.core.discovery_authority import (
-        OAuthGrantBinding,
-    )
     from agent_utilities.mcp.remote_oauth_broker import (
+        OAuthGrantBinding,
         OAuthProviderError,
         OAuthScopeError,
         OAuthTokenAbsentError,
@@ -4775,12 +4798,7 @@ class MCPMultiplexer:
         only obtain a binding by completing a verified probe path above.
         Keeping the original object alongside its id makes id reuse harmless.
         """
-        from agent_utilities.knowledge_graph.core.discovery_authority import (
-            OAuthGrantBinding,
-        )
-        from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
-            TenantLocalDiscoveryBinding,
-        )
+        from agent_utilities.mcp.remote_oauth_broker import OAuthGrantBinding
 
         if not isinstance(info, dict) or not isinstance(
             binding, (OAuthGrantBinding, TenantLocalDiscoveryBinding)

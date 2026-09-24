@@ -1,36 +1,30 @@
-"""SQL-authoritative ACL routing (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
+"""EG fleet-catalog ACL routing (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
 
-Closes the deferred item on ``secured_reads._durable_access_rows``: the
-production incident measured two *unlabeled* Cypher full scans per fleet
-tool; the label-scoped candidates fixed "unlabeled", this fixes "at all" for
-a fleet ``Tool``/``MCPServer``/``Skill`` id whose relational catalog row
-(``fleet_catalog_tables``) already carries a durable ACL stamp written from
-the SAME policy the KG node write uses.
-
-Uses the REAL ``fleet_catalog_tables`` SQL emulator
-(``test_fleet_catalog_tables._FakeGraphCompute``) so the catalog rows this
-suite queries are the product of the REAL writer path
-(``write_fleet_catalog``), not a hand-authored double standing in for it --
-the seam under test (``catalog_acl_rows``'s SQL query shapes against a real
-migrated schema) is exercised for real, only the Cypher backend below it is
-a test double.
+EH-345 (2026-09-22) replaced the deleted ``fleet_catalog_tables.catalog_acl_rows``
+SQL fast path with ``secured_reads._catalog_acl_hits`` reading
+``FleetCatalogClient.lookup`` directly. This file (rewritten from its
+predecessor, which built the real rows through ``fleet_catalog_tables``'s SQL
+writer -- deleted along with that module) exercises the fast path with fake
+``fleet_catalog`` clients implementing the same synchronous method surface
+``SyncEpistemicGraphClient.fleet_catalog`` exposes, and confirms every miss
+mode (no client configured, lookup raises, id absent from the answer) falls
+through to the existing Cypher path unchanged -- never silently grants.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from agent_utilities.knowledge_graph.core import fleet_catalog_tables as fct
 from agent_utilities.knowledge_graph.core import secured_reads as sr
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (
     get_company_brain,
     reset_company_brain,
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
-from tests.unit.knowledge_graph.test_fleet_catalog_tables import _FakeGraphCompute
 
 
 @pytest.fixture
@@ -40,13 +34,6 @@ def brain():
     reset_company_brain()
 
 
-@pytest.fixture(autouse=True)
-def _reset_ddl_cache():
-    fct._ensured_stores.clear()
-    yield
-    fct._ensured_stores.clear()
-
-
 def _actor(tenant: str = "tenant-a", actor_id: str = "sync-actor") -> ActorContext:
     return ActorContext(
         actor_id,
@@ -54,17 +41,6 @@ def _actor(tenant: str = "tenant-a", actor_id: str = "sync-actor") -> ActorConte
         roles=("test",),
         tenant_id=tenant,
         authenticated=True,
-    )
-
-
-def _session(tenant: str = "tenant-a", actor_id: str = "sync-actor") -> GraphSession:
-    return GraphSession(
-        actor=_actor(tenant, actor_id),
-        tenant=tenant,
-        scopes=frozenset({"kg:read", "kg:write"}),
-        graph="g",
-        policy_version="v1",
-        audience="test",
     )
 
 
@@ -84,96 +60,150 @@ class _RecordingCypherBackend:
         return [row for row in self._rows if row.get("id") in wanted]
 
 
-class _RejectingCypherBackend:
-    """Every Cypher read fails -- models an infrastructure failure below the
-    SQL fast path, never a route to "grant"."""
+def _component_ref(
+    id: str, *, tenant_scope: bool, principal: str = ""
+) -> SimpleNamespace:
+    visibility = (
+        SimpleNamespace(scope="tenant")
+        if tenant_scope
+        else SimpleNamespace(scope="principal", principal=principal)
+    )
+    acl = SimpleNamespace(
+        tenant_id="tenant-a", visibility=visibility, publisher="pub-1"
+    )
+    return SimpleNamespace(id=id, acl=acl)
 
-    def execute_read(self, _query, _params, **_kw):
-        raise RuntimeError("durable ACL store rejected the hydration query")
+
+class _FakeFleetCatalog:
+    def __init__(self, entries: list[SimpleNamespace] | None = None) -> None:
+        self.entries = entries or []
+        self.lookup_calls: list[list[str]] = []
+        self.raises = False
+
+    def lookup(self, ids: list[str], grant_digests=()):
+        self.lookup_calls.append(list(ids))
+        if self.raises:
+            raise RuntimeError("engine fleet-catalog surface unavailable")
+        wanted = set(ids)
+        matched = [e for e in self.entries if sr._fleet_row_id_and_acl(e)[0] in wanted]
+        return SimpleNamespace(rows=matched)
 
 
 class _CatalogBackedEngine:
-    """A single fake engine exposing BOTH the SQL surface
-    (``graph_compute.sql_exec``, what ``fleet_catalog_tables``/
-    ``catalog_acl_rows`` write to and query) and the Cypher surface
-    (``backend.execute_read``, what ``_durable_access_rows``'s label-scoped
-    fallback reads) -- the same engine object real code sees both through.
-    """
+    """A single fake engine exposing BOTH the EG fleet-catalog client
+    (``graph_compute.client.fleet_catalog``, what ``_catalog_acl_hits`` reads)
+    and the Cypher surface (``backend.execute_read``, what
+    ``_durable_access_rows``'s label-scoped fallback reads) -- the same
+    engine object real code sees both through."""
 
-    def __init__(self, cypher_backend) -> None:
-        self.graph_compute = _FakeGraphCompute()
+    def __init__(self, cypher_backend, fleet_catalog: _FakeFleetCatalog | None) -> None:
+        self.graph_compute = SimpleNamespace(
+            client=SimpleNamespace(fleet_catalog=fleet_catalog)
+        )
         self.backend = cypher_backend
 
     def for_graph(self, _graph_name: str) -> _CatalogBackedEngine:
         return self
 
 
-def _server_catalog() -> dict:
-    return {
-        "srv": {
-            "error": None,
-            "tools": [
-                {
-                    "name": "t1",
-                    "description": "d",
-                    "inputSchema": {"properties": {"x": {"type": "string"}}},
-                }
-            ],
-            "skills": [],
-            "prompts": [],
-        }
+# ---------------------------------------------------------------------------
+# _catalog_acl_hits (the rewritten fast path) directly
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_acl_hits_maps_tenant_scope_to_public_org():
+    entry = SimpleNamespace(
+        kind="tool",
+        row=SimpleNamespace(
+            component=_component_ref("mcp:svc/tool/t1", tenant_scope=True)
+        ),
+    )
+    fc = _FakeFleetCatalog([entry])
+    hits = sr._catalog_acl_hits(
+        _CatalogBackedEngine(_RecordingCypherBackend(), fc),
+        ["mcp:svc/tool/t1"],
+        "tenant-a",
+    )
+    assert hits["mcp:svc/tool/t1"] == {
+        "tenant_id": "tenant-a",
+        "classification": "PUBLIC",
+        "external_access": None,
+        "owner_id": "pub-1",
+        "shared_scope": "org",
     }
 
 
-def _seed_catalog_row(engine: _CatalogBackedEngine, tenant: str) -> None:
-    """Write one real ``mcp_tools`` row through the real writer path, ACL
-    columns included, under a verified actor/session -- this is the SAME
-    write ``fleet-tool-schema-sync`` performs in production."""
-    with use_actor(_actor(tenant)), use_session(_session(tenant)):
-        result = fct.write_fleet_catalog(
-            engine,
-            _server_catalog(),
-            discovery_bindings={
-                "srv": fct.TenantLocalDiscoveryBinding(tenant_id=tenant)
-            },
-        )
-    assert result["status"] == "ok"
-    assert result["tools_written"] == 1
+def test_catalog_acl_hits_maps_principal_scope_to_confidential_private():
+    entry = SimpleNamespace(
+        kind="tool",
+        row=SimpleNamespace(
+            component=_component_ref(
+                "mcp:svc/tool/t2", tenant_scope=False, principal="alice"
+            )
+        ),
+    )
+    fc = _FakeFleetCatalog([entry])
+    hits = sr._catalog_acl_hits(
+        _CatalogBackedEngine(_RecordingCypherBackend(), fc),
+        ["mcp:svc/tool/t2"],
+        "tenant-a",
+    )
+    assert hits["mcp:svc/tool/t2"]["classification"] == "CONFIDENTIAL"
+    assert hits["mcp:svc/tool/t2"]["owner_id"] == "alice"
+    assert hits["mcp:svc/tool/t2"]["shared_scope"] == "private"
 
 
-def test_sql_authoritative_id_resolves_via_sql_without_a_cypher_round_trip(
-    monkeypatch, brain
-):
+def test_catalog_acl_hits_no_client_is_empty_not_an_error():
+    hits = sr._catalog_acl_hits(
+        _CatalogBackedEngine(_RecordingCypherBackend(), None),
+        ["mcp:svc/tool/t1"],
+        "tenant-a",
+    )
+    assert hits == {}
+
+
+def test_catalog_acl_hits_raising_lookup_is_empty_not_an_error():
+    fc = _FakeFleetCatalog([])
+    fc.raises = True
+    hits = sr._catalog_acl_hits(
+        _CatalogBackedEngine(_RecordingCypherBackend(), fc),
+        ["mcp:svc/tool/t1"],
+        "tenant-a",
+    )
+    assert hits == {}
+
+
+# ---------------------------------------------------------------------------
+# _durable_access_rows end to end: fast path vs Cypher fallback
+# ---------------------------------------------------------------------------
+
+
+def test_fleet_catalog_hit_resolves_without_a_cypher_round_trip(monkeypatch, brain):
+    entry = SimpleNamespace(
+        kind="tool",
+        row=SimpleNamespace(
+            component=_component_ref("mcp:svc/tool/t1", tenant_scope=True)
+        ),
+    )
     cypher = _RecordingCypherBackend(rows=[])
-    engine = _CatalogBackedEngine(cypher)
-    _seed_catalog_row(engine, "tenant-a")
-
+    engine = _CatalogBackedEngine(cypher, _FakeFleetCatalog([entry]))
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
-    with use_actor(_actor("tenant-a")):
-        rows = sr._durable_access_rows(["tool_srv_t1"])
 
-    assert rows["tool_srv_t1"]["classification"] == "confidential"
-    assert rows["tool_srv_t1"]["owner_id"] == "sync-actor"
-    # `org`, not `private`: the ambient test actor is
-    # `ActorType.AUTOMATED_SERVICE` (`tests/conftest.py`, `TEST_AGENT_ID`),
-    # and `tenant_sharing.stamp_ownership` now scopes a service write to
-    # the org by ACTOR TYPE instead of by the writer's current `kg:admin`
-    # role. The `_owner_id` provenance marker above is unchanged; only the
-    # visibility default widened. See
-    # `test_tenant_sharing.py::test_stamp_ownership_service_is_org_scoped_regardless_of_privilege`.
-    assert rows["tool_srv_t1"]["shared_scope"] == "org"
-    assert rows["tool_srv_t1"]["external_access"] is None
-    assert rows["tool_srv_t1"]["tenant_id"] == "tenant-a"
+    with use_actor(_actor("tenant-a")):
+        rows = sr._durable_access_rows(["mcp:svc/tool/t1"])
+
+    assert rows["mcp:svc/tool/t1"]["classification"] == "PUBLIC"
+    assert rows["mcp:svc/tool/t1"]["tenant_id"] == "tenant-a"
     # The dominant cost this closes: zero Cypher round trips for an id the
-    # catalog can fully answer for.
+    # fleet catalog can fully answer for.
     assert cypher.queries == []
 
 
 def test_non_fleet_id_falls_back_to_cypher_unchanged(monkeypatch, brain):
-    """An id the catalog has never heard of (not a fleet node at all) must
-    still resolve through the existing, already-correct Cypher path -- the
-    SQL fast path adds a lookup, it never narrows what the Cypher path could
-    already answer."""
+    """An id the fleet catalog has never heard of (not a fleet node at all,
+    or its ConnectorPack hasn't been imported yet) must still resolve
+    through the existing, already-correct Cypher path -- the fast path adds
+    a lookup, it never narrows what the Cypher path could already answer."""
     cypher = _RecordingCypherBackend(
         rows=[
             {
@@ -186,12 +216,9 @@ def test_non_fleet_id_falls_back_to_cypher_unchanged(monkeypatch, brain):
             }
         ]
     )
-    engine = _CatalogBackedEngine(cypher)
-    # The catalog exists (migrated) but has never heard of this id.
-    with use_actor(_actor("tenant-a")), use_session(_session("tenant-a")):
-        fct.ensure_fleet_catalog_tables(engine)
-
+    engine = _CatalogBackedEngine(cypher, _FakeFleetCatalog([]))
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
     with use_actor(_actor("tenant-a")):
         rows = sr._durable_access_rows(["memory:some-id"])
 
@@ -202,15 +229,10 @@ def test_non_fleet_id_falls_back_to_cypher_unchanged(monkeypatch, brain):
     assert len(cypher.queries) >= 1
 
 
-def test_catalog_row_without_a_stamped_acl_also_falls_back_to_cypher(
-    monkeypatch, brain
-):
-    """A catalog row that exists (the id IS in ``mcp_tools``) but was written
-    before an ACL was ever stamped for it (``acl_classification`` NULL --
-    the exact shape a legacy/pre-migration row backfill leaves) must be
-    treated identically to "not in the catalog at all": SQL has no opinion,
-    Cypher decides. A present-but-blank row must never be read as
-    "unrestricted"."""
+def test_no_fleet_catalog_client_falls_back_to_cypher(monkeypatch, brain):
+    """A deployment where EG's fleet-catalog surface isn't wired yet (client
+    is None -- the pre-eg-fleet-catalog-landing state) must degrade to
+    Cypher exactly like a miss, never crash or silently deny."""
     cypher = _RecordingCypherBackend(
         rows=[
             {
@@ -223,65 +245,26 @@ def test_catalog_row_without_a_stamped_acl_also_falls_back_to_cypher(
             }
         ]
     )
-    engine = _CatalogBackedEngine(cypher)
-    with use_actor(_actor("tenant-a")), use_session(_session("tenant-a")):
-        fct.ensure_fleet_catalog_tables(engine)
-    # Seed the row directly with a blank ACL stamp, bypassing the writer --
-    # models a row from before this migration's writer change landed.
-    gc = engine.graph_compute
-    gc.tables[fct.TABLE_MCP_TOOLS]["tool_srv_t1"] = {
-        "id": "tool_srv_t1",
-        "tenant_id": "tenant-a",
-        "server_id": "mcp_server_srv",
-        "server_name": "srv",
-        "name": "t1",
-        "description": "d",
-        "input_schema": "{}",
-        "schema_digest": fct._schema_digest({}),
-        "tool_mode": "verbose",
-        "enabled": True,
-        "discovery_authority_kind": fct.DISCOVERY_AUTHORITY_TENANT_LOCAL,
-        "discovery_principal": "",
-        "discovery_grant_digest": "",
-        "revision": 1,
-        "idempotency_key": "seed",
-        "updated_at": "2026-01-01T00:00:00+00:00",
-        "kg_node_id": "tool_srv_t1",
-        "acl_classification": None,
-        "acl_owner_id": None,
-        "acl_shared_scope": None,
-    }
-
+    engine = _CatalogBackedEngine(cypher, None)
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
     with use_actor(_actor("tenant-a")):
         rows = sr._durable_access_rows(["tool_srv_t1"])
 
-    # Resolved via Cypher, not silently dropped or "unrestricted".
     assert rows["tool_srv_t1"]["owner_id"] == "principal:owner"
     assert len(cypher.queries) >= 1
 
 
-def test_failed_sql_lookup_falls_back_to_cypher_and_never_grants_by_itself(
+def test_failed_fleet_catalog_lookup_falls_back_to_cypher_and_never_grants_by_itself(
     monkeypatch, brain
 ):
-    """A raising SQL surface (a transient engine error) must degrade to the
-    Cypher path, exactly like "no catalog opinion" -- never surface as a
-    grant, and never crash the read."""
-
-    class _RaisingGraphCompute:
-        def sql_exec(self, _statement):
-            raise RuntimeError("engine SQL surface unavailable")
-
-    class _Engine:
-        def __init__(self, cypher) -> None:
-            self.graph_compute = _RaisingGraphCompute()
-            self.backend = cypher
-
-        def for_graph(self, _graph_name: str) -> _Engine:
-            return self
-
+    """A raising fleet-catalog surface (a transient engine error) must
+    degrade to the Cypher path, exactly like "no catalog opinion" -- never
+    surface as a grant, and never crash the read."""
+    fc = _FakeFleetCatalog([])
+    fc.raises = True
     cypher = _RecordingCypherBackend(rows=[])  # Cypher also finds nothing.
-    engine = _Engine(cypher)
+    engine = _CatalogBackedEngine(cypher, fc)
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
 
     with use_actor(_actor("tenant-a")):
@@ -289,18 +272,15 @@ def test_failed_sql_lookup_falls_back_to_cypher_and_never_grants_by_itself(
     assert rows == {}
 
 
-def test_absent_or_failed_lookup_never_grants_permission_end_to_end(
-    monkeypatch, brain
-):
-    """End-to-end through ``permit()``: when neither SQL nor Cypher can
-    produce ACL material for an id, the node stays unregistered and
-    ``permit()`` denies -- the fail-closed contract this whole read path
-    exists to guarantee is unaffected by the new fast path being added."""
+def test_absent_or_failed_lookup_never_grants_permission_end_to_end(monkeypatch, brain):
+    """End-to-end through ``permit()``: when neither the fleet catalog nor
+    Cypher can produce ACL material for an id, the node stays unregistered
+    and ``permit()`` denies -- the fail-closed contract this whole read path
+    exists to guarantee is unaffected by which fast path feeds it."""
     cypher = _RecordingCypherBackend(rows=[])  # nothing anywhere
-    engine = _CatalogBackedEngine(cypher)
-    with use_actor(_actor("tenant-a")), use_session(_session("tenant-a")):
-        fct.ensure_fleet_catalog_tables(engine)  # catalog exists, just empty
-
+    engine = _CatalogBackedEngine(cypher, _FakeFleetCatalog([]))
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
     with use_actor(_actor("tenant-a")):
-        assert sr.permit(["nonexistent-id"]) == []
+        permitted = sr.permit(["tool_srv_t1"])
+    assert "tool_srv_t1" not in permitted

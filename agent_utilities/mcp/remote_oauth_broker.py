@@ -116,17 +116,59 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.security.brain_context import ActorContext
 
 logger = logging.getLogger(__name__)
 _audit_logger = logging.getLogger("agent_utilities.mcp.remote_oauth_broker.audit")
+
+
+@dataclass(frozen=True)
+class OAuthGrantBinding:
+    """Non-secret identity of one broker-resolved OAuth grant.
+
+    Moved here from the deleted ``knowledge_graph.core.discovery_authority``
+    (EH-345) -- this broker is the sole minter, after resolving a live grant.
+    Lower catalog writers (``source_sync._discovery_scope_payload``) consume
+    this exact type without importing the MCP adapter that minted it; they
+    convert it to the EG ``DiscoveryScope`` wire shape
+    (``{"authority": "oauth_grant", "grant_digest": binding.fingerprint}``)
+    at the write site, never send this object as-is.
+    """
+
+    tenant_id: str
+    principal_id: str
+    provider_id: str
+    resource_url: str
+    audience: str
+    granted_scopes: tuple[str, ...]
+    key_version: int
+    grant_revision: str
+
+    @property
+    def fingerprint(self) -> str:
+        material = {
+            "schema": "au.oauth-grant-binding.v1",
+            "tenant": self.tenant_id,
+            "principal": self.principal_id,
+            "provider": self.provider_id,
+            "resource": self.resource_url,
+            "audience": self.audience,
+            "scopes": list(self.granted_scopes),
+            "key_version": self.key_version,
+            "grant_revision": self.grant_revision,
+        }
+        encoded = json.dumps(
+            material, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
 
 __all__ = [
     "AuthorizationServerMetadata",
     "DynamicClientRegistrar",
     "OAuthBindingError",
     "OAuthDiscoveryError",
+    "OAuthGrantBinding",
     "OAuthProviderError",
     "OAuthRedirectNotAllowlistedError",
     "OAuthRefreshRaceError",

@@ -2,7 +2,7 @@
 
 Lets an operator turn an "unclassified" skill (one whose declared/derived
 ``skill_type`` is outside the known set -- see
-:func:`~..core.fleet_catalog_tables.classify_skill_type`) into a classified
+:func:`~.skill_workflow_ingest.classify_skill_type`) into a classified
 one, and persist that choice so it survives re-ingestion rather than being
 silently overwritten by the next ``fleet-tool-schema-sync`` pass.
 
@@ -23,13 +23,15 @@ silently overwritten by the next ``fleet-tool-schema-sync`` pass.
    read-only state. It ALWAYS attempts the actual write and reports exactly
    what happened.
 
-2. **Durable override** (:func:`~..core.fleet_catalog_tables.write_skill_classification_override`):
-   written unconditionally, regardless of whether (1) succeeded. This lands
-   in the engine's own SQL catalog store, which this process can always
-   write (it is not the NFS-mounted source tree). :func:`~..core.fleet_catalog_tables.write_skill_row`
-   consults this override on every future write, so the classification
-   survives the next re-sync even when the source file itself could not be
-   touched.
+2. **Durable override** (EH-345: ``epistemic_graph``'s
+   ``FleetCatalogClient.set_override`` -- was
+   ``fleet_catalog_tables.write_skill_classification_override``): written
+   unconditionally, regardless of whether (1) succeeded. This lands in EG's
+   own fleet-catalog projection, which this process can always write (it is
+   not the NFS-mounted source tree); the projection applies it at READ
+   time, so it is consulted on every future read with no separate
+   "refresh the row" write needed, and it survives the next re-sync even
+   when the source file itself could not be touched.
 
 ``reclassify_skill`` returns which of the two actually landed. **Fail
 closed**: the result's ``persisted`` field is ``True`` only when at least one
@@ -48,15 +50,8 @@ import re
 from pathlib import Path
 from typing import Any, TypedDict
 
-from ..core.fleet_catalog_tables import (
-    DISCOVERY_AUTHORITY_TENANT_LOCAL,
-    TenantLocalDiscoveryBinding,
-    classify_skill_type,
-    get_skill_row,
-    write_skill_classification_override,
-    write_skill_row,
-)
 from .skill_workflow_ingest import (
+    classify_skill_type,
     discover_atomic_skill_files,
     discover_workflow_skill_files,
     parse_workflow_skill,
@@ -98,6 +93,49 @@ class SkillClassificationError(ValueError):
     ``persisted``/``reason`` fields): this is raised for a caller error --
     an unknown ``skill_type`` -- before any write is attempted.
     """
+
+
+def _fleet_catalog_lookup_row(
+    fleet_catalog: Any, component_id: str
+) -> dict[str, Any] | None:
+    """One skill's fleet-catalog row as a plain dict, or ``None`` on a miss.
+
+    EH-345 replacement for the deleted ``fleet_catalog_tables.get_skill_row``.
+    ``fleet_catalog`` may be ``None`` (EG's fleet-catalog surface not yet
+    landed on this deployment) or the lookup may legitimately find nothing
+    (no ConnectorPack import has covered ``component_id`` yet) -- both are
+    reported as a miss (``None``), never raised, matching the deleted
+    function's own "unknown id -> None" contract.
+    """
+    if fleet_catalog is None:
+        return None
+    try:
+        answer = fleet_catalog.lookup([component_id])
+    except Exception as exc:  # noqa: BLE001 — lookup is best-effort
+        logger.error(
+            "fleet catalog lookup failed for %s (%s: %s)",
+            component_id,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    rows = getattr(answer, "rows", None) or ()
+    for entry in rows:
+        row = getattr(entry, "row", None)
+        component = getattr(row, "component", None)
+        if component is None or getattr(component, "id", None) != component_id:
+            continue
+        return {
+            "name": getattr(component, "name", ""),
+            "description": getattr(component, "description", ""),
+            "uri": getattr(row, "uri", ""),
+            "provider": str(getattr(component, "connector", "") or ""),
+            "mcp_server": getattr(component, "server_name", ""),
+            "enabled": bool(getattr(component, "enabled", True)),
+            "tenant_id": getattr(getattr(component, "acl", None), "tenant_id", ""),
+            "skill_type": str(getattr(row, "skill_type", "") or ""),
+        }
+    return None
 
 
 def _iter_all_skill_files(root: str | None) -> list[Path]:
@@ -208,12 +246,20 @@ def reclassify_skill(
 
     Args:
         engine: the live ``IntelligenceGraphEngine`` (or a test double
-            exposing an equivalent ``graph_compute``/``sql_exec`` surface).
-        skill_id: the skill's CATALOG (bound) id, exactly as returned by the
-            ``skills`` fleet-catalog row / the ``/api/enhanced/tools``
-            response (e.g. ``"skill:my-skill__tenant_local"``).
+            exposing an equivalent ``graph_compute``/``client`` surface).
+        skill_id: EH-345 (was the AU SQL-tier bound id, e.g.
+            ``"skill:my-skill__tenant_local"``): now the EG fleet-catalog
+            component id (``mcp:<connector>/skill/<name>``) a ConnectorPack
+            import assigns the skill. Until ``eg-pack`` has imported a pack
+            covering this skill, no such id resolves and this returns
+            ``persisted=False`` honestly (see the lookup miss below) rather
+            than guessing one.
         skill_type: one of :data:`ALLOWED_SKILL_TYPES`.
-        principal: the authenticated caller, for the override's audit trail.
+        principal: the authenticated caller. EH-345: kept for the caller
+            contract and any future audit-trail projection, though EG's
+            ``set_override`` binds the actual writer from the verified
+            request context itself rather than this argument (never a
+            caller-supplied identity).
         root: optional explicit corpus root override (tests only; production
             always uses the installed ``universal_skills`` package).
 
@@ -239,7 +285,12 @@ def reclassify_skill(
         )
     _, classification = classify_skill_type(normalized)
 
-    row = get_skill_row(engine, skill_id=skill_id)
+    fleet_catalog = getattr(
+        getattr(getattr(engine, "graph_compute", None), "client", None),
+        "fleet_catalog",
+        None,
+    )
+    row = _fleet_catalog_lookup_row(fleet_catalog, skill_id)
     if row is None:
         return {
             "persisted": False,
@@ -251,7 +302,6 @@ def reclassify_skill(
             "catalog_refreshed": False,
         }
     name = str(row.get("name") or "")
-    base_id = skill_id.rsplit("__", 1)[0] if "__" in skill_id else skill_id
 
     # 1. Best-effort source-of-truth write. Always attempted -- never assumed
     # impossible from a mount flag or permission bit (see module docstring).
@@ -271,53 +321,43 @@ def reclassify_skill(
 
     # 2. Durable override -- always attempted, regardless of (1)'s outcome.
     # This is what makes the classification survive the next re-sync even
-    # when the source file could not be touched.
-    override_written = write_skill_classification_override(
-        engine, skill_id=base_id, skill_type=normalized, principal=principal
-    )
+    # when the source file could not be touched. EH-345:
+    # FleetCatalogClient.set_override; the projection applies it at READ
+    # time (never touched by a pack re-import), so there is no separate
+    # "refresh the row" step to run afterward -- re-lookup below just
+    # confirms what the override write already guarantees.
+    override_written = False
+    catalog_refreshed = False
+    if fleet_catalog is not None:
+        try:
+            from epistemic_graph.generated.fleet_catalog import (
+                FleetOverrideSetRequest,
+            )
+
+            receipt = fleet_catalog.set_override(
+                FleetOverrideSetRequest(
+                    component_id=skill_id,
+                    value={"field": "skill_type", "skill_type": normalized},
+                )
+            )
+            override_written = str(getattr(receipt, "disposition", "")) in {
+                "written",
+                "replayed",
+            }
+        except Exception as exc:  # noqa: BLE001 — override write is best-effort
+            logger.error(
+                "skill classification override write failed for %s (%s: %s)",
+                skill_id,
+                type(exc).__name__,
+                exc,
+            )
 
     persisted = disk_written or override_written
-    catalog_refreshed = False
-    if persisted:
-        row_tenant_id = str(row.get("tenant_id") or "")
-        try:
-            binding: Any = TenantLocalDiscoveryBinding(tenant_id=row_tenant_id)
-        except ValueError:
-            binding = None
-        if binding is not None:
-            write_skill_row(
-                engine,
-                skill_id=base_id,
-                name=name,
-                description=str(row.get("description") or ""),
-                uri=str(row.get("uri") or ""),
-                provider=str(row.get("provider") or ""),
-                mcp_server=str(row.get("mcp_server") or ""),
-                skill_type=normalized,
-                disabled=not bool(row.get("enabled", True)),
-                discovery_binding=binding,
-            )
-            # write_skill_row's own boolean return conflates "genuinely
-            # wrote a change" with "CAS-rejected/no-op" -- both come back
-            # False, and a no-op here means "already correct", not
-            # "failed". Re-read the row itself: the only question this
-            # field answers is whether the catalog NOW reflects the target
-            # classification, regardless of which CAS branch got it there.
-            #
-            # Re-read using the id THIS write just bound to
-            # (TenantLocalDiscoveryBinding -> "<base_id>__tenant_local"),
-            # not the original `skill_id` -- if the row we found was bound
-            # under a DIFFERENT discovery binding (only possible for an
-            # `mcp_skill` row, which is never a reclassification target: see
-            # ALLOWED_SKILL_TYPES), those two ids would otherwise diverge and
-            # this write would land on a fresh row while the stale one is
-            # what gets re-read, under-reporting a write that DID succeed.
-            refreshed_id = f"{base_id}__{DISCOVERY_AUTHORITY_TENANT_LOCAL}"
-            refreshed_row = get_skill_row(engine, skill_id=refreshed_id)
-            catalog_refreshed = bool(
-                refreshed_row is not None
-                and refreshed_row.get("skill_type") == normalized
-            )
+    if persisted and override_written:
+        refreshed_row = _fleet_catalog_lookup_row(fleet_catalog, skill_id)
+        catalog_refreshed = bool(
+            refreshed_row is not None and refreshed_row.get("skill_type") == normalized
+        )
 
     reason: str | None
     if persisted:

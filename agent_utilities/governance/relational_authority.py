@@ -21,19 +21,26 @@ from pathlib import Path
 from typing import Any
 
 _MAP_PATH = Path(__file__).with_name("relational_authority.json")
-_DOMAIN_NAMES = frozenset({"engine_fleet_catalog", "usage_store", "state_store"})
+# EH-345: "engine_fleet_catalog" (6 SQL tables) is retired — fleet-catalog
+# authority is now EG's FleetCatalog/RegisterServer contract, not an AU SQL
+# domain this manifest declares. _validate_engine_discovery_bindings and its
+# helpers below are now permanent no-ops (they already guard on the domain
+# being absent from the manifest) — left in place rather than deleted since
+# a future AU-side SQL domain could plausibly need the same discovery-binding
+# shape check.
+_DOMAIN_NAMES = frozenset({"usage_store", "state_store"})
 _EXPECTED_AUTHORITIES = {
-    "engine_fleet_catalog": "epistemic_graph_engine_sql",
     "usage_store": "usage_backend",
     "state_store": "state_backend",
 }
 _EXPECTED_SCHEMA_SOURCES = {
-    "engine_fleet_catalog": "fleet_catalog",
     "usage_store": "usage_store",
     "state_store": "state_store",
 }
 _EXPECTED_READ_MODEL_FIELDS = {
-    "registry_page": {"status", "kind", "items", "count", "next_cursor"},
+    # EH-345: "registry_page" is retired — /api/registry/* is now sourced
+    # from EG's FleetCatalog/ServerRegistry contract, not an AU SQL domain
+    # this manifest declares.
     "usage_summary": {"session_count", "totals", "cache_hit_rate"},
     "fleet_topology": {"sessions", "workers", "domains", "total"},
 }
@@ -295,15 +302,13 @@ def declared_schemas() -> dict[str, dict[str, frozenset[str]]]:
     """
 
     from agent_utilities.core import sessions
-    from agent_utilities.knowledge_graph.core import fleet_catalog_tables
     from agent_utilities.usage import schema as usage_schema
 
+    # EH-345: the "engine_fleet_catalog" entry (6 SQL tables) is retired —
+    # fleet-catalog authority is now EG's FleetCatalog/RegisterServer
+    # contract (pinned by EG's own generated-client contract test, not an
+    # AU-declared DDL manifest here).
     return {
-        "engine_fleet_catalog": {
-            table: columns
-            for table, ddl in fleet_catalog_tables._DDL.items()
-            for table, columns in declared_tables(ddl).items()
-        },
         "usage_store": declared_tables(usage_schema._BASE_TABLES),
         "state_store": declared_tables(sessions._SQLITE_DDL),
     }

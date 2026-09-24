@@ -26,27 +26,40 @@ flowchart LR
 
 ## Decisions
 
-* The engine-native `fleet_catalog_tables` projection is the sole writer for
-  `mcp_servers`, `mcp_server_discovery`, `mcp_tools`, `mcp_prompts`,
-  `mcp_resources`, and `skills`. Desired server registration remains
-  tenant-scoped and separate. Every observed/derived row carries an explicit
-  `discovery_authority_kind`: OAuth-gated rows carry the server-verified
-  discovery subject and a stable authorization-grant digest; non-OAuth/local
-  rows carry the process-owned `tenant_local` visibility contract with empty
-  principal/grant fields. The OAuth digest is minted by the process-owned
-  `RemoteOAuthBroker` only after exact token resolution and covers tenant,
-  verified subject, provider, protected resource/audience, normalized granted
-  scopes, broker key version, and a broker-owned grant revision. Session
-  roles/scopes/policy and caller payload fields are never substituted for this
-  identity, and bearer/refresh material is never persisted in catalog rows or
-  fingerprints; OAuth row identity includes that digest. Legacy rows without
-  a recognized authority kind are unavailable, never relabelled public. The
-  registry API reads these rows; it does not probe MCP children or write
-  catalog state. Existing installations require an additive fleet-catalog
-  migration for the three binding columns before discovery writes resume; until
-  then, the reader returns `503 unavailable` for legacy rows and the writer
-  does not emit unbound derived rows. No compatibility fallback treats old rows
-  as global.
+* **EH-345 (2026-09-22):** the AU-side SQL projection this section used to
+  describe (`agent_utilities/knowledge_graph/core/fleet_catalog_tables.py`,
+  the `mcp_servers`/`mcp_server_discovery`/`mcp_tools`/`mcp_prompts`/
+  `mcp_resources`/`skills` tables, and `discovery_authority.py`'s binding
+  types) is deleted. Fleet-catalog authority now lives entirely in EG, behind
+  its typed `ServerRegistryClient`/`FleetCatalogClient` contract
+  (`client.server_registry`, `client.fleet_catalog` on
+  `GraphComputeEngine.client`) — see
+  `/var/tmp/l9/finish/eg-fleet-catalog/AU-CUTOVER.md` for the caller-level
+  cutover and `DESIGN.md` for the EG-side wire types
+  (`FleetDiscoveryRecordRequest`, `FleetOverrideSetRequest`,
+  `FleetCatalogListRequest`, `FleetCatalogLookupRequest`, ...). AU is a caller
+  of that contract, never a second writer: `source_sync.py`'s
+  `_write_fleet_relational` calls `server_registry.register(...)` +
+  `fleet_catalog.record_discovery(...)`, `skill_classification.py`'s
+  `reclassify_skill` calls `fleet_catalog.set_override(...)`, and
+  `registry_api.py`/`secured_reads.py`/`kg_server.py` read through
+  `fleet_catalog.page`/`.lookup`/`.list_all` and `server_registry.page`/
+  `.list_all`. The behavioral contract this bullet used to spell out in AU
+  terms (server-verified OAuth-grant digests vs. process-owned tenant-local
+  visibility, discovery-authority binding on every row, no compatibility
+  fallback to a global/unbound row) is now EG's to keep — AU no longer
+  computes or validates `discovery_authority_kind`/binding columns itself.
+  `OAuthGrantBinding` (from the deleted `discovery_authority.py`) now lives in
+  `agent_utilities/mcp/remote_oauth_broker.py`; `TenantLocalDiscoveryBinding`
+  lives in `agent_utilities/mcp/multiplexer.py` — both are process-owned
+  binding *constructors* AU still owns and passes into the EG calls above,
+  they are not a second persisted authority. As of this cutover EG's
+  `FleetCatalog` op family is documented but not yet compiled/landed, so
+  every AU call site above fails closed (`ModuleNotFoundError` /
+  `ImportError` on `epistemic_graph.generated.fleet_catalog`) until that
+  lands; see the AU-CUTOVER doc's open item on grant-scoped discovery writes
+  needing the caller's own session (not a scheduled/service identity) for
+  `oauth_grant`-scoped `record_discovery` calls.
 * `usage_store` owns usage facts (`sessions`, `messages`, `tool_calls`,
   `usage_events`, pricing, and its sync metadata). Its summary/breakdown/search
   responses are derived read models and cannot write back to the engine catalog
