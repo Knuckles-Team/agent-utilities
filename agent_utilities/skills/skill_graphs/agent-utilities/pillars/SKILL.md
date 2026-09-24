@@ -39,19 +39,19 @@ agents → executor manages state via HSM → results feed back to KG.
 |---------|------|-----------|
 | `KG-2.0` | Active Knowledge Graph | `knowledge_graph/core/engine.py` |
 | `KG-2.1` | Tiered Memory & Context | `knowledge_graph/memory/` |
-| `KG-2.2` | Ontology & Epistemics | `knowledge_graph/ontology*.ttl` |
+| `KG-2.2` | Ontology & Epistemics | owned by epistemic-graph (`core:<module>@<N>`) |
 | `KG-2.3` | Graph Integrity & Retrieval | `knowledge_graph/retrieval/` |
 | `KG-2.4` | Inductive Knowledge | `knowledge_graph/core/ar_graph.py` |
 | `KG-2.5` | Topological Analysis | `knowledge_graph/core/topological_analysis_engine.py` |
 | `KG-2.6` | Domain: Finance | `domains/finance/` |
 | `KG-2.7` | Research Intelligence | `knowledge_graph/research/` |
-| `KG-2.12` | Company Operations Domain | `ontology_company.ttl`, `models/company.py` |
+| `KG-2.12` | Company Operations Domain | EG `core:company@1`, `models/company.py` |
 | `KG-2.13` | Company Intelligence Graph | `models/company.py` |
 | `AU-KG.memory.ground-truth-preamble-declaring` | Skill-Graph ↔ KG Sync | `skill-graph-builder` |
 
-**Architecture**: NetworkX in-memory graph + optional LadybugDB backend.
-OWL ontologies loaded via RDFLib/OWLReady2. Tiered memory: episodic →
-semantic → procedural with decay/consolidation.
+**Architecture**: the epistemic-graph engine is the single store and reasoner —
+ontology lifecycle, SHACL, RDF/OWL, retrieval and memory live there. AU holds only
+the client side and the agent-orchestration logic that calls it.
 
 ---
 

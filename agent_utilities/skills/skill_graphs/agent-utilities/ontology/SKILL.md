@@ -2,39 +2,28 @@
 name: agent-utilities-ontology
 skill_type: graph
 description: >-
-  OWL ontology reference for agent-utilities. Covers the core ontology,
-  16 domain ontologies, BFO alignment, and SPARQL query patterns.
+  Where the platform ontology lives and how to extend it. agent-utilities owns no
+  ontology: epistemic-graph owns the ontology lifecycle, SHACL, RDF and OWL, and
+  connectors ship their own vocabulary as SDK-certified packs. Includes SPARQL
+  query patterns for the engine.
 tags: [owl, ontology, rdf, sparql, bfo, knowledge-graph]
 ---
+# Ontology — owned by epistemic-graph
 
-# agent-utilities OWL Ontology Guide
+agent-utilities does not own, ship or reason over ontologies. The authority is split:
 
-## 📋 Ontology Catalog
+| What | Owner | Where |
+|---|---|---|
+| Core and domain modules (foundation, capability, archimate, enterprise, company, hr, infrastructure, …) | epistemic-graph | `crates/eg-core/ontology/<module>-v<N>.ttl`, registered in `crates/eg-core/src/graph/schema_sources.rs::core_specs()` as the engine-owned source `core:<module>@<N>` |
+| Connector vocabulary and shapes | the connector package | authored in the connector, certified by agent-connector-sdk into a digest-pinned pack, committed by EG `ConnectorPack` |
+| Validation, reasoning, schema lifecycle | epistemic-graph | SHACL, OWL tableau + RL/property saturation, `GraphSchema` |
 
-All ontologies use namespace `@prefix : <http://knuckles.team/kg#>` and are
-aligned to [BFO (Basic Formal Ontology)](https://basic-formal-ontology.org/).
+To add a class or shape: edit the EG core source (engine change, EG lane) or the
+connector's pack — never a `.ttl` in agent-utilities, and never rdflib, pyshacl,
+owlrl or owlready2 in agent-utilities code or tests. Every IRI stays in the
+`http://knuckles.team/kg#` namespace, aligned to BFO.
 
-| File | Domain | Key Classes |
-|------|--------|-------------|
-| `ontology.ttl` | **Core** | Person, Organization, Event, Place, Document, Concept |
-| `ontology_hr.ttl` | HR/Workforce | Employee, Department, CompensationBand, PerformanceReview, OKR |
-| `ontology_legal.ttl` | Legal | LegalMatter, CaseLaw, Statute, Contract, ContractClause |
-| `ontology_banking.ttl` | Banking | BankAccount, KYCRecord, PaymentMessage, CreditRiskAssessment |
-| EG core enterprise source | Enterprise Architecture | ArchiMateElement, ArchitectureDecisionRecord, Policy |
-| `ontology_infrastructure.ttl` | Infrastructure | Host, Container, Network, Volume, Service |
-| `ontology_quant.ttl` | Quantitative Finance | Strategy, Signal, Portfolio, BacktestResult |
-| `ontology_medical.ttl` | Medical/Health | Patient, Diagnosis, Treatment, MedicalRecord |
-| `ontology_wellness.ttl` | Wellness | WellnessGoal, ExerciseSession, NutritionLog |
-| `ontology_social.ttl` | Social/Media | SocialPost, Platform, Engagement, Audience |
-| `ontology_personal.ttl` | Personal | PersonalGoal, Habit, JournalEntry |
-| `ontology_government.ttl` | Government | Agency, Regulation, PublicService |
-| `ontology_energy_geopolitics.ttl` | Energy/Geopolitics | EnergySource, GeopoliticalEntity |
-| `ontology_media.ttl` | Media/Content | MediaAsset, ContentPipeline, Distribution |
-| `ontology_sdd.ttl` | SDD Pipeline | DesignDocument, Specification, Implementation |
-| `ontology_company.ttl` | Company Operations | Company, StrategicGoal, KPI, AgentDepartment |
-| `ontology_company_infra.ttl` | Company Infrastructure | CompanySoftware, DeploymentBlueprint |
-
-## 🔗 Core Classes (BFO Alignment)
+## 🔗 Core Classes (BFO alignment, as served by EG)
 
 ```
 BFO:IndependentContinuant (things that exist on their own)
@@ -53,40 +42,6 @@ BFO:GenericallyDependentContinuant (information entities)
 ├── Credential → License, Certification
 └── Statute → FederalStatute, StateStatute
 ```
-
-## 📝 Writing Ontology Extensions
-
-### Template for new domain ontology
-```turtle
-@prefix : <http://knuckles.team/kg#> .
-@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-
-<http://knuckles.team/kg/my_domain> a owl:Ontology ;
-    rdfs:label "My Domain Ontology" ;
-    rdfs:comment "Description of what this ontology covers." ;
-    owl:imports <http://knuckles.team/kg> .
-
-:MyClass a owl:Class ;
-    rdfs:label "My Class" ;
-    rdfs:comment "Explanation of what this class represents." ;
-    rdfs:subClassOf bfo:0000004 .  # IndependentContinuant
-
-:myProperty a owl:ObjectProperty ;
-    rdfs:label "my property" ;
-    rdfs:domain :MyClass ;
-    rdfs:range :OtherClass .
-```
-
-### Key Patterns
-- **Transitive properties**: Use `owl:TransitiveProperty` for hierarchies
-  (e.g., `reportsTo`, `cascadesTo`, `departmentPartOf`)
-- **Symmetric properties**: Use `owl:SymmetricProperty` for bidirectional
-  (e.g., `conflictsWithParty`)
-- **Inverse properties**: Use `owl:inverseOf` for pairs
-  (e.g., `nostroOf` / `vostroOf`)
 
 ## 🔍 SPARQL Query Examples
 

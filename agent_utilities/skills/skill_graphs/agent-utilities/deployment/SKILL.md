@@ -75,6 +75,8 @@ always constructed as the authority; naming a mirror is what turns fan-out on:
   - `age`/`postgresql` — durable, queryable Postgres/pg-age mirror; ask for
     `GRAPH_DB_URI`.
   - `ladybug`/`neo4j`/`falkordb` — other mirror targets.
+  - These mirrors are being retired: external graph databases become
+    epistemic-graph federation sources, not AU backends. Do not add a new target.
 
 ### Step 3 — Deploy target
 
