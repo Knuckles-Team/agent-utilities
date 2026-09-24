@@ -72,7 +72,7 @@ the max of the resulting infrastructure:
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
 | **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the implemented scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch). Deployment/live status is separate evidence. |
-| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the implemented tenant-partitioned engine-sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Deployment/live status is separate evidence. |
+| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the implemented tenant-partitioned engine-sharding path, see [graph-os `architecture/engine-sharding.md`](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Deployment/live status is separate evidence. |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
 A deployment can be huge on one axis and tiny on another (e.g. 1M dormant

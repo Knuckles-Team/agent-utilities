@@ -33,23 +33,16 @@ v2 collapses every MCP client onto `MCPToolset`. `agent_utilities/mcp/toolset_fa
 **single** place that turns a connection spec into a toolset, so SSL `verify` + request `timeout`
 (threaded through the transport's `httpx_client_factory`) live in exactly one place.
 
-```mermaid
-flowchart LR
-    subgraph callers[callers]
-      F[agent/factory.py]
-      R[orchestration/agent_runner.py]
-      B[graph/builder.py]
-      C["core/config.py<br/>coordinated KG"]
-    end
-    callers --> H{{mcp/toolset_factory.py}}
-    H -->|url ending /sse| SSE[SSETransport]
-    H -->|http url| HTTP[StreamableHttpTransport]
-    H -->|command| STDIO[StdioTransport]
-    SSE --> MT[MCPToolset]
-    HTTP --> MT
-    STDIO --> MT
-    MT --> AG[Agent toolsets]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Every caller funnels through one toolset factory</p>
+
+All callers (`agent/factory.py`, `orchestration/agent_runner.py`,
+`graph/builder.py`, `core/config.py`'s coordinated KG) route through
+`mcp/toolset_factory.py`, which picks a transport by connection spec —
+a URL ending in `/sse` gets `SSETransport`, an HTTP URL gets
+`StreamableHttpTransport`, a command gets `StdioTransport` — and every
+transport feeds `MCPToolset`, which becomes the agent's toolsets.
+</div>
 
 ## Packaging / extras
 
@@ -149,16 +142,17 @@ projects that same object into the canonical `RunTrace` and its root
 explicit iterator also includes the accumulated evidence on its terminal or
 error event, so protocol adapters do not need a second evidence implementation.
 
-```mermaid
-flowchart LR
-    G["Pydantic Graph<br/>run() or iter()"] --> C["Execution evidence collector"]
-    C -->|"typed result"| R[GraphResponse]
-    R --> A[run_agent]
-    A --> K[RunTrace]
-    C --> I["pydantic_graph.* span<br/>transition/checkpoint events"]
-    A --> O["agent.run span<br/>same evidence projection"]
-    C --> E["iter graph_complete/error event"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One evidence collector feeds every consumer</p>
+
+Pydantic Graph's `run()` or `iter()` feeds the execution evidence
+collector, which produces a typed result on `GraphResponse` (consumed by
+`run_agent`, which projects it into `RunTrace`), records
+`pydantic_graph.*` span transition/checkpoint events, and — on the
+explicit iterator path — attaches it to the `graph_complete`/error event.
+`run_agent` separately projects the same evidence onto the `agent.run`
+span.
+</div>
 
 The task IDs are scheduler identifiers, not checkpoint IDs. Checkpoint IDs are
 observational state-snapshot references returned by `CheckpointManager`; the

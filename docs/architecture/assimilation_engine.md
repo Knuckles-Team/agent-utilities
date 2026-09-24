@@ -27,15 +27,16 @@ stores capitalized labels like `Article`; our enum values are lowercase).
 
 ## Pipeline (all graph compute except where noted)
 
-```mermaid
-flowchart LR
-    ING["ingest (content-addressed)<br/>papers · OSS · repos · docs/chat"] --> DEDUP
-    DEDUP["dedup<br/>SIMILAR_TO + SUPERSEDES"] --> GAP
-    GAP["gap (auto_satisfy)<br/>SATISFIED_BY · open_features()"] --> SYN
-    SYN["synergy + rank<br/>HAS_SYNERGY_WITH · PageRank"] --> PLAN
-    PLAN["plan synthesis (LLM)<br/>from KG neighborhood"] --> CLOSE
-    CLOSE["close-out on implement<br/>DERIVED_FROM_RESEARCH · ASSIMILATED_INTO"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Ingest to close-out, one pipeline</p>
+
+Content-addressed ingest (papers, OSS, repos, docs/chat) feeds dedup
+(`SIMILAR_TO` + `SUPERSEDES`), which feeds gap analysis (`auto_satisfy`,
+`SATISFIED_BY`, `open_features()`), which feeds synergy + rank
+(`HAS_SYNERGY_WITH`, PageRank), which feeds LLM plan synthesis from the KG
+neighborhood, which feeds close-out on implement
+(`DERIVED_FROM_RESEARCH`/`ASSIMILATED_INTO`).
+</div>
 
 | Stage | Module | What it does |
 |---|---|---|

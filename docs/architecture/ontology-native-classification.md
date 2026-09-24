@@ -18,18 +18,19 @@
 > one the dispatcher already reads (`config._fetch_tools` → `MATCH (t:Tool)`), so **the same data
 > fixes the classification gate *and* the "no fleet specialist" dispatcher hole**.
 >
-> ```mermaid
-> flowchart LR
->   cfg["mcp_config.json (~62 fleet servers)"] --> mux["MCPMultiplexer.probe_catalog: connect→list_tools→release"]
->   mux --> sync["_sync_fleet (source=fleet)"]
->   boot["graph-os boot: _ingest_capabilities step 4"] --> sync
->   rest["REST /source/sync + MCP source_sync"] --> sync
->   sync --> tools[("Tool nodes: name/mcp_server/tags/synonyms")]
->   sync --> srv[("MCPServer nodes +synonyms")]
->   srv -- SERVES --> tools
->   tools --> gate["ontology lexical gate (Phase B: match_ontology_terms)"]
->   tools --> disp["dispatcher _fetch_tools: MATCH (t:Tool) → specialist"]
-> ```
+> <div class="admonition architecture" markdown>
+> <p class="admonition-title">Fleet catalog probe feeds both the KG and the dispatcher</p>
+>
+> `mcp_config.json` (~62 fleet servers) feeds `MCPMultiplexer.probe_catalog`
+> (connect -> list_tools -> release), which feeds `_sync_fleet`
+> (`source=fleet`) — triggered either at graph-os boot
+> (`_ingest_capabilities` step 4) or via REST `/source/sync` + MCP
+> `source_sync`. `_sync_fleet` writes `Tool` nodes
+> (name/mcp_server/tags/synonyms) and `MCPServer` nodes (+synonyms), linked
+> by a `SERVES` edge. Those `Tool` nodes feed both the ontology lexical
+> gate (Phase B: `match_ontology_terms`) and the dispatcher's
+> `_fetch_tools` (`MATCH (t:Tool)` -> specialist).
+> </div>
 
 > **Addendum (relational tier, `CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables`):**
 > the KG write above (`:MCPServer`/`:Tool`/`:Skill` via Cypher) is not the only
@@ -41,8 +42,7 @@
 > (2026-09-22) deleted that module** and moved the same responsibility into
 > EG itself, behind its typed `ServerRegistryClient`/`FleetCatalogClient`
 > contract (`GraphComputeEngine.client.server_registry` /
-> `.fleet_catalog`; see `/var/tmp/l9/finish/eg-fleet-catalog/AU-CUTOVER.md`
-> and `DESIGN.md`). `source_sync._write_fleet_relational` still runs FIRST,
+> `.fleet_catalog`). `source_sync._write_fleet_relational` still runs FIRST,
 > from the same probed catalog the KG entities below are built from, so the
 > two representations can never diverge, and it is still independently
 > wrapped so it is unaffected by the KG write's own engine-side ACL gate
@@ -57,15 +57,19 @@
 > EH-345) and applied by EG's own projection at read time, closing the
 > "256/324 skills render Unclassified" gap without a runtime KG-dependent
 > lookup.
-> ```mermaid
-> flowchart LR
->   cat["probed catalog\n(servers/tools/skills/prompts)"] --> rel["source_sync._write_fleet_relational\n(EG server_registry.register +\nfleet_catalog.record_discovery)"]
->   cat --> kg["_write_fleet_nodes entities loop\n(Cypher ApplyChangeEnvelope)"]
->   rel --> tabs[("EG ServerRegistry / FleetCatalog\n(servers / tools / prompts / resources / skills)")]
->   kg --> nodes[(":MCPServer / :Tool / :Skill")]
->   tabs -.->|"primary read path\n(registry_api.py + agent-webui)"| ui["agent-webui"]
->   nodes -.->|"secondary enrichment\n(KG queries, reasoning)"| enrich["KG / vector enrichment"]
-> ```
+>
+> <div class="admonition architecture" markdown>
+> <p class="admonition-title">One probed catalog, two representations</p>
+>
+> The probed catalog (servers/tools/skills/prompts) feeds both
+> `source_sync._write_fleet_relational` (EG `server_registry.register` +
+> `fleet_catalog.record_discovery`, landing in EG's ServerRegistry /
+> FleetCatalog: servers, tools, prompts, resources, skills) and the
+> `_write_fleet_nodes` entities loop (Cypher `ApplyChangeEnvelope`, landing
+> as `:MCPServer` / `:Tool` / `:Skill`). The EG tables are the primary read
+> path (`registry_api.py` + agent-webui); the KG nodes are secondary
+> enrichment (KG queries, reasoning).
+> </div>
 
 ---
 

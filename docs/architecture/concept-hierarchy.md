@@ -28,16 +28,14 @@ remain visible as `OkfMarker.tail`, but tails are never treated as part of the I
 as generated concept documentation. The marker's full span includes the tail, so
 the description begins only after that span.
 
-```mermaid
-flowchart LR
-    Source["Source text"] --> Parser["iter_okf_markers"]
-    Parser --> Id["canonical id"]
-    Parser --> Tail["explicit adjacent tail"]
-    Parser --> Span["full marker span"]
-    Id --> Registry["registry and governance scanners"]
-    Span --> Docs["description starts after span"]
-    Tail --> Triage["migration and triage evidence"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One parse, three derived readings</p>
+
+`iter_okf_markers` parses source text into three parts: a canonical id (read
+by registry and governance scanners), an explicit adjacent tail (migration
+and triage evidence), and the full marker span (the point after which a
+description starts).
+</div>
 
 ## Deterministic projections
 

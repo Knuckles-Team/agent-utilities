@@ -15,34 +15,18 @@ The Emergent Architecture builds on top of the existing infrastructure:
 - **AHE (Agentic Harness Engineering)** — component evolution (CONCEPT:AU-AHE.harness.harness-evolution)
 - **OWL Reasoning Sidecar** — deterministic inference (knowledge_graph/core/owl_bridge.py)
 
-```mermaid
-graph TD
-    subgraph "Foundation (CONCEPT:AU-KG.query.object-graph-mapper)"
-        OGM["KG Object-Graph Mapper<br/>knowledge_graph/core/ogm.py"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One foundation, three layers built directly on it, one cross-link</p>
 
-    subgraph "Evolution (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)"
-        VP["Variant Pool<br/>harness/variant_pool.py"]
-    end
-
-    subgraph "Metacognition (CONCEPT:AU-KG.memory.tiered-memory-caching)"
-        SM["Self-Model (MemoryRetriever)<br/>knowledge_graph/retrieval/memory_retriever.py"]
-    end
-
-    subgraph "Orchestration (CONCEPT:AU-KG.query.object-graph-mapper)"
-        SW["KG Team Composer<br/>graph/team_composer.py"]
-    end
-
-    subgraph "Quality (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"
-        GWT["Workspace Attention<br/>graph/workspace_attention.py"]
-    end
-
-    OGM --> VP
-    OGM --> SM
-    OGM --> SW
-    SM --> GWT
-    VP --> SW
-```
+The KG Object-Graph Mapper (`knowledge_graph/core/ogm.py`) is the
+foundation every other layer builds on: it feeds Evolution (the Variant
+Pool, `harness/variant_pool.py`), Metacognition (the Self-Model/
+`MemoryRetriever`, `knowledge_graph/retrieval/memory_retriever.py`), and
+Orchestration (the KG Team Composer, `graph/team_composer.py`) directly.
+Metacognition also feeds Quality (Workspace Attention,
+`graph/workspace_attention.py`), and Evolution's Variant Pool also feeds
+Orchestration's Team Composer.
+</div>
 
 ---
 
@@ -194,12 +178,11 @@ A versioned metacognitive self-model that aggregates session outcomes into a per
 
 ### Architecture
 
-```
-[Anchor: self:agent-model]
-    ──CURRENT_SELF_MODEL──→ [SelfModel v3]
-                                ──SUPERSEDES──→ [SelfModel v2]
-                                                    ──SUPERSEDES──→ [SelfModel v1]
-```
+The anchor node `self:agent-model` points via a `CURRENT_SELF_MODEL` edge
+to the latest `SelfModel` version, which chains backward through
+`SUPERSEDES` edges to each prior version: `self:agent-model`
+`-[CURRENT_SELF_MODEL]->` `SelfModel v3` `-[SUPERSEDES]->` `SelfModel v2`
+`-[SUPERSEDES]->` `SelfModel v1`.
 
 - **Versioned chain**: Each session creates a new `MemoryRetrieverNode`
 - **CURRENT pointer**: O(1) lookup of latest version via `CURRENT_SELF_MODEL` edge

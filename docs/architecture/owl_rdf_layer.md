@@ -35,27 +35,21 @@ does not pull `[owl]`).
 
 ## Architecture
 
-```mermaid
-graph TB
-    ING["Ingest / write path"] --> SH["SHACL gate\n(governance + value-type shapes)\nCONCEPT:AU-KG.ontology.value-type-shacl-load"]
-    SH --> LPG["LPG store\n(epistemic_graph | ladybug | pg-age/AGE | neo4j | falkordb)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">LPG store, promoted through an engine-native OWL/RDF layer, back-fed</p>
 
-    subgraph "OWL/RDF layer — engine-native (CONCEPT:AU-KG.compute.native-sparql-owl-shacl)"
-        TBOX["Bundled ontologies (TBox)\n+ pack object-property axioms\n(emitted as Turtle)"]
-        REASON["engine OWL 2 reasoner\nclient.rdf.owl_reason\n(EL⁺/RL, confidence-weighted)"]
-        BRIDGE["OWLBridge\npromote → reason → downfeed"]
-        SPARQL["SPARQL endpoint\nGET/POST {gateway}/api/sparql\nclient.rdf.sparql (live graph)"]
-    end
-
-    LPG --> BRIDGE
-    TBOX --> REASON
-    BRIDGE --> REASON
-    REASON -->|inferred triples| BACKFEED["Durable back-feed\nlink_nodes(inferred=true)"]
-    BACKFEED --> LPG
-
-    LPG -->|client.rdf.sparql\n(live engine graph)| SPARQL
-    BRIDGE -. optional .-> FUSEKI["Jena Fuseki / Stardog\n(enterprise scale-out)"]
-```
+The ingest/write path passes a SHACL gate (governance + value-type shapes)
+before landing in the LPG store (epistemic_graph, ladybug, pg-age/AGE,
+neo4j, or falkordb). The engine-native OWL/RDF layer sits alongside it:
+`OWLBridge` promotes LPG content, combines it with bundled TBox ontologies
+(plus packed object-property axioms, emitted as Turtle) into the engine's
+OWL 2 reasoner (`client.rdf.owl_reason`, EL⁺/RL, confidence-weighted). The
+reasoner's inferred triples durably back-feed into the LPG store via
+`link_nodes(inferred=true)`. The LPG store also serves a SPARQL endpoint
+(`GET`/`POST {gateway}/api/sparql`, `client.rdf.sparql`) directly against
+the live engine graph. `OWLBridge` can optionally fan out to Jena
+Fuseki/Stardog for enterprise scale-out.
+</div>
 
 ## The cycle (OWLBridge)
 

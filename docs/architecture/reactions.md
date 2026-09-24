@@ -15,17 +15,18 @@ every entrypoint inherits it natively and renders it for its medium.
 
 ## The core (built once, in `agent_utilities/orchestration/reactions.py`)
 
-```mermaid
-flowchart LR
-    turn["Agent turn / inbound message"] --> decide["decide_reaction()\n(model-agnostic heuristic)"]
-    decide --> reg["EmoteRegistry\n(menu + ActionPolicy governance)"]
-    reg --> ar["AgentReaction\n{emote, target_message_id?, intensity?}"]
-    ar --> tg["Telegram renderer\nsend_reaction / setMessageReaction"]
-    ar -.-> web["agent-webui\nreaction chip"]
-    ar -.-> tui["agent-terminal-ui\nemote glyph"]
-    ar -.-> gb["geniusbot\ndesktop affordance"]
-    ar -.-> api["agent_server.py\nresponse.reaction field"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One decision, one governed menu, five renderers</p>
+
+An agent turn or inbound message reaches `decide_reaction()` (a
+model-agnostic heuristic), which consults `EmoteRegistry` (the one emote
+menu plus `ActionPolicy` governance) to produce an `AgentReaction`
+(`{emote, target_message_id?, intensity?}`). That single reaction feeds
+five independent renderers: the Telegram renderer
+(`send_reaction`/`setMessageReaction`), agent-webui's reaction chip,
+agent-terminal-ui's emote glyph, geniusbot's desktop affordance, and
+`agent_server.py`'s `response.reaction` field.
+</div>
 
 | Piece | Concept | What it is |
 |---|---|---|

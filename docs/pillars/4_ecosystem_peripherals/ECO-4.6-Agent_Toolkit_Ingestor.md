@@ -25,21 +25,21 @@ eliminating the need for callers to know what they're ingesting.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    SRC["ORCH-1.21: Mixed Sources List"] --> DETECT["AU-ECO.mcp.toolkit-live-discovery: Auto-Detect"]
-    DETECT -->|"JSON + mcpServers"| MCP["AU-ECO.mcp.toolkit-live-discovery: MCP Config Parser"]
-    DETECT -->|"directory + SKILL.md"| SKILL["AU-ECO.mcp.toolkit-live-discovery: Skill Parser"]
-    DETECT -->|"http:// URL"| A2A["ECO-4.1: A2A Card Fetcher"]
-    DETECT -->|".json URL"| REMOTE["AU-ECO.mcp.toolkit-live-discovery: Remote JSON Fetcher"]
-    MCP --> LIVE["AU-ECO.mcp.toolkit-live-discovery: Live Discovery"]
-    LIVE --> KG["AU-ECO.mcp.toolkit-live-discovery: KG: Server + CallableResource"]
-    MCP -->|"fallback"| FLAGS["AU-ECO.mcp.toolkit-live-discovery: Tool Flag Parser"]
-    FLAGS --> KG
-    SKILL --> KG
-    A2A --> KG
-    KG --> FRESH["AU-ECO.mcp.toolkit-live-discovery: Freshness Check"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Auto-detect routes a mixed source list to the right parser</p>
+
+A mixed sources list is auto-detected by shape: JSON with `mcpServers`
+goes to the MCP config parser; a directory with `SKILL.md` goes to the
+skill parser; an `http://` URL goes to the A2A card fetcher (ECO-4.1); a
+`.json` URL goes to the remote JSON fetcher.
+
+The MCP config parser feeds live discovery, which writes `Server` +
+`CallableResource` nodes to the KG; if live discovery is unavailable, the
+MCP config parser falls back to the tool flag parser, which writes the
+same KG nodes. The skill parser and the A2A card fetcher also write
+directly to the KG. Every path's KG write is followed by a freshness
+check.
+</div>
 
 ## Auto-Detection Heuristics
 

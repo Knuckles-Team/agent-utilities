@@ -97,5 +97,5 @@ graph_query "MATCH (a) WHERE a.id STARTS WITH 'article:scholarx:' RETURN count(a
 ```
 
 See also: [Delta-based ingestion](delta-ingestion.md),
-[the gateway daemon map](../architecture/gateway_daemon.md),
+[the gateway daemon map](https://knuckles-team.github.io/graph-os/architecture/gateway-daemon/),
 [the Loop engine](../guides/loop-engine.md).

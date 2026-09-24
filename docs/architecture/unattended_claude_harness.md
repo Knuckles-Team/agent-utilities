@@ -35,34 +35,22 @@ genuinely productive, not just a faster autocomplete.
 
 ## Flow
 
-```mermaid
-flowchart TD
-    subgraph Setup["1 · Draw the fence (AU-OS.deployment.governance-derived-claude-code)"]
-        AP["ActionPolicy<br/>forbidden / approval / auto"]
-        SEC["Secret patterns<br/>_SECRET_SUFFIXES + globs"]
-        AP --> FENCE["claude_fence.write_fence"]
-        SEC --> FENCE
-        FENCE --> SETTINGS["~/.claude/settings.json<br/>deny gt allow gt ask<br/>defaultMode=acceptEdits"]
-        FENCE --> IGNORE[".claudeignore"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Fence, run, review — one deny-first pipeline overnight</p>
 
-    subgraph Run["2 · Unattended session"]
-        CC["Claude Code CLI"] -->|each tool call| GATE
-        GATE{"PreToolUse gate<br/>AU-OS.deployment.dynamic-two-fail-closed"}
-        GATE -->|secret / irreversible| DENY["deny"]
-        GATE -->|ActionPolicy.classify| TIER
-        TIER -->|forbidden| DENY
-        TIER -->|approval| ASK["ask: halt + queue<br/>AU-OS.scaling.unattended-session-stop-ask"]
-        TIER -->|auto| ALLOW["allow"]
-        CC -->|graph_loops action=run| LOOP["LoopController.run_one_cycle<br/>feature extraction + distillation"]
-        LOOP --> COMMIT["commit per productive cycle"]
-    end
-
-    subgraph Review["3 · Morning"]
-        COMMIT --> SUMMARY["overnight_runner.write_morning_summary"]
-        SUMMARY --> MEM["MEMORY.md"]
-        MEM -->|inject_project_context KG-2.1| NEXT["next SessionStart"]
-    end
+**1 · Draw the fence.** `ActionPolicy` (forbidden/approval/auto) and secret
+patterns (`_SECRET_SUFFIXES` + globs) both feed `claude_fence.write_fence`,
+which writes both `~/.claude/settings.json` (deny > allow > ask,
+`defaultMode=acceptEdits`) and `.claudeignore`. **2 · Unattended session.**
+Every Claude Code CLI tool call passes a `PreToolUse` gate: a secret or
+irreversible action is denied outright; otherwise `ActionPolicy.classify`
+picks a tier — forbidden denies, approval halts and queues for an ask, auto
+allows. Separately, `graph_loops action=run` drives
+`LoopController.run_one_cycle` (feature extraction + distillation), which
+commits per productive cycle. **3 · Morning.** Each commit feeds
+`overnight_runner.write_morning_summary`, which writes `MEMORY.md`, injected
+via `inject_project_context` (KG-2.1) into the next `SessionStart`.
+</div>
 
     SETTINGS -.governs.-> GATE
     IGNORE -.hides secrets.-> CC
@@ -81,7 +69,7 @@ flowchart TD
 
 ## Related
 
-- [Fleet Autonomy](fleet_autonomy.md) — the `ActionPolicy` decision point (OS-5.24).
+- [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/) — the `ActionPolicy` decision point (OS-5.24).
 - [Observational Memory Bridge](../pillars/memory_architecture.md) — the
   `MEMORY.md` ↔ KG bridge (KG-2.1) the morning summary rides on.
 - [Trigger the Loop engine](../guides/loop-engine.md) — `graph_loops`/`LoopController`.

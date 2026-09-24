@@ -39,16 +39,17 @@ and hostnames do not influence the result.  A denied result exposes bounded
 machine-readable reasons and per-snapshot evidence; stale, forged, unsupported,
 or unknown capability state fails closed.
 
-```mermaid
-flowchart LR
-    I[Inventory adapter] --> S[Attested ResourcePoolSnapshot]
-    S --> V{Fresh and verified?}
-    V -- no --> D[Denied with reason/evidence]
-    V -- yes --> C[Capability requirement gate]
-    C -- no --> D
-    C -- yes --> R[Headroom rank by capabilities]
-    R --> P[Deterministic PlacementDecision]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Fresh, verified, capable — or denied with evidence</p>
+
+The inventory adapter produces an attested `ResourcePoolSnapshot`, checked
+for freshness and verification: a stale or unverified snapshot is denied
+with reason/evidence. A fresh, verified snapshot then passes a capability
+requirement gate — failing that gate is also denied with reason/evidence.
+Only a snapshot that is both fresh/verified and capability-sufficient
+reaches headroom ranking, which produces a deterministic
+`PlacementDecision`.
+</div>
 
 The GR1080-shaped fixture demonstrates the boundary: 8 CPU, roughly 22 GiB
 allocatable RAM, and one CUDA GPU are known, while NVMe is explicitly absent.  A

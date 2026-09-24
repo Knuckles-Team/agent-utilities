@@ -47,52 +47,37 @@ edits per dimension to catch sub-threshold coupling.
 
 ## 2. Architecture at a glance
 
-```mermaid
-flowchart TB
-    subgraph Evidence["Evidence plane"]
-        Fleet["Fleet traces + verifier scores (any MCP server)"]
-        Preset["harness-runs mcp_tool preset + source_sync"]
-        Fleet --> Preset
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five stages, closed by an ontology-reasoning loop</p>
 
-    subgraph AEGIS["AEGIS adaptation loop"]
-        Digester["Digester: compress traces to structured evidence"]
-        Planner["Planner: adaptation landscape + reputation audit"]
-        Evolver["Evolver: typed HarnessEdit + change manifest"]
-        Critic["Critic: deterministic gate sequence"]
-        Digester --> Planner --> Evolver --> Critic
-    end
+**Evidence plane.** Fleet traces + verifier scores (any MCP server) feed
+the `harness-runs` `mcp_tool` preset + `source_sync`, which feeds the
+AEGIS loop's Digester.
 
-    subgraph Gate["Deterministic gate sequence (the Critic)"]
-        MV["1 ManifestVerify: regressions + attribution"]
-        Norm["2 Config-normalize: canonical dedup"]
-        Smoke["3 Build/smoke: instantiates and runs"]
-        SHACL["4 SHACL gate over the harness ontology"]
-        MV --> Norm --> Smoke --> SHACL
-    end
+**AEGIS adaptation loop.** Digester (compress traces to structured
+evidence) -> Planner (adaptation landscape + reputation audit) ->
+Evolver (typed `HarnessEdit` + change manifest) -> Critic (deterministic
+gate sequence).
 
-    subgraph Pool["Variant pool (ensemble routing)"]
-        Fork["Fork variant on a mixed edit"]
-        Route["Route tasks to cluster best variant"]
-        Retire["Retire lowest performer at capacity"]
-    end
+**The Critic's gate sequence**, in order: (1) ManifestVerify
+(regressions + attribution); (2) config-normalize (canonical dedup);
+(3) build/smoke (instantiates and runs); (4) SHACL gate over the harness
+ontology. A pass proceeds to the variant pool; a reject is archived with
+a reasoned reason.
 
-    subgraph Coevo["Harness-model co-evolution"]
-        Buffer["Shared replay buffer"]
-        GRPO["Cross-harness GRPO: group by task across versions"]
-        Cert["Held-out certification + ARA Seal L1 L2 L3"]
-        Buffer --> GRPO --> Cert
-    end
+**Variant pool (ensemble routing).** Forks a variant on a mixed edit,
+routes tasks to the cluster's best variant, and retires the lowest
+performer at capacity. The pool feeds both the shared replay buffer and
+OWL reasoning (pathology + concentration inference).
 
-    Preset --> Digester
-    Critic --> Gate
-    SHACL -->|pass| Pool
-    SHACL -->|reject| Archive["Archive with reasoned reason"]
-    Pool --> Buffer
-    Pool --> OWL["OWL reasoning: pathology + concentration inference"]
-    OWL --> LoopDriver["OntologyReasoningDriver: next evolution topics"]
-    LoopDriver --> Digester
-```
+**Harness-model co-evolution.** The shared replay buffer feeds
+cross-harness GRPO (group by task across versions), which feeds held-out
+certification (ARA Seal L1/L2/L3).
+
+Separately, the pool's OWL reasoning output feeds
+`OntologyReasoningDriver`, which decides the next evolution topics and
+feeds them back to the Digester — closing the loop.
+</div>
 
 The subsystem is organised as seven layers; each maps to concept IDs and reuses
 existing machinery rather than rebuilding it.
@@ -112,16 +97,14 @@ promotes them and materialises the always-on inverses (`has_variant ↔ variant_
 **The eight lifecycle hooks** (HarnessX Table 1) are modelled as `HarnessHook`
 individuals carrying their event type, permitted modification, and a read-only flag:
 
-```mermaid
-flowchart LR
-    TS["task_start: system prompt"] --> SS["step_start: history edits"]
-    SS --> BM["before_model: last user content"]
-    BM --> AM["after_model: response + tool calls"]
-    AM --> BT["before_tool: tool input + approval"]
-    BT --> AT["after_tool: tool result"]
-    AT --> SE["step_end: READ-ONLY"]
-    SE --> TE["task_end: READ-ONLY"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The eight lifecycle hooks, in order</p>
+
+`task_start` (system prompt) -> `step_start` (history edits) ->
+`before_model` (last user content) -> `after_model` (response + tool
+calls) -> `before_tool` (tool input + approval) -> `after_tool` (tool
+result) -> `step_end` (READ-ONLY) -> `task_end` (READ-ONLY).
+</div>
 
 **The substitution algebra** is recorded on each edit (`editOperation` ∈
 `insert | remove | replace`, `atHook`, `modifiesField`) and on each processor
@@ -157,19 +140,18 @@ counts ships; the reputation audit watches whether those ships keep working.
 
 ### The complete deterministic gate sequence (AU-AHE.harness.manifest-verify)
 
-```mermaid
-flowchart TB
-    Cand["Candidate HarnessEdit"] --> MV{"1 ManifestVerify: regression + attribution"}
-    MV -->|fail| R1["Reject: manifest verify failed"]
-    MV -->|ok| Norm{"2 Config-normalize: seen before?"}
-    Norm -->|duplicate| R2["Reject: duplicate edit (deduped)"]
-    Norm -->|fresh| Smoke{"3 Build/smoke: instantiates + runs?"}
-    Smoke -->|fail| R3["Reject: smoke test failed"]
-    Smoke -->|ok| Route["Variant routing: fork on mixed edit"]
-    Route --> SHACL{"4 SHACL gate: concentration + seesaw + pathology + hook contract"}
-    SHACL -->|violation| R4["Reject: reasoned SHACL reason"]
-    SHACL -->|conforms| Ship["Ship: append edit, update variant, record ledger"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The complete deterministic gate sequence, first failure halts</p>
+
+A candidate `HarnessEdit` passes through four checks in order, each of
+which can reject: (1) ManifestVerify (regression + attribution) — reject
+if manifest verify fails; (2) config-normalize (seen before?) — reject as
+duplicate if deduped; (3) build/smoke (instantiates + runs?) — reject if
+the smoke test fails; then variant routing forks on a mixed edit; (4)
+SHACL gate (concentration + seesaw + pathology + hook contract) — reject
+with a reasoned SHACL reason on violation. Only conformance at every
+stage ships: append the edit, update the variant, record the ledger.
+</div>
 
 The first failing check halts; LLM judgement never overrides the deterministic gate.
 Config-normalization prevents a re-proposed identical edit from masquerading as fresh
@@ -200,18 +182,18 @@ HarnessX's documented failure on heterogeneous task sets: single-harness evoluti
 by the seesaw. The fix is to **fork a variant** scoped to the improved cluster rather
 than reject the edit — and route each task to its cluster's best variant.
 
-```mermaid
-flowchart TB
-    Edit["Candidate edit: fixes {A}, regresses {B}"] --> Mixed{"Mixed? (improves some, regresses others)"}
-    Mixed -->|"no"| Base["Apply to base variant, extend cluster"]
-    Mixed -->|"yes"| ForkV["Fork variant V scoped to cluster {A}"]
-    ForkV --> Scope["Scope regressions to V.cluster ∩ {B} = empty"]
-    Scope --> SHACLv["Per-variant no-regression seesaw sees NO in-scope regression"]
-    SHACLv -->|"pass"| ShipV["Ship V; taskB keeps routing to the parent"]
-    Base --> Cap{"At capacity K?"}
-    ForkV --> Cap
-    Cap -->|"yes"| Retire["Retire smallest-cluster variant"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A mixed edit forks a scoped variant instead of being rejected</p>
+
+A candidate edit that fixes cluster {A} and regresses cluster {B} is
+checked: if not mixed, it applies directly to the base variant and
+extends the cluster. If mixed, it forks a new variant V scoped to
+cluster {A}; V's regressions are scoped to `V.cluster ∩ {B}`, which is
+empty, so the per-variant no-regression seesaw sees no in-scope
+regression and passes — V ships, while task B keeps routing to the
+parent. Either way, once the pool is at capacity K, the smallest-cluster
+variant is retired.
+</div>
 
 This was previously modelled in the ontology + SHACL but **not exercised at runtime**;
 `AegisLoop` now maintains the variant pool, forks on a mixed edit, scopes each
@@ -239,16 +221,17 @@ loophole **at proposal time** — HarnessX only detects reward-hacking after the
 
 ## 8. Layer 6 — Harness–model co-evolution (AU-AHE.harness.co-evolution-loop, AU-AHE.harness.kg-held-out-certification)
 
-```mermaid
-flowchart LR
-    Roll["Rollouts under each harness version"] --> Buf["Shared replay buffer (tag model + harness)"]
-    Buf --> Group["Group trajectories by task across harness versions"]
-    Group --> Adv["Group-relative advantage (batch_normalized_advantage)"]
-    Adv --> Spec["GRPO TrainingJobSpec (deferred GPU via SubstrateTrainer)"]
-    Buf --> HeldOut["Held-out split"]
-    HeldOut --> CertGate["SuperhumanCertifier: bootstrap CI"]
-    CertGate -->|"clears baseline"| Promote["Promote variant + Seal level"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Harness-model co-evolution: shared buffer feeds both training and certification</p>
+
+Rollouts under each harness version feed a shared replay buffer (tagged
+by model + harness). From there, two paths: training —
+group trajectories by task across harness versions -> group-relative
+advantage (`batch_normalized_advantage`) -> a GRPO `TrainingJobSpec`
+(deferred GPU via `SubstrateTrainer`); and certification — a held-out
+split -> `SuperhumanCertifier` (bootstrap CI) -> promote the variant +
+Seal level, once it clears baseline.
+</div>
 
 Cross-harness GRPO reuses `training_signals.batch_normalized_advantage(group_ids=task)`
 — grouping by task identity *across* harness versions recovers the cross-scaffold

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the honesty-first status page (the "Codex") at docs/status.md.
+"""Regenerate the honesty-first status page (the "Codex") at status/status.md.
 
 This is the fix for the concept-count drift bug: README.md, AGENTS.md, and
 docs/concepts.yaml's own header used to each report a different total (1216 /
@@ -23,7 +23,7 @@ Sources (never hand-typed):
   ``concepts.yaml``; an expired one was never built).
 
 ``BUILDING``/``ROADMAP``/``RETIRED`` are part of the shared vocabulary this
-page defines (see docs/status.md's "Status vocabulary" section) but this
+page defines (see status/status.md's "Status vocabulary" section) but this
 repo's registry model does not carry per-concept partial-build state today —
 a concept is either reserved or fully live. Their counts are honestly
 reported as 0 rather than invented.
@@ -45,10 +45,10 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 RESERVATIONS_PATH = ROOT / "docs" / "concept_reservations.yaml"
-STATUS_PATH = ROOT / "docs" / "status.md"
+STATUS_PATH = ROOT / "status" / "status.md"
 
 # Structural pillar -> owning doc subtree -> primary enforcing CI/pre-commit
-# gate. Not named humans -- see docs/status.md's "Domain ownership" section.
+# gate. Not named humans -- see status/status.md's "Domain ownership" section.
 PILLAR_LABEL = {
     "AU-AHE": "Agentic Harness Engineering",
     "AU-ECO": "Ecosystem & Peripherals",
@@ -226,7 +226,7 @@ def render() -> str:
         "(cross-repo concept federation, see `docs/concept_coordination.md`); "
         "the engine's own implementation and its `EG-P0-1` generated ledger "
         "are owned by the `epistemic-graph` repo, whose "
-        "`docs/status.md` is the authoritative status page for that side."
+        "`status/status.md` is the authoritative status page for that side."
     )
     lines.append("")
 
@@ -262,10 +262,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
-        "--write", action="store_true", help="write docs/status.md in place"
+        "--write", action="store_true", help="write status/status.md in place"
     )
     group.add_argument(
-        "--check", action="store_true", help="exit non-zero if docs/status.md is stale"
+        "--check",
+        action="store_true",
+        help="exit non-zero if status/status.md is stale",
     )
     args = parser.parse_args()
 
@@ -277,18 +279,18 @@ def main() -> int:
         return 0
 
     if not STATUS_PATH.is_file():
-        print("docs/status.md is missing — run --write first.", file=sys.stderr)
+        print("status/status.md is missing — run --write first.", file=sys.stderr)
         return 1
     current = STATUS_PATH.read_text(encoding="utf-8")
     if current != rendered:
         print(
-            "docs/status.md is stale relative to docs/concepts.yaml / "
+            "status/status.md is stale relative to docs/concepts.yaml / "
             "docs/concept_reservations.yaml. Run: "
             "python scripts/build_status_page.py --write",
             file=sys.stderr,
         )
         return 1
-    print("docs/status.md is up to date.")
+    print("status/status.md is up to date.")
     return 0
 
 

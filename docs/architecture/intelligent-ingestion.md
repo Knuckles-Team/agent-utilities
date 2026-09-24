@@ -10,33 +10,32 @@
 
 This page is the companion to [Ingestion throughput](ingestion_throughput.md) (the
 lanes, the best-effort cap, the bulk primitives, the per-hop profiler) and
-[Chunked async drain](chunked-async-drain.md) (full-corpus drains as background
+[Chunked async drain](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/) (full-corpus drains as background
 waves). Where those cover *how work is scheduled and metered*, this page covers
 *how much intelligence each ingest unit extracts and how the heavy/long units are
 kept from blowing up the tail*.
 
 ## Where these sit in the pipeline
 
-```mermaid
-flowchart TB
-    REPO["graph_ingest(repo)"] --> SPLIT{"big repo?<br/>(> SPLIT_MIN_FILES,<br/>graph routing)"}
-    SPLIT -- yes --> FAN["repo_split.plan_repo_split()<br/>K balanced buckets → code:&lt;repo&gt;__s&lt;i&gt;<br/>commit in parallel across K shard writers (KG-2.287)"]
-    SPLIT -- no --> STRUCT["structural code pass<br/>Code/Test/Feature + call graph"]
-    FAN --> STRUCT
-    STRUCT --> CLASS["repo_classifier.classify_repo()<br/>Skill / Spec / Prompt / Document / Config / Code (AU-KG.ingest.over-same-tree-fan)"]
-    CLASS --> ROUTE["_route_classified_artifacts()<br/>fan non-code to per-type adaptors (KG-2.285)"]
-    ROUTE --> DOCS["ChangeEnvelope-backed, enrich-deferred document writes<br/>(AU-KG.ingest.change-envelope)"]
-    STRUCT --> HIST["git_history.ingest_commit_history()<br/>:Commit/:Author/:File + coupling/churn (AU-KG.ingest.normal-codebase-ingest-also)"]
-    DOCS --> EMB["batched + concurrent embedding<br/>make_embed_fn (AU-KG.ingest.applying-agents-md-batch) · cached client (KG-2.294)"]
-    HIST --> EMB
-    EMB --> KG[("epistemic-graph<br/>K redb shard writers")]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Repo ingest: split, classify, route, embed — all under one scheduler</p>
 
-    subgraph GUARDS["whole pipeline runs under (worker_scheduler)"]
-        T["per-task soft-timeout owner (KG-2.286)<br/>request cooperative cancellation;<br/>never detach live mutation"]
-        R["interactive reservation floor (AU-KG.compute.interactive-lane-floor)"]
-        O["tail observability — slowest-N + p99 (KG-2.288)"]
-    end
-```
+`graph_ingest(repo)` first checks size: a big repo (over `SPLIT_MIN_FILES`,
+by graph routing) is split by `repo_split.plan_repo_split()` into K balanced
+buckets (`code:<repo>__s<i>`), committed in parallel across K shard writers;
+either way, the result feeds a structural code pass (Code/Test/Feature +
+call graph). That pass feeds two things: `repo_classifier.classify_repo()`
+(Skill/Spec/Prompt/Document/Config/Code), which
+`_route_classified_artifacts()` fans out to per-type adaptors producing
+ChangeEnvelope-backed, enrich-deferred document writes; and
+`git_history.ingest_commit_history()`, producing `:Commit`/`:Author`/`:File`
+nodes plus coupling/churn data. Both the document writes and the commit
+history feed batched, concurrent embedding (a cached client), which writes
+into epistemic-graph's K redb shard writers. The whole pipeline runs under
+`worker_scheduler`'s guards: a per-task soft-timeout owner that requests
+cooperative cancellation but never detaches a live mutation, an interactive
+reservation floor, and tail observability (slowest-N + p99).
+</div>
 
 ---
 
@@ -236,7 +235,7 @@ to cover an uncovered ingestion lane, so no codebase/ingestion/maint backlog can
 interactive capacity to 0; an MCP/interactive call always lands. The interactive lane
 set is `INTERACTIVE_LANES = {"queries"}` (conversation / kg_memory — the on-pool half
 of MCP/chat). This is the host-scheduler companion to the resource-priority edict
-(AU-ORCH.scheduling.resource-priority-edict/1.99) that [chunked drain](chunked-async-drain.md) also relies on.
+(AU-ORCH.scheduling.resource-priority-edict/1.99) that [chunked drain](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/) also relies on.
 
 ### Tail observability (KG-2.288)
 
@@ -308,7 +307,7 @@ doc writes** → a doc-heavy repo doesn't flood the queue.
 ## See also
 
 - [Ingestion throughput — lanes, tick-collapse, bulk primitives, per-hop profiler](ingestion_throughput.md)
-- [Chunked async drain — full-corpus drains as background waves](chunked-async-drain.md)
-- [Content-aware ingestion](content-aware-ingestion.md)
+- [Chunked async drain — full-corpus drains as background waves](https://knuckles-team.github.io/agent-connector-sdk/architecture/chunked-async-drain/)
+- [Content-aware ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/content-aware-ingestion/)
 - [Split-storage engine recipe](../recipes/split-storage-engine.md)
 - [Delta-based ingestion recipe](../recipes/delta-ingestion.md)

@@ -13,16 +13,15 @@ maintains, per object, an ordered event index keyed by
 static `event_log_adapter` projection uses. An arriving or corrected event
 only ever affects the ONE predecessor/successor pair it lands between:
 
-```mermaid
-flowchart LR
-    A["ObjectTimeline.insert(event)"] --> B["find (predecessor, successor)\nin O(log n) via bisect"]
-    B --> C{"predecessor -> successor\nedge existed?"}
-    C -- yes --> D["remove (predecessor, successor)\nfrom aggregate DFG"]
-    C -- no --> E[no removal]
-    D --> F["add (predecessor, event)\n+ (event, successor)"]
-    E --> F
-    F --> G["materialize ObjectState\nfor the affected suffix only"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One event touches only its one neighbor pair</p>
+
+`ObjectTimeline.insert(event)` finds its (predecessor, successor) pair in
+O(log n) via bisect. If a predecessor -> successor edge already existed,
+it is removed from the aggregate DFG; otherwise nothing is removed.
+Either way, the new edges (predecessor, event) and (event, successor) are
+added, and `ObjectState` is materialized only for the affected suffix.
+</div>
 
 - **`ObjectTimeline`** — a sorted per-object event list; `insert`/`remove`
   return the old/new neighbors in a single bounded lookup.
@@ -74,18 +73,16 @@ boundary structural:
   authority over what was checked or against what.
   `run_conformance_check` always returns the SAME `run` object it was given.
 
-```mermaid
-flowchart LR
-    P["ProcessPerspective\n(disclosed, versioned)"] --> R[ConformanceRun]
-    G["graph_as_of + mapping_version"] --> R
-    M["model_ref (opaque)"] --> R
-    D["export_digest"] --> R
-    R --> W{"worker"}
-    W -- default --> N["check_directly_follows_conformance\n(native, dependency-free)"]
-    W -- optional --> X["ConformanceWorker impl\n(e.g. PM4Py-backed)"]
-    N --> V["tuple[Deviation, ...]"]
-    X --> V
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A frozen run dispatches to a pluggable worker</p>
+
+`ConformanceRun` freezes four inputs: `ProcessPerspective` (disclosed,
+versioned), `graph_as_of` + `mapping_version`, `model_ref` (opaque), and
+`export_digest`. The frozen run dispatches to a worker: by default,
+`check_directly_follows_conformance` (native, dependency-free); optionally,
+a `ConformanceWorker` implementation (e.g. PM4Py-backed). Either worker
+produces the same `tuple[Deviation, ...]` shape.
+</div>
 
 ## Graph writeback — querying past conformance runs (CONCEPT:AU-KG.mining.process-conformance-checking)
 
@@ -101,16 +98,16 @@ see [Governed JSON-OCEL exchange](governed_ocel.md)).
 model_ref=..., graph_as_of=..., mapping_version=..., export_digest=..., plus
 the disclosed perspective triple and `tenant`)` runs the check and commits:
 
-```mermaid
-flowchart LR
-    T["traces + object_ids\n+ allowed_edges + model_ref"] --> RC["run_conformance_check"]
-    RC --> CR[":ConformanceRun node"]
-    RC --> DV[":Deviation node(s)"]
-    CR -- CHECKED_UNDER_PERSPECTIVE --> PP[":ProcessPerspective\n(joins the OCEL commit's node)"]
-    CR -- HAS_DEVIATION --> DV
-    CR --> GS["ingest_graph_slice\n(connector='conformance')"]
-    DV --> GS
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A conformance check commits its run and deviations together</p>
+
+`traces` + `object_ids` + `allowed_edges` + `model_ref` feed
+`run_conformance_check`, which produces a `:ConformanceRun` node and its
+`:Deviation` node(s). The run links `CHECKED_UNDER_PERSPECTIVE` to the
+`:ProcessPerspective` node (the same node the OCEL commit joins) and
+`HAS_DEVIATION` to each deviation. Both the run and its deviations are
+committed together through `ingest_graph_slice` (`connector='conformance'`).
+</div>
 
 The `CHECKED_UNDER_PERSPECTIVE` edge targets the SAME node id an OCEL commit
 under the same `source_ref`/`perspective_id` already materialized

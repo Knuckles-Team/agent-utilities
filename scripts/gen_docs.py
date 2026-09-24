@@ -11,7 +11,7 @@ README.md between the markers::
 
 The README deliberately does not reproduce the large pillar inventory. The full
 per-concept breakdown and release status stay in ``docs/concepts.yaml`` and
-``docs/status.md``.
+``status/status.md``.
 
 Modes:
   --write   Rewrite the generated block in README.md in place.
@@ -42,6 +42,7 @@ from agent_utilities.governance.concept_hierarchy import total_concept_count  # 
 BEGIN = "<!-- BEGIN GENERATED: concepts -->"
 END = "<!-- END GENERATED: concepts -->"
 
+
 def load_concepts() -> dict:
     with CONCEPTS_PATH.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -70,7 +71,7 @@ def render_block(data: dict) -> str:
     lines.append("")
     lines.append(
         "> Generated from [`docs/concepts.yaml`](docs/concepts.yaml); "
-        "see [`docs/status.md`](docs/status.md) for the release-aware breakdown "
+        "see [`status/status.md`](status/status.md) for the release-aware breakdown "
         "and [`docs/pillars/`](docs/pillars/) for the architecture map."
     )
     lines.append("")

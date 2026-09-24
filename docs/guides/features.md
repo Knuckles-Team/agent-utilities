@@ -162,37 +162,23 @@ Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `exec
 
 ### Approval Manager Architecture
 
-```mermaid
-sequenceDiagram
-    participant UI as Terminal UI / Web UI
-    participant Server as agent-utilities Server
-    participant Graph as Graph Executor
-    participant Specialist as Specialist Sub-Agent
-    participant MCP as MCP Tool Server
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Approval pauses the graph, mid-execution, via a real asyncio await</p>
 
-    UI->>Server: User query
-    Server->>Graph: execute_graph(query)
-    Graph->>Specialist: agent.run(query) via run_with_approvals()
-
-    Specialist->>MCP: Call sensitive tool (e.g. delete_record)
-    Note over MCP: requires_approval=True
-    MCP-->>Specialist: DeferredToolRequests (tool paused)
-    Specialist-->>Graph: DeferredToolRequests output
-
-    Graph->>Graph: ApprovalManager.wait_for_approval()
-    Note over Graph: Graph PAUSED (asyncio.Future await)
-
-    Graph->>Server: approval_required event via SSE sideband
-    Server->>UI: Render ApprovalCard / ToolApprovalScreen
-
-    UI->>Server: POST /api/approve {decisions}
-    Server->>Graph: ApprovalManager.resolve()
-    Note over Graph: Graph RESUMED
-
-    Graph->>Specialist: agent.run(deferred_tool_results=...)
-    Specialist->>MCP: Execute approved tool
-    MCP-->>Specialist: Tool result
-    Specialist-->>Graph: Final output
+The UI sends a user query to the server, which calls `execute_graph(query)`
+on the Graph Executor, which runs a specialist sub-agent via
+`run_with_approvals()`. When the specialist calls a sensitive tool (e.g.
+`delete_record`, `requires_approval=True`), the MCP tool server returns
+`DeferredToolRequests` instead of executing — the tool call is paused, and
+that paused state propagates back to the Graph Executor, which calls
+`ApprovalManager.wait_for_approval()` and genuinely pauses (an `asyncio.Future`
+await, not a poll loop). The graph emits an `approval_required` event over
+an SSE sideband to the server, which renders an approval card/screen in the
+UI. Once the user responds (`POST /api/approve` with decisions), the server
+calls `ApprovalManager.resolve()`, which resumes the graph: it re-runs the
+specialist with the deferred tool results, the specialist executes the now-
+approved tool for real, and the result flows back as the final output.
+</div>
     Graph-->>Server: GraphResponse
     Server-->>UI: Stream response
 ```

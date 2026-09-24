@@ -38,7 +38,7 @@ nav:
       - Graph-native orchestration: guides/kg_native_orchestration.md
       - Workflow skill suite: guides/kg-skill-suite.md
       - Ecosystem capability fleet: ecosystem-capability-fleet.md
-      - Capability and action catalog: capabilities-power.md
+      - Capability and action catalog: https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md
   - Operate:
       - Deployment configurations: guides/deployment-configurations.md
       - Production operations: operations/production-cell-runbook.md
@@ -53,14 +53,24 @@ nav:
       - Runtime authority: architecture/graph-authority-convergence.md
       - Context boundary: architecture/mandatory-context-compiler.md
       - Observability model: architecture/observability.md
-      - Privacy-safe ingestion: architecture/privacy-safe-external-ingestion.md
       - Improvement lifecycle: architecture/self-evolution-flywheel.md
-      - External connectors: architecture/universal-external-graph-connectors.md
+  - Components:
+      - Overview: components/index.md
+      - AU-AHE: components/au-ahe.md
+      - AU-ECO: components/au-eco.md
+      - AU-KG: components/au-kg.md
+      - AU-ORCH: components/au-orch.md
+      - AU-OS: components/au-os.md
+      - EG-AHE: components/eg-ahe.md
+      - EG-KG: components/eg-kg.md
+      - EG-ORCH: components/eg-orch.md
+      - EG-OS: components/eg-os.md
   - Reference:
       - API: reference/api.md
       - Runtime configuration: reference/runtime-configuration.md
       - Metrics: reference/metrics.md
       - Glossary: glossary.md
       - Documentation catalog: reference/documentation-catalog.md
-  - Status: status.md
+      - Skill graph reference: reference/skill-graph.generated.md
+  - Status: https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md
   - For AI agents: for-ai-agents.md

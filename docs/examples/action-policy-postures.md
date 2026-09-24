@@ -14,7 +14,7 @@ The policy files live in this repo:
 - [`examples/action-policies/supervised.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/supervised.yml)
 - [`examples/action-policies/scoped-autonomous.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/scoped-autonomous.yml)
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md). The
+Deep dive: [graph-os architecture/fleet-autonomy.md](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/). The
 decision point itself is `agent_utilities/orchestration/action_policy.py`;
 the shipped conservative default is `deploy/action-policy.default.yml`
 (embedded byte-for-byte as `DEFAULT_POLICY` so installed wheels behave
@@ -164,27 +164,24 @@ print(policy.decide(ActionRequest(kind="scale_service", target="vector-mcp",
 
 ## 4. The decision flow end to end
 
-```mermaid
-flowchart TD
-    REQ[ActionRequest kind plus target] --> KG[KG governance_rule overrides scope action_policy]
-    KG -->|first match| TIER{tier}
-    KG -->|no match| FILE[Policy file rules in order]
-    FILE -->|no match| DEF[defaults.tier]
-    FILE --> TIER
-    DEF --> TIER
-    TIER -->|forbidden| DENY[deny]
-    TIER -->|approval_required| QUEUE[queue_approval ActionApproval node]
-    TIER -->|auto or auto_notify| RATE{rate limit exceeded}
-    RATE -->|yes| DENY
-    RATE -->|no| BLAST{blast radius exceeded}
-    BLAST -->|yes| QUEUE
-    BLAST -->|no| WIN{inside maintenance window}
-    WIN -->|no| QUEUE
-    WIN -->|yes| ALLOW[allow or allow_notify]
-    DENY --> AUDIT[(ActionDecision audit node)]
-    QUEUE --> AUDIT
-    ALLOW --> AUDIT
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The decision flow, end to end</p>
+
+An `ActionRequest` (kind + target) is checked first against a KG
+`governance_rule` (overrides scope, `action_policy`): a first match
+selects a tier directly; no match falls through to the policy file's
+rules in order, which either match a tier or fall through further to
+`defaults.tier`.
+
+The tier then gates the decision: `forbidden` -> deny. `approval_required`
+-> `queue_approval` (an `ActionApproval` node). `auto`/`auto_notify`
+checks rate limit first (exceeded -> deny), then blast radius (exceeded
+-> queue), then the maintenance window (outside it -> queue; inside it
+-> allow/allow_notify).
+
+Every path — deny, queue, or allow — writes an `ActionDecision` audit
+node.
+</div>
 
 - **Every** decision (including denials) writes an `ActionDecision` KG node:
   `kind`, `target`, `params_json`, `source`, `tier`, `decision`, `reason`,

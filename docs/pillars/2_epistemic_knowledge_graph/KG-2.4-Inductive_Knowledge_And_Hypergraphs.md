@@ -59,18 +59,11 @@ Market regime detection and forecasting using Markov Chains for financial time-s
 
 ## Architecture
 
-```
-Raw Returns → MarketRegimeDetector → State Labels
-                                          │
-                                          ▼
-              MarkovRegimeModel ← MarkovTransitionModel
-                    │                     │
-                    ▼                     ▼
-             Regime Forecast        KG Persistence
-                    │          (FinanceEngineMixin)
-                    ▼
-            Trading Signal / Walk-Forward Backtest
-```
+Raw returns feed `MarketRegimeDetector`, which classifies state labels.
+Those labels feed `MarkovTransitionModel`, which feeds `MarkovRegimeModel`.
+`MarkovRegimeModel` produces both a regime forecast (which feeds a
+trading signal / walk-forward backtest) and KG persistence (via
+`FinanceEngineMixin`).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/core/markov_regime.py``

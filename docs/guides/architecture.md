@@ -2,87 +2,40 @@
 
 ## Core Architecture Diagram
 
-```mermaid
-graph TD
-    User("ORCH-1.0: User Request + Images")
-    WebUI["ECO-4.0: agent-webui"]
-    TUI["ECO-4.0: agent-terminal-ui"]
-    Backend["ECO-4.0: agent-utilities Server"]
-    External["ECO-4.0: External AG-UI Client"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Clients in, through the unified execution layer, to specialists — with a human-in-the-loop escape</p>
 
-    User --> WebUI
-    User --> TUI
-    WebUI -- AG-UI /ag-ui --> Backend
-    TUI -- AG-UI /ag-ui --> Backend
-    External -- AG-UI /ag-ui --> Backend
-    User --> ACP["ACP-compatible editor"]
-    ACP -- stdio JSON-RPC --> ACPProcess["agent-utilities-acp"]
-    ACPProcess --> UnifiedExec
+**Entry.** A user's request (plus images) reaches agent-webui,
+agent-terminal-ui, an external AG-UI client, or an ACP-compatible editor.
+The three AG-UI-speaking clients call the agent-utilities server's
+`/ag-ui` route directly; the ACP editor talks stdio JSON-RPC to
+`agent-utilities-acp`, which reaches the Unified Execution Layer
+(`graph/protocol_agnostic_execution.py`) directly. The server also exposes
+AG-UI, A2A, ACP, and SSE protocol adapters, all of which converge on the
+same Unified Execution Layer — no protocol gets its own execution path.
 
-    subgraph AgentUtilities [agent-utilities]
-        Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/protocol_agnostic_execution.py)"]
-        UnifiedExec --> Graph[Pydantic Graph Agent]
-        Graph --> KG[ORCH-1.0: Intelligence Graph Engine]
+**Core.** The Unified Execution Layer drives a Pydantic Graph Agent, which
+reads the Intelligence Graph Engine. The engine backs three things: MAGMA
+(orthogonal semantic/temporal/causal/entity views), Autonomous
+Self-Improvement (outcome rewards, textual-gradient critiques, prompt/skill
+evolution), and the GraphBackend itself (epistemic-graph authority plus an
+optional pg-age mirror).
 
-        subgraph MemoryArchitecture [Autonomous Memory Architecture]
-            KG --> MAGMA[ORCH-1.0: MAGMA: Orthogonal Views]
-            KG --> Lightning[AHE-3.3: Autonomous Self-Improvement]
-            KG --> UnifiedDB[(GraphBackend: epistemic-graph authority + opt. pg-age mirror)]
+**Discovery and dispatch.** The Unified Discovery Layer
+(`core/config.py`) reads the Knowledge Graph's specialist registry via
+`get_discovery_registry()`, producing an `MCPAgentRegistryModel` roster
+that feeds the graph agent, which dispatches to Specialist Superstates,
+which reach MCP servers and Universal Skills/Skill Graphs.
 
-            MAGMA --> Semantic[KG-2.3: Semantic View]
-            MAGMA --> Temporal[KG-2.6: Temporal View]
-            MAGMA --> Causal[KG-2.5: Causal View]
-            MAGMA --> Entity[KG-2.0: Entity View]
-
-            Lightning --> Rewards[AHE-3.1: Outcome Rewards]
-            Lightning --> Critiques[Textual Gradients]
-            Lightning --> Evolution[AHE-3.2: Prompt/Skill Evolution]
-        end
-
-        subgraph ProtocolAdapters [Protocol Adapters]
-            AGUI_Adapter[ECO-4.0: AG-UI Adapter]
-            ACP_Adapter["ACP Adapter<br/>(graph-backed)"]
-            SSE_Adapter[ECO-4.0: SSE Stream]
-            A2A_Adapter[ECO-4.1: A2A Adapter]
-        end
-
-        Backend --> AGUI_Adapter
-        Backend --> A2A_Adapter
-        Backend --> ACP_Adapter
-        Backend --> SSE_Adapter
-        AGUI_Adapter --> UnifiedExec
-        A2A_Adapter --> UnifiedExec
-        ACP_Adapter --> UnifiedExec
-        SSE_Adapter --> UnifiedExec
-
-        subgraph UnifiedDiscovery ["Unified Discovery Layer (core/config.py)"]
-            DAL["ORCH-1.2: get_discovery_registry()"]
-            KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"]
-            KG_Registry --> DAL
-            DAL --> DSRoster["AU-ECO.mcp.toolkit-live-discovery: MCPAgentRegistryModel"]
-        end
-
-        DSRoster --> Graph
-        Graph --> Specialists["ORCH-1.2: Specialist Superstates"]
-        Specialists --> MCP["ECO-4.0: MCP Servers"]
-        Specialists --> Skills["AU-ECO.mcp.toolkit-live-discovery: Universal Skills, Skill Graphs"]
-
-        subgraph ElicitationFlow [Human-in-the-Loop Flow]
-            MCP -- 1. Tool needs approval --> TG[OS-5.2: tool_guard: requires_approval]
-            TG -- 2. DeferredToolRequests --> AM[OS-5.1: ApprovalManager]
-            AM -- 3. asyncio.Future await --> EQ[ORCH-1.21: Event Queue]
-            EQ -- 4. SSE sideband event --> Backend
-            MCP -- 1b. ctx.elicit --> GEC[ORCH-1.3: global_elicitation_callback]
-            GEC -- 2b. Queue + Future --> AM
-        end
-    end
-
-    Backend -- 4. approval_required event --> WebUI
-    Backend -- 4. approval_required event --> TUI
-    WebUI -- 5. POST /api/approve --> Backend
-    TUI -- 5. POST /api/approve --> Backend
-    Backend -- 6. Future.resolve --> AM
-```
+**Human-in-the-loop.** When an MCP tool needs approval, `tool_guard`
+returns `DeferredToolRequests` to `ApprovalManager`, which awaits an
+`asyncio.Future` via an event queue; an SSE sideband event reaches the
+server, which emits an `approval_required` event to whichever UI (webui or
+terminal-ui) is attached. The UI's `POST /api/approve` reaches the server,
+which resolves the waiting future back in `ApprovalManager` — resuming
+execution. A tool can also elicit directly via `ctx.elicit`, reaching
+`global_elicitation_callback`, which queues the same future-based wait.
+</div>
 
 ## Protocol Layer Architecture
 
@@ -138,19 +91,15 @@ content references instead of inline file data or deployment-specific locations.
 
 The router implements a cascading 3-stage routing strategy that avoids unnecessary LLM inference:
 
-```
-Stage 1: TeamConfig Match (CONCEPT:AU-AHE.evaluation.interpretability-tests)
-  └─ Check KG for a proven specialist coalition matching the query pattern
-  └─ If found → skip LLM, dispatch the team directly
-
-Stage 2: Self-Model Bias (CONCEPT:AU-KG.memory.tiered-memory-caching)
-  └─ Inject domain proficiency scores into the specialist prompt
-  └─ High-proficiency domains are weighted higher in LLM selection
-
-Stage 3: LLM Planning (filtered via CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
-  └─ Registry Hot Cache provides only top-7 relevant specialists
-  └─ LLM sees a focused prompt instead of 50+ specialist descriptions
-```
+- **Stage 1: TeamConfig Match** (CONCEPT:AU-AHE.evaluation.interpretability-tests)
+    - Check KG for a proven specialist coalition matching the query pattern
+    - If found → skip LLM, dispatch the team directly
+- **Stage 2: Self-Model Bias** (CONCEPT:AU-KG.memory.tiered-memory-caching)
+    - Inject domain proficiency scores into the specialist prompt
+    - High-proficiency domains are weighted higher in LLM selection
+- **Stage 3: LLM Planning** (filtered via CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
+    - Registry Hot Cache provides only top-7 relevant specialists
+    - LLM sees a focused prompt instead of 50+ specialist descriptions
 
 This strategy means the system progressively learns: the more queries it handles, the more TeamConfigs accumulate, and the fewer LLM planning round-trips are needed.
 
@@ -160,178 +109,73 @@ This strategy means the system progressively learns: the more queries it handles
 
 ## Graph Orchestration Architecture
 
-```mermaid
-graph TB
-    Start("ORCH-1.0: User Query + Images")
-    End("ORCH-1.21: End Result")
-    UsageGuard["ORCH-1.3: Usage Guard: Rate Limiting"]
-    router_step["ORCH-1.2: Router: Topology Selection"]
-    dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
-    mem_step["KG-2.3: Memory: Context Retrieval"]
-    ACPLayer["<b>ACP / AG-UI / SSE</b><br/><i>(Unified Protocol Layer)</i>"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Query to response: guard, route, discover, dispatch, verify, synthesize</p>
 
-    Start --> ACPLayer
-    ACPLayer --> UsageGuard
-    UsageGuard -- "Allow" --> router_step
-    UsageGuard -- "Block" --> End
+A user query (+ images) enters the unified ACP/AG-UI/SSE protocol layer,
+then a usage guard (rate limiting): blocked requests end immediately;
+allowed requests reach the router, which picks a topology — a trivial
+query ends directly, a full-pipeline query reaches the dispatcher. On its
+first entry the dispatcher retrieves memory context, then loops back to
+itself.
 
-    router_step -- "Trivial Query" --> End
-    router_step -- "Full Pipeline" --> dispatcher
-    dispatcher -- "First Entry" --> mem_step
-    mem_step --> dispatcher
+**Discovery phase.** The dispatcher can send a "research first" query to
+three parallel participants — a Researcher (web-search/crawler/fetch,
+project search, workspace file read), an Architect (C4 architecture, spec
+generation, product strategy, user research, brainstorming), and the
+Unified Registry (sourced from the Knowledge Graph) — which barrier-sync
+at a Research Joiner and return coalesced context to the dispatcher.
 
-    subgraph DiscoveryPhase ["Discovery Phase"]
-        direction TB
-        Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
-        Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
-        MCPDiscovery["<b>Unified Registry</b><br/>---<br/><i>source:</i> Knowledge Graph"]
-        res_joiner[ORCH-1.0: Research Joiner: Barrier Sync]
-    end
+**Execution phase.** The dispatcher can also parallel-dispatch to three
+specialist groups: **Programmers** (Python, TypeScript, Go, Rust, C, C++,
+JavaScript — each with its own language-specific skills/docs/tools),
+**Infrastructure** (DevOps, Cloud, Database), and **Specialized & Quality**
+(Security, QA, UI/UX, Debugger). All three groups barrier-sync at an
+Execution Joiner, which returns implementation results to the dispatcher.
+The dispatcher can also route to a Council for multi-perspective
+deliberation, which also feeds the Execution Joiner.
 
-    dispatcher -- "Research First" --> Researcher
-    dispatcher -- "Research First" --> Architect
-    dispatcher -- "Research First" --> MCPDiscovery
-    Researcher --> res_joiner
-    Architect --> res_joiner
-    MCPDiscovery --> res_joiner
-    res_joiner -- "Coalesced Context" --> dispatcher
+**Verification and response.** Once the dispatcher considers the plan
+complete, a Verifier scores it: ≥0.7 passes to the Synthesizer for the
+final response; below 0.7 fails back to the dispatcher, which can re-plan
+(via the Planner) or, on terminal failure, end the run without a response.
 
-    subgraph ExecutionPhase ["Execution Phase"]
-        direction TB
-
-        subgraph Programmers ["Programmers"]
-            direction LR
-            PyP["<b>Python</b><br/>---<br/><i>u-skill:</i> agent-builder, tdd-methodology, mcp-builder, jupyter-notebook<br/><i>g-skill:</i> python-docs, fastapi-docs, pydantic-ai-docs<br/><i>t-tool:</i> developer_tools"]
-            TSP["<b>TypeScript</b><br/>---<br/><i>u-skill:</i> react-development, web-artifacts, tdd-methodology, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs, nextjs-docs, shadcn-docs<br/><i>t-tool:</i> developer_tools"]
-            GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
-            RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
-            CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
-            CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>t-tool:</i> developer_tools"]
-            JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
-        end
-
-        subgraph InfraGroup ["Infrastructure"]
-            direction LR
-            DevOps["<b>DevOps</b><br/>---<br/><i>u-skill:</i> cloudflare-deploy<br/><i>g-skill:</i> docker-docs, terraform-docs<br/><i>t-tool:</i> developer_tools"]
-            Cloud["<b>Cloud</b><br/>---<br/><i>u-skill:</i> c4-architecture<br/><i>g-skill:</i> aws-docs, azure-docs, gcp-docs<br/><i>t-tool:</i> developer_tools"]
-            DBA["<b>Database</b><br/>---<br/><i>u-skill:</i> database-tools<br/><i>g-skill:</i> postgres-docs, mongodb-docs, redis-docs<br/><i>t-tool:</i> developer_tools"]
-        end
-
-        subgraph Specialized ["Specialized & Quality"]
-            direction LR
-            Sec["<b>Security</b><br/>---<br/><i>u-skill:</i> security-tools<br/><i>g-skill:</i> linux-docs<br/><i>t-tool:</i> developer_tools"]
-            QA["<b>QA</b><br/>---<br/><i>u-skill:</i> spec-verifier, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
-            UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
-            Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
-        end
-    end
-
-    dispatcher -- "Parallel Dispatch" --> Programmers
-    dispatcher -- "Parallel Dispatch" --> InfraGroup
-    dispatcher -- "Parallel Dispatch" --> Specialized
-
-    exe_joiner["ORCH-1.0: Execution Joiner: Barrier Sync"]
-    verifier["AHE-3.1: Verifier: Quality Gate"]
-    council["ORCH-1.2: Council: Multi-Perspective Deliberation"]
-    synthesizer["ORCH-1.0: Synthesizer: Response Composition"]
-    planner_step["ORCH-1.1: Planner: Re-plan"]
-
-    Programmers --> exe_joiner
-    InfraGroup --> exe_joiner
-    Specialized --> exe_joiner
-
-    exe_joiner -- "Implementation Results" --> dispatcher
-
-    dispatcher -- "Plan Complete" --> verifier
-    dispatcher -- "Council" --> council
-    council --> exe_joiner
-    verifier -- "Pass: Score >= 0.7" --> synthesizer
-    verifier -- "Fail: Score < 0.7" --> dispatcher
-    dispatcher -- "Terminal Failure" --> End
-    planner_step --> dispatcher
-    synthesizer -- "Final Response" --> End
-
-    subgraph SDD_Lifecycle ["Spec-Driven Development"]
-        direction TB
-        Const["<b>Constitution</b><br/>(Governance)"] --> Spec["<b>Specification</b><br/>(Spec)"]
-        Spec --> SDDPlan["<b>Technical Plan</b><br/>(ImplementationPlan)"]
-        SDDPlan --> SDDTasks["<b>Tasks</b><br/>(Tasks)"]
-        SDDTasks --> SDDExec["<b>Execution</b><br/>(Parallel Dispatch)"]
-        SDDExec --> SDDVerify["<b>Verification</b><br/>(Spec Audit)"]
-    end
-
-    style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style MCPDiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style InfraGroup fill:#fad9b8,stroke:#d6b656,stroke-width:2px
-    style Specialized fill:#e0d3f5,stroke:#82b366,stroke-width:2px
-    style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style council fill:#fce4ec,stroke:#c62828,stroke-width:2px
-    style synthesizer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style planner_step fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-    style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-    style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
-    style Start fill:#38B6FF
-    style ACPLayer fill:#38B6FF,stroke-width:2px
-```
+**Spec-Driven Development, a parallel lifecycle:** Constitution
+(governance) → Specification → Technical Plan
+(`ImplementationPlan`) → Tasks → Execution (parallel dispatch) →
+Verification (spec audit).
+</div>
 
 > **Note:** MCP ecosystem agents (AdGuard, Jellyfin, Ansible Tower, etc.) are dynamically spawned as `CallableResource` nodes in the Knowledge Graph. They are discovered at runtime from `mcp_config.json` and do not appear in this static diagram.
 >
 > ### Unified Toolkit Ingestion (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 >
-> ```mermaid
-> graph LR
->     subgraph Ingestion Pipeline
->         Sources[Sources: mcp_config.json, SKILL.md dirs, A2A URLs] --> AutoDetect{Auto-Detect}
->         AutoDetect -- "mcp_config" --> ParseMCP[Extract Servers & Flags]
->         AutoDetect -- "skill_directory" --> ParseYAML[Parse Frontmatter]
->         AutoDetect -- "a2a_url" --> FetchCard[Fetch /.well-known/agent.json]
->     end
+> <div class="admonition architecture" markdown>
+> <p class="admonition-title">Three source shapes, auto-detected, converge on one KG insert</p>
 >
->     ParseMCP --> LiveDiscovery[Live Tool Discovery<br><i>(list_tools)</i>]
->     LiveDiscovery --> KGInsert[Insert CallableResource]
->     ParseYAML --> KGInsert
->     FetchCard --> KGInsert
->
->     KGInsert --> KG[(Knowledge Graph)]
->
->     style Sources fill:#f5f5f5,stroke:#666
->     style AutoDetect fill:#dae8fe,stroke:#6c8ebf
->     style KG fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-> ```
-> This pipeline allows single-shot ingestion of all agent capabilities, bridging the gap between isolated codebases and the unified Knowledge Graph.
+> Sources (`mcp_config.json`, `SKILL.md` directories, A2A URLs) are
+> auto-detected by shape: an `mcp_config` extracts servers & flags, then
+> runs live tool discovery (`list_tools`); a `skill_directory` parses
+> frontmatter directly; an `a2a_url` fetches `/.well-known/agent.json`
+> directly. All three paths converge on inserting a `CallableResource` into
+> the Knowledge Graph. This pipeline allows single-shot ingestion of all
+> agent capabilities, bridging the gap between isolated codebases and the
+> unified Knowledge Graph.
+> </div>
 
 ### Council Deliberation Node
 
 The **Council** is a specialized graph node that implements Karpathy's LLM Council pattern for high-stakes decision-making. It provides a 4-stage deliberative pipeline:
 
-```mermaid
-graph LR
-    Q[ORCH-1.0: Query] --> A1[ORCH-1.2: Contrarian]
-    Q --> A2[KG-2.2: First Principles]
-    Q --> A3[ORCH-1.2: Expansionist]
-    Q --> A4[ORCH-1.2: Outsider]
-    Q --> A5[ORCH-1.21: Executor]
-    A1 --> Anon[OS-5.1: Anonymize]
-    A2 --> Anon
-    A3 --> Anon
-    A4 --> Anon
-    A5 --> Anon
-    Anon --> R1[ORCH-1.2: Reviewer 1]
-    Anon --> R2[ORCH-1.2: Reviewer 2]
-    Anon --> R3[ORCH-1.2: Reviewer 3]
-    R1 --> Chair[ORCH-1.2: Chairman]
-    R2 --> Chair
-    R3 --> Chair
-    Chair --> V[ORCH-1.2: CouncilVerdict]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five perspectives, anonymized, reviewed, chaired to one verdict</p>
 
-    style Anon fill:#fff2cc,stroke:#d6b656
-    style Chair fill:#d5e8d4,stroke:#82b366
-    style V fill:#c8e6c9,stroke:#2e7d32
-```
+A query fans out to five distinct perspective agents — Contrarian, First
+Principles, Expansionist, Outsider, and Executor — whose outputs are all
+anonymized before three independent reviewers see them (so no reviewer
+can bias on which perspective said what). The three reviews converge on a
+Chairman, who produces the final `CouncilVerdict`.
+</div>
 
 | Stage | Purpose | Implementation |
 |-------|---------|---------------|
@@ -371,29 +215,24 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics, game engines, UML statecharts, and SCXML workflow engines.
 
 ### HSM Level Mapping
-```
-Level 0: Root Graph (N Orchestration Nodes)
-├── usage_guard → router → dispatcher → memory_selection → dispatcher
-├── researcher, architect, verifier (discovery/validation)
-├── parallel_batch_processor → expert_executor (fan-out)
-├── research_joiner, execution_joiner (fan-in)
-├── verifier → synthesizer → END (quality gate + response composition)
-└── planner (re-planning on verification failure)
-
-Level 1: Superstates - Specialist Agents
-├── Specialist Roster (Dynamically discovered from the **Knowledge Graph**)
-│   Each loads: name-matched prompt + discovered capabilities + mapped MCP toolsets
-│   Supports: 'prompt' (local), 'mcp' (stdio), and 'a2a' (remote) agent types
-└── Unified Execution: Dynamic routing based on registry-provided metadata
-
-Level 2: Substates - Agent Internal Loop
-└── Pydantic AI Agent.run() = UserPromptNode → ModelRequestNode → CallToolsNode → ...
-    Multi-turn tool iteration (max 3 iterations per specialist)
-
-Level 3: Leaf States - MCP Tool Execution
-└── Each tool call invokes an MCP server subprocess via stdio/HTTP
-    Atomic operations: get_project(), list_branches(), run_cypher_query(), etc.
-```
+- **Level 0: Root Graph** (N orchestration nodes)
+    - `usage_guard` → `router` → `dispatcher` → `memory_selection` → `dispatcher`
+    - `researcher`, `architect`, `verifier` (discovery/validation)
+    - `parallel_batch_processor` → `expert_executor` (fan-out)
+    - `research_joiner`, `execution_joiner` (fan-in)
+    - `verifier` → `synthesizer` → END (quality gate + response composition)
+    - `planner` (re-planning on verification failure)
+- **Level 1: Superstates — Specialist Agents**
+    - Specialist Roster (dynamically discovered from the **Knowledge Graph**) — each loads a
+      name-matched prompt + discovered capabilities + mapped MCP toolsets; supports `prompt`
+      (local), `mcp` (stdio), and `a2a` (remote) agent types
+    - Unified Execution: dynamic routing based on registry-provided metadata
+- **Level 2: Substates — Agent Internal Loop**
+    - `Pydantic AI Agent.run()` = `UserPromptNode` → `ModelRequestNode` → `CallToolsNode` →
+      ... (multi-turn tool iteration, max 3 iterations per specialist)
+- **Level 3: Leaf States — MCP Tool Execution**
+    - Each tool call invokes an MCP server subprocess via stdio/HTTP — atomic operations like
+      `get_project()`, `list_branches()`, `run_cypher_query()`, etc.
 
 ### Concept Mapping
 | agent-utilities Concept        | HSM Concept            | Details                                           |

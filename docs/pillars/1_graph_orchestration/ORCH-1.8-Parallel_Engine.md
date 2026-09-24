@@ -21,69 +21,34 @@ The **Parallel Engine** (`ParallelEngine`) is the single, unified agent executio
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph INPUT["📥 Manifest Sources"]
-        PLANNER["HTN Planner<br/>(GraphPlan)"]
-        TEAM["TeamConfig<br/>(TeamComposition)"]
-        WORKFLOW["Skill Workflow"]
-        HEAVY["Heavy Thinking<br/>(K parallel thinkers)"]
-        PRESET["KG Preset<br/>(SwarmTemplate)"]
-        DEPT["Department<br/>(OWL-materialized)"]
-        ENTERPRISE["Enterprise<br/>(All departments)"]
-        DYNAMIC["Governed Dynamic Workflow<br/>(reviewed agent catalog)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Seven manifest sources converge on one ParallelEngine</p>
 
-    subgraph GENERATORS["🔧 Manifest Generators"]
-        G1["manifest_from_planner()"]
-        G2["manifest_from_teamconfig()"]
-        G3["manifest_from_workflow()"]
-        G4["manifest_from_heavy_thinking()"]
-        G5["manifest_from_preset()"]
-        G6["manifest_from_department()"]
-        G7["manifest_for_enterprise()"]
-    end
+Seven manifest sources — HTN Planner (`GraphPlan`), TeamConfig
+(`TeamComposition`), Skill Workflow, Heavy Thinking (K parallel
+thinkers), KG Preset (`SwarmTemplate`), Department (OWL-materialized),
+and Enterprise (all departments) — each pass through their own generator
+(`manifest_from_planner()`, `manifest_from_teamconfig()`,
+`manifest_from_workflow()`, `manifest_from_heavy_thinking()`,
+`manifest_from_preset()`, `manifest_from_department()`,
+`manifest_for_enterprise()`) into one universal `ExecutionManifest`.
 
-    MANIFEST["📋 ExecutionManifest<br/>(Universal Input)"]
+`ParallelEngine` runs that manifest through six steps in order: (1)
+resolve auto fields; (2) build dependency DAG; (3) schedule waves
+(topological sort); (4) execute waves (semaphore governor); (5)
+synthesize outputs (flat/hierarchical/rlm/progressive); (6) persist to
+KG — producing an `ExecutionResult`.
 
-    subgraph ENGINE["⚡ ParallelEngine"]
-        RESOLVE["1. Resolve auto fields"]
-        DAG["2. Build dependency DAG"]
-        SCHEDULE["3. Schedule waves<br/>(topological sort)"]
-        EXECUTE["4. Execute waves<br/>(semaphore governor)"]
-        SYNTH["5. Synthesize outputs<br/>(flat/hierarchical/rlm/progressive)"]
-        PERSIST["6. Persist to KG"]
-    end
-
-    RESULT["📊 ExecutionResult"]
-
-    subgraph HARNESS["🧭 Upstream DynamicWorkflow (optional)"]
-        CONDUCTOR["Context-governed<br/>Pydantic AI conductor"]
-        MONTY["Harness run_workflow<br/>Monty sandbox"]
-        CATALOG["GraphOS catalog facades<br/>(no connector tools)"]
-        DISPATCH["Orchestrator.execute_agent<br/>policy + skills + tools + model"]
-        AGENTGRAPH["GraphOS Pydantic Graph<br/>per catalog call"]
-        RUNTRACE["Shared session lineage<br/>RunTrace + ToolCall"]
-        RESUME["WorkflowResumeState<br/>(step,task)→output cache"]
-    end
-
-    PLANNER --> G1
-    TEAM --> G2
-    WORKFLOW --> G3
-    HEAVY --> G4
-    PRESET --> G5
-    DEPT --> G6
-    ENTERPRISE --> G7
-    DYNAMIC --> CONDUCTOR --> MONTY --> CATALOG --> DISPATCH
-    DISPATCH --> AGENTGRAPH --> RUNTRACE
-    DISPATCH -. "on success, persist" .-> RESUME
-    RESUME -. "on the next attempt, seed cache" .-> CATALOG
-
-    G1 & G2 & G3 & G4 & G5 & G6 & G7 --> MANIFEST
-    MANIFEST --> ENGINE
-    RESOLVE --> DAG --> SCHEDULE --> EXECUTE --> SYNTH --> PERSIST
-    ENGINE --> RESULT
-```
+A separate, optional upstream `DynamicWorkflow` path handles a Governed
+Dynamic Workflow (reviewed agent catalog): a context-governed Pydantic AI
+conductor drives the harness's `run_workflow` (Monty sandbox), which
+calls GraphOS catalog facades (no connector tools), which dispatch
+through `Orchestrator.execute_agent` (policy + skills + tools + model)
+into a GraphOS Pydantic Graph per catalog call, recording shared session
+lineage (`RunTrace` + `ToolCall`). On success, the dispatch persists to
+`WorkflowResumeState` (a (step, task) -> output cache), which seeds the
+catalog facades on the next attempt.
+</div>
 
 ---
 
@@ -353,53 +318,20 @@ Full enterprise manifest — all agents across all departments. This is the 300-
 
 ## Company-Scale Topology (CONCEPT:AU-ORCH.execution.autonomous-department-orchestration)
 
-```mermaid
-graph TD
-    subgraph CEO["🏢 CEO / Planner"]
-        PLANNER["planner / coordinator"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Company-scale topology: one planner, seven departments</p>
 
-    subgraph INFRA["🖥️ Infrastructure"]
-        SYS["systems-manager-mcp"]
-        DOCKER["container-manager-mcp<br/>portainer-mcp"]
-        NET["tunnel-manager-mcp<br/>adguard-home-mcp"]
-        MON["uptime-kuma-mcp"]
-    end
-
-    subgraph IT["💻 IT / DevOps"]
-        REPO["repository-manager-mcp"]
-        GIT["github-mcp / gitlab-mcp"]
-        CI["ansible-tower-mcp"]
-    end
-
-    subgraph FINANCE["💰 Finance"]
-        QUANT["data-science-mcp"]
-        RISK["risk models"]
-    end
-
-    subgraph RESEARCH["🔬 Research"]
-        SCHOLAR["scholarx-mcp"]
-        DATA["data-science-mcp"]
-    end
-
-    subgraph MEDIA["📱 Media"]
-        SOCIAL["postiz-mcp / owncast-mcp"]
-        MEDIA_DL["media-downloader-mcp<br/>jellyfin-mcp"]
-    end
-
-    subgraph COMMS["💬 Communications"]
-        MSG["AU-ECO.toolkit.journey-map-milestones: 17 backends"]
-        ITSM["servicenow-mcp"]
-        COLLAB["atlassian-mcp"]
-    end
-
-    subgraph WELLNESS["🏋️ Wellness"]
-        DIET["mealie-mcp"]
-        FIT["wger-mcp"]
-    end
-
-    PLANNER --> INFRA & IT & FINANCE & RESEARCH & MEDIA & COMMS & WELLNESS
-```
+The CEO/Planner (planner/coordinator) dispatches to seven departments in
+parallel: Infrastructure (`systems-manager-mcp`,
+`container-manager-mcp`/`portainer-mcp`,
+`tunnel-manager-mcp`/`adguard-home-mcp`, `uptime-kuma-mcp`); IT/DevOps
+(`repository-manager-mcp`, `github-mcp`/`gitlab-mcp`,
+`ansible-tower-mcp`); Finance (`data-science-mcp`, risk models); Research
+(`scholarx-mcp`, `data-science-mcp`); Media
+(`postiz-mcp`/`owncast-mcp`, `media-downloader-mcp`/`jellyfin-mcp`);
+Communications (17 messaging backends, `servicenow-mcp`,
+`atlassian-mcp`); and Wellness (`mealie-mcp`, `wger-mcp`).
+</div>
 
 ---
 

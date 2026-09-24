@@ -18,10 +18,9 @@ Markdown view layer and LLM-powered observation/reflection pipeline.
 
 > **Markdown files are materialized views — the KG is the source of truth.**
 
-```
-KG (GraphBackend + OWL) ──materialize()──> observations.md, reflections.md, profile.md, active.md
-profile.md / active.md ──file-watch──> KG (upsert edits)
-```
+The KG (`GraphBackend` + OWL) materializes into `observations.md`,
+`reflections.md`, `profile.md`, and `active.md`; edits to `profile.md`/
+`active.md` are file-watched back into the KG as upserts.
 
 > The KG store is the `GraphBackend` — epistemic-graph is the one authority (system
 > of record, durable); Postgres/pg-age and LadybugDB/Neo4j/FalkorDB are opt-in
@@ -32,50 +31,21 @@ profile.md / active.md ──file-watch──> KG (upsert edits)
 
 ## Architecture
 
-```mermaid
-graph TD
-    subgraph "External Agent Surfaces"
-        CC["ECO-4.0: Claude Code"]
-        CX["ECO-4.0: Codex"]
-        GB["KG-2.0: Grok Build"]
-        DV["ECO-4.0: Devin"]
-        AG["ECO-4.0: Antigravity IDE"]
-        WS["ECO-4.0: Windsurf"]
-        OC["ECO-4.0: OpenCode"]
-        TUI["ECO-4.0: agent-terminal-ui"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Eight external agent surfaces, one memory bridge, one KG</p>
 
-    subgraph "Memory Bridge (KG-2.6)"
-        INSTALLER["Hook Installer (AU-ECO.mcp.toolkit-live-discovery)"]
-        OBS["ORCH-1.2: Observer"]
-        REF["ORCH-1.2: Reflector"]
-        MAT["KG-2.2: Materializer"]
-        CTX["ORCH-1.21: Startup Context Builder"]
-    end
-
-    subgraph "KG-2.0: Knowledge Graph"
-        KG["KG-2.0: LadybugDB"]
-        MEM["Tiered Memory (KG-2.1)"]
-        CON["SynthesisEngine (KG-2.4)"]
-        RET["HybridRetriever (KG-2.3)"]
-    end
-
-    subgraph "Materialized Views"
-        OBS_MD["AU-ORCH.planning.legal-automation-roadmap: observations.md"]
-        REF_MD["AU-ORCH.planning.legal-automation-roadmap: reflections.md"]
-        PRO_MD["AU-ORCH.planning.legal-automation-roadmap: profile.md"]
-        ACT_MD["AU-ORCH.planning.legal-automation-roadmap: active.md"]
-    end
-
-    CC & CX & GB & DV & AG & WS & OC & TUI -->|"Session hooks"| OBS
-    INSTALLER -->|"Writes hooks"| CC & CX & GB & DV & AG & WS & OC & TUI
-    OBS -->|"ObservationNode"| KG
-    KG --> REF --> KG
-    KG --> MAT
-    MAT --> OBS_MD & REF_MD & PRO_MD & ACT_MD
-    OBS_MD & REF_MD & PRO_MD --> KG
-    RET --> CTX
-```
+The Hook Installer writes session hooks into eight external agent
+surfaces (Claude Code, Codex, Grok Build, Devin, Antigravity IDE,
+Windsurf, OpenCode, `agent-terminal-ui`), which all report through those
+hooks to the Observer. The Observer writes `ObservationNode`s to the
+Knowledge Graph (`LadybugDB`, with Tiered Memory, `SynthesisEngine`, and
+`HybridRetriever`). The Reflector reads and writes back to the KG. The
+Materializer reads the KG and writes the four materialized views
+(`observations.md`, `reflections.md`, `profile.md`, `active.md`);
+`observations.md`, `reflections.md`, and `profile.md` are in turn
+file-watched back into the KG. `HybridRetriever` feeds the Startup
+Context Builder.
+</div>
 
 ---
 
@@ -201,19 +171,17 @@ Agent B starts session
 
 ## File Storage
 
-```
-~/.local/share/agent-utilities/
-├── kg/
-│   └── knowledge_graph.db        # Source of truth (LadybugDB)
-├── memory/                        # Materialized views (KG-2.6)
-│   ├── observations.md
-│   ├── reflections.md
-│   ├── profile.md
-│   ├── active.md
-│   ├── .memory_cursor.json       # Materialization state
-│   └── .observer_cursor.json     # Observer incremental state
-└── ...
-```
+- `~/.local/share/agent-utilities/`
+    - `kg/`
+        - `knowledge_graph.db` — source of truth (LadybugDB)
+    - `memory/` — materialized views (KG-2.6)
+        - `observations.md`
+        - `reflections.md`
+        - `profile.md`
+        - `active.md`
+        - `.memory_cursor.json` — materialization state
+        - `.observer_cursor.json` — observer incremental state
+    - `...`
 
 ---
 

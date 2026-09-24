@@ -22,23 +22,20 @@ on the cheap zero-infra cycle.
 
 ## Flow
 
-```mermaid
-flowchart TD
-    T["Research topic in a Loop"] --> D["derive perspectives (ontology-flavoured by KG neighbours)"]
-    D --> Q["each lens asks distinct questions"]
-    Q --> P["acquire_for_topic per question (reuses the single-lens KG probe)"]
-    P --> CM["Contradiction map"]
-    CM --> AG["Agreements: 2+ lenses, likely true"]
-    CM --> DV["Divergences: lenses with disjoint evidence"]
-    CM --> BS["Blind spot: KG neighbours no lens covered"]
-    AG --> PR["Peer review: confidence, bias, missing lens"]
-    DV --> PR
-    BS --> PR
-    PR --> M["materialize typed KG nodes (Perspective/Agreement/Contradiction/BlindSpot/PeerReview)"]
-    PR --> F["frontier question, submit_loop"]
-    F -->|next cycle| T
-    P --> U["union of sources, mark_addressed, topic converges"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Multi-lens research: agreements, divergences, blind spots, then a new cycle</p>
+
+A research topic in a Loop derives perspectives (ontology-flavoured by KG
+neighbours); each lens asks distinct questions, answered by
+`acquire_for_topic` per question (reusing the single-lens KG probe) — this
+also unions sources and marks the topic addressed as it converges. The
+answers build a contradiction map: agreements (2+ lenses, likely true),
+divergences (lenses with disjoint evidence), and blind spots (KG neighbours
+no lens covered). All three feed a peer review (confidence, bias, missing
+lens), which materializes typed KG nodes
+(Perspective/Agreement/Contradiction/BlindSpot/PeerReview) and produces a
+frontier question submitted back as the next Loop cycle's topic.
+</div>
 
 ## Phases
 

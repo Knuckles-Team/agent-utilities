@@ -22,8 +22,8 @@ from agent_utilities.mcp.tool_specs import (
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
-MD_PATH = ROOT / "docs" / "capabilities-power.md"
-JSON_PATH = ROOT / "docs" / "capabilities-power.json"
+MD_PATH = ROOT / "contract" / "capabilities-power.md"
+JSON_PATH = ROOT / "contract" / "capabilities-power.json"
 PACKAGE_JSON_PATH = (
     ROOT
     / "agent_utilities"
@@ -67,7 +67,7 @@ def _run_check_cpd() -> subprocess.CompletedProcess:
 
 @_needs_server_stack
 def test_check_cpd_passes_on_the_checked_in_set():
-    """The committed docs/capabilities-power.{md,json} must be in sync right now."""
+    """The committed contract/capabilities-power.{md,json} must be in sync right now."""
     result = _run_check_cpd()
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -130,7 +130,7 @@ def _isolated_md(tmp_path, monkeypatch, capsys):
     parameter, unchanged from the old ``_restore_md``.
 
     Replaces a ``try/finally`` that wrote-then-restored the REAL tracked
-    ``docs/capabilities-power.md`` in place: a ``finally`` does not run under
+    ``contract/capabilities-power.md`` in place: a ``finally`` does not run under
     SIGKILL (this host's ``systemd-oomd`` kills whole process groups at
     once), so an interrupted old-style run left the corrupted artifact on
     disk for some later, unrelated commit's ``guardrail-cpd-drift`` /
@@ -291,9 +291,7 @@ def test_generation_timestamp_honors_source_date_epoch(monkeypatch) -> None:
 
 
 @_needs_server_stack
-def test_generation_uses_one_timestamp_deterministically(
-    tmp_path, monkeypatch
-) -> None:
+def test_generation_uses_one_timestamp_deterministically(tmp_path, monkeypatch) -> None:
     sys.path.insert(0, str(SCRIPTS))
     import gen_capability_power as generator
 

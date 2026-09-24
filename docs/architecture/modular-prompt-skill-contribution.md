@@ -34,30 +34,24 @@ directory owned by that same distribution. Duplicate names, including portable
 case-fold collisions, fail closed before mutation. A provider-local missing or invalid
 source is isolated and reported unhealthy without making stale XDG content current.
 
-```mermaid
-flowchart TD
-    subgraph pkg["agent-package wheel (servicenow-api)"]
-        SK["servicenow_api/skills/**/SKILL.md"]
-        PR["servicenow_api/prompts/*.json"]
-        EP["pyproject entry-points:\nskill_providers / prompt_providers"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A wheel's own entry points drive the lean hub, not the reverse</p>
 
-    EP -. importlib.metadata .-> RES["core.providers\nvalidated current resolvers"]
-
-    subgraph hub["agent-utilities (lean hub)"]
-        RES --> MAT["core.unified_install"]
-        RES --> INST["toolkit installer"]
-        RES --> ING["registry_builder.ingest_prompts_to_graph()"]
-    end
-
-    SK --> MAT
-    SK --> INST
-    PR --> ING
-    MAT --> XDG["XDG data: skills/provider/.generations/digest/skill\n(v2 activation marker)"]
-    INST --> TOOLS["detected agent tools"]
-    ING --> KG[("KG prompt library\nPromptNode prompt:&lt;pkg&gt;/&lt;name&gt;")]
-    OVL["~/.config/agent-utilities/prompts/\n(operator XDG overlay)"] --> ING
-    BASE["base prompts\nexact XDG generation or current source"] --> ING
+An agent-package wheel (e.g. `servicenow-api`) ships its own
+`servicenow_api/skills/**/SKILL.md`, `servicenow_api/prompts/*.json`, and
+`pyproject` entry points (`skill_providers`/`prompt_providers`). Those entry
+points are discovered via `importlib.metadata` into `core.providers`'
+validated current resolvers, which agent-utilities (the lean hub) fans out
+to three consumers: `core.unified_install`, the toolkit installer, and
+`registry_builder.ingest_prompts_to_graph()`. The wheel's own skill files
+feed both the installer and the toolkit installer (writing an XDG
+`skills/provider/.generations/digest/skill` v2 activation marker, and
+detected agent tools respectively); its prompt files, together with the
+operator's XDG overlay (`~/.config/agent-utilities/prompts/`) and base
+prompts (exact XDG generation or current source), all feed the ingester,
+which writes each prompt into the KG prompt library as a
+`PromptNode prompt:<pkg>/<name>`.
+</div>
 ```
 
 ### Skills → XDG skills library

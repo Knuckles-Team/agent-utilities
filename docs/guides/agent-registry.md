@@ -10,25 +10,17 @@ Each specialist is packaged as a JSON definition containing an MCP server config
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Registry
-        AVAIL[AU-ECO.mcp.toolkit-live-discovery: available/] --> |install| INSTALLED[installed/]
-        INSTALLED --> |uninstall| AVAIL
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Install and uninstall, mirror image, through the same registry</p>
 
-    subgraph Install Flow
-        PKG[AU-ECO.mcp.toolkit-live-discovery: Package JSON] --> MCP[AU-ECO.mcp.toolkit-live-discovery: Merge MCP Config]
-        MCP --> KG[KG-2.0: Hydrate KG Nodes]
-        KG --> CACHE[Invalidate Cache CONCEPT:AU-ORCH.adapter.hot-cache-invalidation]
-        CACHE --> RELOAD[AU-ECO.mcp.toolkit-live-discovery: Hot Reload /mcp/reload]
-    end
-
-    subgraph Uninstall Flow
-        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[AU-ECO.mcp.toolkit-live-discovery: Remove MCP Config]
-        RM_MCP --> RM_CACHE[AU-ECO.mcp.toolkit-live-discovery: Invalidate Cache]
-    end
-```
+The registry itself moves a package between `available/` and `installed/`:
+install moves it in, uninstall moves it back out. **Install flow:** a
+package's JSON feeds a merge into the MCP config, which hydrates KG nodes,
+which invalidates the cache, which triggers a hot reload
+(`/mcp/reload`). **Uninstall flow:** KG nodes are removed first, then the
+MCP config entry, then the cache is invalidated — the mirror image of
+install, without the final hot-reload step.
+</div>
 
 ## Package Format
 
@@ -59,14 +51,12 @@ Each specialist package is a JSON file in the `available/` directory:
 
 ## Directory Structure
 
-```
-~/.agent-utilities/registry/
-├── available/           # Packages available for installation
-│   ├── salesforce-specialist.json
-│   └── jira-specialist.json
-└── installed/           # Currently installed packages
-    └── gitlab-specialist.json
-```
+- `~/.agent-utilities/registry/`
+    - `available/` — packages available for installation
+        - `salesforce-specialist.json`
+        - `jira-specialist.json`
+    - `installed/` — currently installed packages
+        - `gitlab-specialist.json`
 
 ## Configuration
 

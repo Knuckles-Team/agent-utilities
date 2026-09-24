@@ -21,23 +21,21 @@ It watches each model's vLLM Prometheus signals and auto-tunes the per-model
 concurrency *target* between a floor and a ceiling, with **no hardcoded small
 ceiling** — it ramps `4 → … → 512` as the hardware allows.
 
-```mermaid
-flowchart TD
-    RC["resolve_capacity(model)"] --> SC["Config.model_capacity → static floor"]
-    SC --> AC["adaptive_capacity(model, floor)"]
-    AC -->|flag off / no endpoint / scrape fails| FLOOR["return floor (fail-safe)"]
-    AC -->|enabled| CTRL["AdaptiveCapacityController (cached per model)"]
-    CTRL -->|throttled ≥12s| SCRAPE["GET model /metrics"]
-    SCRAPE --> PARSE["parse vllm:num_requests_running\n+ ...waiting_by_reason{reason=capacity}"]
-    PARSE --> AIMD{"AIMD tune"}
-    AIMD -->|saturated waiting capacity| DEC["multiplicative DECREASE toward max of floor and running"]
-    AIMD -->|near-full and no waiting| INC["additive INCREASE by 25 percent"]
-    AIMD -->|idle or low| HOLD["hold"]
-    DEC --> TGT["current_target ∈ [floor, ceiling]"]
-    INC --> TGT
-    HOLD --> TGT
-    TGT --> GATE["map_concurrent gate re-sized to target"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Adaptive capacity: AIMD over a fail-safe floor</p>
+
+`resolve_capacity(model)` starts from `Config.model_capacity`'s static
+floor, then calls `adaptive_capacity(model, floor)`. If the feature flag is
+off, there's no endpoint, or a scrape fails, it returns the floor unchanged
+(fail-safe). Otherwise a per-model cached `AdaptiveCapacityController`
+throttles itself to at most one `GET model /metrics` scrape per 12s,
+parsing `vllm:num_requests_running` plus `...waiting_by_reason{reason=capacity}`.
+An AIMD tune then branches three ways: saturated waiting capacity
+multiplicatively **decreases** toward the max of floor and running;
+near-full with no waiting additively **increases** by 25%; idle or low
+**holds**. Whichever branch fires, the result becomes `current_target`
+(bounded to `[floor, ceiling]`), which resizes the `map_concurrent` gate.
+</div>
 
 ### Metrics URL derivation
 

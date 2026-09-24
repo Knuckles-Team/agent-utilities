@@ -37,15 +37,16 @@ history, privacy/residency eligibility, and local-serving hardware fields (see
 `reports/deferred/waves1-5-gate.md` D-W15-9..10 for the follow-up aggregation work each one
 needs).
 
-```mermaid
-flowchart LR
-    MD["ModelDefinition\n(model_registry.py)"] --> BUILD["build_model_profile()"]
-    OBS["observed_* telemetry\n(optional, not yet wired)"] -.-> BUILD
-    BUILD --> NODE["ModelProfileVersionNode\n(content-addressed)"]
-    NODE --> SYNC["sync_model_profiles(engine, registry)"]
-    SYNC --> KG[("Knowledge Graph\nengine.add_node")]
-    NODE --> OWL["inference_owl_ttl()\nkg:Model individuals"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">ModelDefinition builds a content-addressed profile, synced and inferred</p>
+
+`ModelDefinition` (`model_registry.py`) feeds `build_model_profile()`,
+optionally joined by `observed_*` telemetry (not yet wired). The result
+is a content-addressed `ModelProfileVersionNode`, which
+`sync_model_profiles(engine, registry)` writes to the Knowledge Graph
+(`engine.add_node`), and which separately feeds `inference_owl_ttl()` to
+produce `kg:Model` OWL individuals.
+</div>
 
 ### Surfaces
 
@@ -85,26 +86,22 @@ a first-class field on `RoutingDecision` rather than inside the reason string is
 D-W15-9. The result is bounded to `MAX_ROUTING_CANDIDATES` (8) regardless of registry
 size, so persisting one decision per routing call never writes an unbounded dump.
 
-```mermaid
-sequenceDiagram
-    participant CM as create_model(role=...)
-    participant RM as _resolve_role_model
-    participant AR as model_router.pick_adaptive_with_decision
-    participant Reg as ModelRegistry
-    participant Tr as harness.tracing (current trace)
-    participant Sink as KGTraceBackend
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Routing decision provenance, from role to persisted node</p>
 
-    CM->>RM: role
-    RM->>AR: registry, role
-    AR->>Reg: pick_for_task_adaptive(...)
-    AR->>Reg: explain_pick_for_task(...)  %% same confidence signal
-    Reg-->>AR: (chosen model, RoutingDecision)
-    AR-->>RM: (model, decision)
-    RM->>Tr: get_trace_id() / get_kg_trace_sink()
-    RM->>Sink: record_routing_decision(trace_id, decision)
-    Sink->>Sink: RoutingDecisionNode -> engine.add_node + HAS_ROUTING_DECISION edge
-    RM-->>CM: model
-```
+`create_model(role=...)` calls `_resolve_role_model` with the role, which
+calls `model_router.pick_adaptive_with_decision` with the registry and
+role. That router calls `ModelRegistry.pick_for_task_adaptive(...)` for
+the actual choice and `ModelRegistry.explain_pick_for_task(...)` (the
+same confidence signal) for the explanation, and receives back the chosen
+model and its `RoutingDecision`.
+
+`_resolve_role_model` gets the trace id / KG trace sink from
+`harness.tracing`, then calls `KGTraceBackend.record_routing_decision(trace_id,
+decision)`, which writes a `RoutingDecisionNode` via `engine.add_node`
+plus a `HAS_ROUTING_DECISION` edge. `_resolve_role_model` finally returns
+the model to `create_model`.
+</div>
 
 `model_factory._resolve_role_model` (the same function every `create_model(role=...)` call
 already used for role-based routing) now also calls `explain_pick_for_task` and, when a KG

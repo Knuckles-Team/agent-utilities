@@ -25,17 +25,16 @@ Before a single line of reasoning can be formed, the **Agent OS Kernel** (`CONCE
 
 The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:AU-OS.config.secrets-authentication`), verifying the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:AU-OS.state.cognitive-scheduler-preemption`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it dynamically interrogates the configured model routing layer to establish hard context-window constraints, allocates a strict **Agent Token Quota**, and sets up the execution threads.
 
-```
-                  ┌─────────────────────────────────────┐
-                  │      Agent OS Kernel (OS-5.0)       │
-                  └──────────────────┬──────────────────┘
-                                     │
-      ┌──────────────────────────────┼──────────────────────────────┐
-      ▼                              ▼                              ▼
-Security & Auth (OS-5.1)   Cognitive Scheduler (OS-5.2)  Sensory Guardrails (AU-OS.governance.reactive-multi-axis-budget)
- - JWT & OAuth SSO          - Token Quota Allocations     - Strict Tool Guard
- - Secret Encryption        - Process Concurrency         - Prompt Injection Check
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Agent OS Kernel boot</p>
+
+The Agent OS Kernel (OS-5.0) boots three peer modules: **Security & Auth**
+(OS-5.1: JWT & OAuth SSO, secret encryption), **Cognitive Scheduler**
+(OS-5.2: token quota allocations, process concurrency), and **Sensory
+Guardrails** (AU-OS.governance.reactive-multi-axis-budget: strict tool
+guard, prompt injection check).
+
+</div>
 
 As the task preparation begins, the **Declarative Sensory Guardrails & Safety Contracts** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`) register themselves. Every tool that the swarm will eventually discover is bound by a strict **Tool Guard** that intercepts attempts to execute destructive commands, cross-checked by the **Telemetry & Observability** stack (`CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox`). Every action, token spent, and state mutation is logged securely via OpenTelemetry hooks.
 
@@ -60,15 +59,13 @@ To map the path, the Core invokes the **HTN (Hierarchical Task Network) Planning
 4.  *Validate the trade actions against legal and budget limits.*
 5.  *Render the visual chart for the human pilot.*
 
-```
-                 [Operation Emerald Horizon]
-                              │
-                     (HTN Decomposition)
-                              │
-       ┌──────────────────────┼──────────────────────┐
-       ▼                      ▼                      ▼
-[Fetch Price Data]   [Analyze Correlation]   [Render Visuals]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">HTN decomposition</p>
+
+"Operation Emerald Horizon" decomposes into parallel sub-tasks: fetch price
+data, analyze correlation, and render visuals.
+
+</div>
 
 With the task breakdown mapped, the **Specialist Routing & Discovery engine** (`CONCEPT:AU-ORCH.adapter.hot-cache-invalidation`) looks up the available agents in the firm. It queries the Active Knowledge Graph to locate agents matching the exact capabilities required for each sub-task.
 
@@ -92,18 +89,16 @@ To plan and execute accurately, the swarm needs a source of truth—a deep, stru
 
 The gateway to this memory is the **Active Knowledge Graph** (`CONCEPT:AU-KG.query.object-graph-mapper`). This is the system's global cognitive map, housing all shared knowledge, past experience, system states, and business logic.
 
-```
-                      ┌─────────────────────────────────┐
-                      │   Active Knowledge Graph (KG)   │
-                      │         (CONCEPT:AU-KG.query.object-graph-mapper)        │
-                      └────────────────┬────────────────┘
-                                       │
-        ┌──────────────────────────────┼──────────────────────────────┐
-        ▼                              ▼                              ▼
-  Tiered Memory (KG-2.1)     Ontology Bridge (KG-2.2)    Topological Analysis (KG-2.5)
- - Episodic Context Blocks    - BFO & PROV-O Alignment    - Analogy Search
- - Concept Compaction         - Provenance Verification   - Blast Radius Auditing
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Active Knowledge Graph</p>
+
+The Active Knowledge Graph (`AU-KG.query.object-graph-mapper`) feeds three
+peer subsystems: **Tiered Memory** (KG-2.1: episodic context blocks,
+concept compaction), **Ontology Bridge** (KG-2.2: BFO & PROV-O alignment,
+provenance verification), and **Topological Analysis** (KG-2.5: analogy
+search, blast radius auditing).
+
+</div>
 
 When an agent needs context, the unified **MemoryEngine** (`CONCEPT:AU-KG.memory.tiered-memory-caching`) goes to work. It manages memory across three distinct timescales:
 - **Episodic**: Fast-access context blocks capturing the immediate conversation history.
@@ -136,17 +131,17 @@ Having loaded the plan and retrieved its memory context, the swarm is ready to i
 
 The primary gateway for tool execution is the **Tool Interface & MCP Factory** (`CONCEPT:AU-ECO.messaging.native-backend-abstraction`). The factory dynamically instantiates Model Context Protocol (MCP) servers, translating complex internal tools into standard schemas that external LLMs can introspect and invoke with zero friction.
 
-```
-                  ┌─────────────────────────────────────┐
-                  │       MCP Server Factory (ECO-4.0)  │
-                  └──────────────────┬──────────────────┘
-                                     │
-      ┌──────────────────────────────┼──────────────────────────────┐
-      ▼                              ▼                              ▼
-A2A Network (ECO-4.1)      Market Connectors (AU-ECO.ui.company-infrastructure-orchestration)  Pluggable Queues (AU-ECO.bus.pluggable-queue-backend)
- - Multi-agent Discovery    - Real-time Price Ticks      - NATS & Kafka Backends
- - Epistemic Consensus      - Trade Order Execution      - Multi-scale Event Streams
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">MCP Server Factory</p>
+
+The MCP Server Factory (ECO-4.0) feeds three peer subsystems: **A2A
+Network** (ECO-4.1: multi-agent discovery, epistemic consensus), **Market
+Connectors** (AU-ECO.ui.company-infrastructure-orchestration: real-time
+price ticks, trade order execution), and **Pluggable Queues**
+(AU-ECO.bus.pluggable-queue-backend: NATS & Kafka backends, multi-scale
+event streams).
+
+</div>
 
 As the parallel specialists run, they communicate over the **A2A (Agent-to-Agent) Network & Consensus engine** (`CONCEPT:AU-ECO.mcp.fastmcp-middleware`). Rather than executing in isolated bubbles, the Risk Agent and the Trade Execution Agent discover each other on a local peer network, negotiating transaction parameters and reaching cryptographic consensus before executing a portfolio swap.
 
@@ -171,17 +166,16 @@ Every output and reasoning path passes through the **Agentic Harness Core** (`CO
 
 If the cumulative score falls below a threshold, the harness rejects the output, forcing the graph to backtrack and try an alternative reasoning path.
 
-```
-                    ┌─────────────────────────────────┐
-                    │    Evaluation Engine (AHE-3.1)  │
-                    └────────────────┬────────────────┘
-                                     │
-      ┌──────────────────────────────┼──────────────────────────────┐
-      ▼                              ▼                              ▼
-Evolution Engine (AHE-3.2)   Team Optimization (AHE-3.3)   Heavy Thinking (AU-AHE.harness.self-evolution-narrative)
- - Skill Neologism            - Coalition Resizing          - Long-Horizon Logic
- - Config Mutation            - Synergy Grading             - Deep Reasoning Loops
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Evaluation Engine</p>
+
+The Evaluation Engine (AHE-3.1) feeds three peer subsystems: **Evolution
+Engine** (AHE-3.2: skill neologism, config mutation), **Team Optimization**
+(AHE-3.3: coalition resizing, synergy grading), and **Heavy Thinking**
+(AU-AHE.harness.self-evolution-narrative: long-horizon logic, deep
+reasoning loops).
+
+</div>
 
 If the execution succeeds, the **Agentic Evolution Engine** (`CONCEPT:AU-AHE.harness.evolutionary-aggregation`) captures the successful reasoning path. If it notices a new pattern of problem-solving, it runs **Skill Neologism**, automatically compiling this successful sequence of steps into a brand-new reusable tool or skill, saving it to the active skill-graph.
 
@@ -199,24 +193,17 @@ While the agent swarm is a marvel of autonomous execution, it is not a black box
 
 The entire GUI loop is run by the **Desktop Cockpit Orchestrator** (`CONCEPT:AU-GBOT.cockpit.through-gbot`). Built on accelerated PySide6 threads, the cockpit renders a stunning glassmorphic dashboard in Slate HSL, letting the user watch the entire execution live with zero lag.
 
-```
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │                    GeniusBot Desktop Cockpit (AU-GBOT.cockpit.through-gbot)                 │
-  ├─────────────────────────────────────────────────────────────────────────┤
-  │                                                                         │
-  │  ┌──────────────────────────────┐     ┌──────────────────────────────┐  │
-  │  │   Topological Memory Map     │     │   Visual Finance Cockpit     │  │
-  │  │        (AU-GBOT.cockpit.concept-4)            │     │         (AU-GBOT.cockpit.concept-6)             │  │
-  │  │   [Node A] <-> [Node B]      │     │    ▲    /\    /\    [Buy]      │  │
-  │  │   (Active memory context)    │     │    │   /  \  /  \              │  │
-  │  │                              │     │    └──/────\/────\─────────    │  │
-  │  └──────────────────────────────┘     └──────────────────────────────┘  │
-  │  ┌───────────────────────────────────────────────────────────────────┐  │
-  │  │              Embedded Terminal Sandbox (AU-GBOT.cockpit.concept-2)                 │  │
-  │  │  $ agent-utilities execute --mandate "Emerald Horizon"             │  │
-  │  └───────────────────────────────────────────────────────────────────┘  │
-  └─────────────────────────────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">GeniusBot Desktop Cockpit</p>
+
+The cockpit (`AU-GBOT.cockpit.through-gbot`) shows two side-by-side panels
+— the **Topological Memory Map** (`AU-GBOT.cockpit.concept-4`: node-link
+active memory context) and the **Visual Finance Cockpit**
+(`AU-GBOT.cockpit.concept-6`: a live price chart with buy markers) — above
+the **Embedded Terminal Sandbox** (`AU-GBOT.cockpit.concept-2`), which runs
+commands like `agent-utilities execute --mandate "Emerald Horizon"`.
+
+</div>
 
 The interface is structured as an **Ecosystem Dynamic Tab Matrix** (`CONCEPT:AU-GBOT.cockpit.pillar-overview`). Developers can drag and drop plugins on the fly, reorganizing their workspaces in real-time with smooth resize transitions.
 
@@ -248,17 +235,15 @@ crosswalk defines a small set of canonical ArchiMate concepts — `ApplicationEv
 every vendor's classes to them with `rdfs:subClassOf` and `owl:equivalentClass`
 axioms in EG's immutable ArchiMate GraphSchema source. The reasoner does the rest.
 
-```
-        ServiceNow            ERPNext              Camunda
-        :Incident             :ErpNextIssue        :BusinessTask
-            │                     │                     │
-            └───── subClassOf ────┼──── subClassOf ─────┘
-                                  ▼
-                       Canonical ArchiMate concept
-                  ( :ApplicationEvent / :BusinessProcess )
-                                  ▼
-            SELECT ?e WHERE { ?e a :ApplicationEvent }   ← one query, all vendors
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Vendor-neutral crosswalk</p>
+
+`ServiceNow:Incident`, `ERPNext:ErpNextIssue`, and `Camunda:BusinessTask`
+each declare `subClassOf` the same canonical ArchiMate concept
+(`:ApplicationEvent`/`:BusinessProcess`), so one query --
+`SELECT ?e WHERE { ?e a :ApplicationEvent }` -- reaches every vendor.
+
+</div>
 
 When the enterprise onboards a client, the **self-registering source extractors**
 (`CONCEPT:AU-KG.ingest.enterprise-source-extractor`) wake. Each adapter — `servicenow.py`, `erpnext.py`,
@@ -278,11 +263,14 @@ capabilities bottom-up — and the **capability write-back** pushes them straigh
 back into Archi and LeanIX, so the enterprise-architecture catalog is enriched
 from the very code the merger brought in. The map and the territory finally agree.
 
-```
-   Source code ──► features ──► REALIZES ──► BusinessCapability ──► [Archi / LeanIX]
-        ▲                                            │
-        └──────── "show all code for capability X" ◄─┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Code-to-capability round trip</p>
+
+Source code → features → REALIZES → `BusinessCapability` → Archi/LeanIX,
+and back: "show all code for capability X" resolves from the capability
+back to the originating source code.
+
+</div>
 
 Some questions, though, must never be stale. For those, the **virtual REST
 federation** (`CONCEPT:AU-KG.memory.tiered-memory-caching`, `engine_federation.register_rest_source`) queries a

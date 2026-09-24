@@ -81,15 +81,18 @@ them; this guide covers the keys the agent-utilities loader parses.
 
 ## How it is consumed
 
-```mermaid
-flowchart LR
-    YML[workspace.yml] --> L[workspace_config.py loader]
-    L -->|clone_missing_projects| BOOT["Bootstrap: git clone every repo<br/>under path"]
-    L -->|workspace_project_roots| KG["KG breadth ingestion<br/>self-configures repo roots — KG-2.7"]
-    L -->|fleet_target_profiles| REL[Fleet relevance keyword profiles]
-    L -->|find_workspace_manifest| DOC[doctor: ingestion_coverage + workspace_config]
-    YML -.maintenance/services.-> EXT[repository-manager / fleet reconciler]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One manifest, four readers</p>
+
+`workspace.yml` feeds `workspace_config.py`'s loader, which drives four
+independent consumers: `clone_missing_projects` (bootstrap — git clone
+every repo under path), `workspace_project_roots` (KG breadth ingestion
+self-configures repo roots, KG-2.7), `fleet_target_profiles` (fleet
+relevance keyword profiles), and `find_workspace_manifest` (the doctor's
+`ingestion_coverage` + `workspace_config` checks). `workspace.yml`'s own
+`maintenance`/`services` sections are also read directly by
+`repository-manager`'s fleet reconciler.
+</div>
 
 - **Bootstrap / clone.** `clone_missing_projects()` parses the file, resolves
   every repo path under `path`, and `git clone`s any that are missing — the

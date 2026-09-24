@@ -32,29 +32,15 @@ This achieves significant cost reduction with equivalent or improved accuracy.
 
 ### How It Works
 
-```mermaid
-flowchart LR
-    subgraph Signals
-        WA["WorkspaceAttention<br/>CONCEPT:AU-ORCH.adapter.hot-cache-invalidation"]
-        SM["SelfModel<br/>CONCEPT:AU-KG.memory.tiered-memory-caching"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two signals blend into one confidence-gated tier decision</p>
 
-    subgraph Routing
-        WA -->|runtime score| BLEND["Confidence Blend<br/>70% runtime + 30% historical"]
-        SM -->|proficiency| BLEND
-        BLEND --> GATE{"confidence vs<br/>threshold"}
-    end
-
-    subgraph Dispatch
-        GATE -->|high confidence| DOWN["Tier Down<br/>cheaper model"]
-        GATE -->|neutral| KEEP["Keep Tier<br/>same model"]
-        GATE -->|low confidence| UP["Tier Up<br/>stronger model"]
-    end
-
-    DOWN --> REG["ModelRegistry<br/>pick_for_task"]
-    KEEP --> REG
-    UP --> REG
-```
+`WorkspaceAttention`'s runtime score and `SelfModel`'s historical
+proficiency blend (70% runtime + 30% historical) into a confidence value,
+checked against a threshold: high confidence tiers down to a cheaper
+model, neutral keeps the current tier, low confidence tiers up to a
+stronger model. Every outcome reaches `ModelRegistry.pick_for_task`.
+</div>
 
 ### Composition with CONCEPT:AU-OS.state.cognitive-scheduler-preemption (Homeostatic Downgrade)
 
@@ -119,27 +105,16 @@ The engine computes two signals for each group of specialist proposals:
 
 ### Three-Tier Aggregation
 
-```mermaid
-flowchart TB
-    subgraph Input
-        P1[ORCH-1.2: Proposal 1]
-        P2[ORCH-1.2: Proposal 2]
-        P3[ORCH-1.2: Proposal 3]
-        P4[ORCH-1.2: Proposal 4]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Grouped proposals pick an aggregation strategy by consensus vs. diversity</p>
 
-    P1 & P2 --> G1[ORCH-1.21: Group 1]
-    P3 & P4 --> G2[ORCH-1.21: Group 2]
-
-    G1 --> F1{"GC=0.9<br/>D=1"}
-    G2 --> F2{"GC=0.3<br/>D=3"}
-
-    F1 -->|"High GC + Low D"| MV["🆓 MAJORITY_VOTE<br/>No LLM call"]
-    F2 -->|"Low GC + High D"| HM["🔴 HEAVY_MODEL<br/>Reasoning-tier aggregation"]
-
-    style MV fill:#d4edda,stroke:#28a745
-    style HM fill:#f8d7da,stroke:#dc3545
-```
+Four proposals group in pairs (Group 1: proposals 1-2, Group 2: proposals
+3-4). Each group is scored for group confidence (GC) and diversity (D).
+Group 1's example score (GC=0.9, D=1 — high confidence, low diversity)
+routes to `MAJORITY_VOTE` (free, no LLM call). Group 2's example score
+(GC=0.3, D=3 — low confidence, high diversity) routes to `HEAVY_MODEL`
+(expensive, reasoning-tier aggregation).
+</div>
 
 | Strategy | When | Cost |
 |:---|:---|:---|
@@ -178,19 +153,16 @@ for iteration in evolutionary_loop:
 
 ## Architecture Integration
 
-```mermaid
-graph LR
-    AU016["CONCEPT:AU-KG.memory.tiered-memory-caching<br/>Self-Model"] -->|historical proficiency| AU039
-    AU017["CONCEPT:AU-ORCH.adapter.hot-cache-invalidation<br/>Workspace Attention"] -->|confidence scores| AU039["CONCEPT:AU-ORCH.adapter.hot-cache-invalidation<br/>Confidence Router"]
-    AU017 -->|proposals| AU040["CONCEPT:AU-ORCH.adapter.hot-cache-invalidation<br/>Evolutionary Aggregation"]
-    AU033["CONCEPT:AU-OS.state.cognitive-scheduler-preemption<br/>Homeostatic Downgrade"] -->|budget tier| AU039
-    AU030["CONCEPT:AU-OS.state.cognitive-scheduler-preemption<br/>Cognitive Scheduler"] -->|hosts| CM["Convergence<br/>Monitor"]
-    CM --> AU040
-    AU039 -->|adaptive model| REG[AU-ECO.mcp.toolkit-live-discovery: Model Registry]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Confidence Router and Evolutionary Aggregation, fed by the same signals</p>
 
-    style AU039 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px
-    style AU040 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px
-```
+The Confidence Router reads historical proficiency from the Self-Model,
+confidence scores from Workspace Attention, and budget tier from
+Homeostatic Downgrade, and picks an adaptive model via the Model Registry.
+Workspace Attention's proposals also feed Evolutionary Aggregation
+directly, alongside the Cognitive Scheduler's Convergence Monitor (which
+the scheduler hosts).
+</div>
 
 ## Related Concepts
 

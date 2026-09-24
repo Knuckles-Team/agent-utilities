@@ -6,23 +6,19 @@ operations.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    Request[User or delegated task] --> Select[Select one workflow skill]
-    Select --> Skill[Concise SKILL.md]
-    Skill --> Direct[Direct bounded operation]
-    Skill --> Delegate[Dependency-aware delegation]
-    Direct --> Core[Graph-OS action core]
-    Delegate --> Orchestrator[graph_orchestrate]
-    Orchestrator --> Core
-    Core --> MCP[MCP surface]
-    Core --> REST[REST surface]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One skill, one direct or delegated path, one action core</p>
 
-    OpenAI[agents/openai.yaml] -. client interface .-> Skill
-    Coverage[agents/graph-os.yaml] -. explicit verb coverage .-> Core
-    Gate[coverage and structure gates] -. validates .-> Skill
-    Gate -. validates all live verbs .-> Core
-```
+A user or delegated task selects one workflow skill, described by a concise
+`SKILL.md`. From there the skill either performs a direct bounded operation
+or hands off to dependency-aware delegation via `graph_orchestrate` — both
+paths converge on the same Graph-OS action core, which serves both the MCP
+and REST surfaces identically. Two registries and a gate keep this
+consistent: `agents/openai.yaml` names the client interface each skill
+presents, `agents/graph-os.yaml` names the action core's explicit verb
+coverage, and the coverage/structure gates validate both — every skill's
+structure, and every live verb's presence in the core.
+</div>
 
 The prose and machine contracts are deliberately separate:
 

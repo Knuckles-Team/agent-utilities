@@ -42,15 +42,17 @@ population-health monitor (CONCEPT:AU-AHE.harness.evolutionary-aggregation).
 
 ## Live wiring
 
-```mermaid
-flowchart TD
-    W["ParallelEngine wave results<br/>(AgentExecutionResult[])"] --> B["_social_swarm_health"]
-    M["ExecutionManifest.agents<br/>(role = archetype, depends_on = edges)"] --> B
-    B --> MASS["MultiAgentSocialSystem<br/>add_agent · add_edge"]
-    MASS --> H["swarm_health(prev_states)"]
-    H --> T["ExecutionResult.telemetry['social_system']"]
-    H --> P["_prev_social_states (W1 drift across runs)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Wave results + manifest to swarm health telemetry</p>
+
+`ParallelEngine` wave results (`AgentExecutionResult[]`) and the
+`ExecutionManifest.agents` (role = archetype, `depends_on` = edges) both
+feed `_social_swarm_health`, which builds a `MultiAgentSocialSystem`
+(`add_agent`/`add_edge`). Its `swarm_health(prev_states)` produces two
+outputs: the snapshot attached to
+`ExecutionResult.telemetry["social_system"]`, and `_prev_social_states`,
+retained to compute W1 drift across runs.
+</div>
 
 `ParallelEngine._social_swarm_health` builds the MASS from a finished wave: each
 agent's **archetype = its role**, **latent state = success-weighted output

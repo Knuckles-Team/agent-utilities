@@ -5,27 +5,15 @@
 
 To avoid circular dependency updates and update propagation issues inside the agent ecosystem, we utilize a topologically ordered phased release mechanism in the `repository-manager`.
 
-```mermaid
-graph TD
-    P1[Phase 1: GitHub Pipelines] --> P2[Phase 2: Epistemic Graph]
-    P2 --> P3[Phase 3: agent-utilities]
-    P3 --> P4[Phase 4: Core Tools and UIs]
-    P4 --> P5[Phase 5: Agents]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five sequential release phases</p>
 
-    subgraph Phase 4: Tools & UIs
-        universal-skills
-        skill-graphs
-        agent-webui
-        agent-terminal-ui
-        geniusbot
-    end
-
-    subgraph Phase 5: Agents
-        servicenow-api
-        github-agent
-        other-agents[...]
-    end
-```
+Phase 1 (GitHub Pipelines) precedes Phase 2 (Epistemic Graph), which
+precedes Phase 3 (agent-utilities), which precedes Phase 4 (Core Tools &
+UIs — `universal-skills`, `skill-graphs`, `agent-webui`,
+`agent-terminal-ui`, `geniusbot`), which precedes Phase 5 (Agents —
+`servicenow-api`, `github-agent`, and the rest of the agent fleet).
+</div>
 
 ## Topological Ordering and Phase Rules
 

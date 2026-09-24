@@ -97,21 +97,13 @@ class CapabilityHandlerProtocol:
 
 The Wiring Engine is tightly coupled with the `CapabilityOrchestrator` (`agent_utilities/capabilities/orchestrator.py`). During agent initialization (in `factory.py`), the factory retrieves the aggregated capabilities from the orchestrator and injects them directly into the target graph structure, ensuring a zero-stub, fully wired knowledge graph experience.
 
-```mermaid
-graph TD
-    subgraph ORCH1.21 [Capability Wiring Engine]
-        A[ORCH-1.4: WiringEngine] -->|Discovers| B(ORCH-1.4: Registered Capabilities)
-        B -->|Implements| C(ORCH-1.4: CapabilityHandlerProtocol)
-        B -->|Implements| D(ORCH-1.4: AbstractCapability)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Capability Wiring Engine: discovery to injection</p>
 
-        C -->|Event Stream| E(ORCH-1.4: CapabilityOrchestrator)
-        D -->|Pydantic Hooks| F(AU-ORCH.execution.service-registry-initialization: Agent Factory)
-
-        E -->|Injects| G[ORCH-1.0: IntelligenceGraphEngine]
-        F -->|Injects| G
-    end
-
-    style A fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style E fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style F fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-```
+`WiringEngine` discovers registered capabilities, which implement either
+`CapabilityHandlerProtocol` or `AbstractCapability`.
+`CapabilityHandlerProtocol` feeds an event stream to
+`CapabilityOrchestrator`; `AbstractCapability` feeds Pydantic hooks to
+the Agent Factory. Both `CapabilityOrchestrator` and the Agent Factory
+inject into the same `IntelligenceGraphEngine`.
+</div>

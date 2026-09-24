@@ -13,24 +13,21 @@ After:   Query → KG resolves topology → Dynamic Graph Materialization → Ex
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    Q[ORCH-1.0: User Query] --> TC[ORCH-1.0: KGTeamComposer]
-    TC -->|"1. Search proven teams"| KG[(KG-2.0: Knowledge Graph)]
-    TC -->|"2. Select topology"| KG
-    TC -->|"3. Populate specialists"| KG
-    TC --> TEAM[AHE-3.3: TeamComposition]
-    TEAM --> TENG[ORCH-1.4: TopologyEngine]
-    TENG -->|"Materialize"| PLAN[ORCH-1.21: Execution Plan]
-    PLAN --> SEQ[ORCH-1.21: Sequential Steps]
-    PLAN --> PAR[ORCH-1.21: Parallel Groups]
-    PLAN --> MIX[ORCH-1.21: Mixed DAG]
-    SEQ & PAR & MIX --> EXEC[ORCH-1.2: Execute Specialists]
-    EXEC --> CP[ORCH-1.3: StateCheckpointer]
-    CP -->|"Checkpoint"| KG
-    EXEC -->|"Success?"| TC2[ORCH-1.2: Promote to TeamConfig]
-    TC2 --> KG
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Query to execution, all through the KG</p>
+
+A user query (ORCH-1.0) reaches `KGTeamComposer` (ORCH-1.0), which does
+three things against the Knowledge Graph (KG-2.0): searches for proven
+teams, selects a topology, and populates specialists. The result is a
+`TeamComposition` (AHE-3.3), handed to `TopologyEngine` (ORCH-1.4), which
+materializes an Execution Plan (ORCH-1.21) — shaped as sequential steps,
+parallel groups, or a mixed DAG. Whichever shape, execution converges on
+"Execute Specialists" (ORCH-1.2), which reports through `StateCheckpointer`
+(ORCH-1.3) back to the KG at every checkpoint. On success, the composer
+promotes the run to a reusable `TeamConfig` (ORCH-1.2), written back to the
+KG so the next matching query can reuse it — closing the loop the "before/
+after" comparison above describes.
+</div>
 
 ## Core Components
 
@@ -223,20 +220,21 @@ builds on that strength rather than fighting it:
   `send_elicitation`; the invoker forwards it to its in-process `elicitation_queue`/`ApprovalManager`
   with `drain_to_elicitation_queue` — a clean cross-process → in-process bridge with no UI change.
 
-```mermaid
-sequenceDiagram
-    participant I as Invoker
-    participant E as epistemic-graph (channels + Session anchor)
-    participant S as Spawned agent
-    I->>E: graph_orchestrate(execute_agent, context_ref, cred_ref, open_channel=True)
-    Note over E,S: spawn with budgeted context, scoped tools,<br/>resolved auth_token, channel_id on AgentDeps
-    I->>E: graph_message(send, "proceed", durable=True)
-    S->>E: graph_message(receive) → ["proceed"]
-    S->>E: send_elicitation("May I write to /etc?")
-    I->>E: graph_message(receive) → forwarded to elicitation_queue
-    S-->>I: {"output", "mermaid", "channel_id"}
-    Note over E: durable messages replayable via graph_message(history)
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Invoker / epistemic-graph / spawned-agent message sequence</p>
+
+The invoker calls `graph_orchestrate(execute_agent, context_ref, cred_ref,
+open_channel=True)` against epistemic-graph, which spawns the agent with a
+budgeted context, scoped tools, a resolved auth token, and a `channel_id` on
+`AgentDeps`. The invoker then sends `graph_message(send, "proceed",
+durable=True)`; the spawned agent receives it via `graph_message(receive)`.
+The spawned agent can call `send_elicitation("May I write to /etc?")`,
+which the invoker picks up through its own `graph_message(receive)` — this
+is exactly the forward into `elicitation_queue` described above. The
+spawned agent's eventual reply carries `output`, `mermaid`, and
+`channel_id`. Every one of these messages is durable and replayable later
+via `graph_message(history)`.
+</div>
 
 See [`docs/examples/graph-os-mcp-examples.md`](../examples/graph-os-mcp-examples.md) for `graph_context`
 and `graph_message` tool call examples.

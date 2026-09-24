@@ -1217,11 +1217,11 @@ def test_query_workflow_skill_documents_the_registered_query_argument():
 
 def test_resolver_ranks_against_the_generated_cpd_when_available():
     """CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking — a real tool with a generated CPD
-    entry (docs/capabilities-power.json) is ranked using its CPD one_line/
+    entry (contract/capabilities-power.json) is ranked using its CPD one_line/
     examples/does text, not just its bare docstring, and dispatch reports the
     CPD as the capability_source."""
     cpds = intent_tools._load_cpds_required()
-    assert "graph_query" in cpds, "docs/capabilities-power.json must be checked in"
+    assert "graph_query" in cpds, "contract/capabilities-power.json must be checked in"
 
     candidates = intent_tools.resolve_intent(
         "ask", "execute a read-only cypher query", top_k=8

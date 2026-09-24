@@ -6,18 +6,15 @@ lease table, or task record owns execution state.
 
 ## Authority model
 
-```mermaid
-flowchart LR
-    REQUEST["GraphOS dispatch"] --> SUBMIT["Submit deterministic WorkItem"]
-    SUBMIT --> CLAIM["Native claim<br/>lease epoch + fencing token"]
-    CLAIM --> RUN["Execute bounded step"]
-    RUN --> HEARTBEAT["Renew before side effects"]
-    HEARTBEAT --> COMMIT["Native idempotent commit"]
-    COMMIT --> RESULT["Result/provenance references"]
-    RESULT --> EG["epistemic-graph authority"]
-    CLAIM --> EG
-    SUBMIT --> EG
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Submit, claim, run, commit — every step recorded in the authority</p>
+
+A GraphOS dispatch submits a deterministic `WorkItem`, which is natively
+claimed (lease epoch + fencing token), then executes a bounded step. Before
+any side effect, the lease is renewed via heartbeat, then committed
+natively and idempotently, producing result/provenance references. Submit,
+claim, and the final result all write into the epistemic-graph authority.
+</div>
 
 The authoritative lifecycle is:
 
@@ -122,17 +119,16 @@ A failed activation or confirmation remains fail-closed: Tasks are not advertise
 and `graph_jobs` is not called. Authorization, tenant parameters, and trace headers
 are forwarded unchanged through every session step.
 
-```mermaid
-sequenceDiagram
-    participant C as MCP v2 client
-    participant G as v2 gateway
-    participant O as GraphOS legacy MCP
-    C->>G: graph_jobs dispatch with Tasks
-    G->>O: session 1: activate → list catalog → unload → DELETE
-    G->>O: session 2: activate → dispatch (auto-unload) → unload → DELETE
-    G->>O: session 3: activate → status poll (auto-unload) → unload → DELETE
-    G-->>C: durable task handle
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The v2 gateway spends three short-lived legacy sessions per dispatch</p>
+
+An MCP v2 client sends `graph_jobs` dispatch with tasks to the v2 gateway,
+which talks to the GraphOS legacy MCP over three separate, short-lived
+sessions, each fully torn down (activate → ... → unload → DELETE): session
+1 lists the catalog, session 2 dispatches with auto-unload, session 3 polls
+status with auto-unload. The gateway returns one durable task handle to
+the client, hiding all three legacy sessions behind it.
+</div>
 
 ## Operational checks
 

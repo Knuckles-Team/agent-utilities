@@ -80,19 +80,17 @@ through the standard orchestration graph.
 
 ## Flow
 
-```mermaid
-flowchart TD
-    O[Calling orchestrator] --> G[graph_orchestrate]
-    G --> R[Resolve AgentTemplate]
-    R --> P[Resolve prompt reference]
-    R --> B[Resolve logical toolset IDs]
-    B --> I[Workload identity + TLS profile]
-    I --> S[Validate live tool schemas]
-    P --> C[Compile governed execution context]
-    S --> C
-    C --> E[Execute grounded delegate]
-    E --> T[Privacy-safe RunTrace and ToolCall references]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Dispatch: template to grounded, traced execution</p>
+
+The calling orchestrator's `graph_orchestrate` resolves an `AgentTemplate`,
+which in turn resolves both a prompt reference and its logical toolset IDs.
+The toolset IDs resolve to a workload identity + TLS profile, which
+validates live tool schemas. The prompt reference and the validated schemas
+both feed compiling a governed execution context, which drives the grounded
+delegate's execution — recorded as privacy-safe `RunTrace` and `ToolCall`
+references.
+</div>
 
 ## Dispatch
 

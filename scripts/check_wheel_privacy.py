@@ -90,7 +90,7 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
         # This project's own pervasive, generic domain word (already in
         # _GENERIC_IDENTIFIERS above) -- the docs' own local-Postgres example
         # URI (postgresql://agent:agent@localhost:5432/agent_kg,
-        # README.md / docs/architecture/graph_backends_architecture.md) uses
+        # README.md / epistemic-graph docs/architecture/graph-backends.md) uses
         # it as an obviously-fake same-value user:password pair, never a real
         # secret.
         "agent",

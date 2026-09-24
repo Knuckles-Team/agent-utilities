@@ -33,29 +33,23 @@ write occurs.
 
 ## Flow
 
-```mermaid
-flowchart TD
-    subgraph Outbound
-        Caller([MCP caller]) -->|go__graph_reach| Reach[graph_reach tool]
-        Agent([pydantic-ai agent]) -->|reach_user tool| SVC
-        Loop([goal-loop / elicitation]) -->|reach_user_and_wait| SVC
-        Reach --> SVC[MessagingService]
-        SVC -->|ActionPolicy gate| Gate{message.send}
-        Gate -->|allow| Backend[(Telegram backend)]
-        Gate -->|deny / unavailable| Refuse[Failed SendResult]
-        SVC -->|mirror| KG[(KG memory)]
-        Backend --> User((User on Telegram))
-    end
-    subgraph Inbound
-        User -->|reply| Backend
-        Backend -->|listen| Router[InboundRouter]
-        Router -->|deliver_reply?| SVC
-        Router -->|else, per-channel session| Universal[Orchestrator.execute_agent → run_agent]
-        Universal -->|mementos for session| Mem[(core memory)]
-        Universal --> Backend
-        Router -.->|after reply, background| Pref[(UserChannelPreference + episodic + session memento)]
-    end
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Outbound: three callers, one policy gate. Inbound: one router, two paths.</p>
+
+**Outbound.** An MCP caller (`go__graph_reach`), a pydantic-ai agent
+(`reach_user` tool), and a goal-loop/elicitation caller
+(`reach_user_and_wait`) all reach `MessagingService`, which gates every send
+through `ActionPolicy` (`message.send`): allowed sends reach the Telegram
+backend and the user; denied or unavailable sends become a Failed
+`SendResult`. Every send also mirrors into KG memory. **Inbound.** A user
+reply reaches the Telegram backend, which the `InboundRouter` listens on.
+The router either delivers the reply straight back to `MessagingService`, or
+— for any other per-channel session — routes it to
+`Orchestrator.execute_agent → run_agent`, which reads mementos for the
+session from core memory and replies through the backend; in the
+background, after the reply, the router also updates
+`UserChannelPreference` plus episodic and session mementos.
+</div>
 
 `graph-os` (the GraphOS MCP entrypoint) keeps configured backends available for governed
 outbound sends, but a token alone never starts the `InboundRouter`. Embedded intake is

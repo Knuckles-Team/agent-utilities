@@ -20,15 +20,15 @@ requirements from the KG at runtime.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    Q["ORCH-1.0: User Query"] -->|"router_step"| SEARCH["KG-2.3: KG: Hybrid Search"]
-    SEARCH -->|"AgentTemplate nodes"| TOPO["AU-ORCH.execution.service-registry-initialization: Topological Sort"]
-    TOPO -->|"DEPENDS_ON edges"| PROMPT["AHE-3.2: Prompt Resolution"]
-    PROMPT -->|"USES_PROMPT edges"| TOOL["AU-ORCH.execution.service-registry-initialization: Tool Binding"]
-    TOOL -->|"REQUIRES_TOOLSET edges"| BUILD["KG-2.0: Graph Build"]
-    BUILD -->|"KGGraphResult"| DISPATCH["ORCH-1.0: ORCH: Dispatcher"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Query to dispatcher, via hybrid search and graph build</p>
+
+A user query passes through `router_step` into KG hybrid search, which
+returns `AgentTemplate` nodes for topological sort (over `DEPENDS_ON`
+edges), then prompt resolution (over `USES_PROMPT` edges), then tool
+binding (over `REQUIRES_TOOLSET` edges), then a graph build producing a
+`KGGraphResult`, which reaches the ORCH dispatcher.
+</div>
 
 ## Key Components
 

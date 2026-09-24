@@ -7,23 +7,17 @@ alternate authorities.
 
 ## Request and mutation authority
 
-```mermaid
-flowchart LR
-    Client["Agent, UI, or service"]
-    Identity[Identity middleware]
-    Session[Verified GraphSession]
-    Query[graph_query / API graph query]
-    Write[graph_write / native ChangeEnvelope]
-    Facade[KnowledgeGraph policy facade]
-    Engine[(epistemic-graph authority)]
-    Mirror[(Optional mirrors)]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Coordination path</p>
 
-    Client -->|bearer, workload identity, or stdio process identity| Identity
-    Identity --> Session
-    Session --> Query --> Facade --> Engine
-    Session --> Write --> Facade --> Engine
-    Engine -. governed projection .-> Mirror
-```
+An agent, UI, or service authenticates (bearer, workload identity, or
+stdio process identity) through identity middleware, which mints a
+verified `GraphSession`. That session drives both `graph_query`/API graph
+query and `graph_write`/native `ChangeEnvelope`, each routed through the
+`KnowledgeGraph` policy facade to the epistemic-graph authority, which
+optionally emits a governed projection to mirrors.
+
+</div>
 
 The identity layer validates the caller and mints the immutable
 `GraphSession`. Tenant, graph, scopes, audience, policy revision, placement
@@ -91,6 +85,6 @@ boundary; there is no anonymous served profile.
 For implementation details, see:
 
 - [Graph authority convergence](architecture/graph-authority-convergence.md)
-- [Identity inheritance](architecture/identity-inheritance.md)
-- [Connectors and ingestion](architecture/kg_connectors_and_ingestion.md)
-- [Privacy-safe external ingestion](architecture/privacy-safe-external-ingestion.md)
+- [Identity inheritance](https://knuckles-team.github.io/graph-os/architecture/identity-inheritance/)
+- [Connectors and ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/connectors-and-ingestion/)
+- [Privacy-safe external ingestion](https://knuckles-team.github.io/agent-connector-sdk/architecture/privacy-safe-ingestion/)

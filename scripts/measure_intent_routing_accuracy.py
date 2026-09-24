@@ -4,7 +4,7 @@
 CONCEPT:AU-ECO.mcp.intent-surface-selection-accuracy — Seam 8 program-design §4 phase 4
 ("A/B measurement — selection accuracy... condensed vs. intent"). Binds the
 REAL resolver (:func:`agent_utilities.mcp.tools.intent_tools.resolve_intent`,
-CPD-backed when ``docs/capabilities-power.json`` is present) at this
+CPD-backed when ``contract/capabilities-power.json`` is present) at this
 composition root, then passes it to the evaluator against a small,
 hand-labelled corpus of natural-language phrasings
 (:mod:`agent_utilities.knowledge_graph.retrieval.intent_selection_accuracy`)

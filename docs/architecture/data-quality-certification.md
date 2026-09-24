@@ -6,22 +6,18 @@ is not an agent tool, an ingest gate, or a second graph authority.  The native
 engine's SHACL/ICV result remains authoritative; a certification result is an
 optional observation that cannot alter an already-committed fact.
 
-```mermaid
-flowchart LR
-    S[Authorized bounded Arrow sample] --> G[Sample policy + size gate]
-    G --> A{Selected optional adapter}
-    A -->|lazy import| GE[Great Expectations]
-    A -->|lazy import| PA[Pandera]
-    GE --> O[Bounded aggregate observation]
-    PA --> O
-    O --> P{Report policy equals sample policy?}
-    P -->|no| D[Failed / no publication]
-    P -->|yes| H[Access-controlled Data Docs reference]
-    O --> Q[Ed25519 signed result summary]
-    H --> R[Operator evidence only]
-    Q --> R
-    R -. never mutates .-> KG[(Engine SHACL/ICV authority)]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Bounded sample, signed summary, never a mutation</p>
+
+An authorized bounded Arrow sample passes a sample-policy + size gate, then
+one of two lazily-imported optional adapters (Great Expectations or
+Pandera) produces a bounded aggregate observation. That observation is
+checked for report-policy/sample-policy equality: a mismatch fails with no
+publication; a match produces an access-controlled Data Docs reference. The
+observation also produces an Ed25519-signed result summary. Both the Data
+Docs reference and the signed summary become operator evidence only — this
+evidence never mutates the engine's SHACL/ICV authority.
+</div>
 
 ## Contract
 

@@ -27,29 +27,20 @@ To prevent this concurrency hazard, the lock file is **never unlinked** from dis
 The background synchronization watcher (`agent_utilities/sdd/watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration; if acquired, it releases it immediately and runs the scan safely.
 
 ### Process Synchronization Flow
-```mermaid
-sequenceDiagram
-    autonumber
-    actor CLI as Bulk Ingester
-    participant lock as POSIX flock (.lock)
-    participant Watcher as Background Watcher
-    participant DB as LadybugDB Storage
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A non-blocking flock lets the watcher skip instead of block</p>
 
-    Note over CLI, DB: Scenario 1: Ingestion Active (Non-Blocking Skip)
-    CLI->>lock: Acquire flock (Exclusive)
-    activate lock
-    Watcher->>lock: Try non-blocking acquisition (timeout=0)
-    lock-->>Watcher: Lock already held (Timeout Exception)
-    Watcher->>Watcher: Gracefully skip iteration (No Block)
+**Scenario 1 — ingestion active (non-blocking skip).** The bulk ingester
+acquires the POSIX flock (`.lock`) exclusively. The background watcher
+tries a non-blocking acquisition (`timeout=0`), gets a timeout exception
+because the lock is already held, and gracefully skips the iteration —
+it never blocks.
 
-    Note over CLI, DB: Scenario 2: Ingestion Complete (Scan Execution)
-    CLI->>lock: Release flock (fd closed, file remains)
-    deactivate lock
-    Watcher->>lock: Try non-blocking acquisition (timeout=0)
-    lock-->>Watcher: Lock acquired successfully
-    Watcher->>lock: Release lock immediately
-    Watcher->>DB: Scan & update repository metadata
-```
+**Scenario 2 — ingestion complete (scan execution).** The bulk ingester
+releases the flock (fd closed, file remains). The watcher's non-blocking
+acquisition now succeeds; it releases the lock immediately and proceeds
+to scan and update repository metadata in LadybugDB.
+</div>
 
 ---
 
@@ -63,43 +54,32 @@ If the python interpreter performs garbage collection out-of-order, or if Python
 ### Explicit Cleanup & Reference Ordering (After)
 We enforce a strict connection cleanup sequence in `LadybugBackend.close()` to ensure child handles are entirely freed and garbage-collected before unreferencing the parent database handles.
 
-```mermaid
-graph TD
-    subgraph "flaw | Out-of-Order Destruction (Segfault)"
-        A1["Unreference DB & Connections"] --> B1["gc.collect() called randomly"]
-        B1 --> C1["DB handle destroyed first"]
-        C1 --> D1["Active Connection handle unreferenced"]
-        D1 --> E1["CRASH: C++ Segfault / Double Free"]
-        style E1 fill:#f96,stroke:#333,stroke-width:2px
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Flaw vs. fix: destruction order determines segfault or safe termination</p>
 
-    subgraph "correct | Strict Cleanup Sequence (Stable)"
-        A2["Call close()"] --> B2["1. Close & unreference Connection (self.conn = None)"]
-        B2 --> C2["2. Force gc.collect() to clear Connection handles from C++ memory"]
-        C2 --> D2["3. Unreference Database (self.db = None)"]
-        D2 --> E2["4. Force gc.collect() to clear Database handle from C++ memory"]
-        E2 --> F2["5. Safe termination without dangling pointers"]
-        style F2 fill:#6c6,stroke:#333,stroke-width:2px
-    end
-```
+**Flaw — out-of-order destruction (segfault).** Unreferencing the DB and
+Connections together, then calling `gc.collect()` at a random point, can
+destroy the DB handle first while an active Connection handle is still
+unreferenced afterward — crashing with a C++ segfault or double free.
+
+**Correct — strict cleanup sequence (stable).** `close()` runs five steps
+in order: (1) close and unreference the Connection
+(`self.conn = None`); (2) force `gc.collect()` to clear Connection
+handles from C++ memory; (3) unreference the Database
+(`self.db = None`); (4) force `gc.collect()` again to clear the Database
+handle from C++ memory; (5) safe termination without dangling pointers.
+</div>
 
 ### Destruction & Cleanup Sequence Details
-```mermaid
-sequenceDiagram
-    autonumber
-    participant App as LadybugBackend
-    participant Conn as ladybug.Connection (C++)
-    participant DB as ladybug.Database (C++)
-    participant GC as Python Garbage Collector
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Destruction and cleanup sequence, in detail</p>
 
-    App->>Conn: Close connection explicitly
-    App->>App: Set self.conn = None
-    App->>GC: Invoke gc.collect()
-    Note over Conn, GC: Connection handle fully destroyed in C++ layer
-    App->>App: Set self.db = None
-    App->>GC: Invoke gc.collect()
-    Note over DB, GC: Database handle fully destroyed in C++ layer
-```
+`LadybugBackend` closes the `ladybug.Connection` (C++) explicitly, sets
+`self.conn = None`, and invokes `gc.collect()` — fully destroying the
+Connection handle in the C++ layer. Only then does it set
+`self.db = None` and invoke `gc.collect()` again — fully destroying the
+`ladybug.Database` (C++) handle in the C++ layer.
+</div>
 
 ---
 
@@ -114,12 +94,12 @@ Bulk ingestion handles 65 open-source repositories categorized by domain slugs. 
 | `memory-rag-kg` | `memory-rag-kg/` | `ladybugdb`, `chromadb`, `milvus` |
 | `quant-trading` | `quant-trading/` | `crypto-trader`, `qlib`, `freqtrade` |
 
-```mermaid
-graph LR
-    Path["Repository Path Input"] --> Match{"Nested under Domain?"}
-    Match -->|Yes| ExtractNested["Extract slug, repo, and nested subfolders"]
-    Match -->|No| DirectRepo["Fallback classification by repository name"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Nested domain match, or fallback by name — both assign to one hierarchy</p>
 
-    ExtractNested --> Assign["Assign to Active Concept Scheme & SKOS Concept Hierarchy"]
-    DirectRepo --> Assign
-```
+A repository path input is checked for whether it is nested under a
+domain. If yes, the scanner extracts the slug, repo, and nested
+subfolders; if no, it falls back to classification by repository name.
+Either path assigns the repository to the active Concept Scheme and SKOS
+concept hierarchy.
+</div>

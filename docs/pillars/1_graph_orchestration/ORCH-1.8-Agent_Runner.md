@@ -20,23 +20,17 @@ dynamically binding MCP toolsets, and recording execution provenance.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    CMD["ORCH-1.21: graph_orchestrate: execute_agent"] -->|"agent_name"| RESOLVE["KG-2.0: KG Resolution"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Agent name to traced run, via KG resolution and config build</p>
 
-    subgraph KG ["Knowledge Graph Queries"]
-        RESOLVE --> SRV["KG-2.0: Match Server nodes"]
-        RESOLVE --> RES["KG-2.0: Match CallableResource nodes"]
-        RESOLVE --> SEM["KG-2.3: Hybrid semantic search"]
-    end
-
-    SRV -->|"tools, URL, command"| CONFIG["ORCH-1.21: Config Builder"]
-    RES -->|"type, capabilities"| CONFIG
-    SEM -->|"best match"| CONFIG
-    CONFIG -->|"tag_prompts + mcp_toolsets"| GRAPH["AU-ORCH.execution.service-registry-initialization: create_graph_agent()"]
-    GRAPH -->|"materialized graph"| RUN["ORCH-1.21: run_graph() → LM Studio"]
-    RUN -->|"GraphResponse"| TRACE["AU-OS.governance.wasm-micro-agent-sandbox: KG: RunTrace provenance"]
-```
+`graph_orchestrate execute_agent` resolves `agent_name` against the
+Knowledge Graph three ways: matching Server nodes (tools, URL, command),
+matching CallableResource nodes (type, capabilities), and hybrid semantic
+search (best match). All three feed a config builder, which produces
+`tag_prompts` + `mcp_toolsets` for `create_graph_agent()`. The
+materialized graph runs via `run_graph()` (LM Studio), producing a
+`GraphResponse` that feeds `RunTrace` provenance in the KG.
+</div>
 
 ## Execution Lifecycle
 

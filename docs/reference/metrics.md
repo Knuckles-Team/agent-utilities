@@ -20,7 +20,7 @@ registrations and docstrings.
 - Metrics live in the default per-process registry. With `GATEWAY_WORKERS>1`
   (pre-forked workers on one listen socket) a scrape samples ONE worker —
   aggregate across replicas in Prometheus or run one worker per container
-  (see [../architecture/gateway_scaling.md](../architecture/gateway_scaling.md)).
+  (see [graph-os architecture/gateway-scaling.md](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/)).
 - Request-duration histogram buckets: 5ms to 60s
   (`0.005 ... 30, 60`).
 - Worked scrape/dashboard setup: [../examples/observability.md](../examples/observability.md).
@@ -190,14 +190,14 @@ documentation. What this repo wires and documents:
 
 - Each engine process takes a `--metrics-addr` flag and serves its own
   `/metrics` listener — one scrape target per shard
-  ([../architecture/engine_sharding.md](../architecture/engine_sharding.md)).
+  ([graph-os architecture/engine-sharding.md](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/)).
 - The runnable 3-shard example
   ([`docker/engine-shards.compose.yml`](https://github.com/Knuckles-Team/agent-utilities/blob/main/docker/engine-shards.compose.yml))
   publishes RPC on `9101`-`9103` and the Prometheus listeners on
   `9111`-`9113` (`--metrics-addr 0.0.0.0:911N`).
 - The Python-tier `agent_utilities_*` prefix deliberately mirrors the engine's
   naming style so dashboards read coherently
-  ([../architecture/gateway_scaling.md](../architecture/gateway_scaling.md)).
+  ([graph-os architecture/gateway-scaling.md](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/)).
 
 ## Series count
 

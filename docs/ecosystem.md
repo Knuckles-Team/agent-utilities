@@ -85,24 +85,26 @@ python scripts/check_provider_fleet_contract.py
 
 ## How a request flows
 
-```mermaid
-flowchart LR
-    U[User / external agent] -->|MCP or REST + JWT| GW["graph-os MCP / REST gateway<br/>(GATEWAY_WORKERS, /metrics)"]
-    GW --> ENG[("epistemic-graph cell<br/>catalog-routed MultiRaft groups")]
-    GW --> ORCH["Orchestrator<br/>router → planner → swarm"]
-    GW -->|enqueue turns| Q[("agent_turns / kg_tasks queues<br/>Kafka / Postgres / SQLite")]
-    Q --> DW[agent-dispatch-worker fleet]
-    Q --> IW[kg-ingest-worker fleet]
-    DW --> ENG
-    IW --> ENG
-    ORCH -->|spawns| AG[Agents / teams]
-    AG -->|tools via GraphOS| FLEET[*-mcp connector fleet]
-    FLEET --> EXT[("ServiceNow / ERPNext /<br/>GitLab / Kafka / …")]
-    GW --> SUP["Fleet supervisor + autonomy plane<br/>/api/fleet/* → ActionPolicy"]
-    SUP --> UI[agent-webui / TUI / geniusbot]
-    GW -.traces.-> LF[Langfuse]
-    GW -.metrics.-> PROM[Prometheus]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">How a request flows through the gateway</p>
+
+A user or external agent calls the graph-os MCP/REST gateway
+(`GATEWAY_WORKERS`, `/metrics`) over MCP or REST + JWT. The gateway
+reaches the epistemic-graph cell (catalog-routed MultiRaft groups)
+directly, drives the Orchestrator (router -> planner -> swarm), and
+enqueues turns onto the `agent_turns`/`kg_tasks` queues (Kafka/Postgres/
+SQLite) — drained by the agent-dispatch-worker fleet and the
+kg-ingest-worker fleet, both of which reach the epistemic-graph cell in
+turn.
+
+The Orchestrator spawns agents/teams, which call tools via GraphOS
+against the `*-mcp` connector fleet, which reaches external systems
+(ServiceNow, ERPNext, GitLab, Kafka, …).
+
+The gateway also drives the fleet supervisor + autonomy plane
+(`/api/fleet/*` -> `ActionPolicy`), which feeds agent-webui/TUI/geniusbot,
+and separately emits traces to Langfuse and metrics to Prometheus.
+</div>
 
 1. A user or external agent calls **graph-os** (MCP) or the **REST gateway**;
    requests are scoped to a server-minted `ActorContext` (JWT identity,

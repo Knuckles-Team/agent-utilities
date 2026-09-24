@@ -186,36 +186,12 @@ Key modules: `gateway/__init__.py`, `gateway/models.py`, `gateway/registry.py`, 
 
 ## Concept Lifecycle
 
-```
-New Feature Request
-       │
-       ▼
-  ┌────────────────────┐
-  │ KG Analogy Search  │  ← Does a similar concept already exist?
-  │ (similarity ≥ 0.7) │
-  └────────┬───────────┘
-           │
-    ┌──────┴──────┐
-    │             │
-  EXTEND      PROPOSE
-    │             │
-    ▼             ▼
-  Augment    NewConceptProposal
-  existing   (requires C4 diagram,
-  concept     pillar assignment,
-              pipeline phase)
-    │             │
-    └──────┬──────┘
-           │
-           ▼
-  .specify/design/<feature>/design.md
-           │
-           ▼
-  SDDManager.validate_design()
-           │
-           ▼
-  .specify/specs/<feature>/spec.md
-```
+A new feature request first runs a KG analogy search (does a similar
+concept already exist, similarity >= 0.7). A match extends the existing
+concept (augment); no match proposes a `NewConceptProposal` (requires a
+C4 diagram, pillar assignment, pipeline phase). Either path converges on
+`.specify/design/<feature>/design.md`, then
+`SDDManager.validate_design()`, then `.specify/specs/<feature>/spec.md`.
 
 ---
 

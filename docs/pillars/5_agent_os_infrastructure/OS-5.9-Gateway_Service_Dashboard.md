@@ -23,49 +23,41 @@ direct-import widget, and why).
 
 ## Architecture
 
-```mermaid
-C4Component
-    title GW — Gateway Service Dashboard Components
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Gateway Service Dashboard: aggregator as the hub</p>
 
-    Container_Boundary(gw, "Gateway (agent_utilities.gateway)") {
-        Component(models, "Models", "Python + Pydantic", "WidgetData, ServiceConfig, DashboardLayout, WidgetField")
-        Component(registry, "Widget Registry", "Python", "Lazy-loading discovery of 70 widget types")
-        Component(config, "Config Manager", "Python + YAML", "XDG services.yaml + MCP auto-discovery")
-        Component(aggregator, "Aggregator", "Python + asyncio", "Parallel ThreadPoolExecutor data fetching")
-        Component(api, "Dashboard Router", "FastAPI", "REST endpoints: /layout, /data, /widgets, /health")
-        Component(ws, "WebSocket Manager", "FastAPI", "Real-time streaming: /ws/dashboard")
-        Component(widgets, "Widget Modules", "Python", "70 service-specific widget implementations")
-    }
-
-    Rel(api, aggregator, "Delegates data fetching")
-    Rel(ws, aggregator, "Streams periodic updates")
-    Rel(aggregator, registry, "Resolves widget by type")
-    Rel(aggregator, config, "Loads service layout")
-    Rel(registry, widgets, "Lazy-imports widget modules")
-    Rel(config, models, "Produces DashboardLayout")
-```
+Inside the Gateway (`agent_utilities.gateway`), the Dashboard Router
+(FastAPI: `/layout`, `/data`, `/widgets`, `/health`) and WebSocket Manager
+(FastAPI: `/ws/dashboard`, real-time streaming) both delegate to the
+Aggregator (asyncio, parallel `ThreadPoolExecutor` fetching). The
+Aggregator resolves widgets by type through the Widget Registry
+(lazy-loading discovery of 70 widget types) and loads service layout
+through the Config Manager (YAML: XDG `services.yaml` + MCP
+auto-discovery). The Widget Registry lazy-imports the 70 service-specific
+Widget Modules. The Config Manager produces `DashboardLayout` from the
+Models (Pydantic: `WidgetData`, `ServiceConfig`, `DashboardLayout`,
+`WidgetField`).
+</div>
 
 ## Package Structure
 
-```
-agent_utilities/gateway/
-├── __init__.py          # Public API re-exports
-├── models.py            # Pydantic models: WidgetData, ServiceConfig, DashboardLayout
-├── registry.py          # Widget Registry singleton with lazy loading
-├── config.py            # ConfigManager: YAML load/save + MCP auto-discovery
-├── aggregator.py        # Async parallel data fetcher (ThreadPoolExecutor)
-├── api.py               # FastAPI router (mountable at /api/dashboard)
-├── ws.py                # WebSocket manager (/ws/dashboard)
-└── widgets/
-    ├── __init__.py
-    ├── base.py           # BaseWidget ABC
-    ├── portainer.py      # Portainer widget
-    ├── uptime_kuma.py    # Uptime Kuma widget
-    ├── technitium.py     # Technitium DNS widget
-    ├── gitlab.py         # GitLab widget
-    ├── ...               # 66 more service widgets
-    └── zulip.py          # Zulip widget
-```
+- `agent_utilities/gateway/`
+    - `__init__.py` — public API re-exports
+    - `models.py` — Pydantic models: `WidgetData`, `ServiceConfig`, `DashboardLayout`
+    - `registry.py` — Widget Registry singleton with lazy loading
+    - `config.py` — `ConfigManager`: YAML load/save + MCP auto-discovery
+    - `aggregator.py` — async parallel data fetcher (`ThreadPoolExecutor`)
+    - `api.py` — FastAPI router (mountable at `/api/dashboard`)
+    - `ws.py` — WebSocket manager (`/ws/dashboard`)
+    - `widgets/`
+        - `__init__.py`
+        - `base.py` — `BaseWidget` ABC
+        - `portainer.py` — Portainer widget
+        - `uptime_kuma.py` — Uptime Kuma widget
+        - `technitium.py` — Technitium DNS widget
+        - `gitlab.py` — GitLab widget
+        - `...` — 66 more service widgets
+        - `zulip.py` — Zulip widget
 
 ## Widget Registry
 

@@ -30,7 +30,7 @@ automatically into agent context:
   (query the KG before grepping, Wire-First, fail-closed, no-legacy, branching &
   isolation) are mandatory reading before your first edit.
 - **Just need the facts fast?** [Start Here](start-here.md) is the same
-  five-minute orientation a human gets, and [`docs/status.md`](status.md) is the
+  five-minute orientation a human gets, and [`status/status.md`](https://github.com/Knuckles-Team/agent-utilities/blob/main/status/status.md) is the
   generated concept/capability registry — the honest, drift-free source for "what
   actually works right now."
 

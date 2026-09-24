@@ -16,18 +16,18 @@ that later runs read back as each specialist's **runtime standing**.
 
 ## The loop (write → read)
 
-```mermaid
-flowchart LR
-    subgraph Wave["ParallelEngine.execute() — after a multi-agent wave"]
-        O["specialist outputs<br/>{agent_id: text}"] --> W["context-preserving worker phase"]
-        W --> CP["collect_proposals<br/>(relevance·track-record·confidence)"]
-        CP --> SW["select_winners<br/>(top-K)"]
-        SW --> BC["broadcast_to_kg<br/>(ProposalNode + PROPOSED_FOR)"]
-        SW --> RM["_record_winners_to_memory<br/>(EvolvingMemoryStore INSIGHT)"]
-    end
-    BC --> KG[("Knowledge Graph")]
-    KG --> GAS["get_attention_score(specialist)<br/>← executor routing / confidence"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Broadcast + reinforcement, one worker phase</p>
+
+After a multi-agent wave, `ParallelEngine.execute()` collects specialist
+outputs (`{agent_id: text}`) into a context-preserving worker phase that
+runs `collect_proposals` (scored by relevance, track record, confidence),
+then `select_winners` (top-K). The winners both broadcast to the Knowledge
+Graph (`broadcast_to_kg`, a `ProposalNode` linked `PROPOSED_FOR`) and record
+to memory (`_record_winners_to_memory`, an `EvolvingMemoryStore` INSIGHT).
+The KG write is what later `get_attention_score(specialist)` calls read
+back, feeding executor routing and confidence.
+</div>
 
 * **Write side** — `ParallelEngine._broadcast_workspace_attention(all_results, manifest)`
   runs after each wave (≥2 successful outputs, shared engine; non-fatal). It builds

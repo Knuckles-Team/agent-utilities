@@ -52,16 +52,18 @@ typed field, because `"none"` is outside pydantic-ai's effort enum but is the
 value this vLLM build honours to suppress the thinking block. `effort is None`
 returns no override, so the model keeps its own native default.
 
-```mermaid
-flowchart TD
-    CALL["create_model(reasoning_effort=...)"] --> D{"value?"}
-    D -->|none default| OFF["extra_body reasoning_effort=none<br/>thinking OFF — content-bearing, fast"]
-    D -->|low / medium / high| ON["extra_body reasoning_effort=level<br/>opt-in thinking for hard tasks"]
-    D -->|None| NATIVE["no override — model's native default"]
-    OFF --> SET["settings → every OpenAI-compatible model ctor"]
-    ON --> SET
-    NATIVE --> SET
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Reasoning-effort routing</p>
+
+`create_model(reasoning_effort=...)` branches on its value: `"none"`
+(default) sets `extra_body reasoning_effort=none` (thinking off,
+content-bearing, fast); `"low"`/`"medium"`/`"high"` sets
+`extra_body reasoning_effort=<level>` (opt-in thinking for hard tasks);
+`None` applies no override (the model's native default). All three paths
+converge on the same settings passed to every OpenAI-compatible model
+constructor.
+
+</div>
 
 > No dedicated concept ID — the behaviour is documented in the `create_model`
 > docstring and rides the per-call tracing chokepoint (CONCEPT:AU-OS.config.model-factory-passthrough).

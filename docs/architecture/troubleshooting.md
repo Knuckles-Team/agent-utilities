@@ -102,15 +102,22 @@ one core, per the platform contract.
 The provider always emits the whole ladder; the lead layer is biased by the symptom. Each
 layer maps a question to the **exact existing tool** (no new logging):
 
-```mermaid
-flowchart TD
-    S["symptom: failed run / 502 / crashloop / slow"] --> D["graph_explain action=explain<br/>target=troubleshoot:run|service (AU-KG.retrieval.kg-4)"]
-    D --> L1["1 · APP-TRACE<br/>:RunTrace / :ToolCall (KG-2.296)<br/>graph_query · graph_observe trace_rootcause"]
-    L1 --> L2["2 · CONTAINER<br/>cm__container_operations action=logs<br/>exit 137=OOM · 143=SIGTERM · 0+restart=healthcheck"]
-    L2 --> L3["3 · SYSTEM (host OS)<br/>sm__query_system_logs · sm__list_services<br/>sm__get_process_details · sm__storage_health"]
-    L3 --> L4["4 · HOST REACHABILITY (decisive split)<br/>cm__list_hosts / tm__remote / ssh<br/>no route = HOST down · connects+stopped = SERVICE down"]
-    L4 --> L5["5 · CROSS-CUTTING<br/>lgtm__grafana / lgtm__alertmanager<br/>/metrics: ENGINE_BREAKER_STATE, KG_INGEST_QUEUE_DEPTH…"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five layers, escalating from app trace to fleet-wide pattern</p>
+
+A symptom (failed run, 502, crashloop, slow) enters through
+`graph_explain action=explain target=troubleshoot:run|service`, then walks
+five layers in order: **1 · App trace** — `:RunTrace`/`:ToolCall`
+(`graph_query`, `graph_observe trace_rootcause`); **2 · Container** —
+`cm__container_operations action=logs` (exit 137=OOM, 143=SIGTERM, 0 with
+restart=healthcheck); **3 · System (host OS)** — `sm__query_system_logs`,
+`sm__list_services`, `sm__get_process_details`, `sm__storage_health`;
+**4 · Host reachability (the decisive split)** — `cm__list_hosts`/
+`tm__remote`/`ssh`: no route means the HOST is down, connects-but-stopped
+means the SERVICE is down; **5 · Cross-cutting** — `lgtm__grafana`/
+`lgtm__alertmanager` plus `/metrics` (`ENGINE_BREAKER_STATE`,
+`KG_INGEST_QUEUE_DEPTH`, …) to check for a fleet-wide pattern.
+</div>
 
 | Layer | Question | Healthy signal | Unhealthy signal & next move |
 |---|---|---|---|

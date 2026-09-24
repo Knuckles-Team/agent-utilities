@@ -18,128 +18,88 @@ This document serves as the master blueprint for the `agent-utilities` OS Kernel
 
 ## 2. Master Wiring Diagram
 
-```mermaid
-graph TD
-    %% Pillar Boundaries
-    subgraph ORCH ["Pillar 1: Orchestration Engine (ORCH)"]
-        direction TB
-        ORCH10("ORCH-1.0: Intelligence Graph Core")
-        ORCH11("ORCH-1.1: HTN Planning Pipeline")
-        ORCH12("ORCH-1.2: Specialist Routing & Discovery")
-        ORCH13("ORCH-1.3: Execution Safety & State")
-        ORCH14("ORCH-1.4: Capability Wiring Engine")
-        ORCH15("ORCH-1.0: Agent Orchestrator 🔬")
-        ORCH16("AU-ORCH.planning.legal-automation-roadmap: DSTDD Pipeline")
-        ORCH17("AU-ORCH.planning.spec-driven-pipeline: Prediction Linkage Layer 🔬")
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Pillar 1 — Orchestration Engine (ORCH)</p>
 
-        ORCH10 --> ORCH11
-        ORCH11 --> ORCH15
-        ORCH15 --> ORCH14
-        ORCH14 --> ORCH12
-        ORCH13 --> ORCH15
-        ORCH16 --> ORCH10
-    end
+Intelligence Graph Core (ORCH-1.0) feeds the HTN Planning Pipeline
+(ORCH-1.1), which feeds Agent Orchestrator (ORCH-1.0). The orchestrator
+feeds the Capability Wiring Engine (ORCH-1.4), which feeds Specialist
+Routing & Discovery (ORCH-1.2); Execution Safety & State (ORCH-1.3) also
+feeds the orchestrator. The DSTDD Pipeline feeds back into Intelligence
+Graph Core.
+</div>
 
-    subgraph KG ["Pillar 2: Knowledge Graph (KG)"]
-        direction TB
-        KG20("KG-2.0: Active Knowledge Graph")
-        KG21("KG-2.1: Tiered Memory & Context 🔬")
-        KG22("KG-2.2: Ontology & Epistemics")
-        KG23("KG-2.3: Graph Integrity & Retrieval 🔬")
-        KG24("KG-2.4: Inductive Knowledge")
-        KG25("KG-2.5: Topological Analysis")
-        KG26("KG-2.6: Domain: Finance")
-        KG27("KG-2.6: Research Intelligence")
-        KG28("KG-2.6: Memory Stability")
-        KG29("KG-2.7: Multi-Domain Architecture")
-        KG210("KG-2.6: Domain: Enterprise")
-        KG211("KG-2.3: Vectorized Retrieval")
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Pillar 2 — Knowledge Graph (KG)</p>
 
-        KG20 --> KG22
-        KG23 --> KG20
-        KG21 --> KG28
-        KG29 --> KG26
-        KG24 --> KG25
-        KG27 --> KG20
-    end
+Active Knowledge Graph (KG-2.0) feeds Ontology & Epistemics (KG-2.2);
+Graph Integrity & Retrieval (KG-2.3) and Research Intelligence both feed
+back into KG-2.0. Tiered Memory & Context (KG-2.1) feeds Memory Stability;
+Multi-Domain Architecture (KG-2.7) feeds Domain: Finance (KG-2.6);
+Inductive Knowledge (KG-2.4) feeds Topological Analysis (KG-2.5).
+</div>
 
-    subgraph AHE ["Pillar 3: Agentic Harness (AHE)"]
-        direction TB
-        AHE30("AHE-3.0: Agentic Harness Core")
-        AHE31("AHE-3.1: Continuous Evaluation Engine")
-        AHE32("AHE-3.2: Agentic Evolution Engine")
-        AHE33("AHE-3.3: Team & Synergy Optimization")
-        AHE34("AHE-3.4: Distributed Agentic Evolution")
-        AHE35("AU-AHE.harness.self-evolution-narrative: Heavy Thinking & Background Intelligence")
-        AHE36("AU-AHE.harness.evolution-checkpoint: Backtest & Curriculum")
-        AHE37("AU-AHE.harness.concept-2: KG-Native Task Detection")
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Pillar 3 — Agentic Harness (AHE)</p>
 
-        AHE30 --> AHE31
-        AHE31 --> AHE32
-        AHE31 --> AHE33
-        AHE36 --> AHE31
-        AHE32 --> AHE34
-        AHE35 --> AHE30
-        AHE37 --> AHE30
-    end
+Agentic Harness Core (AHE-3.0) feeds the Continuous Evaluation Engine
+(AHE-3.1), which feeds both the Agentic Evolution Engine (AHE-3.2) and Team
+& Synergy Optimization (AHE-3.3); Backtest & Curriculum also feeds
+Continuous Evaluation. The Evolution Engine feeds Distributed Agentic
+Evolution (AHE-3.4). Heavy Thinking & Background Intelligence and
+KG-Native Task Detection both feed back into Agentic Harness Core.
+</div>
 
-    subgraph ECO ["Pillar 4: Ecosystem Peripherals (ECO)"]
-        direction TB
-        ECO40("ECO-4.0: Tool Interface & MCP Factory")
-        ECO41("ECO-4.1: A2A Network & Consensus 🔬")
-        ECO42("AU-ECO.toolkit.journey-map-narrative: Community Telemetry & Ecosystem Map")
-        ECO43("AU-ECO.ui.company-infrastructure-orchestration: Market Data KG Node Models")
-        ECO44("AU-ECO.toolkit.journey-map-adoption: KG MCP Server & Execution")
-        ECO410("AU-ECO.mcp.toolkit-live-discovery: Agent Toolkit Ingestor")
-        ECO411("AU-ECO.mcp.toolkit-live-discovery: MCP Live Discovery")
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Pillar 4 — Ecosystem Peripherals (ECO)</p>
 
-        ECO40 --> ECO411
-        ECO410 --> ECO40
-        ECO44 --> ECO40
-        ECO43 --> ECO41
-    end
+Tool Interface & MCP Factory (ECO-4.0) feeds MCP Live Discovery; the Agent
+Toolkit Ingestor and the KG MCP Server & Execution component both feed back
+into ECO-4.0. Market Data KG Node Models feeds the A2A Network & Consensus
+component (ECO-4.1).
+</div>
 
-    subgraph OS ["Pillar 5: Agent OS Kernel (OS)"]
-        direction TB
-        OS50("OS-5.0: Agent OS Kernel & XDG Paths")
-        OS51("OS-5.1: Security & Auth")
-        OS52("OS-5.2: Resource Scheduling 🔬")
-        OS53("AU-OS.governance.reactive-multi-axis-budget: Guardrails & Safety")
-        OS54("AU-OS.governance.wasm-micro-agent-sandbox: Telemetry & Observability")
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Pillar 5 — Agent OS Kernel (OS)</p>
 
-        OS50 --> OS51
-        OS51 --> OS53
-        OS53 --> OS54
-        OS50 --> OS52
-    end
+Agent OS Kernel & XDG Paths (OS-5.0) feeds both Security & Auth (OS-5.1)
+and Resource Scheduling (OS-5.2). Security & Auth feeds Guardrails & Safety,
+which feeds Telemetry & Observability.
+</div>
 
-    %% Cross-Pillar Execution Edges
-    ORCH14 -->|Wires discovered tools| ECO40
-    ORCH10 -->|Retrieves templates/memory| KG23
-    ORCH12 -->|Specialist Discovery| KG20
-    ORCH11 -->|Records memory contexts| KG21
-    ORCH15 -->|Tracks state & fallbacks| ORCH13
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-pillar execution edges</p>
 
-    AHE31 -->|Updates self-model in graph| KG20
-    AHE32 -->|Generates new skill topologies| ECO410
-    AHE33 -->|Forms coalitions| KG22
-
-    ECO411 -->|Populates callable resources| KG20
-    ECO44 -->|Exposes KG logic as tools| OS51
-    ECO43 -->|Injects financial signals| KG26
-
-    OS51 -->|Validates tool requests| ECO40
-    OS53 -->|Emits execution faults| AHE31
-    OS54 -->|Stores traces & telemetry| KG20
-    OS52 -->|Preempts heavy planning| ORCH15
-
-    %% Styling
-    style ORCH fill:#e6f3ff,stroke:#0066cc,stroke-width:2px
-    style KG fill:#e6ffe6,stroke:#009900,stroke-width:2px
-    style AHE fill:#fff0e6,stroke:#cc5200,stroke-width:2px
-    style ECO fill:#f2e6ff,stroke:#6600cc,stroke-width:2px
-    style OS fill:#ffffe6,stroke:#cccc00,stroke-width:2px
-```
+- ORCH's Capability Wiring Engine wires discovered tools into ECO's Tool
+  Interface & MCP Factory.
+- ORCH's Intelligence Graph Core retrieves templates/memory from KG's
+  Graph Integrity & Retrieval.
+- ORCH's Specialist Routing & Discovery reads KG's Active Knowledge Graph.
+- ORCH's HTN Planning Pipeline records memory contexts into KG's Tiered
+  Memory & Context.
+- ORCH's Agent Orchestrator tracks state & fallbacks via Execution Safety
+  & State.
+- AHE's Continuous Evaluation Engine updates its self-model in KG's Active
+  Knowledge Graph.
+- AHE's Agentic Evolution Engine generates new skill topologies for ECO's
+  Agent Toolkit Ingestor.
+- AHE's Team & Synergy Optimization forms coalitions via KG's Ontology &
+  Epistemics.
+- ECO's MCP Live Discovery populates callable resources into KG's Active
+  Knowledge Graph.
+- ECO's KG MCP Server & Execution exposes KG logic as tools through OS's
+  Security & Auth.
+- ECO's Market Data KG Node Models injects financial signals into KG's
+  Domain: Finance.
+- OS's Security & Auth validates tool requests from ECO's Tool Interface
+  & MCP Factory.
+- OS's Guardrails & Safety emits execution faults to AHE's Continuous
+  Evaluation Engine.
+- OS's Telemetry & Observability stores traces into KG's Active Knowledge
+  Graph.
+- OS's Resource Scheduling preempts heavy planning in ORCH's Agent
+  Orchestrator.
+</div>
 
 ---
 

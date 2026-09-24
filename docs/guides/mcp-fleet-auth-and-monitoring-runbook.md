@@ -1,7 +1,7 @@
 # MCP fleet authentication and monitoring runbook
 
 This runbook applies the provider-neutral trust model described in
-[MCP authentication and network trust](../architecture/mcp_auth.md). Keep all
+[MCP authentication and network trust](https://knuckles-team.github.io/graph-os/architecture/mcp-auth/). Keep all
 endpoints, identities, credentials, certificate material, and policy documents
 in runtime configuration or a secret manager—not in the repository.
 

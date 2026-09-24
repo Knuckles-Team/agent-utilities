@@ -12,21 +12,18 @@ second Python model stack. `KG_OPTIMIZATION_ENABLED` controls the scheduled swee
 
 ## Execution path
 
-```mermaid
-flowchart LR
-    E[Outcome and trace evidence] --> T[Target registry]
-    T --> R[Opaque eg-program request]
-    R --> S[GraphComputeEngine submit]
-    S --> J[Durable ProgramOptimize job]
-    J --> C{Native optimizer family}
-    C -->|Avatar without artifact| TC[compare_tool_use via governed model transport]
-    TC --> TP[Opaque corpus-scoped tool_policy]
-    TP --> J
-    C -->|Candidate or completed plan| P[Bounded status polling]
-    P --> V[Exact typed-row validation]
-    V --> G[Evidence-gated proposal]
-    G --> A{Approval and promotion gates}
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Evidence to an approved, evidence-gated proposal</p>
+
+Outcome and trace evidence feeds a target registry, which builds an opaque
+`eg-program` request submitted through `GraphComputeEngine` as a durable
+`ProgramOptimize` job. The job branches by native optimizer family: an
+avatar without an artifact runs `compare_tool_use` over a governed model
+transport, producing an opaque corpus-scoped `tool_policy` that feeds back
+into the job; a candidate or completed plan instead goes through bounded
+status polling and exact typed-row validation, producing an evidence-gated
+proposal that finally reaches approval and promotion gates.
+</div>
 
 `agent_utilities/harness/program_optimization.py` owns target registration, local
 evaluation metrics, trace blending, the scheduled sweep, and prompt-hardening proposal

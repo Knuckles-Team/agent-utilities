@@ -11,43 +11,22 @@ default and optional distributed backends.
 
 ## Architecture
 
-```mermaid
-graph TD
-    subgraph Producers
-        IGE["IntelligenceGraphEngine"]
-        TM["TaskManager"]
-        AHE["AHE Harness"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Producers publish to topics; the event backbone protocol fans out to consumers</p>
 
-    subgraph EventBackend["Event Backbone (Protocol)"]
-        MEB["MemoryEventBackend<br/>(in-process, zero-dep)"]
-        KEB["RedpandaEventBackend<br/>(distributed, persistent, confluent-kafka)"]
-    end
+**Producers** — `IntelligenceGraphEngine` publishes to `kg.mutations`;
+`TaskManager` publishes to `kg.tasks`; the `AHE Harness` publishes to
+`kg.evolution`. (`kg.staging` and `kg.telemetry` are populated by other
+paths in the taxonomy below.)
 
-    subgraph Topics
-        T1["kg.mutations"]
-        T2["kg.tasks"]
-        T3["kg.staging"]
-        T4["kg.telemetry"]
-        T5["kg.evolution"]
-    end
+**Event Backbone (Protocol)** — implemented by either `MemoryEventBackend`
+(in-process, zero-dep) or `RedpandaEventBackend` (distributed, persistent,
+`confluent-kafka`), selected per deployment.
 
-    subgraph Consumers
-        OBS["Post-commit mutation observers"]
-        TELE["Telemetry Pipeline"]
-        EVOL["Evolution Engine"]
-    end
-
-    IGE -->|publish| T1
-    TM -->|publish| T2
-    AHE -->|publish| T5
-    T1 -->|subscribe| OBS
-    T4 -->|subscribe| TELE
-    T5 -->|subscribe| EVOL
-
-    style MEB fill:#d5e8d4,stroke:#82b366
-    style KEB fill:#dae8fe,stroke:#6c8ebf
-```
+**Consumers** — `kg.mutations` is subscribed by post-commit mutation
+observers; `kg.telemetry` is subscribed by the Telemetry Pipeline;
+`kg.evolution` is subscribed by the Evolution Engine.
+</div>
 
 ## Topic Taxonomy
 
@@ -113,20 +92,16 @@ The Rust engine is the sole graph authority. Writes commit as governed
 mutations through the durable per-mirror `FanOutBackend` outbox. Pub/sub events
 are post-commit notifications and never form an alternate replication path.
 
-```mermaid
-sequenceDiagram
-    participant ENG as Engine authority (Rust)
-    participant FOB as FanOutBackend
-    participant OB as Durable mirror outbox
-    participant MIR as Mirror (persistent backend)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Durable outbox replays acknowledged mutations to each mirror</p>
 
-    FOB->>ENG: ApplyChangeEnvelope
-    ENG-->>FOB: durable acknowledgement
-    FOB->>OB: append mutation per mirror
-    OB->>MIR: ordered replay
-    MIR-->>OB: advance durable cursor
-    Note over FOB,MIR: Periodic reconcile repairs drift from authority
-```
+`FanOutBackend` calls `ApplyChangeEnvelope` against the engine authority
+(Rust), which returns a durable acknowledgement. `FanOutBackend` then
+appends the mutation, per mirror, to the durable mirror outbox, which
+replays it in order to each mirror (persistent backend); the mirror
+advances its durable cursor once applied. Periodic reconciliation repairs
+any drift between the outbox/mirrors and the authority.
+</div>
 
 ### Failure Modes
 

@@ -15,67 +15,34 @@ multi-agent execution with full Langfuse tracing.
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph "Workflow Lifecycle"
-        direction TB
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four definition sources compile through to one execution layer</p>
 
-        subgraph "Definition Sources"
-            SKILL["SKILL.md<br/>(Skill-as-Workflow)"]
-            NL["Natural Language<br/>(User Input)"]
-            PROCESS["BusinessProcess<br/>(BPMN / OCEL / KG)"]
-            JSON["workflow.json<br/>(External Import)"]
-        end
+**Definition sources -> compilation.** `SKILL.md` (Skill-as-Workflow)
+compiles via `SkillCompiler` (ORCH-1.8), producing `GraphPlans` directly
+and registering into `WorkflowStore` (ORCH-1.22) via `register_in_kg()`.
+Natural language compiles via `WorkflowCompiler` (ORCH-1.23);
+`BusinessProcess` (BPMN/OCEL/KG) compiles via `ProcessPlanCompiler`
+(ORCH-1.41); both feed context-preserving worker phases (ordered
+cancellation), which call `compile_and_store()` (ordered reads/writes)
+into `WorkflowStore`. `workflow.json` imports directly into
+`WorkflowStore`.
 
-        subgraph "Compilation Layer"
-            SKILLCOMP["SkillCompiler<br/>(ORCH-1.8)"]
-            COMPILER["WorkflowCompiler<br/>(ORCH-1.23)"]
-            PROCESSCOMP["ProcessPlanCompiler<br/>(ORCH-1.41)"]
-            WORKERS["Context-preserving worker phases<br/>(ordered cancellation)"]
-        end
+**Persistence.** `WorkflowStore.save_workflow()` writes to the Knowledge
+Graph (`GraphBackend`); `load_workflow()` reads back into `GraphPlans`.
 
-        subgraph "Persistence Layer"
-            STORE["WorkflowStore<br/>(ORCH-1.22)"]
-            KG["Knowledge Graph<br/>(GraphBackend)"]
-        end
+**Execution.** `GraphPlans.execute()` reaches `WorkflowRunner`
+(ORCH-1.24), which bridges its manifest to `ParallelEngine` (ORCH-1.8).
+`ParallelEngine` dispatches waves to `run_agent()` (ORCH-1.21, which uses
+MCP toolsets against LM Studio/LLM) and coordinates workspace/memory and
+execution hierarchy through the worker phases. `WorkflowRunner` emits
+session traces to Langfuse (OS-5.1).
 
-        subgraph "Execution Layer"
-            RUNNER["WorkflowRunner<br/>(ORCH-1.24)"]
-            PARALLEL["ParallelEngine<br/>(ORCH-1.8)"]
-            AGENT["run_agent()<br/>(ORCH-1.21)"]
-            LLM["LM Studio / LLM"]
-            LANGFUSE["Langfuse<br/>(OS-5.1)"]
-        end
-
-        subgraph "External API"
-            MCP["graph_workflows<br/>(MCP + REST twin)"]
-        end
-    end
-
-    SKILL -->|"compile()"| SKILLCOMP
-    JSON -->|"import"| STORE
-    NL -->|"compile()"| COMPILER --> WORKERS
-    PROCESS -->|"compile_process"| PROCESSCOMP --> WORKERS
-
-    SKILLCOMP -->|"GraphPlan"| PLANS["GraphPlans"]
-    SKILLCOMP -->|"register_in_kg()"| STORE
-    WORKERS -->|"compile_and_store()<br/>ordered reads/writes"| STORE
-
-    STORE -->|"save_workflow()"| KG
-    KG -->|"load_workflow()"| PLANS
-
-    PLANS -->|"execute()"| RUNNER
-    RUNNER -->|"manifest bridge"| PARALLEL
-    PARALLEL -->|"wave dispatch"| AGENT
-    PARALLEL -->|"coordination, workspace/memory,<br/>execution hierarchy via workers"| WORKERS
-    AGENT -->|"MCP toolsets"| LLM
-    RUNNER -->|"session traces"| LANGFUSE
-
-    MCP -->|"list_workflows"| STORE
-    MCP -->|"execute_workflow"| RUNNER
-    MCP -->|"compile_workflow"| COMPILER
-    MCP -->|"export_workflow"| STORE
-```
+**External API.** `graph_workflows` (MCP + REST twin) calls
+`list_workflows`/`export_workflow` against `WorkflowStore`,
+`execute_workflow` against `WorkflowRunner`, and `compile_workflow`
+against `WorkflowCompiler`.
+</div>
 
 ## Components
 

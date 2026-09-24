@@ -12,7 +12,7 @@ see every failure mode. Deep dives:
 
 > The claims-to-actor mapping (`actor_from_claims`) now delegates to the
 > IdP-agnostic normalizer described in
-> [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](../architecture/identity-inheritance.md)
+> [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](https://knuckles-team.github.io/graph-os/architecture/identity-inheritance/)
 > (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance): Okta `groups` and
 > Keycloak `realm_access.roles`/`resource_access.*.roles`/group-mapper are
 > unioned into the same base capability set, which then drives per-server

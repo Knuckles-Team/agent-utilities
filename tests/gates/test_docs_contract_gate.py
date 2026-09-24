@@ -450,9 +450,12 @@ def test_generated_agent_tree_contains_only_tracked_top_level_paths():
         if raw
     }
     rendered_top = {
-        line[4:].split("/", 1)[0]
+        line[2:].strip("`").split("/", 1)[0]
         for line in generator.project_tree_section().splitlines()
-        if line.startswith(("├── ", "└── "))
+        # A top-level entry's line has no leading indent (D3: nested
+        # Markdown list, not a box-drawing tree); deeper entries are
+        # indented and so never match this prefix.
+        if line.startswith("- ")
     }
 
     assert rendered_top

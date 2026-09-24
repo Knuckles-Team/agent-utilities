@@ -27,18 +27,18 @@ referenced capability.
 
 ## Discovery flow
 
-```mermaid
-flowchart LR
-    A[installed distribution] --> B["entry-point load\n(agent_utilities.frontend_providers)"]
-    B --> C["ownership proof\n(core.providers, no code import)"]
-    C --> D["read ONE bounded file\ncontribution.json"]
-    D --> E["unsafe-content scan\n(reject-list, raw text)"]
-    E --> F["schema validation\n(Pydantic, extra=forbid)"]
-    F --> G["identity + digest + signer checks"]
-    G --> H["OK / DEGRADED / BLOCKED / MISSING"]
-    H --> I["catalog_epoch digest"]
-    I --> J["GET /api/enhanced/frontend-contributions"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Frontend contribution pipeline, one bounded file at a time</p>
+
+An installed distribution is discovered via its `agent_utilities.frontend_providers`
+entry point, then proven by `core.providers`' ownership check (never a code
+import). From there exactly one bounded file, `contribution.json`, is read,
+scanned for unsafe raw-text content against a reject list, validated against
+a Pydantic schema (`extra=forbid`), and checked for identity, digest, and
+signer — producing one of `OK`/`DEGRADED`/`BLOCKED`/`MISSING`. That result
+feeds the `catalog_epoch` digest, which `GET /api/enhanced/frontend-contributions`
+serves.
+</div>
 
 Every step is content-only: nothing under this path ever calls
 `importlib.import_module` on the registering package, matching the same

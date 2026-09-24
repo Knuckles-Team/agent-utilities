@@ -27,30 +27,20 @@ sessions memory-siloed. **CONCEPT:AU-ORCH.session.session-continuity-entrypoint*
 continuity model (recall + persist), without a parallel orchestrator. See
 [Shared memory](#shared-memory-kg-backed-cross-surface).
 
-```
-  graph-os MCP            messaging (18 backends)        WorkflowRunner
-  graph_orchestrate       Telegram/Mattermost/Discord/   (per step)
-  execute_agent           Slack/Signal/Teams/…
-       │                       │  InboundRouter._dispatch      │
-       │                       │  → planner default handler    │
-       ▼                       ▼                               ▼
-  Orchestrator.execute_agent / execute_workflow ───────────────┤
-       │                                                       │
-       ▼                                                       ▼
-  ┌───────────────────────────  run_agent  ──────────────────────────┐
-  │  shape planner · KG resolve · MEMORY PRIME · code-context ·       │
-  │  RunTrace + :ToolCall provenance · Session anchor                 │
-  └───────────────────────────────┬──────────────────────────────────┘
-                                   │ create_graph_agent
-   agent-webui / agent-terminal-ui │            ┌──────────────────────┐
-   POST /ag-ui · /stream           │            │ session_continuity   │
-        │  iter_graph (streaming)  │            │ prime + persist       │
-        └───────► AgentOrchestrationEngine ◄────┤ (ORCH-1.104)         │
-                  (THE one graph + executor)    └──────────────────────┘
-                                   │
-                                   ▼
-                    pydantic-ai graph agents  ──►  Knowledge Graph
-```
+Three entrypoints converge on the same orchestrator: graph-os MCP's
+`graph_orchestrate`/`execute_agent`; messaging (18 backends — Telegram,
+Mattermost, Discord, Slack, Signal, Teams, …) via `InboundRouter
+._dispatch` -> the planner default handler; and `WorkflowRunner` (per
+step). All three call `Orchestrator.execute_agent`/`execute_workflow`,
+which calls `run_agent` — shape planner, KG resolve, memory prime,
+code-context, `RunTrace` + `:ToolCall` provenance, session anchor.
+
+`run_agent` calls `create_graph_agent`, which is also reached directly by
+`agent-webui`/`agent-terminal-ui` (`POST /ag-ui`/`/stream`, streaming via
+`iter_graph`). Both paths reach `AgentOrchestrationEngine` (the one graph
++ executor); a separate `session_continuity` prime + persist step
+(ORCH-1.104) feeds into it as well. `AgentOrchestrationEngine` runs
+pydantic-ai graph agents, which read/write the Knowledge Graph.
 
 ## Per-surface routing table (verified)
 

@@ -133,7 +133,7 @@ Each command is also reachable over MCP/REST via the `graph_configure` tool
 - [Self-Setup (config-complete, the path Claude follows)](self-setup.md)
 - [Deployment configurations — the ladder](deployment-configurations.md) ·
   [Configuration reference](../architecture/configuration.md)
-- [Universal external graph connectors](../architecture/universal-external-graph-connectors.md)
+- [Universal external graph connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/)
 - Recipes: [tiny](../recipes/tiny.md) · [single-node-prod](../recipes/single-node-prod.md) ·
   [enterprise](../recipes/enterprise.md) · [databases](../recipes/databases.md)
 - [Day-0 multi-node bootstrap (`agent-utilities-deployment`)](day0.md)

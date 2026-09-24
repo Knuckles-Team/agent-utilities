@@ -19,66 +19,48 @@ structured observability.
 
 ## AHE Evolution Loop
 
-```mermaid
-graph LR
-    A[AU-OS.governance.wasm-micro-agent-sandbox: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
-    B --> C["KG-2.6: Summaries & Clusters"]
-    C --> D[ORCH-1.21: Failure Taxonomies]
-    D --> E[KG-2.6: Layered Evidence Corpus]
-    E --> F[ORCH-1.1: Evolve Agent Decisions]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Traces distill up to Evolve Agent decisions, each stage backed by an integration</p>
 
-    B -.-> G[AU-OS.governance.wasm-micro-agent-sandbox: langfuse-agent API]
-    C -.-> H[KG-2.6: RLM Summarizer]
-    D -.-> I[KG-2.0: KG Semantic Clustering]
-    E -.-> J[KG-2.0: Versioned Files + KG Nodes]
-```
+Langfuse traces feed automated distillation (backed by the langfuse-agent
+API), producing summaries & clusters (backed by an RLM summarizer), which
+build failure taxonomies (backed by KG semantic clustering), which build a
+layered evidence corpus (backed by versioned files + KG nodes), which
+finally drives Evolve Agent decisions.
+</div>
 
 ## Component Types
 
 AHE decomposes the harness into 7 independently editable component types:
 
-```mermaid
-graph TD
-    subgraph "AHE Component Types"
-        SP["System Prompt<br>prompting/builder.py<br>prompting/structured.py"]
-        TD["Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter"]
-        TI["Tool Implementation<br>tools/*.py<br>mcp_server.py"]
-        MW["AU-OS.governance.reactive-multi-axis-budget: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py"]
-        SK["Skills<br>universal-skills/"]
-        SA["Sub-Agents<br>graph/steps/<br>HSM specialist nodes"]
-        LM["Long-Term Memory<br>knowledge_graph/<br>MemoryNode"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Seven component types, all observed at the file level</p>
 
-    subgraph "AU-OS.governance.wasm-micro-agent-sandbox: Observability Pillars"
-        CO["AU-OS.governance.wasm-micro-agent-sandbox: Component Observability<br>File-level diffs + git"]
-        EO["AU-OS.governance.wasm-micro-agent-sandbox: Experience Observability<br>TraceDistiller → EvidenceCorpus"]
-        DO["AU-OS.governance.wasm-micro-agent-sandbox: Decision Observability<br>ChangeManifest + VerificationResult"]
-    end
-
-    SP --> CO
-    TD --> CO
-    TI --> CO
-    MW --> CO
-    SK --> CO
-    SA --> CO
-    LM --> CO
-```
+The 7 independently editable component types — System Prompt
+(`prompting/builder.py`, `prompting/structured.py`), Tool Description
+(`tool_filtering.py`, `SKILL.md` frontmatter), Tool Implementation
+(`tools/*.py`, `mcp_server.py`), Middleware (`middlewares.py`,
+`guardrails.py`, `tool_guard.py`), Skills (`universal-skills/`), Sub-Agents
+(`graph/steps/`, HSM specialist nodes), and Long-Term Memory
+(`knowledge_graph/`, `MemoryNode`) — all feed Component Observability
+(file-level diffs + git), the first of three observability pillars.
+The other two pillars, Experience Observability (`TraceDistiller` →
+`EvidenceCorpus`) and Decision Observability (`ChangeManifest` +
+`VerificationResult`), observe the harness's runtime behavior rather than
+its files directly.
+</div>
 
 ## Constraint Hierarchy
 
 Constraints escalate through 4 enforcement levels when violations are detected:
 
-```mermaid
-graph LR
-    P["PROMPT<br>Level 1: Advisory"] --> TD2["TOOL_DESCRIPTION<br>Level 2: Descriptive"]
-    TD2 --> M["MIDDLEWARE<br>Level 3: Blocking"]
-    M --> TI2["TOOL_IMPLEMENTATION<br>Level 4: Hardcoded"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four enforcement levels, escalating on repeat violation</p>
 
-    style P fill:#4caf50,color:#fff
-    style TD2 fill:#ff9800,color:#fff
-    style M fill:#f44336,color:#fff
-    style TI2 fill:#9c27b0,color:#fff
-```
+Constraints escalate through four levels: Level 1 PROMPT (advisory), Level
+2 TOOL_DESCRIPTION (descriptive), Level 3 MIDDLEWARE (blocking), Level 4
+TOOL_IMPLEMENTATION (hardcoded).
+</div>
 
 When a constraint is violated at the prompt level, the `ConstraintEngine`
 auto-escalates it to middleware-level enforcement after the escalation
@@ -87,17 +69,15 @@ important constraints.
 
 ## Package Structure
 
-```
-agent_utilities/harness/
-├── __init__.py              # Package exports (CONCEPT:AU-AHE.harness.harness-evolution)
-├── manifest.py              # ComponentType, ComponentEdit, ChangeManifest
-├── evidence_corpus.py       # EvidenceLayer, EvidenceEntry, EvidenceCorpus
-├── component_registry.py    # HarnessComponentRegistry
-├── trace_backend.py         # TraceBackend ABC + Langfuse/OTel/File backends
-├── evolve_agent.py          # EvolveAgent (lightweight + full modes)
-├── verifier.py              # ManifestVerifier + auto-revert
-└── constraint_engine.py     # ConstraintLevel, ConstraintEngine
-```
+- `agent_utilities/harness/`
+    - `__init__.py` — package exports (CONCEPT:AU-AHE.harness.harness-evolution)
+    - `manifest.py` — `ComponentType`, `ComponentEdit`, `ChangeManifest`
+    - `evidence_corpus.py` — `EvidenceLayer`, `EvidenceEntry`, `EvidenceCorpus`
+    - `component_registry.py` — `HarnessComponentRegistry`
+    - `trace_backend.py` — `TraceBackend` ABC + Langfuse/OTel/File backends
+    - `evolve_agent.py` — `EvolveAgent` (lightweight + full modes)
+    - `verifier.py` — `ManifestVerifier` + auto-revert
+    - `constraint_engine.py` — `ConstraintLevel`, `ConstraintEngine`
 
 ## Integration Points
 

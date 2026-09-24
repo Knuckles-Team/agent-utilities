@@ -19,16 +19,14 @@ When a boundary limit is breached, the guardrail immediately appends a critical 
 
 When a budget limit is tripped, a specialized `EventNode` with type `"budget.tripped"` and severity `"critical"` is dual-written to the LPG. The `OWLBridge` promotes these records into standard RDF individuals.
 
-```mermaid
-graph TD
-    TrippedEvent["EventNode (type: 'budget.tripped')"]
-    -->|OWL Promotion| GuardClass[":GuardrailTrigger Class (owl:Class)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A tripped budget promotes to an OWL class with a cost inference rule</p>
 
-    AgentNode[":Agent Class (Individual)"]
-    -->|triggered_guardrail| TrippedEvent
-
-    GuardClass -->|OWL Rule| HighCost[":highCostAgent Inference"]
-```
+An `EventNode` (type `'budget.tripped'`) is OWL-promoted to the
+`:GuardrailTrigger` class. An `:Agent` individual links `triggered_guardrail`
+to that event. `:GuardrailTrigger` carries an OWL rule that infers
+`:highCostAgent`.
+</div>
 
 * **Guardrail Triggering**: Trips map to the OWL `:GuardrailTrigger` class (a subclass of `:Observation`).
 * **High-Cost Agent Classification**: If an agent frequently triggers budget guardrails, the HermiT/Stardog OWL reasoner infers the relation `:highCostAgent` on the agent's class.

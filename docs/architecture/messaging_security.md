@@ -14,23 +14,17 @@ Almost everything is **outbound-initiated** and therefore needs no inbound port:
 The only thing that wants to come *in* is a **webhook push**. We never open a port for it —
 it rides an **outbound tunnel**.
 
-```mermaid
-flowchart LR
-    TG([Telegram / Slack cloud]) -->|signed webhook over HTTPS| EDGE
-    subgraph EDGE["Edge (no homelab ports opened)"]
-        T[Tunnel terminator\npangolin / Cloudflare Tunnel]
-        AUTH["Keycloak forward-auth\n(human surfaces only)"]
-        CS[CrowdSec WAF / rate-limit]
-    end
-    T -. outbound WireGuard/QUIC .-> GW
-    subgraph HOME["Homelab (egress-only)"]
-        GW[gateway daemon\n127.0.0.1:webhook_port]
-        GW --> RT[InboundRouter → agent]
-    end
-    EDGE -.->|forward only /messaging/webhook/*| GW
-    classDef e fill:#533483,stroke:#7b2cbf,color:#fff
-    class TG,EDGE e
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Egress-only homelab: the edge terminates, the tunnel initiates</p>
+
+Telegram/Slack cloud sends a signed webhook over HTTPS to the Edge — no
+homelab ports are opened. The Edge terminates the tunnel (pangolin or
+Cloudflare Tunnel), applies Keycloak forward-auth (human surfaces only),
+and runs CrowdSec WAF/rate-limiting; it forwards only
+`/messaging/webhook/*`. The tunnel connects outbound over WireGuard/QUIC
+into the homelab (egress-only), reaching a gateway daemon bound to
+`127.0.0.1:webhook_port`, which hands off to `InboundRouter → agent`.
+</div>
 
 ## The webhook modes (all first-class)
 
@@ -47,11 +41,10 @@ You do **not** need to own an edge-ingress node. `cloudflared` runs **on the hom
 itself** and dials **outbound** to Cloudflare; Cloudflare *is* the public edge (TLS, DDoS,
 and **Zero-Trust Access** for human gating). Nothing listens on a public IP at your site.
 
-```
-Telegram ──HTTPS──▶ Cloudflare edge ──(outbound tunnel)──▶ cloudflared (homelab)
-                         │  Access (Zero Trust) gates HUMAN routes
-                         └─ forwards ONLY /messaging/webhook/* ▶ 127.0.0.1:MESSAGING_WEBHOOK_PORT
-```
+Telegram reaches the Cloudflare edge over HTTPS, which reaches
+`cloudflared` (running on the homelab) over an outbound tunnel. Cloudflare
+Access (Zero Trust) gates human routes; only `/messaging/webhook/*` is
+forwarded, to `127.0.0.1:MESSAGING_WEBHOOK_PORT`.
 
 Setup (high level): create a Cloudflare Tunnel, run `cloudflared` on the host, map a
 hostname (e.g. `hooks.<your-domain>`) to `http://127.0.0.1:${MESSAGING_WEBHOOK_PORT}`, set

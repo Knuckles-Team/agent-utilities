@@ -23,17 +23,17 @@ runner also pins the reviewed manifest's exact SHA-256 in source, so even a
 schema-valid command-catalog change fails before root discovery or execution.
 Commands execute once, in manifest order, as argument arrays with no shell.
 
-```mermaid
-flowchart LR
-    M[Reviewed G-01 through G-39 manifest] --> V[Strict completeness and safety validation]
-    R[Four explicit source roots] --> D1[Pre-run source digests]
-    V --> S[Serial offline source checks]
-    D1 --> S
-    S --> D2[Post-run source digests]
-    D2 --> C{Digests identical?}
-    C -->|yes| E[Exclusive privacy-safe evidence]
-    C -->|no| F[Fail closed]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Source-freeze gate pipeline</p>
+
+The reviewed G-01 through G-39 manifest goes through strict completeness
+and safety validation. In parallel, four explicit source roots are
+digested (pre-run). Both feed serial offline source checks, after which the
+source roots are digested again (post-run). If the pre- and post-run
+digests are identical, the gate produces exclusive, privacy-safe evidence;
+if not, it fails closed.
+
+</div>
 
 The subprocess environment has a private `PATH`, neutral home and temporary
 directory, disabled Git configuration/pagers/prompts/optional locks, and only

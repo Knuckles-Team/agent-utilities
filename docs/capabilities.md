@@ -208,8 +208,8 @@ all byte-for-byte unchanged at defaults:
 | Gateway | Pre-forked workers, per-tenant token-bucket rate limiting, engine circuit breaker | `GATEWAY_WORKERS`, `GATEWAY_RATE_LIMIT` |
 | Durable state | One shared Postgres store with SKIP LOCKED queue claims + advisory-lock daemon leadership | `STATE_DB_URI` |
 
-Deep dives: [Engine Sharding](architecture/engine_sharding.md) ·
-[Gateway Scaling](architecture/gateway_scaling.md) ·
+Deep dives: [Engine Sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/) ·
+[Gateway Scaling](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/) ·
 [State Externalization](architecture/state_externalization.md) ·
 [sharding walkthrough](examples/sharding-walkthrough.md).
 
@@ -227,7 +227,7 @@ autonomous mutating action is gated by the **ActionPolicy** decision point
 (`orchestration/action_policy.py`, fail-closed, audit-logged; policies in
 `deploy/action-policy.default.yml`), driving the desired-state fleet
 reconciler, remediation playbooks, health-gated deploy watch with rollback,
-and the reactive autoscaler. See [Fleet Autonomy](architecture/fleet_autonomy.md),
+and the reactive autoscaler. See [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/),
 [action-policy postures](examples/action-policy-postures.md), and
 [autoscaling signals](examples/autoscaling-signals.md).
 

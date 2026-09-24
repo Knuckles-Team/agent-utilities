@@ -5,17 +5,16 @@ Repository Manager's v1 development contract. It makes repository jobs ordinary
 engine-native `WorkItem` records instead of introducing a repository-local queue,
 database, or task state machine.
 
-```mermaid
-flowchart LR
-    RM[Repository Manager request] --> AD[Repository WorkItem adapter]
-    AD -->|typed v1 projection| WI[(WorkItem authority)]
-    WI -->|ClaimWorkItem| LEASE[lease + fencing token]
-    LEASE --> WORK[repository worker]
-    WORK -->|heartbeat/checkpoint| WI
-    WORK -->|fenced result| WI
-    WI --> VIEW[tenant-scoped job view]
-    VIEW --> RM
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Repository Manager over the shared WorkItem authority</p>
+
+A Repository Manager request passes through the Repository WorkItem
+adapter, which projects it as a typed v1 request into the shared WorkItem
+authority. `ClaimWorkItem` returns a lease plus fencing token to a
+repository worker, which reports heartbeats/checkpoints and its fenced
+result back to the authority. The authority exposes a tenant-scoped job
+view back to Repository Manager.
+</div>
 
 ## Boundary
 

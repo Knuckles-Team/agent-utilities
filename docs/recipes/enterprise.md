@@ -133,7 +133,7 @@ per-shard health is on the gateway's `GET /api/dashboard/daemon/shards` +
 `agent_utilities_engine_shard_up{endpoint}`. Worked single-host 3-shard compose:
 `docker/engine-shards.compose.yml`; full semantics (including the manual
 snapshot migration caveat when re-sharding):
-[engine sharding](../architecture/engine_sharding.md).
+[engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/).
 
 ### Engine topology: the hyperscaling default (Raft HA + k8s HPA)
 

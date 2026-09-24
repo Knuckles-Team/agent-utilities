@@ -6,19 +6,18 @@ preparation layer: it does not publish graph facts, advance a source
 checkpoint, or replace the native `ChangeEnvelope`/`MutationBatch` admission
 path.
 
-```mermaid
-flowchart LR
-    A[Bounded Arrow table] --> B[Strict CleanPlan gate]
-    B --> C[CleanPipeline]
-    C --> D[Arrow table + privacy-safe PrepEvidence]
-    C --> P[ProfileResult v1]
-    E[Future engine profile client] --> P
-    P --> I[Exact target/schema/LSN identity]
-    P --> L[Disclosure + finite limits]
-    D --> V[Later governed validation/commit]
-    V --> F[Native ChangeEnvelope authority]
-    P -->|optional, separately authorized| F
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Bounded Arrow table through the strict clean/profile pipeline</p>
+
+A bounded Arrow table passes through a strict `CleanPlan` gate into
+`CleanPipeline`, which produces both an Arrow table with privacy-safe
+`PrepEvidence` and a `ProfileResult` v1 (also fed by a future engine
+profile client). The `ProfileResult` carries an exact target/schema/LSN
+identity and enforces disclosure plus finite limits. The evidenced Arrow
+table proceeds to later governed validation/commit, which is the only
+path into the native `ChangeEnvelope` authority; the `ProfileResult` may
+also reach that authority, but only optionally and separately authorized.
+</div>
 
 ## Contract
 
@@ -207,10 +206,9 @@ Preparation evidence is not permission to write. Before a prepared envelope
 can enter the graph, the control plane must activate one exact, versioned
 binding:
 
-```text
-connector + connector_version + tenant + target_graph
-    └── binding_ref + mapping(ref,digest) + SHACL(ref,digest) + ICV(ref,digest)
-```
+The binding key is `connector + connector_version + tenant + target_graph`,
+and it resolves to `binding_ref + mapping(ref,digest) + SHACL(ref,digest)
++ ICV(ref,digest)`.
 
 `agent_utilities.data_prep.connector_activation` represents that binding with
 `ActivationBinding`. Its digest covers every field above, so replacing a
@@ -226,17 +224,18 @@ Activation rotation is a pure state transition (`active` → `rotating` →
 candidate cannot admit a write. The state object is not a store or a second
 authority; the operator/control plane owns its durability and publication.
 
-```mermaid
-flowchart LR
-  P[Prepared Arrow page + ConnectorPrepContract] --> B{Exact activation binding}
-  B -->|missing/stale/wrong identity| R[Bounded redacted report]
-  B -->|approved claim| S[Verified tenant + target graph session]
-  S -->|mismatch or no session| R
-  S -->|match| N[Native ingest_envelope]
-  N --> E[ApplyChangeEnvelope\n  SHACL + ICV + durability]
-  E -->|reject/fail| R
-  E -->|success/skipped| C[Accepted report ref]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Activation binding gates native admission</p>
+
+A prepared Arrow page plus its `ConnectorPrepContract` is checked against
+the exact activation binding. A missing, stale, or wrong-identity binding
+produces a bounded redacted report immediately. An approved claim resolves
+a verified tenant + target-graph session; a mismatch or missing session
+also falls through to the redacted report. A matching session proceeds to
+the native `ingest_envelope`, which calls `ApplyChangeEnvelope` (SHACL +
+ICV + durability) — a reject/fail again produces the redacted report,
+while success or skip produces an accepted report reference.
+</div>
 
 `ActivationAdmissionAdapter.admit` resolves the middleware-minted `kg:write`
 session and then delegates only to the existing native

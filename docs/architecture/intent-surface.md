@@ -30,34 +30,20 @@ granular tools (and every REST route) must stay exactly as capable as today; onl
 
 ## 2. What this ships
 
-```mermaid
-flowchart TD
-    subgraph Default["MCP_TOOL_MODE=condensed (default, unchanged)"]
-        C1["~95 graph_*/engine_*/ontology_*/object_*/source_* tools"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two views over the same ~95 tools, one execution core</p>
 
-    subgraph Intent["MCP_TOOL_MODE=intent (opt-in, small/cheap-LLM profile)"]
-        V["6 intent verbs\nask · find · write · act · manage · why"]
-        R["Resolver\n(intent_tools.resolve_intent)"]
-        G["Granular tools\n(SAME ~95 — GATED_TAG,\nheld back from default view)"]
-        LT["load_tools / unload_tools\n(escape hatch, both directions)"]
-
-        V --> R
-        R -->|"ranked capability + why"| G
-        LT -.->|reveal one exactly| G
-        G -.->|retract when done| LT
-    end
-
-    X["_execute_tool core\n(REGISTERED_TOOLS)"]
-    REST["REST gateway\n(ACTION_TOOL_ROUTES)"]
-
-    C1 --> X
-    G --> X
-    X --> REST
-
-    style Default fill:#eef,stroke:#88a
-    style Intent fill:#efe,stroke:#8a8
-```
+**Default (`MCP_TOOL_MODE=condensed`, unchanged):** all ~95
+`graph_*`/`engine_*`/`ontology_*`/`object_*`/`source_*` tools reach
+`_execute_tool` (`REGISTERED_TOOLS`) directly. **Intent (opt-in,
+small/cheap-LLM profile):** 6 intent verbs (ask, find, write, act, manage,
+why) reach a resolver (`intent_tools.resolve_intent`), which returns a
+ranked capability + why against the SAME ~95 granular tools — held back
+from the default view by a `GATED_TAG` — which also reach `_execute_tool`.
+`load_tools`/`unload_tools` act as a bidirectional escape hatch: reveal one
+granular tool exactly, or retract it when done. Either mode's path through
+`_execute_tool` also serves the REST gateway (`ACTION_TOOL_ROUTES`).
+</div>
 
 1. **Six intent-verb tools** (`agent_utilities/mcp/tools/intent_tools.py`) — `ask` (NL/UQL
    read), `find` (capability discovery), `write`, `act`, `manage`, `why`. Each takes

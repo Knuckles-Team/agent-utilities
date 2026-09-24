@@ -20,25 +20,18 @@ The DSTDD (Design-Spec-Test Driven Development) pipeline is the formalized workf
    - Validate against the 15-phase Intelligence Graph Pipeline.
 
 ## Five-Pillar Interwoven Context
-```mermaid
-C4Context
-    title System Context - 5 Pillars of agent-utilities (Interwoven)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five pillars, interwoven around the developer/agent</p>
 
-    Person(user, "Developer / Agent", "Uses Antigravity IDE, Claude, or direct API")
-
-    System_Boundary(b1, "agent-utilities Core") {
-        System(orch, "ORCH-1.0\nGraph Orchestration", "Router → Planner → Dispatcher\n15-phase pipeline")
-        System(kg, "KG-2.0\nKnowledge Graph", "NetworkX + LadybugDB\nSingle source of truth")
-        System(ahe, "AHE-3.0\nAgentic Harness", "Self-model, TeamConfig, evolution")
-        System(eco, "ECO-4.0\nEcosystem", "MCP, A2A, universal-skills")
-        System(os, "OS-5.0\nAgent OS Kernel", "Auth, guardrails, lifecycle")
-    }
-
-    Rel(user, orch, "Submits tasks")
-    Rel(orch, kg, "Queries / Ingests (bidirectional)")
-    Rel(kg, ahe, "Feeds Self-Model & TeamConfig")
-    Rel(ahe, eco, "Promotes proven coalitions to MCP/A2A")
-    Rel(eco, os, "Uses kernel for execution safety")
-    Rel(os, kg, "Persists execution traces & telemetry")
-    Rel(kg, orch, "Provides ontological routing")
-```
+A developer or agent (via Antigravity IDE, Claude, or a direct API)
+submits tasks to **ORCH-1.0 Graph Orchestration** (router -> planner ->
+dispatcher, a 15-phase pipeline), which queries/ingests **KG-2.0
+Knowledge Graph** (NetworkX + LadybugDB, the single source of truth) —
+bidirectionally, since the KG also provides ontological routing back to
+orchestration. The KG feeds **AHE-3.0 Agentic Harness** (self-model,
+TeamConfig, evolution), which promotes proven coalitions to **ECO-4.0
+Ecosystem** (MCP, A2A, universal-skills). Ecosystem uses **OS-5.0 Agent
+OS Kernel** (auth, guardrails, lifecycle) for execution safety, and the
+kernel persists execution traces and telemetry back to the Knowledge
+Graph.
+</div>

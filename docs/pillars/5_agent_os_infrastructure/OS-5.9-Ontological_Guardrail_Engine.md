@@ -9,27 +9,15 @@ The **Ontological Guardrail Engine** intercepts incoming tool definitions and ar
 
 The guardrail engine operates as a layered defense system within the tool execution pipeline:
 
-```
-Tool Call Request
-       │
-       ▼
-┌──────────────────────────────────────────────────┐
-│ Layer 1: Argument Extraction                     │
-│   Extract path/host/db/url from tool_args        │
-├──────────────────────────────────────────────────┤
-│ Layer 2: KG Policy Lookup (Primary)              │
-│   Query SecurityPolicyNode nodes in active graph │
-│   Match extracted targets against policy targets │
-├──────────────────────────────────────────────────┤
-│ Layer 3: Static Fallback (Secondary)             │
-│   Pattern-match against restricted keywords      │
-│   (/etc, /var/run, admin, production_db, etc.)   │
-├──────────────────────────────────────────────────┤
-│ Layer 4: Decision                                │
-│   True = BLOCK (requires approval)               │
-│   False = ALLOW (proceed to execution)           │
-└──────────────────────────────────────────────────┘
-```
+A tool call request passes through four layers:
+
+1. **Argument Extraction** — extract path/host/db/url from `tool_args`.
+2. **KG Policy Lookup (Primary)** — query `SecurityPolicyNode` nodes in
+   the active graph; match extracted targets against policy targets.
+3. **Static Fallback (Secondary)** — pattern-match against restricted
+   keywords (`/etc`, `/var/run`, `admin`, `production_db`, etc.).
+4. **Decision** — `True` = BLOCK (requires approval); `False` = ALLOW
+   (proceed to execution).
 
 ## Proof Model
 
@@ -83,18 +71,13 @@ When the KG is unavailable or has no matching policies, the engine falls back to
 
 The guardrail engine never fails open. The defense cascade ensures continuous protection:
 
-```
-1. KG Policy Query (real-time, highest fidelity)
-       │ fails?
-       ▼
-2. Static Fallback Rules (zero-dependency, always available)
-       │ fails?
-       ▼
-3. Exception Handler (logs debug, returns False = ALLOW)
-       │
-   Note: Only unknown internal exceptions reach here.
-   The static fallback itself never throws.
-```
+1. KG Policy Query (real-time, highest fidelity) — on failure, falls to:
+2. Static Fallback Rules (zero-dependency, always available) — on
+   failure, falls to:
+3. Exception Handler (logs debug, returns `False` = ALLOW).
+
+Note: only unknown internal exceptions reach the exception handler; the
+static fallback itself never throws.
 
 ## Target Extraction
 

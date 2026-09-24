@@ -133,7 +133,7 @@ tool response stable and inspectable.
 > **Note**: OWL reasoning has no standalone MCP action — it runs on the
 > consolidated maintenance scheduler (see *Triggering OWL Reasoning* above).
 
-> **See also**: [Vector Index Lifecycle](vector_index_lifecycle.md) for details
+> **See also**: [Vector Index Lifecycle](https://knuckles-team.github.io/epistemic-graph/architecture/vector-index-lifecycle/) for details
 > on HNSW index management, the drop→ingest→build cycle, and search performance tiers.
 
 ## Environment Configuration

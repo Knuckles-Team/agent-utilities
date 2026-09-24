@@ -73,23 +73,16 @@ The **First Principles Architecture** (CONCEPT:AU-ORCH.adapter.hot-cache-invalid
 | **CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
 | **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
 
-```mermaid
-graph LR
-    subgraph Routing ["3-Stage Hybrid Routing"]
-        Query(["ORCH-1.0: User Query"]) --> TC{"ORCH-1.2: TeamConfig\nMatch?"}
-        TC -- "Hit" --> Dispatch["ORCH-1.2: Direct\nDispatch"]
-        TC -- "Miss" --> SM{"AHE-3.3: Self-Model\nBias"}
-        SM --> LLM["ORCH-1.1: LLM Planner\n(Top-7 Filtered)"]
-        LLM --> Dispatch
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">3-stage hybrid routing, closed by a reward loop</p>
 
-    subgraph Execution ["Execute & Learn"]
-        Dispatch --> Exec["ORCH-1.2: Specialist\nExecution"]
-        Exec --> Verify["Verify"]
-        Verify --> Feedback["ORCH-1.2: Self-Model Update\n+ TeamConfig Reward"]
-        Feedback -.-> TC
-    end
-```
+A user query first checks `TeamConfig` for a match: a hit dispatches
+directly; a miss goes through `Self-Model` bias into the LLM planner
+(top-7 filtered), which then dispatches. Either way, dispatch reaches
+specialist execution, which is verified, and the verification feeds a
+`Self-Model` update + `TeamConfig` reward — closing the loop back into
+the `TeamConfig` match step for the next query.
+</div>
 
 → **Deep-dive**: [first-principles.md](../guides/first-principles.md) · [registry-cache.md](../guides/registry-cache.md) · [process-lifecycle.md](../guides/process-lifecycle.md)
 
@@ -116,124 +109,38 @@ graph LR
 ### Execution Flow: Dynamic Multi-Layer Parallelism
 `agent-utilities` implements a multi-stage execution pipeline with **autonomous gap analysis** and **resilient feedback loops**. The system can "fan out" research tasks in parallel before coalescing results. If implementation fails, it can automatically retry locally or loop back to research.
 
-```mermaid
-  graph TB
-  Start(["ORCH-1.0: User Query + Images"]) --> ACPLayer["<b>ACP / AG-UI / SSE </b><br/><i>(Unified Protocol Layer)</i>"]
-  ACPLayer --> UsageGuard["ORCH-1.3: Usage Guard: Rate Limiting"]
-  UsageGuard -- "Allow" --> router_step["ORCH-1.2: Router: Topology Selection"]
-  UsageGuard -- "Block" --> End(["ORCH-1.21: End Result"])
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Execution flow: dynamic multi-layer parallelism</p>
 
-  router_step -- "Trivial Query" --> End
-  router_step -- "Full Pipeline" --> dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
-  dispatcher -- "First Entry" --> mem_step["KG-2.3: Memory: Context Retrieval"]
-  mem_step --> dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
+A user query + images enters through the unified protocol layer
+(ACP/AG-UI/SSE), passes the Usage Guard (rate limiting) — a block ends
+the run immediately — and reaches the router, which selects a topology:
+a trivial query ends immediately; a full pipeline reaches the
+Dispatcher.
 
-  subgraph "ORCH-1.2: Discovery Phase"
-    direction TB
-    Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
-    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
-    KGDiscovery["<b>Unified Discovery</b><br/>---<br/><i>source:</i> Knowledge Graph<br/>"]
-    res_joiner["ORCH-1.0: Research Joiner: Barrier Sync"]
-  end
+On first entry, the Dispatcher retrieves context via the Memory step
+before continuing. For a "research first" plan, the Dispatcher fans out
+in parallel to the **Discovery Phase**: Researcher (web-search,
+web-crawler, web-fetch; project_search, read_workspace_file), Architect
+(c4-architecture, spec-generator, product-strategy, user-research,
+brainstorming; developer_tools), and Unified Discovery (Knowledge
+Graph). All three join at a barrier sync (Research Joiner), which
+returns coalesced context to the Dispatcher.
 
-  dispatcher -- "Research First" --> Researcher
-  dispatcher -- "Research First" --> Architect
-  dispatcher -- "Research First" --> KGDiscovery
-  Researcher --> res_joiner
-  Architect --> res_joiner
-  KGDiscovery --> res_joiner
-  res_joiner -- "Coalesced Context" --> dispatcher
+For implementation, the Dispatcher fans out to the **Execution Phase**,
+grouped into three pools: Programmers (Python, TypeScript, Go, Rust, C,
+C++, JavaScript — each with its own skill/tool set), Infrastructure
+(DevOps, Cloud, Database), and Specialized & Quality (Security, QA,
+UI/UX, Debugger). All three pools join at a second barrier sync
+(Execution Joiner), which returns implementation results to the
+Dispatcher.
 
-  subgraph "Execution Phase"
-    direction TB
-
-    subgraph "Programmers"
-      direction LR
-      PyP["<b>Python</b><br/>---<br/><i>u-skill:</i> agent-builder, tdd-methodology, mcp-builder, jupyter-notebook<br/><i>g-skill:</i> python-docs, fastapi-docs, pydantic-ai-docs<br/><i>t-tool:</i> developer_tools"]
-      TSP["<b>TypeScript</b><br/>---<br/><i>u-skill:</i> react-development, web-artifacts, tdd-methodology, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs, nextjs-docs, shadcn-docs<br/><i>t-tool:</i> developer_tools"]
-      GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
-      RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
-      CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
-      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>t-tool:</i> developer_tools"]
-      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
-    end
-
-    subgraph "Infrastructure"
-      direction LR
-      DevOps["<b>DevOps</b><br/>---<br/><i>u-skill:</i> cloudflare-deploy<br/><i>g-skill:</i> docker-docs, terraform-docs<br/><i>t-tool:</i> developer_tools"]
-      Cloud["<b>Cloud</b><br/>---<br/><i>u-skill:</i> c4-architecture<br/><i>g-skill:</i> aws-docs, azure-docs, gcp-docs<br/><i>t-tool:</i> developer_tools"]
-      DBA["<b>Database</b><br/>---<br/><i>u-skill:</i> database-tools<br/><i>g-skill:</i> postgres-docs, mongodb-docs, redis-docs<br/><i>t-tool:</i> developer_tools"]
-    end
-
-    subgraph Specialized ["Specialized & Quality"]
-      direction LR
-      Sec["<b>Security</b><br/>---<br/><i>u-skill:</i> security-tools<br/><i>g-skill:</i> linux-docs<br/><i>t-tool:</i> developer_tools"]
-      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> spec-verifier, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
-      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
-      Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
-    end
-  Programmers --> exe_joiner["ORCH-1.0: Execution Joiner: Barrier Sync"]
-  Infrastructure --> exe_joiner
-  Specialized --> exe_joiner
-
-  exe_joiner -- "Implementation Results" --> dispatcher
-
-  dispatcher -- "Plan Complete" --> verifier["AHE-3.1: Verifier: Quality Gate"]
-  verifier -- "Score ≥ 0.7" --> synthesizer["ORCH-1.0: Synthesizer: Response Composition"]
-  verifier -- "Score 0.4-0.7" --> dispatcher
-  verifier -- "Score < 0.4" --> planner_step["ORCH-1.1: Planner: Re-plan with Feedback"]
-  planner_step --> dispatcher
-  synthesizer -- "Final Response" --> End
-  dispatcher -- "Terminal Failure" --> End
-
-  %% Styling
-  style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  style MCPDiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-
-  style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-  style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style GoP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style RustP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CPP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style JSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-
-  style Infrastructure fill:#fad9b8,stroke:#d6b656,stroke-width:2px
-  style DevOps fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-  style Cloud fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-  style DBA fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-
-  style Specialized fill:#e0d3f5,stroke:#82b366,stroke-width:2px
-  style Sec fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style QA fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style UIUX fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style Debug fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-
-  style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-  style synthesizer fill: #d5e8d4,stroke:#82b366,stroke-width:2px
-  style planner_step fill: #dae8fe,stroke:#6c8ebf,stroke-width:2px
-  style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
-  style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-  style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-  style dispatcher fill:#f5f5f5,stroke:#666,stroke-width:2px
-  style Start color:#000000,fill:#38B6FF
-	style subGraph0 color:#000000,fill:#f5ebd3
-	style subGraph5 color:#000000,fill:#f5f1d3
-	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
-  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-  style ACPLayer color:#000000,fill:#38B6FF,stroke-width:2px
-  style Start color:#000000,fill:#38B6FF
-	style subGraph0 color:#000000,fill:#f5ebd3
-	style subGraph5 color:#000000,fill:#f5f1d3
-	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
-  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-
-```
+Once the plan is complete, the Verifier scores the result: >= 0.7
+proceeds to the Synthesizer, which composes the final response and
+ends; 0.4-0.7 loops back to the Dispatcher; < 0.4 goes to the Planner
+to re-plan with feedback, which also loops back to the Dispatcher. A
+terminal failure at the Dispatcher also ends the run.
+</div>
 
 ---
 
@@ -261,28 +168,22 @@ By routing communication through embedding projections (latent space), Recursive
 
 ### Latent Collaboration Architecture
 
-```mermaid
-graph TD
-    UserQuery["User Query / Task Input"] --> Agent1["Agent A (e.g. Planner) <br/> (Model Frozen)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Latent collaboration: two frozen agents linked by RecursiveLink projections</p>
 
-    %% Agent A loops internally
-    Agent1 -->|Hidden States| InnerLinkA["Inner RecursiveLink A <br/> (Self-thoughts loop)"]
-    InnerLinkA -->|Self-Feed Embeddings| Agent1
+A user query reaches Agent A (e.g. Planner, model frozen). Agent A's
+hidden states loop internally through Inner RecursiveLink A (a
+self-thoughts loop), self-feeding embeddings back into Agent A. Agent
+A's raw output activations also pass through Outer RecursiveLink AB
+(projection & dimension matching) as projected embeddings into Agent B
+(e.g. Specialist, model frozen).
 
-    %% Connection between A and B
-    Agent1 -->|Raw Output Activations| OuterLinkAB["Outer RecursiveLink AB <br/> (Projection & Dimension Matching)"]
-    OuterLinkAB -->|Projected Embeddings| Agent2["Agent B (e.g. Specialist) <br/> (Model Frozen)"]
-
-    %% Agent B loops internally
-    Agent2 -->|Hidden States| InnerLinkB["Inner RecursiveLink B"]
-    InnerLinkB -->|Self-Feed Embeddings| Agent2
-
-    %% Loop back or Final Text Output
-    Agent2 -->|Raw Output Activations| OuterLinkBA["Outer RecursiveLink BA <br/> (Recurrent Loop Link)"]
-    OuterLinkBA -->|Round t+1 Latent Feed| Agent1
-
-    Agent2 -->|Final Round| DecodedOutput["Final Text Decoder / Response"]
-```
+Agent B likewise loops internally through Inner RecursiveLink B. Agent
+B's raw output activations pass through Outer RecursiveLink BA (a
+recurrent loop link) back to Agent A as the round t+1 latent feed —
+closing the collaboration loop. On the final round, Agent B's output
+instead reaches the final text decoder/response.
+</div>
 
 #### Key Components:
 * **RecursiveLink**: A lightweight, multi-layer projection module that acts as the connective tissue between models, leaving original LLM weights completely frozen:
@@ -296,16 +197,17 @@ graph TD
 
 To implement RecursiveMAS without introducing performance overhead or heavy dependencies into the core framework, `agent-utilities` employs a decoupled **Dual-Architecture Strategy**:
 
-```mermaid
-graph TD
-    TaskIn(["Incoming Task"]) --> ModelCheck{"Is Model Local & <br/> Open-Weights?"}
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Dual-architecture strategy: local weights vs. API simulation</p>
 
-    ModelCheck -- "Yes (Local GPU)" --> LocalPath["<b>Native Open-Weights Pipeline</b> <br/> - Dynamic PyTorch/vLLM import <br/> - Last hidden state weight access <br/> - Direct projection tensors"]
-    ModelCheck -- "No (Off-the-shelf API)" --> APIPath["<b>Universal API Semantic Simulator</b> <br/> - Zero extra VRAM/PyTorch imports <br/> - Local REPL variable state passing <br/> - Semantic thought vectors via embeddings"]
-
-    LocalPath --> Execution["Orchestration Engine Execution"]
-    APIPath --> Execution
-```
+An incoming task checks whether its model is local & open-weights. If
+yes (local GPU), it runs the native open-weights pipeline: dynamic
+PyTorch/vLLM import, last-hidden-state weight access, direct projection
+tensors. If no (off-the-shelf API), it runs the universal API semantic
+simulator: zero extra VRAM/PyTorch imports, local REPL variable state
+passing, semantic thought vectors via embeddings. Both paths converge on
+Orchestration Engine execution.
+</div>
 
 #### 1. Native Open-Weights Pipeline (Optional GPU Mode)
 For specialized local runs executing open-source weights (via PyTorch, Hugging Face `transformers`, or custom vLLM adapters):
@@ -363,7 +265,7 @@ across sessions, providers, and hosts — through the universal `bus_join`/`bus_
 can stand up agent-to-agent communication, and `action=swarm` gives each wave a shared bus topic
 so peers announce work and share findings instead of duplicating. Heavy work is handed to the
 fleet with `graph_bus(action='dispatch')`. Full design:
-[Agent Communication Bus](../architecture/agent_bus.md).
+[Agent Communication Bus](https://knuckles-team.github.io/graph-os/architecture/agent-bus/).
 
 ### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path { #ontology-workflow-execution }
 
@@ -442,13 +344,13 @@ sidecar (the markdown mirror stays human-readable). Surfaced over the harness MC
 server as `task_parse_prd`, `task_analyze_complexity`, `task_next`, `task_set_status`,
 and `task_scope` (`mcp/harness_server.py`).
 
-```mermaid
-flowchart LR
-    PRD[PRD / goal] -->|parse_prd| T[(Tasks\n.specify + tasks.json)]
-    T -->|analyze_complexity| S[scores +\nrecommended subtasks]
-    S -->|scope_task up/down| T
-    T -->|validate_dependencies| G{cycle?}
-    G -- yes --> X[reject]
-    G -- no --> N[next_task]
-    N -->|work + set_task_status| T
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Task lifecycle: parse, score, scope, validate, work</p>
+
+`parse_prd` turns a PRD/goal into Tasks (`.specify` + `tasks.json`).
+`analyze_complexity` scores those tasks and recommends subtasks, which
+`scope_task` (up/down) writes back into Tasks. `validate_dependencies`
+checks for a cycle: a cycle rejects; otherwise `next_task` selects the
+next task, and working it calls `set_task_status`, writing back into
+Tasks.
+</div>

@@ -38,78 +38,36 @@ The five clusters below mirror how the code is organized.
 
 How the two MCP surfaces reach the engine seams and the new modules, grouped by cluster.
 
-```mermaid
-flowchart TD
-    subgraph SURFACES["MCP / REST surfaces"]
-        GS["graph_search&nbsp;(query_tools.py)<br/>modes: adore · chrono_ids · rerank · hybrid"]
-        GA["graph_analyze&nbsp;(analysis_tools.py)<br/>actions: recommend · evolve_code ·<br/>contradictions · night_shift"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two MCP surfaces reach the engine seams and six module clusters</p>
 
-    subgraph ENGINE["Engine seams"]
-        SH["search_hybrid()<br/>engine_query.py"]
-        AEE["AgenticEvolutionEngine.run_evolution_cycle()<br/>agentic_evolution_engine.py"]
-        TD["TraceDistiller.distill()<br/>continuous_evaluation_engine.py"]
-    end
+Two MCP/REST surfaces dispatch by mode/action: `graph_search`
+(`query_tools.py`) defaults to `search_hybrid()`, and also supports mode
+`adore` (`iterative_expansion.py`, KG-2.88) and mode `chrono_ids`
+(`temporal_semantic_id.py`). `graph_analyze` (`analysis_tools.py`)
+dispatches `recommend` to `generative_recommender.py`, `evolve_code` to
+`AgenticEvolutionEngine.run_evolution_cycle()`, `contradictions` to
+`contradiction_detector.py`, and `night_shift` to `night_shift.py`.
 
-    subgraph RET["Retrieval cluster"]
-        SG["AU-KG.retrieval.unset-dependency-free score_gate.py<br/>+ neural_reranker.py"]
-        CID["AU-KG.query.chronoid-fits-residual-quantization temporal_semantic_id.py"]
-        TASR["AU-KG.retrieval.adaptive-stopping-iterative-retrieval adaptive_stopping.py"]
-        ADORE["KG-2.88 iterative_expansion.py"]
-        PR["AU-KG.retrieval.pauserec-implicit-reasoning-generative generative_recommender.py"]
-    end
+**Retrieval cluster.** `search_hybrid()` calls `score_gate.py` +
+`neural_reranker.py` and `temporal_semantic_id.py`;
+`iterative_expansion.py` (ADORE) calls `adaptive_stopping.py`;
+`generative_recommender.py` calls `temporal_semantic_id.py`.
 
-    subgraph MEM["Memory + bandit"]
-        DM["AU-KG.memory.ahe-record-this-base decentralized_memory.py"]
-        RT["AHE-3.33 explore_exploit_router.py"]
-    end
+**Self-evolution.** `AgenticEvolutionEngine.run_evolution_cycle()` calls
+`self_guided_play.py`, `decentralized_memory.py`,
+`fast_slow_controller.py`, and `graph_search_evolution.py`.
+`decentralized_memory.py` feeds the **memory + bandit** module
+`explore_exploit_router.py`; `fast_slow_controller.py` feeds
+`substrate_trainer.py`.
 
-    subgraph EVO["Self-evolution"]
-        SGS["AU-AHE.harness.when-task-is-scope self_guided_play.py"]
-        GSE["AU-KG.retrieval.monte-carlo-graph-search graph_search_evolution.py"]
-        FST["AU-ORCH.execution.feed-cycle-outcome-fast fast_slow_controller.py"]
-        ST["AU-ORCH.execution.substrate-training-job-emission substrate_trainer.py"]
-    end
+**Eval / research-craft.** `TraceDistiller.distill()`
+(`continuous_evaluation_engine.py`) calls `forecasting.py`,
+`baseline_overfit_gate.py`, `research_log.py`, and
+`eval_set_optimizer.py`.
 
-    subgraph CRAFT["Eval / research-craft"]
-        ESO["AU-ORCH.execution.eval-set-optimization-compounding eval_set_optimizer.py"]
-        FB["AHE-3.34 forecasting.py"]
-        BOG["AU-AHE.assimilation.baseline-overfit-gate baseline_overfit_gate.py"]
-        RL["AHE-3.36 research_log.py"]
-    end
-
-    subgraph NIGHT["Night-shift"]
-        CD["AU-KG.research.explicit-node-node-contradiction contradiction_detector.py"]
-        NSS["AU-KG.research.run-one-autonomous-night night_shift.py"]
-    end
-
-    GS -->|"default-on"| SH
-    GS -->|"mode adore"| ADORE
-    GS -->|"mode chrono_ids"| CID
-    GA -->|"recommend"| PR
-    GA -->|"evolve_code"| AEE
-    GA -->|"contradictions"| CD
-    GA -->|"night_shift"| NSS
-
-    SH --> SG
-    SH --> CID
-    ADORE --> TASR
-    PR --> CID
-
-    AEE --> SGS
-    AEE --> DM
-    AEE --> FST
-    AEE --> GSE
-    DM --> RT
-    FST --> ST
-
-    TD --> FB
-    TD --> BOG
-    TD --> RL
-    TD --> ESO
-
-    NSS --> CD
-```
+**Night-shift.** `night_shift.py` calls `contradiction_detector.py`.
+</div>
 
 ---
 
@@ -140,27 +98,26 @@ All retrieval concepts live under `knowledge_graph/retrieval/`. `ScoreGate` and 
   → retrieve → graded-relevance judge (0..3) → `IterativeStopper.update`, returning a
   `SearchHistory`. Surfaced via `graph_search` mode `adore`.
 
-```mermaid
-flowchart TD
-    Q["query (graph_search)"] --> MODE{mode}
+<div class="admonition architecture" markdown>
+<p class="admonition-title">graph_search dispatches by mode to three retrieval paths</p>
 
-    MODE -->|"standard / hybrid (default)"| SH["search_hybrid()"]
-    SH --> RETR["hybrid_retriever.retrieve_hybrid()<br/>bi-encoder _score + reranker _rerank_score"]
-    RETR --> SGATE["AU-KG.retrieval.unset-dependency-free score_gate(keep_z=-1.0)<br/>z-fuse two scores → trim weak tail"]
-    SGATE --> TB["AU-KG.query.chronoid-fits-residual-quantization _annotate_time_buckets()<br/>add _time_bucket"]
-    TB --> OUT["ranked results (score, _time_bucket)"]
+A `graph_search` query dispatches on mode. **Standard/hybrid (default)**:
+`search_hybrid()` -> `hybrid_retriever.retrieve_hybrid()` (bi-encoder
+`_score` + reranker `_rerank_score`) -> `score_gate(keep_z=-1.0)`
+(z-fuses the two scores, trims the weak tail) ->
+`_annotate_time_buckets()` (adds `_time_bucket`) -> ranked results
+(score, `_time_bucket`).
 
-    MODE -->|"chrono_ids"| CHR["AU-KG.query.chronoid-fits-residual-quantization temporal_semantic_ids()<br/>(time_bucket, *content_codes)"]
-    CHR --> OUT
+**`chrono_ids`**: `temporal_semantic_ids()` produces
+`(time_bucket, *content_codes)` directly as ranked results.
 
-    MODE -->|"adore"| ADO["KG-2.88 IterativeQueryExpander.run()"]
-    ADO --> REF["reformulate → build_expanded_query(alpha)"]
-    REF --> JR["retrieve → judge grade 0..3"]
-    JR --> STOP{"AU-KG.retrieval.adaptive-stopping-iterative-retrieval IterativeStopper.update()"}
-    STOP -->|"answer_repeat /<br/>coverage_saturation /<br/>max_rounds"| FIN["SearchHistory final_ranking"]
-    STOP -->|"keep going"| REF
-    FIN --> OUT
-```
+**`adore`**: `IterativeQueryExpander.run()` (KG-2.88) loops reformulate
+-> `build_expanded_query(alpha)` -> retrieve -> judge grade (0..3) ->
+`IterativeStopper.update()`, which either stops (on `answer_repeat`,
+`coverage_saturation`, or `max_rounds`) and returns
+`SearchHistory.final_ranking` as the ranked results, or loops back to
+reformulate.
+</div>
 
 ---
 
@@ -180,26 +137,23 @@ Wired into `agentic_evolution_engine.py::run_evolution_cycle` (the memory routin
   is the canonical UCB1 formula, kept as a parity reference to
   `epistemic_graph.quant.ucb1_scores`.
 
-```mermaid
-flowchart TD
-    CYC["run_evolution_cycle winners"] --> REC["DecentralizedMemory.record_trajectory()<br/>(EXPLOIT pool)"]
-    REC --> RWD{"population collapsed?"}
-    RWD -->|"yes"| RE["reward(EXPLORE, 1.0)<br/>encourage exploration"]
-    RWD -->|"no"| RX["reward(EXPLOIT, 1.0)<br/>encourage exploitation"]
-    RE --> RT["AHE-3.33 ExploreExploitRouter.update()"]
-    RX --> RT
-    RT --> SEL["choose_pool() next cycle<br/>UCB1 / Thompson select()"]
-    SEL -.->|"feedback"| REC
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Reward signals the bandit router, which chooses next cycle's pool</p>
 
-    subgraph POOLS["per-agent pools (privacy-scoped recall)"]
-        EX["EXPLOIT: proven trajectories"]
-        EP["EXPLORE: fresh candidates"]
-        EP -->|"promote()"| EX
-    end
-    REC --> EX
-    CAND["propose_candidate()"] --> EP
-    RT --> STATS["router_stats(): counts · means · regret"]
-```
+`run_evolution_cycle`'s winners feed
+`DecentralizedMemory.record_trajectory()` (into the EXPLOIT pool). If the
+population collapsed, the cycle rewards EXPLORE (1.0) to encourage
+exploration; otherwise it rewards EXPLOIT (1.0) to encourage
+exploitation. Either reward feeds `ExploreExploitRouter.update()`
+(AHE-3.33), which informs `choose_pool()` for the next cycle (UCB1 or
+Thompson `select()`) — feeding back into the next `record_trajectory()`
+call. The router also exposes `router_stats()` (counts, means, regret).
+
+Separately, per-agent pools (privacy-scoped recall) hold EXPLOIT (proven
+trajectories, fed by `record_trajectory()`) and EXPLORE (fresh
+candidates, fed by `propose_candidate()`); EXPLORE candidates move to
+EXPLOIT via `promote()`.
+</div>
 
 ---
 
@@ -229,22 +183,27 @@ evolution), surfaced via `graph_analyze` action `evolve_code`.
   skipped) and calls the injected `dispatch_fn` (the DSM substrate); `as_trainer_fn`
   adapts it to the controller.
 
-```mermaid
-flowchart TD
-    START["run_evolution_cycle(base_id, task_text)"] --> TS["tournament_select + prune_losers<br/>→ winners, population_health"]
-    TS --> MEM["Cluster-2 memory routing<br/>(DecentralizedMemory + bandit)"]
-    MEM --> SP["AU-AHE.harness.when-task-is-scope SelfGuidedSelfPlay.run()<br/>Conjecturer → Guide → Solver<br/>+ plateau breaker"]
-    SP --> OBS["FastSlowController.observe(Trace(reward=spread))"]
-    OBS --> FAST["AU-ORCH.execution.feed-cycle-outcome-fast fast_step()<br/>update harness now"]
-    FAST --> SLOW["AU-ORCH.execution.feed-cycle-outcome-fast slow_step()<br/>recurring task_keys → GRPO advantage"]
-    SLOW --> TRAIN["AU-ORCH.execution.substrate-training-job-emission SubstrateTrainer.train()<br/>build_corpus → TrainingJobSpec"]
-    TRAIN --> DISP["dispatch_fn → DSM substrate<br/>(recorded | dispatched | skipped)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two evolution paths: the main cycle, and graph-search code evolution</p>
 
-    EV["graph_analyze action=evolve_code"] --> GS2["AU-KG.retrieval.monte-carlo-graph-search evolve_via_graph_search()"]
-    GS2 --> MCGS["GraphSearchEvolver.run()<br/>UCT graph search + cross-branch _fuse<br/>+ GlobalCodeMemory replay"]
-    MCGS --> CODER["injected RLM coder_fn(plan, prior) → code"]
-    MCGS --> BEST["best SearchNode (metric, branch, refs)"]
-```
+**Main cycle.** `run_evolution_cycle(base_id, task_text)` runs
+`tournament_select` + `prune_losers` to produce winners and
+population_health, which feed Cluster-2 memory routing
+(`DecentralizedMemory` + bandit). That feeds
+`SelfGuidedSelfPlay.run()` (Conjecturer -> Guide -> Solver + plateau
+breaker), which feeds `FastSlowController.observe(Trace(reward=spread))`.
+That in turn drives `fast_step()` (updates the harness now) and
+`slow_step()` (finds recurring `task_key`s -> GRPO advantage), which
+feeds `SubstrateTrainer.train()` (`build_corpus` -> `TrainingJobSpec`),
+which calls `dispatch_fn` into the DSM substrate (recorded/dispatched/
+skipped).
+
+**Graph-search code evolution.** `graph_analyze action=evolve_code` calls
+`evolve_via_graph_search()`, which runs `GraphSearchEvolver.run()` (UCT
+graph search + cross-branch `_fuse` + `GlobalCodeMemory` replay). That
+calls the injected RLM `coder_fn(plan, prior)` -> code, and produces the
+best `SearchNode` (metric, branch, refs).
+</div>
 
 ---
 
@@ -272,19 +231,19 @@ the distiller and persist across rounds (compounding IP).
   `EvalSet`; `optimize_round`/`compounding_loop` keep the suite monotonically growing —
   failures become permanent evals.
 
-```mermaid
-flowchart TD
-    D["TraceDistiller.distill(round_id)"] --> CORP["build EvidenceCorpus<br/>(traces → classify → cluster)"]
-    CORP --> TR["_triage_failures(corpus)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Distill: forecast, baseline-gate, triage, then grow the eval suite</p>
 
-    TR --> F1["AHE-3.34 forecasts.predict(round holds)"]
-    F1 --> F2["AHE-3.34 forecasts.resolve(benchmark_score)<br/>→ Brier / hit_rate / surprises"]
-    F2 --> BG["AU-AHE.assimilation.baseline-overfit-gate baseline_gate(score, last_round)<br/>warn on regression"]
-    BG --> TG["AHE-3.36 FailureTriage.from_evidence_corpus()<br/>biggest_pile() first"]
-    TG --> LOG["AHE-3.36 ResearchLog.record(supports=…)<br/>disconfirming evidence first-class"]
-    LOG --> EVG["AU-ORCH.execution.eval-set-optimization-compounding for each non-passing entry:<br/>EvalSet.add(source=production_failure)"]
-    EVG --> GROW["compounding eval suite (IP asset)"]
-```
+`TraceDistiller.distill(round_id)` builds an `EvidenceCorpus` (traces ->
+classify -> cluster), then runs `_triage_failures(corpus)` through a
+fixed pipeline: `forecasts.predict(round holds)` -> `forecasts.resolve
+(benchmark_score)` (-> Brier/hit_rate/surprises) -> `baseline_gate(score,
+last_round)` (warns on regression) -> `FailureTriage
+.from_evidence_corpus()` (`biggest_pile()` first) ->
+`ResearchLog.record(supports=…)` (disconfirming evidence first-class) ->
+for each non-passing entry, `EvalSet.add(source=production_failure)` ->
+a compounding eval suite (an IP asset).
+</div>
 
 ---
 
@@ -307,16 +266,18 @@ primitive as its Critic and an optional RLM extractor as its Cataloger.
   `edit` (cluster threads + write a morning **briefing**). Returns a `ShiftReport`.
   House rules: every atom comes from a source; never delete (retire instead).
 
-```mermaid
-flowchart TD
-    NS["graph_analyze action=night_shift"] --> SCOUT["AU-KG.research.run-one-autonomous-night scout(items)<br/>write sources/ (immutable)"]
-    SCOUT --> CAT["catalog()<br/>extract_fn → atomic notes (2-atoms/)<br/>each atom ← one source"]
-    CAT --> CART["cartograph()<br/>link atoms ≥ min_links (lexical_similarity)"]
-    CART --> CRIT["critique()<br/>AU-KG.research.explicit-node-node-contradiction ContradictionDetector.check<br/>→ [FRICTION] notes (propose-only)"]
-    CRIT --> EDIT["edit()<br/>union-find threads (3-threads/)"]
-    EDIT --> BRIEF["briefing: What Came In ·<br/>Contradictions To Resolve · Threads That Grew"]
-    BRIEF --> REP["ShiftReport(sources, atoms, links, frictions, path)"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Night-shift swarm: five stages over a markdown vault</p>
+
+`graph_analyze action=night_shift` runs `scout(items)` (writes
+`sources/`, immutable) -> `catalog()` (`extract_fn` -> atomic notes in
+`2-atoms/`, each tracing to one source) -> `cartograph()` (links atoms at
+or above `min_links` via `lexical_similarity`) -> `critique()`
+(`ContradictionDetector.check` -> `[FRICTION]` notes, propose-only) ->
+`edit()` (union-find threads in `3-threads/`) -> a briefing (What Came
+In, Contradictions To Resolve, Threads That Grew) -> a final
+`ShiftReport` (sources, atoms, links, frictions, path).
+</div>
 
 ---
 
@@ -331,20 +292,21 @@ flowchart TD
   codebook-overlap blended with cosine proximity. Surfaced via `graph_analyze` action
   `recommend`; `explain_budget()` documents that reasoning is implicit.
 
-```mermaid
-flowchart TD
-    QE["query embedding (graph_analyze action=recommend)"] --> BR["TextSidBridge.project()<br/>route query through AU-KG.query.chronoid-fits-residual-quantization codebooks → SID space"]
-    BR --> TGT["target = reconstruct(query SID)"]
-    TGT --> REF["_latent_refine() × pause_steps<br/>blend toward nearest items + history SIDs<br/>(implicit — no rationale string)"]
-    REF --> RANK["_rank(): 0.5·codebook-overlap + 0.5·cosine"]
-    RANK --> TOPK["top_k Recommendation(item_id, semantic_id, score)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">PauseRec: implicit latent refinement, ranked against a fitted catalog</p>
 
-    subgraph CAT["fit_catalog()"]
-        ITEMS["item embeddings"] --> ENC["AU-KG.query.chronoid-fits-residual-quantization encoder.fit + encode_content"]
-        ENC --> IDX["item content SIDs + reconstructed vectors"]
-    end
-    IDX -.->|"ranked against"| RANK
-```
+A query embedding (`graph_analyze action=recommend`) passes through
+`TextSidBridge.project()` (routes the query through the codebooks into
+SID space), producing a target via `reconstruct(query SID)`. That target
+is refined through `_latent_refine()` across `pause_steps` (blends toward
+nearest items + history SIDs — implicit, no rationale string), then
+`_rank()` (0.5·codebook-overlap + 0.5·cosine) produces the top_k
+`Recommendation` list (item_id, semantic_id, score).
+
+Separately, `fit_catalog()` turns item embeddings into item content SIDs
++ reconstructed vectors (via `encoder.fit` + `encode_content`), which
+`_rank()` ranks candidates against.
+</div>
 
 ---
 
@@ -402,14 +364,14 @@ Recall@3 = 1.00 with vs 0.67 without the trained tokens (torch, CPU); full *scal
 (paper datasets + GPU training) remains GPU-gated. The **inference-time** deterministic adaptation
 (`retrieval/generative_recommender.py`, `bench_pauserec`) is torch-free and stays in core.
 
-```mermaid
-flowchart LR
-    subgraph BENCH["assimilation_benchmark (AU-AHE.assimilation.empirical-parity-evidence-assimilation, torch-free)"]
-        B1["bench_pauserec / scoregate / tasr / adore<br/>decentmem / mlevolve / sgs"]
-    end
-    SURF["graph_analyze action=assimilation_benchmark"] --> BENCH
-    BENCH --> RES["BenchmarkResult[] + to_markdown<br/>baseline vs ours + claim_reproduced (7/7)"]
-    subgraph DSM["data-science-mcp[training] (re-homed, torch)"]
-        PTT["pause_token_trainer.py (AU-KG.retrieval.pauserec-implicit-reasoning-generative)<br/>trainable pause tokens + next-item CE"]
-    end
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Torch-free empirical parity in core; the trainable track lives in data-science-mcp</p>
+
+`graph_analyze action=assimilation_benchmark` runs the torch-free
+`assimilation_benchmark` suite (`bench_pauserec`/`scoregate`/`tasr`/
+`adore`/`decentmem`/`mlevolve`/`sgs`), producing `BenchmarkResult[]` +
+`to_markdown` (baseline vs ours + `claim_reproduced`, 7/7). The
+PauseRec training track — trainable pause tokens + next-item CE
+(`pause_token_trainer.py`) — is re-homed separately to
+`data-science-mcp[training]` (torch), outside this torch-free benchmark.
+</div>

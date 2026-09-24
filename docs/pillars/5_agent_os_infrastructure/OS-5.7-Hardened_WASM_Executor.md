@@ -10,29 +10,20 @@ By utilizing the standard `wasmtime` engine, the sandbox guarantees memory safet
 The WASM executor operates in two modes:
 
 ### Native Mode (wasmtime installed)
-```
-                ┌─────────────────────────────────────────────┐
-                │              WasmAgentRunner                │
-                │                                             │
-  JSON input ──►│  1. Configure wasmtime Engine (Cranelift)   │
-                │  2. Store + Module compilation              │
-                │  3. Linker → Instantiate module             │
-                │  4. Allocate linear memory for input        │
-                │  5. Write JSON bytes to WASM memory         │
-                │  6. Call run(ptr, len) → output_ptr         │
-                │  7. Read output from WASM memory            │
-                │  8. Parse JSON output                       │──► JSON output
-                └─────────────────────────────────────────────┘
-```
+
+JSON input drives `WasmAgentRunner` through eight steps: (1) configure
+the wasmtime Engine (Cranelift); (2) Store + module compilation; (3)
+Linker -> instantiate module; (4) allocate linear memory for input; (5)
+write JSON bytes to WASM memory; (6) call `run(ptr, len)` ->
+`output_ptr`; (7) read output from WASM memory; (8) parse JSON output ->
+JSON output.
 
 ### Emulation/Fallback Mode (no wasmtime)
-```
-  JSON input ──► Action Router ──► safe_eval_math() ──► JSON output
-                     │
-                     ├── calculate_fees (base + state + expedited)
-                     ├── draft_calculations (shares × par value)
-                     └── expand_template ({{variable}} substitution)
-```
+
+JSON input passes through the Action Router into `safe_eval_math()`,
+which dispatches to `calculate_fees` (base + state + expedited),
+`draft_calculations` (shares × par value), or `expand_template`
+(`{{variable}}` substitution), producing JSON output.
 
 ## Gas Model
 
@@ -51,17 +42,15 @@ Future enhancement: Explicit `fuel` metering (wasmtime's `consume_fuel` API) to 
 
 WASM provides **linear memory isolation** — the sandbox cannot access host memory, filesystem, or network:
 
-```
-Host Process Memory
-├── Python heap (unreachable from WASM)
-├── wasmtime Engine state
-└── WASM Store
-    └── Linear Memory (sandboxed)
-        ├── [0..input_ptr]: Reserved
-        ├── [input_ptr..input_ptr+len]: Input JSON bytes
-        ├── [output_ptr..output_ptr+4096]: Output JSON bytes
-        └── [4096+..]: Available for module-internal use
-```
+- Host Process Memory
+    - Python heap (unreachable from WASM)
+    - wasmtime Engine state
+    - WASM Store
+        - Linear Memory (sandboxed)
+            - `[0..input_ptr]`: reserved
+            - `[input_ptr..input_ptr+len]`: input JSON bytes
+            - `[output_ptr..output_ptr+4096]`: output JSON bytes
+            - `[4096+..]`: available for module-internal use
 
 ### Memory Safety Guarantees
 1. **No pointer escapes** — WASM pointers are offsets into linear memory, not host addresses

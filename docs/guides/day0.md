@@ -99,7 +99,7 @@ TLS profiles, and runtime secret references before registration.
 Do not commit the selected inventory, discovered endpoints, resolved certificates,
 or source-system credentials. Universal external graph sources are configured through
 `EXTERNAL_GRAPH_CONNECTORS`; see
-[Universal external graph connectors](../architecture/universal-external-graph-connectors.md).
+[Universal external graph connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 
 ### 4. Configure integrations in XDG AgentConfig
 

@@ -51,17 +51,17 @@ completed before the cap tripped (`results.partial_results`) alongside the
 error and the full `tool_calls` provenance — a budget-exhausted run is never
 recorded as a clean success, and it never silently loses the work already done.
 
-```mermaid
-flowchart TD
-    D[dispatcher_step] -->|node_transitions > cap| E1[state.error = budget exceeded: node transitions]
-    D -->|len tool_calls > cap| E2[state.error = budget exceeded: tool calls]
-    D -->|total_tokens > cap| E3[state.error = budget exceeded: total tokens]
-    D -->|cost_usd > cap| E4[state.error = budget exceeded: cost usd]
-    D -->|elapsed > cap| E5[state.error = budget exceeded: duration]
-    E1 & E2 & E3 & E4 & E5 --> R[error_recovery_step]
-    R -->|budget exceeded -- ALWAYS terminal| T["End({error, results, budget_exceeded: true})"]
-    T --> G["run_graph: outcome=budget_exceeded + budget_dimension\npartial_results + tool_calls preserved"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Any of five budget caps terminates the same way</p>
+
+`dispatcher_step` checks five independent caps — node_transitions,
+`len(tool_calls)`, total_tokens, cost_usd, elapsed — and exceeding any
+one sets `state.error` to the matching "budget exceeded" message. Any of
+those five routes to `error_recovery_step`, which always terminates via
+`End({error, results, budget_exceeded: true})`. `run_graph` then reports
+`outcome=budget_exceeded` + the specific `budget_dimension`, preserving
+`partial_results` and `tool_calls`.
+</div>
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/graph/state.py`` (cost governors, payload truncation), ``agent_utilities/models/usage.py`` (``ExecutionBudget``), ``agent_utilities/graph/_router_impl.py`` (enforcement), ``agent_utilities/graph/verification.py`` (terminal classification), ``agent_utilities/orchestration/engine.py`` (outcome surfacing), ``agent_utilities/orchestration/loop_guards.py`` (``DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT``)

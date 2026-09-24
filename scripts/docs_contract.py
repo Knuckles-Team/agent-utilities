@@ -37,8 +37,8 @@ DOCS = ROOT / "docs"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"
 CONFIG_CATALOG = DOCS / "reference" / "runtime-configuration.md"
-CAPABILITY_CATALOG = DOCS / "capabilities-power.md"
-CAPABILITY_DATA = DOCS / "capabilities-power.json"
+CAPABILITY_CATALOG = ROOT / "contract" / "capabilities-power.md"
+CAPABILITY_DATA = ROOT / "contract" / "capabilities-power.json"
 GRAPHOS_SURFACE_DOC = DOCS / "pillars" / "4_ecosystem_peripherals.md"
 SKILL_CERTIFICATION_DOC = DOCS / "release" / "skill-validation-certification.md"
 
@@ -48,10 +48,8 @@ REQUIRED_NAV = frozenset(
         "architecture/graph-authority-convergence.md",
         "architecture/mandatory-context-compiler.md",
         "architecture/observability.md",
-        "architecture/privacy-safe-external-ingestion.md",
         "architecture/self-evolution-flywheel.md",
-        "architecture/universal-external-graph-connectors.md",
-        "capabilities-power.md",
+        "https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md",
         "ecosystem-capability-fleet.md",
         "guides/kg-skill-suite.md",
         "reference/documentation-catalog.md",
@@ -140,6 +138,16 @@ def _nav_paths() -> list[str]:
 
     visit(_load_mkdocs().get("nav", []))
     return paths
+
+
+def _is_external_nav_target(value: str) -> bool:
+    """A nav leaf that deliberately points off-site (D6: a rehomed generated/
+    gated artifact that stays discoverable from nav via its GitHub blob URL
+    instead of living under docs/). Such a target can never resolve to a
+    local ``docs/`` page, so it must not be counted as an unresolved nav
+    target -- but it still satisfies a ``REQUIRED_NAV`` entry naming that
+    exact URL."""
+    return value.startswith(("http://", "https://"))
 
 
 def _site_pages() -> list[Path]:
@@ -313,17 +321,18 @@ def render_config_catalog() -> str:
         "",
         f"{typed_count} typed fields · {len(dynamic)} runtime-only call-site inputs.",
         "",
-        "```mermaid",
-        "flowchart LR",
-        "    Schema[AgentConfig schema] --> Generator[docs contract generator]",
-        "    Live[config.setting call sites] --> Generator",
-        "    Generator --> Catalog[versioned configuration catalog]",
-        "    Catalog --> Gate{drift gate}",
-        "    Gate -->|pass| XDG[XDG config or secret references at runtime]",
-        "    XDG --> Normalize[normalize persisted provenance]",
-        "    Normalize --> Neutral[repo:// · skill:// · connector://]",
-        "    Gate -->|stale or unsafe| Block[block commit and docs build]",
-        "```",
+        '<div class="admonition architecture" markdown>',
+        '<p class="admonition-title">Generation and drift-gate flow</p>',
+        "",
+        "The `AgentConfig` schema and live `config.setting` call sites both feed "
+        "the docs contract generator, which produces this versioned configuration "
+        "catalog. A drift gate compares the catalog against the schema and "
+        "call sites: on pass, values are read at runtime from the XDG config or "
+        "resolved secret references, normalized to neutral persisted provenance "
+        "(`repo://`, `skill://`, `connector://`); on stale-or-unsafe drift, the "
+        "gate blocks the commit and the docs build.",
+        "",
+        "</div>",
         "",
         "Use the XDG configuration file created by `setup-config generate`; "
         "deployment secrets must be references resolved by the configured secret store.",
@@ -427,7 +436,9 @@ def render_document_catalog() -> str:
         f"{typed_count} typed configuration fields · {len(dynamic)} runtime-only call-site inputs.",
         "",
         "The detailed public capability/action contract is the "
-        "[generated Capability Power catalog](../capabilities-power.md). The complete "
+        "[generated Capability Power catalog]"
+        "(https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md)."
+        " The complete "
         "configuration contract is the "
         "[generated Runtime Configuration catalog](runtime-configuration.md).",
         "",
@@ -605,7 +616,9 @@ def metrics() -> dict[str, int]:
         "nav_coverage": len(pages & nav),
         "catalog_coverage": len(pages & catalog),
         "orphans": len(pages - nav - catalog),
-        "missing_nav_targets": len(nav - pages),
+        "missing_nav_targets": len(
+            [target for target in (nav - pages) if not _is_external_nav_target(target)]
+        ),
     }
 
 
@@ -628,6 +641,8 @@ def check() -> list[str]:
     pages = {_relative(path) for path in _site_pages()}
     nav = set(_nav_paths())
     for missing in sorted(nav - pages):
+        if _is_external_nav_target(missing):
+            continue
         errors.append(f"mkdocs.yml points to missing page `{missing}`")
     for missing in sorted(REQUIRED_NAV - nav):
         errors.append(f"mkdocs.yml must expose `{missing}`")

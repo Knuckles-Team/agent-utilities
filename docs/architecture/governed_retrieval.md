@@ -10,24 +10,19 @@ evaluations expose canonical SHA-256 identity digests over their exact typed
 references.  Human-readable IDs are labels only; replay and cache keys use the
 canonical request/evidence/result digests.
 
-```mermaid
-flowchart LR
-    Q[Artifact ref + engine vector ref] --> R[Exact retrieval request]
-    R --> G[Current generation CAS catalog]
-    G --> A[ACL authority]
-    A --> E[Authorization evidence]
-    E --> S[Engine search]
-    S --> V[Verify tenant graph generation model dimension]
-    V --> K{Every candidate authorized?}
-    K -- no --> X[Fail closed]
-    K -- yes --> O[Deterministic ranking]
-    O --> C[Exact-key cache]
-    O --> T[Source-versioned citation]
-    T --> M[Bounded evaluation evidence]
-    D[New generation] --> G
-    G --> L[Retire and cleanup checkpoint]
-    L --> X
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Fail closed unless every candidate is authorized</p>
+
+An artifact ref + engine vector ref becomes an exact retrieval request
+against the current-generation CAS catalog, which resolves ACL authority
+into authorization evidence, driving an engine search. Results are verified
+against tenant/graph/generation/model dimensions, then gated: if any
+candidate is unauthorized, the whole request fails closed; only when every
+candidate is authorized does it proceed to deterministic ranking, which
+feeds both an exact-key cache and a source-versioned citation used as
+bounded evaluation evidence. A new generation retires and cleans up the
+prior catalog checkpoint, which also fails closed on stale reads.
+</div>
 
 ## Authority boundaries
 

@@ -10,53 +10,22 @@ This system is fully centralized within `create_mcp_server()` inside the `agent-
 
 The dynamic tool filtering flow integrates multiple input channels, processes request metadata, and performs optional high-speed, LLM-free Cypher matching against the Active Knowledge Graph:
 
-```mermaid
-flowchart TD
-    %% Input Channels
-    subgraph Inputs [Dynamic Inputs]
-        Env[1. Process Environment Variables]
-        CLI["2. CLI Overrides & CLI Parameters"]
-        Query[3. HTTP SSE/Streamable Query Params]
-        Headers[4. HTTP Request Headers]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four input channels, one filtered toolset</p>
 
-    %% Merger and Interceptor
-    subgraph Interception [FastMCP Interceptor Stack]
-        Transform[DynamicVisibilityTransform]
-        Request[Starlette Request Introspection]
-    end
-
-    %% KG Resolution
-    subgraph GraphOS [Knowledge Graph Resolution]
-        KGCheck{Query Filter Active?}
-        KGQuery[Cypher Hybrid Query Matcher]
-        KGCache{Is Cached TTL Stale?}
-        BGRefresh[Background Non-Blocking Sync]
-        Fallback[Complete Toolset Fallback]
-    end
-
-    %% Execution Target
-    subgraph Target [Exposed Sub-Toolset]
-        ActiveTools[Filtered Components Exposed to LLM]
-    end
-
-    %% Wiring
-    Env --> Transform
-    CLI --> Transform
-    Query --> Request
-    Headers --> Request
-    Request --> Transform
-
-    Transform --> KGCheck
-    KGCheck -- Yes --> KGQuery
-    KGQuery --> KGCache
-    KGCache -->|Yes >24h| BGRefresh
-    KGCache -->|No <24h| ActiveTools
-    KGQuery -- Match Found --> ActiveTools
-    KGQuery -- No Match --> Fallback
-    Fallback --> ActiveTools
-    KGCheck -- No --> ActiveTools
-```
+Four dynamic input channels feed the FastMCP interceptor stack: process
+environment variables and CLI overrides/parameters feed
+`DynamicVisibilityTransform` directly; HTTP query params and request
+headers first pass through Starlette request introspection, which also
+feeds the transform. The transform checks whether a query filter is
+active: if not, the complete toolset is exposed to the LLM as-is. If
+active, a Cypher hybrid query matcher runs against the Knowledge Graph — a
+match exposes that filtered subset; no match falls back to the complete
+toolset. Independently, a matched result's cache is checked for staleness:
+a cache older than 24h triggers a background non-blocking sync (still
+serving the current filtered result), while a fresher cache serves
+directly.
+</div>
 
 ---
 

@@ -58,20 +58,18 @@ the SAME committed slice as a real graph node — case-notion flattening is
 disclosed and versioned in the graph, never a silent side channel
 (CONCEPT:AU-KG.mining.governed-perspective-flattening).
 
-```mermaid
-flowchart LR
-    O[Official four-array OCEL 2.0 JSON] --> V["Validate declarations, values, references"]
-    V --> S[ObjectCentricGraphSlice]
-    S --> E[Deterministic official OCEL export]
-    S -- to_graph_slice --> N["(entities, links) — what a ChangeEnvelope commits"]
-    N -- from_graph_slice --> S2[Reconstructed ObjectCentricGraphSlice]
-    S2 --> E
-    G[Verified tenant + source + provenance] --> C
-    Pv["Disclosed ProcessPerspective\n(perspective_id + derivation_version)"] --> S3
-    S -- fold perspective --> S3[Committed slice incl. perspective]
-    S3 --> C[Tenant-scoped ChangeEnvelope]
-    C -- ingest_envelope --> KG[(Knowledge Graph)]
-    S --> P[Object perspective projection]
-    Pv --> P
-    P --> M[Native process mining]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Round-trip OCEL, perspective-folded, into a tenant-scoped commit</p>
+
+An official four-array OCEL 2.0 JSON document is validated (declarations,
+values, references) into an `ObjectCentricGraphSlice`, which can export
+back to deterministic official OCEL directly, or via `to_graph_slice` become
+`(entities, links)` — exactly what a `ChangeEnvelope` commits — which
+`from_graph_slice` can reconstruct into a second slice that also exports.
+Separately, the slice folds a disclosed `ProcessPerspective`
+(perspective_id + derivation_version) into a committed slice including that
+perspective, which combines with verified tenant/source/provenance into a
+tenant-scoped `ChangeEnvelope`, ingested into the Knowledge Graph via
+`ingest_envelope`. The original slice, together with the perspective, also
+drives an object perspective projection feeding native process mining.
+</div>

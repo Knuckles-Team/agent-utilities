@@ -38,26 +38,19 @@ that adapts the other.
 
 ## The neutral seam
 
-```
-                    application call site
-                            │
-                            │  family="…"
-                            ▼
-     agent_utilities.httpsupport.transport_factory
-        create_http_client / create_async_http_client
-                            │
-              ┌─────────────┴─────────────┐
-              │ family in                 │ (default)
-              │ MIGRATED_HTTPX2_FAMILIES  │
-              ▼                            ▼
-    httpsupport.httpx2_adapter   httpsupport.httpx_adapter
-    Httpx2Adapter/AsyncHttpx2Adapter   HttpxAdapter/AsyncHttpxAdapter
-              │                            │
-       httpx2.Client/AsyncClient   core.http_client.create_*_http_client()
-              │                            │   (unchanged — DNS pinning,
-              ▼                            ▼    air-gap guard, retry, TLS)
-        real httpx2 transport        real httpx transport
-```
+The application call site passes `family="…"` to
+`agent_utilities.httpsupport.transport_factory`'s
+`create_http_client`/`create_async_http_client`, which branches on
+whether that family is in `MIGRATED_HTTPX2_FAMILIES`.
+
+If it is, the factory returns `httpsupport.httpx2_adapter`'s
+`Httpx2Adapter`/`AsyncHttpx2Adapter`, backed by
+`httpx2.Client`/`AsyncClient` — the real httpx2 transport.
+
+Otherwise (the default), it returns `httpsupport.httpx_adapter`'s
+`HttpxAdapter`/`AsyncHttpxAdapter`, backed by
+`core.http_client.create_*_http_client()` (unchanged — DNS pinning,
+air-gap guard, retry, TLS) — the real httpx transport.
 
 Both adapters implement the same structural protocol
 (`agent_utilities.httpsupport.client_protocol.HttpClient` /

@@ -22,72 +22,38 @@ This enables:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────┐
-│                 ONTOLOGY LAYER                   │
-│                                                  │
-│   ServiceCapability (abstract root)              │
-│   ├── DNSCapability                              │
-│   ├── ReverseProxyCapability                     │
-│   ├── VPNCapability                              │
-│   ├── ContainerOrchestrationCapability           │
-│   ├── MonitoringCapability                       │
-│   ├── UptimeMonitoringCapability                 │
-│   ├── ITSMCapability                             │
-│   ├── ERPCapability                              │
-│   ├── CRMCapability                              │
-│   ├── EnterpriseArchitectureCapability           │
-│   ├── AuthenticationCapability                   │
-│   ├── SecretManagementCapability                 │
-│   ├── CollaborationCapability                    │
-│   ├── MailingCapability                          │
-│   ├── SocialMediaCapability                      │
-│   ├── SourceControlCapability                    │
-│   ├── CICDCapability                             │
-│   ├── DocumentManagementCapability               │
-│   ├── ResearchCapability                         │
-│   └── FinancialExchangeCapability                │
-│                                                  │
-│   VPNPurpose taxonomy:                           │
-│     SecurityVPN, CorporateVPN, CustomerVPN,      │
-│     PartnerVPN, SiteToSiteVPN, RemoteAccessVPN   │
-│                                                  │
-│   DevelopmentDomain / DevelopmentStandard         │
-│     (runtime-extensible — no hardcoded domains)  │
-└────────────────────┬────────────────────────────┘
-                     │ owl:imports
-┌────────────────────┴────────────────────────────┐
-│              HYDRATION PIPELINE                  │
-│                                                  │
-│   CAPABILITY_REGISTRY (hydration.py)             │
-│   ┌─────────────┬────────────────┬─────────────┐ │
-│   │ source key  │ category       │ method      │ │
-│   ├─────────────┼────────────────┼─────────────┤ │
-│   │ gitlab      │ source_control │ _hydrate_…  │ │
-│   │ servicenow  │ itsm           │ _hydrate_…  │ │
-│   │ caddy       │ reverse_proxy  │ _hydrate_…  │ │
-│   │ ...         │ ...            │ ...         │ │
-│   └─────────────┴────────────────┴─────────────┘ │
-│                                                  │
-│   hydrate_source() resolves via registry,        │
-│   not hard-coded method dispatch.                │
-└────────────────────┬────────────────────────────┘
-                     │ providesCapability
-┌────────────────────┴────────────────────────────┐
-│              OWL BRIDGE (owl_bridge.py)           │
-│                                                  │
-│   PROMOTABLE_NODE_TYPES includes:                │
-│     service_capability, vpn_purpose,             │
-│     development_domain, development_standard,    │
-│     ea_fact_sheet, process_model                 │
-│                                                  │
-│   PROMOTABLE_EDGE_TYPES includes:                │
-│     provides_capability, requires_capability,    │
-│     swappable_with, has_purpose,                 │
-│     applies_to_domain, works_on_domain,          │
-│     must_follow                                  │
-└──────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Ontology layer, hydration pipeline, and OWL bridge</p>
+
+**Ontology layer.** `ServiceCapability` (abstract root) has subclasses
+`DNSCapability`, `ReverseProxyCapability`, `VPNCapability`,
+`ContainerOrchestrationCapability`, `MonitoringCapability`,
+`UptimeMonitoringCapability`, `ITSMCapability`, `ERPCapability`,
+`CRMCapability`, `EnterpriseArchitectureCapability`,
+`AuthenticationCapability`, `SecretManagementCapability`,
+`CollaborationCapability`, `MailingCapability`, `SocialMediaCapability`,
+`SourceControlCapability`, `CICDCapability`,
+`DocumentManagementCapability`, `ResearchCapability`, and
+`FinancialExchangeCapability`. It also defines the `VPNPurpose` taxonomy
+(`SecurityVPN`, `CorporateVPN`, `CustomerVPN`, `PartnerVPN`,
+`SiteToSiteVPN`, `RemoteAccessVPN`) and a runtime-extensible
+`DevelopmentDomain`/`DevelopmentStandard` pair with no hardcoded domains.
+
+The ontology layer feeds the **hydration pipeline** via `owl:imports`.
+`CAPABILITY_REGISTRY` (`hydration.py`) maps each source key to a category
+and hydration method — for example `gitlab` -> `source_control` ->
+`_hydrate_…`, `servicenow` -> `itsm` -> `_hydrate_…`, `caddy` ->
+`reverse_proxy` -> `_hydrate_…`, and so on. `hydrate_source()` resolves
+the method via this registry rather than hard-coded dispatch.
+
+The hydration pipeline feeds the **OWL bridge** (`owl_bridge.py`) via
+`providesCapability`. `PROMOTABLE_NODE_TYPES` includes
+`service_capability`, `vpn_purpose`, `development_domain`,
+`development_standard`, `ea_fact_sheet`, and `process_model`.
+`PROMOTABLE_EDGE_TYPES` includes `provides_capability`,
+`requires_capability`, `swappable_with`, `has_purpose`,
+`applies_to_domain`, `works_on_domain`, and `must_follow`.
+</div>
 
 ## Key Properties
 

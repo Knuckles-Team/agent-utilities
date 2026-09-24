@@ -182,15 +182,14 @@ graph_search(mode="discover", query="<your concept or feature topic>", top_k=50)
 
 ### Assimilation Lifecycle
 
-```
-Ingest → Discover → Analyze → Assimilate → Implement
-  │          │          │          │           │
-  │          │          │          │           └── COMPLETED SDD → auto ASSIMILATED_INTO
-  │          │          │          └── graph_write(action='add_edge', type='ASSIMILATED_INTO')
-  │          │          └── graph_analyze / comparative-analysis skill
-  │          └── graph_search(mode='discover')
-  └── graph_ingest(target_path=paper.pdf)
-```
+The lifecycle runs `Ingest -> Discover -> Analyze -> Assimilate ->
+Implement`, where each stage is driven by a specific call:
+
+- **Ingest**: `graph_ingest(target_path=paper.pdf)`
+- **Discover**: `graph_search(mode='discover')`
+- **Analyze**: `graph_analyze` / the `comparative-analysis` skill
+- **Assimilate**: `graph_write(action='add_edge', type='ASSIMILATED_INTO')`
+- **Implement**: a COMPLETED SDD auto-creates the `ASSIMILATED_INTO` edge
 
 ### Edge Types
 

@@ -8,24 +8,19 @@ executable Skills via `SkillCompiler`, abandoning legacy YAML presets.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Distillation ["Workflow Distillation Pipeline"]
-        direction LR
-        SYNTH["synthesizer_step"] -->|"success"| HOOK["WorkflowDistillationHook"]
-        HOOK -->|"_record_success()"| TRACKER["DistillationTracker Node"]
-        TRACKER -->|"threshold met"| PROMOTE["Paired Promotion"]
-        PROMOTE --> SCAFFOLD["_scaffold_skill()"]
-        SCAFFOLD --> SKILL_DIR["universal_skills/workflows/distilled/"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Workflow distillation pipeline, and skill-as-workflow compilation</p>
 
-    subgraph SkillExecution ["Skill-as-Workflow"]
-        direction LR
-        SKILL_MD["SKILL.md (Prose)"] -->|"SkillCompiler.compile()"| COMPILER["SkillCompiler"]
-        COMPILER -->|"compile_from_text()"| PLAN["GraphPlan"]
-        TEAM_YAML["references/team.yaml (Optional)"] -.->|"merge_metadata"| PLAN
-    end
-```
+**Workflow distillation pipeline.** A successful `synthesizer_step`
+triggers `WorkflowDistillationHook`, which calls
+`_record_success()` on the `DistillationTracker` node. Once the threshold is
+met, promotion runs `_scaffold_skill()`, writing to
+`universal_skills/workflows/distilled/`.
+
+**Skill-as-workflow.** `SKILL.md` (prose) compiles via
+`SkillCompiler.compile()` -> `compile_from_text()` into a `GraphPlan`,
+optionally merged with metadata from `references/team.yaml`.
+</div>
 
 ## Implementation Details
 

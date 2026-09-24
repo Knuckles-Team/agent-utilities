@@ -18,24 +18,27 @@ is revoked. The hub is `agent_utilities/security/delegation.py`.
 
 ## The pipeline
 
-```mermaid
-flowchart TD
-    caller["Caller identity<br/>(human OIDC token / calling agent)"] --> ra["run_agent()<br/>_prepare_spawn_delegation"]
-    ra -->|"1 · resolve principal + ceiling<br/>base_capabilities()"| pid["PrincipalIdentity"]
-    ra -->|"2 · RFC 8693 exchange<br/>exchange_token_for_agent"| ex["delegated token<br/>(act += agent:name)"]
-    ra -->|"3 · mint run-token<br/>endpoint/op scope, TTL ≤ budget"| rtk["HMAC run_token"]
-    pid --> sd["SpawnDelegation<br/>chain = [principal, …, agent:name:run_id]"]
-    ex --> sd
-    rtk --> sd
-    sd -->|"ambient (contextvar) for the execution block"| exec["spawn execution"]
-    exec -->|"4 · apply_tool_scope<br/>tools ∧ ceiling (fail-closed)"| tools["scoped tools"]
-    exec -->|"engine_verified_context()"| env["eg2. envelope<br/>delegation:[principal,…,agent]<br/>agent_id = per-run instance"]
-    exec -->|"6 · :RunTrace stamp"| trace["provenance chain<br/>(principal opaque, agent verbatim)"]
-    env --> engine["epistemic-graph engine<br/>(validates principal-first/agent-last)"]
-    lease["WorkItem lease renewal"] -->|"revalidate run_token expiry"| revoke{"live?"}
-    revoke -->|"no · on mode"| die["renewal fails → lease lapses → spawn reaped"]
-    revoke -->|"yes"| exec
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Six steps from caller identity to a validated, revocable spawn</p>
+
+`run_agent()`'s `_prepare_spawn_delegation` does three things from the
+caller's identity (a human OIDC token or a calling agent): (1) resolves a
+`PrincipalIdentity` plus its capability ceiling (`base_capabilities()`);
+(2) exchanges an RFC 8693 delegated token whose `act` field grows to
+include `agent:name`; (3) mints an HMAC run-token scoped to an
+endpoint/operation, TTL bounded by the budget. All three combine into a
+`SpawnDelegation` chain (`[principal, …, agent:name:run_id]`), held ambient
+(contextvar) for the whole execution block. Inside execution: (4)
+`apply_tool_scope` intersects requested tools with the ceiling, fail-closed;
+the delegation also produces an `eg2.` envelope
+(`delegation:[principal,…,agent]`, a per-run `agent_id`) via
+`engine_verified_context()`; and (6) a `:RunTrace` stamp records the
+provenance chain (principal opaque, agent verbatim). The envelope reaches
+the epistemic-graph engine, which validates principal-first/agent-last
+ordering. Separately, `WorkItem` lease renewal revalidates run-token
+expiry on every renewal: live, execution continues; not live, renewal fails
+and the lease lapses, reaping the spawn.
+</div>
 
 ### The six decisions (ADR-4)
 

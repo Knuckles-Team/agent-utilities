@@ -32,52 +32,53 @@ Consumers load via `json.loads(...)` and pluck `"content"` for the system prompt
 
 ## MCP Loading & Registry Architecture
 
-```mermaid
-graph TD
-    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
-        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp/agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
-        KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
+<div class="admonition architecture" markdown>
+<p class="admonition-title">1. Registry synchronization (deployment)</p>
 
-        Manager -->|Config Hash Match?| Branch{ORCH-1.1: Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["AU-ECO.mcp.toolkit-live-discovery: Skip Tool Extraction"]
-        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
+`mcp_config.json` (source of truth) feeds `mcp/agent_manager.py`'s
+`sync_mcp_agents()`, which reads a config hash from the Knowledge Graph's
+unified specialist registry. A hash match (cache hit) skips tool
+extraction. A miss dispatches in parallel (semaphore 30), deploying each
+MCP server over STDIO/HTTPS, listing tools via JSON-RPC, and writing the
+resulting metadata back into the KG registry.
+</div>
 
-        Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
-        Servers -->|JSON-RPC list_tools| Parallel
-        Parallel -->|Metadata| KG_Registry
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">2. Unified discovery (bootstrap)</p>
 
-    subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
-        KG_Registry --> UAL["<b>get_discovery_registry()</b><br/><i>core/config.py</i>"]
-        UAL -->|Synthesized Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
-    end
+The KG registry feeds `core/config.py`'s `get_discovery_registry()`, which
+synthesizes a roster (`MCPAgentRegistryModel`: name, agent_type, tools,
+url).
+</div>
 
-    subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]
-        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars"]
-        Roster --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|MCPToolset| ToolPool["<b>mcp_toolsets</b>"]
-        Builder -->|Register Registry Nodes| Specialists["<b>Specialist Superstates</b>"]
-        Specialists -->|Compile| GraphAgent["<b>Pydantic Graph Agent</b>"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">3. Graph initialization (runtime)</p>
 
-    subgraph Operation_Phase ["4. Persistent Operation (Execution)"]
-        GraphAgent --> Lifespan["<b>executor.py</b><br/><i>AsyncExitStack warm toolsets</i>"]
-        Lifespan -->|"Parallel connect<br/>with per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>Failing servers skipped and logged"]
-        ConnPool -->|Zero-Latency Call| Servers
-    end
+`mcp_config.json` also drives `builder.py`'s per-server resilient load
+(skipping servers with missing env-vars), producing `mcp_toolsets`.
+Separately, the synthesized roster drives `builder.py`'s
+`initialize_graph_from_workspace()`, registering Specialist Superstate
+nodes that compile into the Pydantic Graph Agent alongside the toolsets.
+</div>
 
-    subgraph Telemetry_Phase ["5. Tool-Count Telemetry (Per-Specialist)"]
-        ConnPool --> Bind["<b>Tool Binding</b><br/>Deduplicated by object identity"]
-        Bind --> TelLog["<b>TELEMETRY log</b><br/>0 tools = blind warning<br/>50+ tools = overload warning"]
-        Bind --> TelEvent["<b>tools-bound</b> sideband event<br/>count, toolset_count, dev_tools, mcp_tools"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">4. Persistent operation (execution)</p>
 
-    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style KG_Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style GraphAgent fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+The compiled graph agent drives `executor.py`'s `AsyncExitStack` warm
+toolsets, connecting to each server in parallel with per-server error
+reporting into an active connection pool (failing servers skipped and
+logged) — every subsequent call to a warm toolset reaches its server at
+zero added latency.
+</div>
+
+<div class="admonition architecture" markdown>
+<p class="admonition-title">5. Tool-count telemetry (per specialist)</p>
+
+The connection pool feeds tool binding (deduplicated by object identity),
+which writes both a telemetry log (0 tools = blind warning, 50+ tools =
+overload warning) and a `tools-bound` sideband event (count, toolset_count,
+dev_tools, mcp_tools).
+</div>
     style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     style UAL fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style Roster fill:#fff2cc,stroke:#d6b656,stroke-width:2px

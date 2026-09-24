@@ -17,29 +17,20 @@ evolution loop.
 
 ### How It Works
 
-```mermaid
-graph TD
-    A["Content Sources"] --> B["UniversalKnowledgeClassifier"]
-    B --> C{Evolution Potential ≥ 0.6?}
-    C -->|Yes| D["EvolutionCandidateNode\ncreated in KG"]
-    D --> E["graph-ingestion-and-integration\n(SKILL)"]
-    E --> F["comparative-analysis\n(SKILL)"]
-    F --> G{Actionable Gaps?}
-    G -->|Yes| H["SDD Plan Generated"]
-    H --> I{Auto-Execute?}
-    I -->|No| J["Present for Review"]
-    I -->|Yes| K["sdd-implementer"]
-    K --> L["DistillationEngine\nDistill new skill/prompt"]
-    L --> M["github-mcp\nPR to universal-skills"]
-    C -->|No| N["Standard KG Persist"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">From content source to a reviewed or auto-executed SDD plan</p>
 
-    subgraph "Content Sources"
-        S1["X Search\n(x_search tool)"]
-        S2["ScholarX\n(research papers)"]
-        S3["GitHub Trending\n(github-mcp)"]
-        S4["Documents\n(manual ingestion)"]
-    end
-```
+Content sources — X Search, ScholarX research papers, GitHub Trending, and
+manually ingested documents — all feed `UniversalKnowledgeClassifier`,
+which scores evolution potential. Below 0.6, content is a standard KG
+persist. At or above 0.6, it becomes an `EvolutionCandidateNode` in the KG,
+routed through the `graph-ingestion-and-integration` skill then the
+`comparative-analysis` skill. A result with no actionable gaps stops there;
+actionable gaps generate an SDD plan, which either auto-executes via
+`sdd-implementer` or is presented for review. An auto-executed plan drives
+`DistillationEngine` to distill a new skill/prompt, opened as a PR to
+`universal-skills` via `github-mcp`.
+</div>
 
 ### Agent Composition (Pydantic Graph Flow)
 

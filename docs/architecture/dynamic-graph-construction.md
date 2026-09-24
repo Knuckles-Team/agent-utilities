@@ -34,21 +34,18 @@ profile never embeds a provider endpoint, credential, host path, or user identit
 
 The planner spends more only when cheaper signals are insufficient:
 
-```mermaid
-flowchart TD
-    J[Job] --> C{Recipe cache hit?}
-    C -- yes --> S[ExecutionProfile]
-    C -- no --> H[Structural signal classification]
-    H -- confident --> S
-    H -- ambiguous --> K[Rust hybrid KG search]
-    K --> S
-    S --> D[GraphDeps.execution_shape]
-    D --> N[Nodes honor one shape]
-    N --> E[Execute]
-    E --> O[Record privacy-safe outcome]
-    O -- failure --> V[Evict recipe]
-    V --> C
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Recipe cache, fall back to classification, then hybrid search</p>
+
+A job first checks the recipe cache: a hit resolves straight to an
+`ExecutionProfile`. A miss runs structural signal classification — a
+confident result also resolves to the profile; an ambiguous one falls back
+to a Rust hybrid KG search, which resolves it. Either way, the profile
+drives `GraphDeps.execution_shape`, every node honors that one shape, and
+execution runs. The outcome is recorded privacy-safe; a failure evicts the
+recipe from the cache, so the next job for that signature re-classifies
+rather than reusing a bad shape.
+</div>
 
 1. **Recipe reuse:** a bounded cache keyed by an opaque normalized job signature
    reuses a successful shape without repeating discovery.

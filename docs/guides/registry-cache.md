@@ -64,26 +64,16 @@ full registry list capped at `top_n` (default 7).
 
 The cache uses an **event-driven invalidation** model — it is never TTL-based. Invalidation only occurs when the underlying data actually changes:
 
-```mermaid
-graph TD
-    subgraph Triggers ["Invalidation Event Sources"]
-        MCP["AU-ECO.mcp.toolkit-live-discovery: POST /mcp/reload\n(New tools discovered)"]
-        Pipeline["AU-ECO.mcp.toolkit-live-discovery: Pipeline Completion\n(Code graph changed)"]
-        SelfModel["AHE-3.3: SelfModel.update_after_session()\n(New proficiency data)"]
-        TeamConfig["AHE-3.3: promote_coalition_to_template()\n(New team template)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four independent triggers, one cache clear</p>
 
-    subgraph Cache ["_RegistryCache"]
-        Inv["AHE-3.1: invalidate_registry_cache()"]
-        Clear["ORCH-1.2: _registry = None\n_prompts = {} / _tool_agent_map = {}"]
-    end
-
-    MCP --> Inv
-    Pipeline --> Inv
-    SelfModel --> Inv
-    TeamConfig --> Inv
-    Inv --> Clear
-```
+Four independent events all call `invalidate_registry_cache()`:
+`POST /mcp/reload` (new tools discovered), pipeline completion (code graph
+changed), `SelfModel.update_after_session()` (new proficiency data), and
+`promote_coalition_to_template()` (new team template). Whichever fires,
+`invalidate_registry_cache()` clears `_RegistryCache` in one step:
+`_registry = None`, `_prompts = {}`, `_tool_agent_map = {}`.
+</div>
 
 ### Why Not TTL-Based?
 

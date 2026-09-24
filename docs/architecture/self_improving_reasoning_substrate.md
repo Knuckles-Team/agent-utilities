@@ -13,21 +13,22 @@ cost and the risk of doing so.**
 
 ## The core loop
 
-```mermaid
-flowchart LR
-    task([Task]) --> ROUTE
-    subgraph envelope["governance envelope — SAFE-1.5 corrigible · AU-OS.scaling.bridge-developer-workspace-mutating/5.35 cost-bounded"]
-      ROUTE["ROUTE\nKG-2.68 ReasonerRouter\n(CapabilityIndex reward-EMA designate)"]
-      REASON["REASON\nparadigms: AU-KG.coordination.inductive-program-synthesis-search induction ·\nKG-2.67 model-based · deductive · generative"]
-      MEASURE["MEASURE\nSAFE-1.1 frontier scorers +\nAHE-3.24 capability ratchet + reliability"]
-      LEARN["LEARN\nrecord_outcome → paradigm\nreward EMA self-adjusts"]
-      ROUTE --> REASON --> MEASURE --> LEARN
-      LEARN -- "routing reward" --> ROUTE
-    end
-    LEARN --> LEDGER["AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / AU-OS.audit.recursive-improvement-velocity-tracker\nRSI velocity ledger\n(improving? / research-gets-harder?)"]
-    MEASURE -. "winning traces" .-> DISTIL["AU-OS.scaling.kg-provenance-panel-data search-distillation\n→ training corpus\n(AU-OS.safety.model-collapse-guard-self collapse-guarded)"]
-    REASON -. "at scale" .-> MARKET["ORCH-1.46 market →\nORCH-1.47 emergent specialists →\nORCH-1.48 hierarchical coordination"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The core loop: route, reason, measure, learn — closed by routing reward</p>
+
+Inside a governance envelope (SAFE-1.5 corrigible, cost-bounded), a task
+flows through **ROUTE** (KG-2.68 `ReasonerRouter`, via `CapabilityIndex`
+reward-EMA `designate`) -> **REASON** (paradigms: induction, KG-2.67
+model-based, deductive, generative) -> **MEASURE** (SAFE-1.1 frontier
+scorers + AHE-3.24 capability ratchet + reliability) -> **LEARN**
+(`record_outcome` -> paradigm reward EMA self-adjusts). LEARN feeds its
+routing reward back to ROUTE, closing the loop.
+
+LEARN also feeds the RSI velocity ledger (improving? / research-gets-harder?).
+MEASURE's winning traces feed search-distillation into the training
+corpus (collapse-guarded). REASON, at scale, feeds a market of emergent
+specialists under hierarchical coordination (ORCH-1.46/1.47/1.48).
+</div>
 
 The loop is **closed**: a paradigm's measured score becomes its routing reward, so the
 router learns which way of thinking works for which task class — the paper's
@@ -47,57 +48,47 @@ deductive chainer) never have to be forced under one implementation.
 
 ## C4 — Level 3: Reasoning Substrate components
 
-```mermaid
-C4Component
-    title Component diagram — Self-Improving Reasoning Substrate
+<div class="admonition architecture" markdown>
+<p class="admonition-title">C4 level 3: components of the reasoning substrate</p>
 
-    Container_Boundary(kg, "Knowledge Graph (EG-KG.compute.backend)") {
-        Component(facade, "KnowledgeGraph.reason()", "facade.py", "First-class entry: dispatch a ReasoningTask")
-        Component(router, "ReasonerRouter", "core/reasoner.py — AU-KG.compute.first-class-reasoner-paradigm", "Routes by tags + learned reward EMA; feeds score back")
-        Component(capidx, "CapabilityIndex", "retrieval/capability_index.py", "designate() reward-blended ranking + record_outcome() EMA")
-        Component(induct, "ProgramSynthesisReasoner", "harness/program_synthesis.py — AU-KG.coordination.inductive-program-synthesis-search", "Inductive: shortest program (MDL/Occam prior)")
-        Component(world, "WorldModelReasoner", "core/world_model.py — AU-KG.compute.first-class-action-conditioned", "Model-based: roll a policy over predicted transitions")
-        Component(deduce, "DeductiveReasoner", "core/reasoner.py", "Symbolic: forward-chain to a fixpoint")
-        Component(gen, "GenerativeReasoner", "core/reasoner.py", "Generative: an injected completion fn")
-    }
-    Container_Boundary(ahe, "Agentic Harness (AHE-3) + Safety (SAFE-1)") {
-        Component(frontier, "Frontier scorers", "harness/frontier_scorers.py — SAFE-1.1", "Non-saturating: compression, Elo, saturation detector")
-        Component(ratchet, "CapabilityRatchet", "research/capability_ratchet.py — AU-AHE.evaluation.capability-benchmark-regression-ratchet", "Monotone capability gate on a baseline")
-        Component(ledger, "ImprovementLedger", "research/improvement_ledger.py — AU-AHE.sdd.recursive-improvement-instrumentation-aggregating/AU-OS.audit.recursive-improvement-velocity-tracker", "RSI velocity: improving / stalling")
-        Component(corr, "Corrigibility", "core/corrigibility.py — SAFE-1.5", "Yield-without-resisting + irreversibility aversion")
-    }
+In the **Knowledge Graph** container (`EG-KG.compute.backend`):
+`KnowledgeGraph.reason()` (`facade.py`) delegates to `ReasonerRouter`
+(`core/reasoner.py`), which calls `CapabilityIndex`
+(`retrieval/capability_index.py`) for `designate`/`record_outcome`, and
+runs one of four paradigms: `ProgramSynthesisReasoner`
+(`harness/program_synthesis.py`, inductive — shortest program, MDL/Occam
+prior), `WorldModelReasoner` (`core/world_model.py`, model-based — rolls
+a policy over predicted transitions), `DeductiveReasoner`
+(`core/reasoner.py`, symbolic forward-chain to a fixpoint), or
+`GenerativeReasoner` (`core/reasoner.py`, an injected completion fn).
 
-    Rel(facade, router, "delegates")
-    Rel(router, capidx, "designate / record_outcome")
-    Rel(router, induct, "runs")
-    Rel(router, world, "runs")
-    Rel(router, deduce, "runs")
-    Rel(router, gen, "runs")
-    Rel(router, frontier, "scores results")
-    Rel(ratchet, ledger, "feeds capability deltas")
-    Rel(corr, router, "wraps autonomous loops")
-```
+In the **Agentic Harness (AHE-3) + Safety (SAFE-1)** container:
+`ReasonerRouter` sends results to `Frontier scorers`
+(`harness/frontier_scorers.py`, SAFE-1.1, non-saturating — compression,
+Elo, saturation detector). `CapabilityRatchet`
+(`research/capability_ratchet.py`, a monotone capability gate on a
+baseline) feeds capability deltas to `ImprovementLedger`
+(`research/improvement_ledger.py`, RSI velocity: improving/stalling).
+`Corrigibility` (`core/corrigibility.py`, SAFE-1.5 — yield-without-resisting
++ irreversibility aversion) wraps the router's autonomous loops.
+</div>
 
 ## C4 — Dynamic: one routed reasoning step
 
-```mermaid
-sequenceDiagram
-    participant C as Caller
-    participant F as KnowledgeGraph.reason()
-    participant R as ReasonerRouter
-    participant I as CapabilityIndex
-    participant P as Paradigm (e.g. ProgramSynthesis)
-    C->>F: ReasoningTask(goal, tags, payload)
-    F->>R: reason(task)
-    R->>I: designate(emb, required_caps=tags, reward_weight)
-    I-->>R: top paradigm (tag-gated, reward-ranked)
-    R->>P: reason(task)
-    P-->>R: ReasoningResult(answer, score)
-    R->>I: record_outcome(paradigm, reward=score)
-    Note over I: paradigm reward EMA self-adjusts
-    R-->>F: result (trace.routed_to)
-    F-->>C: result
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One routed reasoning step, C4 dynamic view</p>
+
+The caller sends a `ReasoningTask(goal, tags, payload)` to
+`KnowledgeGraph.reason()`, which calls `ReasonerRouter.reason(task)`.
+The router calls `CapabilityIndex.designate(emb, required_caps=tags,
+reward_weight)`, which returns the top paradigm (tag-gated,
+reward-ranked). The router runs that paradigm (e.g. `ProgramSynthesis`),
+which returns a `ReasoningResult(answer, score)`. The router then calls
+`CapabilityIndex.record_outcome(paradigm, reward=score)` — the
+paradigm's reward EMA self-adjusts — before returning the result
+(with `trace.routed_to`) back through `KnowledgeGraph.reason()` to the
+caller.
+</div>
 
 ## Concept → role map
 

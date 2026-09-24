@@ -49,7 +49,7 @@ long-lived container that the gateway and connectors share.
 > `paradedb/paradedb` image has pgvector + pg_search but NOT AGE** — using it
 > leaves the mirror on the bounded regex transpiler
 > (`cypher_support="subset"`). See
-> [Graph Backend Architecture → Extension Dependencies](../architecture/graph_backends_architecture.md#extension-dependencies).
+> [Graph Backend Architecture → Extension Dependencies](https://knuckles-team.github.io/epistemic-graph/architecture/graph-backends/#extension-dependencies).
 
 > **The engine is redb-authoritative by default (CONCEPT:AU-KG.backend.backend-modes).** Built with
 > `--features full`, the engine persists durably to its `--persist-dir` volume and

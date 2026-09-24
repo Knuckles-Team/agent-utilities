@@ -18,12 +18,13 @@ closes that loop.
 
 ## The loop
 
-```
-Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intake ──▶  remediate ──▶  regression-gated merge ──▶  lock regression
-(errors,              (recurring     (KG nodes +       (golden     (TeamSpec/      (auto-merge only when      (AHE-3.25: on a
- low scores,           failure        failure_gap       loop)       AgentSpec        the failure is not         verified fix, lock a
- cost/latency)         signatures)    Concept topics)               proposal)        spiking; else hold)        plain-English assertion)
-```
+The loop runs: **pull** from Langfuse (errors, low scores, cost/latency)
+-> **cluster** (recurring failure signatures) -> **materialize** (KG
+nodes + `failure_gap` Concept topics) -> **intake** (golden loop) ->
+**remediate** (TeamSpec/AgentSpec proposal) -> **regression-gated merge**
+(auto-merge only when the failure is not spiking; else hold) -> **lock
+regression** (AHE-3.25: on a verified fix, lock a plain-English
+assertion).
 
 1. **Pull** — error observations, low-score traces, and cost/latency anomalies are
    pulled from Langfuse over a configurable window.

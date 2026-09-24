@@ -102,36 +102,18 @@ Periodic (default 30-day) health check that reviews AGENTS.md sections, skills, 
 - **Source Code**: `ecosystem/governance_workflow.py`
 - **Architecture**:
 
-```mermaid
-graph TD
-    subgraph Proposal ["1. Change Proposal"]
-        A[Agent/Human Action] -->|"ChangeProposal"| B[GovernanceWorkflow.submit]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Governance workflow: proposal to audit trail</p>
 
-    subgraph Evaluation ["2. Risk Evaluation"]
-        B --> C{Risk Score}
-        C -->|"< 0.4"| D[Auto-Approve]
-        C -->|">= 0.4"| E{Policy Check}
-        E -->|"Violation"| F[Policy Denied]
-        E -->|"Clean"| G[Queue for Human Review]
-    end
-
-    subgraph Resolution ["3. Human Review"]
-        G --> H[Approval Manager]
-        H -->|"approve/reject"| I[GovernanceDecision]
-    end
-
-    subgraph Persistence ["4. Audit Trail"]
-        D --> J[KG governance_decision Node]
-        F --> J
-        I --> J
-    end
-
-    style D fill:#d5e8d4,stroke:#82b366
-    style F fill:#f8cecc,stroke:#b85450
-    style G fill:#fff2cc,stroke:#d6b656
-    style J fill:#dae8fe,stroke:#6c8ebf
-```
+**1. Change proposal.** An agent or human action becomes a `ChangeProposal`
+via `GovernanceWorkflow.submit`. **2. Risk evaluation.** The proposal gets a
+risk score: below 0.4 auto-approves; 0.4 or above triggers a policy check —
+a violation is denied outright, a clean result queues for human review.
+**3. Human review.** A queued proposal reaches the Approval Manager, whose
+approve/reject decision becomes a `GovernanceDecision`. **4. Audit trail.**
+Every outcome — auto-approve, policy denial, or human decision — is written
+to the same KG `governance_decision` node.
+</div>
 
 - **Change Types**: `agents_md_edit`, `hook_install/uninstall`, `plugin_install/uninstall`, `permission_change`, `policy_update`, `constitution_amend`, `skill_install`, `tool_registration`
 - **Risk Scoring**: Constitution amendments (0.9), permission changes (0.8), policy updates (0.7), hook installs (0.5), plugin installs (0.4), AGENTS.md edits (0.3), tool registrations (0.2). Human-initiated changes receive a 0.7x modifier.
@@ -177,7 +159,7 @@ weakens the loaded tool's verified session, scope, approval, or mutation policy.
 The source contracts are `agent_utilities/mcp/tool_specs.py`,
 `agent_utilities/mcp/tools/intent_tools.py`, and
 `agent_utilities/mcp/multiplexer.py`; the generated inventory is
-[Capability Power](../capabilities-power.md).
+[Capability Power](https://github.com/Knuckles-Team/agent-utilities/blob/main/contract/capabilities-power.md).
 
 ### Server Endpoints
 
@@ -200,41 +182,35 @@ subprocess. It is not an HTTP gateway route.
 ### MCP Loading & Registry Architecture
 This diagram illustrates how MCP servers are discovered, specialized, and persisted in the graph.
 
-```mermaid
-graph TD
-    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
-        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp/agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
-        KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
+<div class="admonition architecture" markdown>
+<p class="admonition-title">1. Registry synchronization (deployment)</p>
 
-        Manager -->|Config Hash Match?| Branch{ORCH-1.1: Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["AU-ECO.mcp.toolkit-live-discovery: Skip Tool Extraction"]
-        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
+`mcp_config.json` (the source of truth) feeds `mcp/agent_manager.py`'s
+`sync_mcp_agents()`, which also reads a config hash from the Knowledge
+Graph's unified specialist registry. On a hash match (cache hit),
+extraction is skipped. On a miss, a parallel dispatch (semaphore 30) deploys
+each MCP server over STDIO, calls `list_tools` over JSON-RPC, and writes
+the resulting metadata back into the KG registry.
+</div>
 
-        Parallel -->|Deploy STDIO| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
-        Servers -->|JSON-RPC list_tools| Parallel
-        Parallel -->|Metadata| KG_Registry
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">2. Graph initialization (runtime)</p>
 
-    subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
-        Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPToolset per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
-        KG_Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|mcp_toolsets| graphNode
-        Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
-        Specialists -->|Compile| graphNode["<b>Pydantic Graph Agent</b>"]
-    end
+`mcp_config.json` also drives a per-server resilient load in `builder.py`,
+building an `MCPToolset` per server (missing env-vars are skipped with a
+warning; failed servers are logged clearly, never silently). Separately,
+`builder.py`'s `initialize_graph_from_workspace()` reads the KG registry to
+register Specialist Superstate nodes (Python, TS, GitLab, etc.), which
+compile into the Pydantic Graph Agent alongside the loader's toolsets.
+</div>
 
-    subgraph Operation_Phase ["3. Persistent Operation (Execution)"]
-        graphNode --> Lifespan["<b>graph/executor.py</b><br/><i>AsyncExitStack toolset lifecycle</i>"]
-        Lifespan -->|"Sequential connect<br/>per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
-        ConnPool -->|Zero-Latency Call| Servers
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">3. Persistent operation (execution)</p>
 
-    %% Styling
-    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style KG_Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style 'graph' fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-```
+The compiled graph agent drives `graph/executor.py`'s `AsyncExitStack`
+toolset lifecycle, which connects to each server sequentially (with
+per-server error reporting) into an active connection pool of warm
+toolsets — any failing server is skipped and logged, never blocking the
+rest. Every subsequent call to a warm toolset reaches its MCP server at
+zero added latency.
+</div>

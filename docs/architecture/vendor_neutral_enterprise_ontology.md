@@ -119,17 +119,20 @@ nodes by GUID/hostname rather than forking parallel untethered nodes. The
 raw-REST OMVS client (`EgeriaApi`), the governed-routing decision, the harvest
 connectors, and the typed MCP tools the policy router calls.
 
-```mermaid
-flowchart LR
-    SRC["34 source systems<br/>(infra · data · ERP/CRM/finance ·<br/>identity · EA · code · observability)"]
-    SRC -->|"egeria-mcp harvest<br/>(config-driven, tolerant)"| EG[("Apache Egeria<br/>metadata / governance /<br/>lineage SoR")]
-    EG -->|"reconcile() — 13 matchers<br/>cross-link layers"| EG
-    EG -->|"list_data_flows()"| EXT["egeria extractor<br/>(extractors/egeria.py)"]
-    EXT -->|":Concept · :DataConnector · :Policy ·<br/>:flowsTo · :dependsOn<br/>(externalToolId = Egeria GUID)"| KG[("epistemic-graph KG<br/>cognition / orchestration")]
-    KG -->|"graph_orchestrate / policy router<br/>governed_route() queries"| EG
-    classDef sor fill:#dae8fe,stroke:#6c8ebf;
-    class EG,KG sor;
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Egeria is the lineage store; the KG never becomes one</p>
+
+34 source systems (infra, data, ERP/CRM/finance, identity, EA, code,
+observability) feed Apache Egeria (metadata/governance/lineage system of
+record) via a config-driven, tolerant `egeria-mcp` harvest. Egeria
+self-reconciles across 13 matchers to cross-link layers, then its
+`list_data_flows()` feeds the egeria extractor
+(`extractors/egeria.py`), which writes `:Concept`/`:DataConnector`/
+`:Policy`/`:flowsTo`/`:dependsOn` (keyed by `externalToolId` = Egeria
+GUID) into the epistemic-graph KG (cognition/orchestration). The KG in
+turn queries Egeria through `graph_orchestrate`/the policy router's
+`governed_route()`.
+</div>
 
 Invariants: the **KG never becomes the lineage store**; **Egeria never orchestrates**.
 The full ingester, cross-link, and federation map is maintained by the owning
@@ -145,24 +148,19 @@ canonical anchors with `rdfs:subClassOf` / `owl:equivalentClass`, and reasoning
 (owlready2 / HermiT, driven by `core/owl_bridge.py`) propagates `rdf:type` up to
 the canonical concept.
 
-```mermaid
-graph TD
-    subgraph Canonical["EG core GraphSchema — canonical ArchiMate anchors"]
-        AE[":ApplicationEvent"]
-        BP[":BusinessProcess"]
-        BT[":BusinessTask"]
-        BC[":BusinessCapability"]
-        BA[":BusinessActor"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Vendor classes relate to canonical ArchiMate anchors, never redefine them</p>
 
-    SNI[":Incident<br/>(ServiceNow)"] -->|subClassOf| AE
-    ERI[":ErpNextIssue<br/>(ERPNext)"] -->|subClassOf| AE
-    SNI <-->|equivalentClass| ERI
-    SNC[":Change<br/>(ServiceNow)"] -->|subClassOf| BP
-    CBT[":BusinessTask<br/>(Camunda)"] -->|subClassOf| BP
-    EMP[":Employee / :Customer<br/>(ERPNext)"] -->|subClassOf| BA
-    BT --> BP
-```
+The canonical `EG core GraphSchema` anchors are `:ApplicationEvent`,
+`:BusinessProcess`, `:BusinessTask`, `:BusinessCapability`, and
+`:BusinessActor` (with `:BusinessTask` a subclass of `:BusinessProcess`).
+Vendor classes relate to these via `subClassOf`: ServiceNow's `:Incident`
+and ERPNext's `:ErpNextIssue` are both `subClassOf` `:ApplicationEvent`
+(and, being interchangeable, `equivalentClass` each other); ServiceNow's
+`:Change` and Camunda's `:BusinessTask` are both `subClassOf`
+`:BusinessProcess`; ERPNext's `:Employee`/`:Customer` are `subClassOf`
+`:BusinessActor`.
+</div>
 
 Worked example — ServiceNow ↔ ERPNext interchangeability:
 
@@ -246,17 +244,16 @@ enriched from the code an acquisition brought in. Write-back is opt-in, idempote
 (skips names already upstream), and fault-tolerant (one failing client never aborts
 the batch).
 
-```mermaid
-graph LR
-    CODE["Rust AST → features"] --> RZ["resolve_realizes()"]
-    LX["LeanIX / Archi<br/>BusinessCapability"] --> RZ
-    REG["Curated registry"] --> RZ
-    RZ -->|match| EXIST["REALIZES → existing capability"]
-    RZ -->|mint| NEW["provisional BusinessCapability"]
-    NEW --> WB["capability_writeback"]
-    WB --> ARCHI["Archi add_element"]
-    WB --> LEANIX["LeanIX postbusinesscapability"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">resolve_realizes() matches or mints, then writes back to EA tools</p>
+
+`resolve_realizes()` takes three inputs — Rust AST -> features, LeanIX/Archi
+`BusinessCapability`, and the curated registry — and either matches an
+existing capability (`REALIZES` -> existing capability) or mints a
+provisional `BusinessCapability`. A newly minted capability goes through
+`capability_writeback`, which writes it to both Archi (`add_element`) and
+LeanIX (`postbusinesscapability`).
+</div>
 
 ---
 
@@ -285,22 +282,18 @@ let the OWL crosswalk run. Use virtualization for "must-be-live, never-stale" re
 
 ## End-to-end flow
 
-```mermaid
-sequenceDiagram
-    participant SYS as Camunda / ServiceNow / ERPNext
-    participant EX as Extractor (canonical nodes)
-    participant KG as Knowledge Graph (LPG)
-    participant OWL as owl_bridge + HermiT
-    participant Q as Cross-vendor query
+<div class="admonition architecture" markdown>
+<p class="admonition-title">End-to-end: vendor records reasoned into one cross-vendor query</p>
 
-    SYS->>EX: API records
-    EX->>KG: GraphNode(type=Incident | BusinessProcess | …)
-    KG->>OWL: promote stable nodes
-    OWL->>OWL: reason() — apply crosswalk subClassOf / equivalentClass
-    OWL->>KG: downfeed inferred rdf:type (e.g. :ApplicationEvent)
-    Q->>KG: SELECT ?e WHERE { ?e a :ApplicationEvent }
-    KG-->>Q: incidents from ALL vendors
-```
+Camunda/ServiceNow/ERPNext send API records to the extractor, which
+writes canonical `GraphNode`s (type=`Incident`|`BusinessProcess`|…) to
+the Knowledge Graph (LPG). The KG promotes stable nodes to `owl_bridge` +
+HermiT, which reasons — applying the crosswalk's `subClassOf`/
+`equivalentClass` — and downfeeds the inferred `rdf:type` (e.g.
+`:ApplicationEvent`) back to the KG. A cross-vendor query,
+`SELECT ?e WHERE { ?e a :ApplicationEvent }`, then returns incidents
+from all vendors.
+</div>
 
 ## Ontology → workflow bridge (`KG-2.52`/`AU-KG.ontology.descriptive-process-world-gains`/`ORCH-1.41`–`1.43`)
 
@@ -364,21 +357,19 @@ RETURN t.id, t.status, w.name
 
 ## File map
 
-```
-agent_utilities/knowledge_graph/
-├── EG core ArchiMate GraphSchema       # canonical anchors + crosswalk (KG-2.9)
-├── ontology_servicenow.ttl             # :Incident, :Change, :ConfigurationItem
-├── ontology_erpnext.ttl                # + :ErpNextIssue
-├── enrichment/
-│   ├── extractors/camunda.py           # BPMN → canonical nodes (KG-2.9)
-│   ├── extractors/erpnext.py           # + Issue → :ErpNextIssue
-│   ├── realizes.py                     # code → capability REALIZES (KG-2.8)
-│   ├── capability_writeback.py         # push capabilities back to Archi/LeanIX
-│   └── pipeline.py                     # wires resolve_realizes into enrichment
-├── backends/owl/owlready2_backend.py   # _NODE_TYPE_TO_OWL_CLASS / _EDGE_TYPE_TO_OWL_PROP
-├── core/owl_bridge.py                  # PROMOTABLE_NODE_TYPES; promote→reason→downfeed
-└── orchestration/engine_federation.py  # register_rest_source / query_rest_source (KG-2.1)
-```
+- `agent_utilities/knowledge_graph/`
+    - EG core ArchiMate GraphSchema — canonical anchors + crosswalk (KG-2.9)
+    - `ontology_servicenow.ttl` — `:Incident`, `:Change`, `:ConfigurationItem`
+    - `ontology_erpnext.ttl` — + `:ErpNextIssue`
+    - `enrichment/`
+        - `extractors/camunda.py` — BPMN -> canonical nodes (KG-2.9)
+        - `extractors/erpnext.py` — + Issue -> `:ErpNextIssue`
+        - `realizes.py` — code -> capability REALIZES (KG-2.8)
+        - `capability_writeback.py` — push capabilities back to Archi/LeanIX
+        - `pipeline.py` — wires `resolve_realizes` into enrichment
+    - `backends/owl/owlready2_backend.py` — `_NODE_TYPE_TO_OWL_CLASS` / `_EDGE_TYPE_TO_OWL_PROP`
+    - `core/owl_bridge.py` — `PROMOTABLE_NODE_TYPES`; promote -> reason -> downfeed
+    - `orchestration/engine_federation.py` — `register_rest_source` / `query_rest_source` (KG-2.1)
 
 ## Verification
 

@@ -14,11 +14,11 @@ module docstring for the full source list. This script is pure orchestration
 it builds the AU tool registry, locates the EG-P0-1 ledger (live sibling
 checkout or the vendored cache), assembles one CPD per tool, and writes:
 
-* ``docs/capabilities-power.md``  — human/LLM-browsable rendering.
-* ``docs/capabilities-power.json`` — the same data, machine-readable.
+* ``contract/capabilities-power.md``  — human/LLM-browsable rendering.
+* ``contract/capabilities-power.json`` — the same data, machine-readable.
 * ``agent_utilities/knowledge_graph/retrieval/capabilities-power.json`` —
   byte-identical package data used by installed Graph-OS runtimes.
-* ``docs/_vendor_eg_capability_ledger.json`` — a small cache of the EG ledger
+* ``contract/_vendor_eg_capability_ledger.json`` — a small cache of the EG ledger
   rows actually used, refreshed whenever a live EG checkout is found, so
   ``--check`` stays deterministic in an AU-only checkout that has no sibling
   epistemic-graph clone (EG's ledger is itself a GENERATED artifact of a
@@ -74,8 +74,8 @@ from agent_utilities.mcp.optional_tool_features import (  # noqa: E402
 )
 from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS  # noqa: E402
 
-MD_PATH = ROOT / "docs" / "capabilities-power.md"
-JSON_PATH = ROOT / "docs" / "capabilities-power.json"
+MD_PATH = ROOT / "contract" / "capabilities-power.md"
+JSON_PATH = ROOT / "contract" / "capabilities-power.json"
 PACKAGE_JSON_PATH = (
     ROOT
     / "agent_utilities"
@@ -83,7 +83,7 @@ PACKAGE_JSON_PATH = (
     / "retrieval"
     / "capabilities-power.json"
 )
-CACHE_PATH = ROOT / "docs" / "_vendor_eg_capability_ledger.json"
+CACHE_PATH = ROOT / "contract" / "_vendor_eg_capability_ledger.json"
 
 # Candidate sibling-checkout locations for the EG-generated ledger, tried in
 # order after an explicit --eg-ledger / $EG_CAPABILITIES_LEDGER. None of these
@@ -701,7 +701,9 @@ def generate(
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--write", action="store_true", help="Write docs/capabilities-power.{md,json}."
+        "--write",
+        action="store_true",
+        help="Write contract/capabilities-power.{md,json}.",
     )
     ap.add_argument(
         "--check", action="store_true", help="Exit non-zero if checked-in docs drift."

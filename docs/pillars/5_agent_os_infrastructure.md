@@ -103,14 +103,10 @@ The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is 
 
 ### Integration Architecture
 
-```
-agent-webui ──── REST /api/dashboard ────┐
-                 WS /ws/dashboard ───────┤
-                                         ├── Aggregator ── Registry ── 50 Widgets
-agent-terminal-ui ── direct Python ──────┤
-                                         │
-geniusbot ────── QThread/direct ─────────┘
-```
+`agent-webui` reaches the Aggregator via REST `/api/dashboard` and WS
+`/ws/dashboard`; `agent-terminal-ui` reaches it via direct Python;
+`geniusbot` reaches it via QThread/direct. The Aggregator in turn drives
+the Registry, which serves the 50 widgets.
 
 All XDG paths delegate to `core/paths.py`:
 - `services_config_path()` → `~/.config/agent-utilities/services.yaml`
@@ -130,25 +126,18 @@ All XDG paths delegate to `core/paths.py`:
 
 Supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and search X posts or browse individual posts without hitting static API key limitations.
 
-```
-┌──────────────┐          1. Click link          ┌──────────────┐
-│ Agent / CLI  ├────────────────────────────────►│ x.com Auth   │
-│              │◄────────────────────────────────┤ Login Page   │
-│ (Spin Server)│     2. Callback with Code       └──────┬───────┘
-└──────┬───────┘    (or manual CLI input)               │
-       │                                                │
-       │ 3. Exchange Auth Code + Verifier               │
-       ▼                                                │
-┌──────────────┐                                        │
-│  xAI OAuth   │◄───────────────────────────────────────┘
-│  Token Endpt │
-└──────┬───────┘
-       │ 4. Store encrypted tokens in SecretsClient
-       ▼
-┌──────────────┐
-│SecretsClient │
-└──────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">xAI OAuth PKCE flow, four steps</p>
+
+1. **Click link** — Agent/CLI (running a spin server) sends the user to
+   the `x.com` Auth Login Page.
+2. **Callback with code** (or manual CLI input) — the login page redirects
+   back to the Agent/CLI with an authorization code.
+3. **Exchange auth code + verifier** — the Agent/CLI calls the xAI OAuth
+   Token Endpoint with the code and PKCE verifier.
+4. **Store encrypted tokens** — the xAI OAuth Token Endpoint's response is
+   stored encrypted in `SecretsClient`.
+</div>
 
 #### Loopback & Headless Authentication Support
 
@@ -171,29 +160,17 @@ Sensory verification utilizes declarative tool contracts (`ContractValidator`) e
 
 ### System Sequence Flow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Graph as Graph Orchestrator
-    participant Validator as ContractValidator
-    participant Agent as Specialist Agent / Node
+<div class="admonition architecture" markdown>
+<p class="admonition-title">System sequence flow: validate before and after every step</p>
 
-    Graph->>Validator: validate_pre(node_id, context)
-    alt Pre-condition Failed
-        Validator-->>Graph: False (Aborts / Retries step)
-    else Pre-condition Passed
-        Validator-->>Graph: True
-        Graph->>Agent: Execute Task
-        Agent-->>Graph: Return Output Results
-        Graph->>Validator: validate_post(node_id, output)
-        alt Post-condition Failed (Invalid Schema / Business Rules)
-            Validator-->>Graph: False (Trigger Rollback / Re-planning)
-        else Post-condition Passed
-            Validator-->>Graph: True
-            Graph->>Graph: Proceed with State Merge
-        end
-    end
-```
+The Graph Orchestrator calls `ContractValidator.validate_pre(node_id,
+context)`. A failed pre-condition aborts or retries the step. A passed
+pre-condition lets the orchestrator execute the task on the specialist
+agent/node, which returns output results; the orchestrator then calls
+`validate_post(node_id, output)`. A failed post-condition (invalid
+schema or business rules) triggers rollback/re-planning; a passed
+post-condition lets the orchestrator proceed with the state merge.
+</div>
 
 ### Key Capabilities
 
@@ -440,7 +417,7 @@ The Python gateway tier is observable and self-protecting:
   on one shared listen socket; the flock host-lock still elects exactly one KG
   host daemon among them.
 
-Full design: [Gateway Scaling](../architecture/gateway_scaling.md);
+Full design: [Gateway Scaling](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/);
 walkthrough: [observability example](../examples/observability.md).
 
 ---
@@ -492,7 +469,7 @@ pieces:
    leader-only target-tracking tick (`FLEET_AUTOSCALER`, default off) whose
    scale actions pass the same policy gate and deploy watch.
 
-Full design: [Fleet Autonomy](../architecture/fleet_autonomy.md); postures:
+Full design: [Fleet Autonomy](https://knuckles-team.github.io/graph-os/architecture/fleet-autonomy/); postures:
 [action-policy examples](../examples/action-policy-postures.md); signals:
 [autoscaling examples](../examples/autoscaling-signals.md).
 
@@ -508,7 +485,7 @@ GraphOS status tools expose operational readiness. The unauthenticated
 GraphOS `GET /health` response is deliberately status-only and never exposes
 server identity or topology. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
-[Engine Sharding](../architecture/engine_sharding.md).
+[Engine Sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/).
 
 ## 🛠️ Developer-Workspace Runtime (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 / KG-2.64)
 

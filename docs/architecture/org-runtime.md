@@ -26,18 +26,16 @@ It does not define organization-specific WorkItem phases or transition fields.
 
 ## Sole native WorkItem lifecycle
 
-```mermaid
-stateDiagram-v2
-    [*] --> submitted
-    submitted --> ready: dependencies released
-    ready --> leased: ClaimWorkItem
-    leased --> leased: RenewWorkItemLease
-    leased --> succeeded: fenced commit
-    leased --> failed: fenced commit
-    submitted --> cancelled: native cancel
-    ready --> cancelled: native cancel
-    leased --> dead_letter: attempts exhausted
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The sole native WorkItem lifecycle</p>
+
+A WorkItem starts `submitted`, moves to `ready` once dependencies
+release, and to `leased` via `ClaimWorkItem` (which can renew itself via
+`RenewWorkItemLease`). From `leased` a fenced commit resolves to either
+`succeeded` or `failed`; exhausted attempts instead move it to
+`dead_letter`. A native cancel can move either `submitted` or `ready`
+directly to `cancelled`.
+</div>
 
 Review and rework happen while the same claimant owns the renewable lease.
 They do not add states or properties to the durable WorkItem. A human escalation
@@ -47,24 +45,26 @@ native WorkItem authority.
 
 ## End-to-end flow
 
-```mermaid
-flowchart TD
-    Goal([goal]) --> Recruiter[Recruiter.synthesize_org]
-    Recruiter -->|reuse experienced or hire fresh| Chart[OrgChart: roles + employees]
-    Chart --> Derive[OrgRuntime.derive_plan]
-    Derive --> Plan[immutable OrgPlanItem DAG]
-    Plan --> Submit[submit native WorkItems]
-    Submit --> Claim[ClaimWorkItem + renewable lease]
-    Claim -->|independent, parallel| Exec[Orchestrator.execute_agent → run_agent]
-    Exec --> Review{reviewer role?}
-    Review -->|approve| Done[fenced success commit]
-    Review -->|rework within budget| Exec
-    Review -->|budget exhausted| Human[escalation_cb → human]
-    Human --> Done
-    Done --> WB["record_action_outcome<br/>role_experience:role"]
-    WB --> Profile[("Employee.experienceProfile<br/>+ experienceScore")]
-    Profile -.reads back.-> Recruiter
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">End-to-end flow: goal to organizational learning, in one loop</p>
+
+A goal reaches `Recruiter.synthesize_org`, which reuses experienced
+employees or hires fresh ones into an `OrgChart` (roles + employees).
+`OrgRuntime.derive_plan` turns that chart into an immutable `OrgPlanItem`
+DAG, which is submitted as native WorkItems. Each is claimed
+(`ClaimWorkItem` + renewable lease) and executed independently and in
+parallel via `Orchestrator.execute_agent` -> `run_agent`.
+
+If the role is a reviewer, the result is either approved (fenced success
+commit) or sent back for rework within budget (looping back to
+execution); once the rework budget is exhausted, `escalation_cb` hands
+the decision to a human, who resolves it to the same success commit.
+
+Every success commit calls `record_action_outcome` (keyed
+`role_experience:role`), updating `Employee.experienceProfile` +
+`experienceScore` — which `Recruiter` reads back on the next goal,
+closing the loop.
+</div>
 
 The escalation seam (`OrgRuntime.escalation_cb`) never writes WorkItem state and
 defaults to failing closed. A deployment may supply a callback that opens an

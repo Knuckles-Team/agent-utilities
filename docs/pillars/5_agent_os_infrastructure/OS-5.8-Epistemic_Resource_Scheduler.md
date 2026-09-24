@@ -57,26 +57,15 @@ if centrality > 0.6 and priority > CRITICAL:
 
 The Cognitive Scheduler implements a multi-stage preemption cascade:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Stage 1: Budget Warning (85% threshold)                     │
-│   → Log NEAR_QUOTA warning                                  │
-│   → No action taken                                         │
-├──────────────────────────────────────────────────────────────┤
-│ Stage 2: Cost-Aware Auto-Downgrade (70% cost threshold)     │
-│   → Switch to cheaper model tier (super → standard → lite)  │
-│   → Continue execution with degraded quality                │
-├──────────────────────────────────────────────────────────────┤
-│ Stage 3: Token Quota Exceeded (100%)                        │
-│   → Checkpoint context to KG                                │
-│   → Move process to PAUSED state                            │
-│   → Schedule next waiting process                           │
-├──────────────────────────────────────────────────────────────┤
-│ Stage 4: Cost Budget Exceeded                               │
-│   → Try one more auto-downgrade                             │
-│   → If no cheaper tier: checkpoint + preempt                │
-└──────────────────────────────────────────────────────────────┘
-```
+1. **Budget warning** (85% threshold) — log a `NEAR_QUOTA` warning; no
+   action taken.
+2. **Cost-aware auto-downgrade** (70% cost threshold) — switch to a
+   cheaper model tier (super -> standard -> lite); continue execution
+   with degraded quality.
+3. **Token quota exceeded** (100%) — checkpoint context to the KG; move
+   the process to `PAUSED`; schedule the next waiting process.
+4. **Cost budget exceeded** — try one more auto-downgrade; if no cheaper
+   tier is available, checkpoint and preempt.
 
 ### Context Paging
 
@@ -135,13 +124,10 @@ tier = scheduler.get_recommended_tier(proc_id)
 
 ## Process Lifecycle States
 
-```
-WAITING ──(capacity available)──► RUNNING ──(complete)──► COMPLETED
-   ▲                                │
-   │                                ├──(fail)──► FAILED
-   │                                │
-   └──(resume, no capacity)──── PAUSED ◄──(preempt)
-```
+`WAITING` moves to `RUNNING` when capacity becomes available; `RUNNING`
+moves to `COMPLETED` on completion or `FAILED` on failure, or to
+`PAUSED` on preemption; `PAUSED` moves back to `WAITING` on resume when
+no capacity is available.
 
 ## Integration Points
 

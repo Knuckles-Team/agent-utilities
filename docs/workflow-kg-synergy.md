@@ -34,78 +34,37 @@ The value is not in individual storage — it's in the **OWL reasoner inferring 
 
 ## Cross-Domain Reasoning Architecture
 
-```mermaid
-graph LR
-    subgraph Health["🏋️ Health Domain"]
-        MealPlan["MealPlan<br/>(Mealie)"]
-        Routine["WorkoutRoutine<br/>(wger)"]
-        Body["BodyMeasurement"]
-        Nutrient["NutrientProfile"]
-        DailySummary["DailyNutrientSummary"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-domain knowledge graph entities and relationships</p>
 
-    subgraph Infra["🖥️ Infrastructure"]
-        Container["Container"]
-        Stack["ContainerStack"]
-        Monitor["ObservabilityStack"]
-        DNS["DNSRewrite"]
-    end
+**Entities by domain:** Health — `MealPlan` (Mealie), `WorkoutRoutine`
+(wger), `BodyMeasurement`, `NutrientProfile`, `DailyNutrientSummary`.
+Infrastructure — `Container`, `ContainerStack`, `ObservabilityStack`,
+`DNSRewrite`. Enterprise — `Incident` (ServiceNow), `ChangeRequest`, `TRM
+Compliance`, `EAR FactSheet`. Productivity — `Task` (Jira/Plane),
+`CalendarEvent` (Nextcloud), `Transcript`. Social — `SocialPost` (Postiz),
+`BroadcastSession` (Owncast). Research — `Document` (ScholarX),
+`ChangeManifest`.
 
-    subgraph Enterprise["🏢 Enterprise"]
-        Incident["Incident<br/>(ServiceNow)"]
-        Change["ChangeRequest"]
-        TRM["TRM Compliance"]
-        FactSheet["EAR FactSheet"]
-    end
+**Relationships** (`source --relation--> target`): within Health,
+`MealPlan --containsMeal--> NutrientProfile --aggregatesTo-->
+DailyNutrientSummary --calorieBalance--> WorkoutRoutine`, and
+`BodyMeasurement --motivates--> MealPlan`,
+`WorkoutRoutine --trackedMeasurement--> BodyMeasurement`. Within
+Infrastructure: `Container --belongsToStack--> ContainerStack`,
+`ObservabilityStack --monitors--> ContainerStack`, `ContainerStack
+--triggeredIncident--> Incident` (indirect), `DNSRewrite
+--resolvesDNSFor--> ContainerStack`. Within Enterprise:
+`Incident --blocksTask--> Task`, `ChangeRequest --impactsConcept-->
+EAR FactSheet`, `TRM Compliance --governedBy--> EAR FactSheet`,
+`Incident --selfHealedVia--> Container`. Productivity cross-links:
+`Task --scheduledFor--> CalendarEvent`, `Transcript --spawnsTask--> Task`,
+`CalendarEvent --blockedByIncident--> Incident`. Social cross-links:
+`SocialPost --promotesResearch--> Document`, `BroadcastSession
+--derivedFromContent--> SocialPost`. Research chain: `Document
+--inspiredChange--> ChangeManifest --triggeredChange--> ChangeRequest`.
 
-    subgraph Productivity["📋 Productivity"]
-        Task["Task (Jira/Plane)"]
-        Calendar["CalendarEvent<br/>(Nextcloud)"]
-        Transcript["Transcript"]
-    end
-
-    subgraph Social["📱 Social"]
-        Post["SocialPost<br/>(Postiz)"]
-        Stream["BroadcastSession<br/>(Owncast)"]
-    end
-
-    subgraph Research["🔬 Research"]
-        Paper["Document<br/>(ScholarX)"]
-        SDD["ChangeManifest"]
-    end
-
-    %% Health domain internal
-    MealPlan -->|containsMeal| Nutrient
-    Nutrient -->|aggregatesTo| DailySummary
-    DailySummary -->|calorieBalance| Routine
-    Body -->|motivates| MealPlan
-    Routine -->|trackedMeasurement| Body
-
-    %% Infrastructure
-    Container -->|belongsToStack| Stack
-    Monitor -->|monitors| Stack
-    Stack -.->|triggeredIncident| Incident
-    DNS -->|resolvesDNSFor| Stack
-
-    %% Enterprise
-    Incident -->|blocksTask| Task
-    Change -->|impactsConcept| FactSheet
-    TRM -->|governedBy| FactSheet
-    Incident -->|selfHealedVia| Container
-
-    %% Productivity cross-links
-    Task -->|scheduledFor| Calendar
-    Transcript -->|spawnsTask| Task
-    Calendar -->|blockedByIncident| Incident
-
-    %% Social cross-links
-    Post -->|promotesResearch| Paper
-    Stream -->|derivedFromContent| Post
-
-    %% Research chain
-    Paper -->|inspiredChange| SDD
-    SDD -->|triggeredChange| Change
-```
+</div>
 
 ---
 

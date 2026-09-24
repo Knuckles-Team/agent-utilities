@@ -10,24 +10,15 @@ Every specialist agent receives a **signed identity** (HMAC-SHA256) when spawned
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Identity Lifecycle
-        SPAWN[AU-ORCH.execution.service-registry-initialization: Agent Spawned] --> ISSUE[OS-5.1: issue_identity]
-        ISSUE --> SIGN[OS-5.1: HMAC Sign]
-        SIGN --> ID[OS-5.1: AgentIdentity]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Identity issued once, verified on every tool call</p>
 
-    subgraph Authorization Flow
-        CALL[ECO-4.0: Tool Call] --> VERIFY[ORCH-1.3: verify_identity]
-        VERIFY --> POLICY[OS-5.1: Check Policy]
-        POLICY --> |DENY| BLOCK[Block]
-        POLICY --> |REQUIRE_APPROVAL| APPROVE[Approval Manager]
-        POLICY --> |ALLOW| EXEC[Execute Tool]
-    end
-
-    POLICY --> |Missing kernel or identity| BLOCK
-```
+**Identity lifecycle:** an agent spawns, `issue_identity` mints its
+identity, HMAC-signed into an `AgentIdentity`. **Authorization flow:** a
+tool call calls `verify_identity`, which checks policy — `DENY` and a
+missing kernel or identity both block the call; `REQUIRE_APPROVAL` routes
+to the Approval Manager; `ALLOW` executes the tool.
+</div>
 
 ## Role Hierarchy
 
@@ -116,20 +107,16 @@ to verify the redacted signing, policy, and identity contract.
 
 The `systems-manager` MCP server should run with an **admin** identity, allowing it to execute OS-level commands without approval. Other agents requesting OS operations must route through `systems-manager`, which validates the caller's identity before proxying the command.
 
-```mermaid
-sequenceDiagram
-    participant S as Specialist (role=specialist)
-    participant PK as PermissionsKernel
-    participant SM as systems-manager (role=admin)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A denied call escalates to an admin-role peer, not a privilege bypass</p>
 
-    S->>PK: authorize_tool("apt_install")
-    PK-->>S: DENY (specialist can't install)
-    S->>SM: request("install package X")
-    SM->>PK: authorize_tool("apt_install")
-    PK-->>SM: ALLOW (admin role)
-    SM->>SM: execute apt install
-    SM-->>S: result
-```
+A specialist (role=specialist) calls `authorize_tool("apt_install")` and is
+denied — specialists can't install packages. It then requests the install
+from `systems-manager` (role=admin), which calls the same
+`authorize_tool("apt_install")` itself and is allowed, executes the
+install, and returns the result to the specialist. The specialist never
+gains install rights; it delegates to a peer that already has them.
+</div>
 
 ## KG Persistence
 

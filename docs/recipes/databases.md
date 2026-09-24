@@ -15,15 +15,16 @@ Stardog) — with a durable **Postgres** carrying Apache AGE + pgvector + Parade
 
 ## The loop you're building
 
-```
-agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
-        │                                  │
-        │                                  ├─ prod ─▶ Stardog ──SPARQL──▶ your system
-        │                                  └─ dev  ─▶ built-in /api/sparql (zero infra)
-        │                                                    └─ optional local Jena Fuseki
-        ▼
-   reconcile (KG-2.7) ──▶ Postgres / Apache AGE  (durable graph + pgvector + BM25)
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The loop you're building</p>
+
+The `agent-utilities` graph promotes into an OWL/RDF ontology (KG-2.6),
+which in production reaches your system through Stardog over SPARQL, or in
+dev through the built-in `/api/sparql` (zero infra, with an optional local
+Jena Fuseki). Separately, the graph reconciles (KG-2.7) into
+Postgres/Apache AGE — a durable graph plus pgvector and BM25.
+
+</div>
 
 - **Push / host / consume** the ontology → `OntologyPublisher` +
   the gateway SPARQL endpoint.
@@ -235,8 +236,8 @@ SELECT * FROM cypher('agent_graph', $$ MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 5 $
 
 ## Reference
 
-- Backends & selection: [docs/architecture/graph_backends_architecture.md](../architecture/graph_backends_architecture.md)
+- Backends & selection: [epistemic-graph: Graph Backend Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/graph-backends/)
 - OWL/RDF + SPARQL: [docs/architecture/owl_rdf_layer.md](../architecture/owl_rdf_layer.md)
-- KG-as-ETL hub (Stardog data backend, `graph_etl`, lineage): [docs/architecture/kg_etl_hub.md](../architecture/kg_etl_hub.md)
+- KG-as-ETL hub (Stardog data backend, `graph_etl`, lineage): [agent-connector-sdk architecture/etl-hub.md](https://knuckles-team.github.io/agent-connector-sdk/architecture/etl-hub/)
 - Other recipes: [tiny](tiny.md) · [single-node-prod](single-node-prod.md) · [enterprise](enterprise.md)
 - **Next:** [Delta-based ingestion via the backends](delta-ingestion.md) — turn the backend you just wired into an incremental, content-hash-deduped, background-swept ingestion store.

@@ -6,29 +6,23 @@ The ecosystem enforces **Zero-Trust** security across all operations utilizing t
 
 This illustrates how agent identities and multisig mutations flow securely to the Rust `epistemic-graph` service.
 
-```mermaid
-C4Context
-    title C4 Context: Zero-Trust Multi-Sig Mutations
+<div class="admonition architecture" markdown>
+<p class="admonition-title">C4 context: zero-trust multi-sig mutations</p>
 
-    Person(Agent1, "Agent 1 (Orchestrator)", "Initiates a mutation requiring quorum")
-    Person(Agent2, "Agent 2 (Peer)", "Validates and cryptographically signs")
+Agent 1 (Orchestrator) initiates a mutation requiring quorum by submitting
+a signed proposal to `PermissionsKernel` (Python, in `agent-utilities`),
+which manages identity, sandbox restrictions, and collects BFT signatures.
+Agent 2 (Peer) validates and submits a cryptographic signature to the same
+`PermissionsKernel`.
 
-    System_Boundary(b0, "agent-utilities (Python)") {
-        Component(PermKernel, "PermissionsKernel", "Python", "Manages identity, sandbox restrictions, and collects BFT signatures")
-    }
-
-    System_Boundary(b1, "epistemic-graph (Rust)") {
-        Component(Isolation, "IsolationLayer", "Rust", "Maintains Cryptographic Identity Keys and Role definitions")
-        Component(GraphService, "Graph Compute Service", "Rust", "Definitive authority for data mutations and state")
-    }
-
-    Rel(Agent1, PermKernel, "Submits signed proposal")
-    Rel(Agent2, PermKernel, "Submits cryptographic signature")
-
-    Rel(PermKernel, Isolation, "RPC: RegisterIdentity(id, role, signature)", "HMAC / TCP")
-    Rel(PermKernel, GraphService, "RPC: ApplyMultisigMutation(payload, signatures)", "UDS / TCP")
-    Rel(Isolation, GraphService, "Authorizes request based on quorum and roles")
-```
+`PermissionsKernel` talks to two Rust components in `epistemic-graph`:
+it calls `IsolationLayer` via `RegisterIdentity(id, role, signature)`
+(HMAC / TCP) — which maintains cryptographic identity keys and role
+definitions — and calls the Graph Compute Service via
+`ApplyMultisigMutation(payload, signatures)` (UDS / TCP), the definitive
+authority for data mutations and state. `IsolationLayer` authorizes each
+request to the Graph Compute Service based on quorum and roles.
+</div>
 
 ### Shared Architecture via IntelligenceGraphEngine
 
@@ -44,28 +38,18 @@ By injecting this exact `engine` into the `GraphGovernanceAgent` at startup, the
 
 ## 2. Governance Workflow Diagram
 
-```mermaid
-C4Container
-    title C4 Container: GraphGovernanceAgent Event Loop
+<div class="admonition architecture" markdown>
+<p class="admonition-title">C4 container: GraphGovernanceAgent event loop</p>
 
-    Container_Boundary(b_app, "Gateway API (app.py)") {
-        Component(Engine, "IntelligenceGraphEngine", "Python", "Shared Engine")
-
-        Component(GovAgent, "GraphGovernanceAgent", "Daemon", "Runs periodic background tasks for audit and review")
-        Component(GovWorkflow, "GovernanceWorkflow", "Policy Pipeline", "Calculates risk scores, persists to KG")
-
-        Component(Staleness, "ConfigStalenessAuditor", "Python", "Finds stale configs")
-    }
-
-    ContainerDb(KG, "Knowledge Graph (Rust)", "EpistemicGraph", "Stores rules, decisions, ontology")
-
-    Rel(GovAgent, Engine, "Injected on boot")
-    Rel(GovAgent, GovWorkflow, "Triggers run_audit_cycle()")
-    Rel(GovWorkflow, Staleness, "Finds legacy objects to remove")
-
-    Rel(GovWorkflow, Engine, "Check agent roles and fetch active proposals")
-    Rel(GovWorkflow, KG, "Persist decisions (gov_decision:*)")
-```
+Inside the Gateway API (`app.py`), `IntelligenceGraphEngine` (the shared
+engine) is injected into `GraphGovernanceAgent` (a daemon) on boot.
+`GraphGovernanceAgent` triggers `GovernanceWorkflow.run_audit_cycle()`,
+which calls `ConfigStalenessAuditor` to find legacy objects to remove,
+checks agent roles and fetches active proposals through the shared
+`IntelligenceGraphEngine`, and persists decisions (`gov_decision:*`) to
+the Knowledge Graph (`EpistemicGraph`, Rust) — the durable store of
+rules, decisions, and ontology.
+</div>
 
 ### Workflow Execution
 1. **Audit Cycle**: Periodically, the daemon audits the graph for stale data or newly proposed `AGENTS.md` reflectors.

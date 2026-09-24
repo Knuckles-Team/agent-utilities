@@ -8,63 +8,36 @@ The Agent OS is a multi-subsystem architecture where the Knowledge Graph drives 
 
 ### Subsystem Map
 
-```mermaid
-graph TB
-    subgraph KERNEL["🧠 KERNEL — agent-utilities"]
-        KG[KG-2.0: Knowledge Graph]
-        SEC[OS-5.1: Secret Engine]
-        REG[AU-ECO.mcp.toolkit-live-discovery: Agent Registry]
-        SCHED[OS-5.2: Cognitive Scheduler]
-        ID[OS-5.1: Identity/Policy]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Kernel drives OS subsystems, which reach remote hosts per-endpoint or over SSH</p>
 
-    subgraph OS_LAYER["⚙️ OS SUBSYSTEMS"]
-        SM["ECO-4.0: systems-manager\n23 tools\nHost OS operations"]
-        CM["ECO-4.0: container-manager-mcp\n60+ tools\nDocker/Compose/Swarm\n(multi-endpoint)"]
-        TM["ECO-4.0: tunnel-manager\n43 tools\nSSH/Remote/Network"]
-        RM["ECO-4.0: repository-manager\n24 tools\nWorkspace/Git lifecycle"]
-    end
-
-    subgraph OS_SERVICES["🔌 OS SERVICES (deployable)"]
-        SX["ECO-4.0: searxng-mcp\nInternet Gateway\n(public instance default)"]
-        LF["AU-OS.governance.wasm-micro-agent-sandbox: langfuse-agent\nObservability Bus\n(deploy via template)"]
-    end
-
-    subgraph HOSTS["🖥️ REMOTE HOSTS (KG HostNodes)"]
-        H1["ECO-4.0: host:server1\ntcp://192.0.2.10:2375"]
-        H2["ECO-4.0: host:server2\ntcp://192.0.2.10:2375"]
-        H3["ECO-4.0: host:server3\nssh://${DEPLOY_USER}@192.0.2.10"]
-    end
-
-    KG --> SM & CM & TM & RM
-    SEC -->|"secret:// creds"| TM & CM
-    KG -->|HostNode lookup| CM
-    KG -->|HostNode lookup| TM
-    CM -->|"per-endpoint"| H1 & H2 & H3
-    TM -->|"SSH exec/file"| H1 & H2 & H3
-    CM -->|"compose_up(template)"| SX & LF
-
-    style KERNEL fill:#1a1a2e,stroke:#e94560,color:#fff
-    style OS_LAYER fill:#16213e,stroke:#0f3460,color:#fff
-    style OS_SERVICES fill:#0f3460,stroke:#533483,color:#fff
-    style HOSTS fill:#2d132c,stroke:#ee4540,color:#fff
-```
+The kernel (Knowledge Graph, Secret Engine, Agent Registry, Cognitive
+Scheduler, Identity/Policy) drives four OS subsystems: `systems-manager`
+(23 tools, host OS operations), `container-manager-mcp` (60+ tools,
+Docker/Compose/Swarm, multi-endpoint), `tunnel-manager` (43 tools,
+SSH/remote/network), and `repository-manager` (24 tools, workspace/git
+lifecycle). The Secret Engine feeds `secret://` credentials to
+`tunnel-manager` and `container-manager-mcp`; the Knowledge Graph also
+resolves `HostNode` lookups for both. `container-manager-mcp` reaches
+remote hosts per-endpoint; `tunnel-manager` reaches them over SSH
+exec/file. `container-manager-mcp` also deploys OS services (`searxng-mcp`
+internet gateway, `langfuse-agent` observability bus) via
+`compose_up(template)`.
+</div>
 
 ### Default Communication: MCP via KG
 
 All MCP servers are loaded into the Knowledge Graph at startup via `sync_mcp_agents()`. The graph router discovers and invokes tools through the KG — this is the **native path**.
 
-```mermaid
-flowchart LR
-    Q[ORCH-1.0: User Query] --> GR[ORCH-1.2: Graph Router]
-    GR --> KG[KG-2.0: Knowledge Graph]
-    KG --> |"MCP tool lookup"| SM[systems-manager tools]
-    KG --> |"MCP tool lookup"| CM[container-manager tools]
-    KG --> |"MCP tool lookup"| TM[tunnel-manager tools]
-    KG --> |"MCP tool lookup"| RM[repository-manager tools]
-    TM -.-> |"SSH tunnel"| RH[Remote hosts]
-    CM -.-> |"Docker endpoint"| RH
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Every query routes through the KG's tool lookup</p>
+
+A user query reaches the Graph Router, which looks up MCP tools in the
+Knowledge Graph across all four subsystems (systems-manager,
+container-manager, tunnel-manager, repository-manager). tunnel-manager
+reaches remote hosts over an SSH tunnel; container-manager reaches them
+via a Docker endpoint.
+</div>
 
 **Priority order**:
 1. **MCP tools via KG** (default) — tools are registered in the KG and invoked directly
@@ -202,31 +175,24 @@ HostNode(
 
 Every agent package ships a `compose.yml`. These become **Infrastructure Templates** — blueprints that `container-manager-mcp` can reference to scaffold dependencies on-demand.
 
-```mermaid
-sequenceDiagram
-    participant A as Agent
-    participant GR as Graph Router
-    participant KG as Knowledge Graph
-    participant CM as container-manager-mcp
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A template request resolves deps, secrets, and a host before deploying</p>
 
-    A->>GR: "I need langfuse for tracing"
-    GR->>KG: Lookup InfrastructureTemplateNode("langfuse")
-    KG-->>GR: Template found (compose_ref, required_env, deps)
-    GR->>CM: compose_up("agents/langfuse-agent/compose.yml")
-    CM->>CM: Resolve env from Secret Engine
-    CM->>CM: Deploy to target HostNode
-    CM-->>A: "✓ Langfuse deployed on media-server:9001"
-```
+An agent asks the Graph Router for langfuse tracing. The router looks up
+an `InfrastructureTemplateNode("langfuse")` in the KG (returning its
+compose_ref, required_env, and deps), then calls `container-manager-mcp`'s
+`compose_up` with that compose file. `container-manager-mcp` resolves the
+required env from the Secret Engine, deploys to the target `HostNode`, and
+confirms deployment back to the agent.
+</div>
 
 ### Template Resolution
 
-```
-Agent needs langfuse → KG lookup → InfrastructureTemplateNode found
-  → Check deps: needs postgres? → Deploy postgres template first
-  → Resolve env: secret://langfuse/token → Secret Engine
-  → Pick target host: KG query docker_host=true
-  → container-manager-mcp.compose_up(template.compose_ref)
-```
+- Agent needs langfuse → KG lookup → `InfrastructureTemplateNode` found
+    - Check deps: needs postgres? → deploy the postgres template first
+    - Resolve env: `secret://langfuse/token` → Secret Engine
+    - Pick target host: KG query `docker_host=true`
+    - `container-manager-mcp.compose_up(template.compose_ref)`
 
 ---
 
@@ -234,37 +200,21 @@ Agent needs langfuse → KG lookup → InfrastructureTemplateNode found
 
 The canonical flow. The Knowledge Graph drives tool discovery, routing, and hydration:
 
-```mermaid
-sequenceDiagram
-    participant U as User / Agent
-    participant GR as Graph Router (AU)
-    participant KG as Knowledge Graph (AU)
-    participant SM as systems-manager MCP
-    participant CM as container-manager MCP
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Install request → KG tool discovery → optional container deploy → KG hydration</p>
 
-    U->>GR: "Install the salesforce specialist"
-    GR->>KG: Route query → discover install_specialist tool
-    KG-->>GR: Matched: systems-manager.install_specialist
-    GR->>SM: invoke install_specialist("salesforce")
-    SM->>SM: AgentRegistry.install("salesforce")
-    SM->>SM: Load package JSON, check dependencies
-
-    alt Package requires container
-        SM->>KG: Discover deploy_specialist_container tool
-        KG-->>SM: Matched: container-manager.deploy_specialist_container
-        SM->>CM: invoke deploy_specialist_container(image, env, ports)
-        CM->>CM: docker/podman run
-        CM-->>SM: container_id, status
-    end
-
-    SM->>SM: Merge MCP config into active config
-    SM->>KG: Hydrate SpecialistPackageNode + tool nodes
-    KG->>KG: New tools available for routing
-    SM-->>GR: "✓ Installed salesforce v0.1.0 (3 tools)"
-    GR-->>U: Result
-
-    Note over KG: Future queries can now route<br/>to salesforce tools via KG
-```
+A user/agent asks to install the salesforce specialist. The Graph Router
+routes the query through the KG, which discovers and matches
+`systems-manager.install_specialist`. `systems-manager` invokes it:
+`AgentRegistry.install("salesforce")` loads the package JSON and checks
+dependencies. If the package requires a container, `systems-manager`
+discovers `container-manager.deploy_specialist_container` via the KG and
+invokes it (a real `docker`/`podman run`), getting back a container ID and
+status. Either way, `systems-manager` merges the new MCP config into the
+active config and hydrates a `SpecialistPackageNode` + tool nodes into the
+KG — making the new tools immediately available for future routing, with
+no restart required.
+</div>
 
 After installation, the new specialist's tools are **immediately discoverable** by the graph router. No restart required.
 
@@ -274,28 +224,17 @@ After installation, the new specialist's tools are **immediately discoverable** 
 
 How the Permissions Kernel (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) enforces role-based access across the OS layer:
 
-```mermaid
-sequenceDiagram
-    participant Agent as Specialist Agent
-    participant TG as tool_guard.py (AU)
-    participant PK as PermissionsKernel (AU)
-    participant SM as systems-manager MCP
-    participant EU as Eunomia (SM)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A denied specialist escalates via A2A to an admin-role agent</p>
 
-    Agent->>TG: call tool("reboot_server")
-    TG->>PK: authorize_tool(identity, "reboot_server")
-    PK->>PK: Check role policy (specialist → denied)
-    PK-->>TG: DENY
-    TG-->>Agent: Blocked — insufficient privileges
-
-    Note over Agent: Admin-role agent can perform the operation
-
-    Agent->>SM: A2A request("reboot_server", admin_identity)
-    SM->>EU: Eunomia policy check (admin role)
-    EU-->>SM: ALLOW
-    SM->>SM: Execute reboot
-    SM-->>Agent: Result
-```
+A specialist agent calls `reboot_server`; `tool_guard.py` asks
+`PermissionsKernel` to authorize it, which checks role policy — specialist
+role is denied, and the agent is blocked with "insufficient privileges."
+An admin-role agent, however, can perform the same operation: it sends an
+A2A request with its admin identity to `systems-manager`, which checks the
+Eunomia policy (admin role → allow), executes the reboot, and returns the
+result.
+</div>
 
 **Deny takes precedence** over a generic wildcard allow. Only explicit non-wildcard allow patterns can override denials. See [permissions-kernel.md](permissions-kernel.md) for the full policy schema.
 

@@ -35,22 +35,20 @@ and it must resolve its OWN process identity the same way GraphOS MCP does (a
 correctly configured `AUTH_JWT_AUDIENCE`/`MCP_JWT_AUDIENCE` and
 `KG_POLICY_VERSION`) if it is deployed at all.
 
-```mermaid
-flowchart TB
-    C[Authenticated clients] --> I[Operator TLS ingress]
-    Chan["Messaging channels: Telegram / Slack / Teams / …"] --> G
-    I --> G["GraphOS MCP (bundles messaging co-service, default-on)"]
-    I --> R[REST/API gateway]
-    G --> F[Approved MCP connector fleet]
-    G --> E[(Epistemic graph authority)]
-    R --> E
-    H[GraphOS host] --> E
-    G --> Q[(Shared durable state/queue)]
-    R --> Q
-    H --> Q
-    H --> X[(Optional governed mirrors)]
-    Mopt["agent-utilities-messaging (optional isolated scale-out)"] -.-> E
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One TLS ingress, two gateways, one authority</p>
+
+Authenticated clients and messaging channels (Telegram/Slack/Teams/…) both
+reach the operator TLS ingress. Messaging channels feed GraphOS MCP
+directly (which bundles the messaging co-service, default-on); the ingress
+also fans out to GraphOS MCP and to the REST/API gateway. GraphOS MCP
+additionally reaches the approved MCP connector fleet. Both GraphOS MCP and
+the REST gateway reach the Epistemic graph authority and a shared durable
+state/queue, as does the GraphOS host directly; the GraphOS host alone also
+reaches optional governed mirrors. The optional, isolated
+`agent-utilities-messaging` scale-out service reaches the epistemic graph
+authority independently of the rest of this topology.
+</div>
 
 ## Deployment invariants
 
@@ -154,7 +152,7 @@ separately, provide the strict `GRAPH_RAFT_GROUP_ENDPOINTS` mapping generated fr
 external placement inventory. The engine returns authoritative group, epoch, and fence
 information; stale routes refresh without inventing a second placement authority.
 
-See [Engine sharding](engine_sharding.md).
+See [Engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/).
 
 ## Durable state and queue
 
@@ -185,7 +183,7 @@ For graph-shaped external data, use the universal connector lifecycle:
 5. apply a governed snapshot or delta sync;
 6. checkpoint an opaque cursor.
 
-See [Universal external graph connectors](universal-external-graph-connectors.md).
+See [Universal external graph connectors](https://knuckles-team.github.io/agent-connector-sdk/architecture/universal-graph-connectors/).
 
 ## Development deployment
 

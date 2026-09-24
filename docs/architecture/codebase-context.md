@@ -30,18 +30,18 @@ when the remote vLLM/embedder is down, and **degrades gracefully** — sections 
 enrichment has not run yet (docs, `similar_to`, `FILE_CHANGES_WITH`, concepts) come
 back empty and richen as the delta sweep populates them.
 
-```mermaid
-flowchart TD
-    Q["code_context(query, intent)"] --> R[resolve_anchors by name/node_id]
-    R -->|how| H[callees + concepts + routes + docs]
-    R -->|usage| U[callers + similar + routes + cross-repo]
-    R -->|impact| I[transitive callers + change-coupling]
-    H & U & I --> N[normalize /au→canonical · dedup file:line]
-    N --> S[synthesize cited answer + capability_id]
-    S --> A[answer + citations]
-    A -. reads_avoided .-> F[graph_feedback → record_outcome EMA]
-    F -. GEPA .-> R
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">code_context: three intents, one cited answer, one feedback loop</p>
+
+`code_context(query, intent)` resolves anchors by name/node_id, then
+branches on intent: `how` returns callees + concepts + routes + docs,
+`usage` returns callers + similar + routes + cross-repo, `impact` returns
+transitive callers + change-coupling. All three normalize (au→canonical,
+dedup by file:line) into one synthesis step that produces a cited answer
+plus a `capability_id`. The answer's `reads_avoided` signal feeds
+`graph_feedback`'s `record_outcome` EMA, which GEPA feeds back into anchor
+resolution — closing the loop.
+</div>
 
 ## Native defaults (GAP 3)
 

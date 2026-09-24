@@ -16,38 +16,20 @@ This document describes the **First Principles Architecture** layer — a set of
 
 ## Architecture Overview
 
-```mermaid
-graph LR
-    subgraph Ingress ["Protocol Ingress"]
-        ECO-4.1: A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:AU-ECO.messaging.native-backend-abstraction)"]
-        ECO-4.1: ACP[ACP] --> Router
-        AGUI[ECO-4.0: AG-UI] --> Router
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Ingress, hybrid routing, execution, and feedback — one loop</p>
 
-    subgraph Routing ["3-Stage Hybrid Routing"]
-        PGS --> Router
-        Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AU-AHE.evaluation.interpretability-tests)"}
-        TC -- "Hit" --> Dispatch
-        TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:AU-KG.memory.tiered-memory-caching)"}
-        SM --> LLM["ORCH-1.1: LLM Planner\n(Filtered Prompt)"]
-        LLM --> Dispatch
-    end
-
-    subgraph Execution ["Dispatch & Execute"]
-        Dispatch --> Cache["Registry Cache\n(CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"]
-        Cache --> Specs["ORCH-1.2: Top-7 Specialists"]
-        Specs --> Cap{"Capability\nAuto-Activate?\n(CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)"}
-        Cap --> Exec["ORCH-1.21: Parallel Execution"]
-    end
-
-    subgraph Feedback ["Post-Execution Feedback"]
-        Exec --> Verify["AHE-3.1: Verifier"]
-        Verify --> SMUpdate["AHE-3.3: Self-Model\nUpdate"]
-        Verify --> TCReward["ORCH-1.2: TeamConfig\nReward"]
-        SMUpdate --> CacheInv["AU-ECO.mcp.toolkit-live-discovery: Cache\nInvalidation"]
-        TCReward --> CacheInv
-    end
-```
+**Protocol ingress.** A2A reaches `PlannerGraphSkill`; ACP and AG-UI both
+reach the router directly. **3-stage hybrid routing.** `PlannerGraphSkill`
+also reaches the router, which checks for a `TeamConfig` match: a hit
+dispatches immediately; a miss checks Self-Model bias, then runs the LLM
+planner (filtered prompt) before dispatching. **Dispatch & execute.**
+Dispatch reads the Registry Cache for the top-7 specialists, checks
+capability auto-activation, then executes in parallel. **Post-execution
+feedback.** Execution feeds a verifier, which updates both the Self-Model
+and the TeamConfig's reward; both updates trigger cache invalidation,
+closing the loop.
+</div>
 
 ---
 
@@ -84,21 +66,15 @@ relevant = get_relevant_specialists(
 
 ### Cache Lifecycle
 
-```mermaid
-stateDiagram-v2
-    [*] --> Cold: Server Start
-    Cold --> Warm: First get_discovery_registry()
-    Warm --> Warm: Subsequent calls (O(1))
-    Warm --> Cold: invalidate_registry_cache()
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cold, then warm until invalidated</p>
 
-    note right of Warm
-        Invalidation triggers:
-        - MCP agent sync
-        - Pipeline completion
-        - SelfModel update
-        - TeamConfig promotion
-    end note
-```
+The cache starts `Cold` at server start. The first
+`get_discovery_registry()` call warms it; every subsequent call while warm
+is O(1). `invalidate_registry_cache()` returns it to `Cold`. Four events
+trigger invalidation: MCP agent sync, pipeline completion, a Self-Model
+update, or a TeamConfig promotion.
+</div>
 
 ### Invalidation Triggers
 
@@ -127,23 +103,17 @@ The LLM planner would rediscover the same specialist combinations for recurring 
 
 ### TeamConfig Lifecycle
 
-```mermaid
-graph TD
-    subgraph Discovery ["1. First Encounter"]
-        Q1["ORCH-1.0: Query: 'deploy to staging'"] --> LLM["ORCH-1.1: LLM Planner"]
-        LLM --> Coalition["AHE-3.3: Coalition: DevOps + Cloud + Container"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Discover once, promote on success, reuse and keep learning</p>
 
-    subgraph Promotion ["2. Promotion (on success)"]
-        Coalition --> Verify["AHE-3.1: Verifier Score ≥ 0.7"]
-        Verify --> Promote["AHE-3.3: promote_coalition_to_template()"]
-        Promote --> TC["ORCH-1.2: TeamConfigNode (reusable composition)"]
-    end
-
-    subgraph Decide ["3. Future Queries"]
-        Q2["ORCH-1.0: typed task"] --> Plan["EG AgentAssemble: certified topology plan"]
-    end
-```
+**1. First encounter.** A query ("deploy to staging") reaches the LLM
+planner, which derives a coalition (DevOps + Cloud + Container). **2.
+Promotion (on success).** A verifier score ≥ 0.7 triggers
+`promote_coalition_to_template()`, creating a `TeamConfigNode` — a reusable
+composition. **3. Future queries.** A typed task goes to EG's
+`AgentAssemble`, which returns a certified topology plan; a TeamConfig
+carries no success rate and nothing selects it by one (ST-7).
+</div>
 
 ### Data Model
 

@@ -12,7 +12,7 @@
 # Validate it any time with:  agent-utilities-doctor --only workspace_config
 # Full schema + every consumed key:  docs/guides/workspace-config.md
 
-# ── top-level identity ──────────────────────────────────────────────────────
+# top-level identity
 name: "My Agent Workspace"            # human label (advisory)
 # `path` is the ABSOLUTE base dir under which every repo below is cloned/resolved.
 # Each repo lands at <path>/<...subdirs...>/<repo-name>. If omitted, the bootstrap
@@ -20,7 +20,7 @@ name: "My Agent Workspace"            # human label (advisory)
 path: "${WORKSPACE_ROOT}"
 description: "Main development environment."   # advisory
 
-# ── repositories at the workspace root ──────────────────────────────────────
+# repositories at the workspace root
 # A list of { url, description }. `url` is REQUIRED and is the git clone URL; the
 # repo's on-disk name is derived from the URL basename (minus ".git").
 # `description` is advisory (used for the KG/catalog).
@@ -28,7 +28,7 @@ repositories:
   - url: "https://github.com/Knuckles-Team/pipelines.git"
     description: "CI pipelines for the ecosystem."
 
-# ── nested subdirectories (recursive) ───────────────────────────────────────
+# nested subdirectories (recursive)
 # Each key is a directory name created under `path`. A subdirectory node may
 # itself carry `description`, `repositories`, and further `subdirectories` — the
 # loader walks this recursively, so a repo at
@@ -47,7 +47,7 @@ subdirectories:
           - url: "https://github.com/Knuckles-Team/universal-skills.git"
             description: "Central skill repository."
 
-# ── KG ingestion toggles (consumed by the KG breadth/ingestion loop) ────────
+# KG ingestion toggles (consumed by the KG breadth/ingestion loop)
 graph:
   enabled: true        # opt the workspace into KG breadth ingestion
   multimodal: true     # ingest non-code artifacts too

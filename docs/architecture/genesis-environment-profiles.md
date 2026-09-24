@@ -51,21 +51,26 @@ already uses, so a `*_TOKEN`/`*_PASSWORD` key cannot be smuggled into the
 
 ## Extension — the named set is data, not a closed enum
 
-```mermaid
-flowchart LR
-    subgraph Discover["list_environment_profiles()"]
-        B["deploy/environments/*.yaml\n(repo-shipped: dev, test, prod)"]
-        X["~/.config/agent-utilities/environments/*.yaml\n(operator extension dir)"]
-    end
-    B -->|"stem = profile name"| M["name -> path catalog\n(extension dir overrides a\nbuilt-in of the same name)"]
-    X -->|"stem = profile name"| M
-    M --> L["load_environment_profile(name)"]
-    L -->|"YAML -> ten typed sections"| P["_profile_from_mapping\n(fails loud: missing/extra key)"]
-    P --> V["validate_environment_profile"]
-    V -->|"secret ref scheme, identity->secret\nname, non-secret env, writable-path\nreason, genesis.yaml enum\ncross-check, prod digest-pin,\nmcp-tools-list required"| OK["EnvironmentProfile"]
-    V -.->|"any failure"| ERR["EnvironmentProfileError /\nMissingSecretReferenceError\n(names the exact field)"]
-    G["genesis.yaml\nrun_plan.orchestrators /\nsubstrate_authority / idp"] -.->|"read as data,\nnot imported"| V
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Discover, load, validate — no PR needed for a new profile</p>
+
+`list_environment_profiles()` discovers two directories: the repo-shipped
+`deploy/environments/*.yaml` (dev, test, prod) and the operator extension
+directory `~/.config/agent-utilities/environments/*.yaml`. Each file's stem
+becomes its profile name in one name→path catalog, with the extension
+directory overriding a built-in of the same name. `load_environment_profile(name)`
+reads the chosen YAML into ten typed sections via `_profile_from_mapping`
+(fails loud on a missing or extra key), then `validate_environment_profile`
+checks the secret-ref scheme, identity→secret-name mapping, non-secret env
+vars, writable-path reasoning, a `genesis.yaml` enum cross-check, the
+production digest-pin, and the required MCP tools list — producing either a
+valid `EnvironmentProfile` or an `EnvironmentProfileError`/
+`MissingSecretReferenceError` naming the exact failing field.
+`genesis.yaml`'s `run_plan.orchestrators`/`substrate_authority`/`idp` fields
+are read as data during validation, never imported as code. Dropping a new
+`uat.yaml` into either directory makes `--profile uat` immediately valid —
+no PR to this repo.
+</div>
 
 Dropping a new `uat.yaml` (or any name) into either directory makes `--profile
 uat` immediately valid — no PR to this repo. `load_environment_profile` on an

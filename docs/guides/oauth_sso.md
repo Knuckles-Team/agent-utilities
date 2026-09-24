@@ -20,74 +20,47 @@ Every MCP server in the ecosystem supports three authentication patterns:
 
 ### Authentication Flow
 
-```mermaid
-sequenceDiagram
-    participant User as User / AI Client
-    participant IdP as OIDC Identity Provider
-    participant MCP as FastMCP Server<br/>(any agent-mcp)
-    participant MW as UserTokenMiddleware
-    participant Auth as auth.py<br/>(get_client)
-    participant Helper as delegated_auth.py<br/>(get_delegated_token)
-    participant API as Downstream API<br/>(Jira, GitLab, etc.)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Authentication flow, in three phases</p>
 
-    Note over User,API: Phase 1: Client authenticates with IdP
-    User->>IdP: Login (SSO / device-code / client-credentials)
-    IdP-->>User: Access Token (JWT)
+**Phase 1 — client authenticates with the IdP.** The user (or AI client) logs
+in via SSO, device-code, or client-credentials; the IdP returns an
+access-token JWT.
 
-    Note over User,API: Phase 2: Client calls MCP with IdP token
-    User->>MCP: MCP Tool Call + Bearer [IdP-token]
-    MCP->>MCP: OIDCProxy validates token against IdP JWKS
-    MCP->>MW: Pass validated request
-    MW->>MW: Bind verified token + claims → request ContextVars
+**Phase 2 — client calls MCP with the IdP token.** The user calls an MCP
+tool with `Authorization: Bearer [IdP-token]`. The FastMCP server's
+`OIDCProxy` validates the token against the IdP's JWKS, then passes the
+validated request to `UserTokenMiddleware`, which binds the verified token
+and claims into request-scoped `ContextVars`.
 
-    Note over User,API: Phase 3: Tool handler creates API client
-    MCP->>Auth: get_client(config)
-    Auth->>Helper: get_delegated_token(audience, scopes)
-    Helper->>IdP: RFC 8693 Token Exchange<br/>(subject_token → downstream token)
-    IdP-->>Helper: Delegated Access Token
-    Helper-->>Auth: downstream_token
-    Auth->>API: API call with delegated token
-    API-->>MCP: Response
-    MCP-->>User: Tool result
-```
+**Phase 3 — the tool handler creates an API client.** MCP calls the agent's
+`auth.py::get_client(config)`, which calls
+`delegated_auth.py::get_delegated_token(audience, scopes)`. That helper
+performs an RFC 8693 Token Exchange against the IdP (`subject_token` →
+downstream token) and returns the delegated access token up through
+`auth.py`, which calls the downstream API (Jira, GitLab, etc.) with it.
+The API's response flows back through MCP as the tool result.
+</div>
 
 ### Component Architecture
 
-```mermaid
-graph TB
-    subgraph "agent-utilities — shared infrastructure"
-        SF["server_factory.py<br/>OIDCProxy + CLI parser"]
-        MW["middlewares.py<br/>UserTokenMiddleware"]
-        DA["delegated_auth.py<br/>get_delegated_token<br/>get_3lo_authorization_url<br/>exchange_authorization_code"]
-        CH["context_helpers.py<br/>progress, elicitation, logging,<br/>state, and sampling"]
-        CFG["core/config.py<br/>AgentConfig with OIDC fields<br/>(XDG config.json)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Shared infrastructure feeds three agent patterns</p>
 
-    subgraph "Full Delegation Agents"
-        GL["OS-5.1: gitlab-api/auth.py"]
-        GH["OS-5.1: github-agent/auth.py"]
-        SN["OS-5.1: servicenow-api/auth.py"]
-        AT["OS-5.1: atlassian-agent/auth.py"]
-        LX["KG-2.6: leanix-agent/auth.py"]
-        AN["OS-5.1: ansible-tower-mcp/auth.py"]
-    end
-
-    subgraph "Hybrid Agent"
-        MS["microsoft-agent/auth.py<br/>(MSAL + OIDC)"]
-    end
-
-    subgraph "Identity Passthrough"
-        LF["langfuse-agent/auth.py<br/>(API keys + audit logging)"]
-    end
-
-    CFG --> SF
-    SF --> MW
-    MW --> DA
-    CH -.->|"tool context utilities"| GL & GH & SN & AT & LX & AN & MS
-
-    DA --> GL & GH & SN & AT & LX & AN & MS
-    MW -.->|"user identity audit"| LF
-```
+`agent-utilities`' shared infrastructure — `core/config.py` (`AgentConfig`
+with OIDC fields, from XDG `config.json`) → `server_factory.py` (`OIDCProxy`
++ CLI parser) → `middlewares.py` (`UserTokenMiddleware`) →
+`delegated_auth.py` (`get_delegated_token`, `get_3lo_authorization_url`,
+`exchange_authorization_code`) — underlies every agent's auth. `delegated_auth.py`
+supplies tokens directly to the **Full Delegation Agents** (`gitlab-api`,
+`github-agent`, `servicenow-api`, `atlassian-agent`, `leanix-agent`,
+`ansible-tower-mcp`, each OS-5.1 or KG-2.6) and to the **Hybrid Agent**
+(`microsoft-agent`, MSAL + OIDC). `context_helpers.py` (progress,
+elicitation, logging, state, and sampling) supplies tool-context utilities
+to all of those agents alike. `UserTokenMiddleware` separately audits user
+identity for the **Identity Passthrough** agent (`langfuse-agent`, API keys
++ audit logging), which does not receive a delegated token.
+</div>
 
 ## Two-Layer Auth Architecture
 
@@ -369,37 +342,23 @@ The secrets engine (`agent_utilities.security.secrets_client`) integrates with H
 
 ### How It Works
 
-```mermaid
-sequenceDiagram
-    participant User as User / AI Agent
-    participant MW as UserTokenMiddleware
-    participant SC as SecretsClient
-    participant VB as VaultBackend
-    participant Vault as HashiCorp Vault
-    participant IdP as OIDC Identity Provider
+<div class="admonition architecture" markdown>
+<p class="admonition-title">SSO-derived Vault login, cached and TTL-aware</p>
 
-    Note over User,IdP: Phase 1: User authenticates to MCP (already done)
-    User->>MW: Bearer [IdP-token]
-    MW->>MW: Bind verified token + claims in request ContextVars
+**Phase 1 — already done.** The user authenticated to MCP; `UserTokenMiddleware`
+bound the verified token and claims into request `ContextVars`.
 
-    Note over User,IdP: Phase 2: Agent needs a secret
-    SC->>VB: get("gitlab/token")
-    VB->>VB: Check: Do I have a valid Vault token?
-
-    alt No Vault token — OIDC login
-        VB->>MW: get_user_token()
-        MW-->>VB: IdP JWT
-        VB->>Vault: POST /auth/{auth_mount}/login (role, jwt=IdP_token)
-        Vault->>IdP: Validate JWT via JWKS
-        IdP-->>Vault: Valid
-        Vault-->>VB: Vault Token (scoped to user policies)
-        VB->>VB: Cache Vault token (TTL-aware)
-    end
-
-    VB->>Vault: GET /secret/data/{path_prefix}/gitlab/token
-    Vault-->>VB: Secret value
-    VB-->>SC: Resolved secret value
-```
+**Phase 2 — the agent needs a secret.** `SecretsClient` calls
+`VaultBackend.get("gitlab/token")`, which first checks whether it already
+holds a valid Vault token. If not, it fetches the IdP JWT from
+`UserTokenMiddleware.get_user_token()` and logs in to Vault —
+`POST /auth/{auth_mount}/login` with the role and `jwt=IdP_token`. Vault
+validates the JWT against the IdP's JWKS and, once valid, issues a Vault
+token scoped to the user's policies, which `VaultBackend` caches
+TTL-aware. Either way, `VaultBackend` then does
+`GET /secret/data/{path_prefix}/gitlab/token` against Vault and returns the
+resolved secret value back up to `SecretsClient`.
+</div>
 
 ### Config ↔ Path Mapping
 
@@ -409,13 +368,11 @@ The `VaultBackend` constructs full secret paths from three components:
 vault_mount:        secret          ← KV v2 secrets engine mount point
 vault_path_prefix:  agents/mcp/     ← where in the mount to scope secrets
 key:                gitlab/token    ← the key passed to get()/set()
-
-Full path: secret/data/agents/mcp/gitlab/token
-                │          │            │
-                │          │            └── key passed to client.get()
-                │          └── VAULT_PATH_PREFIX
-                └── SECRETS_VAULT_MOUNT
 ```
+
+The full path `secret/data/agents/mcp/gitlab/token` breaks down as
+`SECRETS_VAULT_MOUNT` (`secret`) / `VAULT_PATH_PREFIX` (`agents/mcp/`) /
+the key passed to `client.get()` (`gitlab/token`).
 
 The auth method mount is **separate** from the secrets path:
 
@@ -544,91 +501,41 @@ All Vault settings can be persisted in the XDG config file:
 
 The following diagram provides a comprehensive system-wide visualization of the unified authentication flows across the entire `agent-packages` and `agent-utilities` ecosystem, illustrating the OIDC Proxy verification layer, RFC 8693 Token Delegation, Hybrid MSAL auth, Vault/OpenBao dynamic credential extraction, and the remote loopback port-forwarding flow:
 
-```mermaid
-graph TD
-    classDef default fill:#1e1e24,stroke:#3a3a4a,stroke-width:1px,color:#d8d8d8;
-    classDef client fill:#0f3b5f,stroke:#20639b,stroke-width:1.5px,color:#ffffff;
-    classDef gateway fill:#4d2c5e,stroke:#7b4f91,stroke-width:1.5px,color:#ffffff;
-    classDef auth fill:#1d5c3f,stroke:#32a873,stroke-width:1.5px,color:#ffffff;
-    classDef backend fill:#5f2f20,stroke:#ba4a00,stroke-width:1.5px,color:#ffffff;
+<div class="admonition architecture" markdown>
+<p class="admonition-title">System-wide authentication and credentials topology</p>
 
-    subgraph UserInterface ["User Space"]
-        User(["User / AI Developer"])
-        Browser["Local Web Browser<br/>(Local Machine)"]
-    end
+**User space.** The user (an AI developer) calls a tool directly against
+the remote workspace's MCP transport layer, and separately drives a local
+web browser through an authorize flow that redirects to
+`127.0.0.1:56121` — a local port forward into the secure remote workspace
+(container or VM).
 
-    subgraph IDE_Forwarding ["Local-to-Remote Port Forwarding"]
-        FWD["Local Port Forward (127.0.0.1:56121)"]
-    end
+**1. MCP transport & verification.** `OIDCProxy`/`OAuthProxy`/`JWTVerifier`
+(the FastMCP server) validates the incoming call and passes the validated
+JWT to `UserTokenMiddleware`, which binds it to request-scoped
+`ContextVars` and hands it, thread-local, to both the delegation and
+secrets engines below.
 
-    subgraph AgentWorkspace ["Secure Remote Workspace (Container / VM)"]
-        subgraph MCP_Layer ["1. MCP Transport & Verification"]
-            Proxy["OIDCProxy / OAuthProxy / JWTVerifier<br/>(FastMCP Server)"]
-            MW["UserTokenMiddleware<br/>(Binds verified JWT to request ContextVars)"]
-        end
+**2. agent-utilities shared auth engine.** `delegated_auth.py` performs
+RFC 8693 Token Exchange against the IdP (Okta, Entra ID, Keycloak) to
+obtain a delegated access token. `SecretsClient`/`VaultBackend` uses the
+same JWT to authenticate to the Vault/OpenBao cluster (KV v2), which
+verifies it against the IdP's JWKS and issues a scoped token and secrets
+back. The loopback callback server (port 56121) receives the forwarded
+browser traffic, exchanges the code with the xAI OAuth provider, and seeds
+credentials into the xAI-authenticated agent.
 
-        subgraph AuthCore ["2. agent-utilities Shared Auth Engine"]
-            DA["delegated_auth.py<br/>(Token Exchange / OIDC)"]
-            SC["SecretsClient / VaultBackend<br/>(Vault / OpenBao)"]
-            Loopback["Callback Server<br/>(Loopback / OIDC Auth Flow)<br/>Port: 56121"]
-        end
+**3. Specialized agent clients**, each fed by the shared engine: Full
+Delegation Agents (GitLab, GitHub, Jira, ServiceNow) get a downstream
+token from `delegated_auth.py`; Passthrough Agents (Langfuse, etc.) get
+fetched secrets from `SecretsClient`; the Hybrid Microsoft Agent (MSAL /
+OIDC) draws on both; `x-search-agent`/`x-ingestion-team` complete an xAI
+ingest-post workflow through the loopback flow above.
 
-        subgraph DownstreamClients ["3. Specialized Agent Clients"]
-            DelegatedAgent["Full Delegation Agents<br/>(GitLab, GitHub, Jira, ServiceNow)"]
-            PassthroughAgent["Passthrough Agents<br/>(Langfuse, etc.)"]
-            HybridAgent["Hybrid Microsoft Agent<br/>(MSAL / OIDC)"]
-            XAgent["x-search-agent / x-ingestion-team<br/>(xAI Authentication)"]
-        end
-    end
-
-    subgraph IdentityProvider ["Identity Providers (IdP)"]
-        IdP["SSO Identity Provider<br/>(Okta, Entra ID, Keycloak)"]
-        XAI["xAI OAuth Provider<br/>(Live X Index via xAI Auth)"]
-    end
-
-    subgraph ExternalBackends ["Secure Secrets & Services"]
-        Vault["Vault / OpenBao Cluster<br/>(KV v2 Secrets Engine)"]
-        APIs["Target APIs & Cloud Services<br/>(GitLab, Microsoft Graph, Langfuse)"]
-    end
-
-    %% Flows
-    User -->|1. Request / Call Tool| Proxy
-    User -->|2. Authorize Flow| Browser
-    Browser -->|3. Redirect to 127.0.0.1:56121| FWD
-    FWD -->|4. Forward Traffic| Loopback
-    Loopback -->|5. Handshake & Exchange Code| XAI
-    XAI -->|6. Auth Token| Loopback
-    Loopback -->|7. Seed Credentials| XAgent
-
-    Proxy -->|Pass validated JWT| MW
-    MW -->|Thread-Local Token| DA
-    MW -->|Thread-Local Token| SC
-
-    %% Vault / OpenBao Auth
-    SC -->|JWT Authentication| Vault
-    Vault -->|Verify JWT via JWKS| IdP
-    Vault -->|Issue scoped token & secrets| SC
-
-    %% Delegation Auth
-    DA -->|RFC 8693 Token Exchange| IdP
-    IdP -->|Delegated Access Token| DA
-
-    %% Specialized Agents routing
-    DA -->|Downstream Token| DelegatedAgent
-    SC -->|Fetched secrets| PassthroughAgent
-    DA & SC -->|MSAL / OIDC| HybridAgent
-
-    %% Target Calls
-    DelegatedAgent -->|Authenticated Requests| APIs
-    PassthroughAgent -->|Secured payload| APIs
-    HybridAgent -->|Graph API requests| APIs
-    XAgent -->|Ingest Post Workflow| XAI
-
-    class User,Browser client;
-    class Proxy,MW,Loopback gateway;
-    class DA,SC,FWD auth;
-    class DelegatedAgent,PassthroughAgent,HybridAgent,XAgent backend;
-```
+Every specialized agent client ultimately calls its target API or cloud
+service (GitLab, Microsoft Graph, Langfuse, etc.) with the credential it
+obtained.
+</div>
 
 
 This file lives at `~/.config/agent-utilities/knuckles-team/config.json`

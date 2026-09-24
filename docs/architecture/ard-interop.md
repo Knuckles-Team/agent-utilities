@@ -65,38 +65,22 @@ merged and re-ranked, de-duplicated by `(publisher domain, resource id)`. Loop-b
 requests are sent with `federationMode="none"` and a `via` chain stamped with our origin; an
 inbound request already carrying our origin is served local-only (a structural `max_depth = 1`).
 
-```mermaid
-flowchart LR
-  subgraph ext[External ARD ecosystem]
-    HF["Hugging Face registry<br/>/.well-known/ai-catalog.json<br/>POST /search"]
-    Peer["Peer ARD registry"]
-  end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Serving and federating both directions of ARD</p>
 
-  subgraph au[agent-utilities]
-    direction TB
-    R["ard_registry<br/>build_ai_catalog / ard_search<br/>(AU-ECO.mcp.eco-serves-two-ard)"]
-    F["ArdFederationRelay<br/>(AU-ECO.interop.ard-federation-relay)"]
-    Sign["ard_signing Ed25519<br/>(AU-OS.identity.ard-datapoint-signing)"]
-    Mux["MCPMultiplexer<br/>discover_tools / probe_catalog"]
-    Conn["@register_source ard<br/>(AU-ECO.connector.ingest-external-ard-registry)"]
-    Sync["_sync_ard → KG nodes<br/>(AU-KG.ingest.source-sync-canonical)"]
-    KG[("Knowledge Graph<br/>:MCPServer :Skill<br/>:ResourceRegistry :ServiceCapability")]
-    Routes["REST: server/routers/ard.py<br/>graph-os: @mcp.custom_route"]
-  end
-
-  Agent(["External agent / hf discover CLI"]) -->|GET well-known / POST search| Routes
-  Routes --> R
-  Routes --> F
-  R --> Mux
-  R --> Sign
-  F -->|auto fan-out| HF
-  F -->|auto fan-out| Peer
-
-  HF -->|ai-catalog.json| Conn
-  Conn --> Sign
-  Conn --> Sync --> KG
-  R -.reads.-> KG
-```
+An external agent or the `hf discover` CLI reaches the shared routes (REST
+`server/routers/ard.py`, graph-os `@mcp.custom_route`) via `GET well-known`
+or `POST search`. Routes fan out to two components: `ard_registry`
+(`build_ai_catalog`/`ard_search`, reading the Knowledge Graph's
+`:MCPServer`/`:Skill`/`:ResourceRegistry`/`:ServiceCapability` nodes, and
+using `ard_signing`'s Ed25519 signing and `MCPMultiplexer`'s
+`discover_tools`/`probe_catalog`), and `ArdFederationRelay`, which
+auto-fans-out to the Hugging Face registry and peer ARD registries. In the
+other direction, the Hugging Face registry's `ai-catalog.json` feeds the
+`@register_source ard` connector, which signs it and syncs it into KG nodes
+via `_sync_ard` — closing the loop so `ard_registry` serves both AU's own
+catalog and ingested external ones from the same KG.
+</div>
 
 ## Configuration
 

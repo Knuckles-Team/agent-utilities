@@ -104,59 +104,28 @@ Object-type & schema reads (`object-types`, `property-types`, `interfaces`,
 
 ## 5. Architecture diagram
 
-```mermaid
-flowchart TB
-    subgraph Surfaces
-        UI["agent-webui<br/>ObjectExplorerView · ObjectView · VertexView"]
-        REST["/api/enhanced/ontology/*"]
-        MCP["kg_server ontology_* tools"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Surfaces to facade to composition root to substrate</p>
 
-    UI --> REST
-    REST --> FACADE
-    MCP --> FACADE
-
-    FACADE["KnowledgeGraph facade<br/>(kg.ontology)"]
-
-    subgraph OntologySystem ["OntologySystem (composition root)"]
-        PT["property_types<br/>KG-2.47"]
-        VT["value_types<br/>KG-2.39"]
-        IF["interfaces<br/>KG-2.38"]
-        LK["links / junctions<br/>KG-2.26"]
-        FN["functions runtime<br/>AU-KG.ontology.default-runtime-bound-import"]
-        DP["derived properties<br/>KG-2.40"]
-        ED["edit ledger<br/>KG-2.43"]
-        IX["index funnel<br/>AU-KG.ontology.batch-incremental-sync-live"]
-        OS["object sets<br/>KG-2.45"]
-        PM["permissioning<br/>AU-KG.ontology.redact-object-materialize-restricted"]
-        DOC["document processing<br/>KG-2.48"]
-        ACT["actions (verbs)<br/>KG-2.25 / KG-2.42"]
-    end
-
-    FACADE --> OntologySystem
-
-    subgraph Substrate ["KnowledgeGraph layers"]
-        AUTH["engine authority<br/>Rust epistemic-graph (UDS/MessagePack) — compute + cache + semantic + durable store"]
-        MIRROR["optional mirrors<br/>Postgres / pg-age (write-only fan-out)"]
-        SEM["semantic layer<br/>owl_bridge + SHACL validator"]
-        RET["retrieval<br/>CapabilityIndex (HNSW)"]
-    end
-
-    VT --> SEM
-    IF --> SEM
-    DP --> SEM
-    DP --> RET
-    FN --> AUTH
-    OS --> AUTH
-    ED --> AUTH
-    IX --> RET
-    PM --> SEM
-    DOC --> RET
-    ACT --> FN
-    ACT --> ED
-    SEM --> AUTH
-    AUTH --> MIRROR
-```
+Three surfaces reach the ontology system: `agent-webui`'s
+`ObjectExplorerView`/`ObjectView`/`VertexView` (via `/api/enhanced/ontology/*`
+REST), and `kg_server`'s `ontology_*` MCP tools directly — both REST and
+MCP converge on the `KnowledgeGraph` facade (`kg.ontology`), which addresses
+the `OntologySystem` composition root: property types (KG-2.47), value
+types (KG-2.39), interfaces (KG-2.38), links/junctions (KG-2.26), the
+functions runtime, derived properties (KG-2.40), the edit ledger (KG-2.43),
+the index funnel, object sets (KG-2.45), permissioning, document processing
+(KG-2.48), and actions/verbs (KG-2.25/KG-2.42). Each component reaches one
+of four substrate layers: value types, interfaces, derived properties, and
+permissioning reach the semantic layer (`owl_bridge` + SHACL validator);
+derived properties, the index funnel, and document processing reach
+retrieval (`CapabilityIndex`/HNSW); the functions runtime, object sets, and
+the edit ledger reach engine authority (Rust epistemic-graph over
+UDS/MessagePack — compute + cache + semantic + durable store) directly;
+actions/verbs reach both the functions runtime and the edit ledger. The
+semantic layer itself also reaches engine authority, which write-fans-out
+to optional Postgres/pg-age mirrors.
+</div>
 
 ## 6. Live-path invariants (Wire-First)
 
