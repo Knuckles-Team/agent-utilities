@@ -7,7 +7,27 @@ import types
 from typing import Any
 
 import pytest
+from epistemic_graph.generated.decision import (
+    AbstainReasonInsufficientConfidence,
+    AssemblyResult,
+    CandidateSourceRecordAgentLibrary,
+    DecisionOutcomeAbstained,
+    DecisionQuestion,
+    DecisionRecord,
+    DerivationClass,
+    EvidenceClass,
+    ResolutionKind,
+)
+from epistemic_graph.generated.decision_commit import (
+    AgentComponentCommittedResult,
+    AgentComponentEntry,
+    DecisionCommitResult,
+)
+from epistemic_graph.generated.decision_commit import (
+    AgentComponentKind as CommitAgentComponentKind,
+)
 
+from agent_utilities.decide.consumers.assembly import Assembler, abstain_reasons, solved
 from agent_utilities.layers import clients
 from agent_utilities.layers.clients import LayerClients, LayerUnavailable
 
@@ -119,3 +139,136 @@ async def test_l3_publish_graph_carries_the_decision_as_synthesis_evidence(
     assert sent["params"]["op"]["op"] == "publish"
     assert request["graph"] == {"graph_id": "g", "synthesis_evidence": evidence}
     assert request["context"] == {"ctx": 1}
+
+
+# EH-377(a) consumer audit: ``send_agent_assemble``/``send_decision_commit`` return
+# typed ``AssemblyResult``/``DecisionCommitResult`` pydantic models, not dicts, but
+# ``agent_utilities.decide.consumers.assembly`` indexes the result as a Mapping
+# (``.get``/``[]``). Fixed by decoding at the ``AgentGraphClient`` boundary. These
+# tests drive REAL generated model instances (not the dict fakes in
+# ``tests/unit/decide/fakes.py``, which is why the bug was not caught there) through
+# the real ``assemble``/``commit_decision`` methods and the real consumer helpers.
+
+
+def _real_decision_record() -> DecisionRecord:
+    return DecisionRecord.model_construct(
+        caller_principal="agent:t",
+        candidate_source=CandidateSourceRecordAgentLibrary(
+            source="agent_library", kinds=[]
+        ),
+        created_at_ms=0,
+        derivation_class=DerivationClass.PROOF,
+        derivations=[],
+        eliminated=[],
+        evidence_class=EvidenceClass.CLAIM,
+        inputs_digest="sha256:" + "0" * 64,
+        outcome=DecisionOutcomeAbstained(
+            outcome="abstained",
+            reasons=[
+                AbstainReasonInsufficientConfidence(reason="insufficient_confidence")
+            ],
+        ),
+        premises=[],
+        question=DecisionQuestion.ASSEMBLE,
+        record_digest="sha256:" + "1" * 64,
+        record_id="decision:abc123",
+        resolution_kind=ResolutionKind.ABSTENTION,
+        schema_version=1,
+        tenant_id="tenant-t",
+        why_not=[],
+    )
+
+
+def _real_assembly_result() -> AssemblyResult:
+    return AssemblyResult.model_construct(
+        record=_real_decision_record(), schema_version=1
+    )
+
+
+def _real_decision_commit_result() -> DecisionCommitResult:
+    component = AgentComponentEntry.model_construct(
+        actor_scope="agent:t",
+        component_id="decision:abc123",
+        content_digest="sha256:" + "2" * 64,
+        created_at_ms=0,
+        definition_digest="sha256:rec",
+        entry_revision=1,
+        kind=CommitAgentComponentKind.MODEL_PROFILE,
+        policy_digest="sha256:" + "3" * 64,
+        purpose_id="p1",
+        schema_version=1,
+        source_revision="r1",
+        source_revision_digest="sha256:" + "4" * 64,
+        summary="s",
+        tenant_id="tenant-t",
+        updated_at_ms=0,
+        version="v1",
+    )
+    committed_component = AgentComponentCommittedResult.model_construct(
+        batch_id="b1", committed_version=1, component=component, schema_version=1
+    )
+    return DecisionCommitResult.model_construct(
+        component=committed_component,
+        record_id="decision:abc123",
+        replayed=False,
+        schema_version=1,
+    )
+
+
+@pytest.fixture
+def fake_generated_typed_models(monkeypatch) -> None:
+    """The real generated senders, answering with REAL typed models (as EG does)."""
+
+    async def send_agent_assemble(client, params, graph=None, *, idempotency_key=None):
+        return _real_assembly_result()
+
+    async def send_decision_commit(client, params, graph=None, *, idempotency_key=None):
+        return _real_decision_commit_result()
+
+    storage = types.ModuleType("epistemic_graph.generated.storage")
+    for name, send in {
+        "send_agent_assemble": send_agent_assemble,
+        "send_decision_commit": send_decision_commit,
+    }.items():
+        setattr(storage, name, send)
+    monkeypatch.setitem(sys.modules, "epistemic_graph.generated.storage", storage)
+
+
+async def test_assemble_normalizes_a_real_typed_model_to_json(
+    fake_generated_typed_models,
+) -> None:
+    result = await _clients().graphs.assemble(_Request())
+    # Before the fix, ``result`` was the raw ``AssemblyResult`` model and every
+    # Mapping-style read below raised ``AttributeError``.
+    assert isinstance(result, dict)
+    assert result["record"]["outcome"]["outcome"] == "abstained"
+    assert solved(result) is False
+    assert abstain_reasons(result) == ["insufficient_confidence"]
+
+
+async def test_commit_decision_normalizes_a_real_typed_model_to_json(
+    fake_generated_typed_models,
+) -> None:
+    committed = await _clients().graphs.commit_decision(_Request())
+    assert isinstance(committed, dict)
+    assert committed["record_id"] == "decision:abc123"
+    assert committed["component"]["component"]["definition_digest"] == "sha256:rec"
+
+
+async def test_assembler_survives_a_real_assembly_result_end_to_end(
+    fake_generated_typed_models,
+) -> None:
+    """``Assembler.assemble`` over the real ``AgentGraphClient`` (not ``FakeGraphs``)."""
+    commit_calls: list[Any] = []
+
+    async def commit_context(record: Any) -> dict[str, Any]:
+        commit_calls.append(record)
+        return {"record": record}
+
+    assembler = Assembler(_clients().graphs, "tenant-t", commit_context=commit_context)
+    answer = await assembler.assemble(
+        {"tenant_id": "tenant-t"}, lambda reasons: {"fallback_for": reasons}
+    )
+    assert answer.reason == "abstained: insufficient_confidence"
+    assert answer.fallback == {"fallback_for": ["insufficient_confidence"]}
+    assert commit_calls == []  # abstained: never attempts a commit
