@@ -61,12 +61,12 @@ two endpoints share one physical accelerator via the shared-device budget, below
 
 Two layers, composed:
 
-```
-demand source ─▶ circuit breaker (AU-ORCH.routing.load-shedding-backoff, back off if server is shedding)
-              ─▶ PriorityModelGate(capacity = server_ceiling)   ← shared, hard aggregate cap + priority reserve
-              ─▶ per-fan-out width (semaphore / thread-pool, ≤ ceiling)  ← this call's own slice
-              ─▶ the call
-```
+A demand source passes through the circuit breaker
+(`AU-ORCH.routing.load-shedding-backoff`, backs off if the server is
+shedding), then `PriorityModelGate(capacity = server_ceiling)` (shared,
+hard aggregate cap + priority reserve), then the per-fan-out width
+(semaphore/thread-pool, capped at the ceiling — this call's own slice),
+before finally reaching the call.
 
 ### 2. Capacity-aware backpressure + circuit breaking (AU-ORCH.routing.load-shedding-backoff)
 

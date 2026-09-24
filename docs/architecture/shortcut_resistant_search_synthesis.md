@@ -19,27 +19,32 @@ corpora FORT's SFT-only recipe leaves on the table.
 
 ## Pipeline
 
-```
-answer entity
-   │  build_evidence_subgraph (KG-2.70)        knowledge_graph/search_synthesis/evidence_subgraph.py
-   ▼  bounded checkout of the epistemic graph → EvidenceGraph workspace
-EvidenceGraph (clues, provenance, selectivity)
-   │  formulate + refine (AU-KG.retrieval.question-formulation-adversarial-refinement)             knowledge_graph/search_synthesis/question_formulation.py
-   │     ├─ diagnose (AU-KG.retrieval.formulate-adversarially-refine) ────────────────knowledge_graph/search_synthesis/shortcut_risks.py
-   │     │   single_clue_selectivity · evidence_co_coverage · exposed_constants · prior_knowledge_binding
-   │     └─ repair: prune redundant / generalize required / withhold names  (loop until clear)
-   ▼
-SearchTask {question, answer, evidence_path, difficulty, risk_report}
-   │  solver rollouts (ExecutableRagProgram / research_autopilot)
-   ▼  trajectories
-realized_difficulty (AU-AHE.reward.search-task-corpus)                 graph/training_signals.py
-   solving_cost (Ω̂) · answer_hit_time (T̄_hit) · prior_shortcut_rate (p̂_prior) → search_heavy gate
-   │  too easy → re-synthesize harder (more hops / stricter thresholds)
-   ▼  accepted tasks + trajectories
-search_task_corpus (data-science-mcp)          data_science_mcp/search_task_corpus.py
-   tasks_to_sft · trajectories_to_preference_pairs · rollouts_to_grpo
-   → build_sft_examples / build_preference_pairs / build_grpo_groups (unchanged)
-   → Sft/Dpo/Grpo trainers
+Starting from an answer entity, `build_evidence_subgraph` (KG-2.70,
+`knowledge_graph/search_synthesis/evidence_subgraph.py`) does a bounded
+checkout of the epistemic graph into an `EvidenceGraph` workspace
+(clues, provenance, selectivity).
+
+`formulate + refine`
+(`knowledge_graph/search_synthesis/question_formulation.py`) then runs a
+loop: `diagnose`
+(`knowledge_graph/search_synthesis/shortcut_risks.py`) scores
+`single_clue_selectivity`, `evidence_co_coverage`, `exposed_constants`,
+and `prior_knowledge_binding`; `repair` prunes redundant clues,
+generalizes required ones, or withholds names — looping until clear.
+This produces a `SearchTask` (question, answer, evidence_path,
+difficulty, risk_report).
+
+Solver rollouts (`ExecutableRagProgram`/`research_autopilot`) turn that
+into trajectories, scored as `realized_difficulty`
+(`graph/training_signals.py`): `solving_cost` (Ω̂), `answer_hit_time`
+(T̄_hit), and `prior_shortcut_rate` (p̂_prior) feed the search_heavy gate.
+A task that is too easy is re-synthesized harder (more hops, stricter
+thresholds); accepted tasks and trajectories flow into
+`search_task_corpus` (`data_science_mcp/search_task_corpus.py`), which
+maps them via `tasks_to_sft`/`trajectories_to_preference_pairs`/
+`rollouts_to_grpo` into the unchanged `build_sft_examples`/
+`build_preference_pairs`/`build_grpo_groups` builders and on to the
+Sft/Dpo/Grpo trainers.
 ```
 
 ## Mapping FORT → this implementation
