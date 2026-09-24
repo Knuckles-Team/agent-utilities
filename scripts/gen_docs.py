@@ -37,7 +37,9 @@ README_PATH = ROOT / "README.md"
 # gen_agents_md.py so the README, AGENTS.md, and concepts.yaml's own header
 # can never independently drift from each other again.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_hierarchy import total_concept_count  # noqa: E402
+from scripts.governance_tool import governance
+
+total_concept_count = governance("concept_hierarchy").total_concept_count
 
 BEGIN = "<!-- BEGIN GENERATED: concepts -->"
 END = "<!-- END GENERATED: concepts -->"

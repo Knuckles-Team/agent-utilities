@@ -496,7 +496,7 @@ def _dependency_sync_pool_dir() -> Path:
     """Host-wide, so the cap holds across every worktree of every repo, not
     just this one -- the shared uv cache and spindle are contended workspace
     -wide, exactly like `dependency-lock` and `epistemic-graph-daemon` in
-    agent_utilities/governance/lane_resources.yaml."""
+    repository-manager's repository_manager/governance/lane_resources.yaml."""
     root = _user_state_root() / "heavy-lane-pool"
     root.mkdir(parents=True, exist_ok=True)
     return root
@@ -507,7 +507,7 @@ def _dependency_sync_slot() -> Iterator[None]:
     """Block until one of ``_DEPENDENCY_SYNC_POOL_CAPACITY`` slots is free.
 
     A flock-based counting semaphore, deliberately NOT
-    ``agent_utilities.governance.lanes.hold_lease`` (which this bootstrap-time
+    ``repository_manager.governance.lanes.hold_lease`` (which this bootstrap-time
     launcher cannot safely import: importing the very package this script
     exists to sync/prepare the environment for, before that environment
     exists, is circular -- and would risk resolving against whichever

@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Removed
+- **Development governance moved to repository-manager (OQ-3, AUD-29, EH-512).**
+  `agent_utilities.governance.{lanes,merge_queue,concept_allocator,concept_hierarchy,
+  concept_lineage,concept_reservation}` and their `lane_resources.yaml`,
+  `domain_vocab.yaml` and `slug_registry.yaml` now live in
+  `repository_manager.governance`; no compatibility alias remains. The
+  `agent-utilities lane …` and `agent-utilities concept …` verbs are
+  `repository-manager-governance lane …` / `… concept …` (same flags, output and exit
+  codes), `agent-utilities merge-queue …` is `repository-manager --merge-queue …`
+  driven by `.mergequeue.yaml` (the AU-only queue was deleted, not moved — the generic
+  queue is its successor), and `merge-queue promotion` is
+  `repository-manager-governance promotion`. The `concept_registry` graph-os tool (a
+  same-host compatibility path onto the reservation ledger) is removed; use
+  repository-manager's `rm_concepts`. `scripts/check_lane_guard.py` stays as the
+  fleet hook entry point and runs `repository_manager.governance.lane_guard`; this
+  repository's concept gates and docs generator resolve the grammar through
+  `scripts/governance_tool.py` (`$REPOSITORY_MANAGER_ROOT`, else the workspace's
+  `agents/repository-manager`, else the installed distribution). The lineage
+  record moved to `docs/concept_lineage.yaml`. OKF type mapping
+  (`okf_bundle.map_external_type`/`resolve_type_domain`) no longer reads the
+  concept-governance vocabulary: callers pass `vocab=` for signal matching, and an
+  unmatched type goes to the review queue as before.
 - **Obsolete compatibility and executable-plugin facades.** The current-only public
   paths are now `agent_utilities` for package exports,
   `agent_utilities.core.decorators` for `require_auth`, and

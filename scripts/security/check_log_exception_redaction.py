@@ -86,7 +86,7 @@ something safe).
 
 **Fail-closed vs. an honest absence** (the same distinction
 ``check_cypher_write_subset.py`` documents, itself following
-``run_contract_checks`` in ``agent_utilities/governance/merge_queue.py``):
+``scripts/security/run_contract_checks.py``):
 this gate raises ``LogExceptionRedactionGateError`` — and ``main()`` exits 1
 — if it cannot read the tree it was asked to check (the repository root is
 absent, or a candidate file can't be read/decoded/parsed). It exits 0,

@@ -190,9 +190,10 @@ repos:
     # at an ALREADY correctly `sys.platform == "win32"`-guarded import, one or
     # more dependency hops removed -- the same shim limitation as the group
     # above, just not yet added to this list:
-    #   * cli, core.unified_install, governance.{concept_allocator,lanes,
-    #     merge_queue}, knowledge_graph.core.{engine_lock,host_lock} --
-    #     transitively import knowledge_graph.core.file_lock (already
+    #   * cli, core.unified_install, knowledge_graph.core.{engine_lock,
+    #     host_lock} -- transitively import knowledge_graph.core.file_lock or
+    #     psutil (governance.{concept_allocator,lanes,merge_queue} left with
+    #     the move to repository-manager, OQ-3) (already
     #     excluded above for direct import; these are the same limitation
     #     one hop removed, exactly like the mcp.tools/mcp.verbose_tools/
     #     patterns.* group below).
@@ -239,9 +240,6 @@ repos:
       --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
       --exclude agent_utilities.cli
       --exclude agent_utilities.core.unified_install
-      --exclude agent_utilities.governance.concept_allocator
-      --exclude agent_utilities.governance.lanes
-      --exclude agent_utilities.governance.merge_queue
       --exclude agent_utilities.knowledge_graph.core.engine_lock
       --exclude agent_utilities.knowledge_graph.core.host_lock
       --exclude agent_utilities.mcp.eunomia_principal

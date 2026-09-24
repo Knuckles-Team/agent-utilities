@@ -174,7 +174,7 @@ class WiringSweep:
 
     # Matches the current OKF-CIS concept-ID scheme (CONCEPT:<SLUG>-<PILLAR>.<domain>.<concept>,
     # e.g. CONCEPT:AU-KG.retrieval.synthesized-cited-answer) — kept in sync with the
-    # canonical ``OKF_MARKER_RE`` in ``agent_utilities/governance/concept_hierarchy.py``.
+    # canonical ``OKF_MARKER_RE`` in repository-manager's ``repository_manager/governance/concept_hierarchy.py``.
     # The legacy numeric alternative (pillar-major "dot" minor, no domain segment) is
     # retained so a repo mid-migration (or one that never migrated) still scores correctly.
     CONCEPT_RE = re.compile(

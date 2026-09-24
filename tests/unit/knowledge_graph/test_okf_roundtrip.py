@@ -143,8 +143,12 @@ def test_roundtrip_intent_to_delete(tmp_path):
 def test_map_external_type_seed_and_signal():
     assert ob.map_external_type("Reference") == ("KG", "research")
     assert ob.map_external_type("API Endpoint") == ("KG", "query")
-    # signal match against the closed domain vocab (sparql is a `query` signal)
-    assert ob.map_external_type("sparql") == ("KG", "query")
+    # signal match against a caller-supplied closed domain vocab
+    vocab = {"KG": {"query": ["sparql", "cypher"], "research": ["paper"]}}
+    assert ob.map_external_type("sparql", vocab=vocab) == ("KG", "query")
+    assert ob.map_external_type("research paper", vocab=vocab) == ("KG", "research")
+    # without a vocabulary only the curated seed maps
+    assert ob.map_external_type("sparql") is None
 
 
 def test_resolve_type_domain_queues_unmapped(tmp_path):

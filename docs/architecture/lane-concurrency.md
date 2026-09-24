@@ -13,9 +13,9 @@ rules. It classifies each shared resource into one of four classes and gives eac
 class one mechanism that makes the dangerous path **fail loudly** instead of
 silently succeeding.
 
-Implementation: [`agent_utilities/governance/lanes.py`](../../agent_utilities/governance/lanes.py)
+Implementation: repository-manager's [`repository_manager/governance/lanes.py`](https://github.com/Knuckles-Team/repository-manager/blob/main/repository_manager/governance/lanes.py) (moved there with the rest of development governance by OQ-3)
 (CONCEPT:AU-OS.governance.lane-arbitration-classes). Classification data:
-`agent_utilities/governance/lane_resources.yaml`. Enforcement:
+`repository_manager/governance/lane_resources.yaml`. Enforcement:
 `scripts/check_lane_guard.py`, wired as the `lane-guard` pre-commit hook.
 
 ## Why the shared git directory is the arbitration scope
@@ -68,7 +68,7 @@ fail to exclude the actor that collides with you.
 | `global-scanner-build` | LEASE | **workspace/host** | A host-wide scanner/build must not race another global scanner/build |
 | canonical checkout | READ-ONLY | repo | A background actor reset one mid-pre-commit; ~20 minutes lost |
 
-Read it live with `agent-utilities lane classify`. An unregistered resource is a
+Read it live with `repository-manager-governance lane classify`. An unregistered resource is a
 hard error, not a default — you must classify a resource before contending for it.
 
 ### R26 host-scoped admission — bounded leases, not a scheduler
@@ -145,7 +145,7 @@ lease slot. That slot both writes to an explicit output file
 For example:
 
 ```bash
-agent-utilities lane lease \
+repository-manager-governance lane lease \
   --resource global-scanner-build \
   --operation "scanner/build" \
   --output-file "$TMPDIR/scanner-build.log" -- <command>
@@ -179,7 +179,7 @@ re-run.
 
 ### Bounded pytest fixture allocation
 
-`agent-utilities lane env` remains the authority for the per-lane pytest
+`repository-manager-governance lane env` remains the authority for the per-lane pytest
 `--basetemp`; pytest-xdist further gives each worker a child basetemp.  The
 root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
 `t/<two SHA-1 hex digits>/<four lowercase hexadecimal characters>/<...>`. The
@@ -243,9 +243,9 @@ stash commit but writes **no ref**; the lane's own ref is pointed at it, and onl
 then is the tree cleaned. `lane unpark` applies it back.
 
 ```bash
-agent-utilities lane env      # private cargo target, pytest basetemp, scratch, stash ref
-agent-utilities lane park     # clean tree now, nothing lost, refs/stash untouched
-agent-utilities lane unpark   # put it back
+repository-manager-governance lane env      # private cargo target, pytest basetemp, scratch, stash ref
+repository-manager-governance lane park     # clean tree now, nothing lost, refs/stash untouched
+repository-manager-governance lane unpark   # put it back
 ```
 
 The default lane root is the short `~/.al/<hash(common_dir, lane)>` path.
@@ -274,7 +274,7 @@ while closing this gap). Two different mechanisms are at work here, and they are
 not the same strength:
 
 * **Structural (binds, prevention; default root only).**
-  `agent-utilities lane bind-cargo` writes
+  `repository-manager-governance lane bind-cargo` writes
   `.cargo/config.toml` with a **relative** `target-dir`:
   ```toml
   [build]
@@ -380,7 +380,7 @@ the charter fragments listed in `reports/program/CHARTER.txt`.
 ## LEASE — announce, then defer
 
 ```bash
-agent-utilities lane lease --resource dependency-lock --operation relock -- uv lock
+repository-manager-governance lane lease --resource dependency-lock --operation relock -- uv lock
 ```
 
 The lease is taken for the whole command and released on exit; a crashed holder is

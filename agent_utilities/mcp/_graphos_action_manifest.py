@@ -18,7 +18,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "act", "action": None, "name": "act"},
     {"tool": "ask", "action": None, "name": "ask"},
     {"tool": "ask_data", "action": None, "name": "ask_data"},
-    {"tool": "concept_registry", "action": None, "name": "concept_registry"},
     {"tool": "document_process", "action": None, "name": "document_process"},
     {
         "tool": "engine_admin",

@@ -74,7 +74,7 @@ result over an old range is not evidence about a new one) via::
 ``--repository-root`` (GOC-59-W08/B7 — same declared flag every other
 ``scripts/security/check_*.py`` contract check carries, matching
 ``check_cypher_write_subset.py``'s sibling convention): the merge queue's fast
-tier (``agent_utilities/governance/merge_queue.py``, ``_contract_check_argv``)
+tier (``scripts/security/run_contract_checks.py``)
 discovers a script's declared repository root by grepping its own source for
 the literal string ``--repository-root`` and, only when present, appends
 ``--repository-root <merged-tree>`` to the invocation — so a merge-queue run

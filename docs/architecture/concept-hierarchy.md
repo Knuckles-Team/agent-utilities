@@ -9,14 +9,14 @@ Agent Utilities uses one concept-ID grammar:
 Example: `AU-KG.ingest.entropy-dedup`.
 
 - `SLUG` is the two-letter repository code registered in
-  `agent_utilities/governance/slug_registry.yaml`.
+  `repository_manager/governance/slug_registry.yaml`.
 - `PILLAR` is one of `ORCH`, `KG`, `AHE`, `ECO`, `OS`, or `GBOT`.
 - `domain` must be present in the pillar's closed vocabulary in
-  `agent_utilities/governance/domain_vocab.yaml`.
+  `repository_manager/governance/domain_vocab.yaml`.
 - `concept` and optional facets are lowercase semantic kebab-case segments.
 
 Numeric IDs, alternate spellings, aliases, and implicit hierarchy levels are
-invalid. `agent_utilities.governance.concept_hierarchy` owns parsing, path/IRI
+invalid. `repository_manager.governance.concept_hierarchy` owns parsing, path/IRI
 projection, and domain validation.
 
 ## Marker parsing
@@ -58,7 +58,7 @@ with `:partOf` and SKOS relationships. Each concept stores exactly one
 Reserve the complete semantic ID before adding its marker:
 
 ```bash
-agent-utilities concept reserve --id AU-KG.ingest.entropy-dedup
+repository-manager-governance concept reserve --id AU-KG.ingest.entropy-dedup
 ```
 
 Then add `CONCEPT:AU-KG.ingest.entropy-dedup` to source. The reservation ledger

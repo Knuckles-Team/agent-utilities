@@ -21,7 +21,7 @@ line-oriented `docs/concept_reservations.yaml` ledger.
 Reserve an exact canonical ID:
 
 ```bash
-agent-utilities concept reserve \
+repository-manager-governance concept reserve \
   --id AU-KG.ingest.entropy-dedup \
   --session build-session \
   --design-doc design-reference
@@ -38,7 +38,7 @@ For a central reservation, construct a privacy-safe request and inject the
 native authority into the lifecycle service:
 
 ```python
-from agent_utilities.governance.concept_reservation import (
+from repository_manager.governance.concept_reservation import (
     ConceptReservationService,
     ConceptNamespacePolicy,
     NativeConceptReservationAuthority,
@@ -75,10 +75,10 @@ claimed by this adapter.
 Other operations:
 
 ```bash
-agent-utilities concept list --status reserved
-agent-utilities concept release --id AU-KG.ingest.entropy-dedup
-agent-utilities concept reconcile
-agent-utilities concept resolve --id AU-KG.ingest.entropy-dedup
+repository-manager-governance concept list --status reserved
+repository-manager-governance concept release --id AU-KG.ingest.entropy-dedup
+repository-manager-governance concept reconcile
+repository-manager-governance concept resolve --id AU-KG.ingest.entropy-dedup
 ```
 
 `reconcile` marks a claim `landed` once its exact marker is present in source,

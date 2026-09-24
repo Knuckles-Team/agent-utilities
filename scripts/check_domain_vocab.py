@@ -16,8 +16,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance import concept_hierarchy as ch
 from scripts._git_scan import tracked_or_walked  # noqa: E402
+from scripts.governance_tool import governance
+
+ch = governance("concept_hierarchy")
 
 _EXT = {".py", ".rs", ".md"}
 _SKIP = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}

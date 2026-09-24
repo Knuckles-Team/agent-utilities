@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -625,25 +626,32 @@ def _substring_domain_match(
     return None
 
 
+#: A closed domain vocabulary: ``{pillar: {domain: [signal, ...]}}`` — the shape
+#: of repository-manager's OKF-CIS ``domain_vocab.yaml``. Development governance
+#: (and that vocabulary) moved to repository-manager under OQ-3, so a caller that
+#: wants signal matching supplies it; agent-utilities never reads it itself.
+DomainVocabulary = Mapping[str, Mapping[str, Sequence[str]]]
+
+
 def map_external_type(
     ext_type: str,
     *,
     pillar: str = "KG",
+    vocab: DomainVocabulary | None = None,
 ) -> tuple[str, str] | None:
     """Map an external OKF ``type`` → ``(pillar, domain)`` in the governed vocab.
 
     CONCEPT:AU-KG.ingest.okf-type-mapping. Resolution order: exact seed match →
-    signal match against the closed ``domain_vocab`` for *pillar* → ``None`` (the
-    caller queues it for review and falls back to :data:`DEFAULT_TYPE_DOMAIN`).
+    signal match against the caller-supplied closed *vocab* for *pillar* →
+    ``None`` (the caller queues it for review and falls back to
+    :data:`DEFAULT_TYPE_DOMAIN`).
     """
-    from agent_utilities.governance.concept_hierarchy import load_domain_vocab
-
     key = (ext_type or "").strip().lower()
     if not key:
         return None
     if key in TYPE_DOMAIN_MAP:
         return TYPE_DOMAIN_MAP[key]
-    domains = load_domain_vocab().get(pillar, {})
+    domains = dict((vocab or {}).get(pillar, {}))
     return _exact_domain_match(pillar, key, domains) or _substring_domain_match(
         pillar, key, domains
     )
@@ -655,13 +663,14 @@ def resolve_type_domain(
     pillar: str = "KG",
     queue_path: str | Path | None = None,
     provenance: str = "",
+    vocab: DomainVocabulary | None = None,
 ) -> tuple[str, str]:
     """Map *ext_type* to a governed domain, queueing unmapped types for review.
 
     Never fails: an unmapped type is appended to the review queue and the concept
     lands on :data:`DEFAULT_TYPE_DOMAIN` so ingestion is never blocked.
     """
-    mapped = map_external_type(ext_type, pillar=pillar)
+    mapped = map_external_type(ext_type, pillar=pillar, vocab=vocab)
     if mapped is not None:
         return mapped
     queue_unmapped_type(ext_type, provenance=provenance, queue_path=queue_path)

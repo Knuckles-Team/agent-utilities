@@ -109,7 +109,7 @@ restatement is *worse* than no document: it satisfies the gate, looks like
 documentation, and teaches nothing.
 
 So a concept may instead declare a **parent** in
-``agent_utilities/governance/concept_lineage.yaml`` — "the decision I realise is
+``docs/concept_lineage.yaml`` — "the decision I realise is
 documented over there". ``has_design_doc(child) or has_design_doc(parent)``
 counts as documented, but only after the parent is verified to genuinely own a
 document and to be a live concept. A parent link into an undocumented or dead
@@ -136,16 +136,19 @@ ROOT = Path(__file__).resolve().parent.parent
 DESIGN_DIR = ROOT / ".specify" / "design"
 
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    is_valid_domain,
-    iter_okf_markers,
-    load_slug_registry,
-    parse_okf_id,
-)
-from agent_utilities.governance.concept_lineage import (  # noqa: E402
-    Lineage,
-    load_lineage,
-)
+from scripts.governance_tool import governance
+
+_hierarchy = governance("concept_hierarchy")
+_lineage = governance("concept_lineage")
+is_valid_domain = _hierarchy.is_valid_domain
+iter_okf_markers = _hierarchy.iter_okf_markers
+load_slug_registry = _hierarchy.load_slug_registry
+parse_okf_id = _hierarchy.parse_okf_id
+Lineage = _lineage.Lineage
+load_lineage = _lineage.load_lineage
+#: This repository's hand-authored lineage registry (governance record data;
+#: the rules that validate it live in repository-manager).
+LINEAGE_PATH = ROOT / _lineage.LINEAGE_RELPATH
 
 
 def _git(*args: str) -> str:
@@ -399,7 +402,7 @@ def undocumented_concepts(
     *,
     scan_root: Path = ROOT,
     design_dir: Path = DESIGN_DIR,
-    lineage_path: str | None = None,
+    lineage_path: str | Path | None = None,
 ) -> tuple[set[str], list[str], list[str], Lineage]:
     """The LIVE undocumented-concept set, computed fresh off the tree.
 
@@ -415,7 +418,7 @@ def undocumented_concepts(
     """
     all_ids = all_registered_concepts(scan_root)
     live = frozenset(all_ids)
-    lineage = load_lineage(lineage_path)
+    lineage = load_lineage(lineage_path or LINEAGE_PATH)
 
     undocumented: set[str] = set()
     broken_links: list[str] = []
@@ -461,7 +464,7 @@ def _report_broken_links(broken_links: list[str]) -> bool:
         return False
     print(
         f"\nFAIL: {len(broken_links)} broken parent link(s) in "
-        "agent_utilities/governance/concept_lineage.yaml:"
+        "docs/concept_lineage.yaml:"
     )
     for msg in broken_links:
         print(f"  - {msg}")
@@ -626,7 +629,7 @@ def _report_diff_based_result(
         "references each new CONCEPT tag (see .specify/design/_template.md), or — "
         "if the marker realises a decision that is already documented — declare "
         "that decision as its parent in "
-        "agent_utilities/governance/concept_lineage.yaml."
+        "docs/concept_lineage.yaml."
     )
     return 1
 
@@ -661,7 +664,7 @@ def main() -> int:
     violations = _diff_based_violations(
         concepts,
         slugs=valid_slugs(),
-        lineage=load_lineage(),
+        lineage=load_lineage(LINEAGE_PATH),
         live=frozenset(all_registered_concepts()),
     )
     return _report_diff_based_result(base, concepts, violations)

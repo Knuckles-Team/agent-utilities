@@ -7,8 +7,8 @@ script's own module docstring: "Every major blocker in [the 2026-07-22/23
 debugging session] hid behind one of these shapes"). It was wired into
 ``.config/pre-commit.yaml`` (``check-swallowed-errors``, ``always_run: true``)
 but had **no** forwarder here in ``scripts/security/`` — the one directory
-``agent_utilities/governance/merge_queue.py``'s fast tier actually discovers
-(``CONTRACT_CHECK_GLOB = "scripts/security/check_*.py"``, see
+the merge queue's fast tier actually discovers (``scripts/security/run_contract_checks.py``'s
+``CHECK_GLOB = "check_*.py"``, see
 ``_fast_tier_forward.py``'s module docstring for why forwarders exist at
 all). The merge queue never runs pre-commit, so every merge that went
 through the queue — as opposed to a local ``git commit`` with hooks

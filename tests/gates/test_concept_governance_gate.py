@@ -204,10 +204,11 @@ def test_update_baseline_flag_is_retired(tmp_path):
 
 import pytest  # noqa: E402
 
-from agent_utilities.governance.concept_lineage import (  # noqa: E402
-    LineageError,
-    parse_lineage,
-)
+from scripts.governance_tool import governance  # noqa: E402
+
+_lineage = governance("concept_lineage")
+LineageError = _lineage.LineageError
+parse_lineage = _lineage.parse_lineage
 from scripts.check_concept_governance import (  # noqa: E402
     reintroduced_retirements,
     resolve_documentation,

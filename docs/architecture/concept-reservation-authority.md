@@ -2,7 +2,7 @@
 
 <!-- CONCEPT:AU-OS.governance.cross-host-concept-reservation-authority -->
 
-`agent_utilities.governance.concept_reservation` defines the authority boundary
+`repository_manager.governance.concept_reservation` defines the authority boundary
 for concept IDs used by Repository Manager and development agents. The
 epistemic-graph engine already supplies the required durable primitives:
 
@@ -119,7 +119,7 @@ classifying missing projections, orphan records, state mismatches, and markers
 without claims. It rejects repeated cursors or an exceeded bound rather than
 spinning or materializing an unbounded response.
 
-Existing `agent-utilities concept reserve` remains the limited same-host
+Existing `repository-manager-governance concept reserve` remains the limited same-host
 compatibility entry point until Repository Manager migrates to this service.
 Its file lock must not be described as globally safe.
 

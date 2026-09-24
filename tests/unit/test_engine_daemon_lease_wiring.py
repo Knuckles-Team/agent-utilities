@@ -21,7 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.governance import lanes
+from scripts.governance_tool import governance
+
+lanes = governance("lanes")
 
 
 @pytest.fixture(autouse=True)

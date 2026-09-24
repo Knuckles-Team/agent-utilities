@@ -71,17 +71,14 @@ it and was still wrong; only a **pre-existing** test caught it. A scoped run tha
 covers only *new* tests is not evidence. Do this before the full run and before
 `--lane finish`:
 
-1. **Let the queue's own selector name the touched area** — do not invent a
-   mapping. `select_tests` maps each changed `agent_utilities/<pkg>/<mod>.py` to
-   every `tests/**/test_<mod>*.py`, and runs a changed test file as itself:
+1. **Let repository-manager's differential selector name the touched area** — do
+   not invent a mapping. It maps each changed source module to the tests that
+   exercise it, and runs a changed test file as itself:
 
    ```bash
-   # run from the lane worktree root; needs no extras (bare python3 resolves it)
-   python3 -c 'import subprocess; from pathlib import Path; \
-   from agent_utilities.governance.merge_queue import select_tests; \
-   c=subprocess.run(["git","diff","--name-only","main...HEAD"], \
-   capture_output=True,text=True,check=True).stdout.split(); \
-   print("\n".join(select_tests(Path("."), c)))'
+   # run from the lane worktree root
+   repository-manager --differential-select --repo-path . --diff-base main \
+     --diff-src-roots agent_utilities --diff-test-roots tests
    ```
 
 2. **Subtract the tests your own change added**, so what remains is genuinely
@@ -170,7 +167,8 @@ absolute, which diff-scoped, which advisory or inert today, and the one survivin
 live ratchet — in [`references/gates-reference.md`](references/gates-reference.md).
 Per G2, read the row for any gate you are about to cite or trust.
 
-**The merge gate is DIFFERENTIAL, not absolute.** `governance/merge_queue.py`
+**The merge gate is DIFFERENTIAL, not absolute.** repository-manager's merge queue
+(`repository_manager.merge_queue`, driven by this repo's `.mergequeue.yaml`)
 computes a base-ref baseline and blocks only on a **NEW failure not present on the
 base ref**; pre-existing failures are reported and explicitly *not* blocking. It
 compares at pytest **node-id** granularity (parsed from `FAILED <nodeid>` /
@@ -212,7 +210,7 @@ Run all five. Any "no" that you cannot answer is a stop, not a caveat.
    manifest, never a hand-edited projection (see *Architecture component registry*
    below). Also name the owning package and its layer in the module docstring
    beside the `CONCEPT:` tag, and reserve the concept id first
-   (`agent-utilities --json concept reserve --id …`).
+   (`repository-manager-governance --json concept reserve --id …`).
 5. **Where does the weight belong?** Heavy AI/ML → `agents/data-science-mcp`.
    Finance/quant → `emerald-exchange`. Any KG compute, ANN, vector similarity, or
    graph algorithm → the Rust `epistemic-graph` engine. A new ontology class or
@@ -365,7 +363,7 @@ take the lease for it — it is LEASE-class because it can destroy unstaged work
 # NEVER run `pre-commit run --all-files` bare: in a shared worktree it stashes
 # the WHOLE tree and can destroy your own or another session's unstaged work
 # (D-OB-12). The lease and the safe wrapper are TWO separate guards; both apply.
-agent-utilities lane lease --resource precommit-all-files --operation gate -- \
+repository-manager-governance lane lease --resource precommit-all-files --operation gate -- \
   python3 scripts/safe_precommit_all_files.py
 ```
 
@@ -378,8 +376,8 @@ reviewer greps for first.
 absolute green.** `main` is legitimately red, so a pre-existing failure is not
 yours to clear. Compare at the granularity the gate declares (pytest **node
 ids**, not counts or files), and if the baseline cannot be produced, refuse
-rather than allow-all. The mechanism, the evidence, and how `governance/
-merge_queue.py` implements it are stated once, above — see **"The merge gate is
+rather than allow-all. The mechanism, the evidence, and how repository-manager's
+`merge_queue` implements it are stated once, above — see **"The merge gate is
 DIFFERENTIAL, not absolute"** at the end of *The gates that actually enforce
 this*.
 
@@ -414,7 +412,7 @@ The fleet NFS-mounts the canonical checkout at `/au` with `PYTHONPATH=/au`, so a
 merge **arms** a deploy that fires on the next unplanned restart — it does not
 ship one. **Merge freely to `main`**; you **MUST** ship only by an explicit
 fast-forward of `refs/heads/deployed` to a SHA the full suite has since passed.
-Check with `merge-queue promotion`.
+Check with `repository-manager-governance promotion`.
 
 Use an economy model for inventory, search, mechanical edits, and deterministic
 checks. Reserve stronger reasoning for ambiguous design, security review, and
@@ -469,7 +467,7 @@ tell you which of them you are currently violating, with the exact remedy comman
   then verify by TREE: `git cat-file -e HEAD:<path>` (see *Validate* → measure the
   merged tree).
 - **Never `git stash`** (one repo-wide ref). Read a pristine file with
-  `git show HEAD:<path>`; park work as a `wip:` commit or `agent-utilities lane park`.
+  `git show HEAD:<path>`; park work as a `wip:` commit or `repository-manager-governance lane park`.
 - **Never export a shared `CARGO_TARGET_DIR`** (it corrupts concurrent builds); Rust
   builds run on dedicated build hosts, never on the shared workstation.
 - **Never run with the shared `PRE_COMMIT_HOME`.** pre-commit writes your

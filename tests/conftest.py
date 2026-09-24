@@ -1262,12 +1262,20 @@ def _acquire_engine_daemon_lease(*, operation: str) -> Any:
 
     Returns the entered lease context manager — the caller is responsible for
     ``lease_cm.__exit__(None, None, None)`` at teardown. Mirrors the
-    ``agent-utilities lane lease`` CLI convention exactly: unavailable ⇒ defer
+    ``repository-manager-governance lane lease`` CLI convention exactly: unavailable ⇒ defer
     rather than proceed, surfaced here as ``pytest.exit(..., returncode=75)``,
     pytest's own equivalent of the CLI's exit code 75.
     """
-    from agent_utilities.governance import lanes
+    from scripts.governance_tool import GovernanceUnavailable, governance
 
+    try:
+        lanes = governance("lanes")
+    except GovernanceUnavailable as exc:
+        # Lane arbitration is repository-manager's (OQ-3). Without it there is
+        # no lane protocol to defer to — e.g. a CI runner with one suite per
+        # machine — so run unleased, and say so rather than pass silently.
+        print(f"[lane-guard] running without the engine-daemon lease: {exc}")
+        return contextlib.nullcontext()
     lease_cm = lanes.hold_lease(
         "epistemic-graph-daemon",
         operation=operation,

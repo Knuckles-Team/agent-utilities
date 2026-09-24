@@ -636,8 +636,9 @@ def test_none_preparation_return_code_short_circuits_child(
 
 def test_partitioned_environment_is_a_classified_resource() -> None:
     """An unclassified shared resource is exactly how this defect survived."""
-    from agent_utilities.governance import lanes
+    from scripts.governance_tool import governance
 
+    lanes = governance("lanes")
     assert (
         lanes.resource_class("uv-project-environment")
         is lanes.ArbitrationClass.PARTITION
