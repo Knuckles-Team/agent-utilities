@@ -1,10 +1,13 @@
 """ST-1 / ST-2: the swarm-topology vocabulary, its shapes and the reference templates.
 
 The TBox is the data EG reasons (admissibility entails from it, proofs
-included); the shapes validate AU's RDF projection of a template; every
-reference template must conform (positive fixtures) and each planted defect
-must not (negative fixtures). EG enforces the same rules programmatically at
-publish (``TemplateTopologyShape``).
+included); the shapes are published to EG as the ``swarm-topology`` schema
+source and validated BY THE ENGINE (``shacl_validate_ad_hoc``, the served
+component-shape path) -- AU never validates shapes itself (RF-ADR-009 clean
+cut; SHACL/OWL are EG-owned). Every reference template's RDF projection must
+conform (positive fixtures) and each planted defect must not (negative
+fixtures); these need a real engine (``engine_graph``). EG also enforces the
+rules programmatically at publish (``TemplateTopologyShape``).
 """
 
 from __future__ import annotations
@@ -14,7 +17,6 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-import pyshacl
 import pytest
 import rdflib
 from rdflib.namespace import OWL, RDFS
@@ -86,13 +88,13 @@ def _stop_ttl(stop: Mapping[str, Any]) -> str:
     )
 
 
-def _conforms(data_ttl: str) -> bool:
-    data = rdflib.Graph().parse(data=data_ttl, format="turtle")
-    shapes = rdflib.Graph().parse(data=shapes_ttl(), format="turtle")
-    conforms, _graph, _text = pyshacl.validate(
-        data, shacl_graph=shapes, ont_graph=_tbox(), inference="none", advanced=True
+def _conforms(engine_graph: Any, data_ttl: str) -> bool:
+    """The engine's SHACL verdict on a projection; the TBox rides with the data
+    so subclass targets (``QuorumStop`` under ``StopRule``) resolve."""
+    report = engine_graph.shacl_validate_ad_hoc(
+        ontology_ttl() + "\n" + data_ttl, shapes_ttl()
     )
-    return bool(conforms)
+    return bool(report.conforms)
 
 
 def _spec(graph_id: str) -> TemplateSpec:
@@ -133,8 +135,10 @@ def test_a_sequential_span_never_admits_a_fan_out() -> None:
 
 
 @pytest.mark.parametrize("spec", REFERENCE_TEMPLATES, ids=lambda s: s.graph_id)
-def test_every_reference_template_conforms(spec: TemplateSpec) -> None:
-    assert _conforms(_projection(spec)), spec.graph_id
+def test_every_reference_template_conforms(
+    engine_graph: Any, spec: TemplateSpec
+) -> None:
+    assert _conforms(engine_graph, _projection(spec)), spec.graph_id
 
 
 def _without_join(spec: TemplateSpec) -> TemplateSpec:
@@ -170,9 +174,11 @@ def _verifier_pass_without_verifier(spec: TemplateSpec) -> TemplateSpec:
     ],
     ids=lambda value: getattr(value, "__name__", str(value)),
 )
-def test_each_planted_defect_is_flagged(plant: Any, graph_id: str) -> None:
-    assert _conforms(_projection(_spec(graph_id)))
-    assert not _conforms(_projection(plant(_spec(graph_id))))
+def test_each_planted_defect_is_flagged(
+    engine_graph: Any, plant: Any, graph_id: str
+) -> None:
+    assert _conforms(engine_graph, _projection(_spec(graph_id)))
+    assert not _conforms(engine_graph, _projection(plant(_spec(graph_id))))
 
 
 class _Compute:
