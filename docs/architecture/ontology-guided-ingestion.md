@@ -27,31 +27,27 @@ split**, communities are **summarized into queryable reports**, and the ontology
 
 ## End-to-end ingestion flow
 
-```mermaid
-flowchart TD
-    DOC[Document / connector payload] --> ENR["_enrich_text seam<br/>engine.py:853"]
-    ENR --> XFG["_extract_facts_into_graph<br/>engine.py:793"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">End-to-end ingestion: schema-guided extraction, grounded, repaired, persisted</p>
 
-    subgraph SCHEMA["AU-KG.retrieval.mmr-diversification ontology-guided extraction"]
-        TTL[("ontology_*.ttl<br/>OWL TBox")] --> ES["load_extraction_schema(source_type)<br/>extraction_schema.py"]
-        ES --> SCH["ExtractionSchema<br/>classes + rdfs:domain/range + skos"]
-    end
+A document/connector payload passes through `_enrich_text` (`engine.py:853`)
+into `_extract_facts_into_graph` (`engine.py:793`), which passes the
+`source_type` to `load_extraction_schema` (`extraction_schema.py`). That
+loads the OWL TBox (`ontology_*.ttl`) into an `ExtractionSchema` (classes
++ `rdfs:domain`/`range` + SKOS), which is injected as a `prompt_block`
+into `extract_facts(schema=…)` (`fact_extractor.py:440`), producing
+`ExtractedFacts` — `(s)-[p]->(o)` triples with confidence.
 
-    XFG -->|source_type| ES
-    SCH -->|prompt_block injected| EF["extract_facts(schema=…)<br/>fact_extractor.py:440"]
-    EF --> FACTS["ExtractedFacts<br/>(s)-[p]->(o) + confidence"]
+Facts flow through `ground_facts` (`ontology_grounding.py`) then
+`repair_direction` (`direction_repair.py`): a reversed edge is swapped
+before persisting; a domain/range violation instead raises a SHACL
+contradiction shape (KG-2.251/2.252).
 
-    FACTS --> GND["ground_facts<br/>ontology_grounding.py"]
-    GND --> REP["AU-KG.enrichment.direction-repair repair_direction<br/>direction_repair.py"]
-    REP -->|reversed→swap| PERSIST
-    REP -->|domain/range violation| SHACL["SHACL contradiction shape<br/>KG-2.251/2.252"]
-
-    PERSIST["AU-KG.ingest.observability-queries-opik-cannot persist_facts<br/>group by (s,p,o)"] --> EDGE["one edge<br/>weight=support_count<br/>confidence=1−∏(1−cᵢ)"]
-    EDGE --> ENGINE[("epistemic-graph<br/>EdgeData.weight/confidence")]
-
-    style SCHEMA fill:#eef
-    style SHACL fill:#fee
-```
+Grounded, repaired facts reach `persist_facts` (grouped by `(s,p,o)`),
+which writes one edge per group with `weight=support_count` and
+`confidence=1−∏(1−cᵢ)` into the epistemic-graph engine
+(`EdgeData.weight`/`confidence`).
+</div>
 
 Key change: grounding + direction-repair now run **before** persist (extract → ground+repair
 → persist → annotate), so edges land oriented and node `ontology_type` annotations match the
@@ -60,32 +56,24 @@ plane per KG-2.242) falls back to the unchanged free-vocab path — no regressio
 
 ## Entity resolution: ladder + variant split + engine escalation
 
-```mermaid
-flowchart TD
-    IN["entities (id, name)"] --> NORM["normalize_name (AU-AHE.assimilation.transliteration-singularization-extend-ahe)<br/>transliterate + singularize"]
-    NORM --> LADDER
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A deterministic ladder, escalating its residual to the engine</p>
 
-    subgraph LADDER["AU-AHE.assimilation.merge-entities/3.70 deterministic ladder"]
-        EXACT["exact canonical-key match"] --> ENT["Shannon-entropy gate"]
-        ENT --> LSH["MinHash + LSH + Jaccard≥0.9"]
-        LSH --> VAR["version-variant split<br/>detect_version_variant"]
-    end
+Entities `(id, name)` are normalized (`normalize_name`: transliterate +
+singularize) and fed into the deterministic ladder, seeded also by
+`dedup_features` (`assimilation/dedup.py`): exact canonical-key match ->
+Shannon-entropy gate -> MinHash + LSH + Jaccard >= 0.9 -> version-variant
+split (`detect_version_variant`).
 
-    VAR -->|same_as| MERGE["merge_pairs → SUPERSEDES"]
-    VAR -->|version variant| VLINK["variants → VARIANT_OF"]
-    LADDER -->|residual ids| ESC
-
-    subgraph ESC["AU-KG.compute.when-exposes-native engine escalation (capability-gated)"]
-        RC["GraphComputeEngine.resolve_candidates<br/>→ engine ResolveCandidates op"]
-        RC --> ANN["all-pairs cosine ≥ sim_threshold"]
-        ANN --> CL["union-find clusters<br/>(same-type ≥ merge_threshold)"]
-        CL -->|same_as| MERGE
-        CL -->|cross-type| VLINK
-    end
-
-    DEDUP["dedup_features<br/>assimilation/dedup.py"] --> LADDER
-    DEDUP --> ESC
-```
+The ladder's output either merges as `same_as` (`merge_pairs` ->
+`SUPERSEDES`) or links as a version variant (`VARIANT_OF`); its residual
+ids escalate to the capability-gated engine tier, also seeded by
+`dedup_features`: `GraphComputeEngine.resolve_candidates` (the engine's
+`ResolveCandidates` op) computes all-pairs cosine similarity at or above
+`sim_threshold`, then union-find clusters same-type pairs at or above
+`merge_threshold` — same-type clusters merge as `same_as`, cross-type
+clusters link as `VARIANT_OF`.
+</div>
 
 The native engine op (`epistemic-graph` `algorithms::resolve_candidates`) is **read/propose
 only** — it returns `MergeProposal{canonical, members, score, kind}` and never mutates; the
@@ -94,26 +82,22 @@ Python side decides what to apply via `BatchUpdate`. It is the scale tier the la
 
 ## Community summarization + schema discovery
 
-```mermaid
-flowchart LR
-    subgraph G["AU-KG.enrichment.community-reports GraphRAG (pipeline phase)"]
-        COMM["communities phase<br/>(native Louvain tag)"] --> CR["community_reports phase"]
-        CR -->|per community| LLM1["lite LLM theme+summary"]
-        LLM1 --> CRN["CommunityReport nodes<br/>+ PART_OF_COMMUNITY"]
-        CRN --> GLOB["level-1 global report"]
-        CRN --> QRY["graph_query / graph_search"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two pipelines: community summarization and schema discovery</p>
 
-    subgraph B["AU-KG.ontology.do-not-auto-merge schema discovery"]
-        SAMP["sample documents"] --> LLM2["LLM proposes types"]
-        LLM2 --> DIFF["diff vs live ontology<br/>(schema + synonyms)"]
-        DIFF -->|missing| PROP[".ttl proposal<br/>RESERVE-PENDING"]
-        PROP --> EVO["concept reservation +<br/>evolution pipeline (human/SHACL-gated)"]
-        EVO -.lands in.-> TTL[("ontology_*.ttl")]
-    end
+**Community summarization (GraphRAG pipeline phase).** The communities
+phase (native Louvain tag) feeds the community_reports phase, which asks
+a lite LLM for a theme+summary per community, producing `CommunityReport`
+nodes (+ `PART_OF_COMMUNITY`). Those reports feed both a level-1 global
+report and `graph_query`/`graph_search`.
 
-    OD["ontology_derive<br/>action=discover_extensions<br/>(MCP + REST)"] --> SAMP
-```
+**Schema discovery.** `ontology_derive action=discover_extensions`
+(MCP + REST) samples documents; an LLM proposes types from the sample;
+those are diffed against the live ontology (schema + synonyms); anything
+missing becomes a `.ttl` proposal (`RESERVE-PENDING`), which goes through
+concept reservation + the evolution pipeline (human/SHACL-gated) before
+landing in `ontology_*.ttl`.
+</div>
 
 Community reports become first-class nodes, so global-theme questions answer from
 report-grounded nodes through the **existing** `graph_query`/`graph_search` surface — no new

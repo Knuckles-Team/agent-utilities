@@ -39,18 +39,17 @@ fully additive: only an explicitly `BACKGROUND_INGESTION`-scoped call ever yield
 
 ## Contention map
 
-```mermaid
-flowchart LR
-  subgraph shared[Shared qwen vLLM generator — the contended resource]
-    GATE["PriorityModelGate<br/>reserved headroom + yield"]
-  end
-  ORCH["Orchestration generation<br/>INTERACTIVE / ORCHESTRATION / HYDRATION"] -->|reserved headroom, never yields| GATE
-  ENRICH["Ingestion enrichment generation<br/>BACKGROUND_INGESTION"] -->|uses spare, yields under contention| GATE
-  subgraph separate[bge-m3 embeddings — SEPARATE endpoint]
-    EGATE[its own gate key]
-  end
-  EMB["Embedding fan-out<br/>model=embedding"] --> EGATE
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One contended generator, one separate embedding endpoint</p>
+
+The shared qwen vLLM generator is the contended resource, gated by
+`PriorityModelGate` (reserved headroom + yield). Orchestration generation
+(`INTERACTIVE`/`ORCHESTRATION`/`HYDRATION`) gets reserved headroom and
+never yields; ingestion enrichment generation (`BACKGROUND_INGESTION`)
+uses spare capacity and yields under contention. bge-m3 embeddings run on
+a separate endpoint with its own gate key, so embedding fan-out
+(`model=embedding`) never contends with the generator.
+</div>
 
 - **qwen vLLM generator** — SHARED by orchestration generation **and** ingestion
   enrichment. This is the gate that matters; admission is enforced per generator
@@ -87,13 +86,16 @@ world-readable, or expired records are ignored.  Consequently a crashed client
 stops pausing the host after the TTL, while normal local nesting remains a fast
 in-process event check.
 
-```mermaid
-flowchart LR
-  FG["graph-os foreground execution"] -->|local depth + heartbeat| LEASE["private expiry-only lease\nshared data runtime"]
-  LEASE -->|bounded cached scan| HOST["graph-os-host BackgroundThrottle"]
-  HOST -->|checkpoint / slot yield| BG["maintenance, ingest, enrichment"]
-  FG -->|same-process fast path| LOCAL["local BackgroundThrottle event"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A cross-process lease signals the split-process throttle</p>
+
+`graph-os` foreground execution writes local depth + heartbeat into a
+private, expiry-only lease under the shared data runtime. A bounded
+cached scan on `graph-os-host`'s `BackgroundThrottle` reads that lease
+and, via checkpoint/slot yield, pauses maintenance, ingest, and
+enrichment loops. In the same process, `graph-os` foreground execution
+also signals its local `BackgroundThrottle` directly, as a fast path.
+</div>
 
 The LLM gate, for one generator model:
 
@@ -183,26 +185,20 @@ class for a computed window (exponential backoff, capped, jittered — reusing
 this codebase uses) instead of immediately re-issuing the identical request the engine
 just refused.
 
-```mermaid
-sequenceDiagram
-    participant W as WorkItem claim loop<br/>(work_item.claim_next / claim_specific)
-    participant P as claim_pacing<br/>(per-PriorityClass state)
-    participant E as epistemic-graph engine<br/>(admission authority)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Claim pacing avoids re-contacting a shedding engine</p>
 
-    W->>P: raise_if_paced(class C)
-    alt C is inside an active backoff window
-        P-->>W: raise ClaimPaced — engine NOT contacted
-    else not paced
-        W->>E: ClaimWorkItem (class C, carried on the priority claim)
-        alt engine admits, or cleanly answers "nothing to claim"
-            E-->>W: normal response
-            W->>P: record_claim_admitted(C) — backoff cleared immediately
-        else engine sheds
-            E-->>W: BUSY: … (ceiling / quota / fair-share / rate-limited)
-            W->>P: record_claim_shed(C) — window = compute_backoff(attempt)
-        end
-    end
-```
+The WorkItem claim loop (`claim_next`/`claim_specific`) first calls
+`claim_pacing.raise_if_paced(class C)`. If class C is inside an active
+backoff window, it raises `ClaimPaced` immediately — the engine is never
+contacted. Otherwise, it calls the epistemic-graph engine's
+`ClaimWorkItem` (class C, carried on the priority claim). If the engine
+admits, or cleanly answers "nothing to claim," the claim loop records
+`record_claim_admitted(C)`, clearing backoff immediately. If the engine
+instead sheds the request (`BUSY: …` — ceiling, quota, fair-share, or
+rate-limited), the claim loop records `record_claim_shed(C)`, opening a
+backoff window sized by `compute_backoff(attempt)`.
+</div>
 
 Two properties fall out of this split:
 
