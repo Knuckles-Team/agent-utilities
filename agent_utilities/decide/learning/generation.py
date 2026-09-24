@@ -160,10 +160,6 @@ class GenerationSwap:
     lease: CapacityLease
     embedder_for: Callable[[str], Embedder]
 
-    async def _ask(self, action: str, kind: str, **fields: Any) -> Mapping[str, Any]:
-        op = retrieval_op(self.session.tenant, action, **fields)
-        return result_of(await self.session.asend(op), kind)
-
     async def _build_shadow(self, plan: GenerationPlan, base_model: str) -> str | None:
         with self.lease():
             model = self.train(base_model)
@@ -182,7 +178,7 @@ class GenerationSwap:
         items = eval_items(
             queries, self.embedder_for(base_model), self.embedder_for(shadow_model)
         )
-        return await self._ask(
+        return await self.session.ask(
             "evaluate_generation", "generation", request=eval_request(plan, items)
         )
 
@@ -194,7 +190,7 @@ class GenerationSwap:
         receipt = evaluated.get("receipt") or {}
         if not receipt.get("passed"):
             return GenerationOutcome(False, "eval", "the receipt did not pass", receipt)
-        pointer = await self._ask(
+        pointer = await self.session.ask(
             "activate_generation",
             "pointer",
             logical=plan.logical,
@@ -205,7 +201,9 @@ class GenerationSwap:
         return GenerationOutcome(True, "activated", receipt=receipt, pointer=pointer)
 
     async def rollback(self, logical: str) -> Mapping[str, Any]:
-        pointer = await self._ask("rollback_generation", "pointer", logical=logical)
+        pointer = await self.session.ask(
+            "rollback_generation", "pointer", logical=logical
+        )
         _forget(logical)
         return pointer
 

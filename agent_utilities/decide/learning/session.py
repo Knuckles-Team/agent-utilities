@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_utilities import decide
+from agent_utilities.decide.learning.ops import result_of, retrieval_op
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,12 @@ class LearningSession:
 
     async def asend(self, op: Mapping[str, Any]) -> Any:
         return await self.transport.log(op)
+
+    async def ask(self, action: str, kind: str, **fields: Any) -> Mapping[str, Any]:
+        """One ``DecisionLog.retrieval`` op; its ``kind`` result body."""
+        return result_of(
+            await self.asend(retrieval_op(self.tenant, action, **fields)), kind
+        )
 
     def send(self, op: Mapping[str, Any]) -> Any:
         """Drive :meth:`asend` from a sync call site on the engine loop."""

@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from agent_utilities.decide.learning.ops import ALL_TIME, result_of, retrieval_op
+from agent_utilities.decide.learning.ops import ALL_TIME
 from agent_utilities.decide.learning.session import LearningSession
 
 
@@ -65,18 +65,16 @@ class AdapterPromoter:
 
     session: LearningSession
 
-    async def _ask(self, action: str, kind: str, **fields: Any) -> Mapping[str, Any]:
-        op = retrieval_op(self.session.tenant, action, **fields)
-        return result_of(await self.session.asend(op), kind)
-
     async def promote(self, plan: AdapterPlan) -> AdapterPromotion:
-        fitted = await self._ask("fit_adapter", "fitted", request=fit_request(plan))
+        fitted = await self.session.ask(
+            "fit_adapter", "fitted", request=fit_request(plan)
+        )
         receipt = fitted.get("receipt") or {}
         if not receipt.get("passed"):
             return AdapterPromotion(
                 False, "eval", "the held-out receipt did not pass", receipt
             )
-        pointer = await self._ask(
+        pointer = await self.session.ask(
             "activate_adapter",
             "pointer",
             graph=plan.graph,
@@ -86,10 +84,10 @@ class AdapterPromoter:
         return AdapterPromotion(True, "activated", receipt=receipt, pointer=pointer)
 
     async def rollback(self, graph: str) -> Mapping[str, Any]:
-        return await self._ask("rollback_adapter", "pointer", graph=graph)
+        return await self.session.ask("rollback_adapter", "pointer", graph=graph)
 
     async def status(self, graph: str) -> Mapping[str, Any]:
-        return await self._ask("adapter_status", "pointer", graph=graph)
+        return await self.session.ask("adapter_status", "pointer", graph=graph)
 
 
 __all__ = ["AdapterPlan", "AdapterPromoter", "AdapterPromotion", "fit_request"]
