@@ -16,6 +16,7 @@ from agent_utilities.api import (
     CapabilitySearchRequest,
     GraphSession,
     SignedAgentDispatchReceipt,
+    TaskClassificationClaim,
     WorkItemCancelRequest,
     WorkItemGetRequest,
     WorkItemListRequest,
@@ -267,6 +268,99 @@ async def test_explicit_agent_and_execution_are_still_authorized_by_ports():
             )
     assert selected.source == "caller"
     assert result.output == "debug"
+
+
+@pytest.mark.asyncio
+async def test_free_text_task_classifies_to_a_task_iri_claim_and_searches_by_it():
+    """EH-206: free text with no agent_name/task_iri used to guarantee
+    LookupError (EgCapabilitySearch._by_name(None, ...) always returns no
+    candidates). It must now classify deterministically, search EG by the
+    PROPOSED task_iri, and carry the classification as a labelled claim."""
+    session = _session()
+    search = _CapabilitySearch()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(), session, capability_search=search
+    )
+    with use_session(session):
+        selected = await control.resolve_capability(
+            CapabilitySearchRequest(
+                task="operate the deployment and verify the graph query results"
+            )
+        )
+    assert selected.source == "eg_search"
+    assert selected.task_claim is not None
+    assert isinstance(selected.task_claim, TaskClassificationClaim)
+    assert selected.task_claim.task_iri == "eg:task/operate"
+    assert selected.task_claim.evidence_class == "claim"
+    # the classified task_iri -- never the raw free text -- is what the port
+    # was actually searched with
+    forwarded_request, _forwarded_session = search.calls[0]
+    assert forwarded_request.task_iri == "eg:task/operate"
+
+
+class _TaskIriOnlySearch:
+    """Mirrors EgCapabilitySearch's real shape: candidates only for a typed
+    task_iri or a resolvable agent_name -- untyped free text (neither set)
+    genuinely has no match, unlike ``_CapabilitySearch``'s fixed fixture
+    list above (which is deliberately indifferent to the request)."""
+
+    def __init__(self) -> None:
+        self.calls: list[CapabilitySearchRequest] = []
+
+    async def search(self, request, *, session):
+        self.calls.append(request)
+        if request.task_iri is None and request.agent_name is None:
+            return []
+        return [
+            CapabilityCandidate(
+                kind="agent",
+                name="agent-utilities-expert",
+                component_id="component:agent-utilities-expert",
+                score=0.9,
+                source="eg_hybrid",
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_unclassifiable_free_text_still_fails_closed_with_no_claim():
+    session = _session()
+    search = _TaskIriOnlySearch()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(), session, capability_search=search
+    )
+    with use_session(session):
+        with pytest.raises(LookupError, match="no authorized capability matched"):
+            await control.resolve_capability(
+                CapabilitySearchRequest(task="qxzzy plonk florb wibble")
+            )
+    # the abstention happened before the port was even asked for a task_iri
+    assert search.calls[0].task_iri is None
+
+
+@pytest.mark.asyncio
+async def test_typed_task_iri_or_agent_name_skips_classification_entirely():
+    """A caller-supplied task_iri or agent_name means classification never
+    runs -- resolve_capability must not silently override an explicit
+    caller choice, and no claim is fabricated when none was needed."""
+    session = _session()
+    search = _CapabilitySearch()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(), session, capability_search=search
+    )
+    with use_session(session):
+        by_task_iri = await control.resolve_capability(
+            CapabilitySearchRequest(task="anything at all", task_iri="eg:task/review")
+        )
+        by_name = await control.resolve_capability(
+            CapabilitySearchRequest(
+                task="anything at all", agent_name="agent-utilities-expert"
+            )
+        )
+    assert by_task_iri.task_claim is None
+    assert by_name.task_claim is None
+    forwarded_by_iri, _ = search.calls[0]
+    assert forwarded_by_iri.task_iri == "eg:task/review"
 
 
 def test_operation_descriptors_are_typed_and_public_modules_have_no_legacy_engine():

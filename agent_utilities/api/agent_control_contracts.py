@@ -75,6 +75,35 @@ class CapabilityCandidate(_StrictModel):
     source: str = Field(min_length=1, max_length=128)
 
 
+#: Evidence classes a Decide-layer-facing claim can carry. Only ``"claim"``
+#: exists here: AU never asserts ``"proof"`` for a classification it derived
+#: itself (DECIDE-LAYER-DESIGN.md §7.1, DECISIONS.md 2026-09-17 afternoon).
+EvidenceClass = Literal["claim"]
+
+
+class TaskClassificationClaim(_StrictModel):
+    """A free-text task's proposed mapping onto one of EG's five native task
+    IRIs (EH-206) -- ALWAYS a labelled claim, never a proof.
+
+    Deterministic and LLM-free (lexical keyword overlap against each IRI's
+    own ontology labels, ``agent_utilities.api.task_classification``); never
+    the raw task text, only a digest, so the claim can be logged/persisted
+    without duplicating the (already screened/redacted) task string
+    elsewhere. Matches EG's own claim-premise shape for a caller-supplied
+    task mapping (DECIDE-LAYER-DESIGN.md §7.1) and its ``UnmappedTask
+    {text_digest}`` abstention shape when no IRI is close enough (in which
+    case no ``TaskClassificationClaim`` is produced at all -- see
+    :func:`agent_utilities.api.task_classification.classify_task_text`).
+    """
+
+    task_iri: TaskIri
+    confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    method: Literal["lexical_keyword_overlap"]
+    matched_keywords: tuple[str, ...] = Field(max_length=32)
+    text_digest: str = Field(min_length=64, max_length=64)
+    evidence_class: EvidenceClass = "claim"
+
+
 class CapabilityResolution(_StrictModel):
     """Selected capability and bounded alternatives for an agent task."""
 
@@ -84,6 +113,12 @@ class CapabilityResolution(_StrictModel):
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     source: Literal["caller", "eg_search", "default"]
     alternatives: tuple[CapabilityCandidate, ...] = Field(max_length=3)
+    #: Set only when ``source == "eg_search"`` and the caller supplied free
+    #: text with no ``task_iri``/``agent_name``: the deterministic claim
+    #: (EH-206) that proposed the task IRI actually searched. ``None`` when
+    #: the caller supplied a typed ``task_iri`` or ``agent_name`` directly
+    #: (no classification was needed) -- never fabricated after the fact.
+    task_claim: TaskClassificationClaim | None = None
 
 
 @runtime_checkable
