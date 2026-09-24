@@ -171,17 +171,17 @@ curl -sS -X POST http://localhost:8000/api/graph/query \
 
 ## 6. From event to remediation playbook
 
-```mermaid
-flowchart LR
-    AM[Alertmanager / Kuma / curl] -->|POST /api/fleet/events| GW[Gateway ingress]
-    GW -->|persist| FE[(FleetEvent node)]
-    GW -->|enqueue fleet_event_triage| Q[Durable task queue]
-    Q --> W[Engine task worker]
-    W --> PB{Playbook dispatch}
-    PB -->|critical or error| RP[Remediation playbooks AU-OS.host.remediation-playbooks]
-    PB -->|warning or info| DP[Default playbook: correlate + failure_gap]
-    RP --> AP[ActionPolicy gate OS-5.24]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">From event to remediation playbook</p>
+
+Alertmanager, Kuma, or curl `POST`s to `/api/fleet/events`, which the
+gateway ingress persists as a `FleetEvent` node and enqueues as
+`fleet_event_triage` on the durable task queue. An engine task worker
+drains it and dispatches by severity: critical/error routes to
+remediation playbooks (`AU-OS.host.remediation-playbooks`), which then
+pass through the `ActionPolicy` gate (OS-5.24); warning/info routes to
+the default playbook (correlate + `failure_gap`).
+</div>
 
 The gateway enqueues a durable `fleet_event_triage` task; the engine's task
 workers dispatch it to

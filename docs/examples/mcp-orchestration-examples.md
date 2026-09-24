@@ -4,31 +4,25 @@ This guide details how to use the `IntelligenceGraphEngine` to ingest external c
 
 ## Architecture Overview
 
-```mermaid
-graph TB
-    subgraph "Workflow Lifecycle (ORCH-1.24)"
-        A["catalog.yaml<br/>(YAML definitions)"] -->|"parse"| C["GraphPlan"]
-        C -->|"WorkflowStore.save_workflow()"| D["KG: WorkflowDefinition"]
-        D -->|"HAS_STEP"| E["KG: WorkflowStep"]
-        E -->|"TRANSITION_TO"| E
-        C -->|"WorkflowRunner.execute()"| F["WorkflowRunner"]
-        D -->|"WorkflowStore.load_workflow()"| C
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Architecture overview: workflow lifecycle, execution, and external consumption</p>
 
-    subgraph "Agent Execution (ORCH-1.21)"
-        F -->|"run_agent()"| G["Pydantic Graph"]
-        G -->|"MCP toolsets"| H["MCP Servers"]
-        G -->|"traces"| I["Langfuse"]
-    end
+**Workflow lifecycle (ORCH-1.24).** `catalog.yaml` (YAML definitions)
+parses into a `GraphPlan`, which `WorkflowStore.save_workflow()` persists
+as a KG `WorkflowDefinition` (linked `HAS_STEP` to `WorkflowStep` nodes,
+which link `TRANSITION_TO` each other); `WorkflowStore.load_workflow()`
+reads it back into a `GraphPlan`. A `GraphPlan` is executed via
+`WorkflowRunner.execute()`.
 
-    subgraph "External Consumption"
-        J["graph_workflows<br/>(MCP Tool)"] -->|"list"| D
-        J -->|"execute"| F
-        J -->|"compile"| K["WorkflowCompiler"]
-        J -->|"export"| L["JSON Export"]
-        K -->|"NL → GraphPlan"| C
-    end
-```
+**Agent execution (ORCH-1.21).** `WorkflowRunner` calls `run_agent()`,
+which drives a Pydantic Graph — using MCP toolsets against MCP Servers,
+and emitting traces to Langfuse.
+
+**External consumption.** The `graph_workflows` MCP tool lists
+`WorkflowDefinition`s, executes them via `WorkflowRunner`, compiles
+natural language into a `GraphPlan` via `WorkflowCompiler`, and exports
+workflows to JSON.
+</div>
 
 ## 1. Tool Ingestion (Agent Toolkit)
 
