@@ -3112,8 +3112,9 @@ def _fleet_server_candidates(
 ) -> list[str]:
     """Recover the real MCP server name a runnable skill's ``provider_ref`` names.
 
-    D-DEL-1 follow-on, found live: ``knowledge_graph.ingestion.
-    fleet_skill_harvest`` persists ``provider=f"mcp:{server_name}"``, which
+    D-DEL-1 follow-on, found live: a fleet-served skill is persisted with
+    ``provider=f"mcp:{server_name}"`` (the retired EH-220 harvest wrote it;
+    ``fleet_catalog_tables`` still records it), which
     ``skill_workflow_ingest.ingest_runnable_skill`` slugs via its ``_slug()``
     helper (lower-cases, then collapses every run of non-alnum characters —
     including both ``:`` and ``-`` — to a single ``_``). ``servicenow-mcp`` is

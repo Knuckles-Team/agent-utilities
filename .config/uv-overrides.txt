@@ -1,28 +1,18 @@
 # Dependency override file for image builds (uv `--override` / `UV_OVERRIDE`).
 #
-# THIS FILE IS THE IMAGE-BUILD MIRROR OF THE WORKSPACE ROOT'S `[tool.uv]
-# override-dependencies` (${WORKSPACE_ROOT}/pyproject.toml). uv honours that table
-# ONLY from the workspace root manifest, and an image build resolves from THIS PACKAGE
-# alone (an isolated build context with no sibling checkouts), so the root override is
-# structurally invisible to it. Without this file the image silently resolves a
-# DIFFERENT dependency set than the workspace lock — which is exactly how the runtime
-# came to ship fastmcp 3.4.5 / mcp 1.29.0 against fastmcp-4-targeted source (D-OB-18).
+# THIS FILE IS THE IMAGE-BUILD MIRROR OF `[tool.uv] override-dependencies`. uv honours
+# that table only from the workspace root manifest, and an image build resolves from
+# THIS PACKAGE alone (an isolated build context with no sibling checkouts), so the
+# table is structurally invisible to it. Keep every serving-plane entry of that table
+# in sync here.
 #
-# Keep every entry here in sync with the workspace root's `override-dependencies`
-# that is relevant to a serving-plane install.
-#
-# CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the ecosystem-wide default.
-# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.0b1`; Pydantic-AI 2.29.0
-# now declares `fastmcp-slim[client]<5,>=3.3.0` and handles FastMCP 4 natively.
-# This mirror remains an explicit workspace/image policy for consumers that do not
-# carry AU's direct floor. `protocol_compat.py` verifies the exact Pydantic-AI
-# contract and keeps the legacy-mode helper only for AU call sites that require
-# initialize-handshake semantics.
-#
-# BOTH the `client` AND `server` extras MUST be listed: a uv override replaces the
-# ENTIRE requirement (extras
-# included) for every requester of `fastmcp-slim`, including `fastmcp`'s own
-# `fastmcp-slim[client,server]==4.0.0b1` metadata pin. A `[client]`-only override
-# silently strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
-# `griffelib`, …) and breaks every `from fastmcp import FastMCP/Context`.
-fastmcp-slim[client,server]>=4.0.0b1
+# It currently carries NO entries. CONCEPT:AU-ECO.mcp.protocol-compat-bridge / EH-221:
+# the former `fastmcp-slim[client,server]>=4.0.0b1` entry was removed together with the
+# workspace override it mirrored. An override replaces every requirement on its target,
+# including `fastmcp`'s own exact `fastmcp-slim==<same version>` pin, which let a
+# resolve install `fastmcp` 4.0.5 metadata over `fastmcp-slim` 4.0.0b2 code. FastMCP 4 is
+# now guaranteed by ordinary requirements: agent-utilities' `[mcp]` extra (and the image
+# build's explicit `fastmcp>=4.0.0b1`) floors `fastmcp`, `fastmcp` pins `fastmcp-slim`
+# exactly, and pydantic-ai-slim 2.29.0's `mcp` extra accepts `fastmcp-slim<5`.
+# `graph_os.fleet.protocol_compat.check_mcp_sdk_floor()` (run at image build and at
+# startup) fails on a `fastmcp`/`fastmcp-slim` version skew.

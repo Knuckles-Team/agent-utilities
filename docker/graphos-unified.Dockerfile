@@ -195,9 +195,11 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # pip did. `--find-links /tmp/wheels` then pins `epistemic-graph[full]>=2.23.2` to step
 # 1's staged, kernel-injected wheel instead of PyPI's incomplete 2.23.0.
 #
-# No `--prerelease=allow`: the `>=4.0.0b1` override is itself an explicit prerelease
-# requirement, which is all uv needs to admit fastmcp 4 for THAT package. A blanket
-# prerelease mode bleeds elsewhere (verified: it pulled sqlalchemy 2.1.0b3).
+# No `--prerelease=allow`: the explicit `fastmcp>=4.0.0b1` requirement below is itself a
+# prerelease requirement, which is all uv needs to admit fastmcp 4 for THAT package; its
+# exact `fastmcp-slim` pin carries the code distribution with it (EH-221 removed the
+# fastmcp-slim override that used to replace that pin). A blanket prerelease mode bleeds
+# elsewhere (verified: it pulled sqlalchemy 2.1.0b3).
 #
 # ONE invocation, not two: the exact Pydantic AI family pins below must be visible to the
 # SAME resolution pass as au's own exact `==2.29.0` Pydantic-AI contract, and

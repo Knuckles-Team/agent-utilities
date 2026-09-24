@@ -72,20 +72,11 @@ async def test_protocol_probe_reads_each_native_catalog_family_once(tmp_path) ->
         )
     )
 
-    (
-        resources,
-        templates,
-        prompts,
-        skills,
-        prompt_resources,
-        errors,
-    ) = await mux._probe_protocol_families("alpha-mcp", session)
+    resources, templates, prompts, errors = await mux._probe_protocol_families(session)
 
     assert resources[0]["uri"] == "data://alpha"
     assert templates[0]["uriTemplate"] == "data://alpha/{id}"
     assert prompts[0]["name"] == "review"
-    assert skills == []
-    assert prompt_resources == []
     assert errors == {}
     session.list_resources.assert_awaited_once()
     session.list_resource_templates.assert_awaited_once()

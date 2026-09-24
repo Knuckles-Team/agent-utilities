@@ -39,7 +39,7 @@ import time
 import weakref
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
 from fastmcp.exceptions import ToolError
@@ -124,101 +124,6 @@ _MAX_DISCOVERED_TOOLS = 2_048
 # contains hundreds of independently bounded JSON Schemas, so it gets its own
 # aggregate structural allowance while retaining the same byte/depth limits.
 _MAX_CATALOG_NODES = 131_072
-# Skills-over-MCP (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider): a probed
-# server's Resources may include ``skill://{name}/SKILL.md`` entries. Bounded
-# the same way as the tool catalog so a hostile/misbehaving child cannot force
-# an unbounded resource listing into the KG.
-_MAX_DISCOVERED_SKILLS = 2_048
-_SKILL_RESOURCE_RE = re.compile(r"^skill://(?P<name>[^/]+)/SKILL\.md$")
-# CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a probed child's skill
-# *bodies* are read back over the SAME already-open probe session, so a fleet
-# skill becomes runnable in graph-os without co-installing the child's package
-# (AGENTS.md "Dependency discipline"). Bounded per body and in aggregate: the
-# harvest reads attacker-influenced content, so it can never be allowed to
-# dominate the probe's latency or memory budget.
-_MAX_SKILL_BODY_BYTES = 512 * 1024
-_MAX_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
-_SKILL_HARVEST_BUDGET_SEC = 120.0
-# A child enforces its OWN request rate limit, and a body harvest is the most
-# request-dense thing we ever do to one: probing a fleet child that serves the
-# whole shared skill corpus tripped "Rate limit exceeded for client: global"
-# after ~50 reads. That is the child correctly defending itself, so the harvest
-# BACKS OFF and retries rather than treating a rate-limited read as a permanent
-# failure (which would silently strand most of the corpus as un-runnable).
-_SKILL_HARVEST_MAX_ATTEMPTS = 5
-_SKILL_HARVEST_BACKOFF_SEC = 0.5
-# Prompts-over-MCP (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the
-# ``prompt://`` sibling of the skill harvest above): a probed server's
-# Resources may include ``prompt://{provider}/{name}`` entries served by
-# ``server_factory._register_prompt_providers``. Same bounding rationale and
-# same budget SHAPE as skills, kept as separate constants/counters so a
-# pathological prompt corpus on one child cannot eat a skill harvest's
-# budget on the same probe, or vice versa.
-_MAX_DISCOVERED_PROMPTS = 2_048
-_PROMPT_RESOURCE_RE = re.compile(r"^prompt://(?P<provider>[^/]+)/(?P<name>[^/]+)$")
-_MAX_PROMPT_BODY_BYTES = 512 * 1024
-_MAX_PROMPT_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
-_PROMPT_HARVEST_BUDGET_SEC = 120.0
-
-
-class _ResourceHarvestSpec(NamedTuple):
-    """Per-resource result and safety policy for the shared body harvester."""
-
-    kind: str
-    body_field: str
-    max_body_bytes: int
-    max_total_bytes: int
-    budget_sec: float
-
-
-_SKILL_HARVEST_SPEC = _ResourceHarvestSpec(
-    "skill",
-    "instructions",
-    _MAX_SKILL_BODY_BYTES,
-    _MAX_HARVEST_TOTAL_BYTES,
-    _SKILL_HARVEST_BUDGET_SEC,
-)
-_PROMPT_HARVEST_SPEC = _ResourceHarvestSpec(
-    "prompt",
-    "body",
-    _MAX_PROMPT_BODY_BYTES,
-    _MAX_PROMPT_HARVEST_TOTAL_BYTES,
-    _PROMPT_HARVEST_BUDGET_SEC,
-)
-# Share of the ENCLOSING probe's remaining time an OPTIONAL body harvest may
-# consume (BUG-PE-054). ``_SKILL_HARVEST_BUDGET_SEC``/``_PROMPT_HARVEST_BUDGET_SEC``
-# above are 120s, but every harvest runs INSIDE ``probe_server``'s own
-# ``asyncio.wait_for(_probe(), timeout=probe_to)`` — and ``probe_to`` is the
-# per-server ``timeout`` from ``mcp_config.json``, in practice 10-15s. An inner
-# best-effort budget 8-12x larger than the outer deadline it lives in is not a
-# bound at all: measured live 2026-08-25 against the homelab fleet,
-# ``fan-manager-mcp``'s prompt harvest spent 16.3s retrying two unservable
-# ``prompt://`` bodies (5 attempts each with backoff), blowing the 15s probe
-# deadline and DISCARDING the 14 tools ``list_tools`` had already returned
-# 16 seconds earlier. Six servers failed that way on every single sweep, and
-# because ``write_fleet_catalog`` only writes a discovery row for a probe that
-# bound an authority, they showed up in agent-webui as "0 tools" rather than as
-# unreachable. Half of what is left, taken fresh at each harvest, keeps the
-# tools/skills already in hand: skills can never spend more than half the
-# remaining probe, and prompts never more than half of what skills left.
-_HARVEST_DEADLINE_SHARE = 0.5
-
-
-def _harvest_deadline(probe_deadline: float | None, budget_sec: float) -> float:
-    """Monotonic deadline for one optional body harvest.
-
-    ``probe_deadline`` is the enclosing :meth:`MCPMultiplexer.probe_server`
-    deadline (``None`` for a caller with no probe deadline of its own, which
-    keeps the standalone ``budget_sec`` behaviour). The harvest gets whichever
-    is SOONER: its own budget, or its share of the probe time still left.
-    """
-    own = time.monotonic() + budget_sec
-    if probe_deadline is None:
-        return own
-    share = time.monotonic() + max(
-        0.0, (probe_deadline - time.monotonic()) * _HARVEST_DEADLINE_SHARE
-    )
-    return min(own, share)
 
 
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
@@ -810,15 +715,6 @@ def _tool_catalog_digest(tools: list[MCPTool]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _assert_bounded_resource_list(raw_resources: Any) -> None:
-    """Reject a child ``resources/list`` payload that is not a bounded sequence."""
-
-    if not isinstance(raw_resources, list | tuple):
-        raise RuntimeError("MCP child resource catalog is invalid")
-    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
-        raise RuntimeError("MCP child resource catalog exceeded its boundary")
-
-
 def _bounded_descriptor_catalog(
     values: Any, *, key: str, family: str
 ) -> list[dict[str, Any]]:
@@ -855,127 +751,6 @@ def _descriptor_mapping(value: Any, key: str) -> dict[str, Any]:
         if isinstance(field_value, str) and field_value:
             entry[field] = field_value
     return entry
-
-
-def _bounded_skill_entry(resource: Any) -> dict[str, Any] | None:
-    """Project ONE ``skill://`` resource, or ``None`` when it is not a skill."""
-
-    uri = getattr(resource, "uri", None)
-    uri_text = str(uri) if uri is not None else ""
-    match = _SKILL_RESOURCE_RE.match(uri_text)
-    if not match:
-        return None
-    name = match.group("name")
-    description = getattr(resource, "description", "") or ""
-    if not _bounded_catalog_name(name) or not isinstance(description, str):
-        raise RuntimeError("MCP child resource catalog is invalid")
-    return {"name": name, "uri": uri_text, "description": description}
-
-
-def _bounded_prompt_entry(resource: Any) -> dict[str, Any] | None:
-    """Project ONE ``prompt://`` resource, or ``None`` when it is not a prompt."""
-
-    uri = getattr(resource, "uri", None)
-    uri_text = str(uri) if uri is not None else ""
-    match = _PROMPT_RESOURCE_RE.match(uri_text)
-    if not match:
-        return None
-    provider = match.group("provider")
-    name = match.group("name")
-    description = getattr(resource, "description", "") or ""
-    if (
-        not _bounded_catalog_name(name)
-        or not _bounded_catalog_name(provider)
-        or not isinstance(description, str)
-    ):
-        raise RuntimeError("MCP child resource catalog is invalid")
-    return {
-        "name": name,
-        "provider": provider,
-        "uri": uri_text,
-        "description": description,
-    }
-
-
-def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
-    """Project a probed child's Resources into its Skills-over-MCP subset.
-
-    A fastmcp-4 ``SkillProvider``/``ClaudeSkillsProvider`` exposes each skill
-    as ``skill://{name}/SKILL.md`` (+ a sibling ``_manifest`` resource this
-    projection ignores — the manifest is fetched on demand, not during probe).
-    Non-skill resources are silently dropped: this function answers "which
-    skills does this server serve", not "list every resource". Bounded and
-    validated exactly like :func:`_bounded_tool_catalog` so a hostile/
-    misbehaving child cannot force an unbounded catalog into the KG.
-    """
-    _assert_bounded_resource_list(raw_resources)
-
-    skills: list[dict[str, Any]] = []
-    for resource in raw_resources:
-        entry = _bounded_skill_entry(resource)
-        if entry is None:
-            continue
-        skills.append(entry)
-        if len(skills) > _MAX_DISCOVERED_SKILLS:
-            raise RuntimeError("MCP child skill catalog exceeded its boundary")
-    try:
-        _assert_bounded_json_value(skills, max_nodes=_MAX_CATALOG_NODES)
-    except ToolError:
-        raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
-    return skills
-
-
-def _bounded_prompt_catalog(raw_resources: Any) -> list[dict[str, Any]]:
-    """Project a probed child's Resources into its Prompts-over-MCP subset.
-
-    CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
-    sibling of :func:`_bounded_skill_catalog`.
-    ``server_factory._register_prompt_providers`` exposes each of a server's
-    own ``prompts/*.json`` files as ``prompt://{provider}/{name}``.
-    Non-prompt resources (including ``skill://`` ones) are silently dropped:
-    this function answers "which prompts does this server serve", not "list
-    every resource". Bounded and validated exactly like
-    :func:`_bounded_skill_catalog` so a hostile/misbehaving child cannot
-    force an unbounded catalog into the KG.
-    """
-    _assert_bounded_resource_list(raw_resources)
-
-    prompts: list[dict[str, Any]] = []
-    for resource in raw_resources:
-        entry = _bounded_prompt_entry(resource)
-        if entry is None:
-            continue
-        prompts.append(entry)
-        if len(prompts) > _MAX_DISCOVERED_PROMPTS:
-            raise RuntimeError("MCP child prompt catalog exceeded its boundary")
-    try:
-        _assert_bounded_json_value(prompts, max_nodes=_MAX_CATALOG_NODES)
-    except ToolError:
-        raise RuntimeError("MCP child prompt catalog exceeded its boundary") from None
-    return prompts
-
-
-def _resource_body_text(result: Any) -> str:
-    """Extract the text payload of one ``resources/read`` result.
-
-    CONCEPT:AU-ECO.mcp.cross-process-skill-harvest — a fastmcp-4
-    ``SkillProvider`` serves ``skill://{name}/SKILL.md`` as ``text/markdown``,
-    so the body arrives as a ``TextResourceContents``. A binary/blob payload is
-    NOT a skill instruction body and is rejected rather than coerced, so a
-    child cannot smuggle an unusable resource into the runnable set.
-    """
-    contents = getattr(result, "contents", None)
-    if not isinstance(contents, list | tuple) or not contents:
-        raise RuntimeError("skill resource returned no contents")
-    parts: list[str] = []
-    for item in contents:
-        text = getattr(item, "text", None)
-        if text is None:
-            raise RuntimeError("skill resource body is not text")
-        if not isinstance(text, str):
-            raise RuntimeError("skill resource body is not text")
-        parts.append(text)
-    return "\n".join(parts)
 
 
 def _read_catalog_text(path: Path) -> str:
@@ -1342,8 +1117,6 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
             resources,
             resource_templates,
             native_prompts,
-            skills,
-            prompts,
             family_errors,
             binding,
         ) = await asyncio.wait_for(probe(), timeout=probe_to)
@@ -1355,8 +1128,6 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
                 "resource_templates": [],
                 "native_prompts": [],
                 "catalog_family_errors": {},
-                "skills": [],
-                "prompts": [],
                 "error": f"timeout after {probe_to:g}s",
             },
             None,
@@ -1369,8 +1140,6 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
                 "resource_templates": [],
                 "native_prompts": [],
                 "catalog_family_errors": {},
-                "skills": [],
-                "prompts": [],
                 "error": _format_probe_error(e),
             },
             None,
@@ -1382,8 +1151,6 @@ async def _run_bounded_probe(probe: Any, probe_to: float) -> tuple[dict, Any]:
             "resource_templates": resource_templates,
             "native_prompts": native_prompts,
             "catalog_family_errors": family_errors,
-            "skills": skills,
-            "prompts": prompts,
             "error": None,
         },
         binding,
@@ -4121,37 +3888,6 @@ class MCPMultiplexer:
         registered, _changed = self._replace_child_tools(server_name, tools, cfg)
         return registered
 
-    async def _live_skills_for_server(self, server_name: str) -> list[dict]:
-        """Live ``skill://`` resource listing for an already-mounted child
-        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
-
-        Unlike tools, a mounted child's Skills-over-MCP resources are never
-        cached into an aggregation map at mount time (:meth:`_register_child_result`
-        only indexes ``tools``) — so the cold-probe path's ``_probe_skills`` call
-        was the ONLY place a server's skills were ever discovered, leaving an
-        already-mounted server's skills invisible to ``find``/``find_tools``
-        until it happened to be probed cold at least once (D-2.2-2.3-1). Reuses
-        the mounted child's live primary session (no reconnect) and the same
-        best-effort degrade-to-``[]`` semantics as the cold-probe path.
-        """
-        session = self.sessions.get(server_name)
-        if session is None:
-            return []
-        return await self._probe_skills(server_name, session)
-
-    async def _live_prompts_for_server(self, server_name: str) -> list[dict]:
-        """Live ``prompt://`` resource listing for an already-mounted child
-        (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
-        sibling of :meth:`_live_skills_for_server`, same D-2.2-2.3-1 rationale:
-        a mounted child's prompt resources are never cached at mount time, so
-        this is the only place an already-mounted server's prompts are
-        discovered without waiting for a cold probe).
-        """
-        session = self.sessions.get(server_name)
-        if session is None:
-            return []
-        return await self._probe_prompts(server_name, session)
-
     @staticmethod
     def _mark_future_exception_retrieved(future: asyncio.Future[Any]) -> None:
         """Call ``future.exception()`` so asyncio never logs "exception was
@@ -4164,21 +3900,6 @@ class MCPMultiplexer:
         exposing anything, it only marks the future's exception as observed.
         """
         future.exception()
-
-    @staticmethod
-    def _harvest_error_reason(exc: BaseException) -> str:
-        """The reason string recorded on a skill/prompt harvest entry.
-
-        ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``) so a caller-useful
-        detail (e.g. "Rate limit exceeded for client: global" -- see
-        ``test_an_unreadable_body_records_a_named_reason_and_no_body``/
-        ``..._no_instructions``, which assert on it) still reaches the
-        ``harvest_error`` field returned to the probe caller, while the
-        served-boundary exception-surface gate stays satisfied: it flags
-        ``str()``/``repr()`` calls and a bare exception name passed to a log
-        call, never attribute/subscript access on the exception object.
-        """
-        return str(exc.args[0]) if exc.args else type(exc).__name__
 
     def _release_mount_ownership(
         self, server_name: str, leader_future: asyncio.Future
@@ -4966,18 +4687,14 @@ class MCPMultiplexer:
             resources,
             templates,
             native_prompts,
-            skills,
-            prompts,
             family_errors,
-        ) = await self._probe_protocol_families(server_name, session)
+        ) = await self._probe_protocol_families(session)
         info: dict[str, Any] = {
             "tools": self._live_tools_for_server(server_name),
             "resources": resources,
             "resource_templates": templates,
             "native_prompts": native_prompts,
             "catalog_family_errors": family_errors,
-            "skills": skills,
-            "prompts": prompts,
             "error": None,
         }
         result = self._cache_probe(server_name, info)
@@ -5025,15 +4742,7 @@ class MCPMultiplexer:
             info = {"tools": [], "error": "invalid probe timeout"}
             return self._cache_probe(server_name, info)
 
-        # The deadline ``asyncio.wait_for`` below will enforce. The OPTIONAL
-        # skill/prompt body harvests are clamped to a share of what is left of
-        # it (:func:`_harvest_deadline`, BUG-PE-054) so neither can spend the
-        # tool probe's own deadline and discard tools already in hand.
-        probe_deadline = time.monotonic() + probe_to
-
         async def _probe() -> tuple[
-            list[dict],
-            list[dict],
             list[dict],
             list[dict],
             list[dict],
@@ -5067,14 +4776,8 @@ class MCPMultiplexer:
                         resources,
                         templates,
                         native_prompts,
-                        skills,
-                        prompts,
                         family_errors,
-                    ) = await self._probe_protocol_families(
-                        server_name,
-                        session,
-                        probe_deadline=probe_deadline,
-                    )
+                    ) = await self._probe_protocol_families(session)
                     discovery_binding = _CURRENT_DISCOVERY_BINDING.get()
                     if discovery_binding is None:
                         discovery_binding = _tenant_local_discovery_binding()
@@ -5083,8 +4786,6 @@ class MCPMultiplexer:
                         resources,
                         templates,
                         native_prompts,
-                        skills,
-                        prompts,
                         family_errors,
                         discovery_binding,
                     )
@@ -5109,10 +4810,8 @@ class MCPMultiplexer:
         )
 
     async def _probe_protocol_families(
-        self, server_name: str, session: Any, *, probe_deadline: float | None = None
+        self, session: Any
     ) -> tuple[
-        list[dict],
-        list[dict],
         list[dict],
         list[dict],
         list[dict],
@@ -5131,11 +4830,9 @@ class MCPMultiplexer:
             resources = _bounded_descriptor_catalog(
                 raw_resources, key="uri", family="resource"
             )
-            skills = _bounded_skill_catalog(raw_resources)
-            prompt_resources = _bounded_prompt_catalog(raw_resources)
         except RuntimeError as exc:
             errors["resources"] = type(exc).__name__
-            resources, skills, prompt_resources = [], [], []
+            resources = []
 
         try:
             template_result = await session.list_resource_templates()
@@ -5159,222 +4856,7 @@ class MCPMultiplexer:
                 errors["prompts"] = type(exc).__name__
             native_prompts = []
 
-        await self._harvest_resource_bodies(
-            server_name,
-            session,
-            skills,
-            _SKILL_HARVEST_SPEC,
-            self._read_skill_body,
-            probe_deadline=probe_deadline,
-        )
-        await self._harvest_resource_bodies(
-            server_name,
-            session,
-            prompt_resources,
-            _PROMPT_HARVEST_SPEC,
-            self._read_prompt_body,
-            probe_deadline=probe_deadline,
-        )
-        return resources, templates, native_prompts, skills, prompt_resources, errors
-
-    async def _probe_skills(
-        self, server_name: str, session: Any, *, probe_deadline: float | None = None
-    ) -> list[dict]:
-        """Best-effort ``skill://`` resource enumeration for one probed session
-        (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
-
-        Skills-over-MCP is only a fastmcp-4 server capability (draft MCP
-        SEP-2640) — a fastmcp-3 or pre-skills server has no ``skill://``
-        resources, and some MCP servers do not implement ``resources/list`` at
-        all. Either case degrades to an empty list rather than failing the
-        tool probe that already succeeded above.
-        """
-        try:
-            result = await session.list_resources()
-        except Exception as exc:  # noqa: BLE001 - resources/list is an OPTIONAL
-            # MCP method; a server that doesn't implement it must still
-            # contribute the tools its probe already returned. The cause IS
-            # logged so a real transport failure stays diagnosable.
-            logger.debug(
-                "Server %s does not support skill resource discovery: %s: %s",
-                server_name,
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return []
-        try:
-            skills = _bounded_skill_catalog(result.resources)
-        except Exception as exc:  # noqa: BLE001 - a malformed skill catalog from
-            # one server must not fail the tool probe that already succeeded.
-            # The cause IS logged.
-            logger.warning(
-                "Server %s returned an invalid skill resource catalog: %s: %s",
-                server_name,
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return []
-        await self._harvest_resource_bodies(
-            server_name,
-            session,
-            skills,
-            _SKILL_HARVEST_SPEC,
-            self._read_skill_body,
-            probe_deadline=probe_deadline,
-        )
-        return skills
-
-    async def _harvest_resource_bodies(
-        self,
-        server_name: str,
-        session: Any,
-        entries: list[dict],
-        spec: _ResourceHarvestSpec,
-        reader: Any,
-        *,
-        probe_deadline: float | None = None,
-    ) -> None:
-        """Read one bounded family of resource bodies over an open session.
-
-        Skills and prompts have distinct result fields, byte budgets, retry
-        readers, and user-visible error wording, but their safety and failure
-        semantics are the same. Keeping the accounting loop here makes those
-        two resource families evolve together without allowing one family's
-        budget or result model to leak into the other.
-        """
-        harvested_bytes = 0
-        deadline = _harvest_deadline(probe_deadline, spec.budget_sec)
-        for entry in entries:
-            uri = entry.get("uri") or ""
-            if time.monotonic() >= deadline:
-                entry["harvest_error"] = (
-                    f"{spec.kind} body harvest budget exceeded (bounded by the "
-                    f"smaller of {spec.budget_sec:g}s and this probe's own "
-                    "remaining deadline)"
-                )
-                continue
-            if harvested_bytes >= spec.max_total_bytes:
-                entry["harvest_error"] = (
-                    f"{spec.kind} body harvest exceeded its total budget"
-                )
-                continue
-            try:
-                body = await reader(session, uri, deadline)
-            except Exception as exc:  # noqa: BLE001 - one unreadable body
-                # One unreadable resource must not fail the tool probe that
-                # already succeeded. The named reason is recorded ON THE
-                # ENTRY (so promotion can name it and a caller sees why) and
-                # logged — never a raw traceback (served-boundary policy).
-                entry["harvest_error"] = self._harvest_error_reason(exc)
-                logger.warning(
-                    "Server %s could not serve %s body %s (%s)",
-                    server_name,
-                    spec.kind,
-                    entry.get("name", "?"),
-                    type(exc).__name__,
-                )
-                continue
-            encoded = len(body.encode("utf-8"))
-            if not body.strip():
-                entry["harvest_error"] = f"server served an empty {spec.kind} body"
-                continue
-            if encoded > spec.max_body_bytes:
-                entry["harvest_error"] = f"{spec.kind} body exceeded its size boundary"
-                continue
-            harvested_bytes += encoded
-            entry[spec.body_field] = body
-
-    @staticmethod
-    async def _read_resource_body(
-        session: Any, uri: str, deadline: float, resource_kind: str
-    ) -> str:
-        """Read one body with bounded retries, deadline, and original errors.
-
-        CX-DUP-ENFORCE: the one canonical bounded-retry implementation both
-        :meth:`_read_skill_body` and :meth:`_read_prompt_body` delegate to —
-        each used to carry its own copy of this loop; a single-``if`` "should
-        this attempt retry" merge (final-attempt-OR-out-of-time) replaces the
-        prior two-stage ``break`` shape those copies had.
-        """
-        delay = _SKILL_HARVEST_BACKOFF_SEC
-        last: Exception | None = None
-        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
-            try:
-                return _resource_body_text(await session.read_resource(uri))
-            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
-                last = exc
-            is_final_attempt = attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1
-            remaining = deadline - time.monotonic()
-            if is_final_attempt or remaining <= 0:
-                break
-            await asyncio.sleep(min(delay, remaining))
-            delay *= 2
-        if last is None:  # pragma: no cover — the loop only exits via a failure
-            raise RuntimeError(
-                f"{resource_kind} body read failed without a recorded cause"
-            )
-        raise last
-
-    @staticmethod
-    async def _read_skill_body(session: Any, uri: str, deadline: float) -> str:
-        """Read one skill body with the shared bounded retry provider."""
-        return await MCPMultiplexer._read_resource_body(session, uri, deadline, "skill")
-
-    async def _probe_prompts(
-        self, server_name: str, session: Any, *, probe_deadline: float | None = None
-    ) -> list[dict]:
-        """Best-effort ``prompt://`` resource enumeration for one probed
-        session (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest).
-
-        Prompts-over-MCP is served by every server built through
-        ``server_factory.build_server`` (``_register_prompt_providers``), but
-        a raw MCP child outside that factory — or one with no
-        ``prompts/`` directory — has no ``prompt://`` resources; either case
-        degrades to an empty list rather than failing the tool probe that
-        already succeeded. A server that also doesn't implement
-        ``resources/list`` at all degrades the same way.
-        """
-        try:
-            result = await session.list_resources()
-        except Exception as exc:  # noqa: BLE001 - resources/list is an OPTIONAL
-            # MCP method; a server that doesn't implement it must still
-            # contribute the tools/skills its probe already returned. The
-            # cause IS logged so a real transport failure stays diagnosable.
-            logger.debug(
-                "Server %s does not support prompt resource discovery: %s: %s",
-                server_name,
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return []
-        try:
-            prompts = _bounded_prompt_catalog(result.resources)
-        except Exception as exc:  # noqa: BLE001 - a malformed prompt catalog
-            # from one server must not fail the tool probe that already
-            # succeeded. The cause IS logged.
-            logger.warning(
-                "Server %s returned an invalid prompt resource catalog: %s: %s",
-                server_name,
-                type(exc).__name__,
-                redact_for_log(exc),
-            )
-            return []
-        await self._harvest_resource_bodies(
-            server_name,
-            session,
-            prompts,
-            _PROMPT_HARVEST_SPEC,
-            self._read_prompt_body,
-            probe_deadline=probe_deadline,
-        )
-        return prompts
-
-    @staticmethod
-    async def _read_prompt_body(session: Any, uri: str, deadline: float) -> str:
-        """Read one prompt body with the shared bounded retry provider."""
-        return await MCPMultiplexer._read_resource_body(
-            session, uri, deadline, "prompt"
-        )
+        return resources, templates, native_prompts, errors
 
     @classmethod
     async def probe_declaration(
@@ -5740,45 +5222,28 @@ class MCPMultiplexer:
         ranked.sort(reverse=True)
         return [server for _coverage, _overlap, server in ranked]
 
-    def _collect_kind_embedding_targets(
-        self, server: str, kind: str, entries: Any, out: _EmbeddingTargets
-    ) -> None:
-        """Accumulate one server's tools OR skills into the embedding batch.
-
-        Each entry is namespaced by KIND as well as server: a skill and a tool
-        may legitimately share a name on the same server, and they must not
-        share one cached embedding.
-        """
-        for entry in entries or []:
-            name = entry.get("name")
-            if not name:
-                continue
-            key = f"{server}::{kind}::{name}"
-            out["names"].append((name, key))
-            if key in self._tool_embeddings:
-                continue
-            out["pending_text"].append(f"{name}. {entry.get('description', '')}"[:512])
-            out["pending_key"].append(key)
-
     def _collect_embedding_targets(self, probe: dict) -> _EmbeddingTargets:
-        """Every probed capability to embed — tools AND skills, in ONE pass.
+        """Every probed fleet tool to embed, in ONE pass.
 
-        Skills were previously skipped entirely, so `semantic.get(skill, ...)`
-        in discover_tools always returned 0.0 and skills were ranked on token
-        overlap alone while tools additionally got a cosine term. That is not
-        one capability space: whenever the embedder is warm — the production
-        condition this whole feature exists for — skills were structurally
-        under-ranked against tools for any query where intent similarity
-        matters more than literal token overlap.
+        Each entry is namespaced by server, so two servers exposing a
+        same-named tool never share one cached embedding.
         """
         out: _EmbeddingTargets = {"names": [], "pending_text": [], "pending_key": []}
         for server, info in probe.items():
             if info.get("error"):
                 continue
-            for kind in ("tools", "skills"):
-                self._collect_kind_embedding_targets(
-                    server, kind, info.get(kind, []), out
+            for entry in info.get("tools", []) or []:
+                name = entry.get("name")
+                if not name:
+                    continue
+                key = f"{server}::{name}"
+                out["names"].append((name, key))
+                if key in self._tool_embeddings:
+                    continue
+                out["pending_text"].append(
+                    f"{name}. {entry.get('description', '')}"[:512]
                 )
+                out["pending_key"].append(key)
         return out
 
     async def _embed_query_and_batch(
@@ -5933,49 +5398,6 @@ class MCPMultiplexer:
             "stale": is_stale,
         }
 
-    def _ranked_skill_entry(
-        self,
-        server: str,
-        entry: dict,
-        rank: _DiscoveryRanking,
-        probe_age: float | None,
-        is_stale: bool,
-    ) -> dict | None:
-        """One ranked fleet-served ``skill://`` row, or ``None`` when it does not
-        qualify. Scored with the SAME backbone as a tool row, so tools and
-        skills share one ranked capability space."""
-        skill = entry.get("name")
-        if not skill:
-            return None
-        desc = entry.get("description", "")
-        score = rank["semantic"].get(skill, 0.0) + self._relevance(
-            rank["query"], f"{skill} {desc}"
-        )
-        if score <= 0:
-            return None
-        capability = Capability(
-            kind="skill",
-            id=f"skill_{server}_{skill}",
-            name=skill,
-            description=desc,
-            score=score,
-            server=server,
-            source="fleet_probe",
-        )
-        return {
-            "kind": "skill",
-            "server": server,
-            "skill": skill,
-            "uri": entry.get("uri", ""),
-            "description": desc,
-            "score": round(score, 4),
-            "mountable": server in rank["catalog"],
-            "mounted": False,
-            "bind": capability.to_binding(),
-            "age_s": probe_age,
-            "stale": is_stale,
-        }
-
     def _ranked_server_entries(
         self,
         server: str,
@@ -5984,9 +5406,9 @@ class MCPMultiplexer:
         now: float,
         ttl: float,
     ) -> list[dict]:
-        """Every qualifying tool AND skill row for one probed server.
+        """Every qualifying tool row for one probed server.
 
-        Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
+        Truthful freshness for every surfaced tool (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
         a result served from a probe that ran seconds/minutes ago is still
         labelled with its real age, not presented as if it were just measured
         live. ``is_stale`` is computed from that age against the TTL
@@ -5998,10 +5420,6 @@ class MCPMultiplexer:
         rows: list[dict] = []
         for entry in info.get("tools", []):
             row = self._ranked_tool_entry(server, entry, rank, probe_age, is_stale)
-            if row is not None:
-                rows.append(row)
-        for entry in info.get("skills", []) or []:
-            row = self._ranked_skill_entry(server, entry, rank, probe_age, is_stale)
             if row is not None:
                 rows.append(row)
         return rows
@@ -6049,11 +5467,11 @@ class MCPMultiplexer:
         }
 
         # One ranked capability space (CONCEPT:AU-KG.retrieval.unified-capability-contract):
-        # fleet tools AND fleet-served skill:// resources are scored with the
-        # SAME token-overlap+semantic backbone and merged into one ``ranked``
-        # list, each item carrying a ``bind`` dict — the exact kwargs
-        # `graph_orchestrate` needs to run it — so a caller never has to know
-        # in advance whether the winning candidate is a tool or a skill.
+        # fleet tools are scored with the token-overlap+semantic backbone into
+        # one ``ranked`` list, each item carrying a ``bind`` dict — the exact
+        # kwargs `graph_orchestrate` needs to run it. Skills and prompts are
+        # not gateway capabilities: they reach the platform only as governed
+        # EG AgentComponents imported from connector packs (RF-ADR-009 §2.1).
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
         now = time.time()
@@ -6387,14 +5805,13 @@ class MCPMultiplexer:
         CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — checks truthiness
         (non-empty), not merely ``self._catalog is not None``: calling
         :meth:`tool_dispatchable` on ANY instance — including a
-        freshly-constructed, never-served one (what ``source_sync``/a fleet
-        harvest builds standalone, D-SH-6, ``reports/deferred/
-        lane-skill-harvest.md``) — reaches :meth:`_server_for_prefixed`,
+        freshly-constructed, never-served one (what ``source_sync`` builds
+        standalone, D-SH-6) — reaches :meth:`_server_for_prefixed`,
         which lazily calls :meth:`load_catalog` as a side effect via
         :meth:`_build_prefix_map`. That side effect turns ``self._catalog``
         from ``None`` into (at least) ``{}``, so an ``is not None`` check
         would already read ``True`` by the time this runs — it is the
-        catalog being genuinely EMPTY (verified live in-pod: a harvest's
+        catalog being genuinely EMPTY (verified live in-pod: a
         throwaway instance resolved zero servers for both real probed tool
         names and an invented one) that distinguishes a non-serving instance,
         not whether ``load_catalog`` merely ran.

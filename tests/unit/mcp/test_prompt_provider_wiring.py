@@ -1,4 +1,4 @@
-"""Server-side Prompts-over-MCP wiring (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest).
+"""Server-side Prompts-over-MCP wiring (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
 
 Covers ``_register_prompt_providers`` (called from ``create_mcp_server``
 right after ``_register_skill_providers``): it must call ``mcp.add_resource``

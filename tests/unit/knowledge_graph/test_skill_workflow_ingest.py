@@ -571,8 +571,7 @@ def test_explicit_root_does_not_mint_workflowdefinition_for_declared_atomic_skil
 
 class _RunnableEngine:
     """Records typed writes the way ``ingest_runnable_skill`` needs
-    (``_upsert_node`` + ``link_nodes``) — mirrors ``_Engine`` in
-    ``test_fleet_skill_harvest.py``, the sibling primitive's own test double.
+    (``_upsert_node`` + ``link_nodes``).
     """
 
     def __init__(self) -> None:
