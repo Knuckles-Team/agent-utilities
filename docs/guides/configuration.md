@@ -166,12 +166,12 @@ Environment variables are no longer part of the LLM configuration chain. API key
 
 ```json
 {
-  // ── Agent Identity ──────────────────────────────────────────────
+  // --- Agent Identity ---
   "default_agent_name": "Agent",
   "agent_description": "AI Agent",
   "agent_system_prompt": null,
 
-  // ── Server ──────────────────────────────────────────────────────
+  // --- Server ---
   "host": "0.0.0.0",
   "port": 9000,
   "debug": false,
@@ -183,7 +183,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "mcp_config": null,
   "max_upload_size": 10485760,
 
-  // ── Authentication & Security ───────────────────────────────────
+  // --- Authentication & Security ---
   "auth_jwt_jwks_uri": null,
   "auth_jwt_issuer": null,
   "auth_jwt_audience": null,
@@ -192,12 +192,12 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "tool_guard_mode": "strict",
   "sensitive_tool_patterns": [".*delete.*", ".*remove.*", "..."],
 
-  // ── Secrets Backend ─────────────────────────────────────────────
+  // --- Secrets Backend ---
   "secrets_backend": "engine",
   "vault_url": null,
   "vault_mount": "secret",
 
-  // ── Graph Execution ─────────────────────────────────────────────
+  // --- Graph Execution ---
   "routing_strategy": "hybrid",
   "graph_persistence_type": "file",
   "graph_persistence_path": "~/.local/share/agent-utilities/graph_state",
@@ -208,12 +208,12 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "validation_mode": false,
   "approval_timeout": 0.0,
 
-  // ── Knowledge Graph ─────────────────────────────────────────────
+  // --- Knowledge Graph ---
   "enable_kg_embeddings": true,
   "kg_backups": 3,
   "knowledge_graph_sync_background": true,
 
-  // ── Observability (OTEL / Langfuse) ─────────────────────────────
+  // --- Observability (OTEL / Langfuse) ---
   "enable_otel": true,
   "otel_exporter_otlp_endpoint": "http://langfuse.example.com/api/public/otel",
   "otel_exporter_otlp_headers": null,
@@ -225,13 +225,13 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "langfuse_secret_key": "lf_sk_...",
   "langfuse_dataset_capture_threshold": 0.0,
 
-  // ── A2A Agent Discovery ─────────────────────────────────────────
+  // --- A2A Agent Discovery ---
   "a2a_broker": "epistemic_graph",
   "a2a_storage": "epistemic_graph",
   "a2a_config": null,
   "a2a_refresh_interval": 300,
 
-  // ── LLM Inference Parameters ────────────────────────────────────
+  // --- LLM Inference Parameters ---
   "max_tokens": 16384,
   "temperature": 0.7,
   "top_p": 1.0,
@@ -246,7 +246,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "extra_headers": null,
   "extra_body": null,
 
-  // ── Cognitive Scheduler & Agent Policies ─────────────────────────
+  // --- Cognitive Scheduler & Agent Policies ---
   "cognitive_scheduler_enabled": true,
   "max_concurrent_agents": 5,
   "agent_token_quota": 100000,
@@ -260,11 +260,11 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "maintenance_priority": "LOW",
   "watchdog_patterns": ["pyproject.toml", "mcp_config.json", "requirements*.txt"],
 
-  // ── Skills ──────────────────────────────────────────────────────
+  // --- Skills ---
   "custom_skills_directory": null,
   "skill_types": null,
 
-  // ── Model Registries (PRIMARY CONFIG) ───────────────────────────
+  // --- Model Registries (PRIMARY CONFIG) ---
   "chat_models": [
     {
       "id": "qwen/qwen3.8-27b",
@@ -291,7 +291,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
     }
   ],
 
-  // ── Workspace & Paths ───────────────────────────────────────────
+  // --- Workspace & Paths ---
   "workspace_path": "${WORKSPACE_ROOT}",
   "agent_utilities_config_dir": "~/.config/agent-utilities"
 }

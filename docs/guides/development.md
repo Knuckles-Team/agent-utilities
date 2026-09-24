@@ -84,83 +84,65 @@ If tests fail unexpectedly:
 
 ## Project Structure Quick Reference
 
-```
-agent_utilities/
-├── __init__.py              # Public API re-exports
-├── base_utilities.py        # Shared utility functions (env expansion, type coercion)
-│
-├── core/                    # Foundational Primitives
-│   ├── workspace.py         # Workspace discovery and initialization
-│   ├── config.py            # Centralized configuration constants
-│   ├── exceptions.py        # Core domain exceptions
-│   └── decorators.py        # Cross-cutting decorators
-│
-├── agent/                   # Agent Lifecycle & Setup
-│   ├── factory.py           # CLI agent creation helpers
-│   ├── discovery.py         # Specialist discovery
-│   └── registry_builder.py  # Prompt → KG registry synchronization
-│
-├── mcp/                     # Model Context Protocol runtime
-│   ├── server_factory.py    # Server construction and authentication middleware
-│   ├── context_helpers.py   # Progress, elicitation, logging, state, and sampling
-│   └── kg_server.py         # GraphOS tool registration and governed dispatch
-│
-├── protocols/               # External Interfaces
-│   ├── acp_adapter.py       # ACP protocol adapter
-│   ├── a2a.py               # A2A protocol adapter
-│   └── agui_emitter.py      # AG-UI wire format translator
-│
-├── server/                  # FastAPI Application
-│   ├── app.py               # App factory and middleware
-│   ├── dependencies.py      # Route dependencies
-│   └── routers/             # Endpoint definitions
-│
-├── security/                # Auth & Permissions
-│   ├── auth.py              # JWT validation
-│   └── cors.py              # Cross-origin policies
-│
-├── graph/                   # Orchestration Engine
-│   ├── builder.py           # Graph initialization
-│   ├── executor.py          # Execution layer (step descriptions, specialist dispatch)
-│   ├── lifecycle.py         # Lifecycle management
-│   ├── steps.py             # Orchestration nodes (router, verifier, etc.)
-│   └── state.py             # GraphState definitions
-│
-├── knowledge_graph/         # Epistemic-graph authority facade and governance
-│   ├── core/engine.py       # IntelligenceGraphEngine
-│   ├── core/maintainer.py   # Pruning, decay, maintenance
-│   ├── retrieval/hybrid_retriever.py  # Vector + topological search
-│   └── core/owl_bridge.py   # LPG ↔ OWL transitive reasoning
-│
-├── harness/                 # Agentic Harness Engineering (AHE)
-│   ├── verifier.py          # Decision observability
-│   └── evolve_agent.py      # Prompt evolution loop
-│   # (trace distillation lives in knowledge_graph/adaptation/trace_distiller.py)
-│
-├── mcp/                     # MCP Orchestration
-│   ├── kg_server.py         # graph-os KG MCP server entry point
-│   └── server_factory.py    # MCP server creation helpers
-│
-├── tools/                   # Agent Tools
-│   ├── agent_tools.py       # Core agent tools
-│   ├── developer_tools.py   # Read-only code and KG discovery
-│   └── ...                  # 16 other tool categories
-│
-├── models/                  # Pydantic Schemas
-│   ├── knowledge_graph.py   # RegistryNode, Edge schemas
-│   └── sdd.py               # Spec, Plan, Tasks
-│
-├── prompts/                 # JSON Prompt Blueprints
-│   └── *.json
-│
-├── rlm/                     # Recursive Language Models
-│   └── repl.py              # Sub-shell execution
-│
-├── sdd/                     # Spec-Driven Development
-│   └── orchestrator.py      # Pipeline engine
-│
-└── agent_data/              # Runtime data directory (git-ignored)
-```
+- `agent_utilities/`
+    - `__init__.py` — Public API re-exports
+    - `base_utilities.py` — Shared utility functions (env expansion, type coercion)
+    - `core/` — Foundational Primitives
+        - `workspace.py` — Workspace discovery and initialization
+        - `config.py` — Centralized configuration constants
+        - `exceptions.py` — Core domain exceptions
+        - `decorators.py` — Cross-cutting decorators
+    - `agent/` — Agent Lifecycle & Setup
+        - `factory.py` — CLI agent creation helpers
+        - `discovery.py` — Specialist discovery
+        - `registry_builder.py` — Prompt -> KG registry synchronization
+    - `mcp/` — Model Context Protocol runtime
+        - `server_factory.py` — Server construction and authentication middleware
+        - `context_helpers.py` — Progress, elicitation, logging, state, and sampling
+        - `kg_server.py` — GraphOS tool registration and governed dispatch
+    - `protocols/` — External Interfaces
+        - `acp_adapter.py` — ACP protocol adapter
+        - `a2a.py` — A2A protocol adapter
+        - `agui_emitter.py` — AG-UI wire format translator
+    - `server/` — FastAPI Application
+        - `app.py` — App factory and middleware
+        - `dependencies.py` — Route dependencies
+        - `routers/` — Endpoint definitions
+    - `security/` — Auth & Permissions
+        - `auth.py` — JWT validation
+        - `cors.py` — Cross-origin policies
+    - `graph/` — Orchestration Engine
+        - `builder.py` — Graph initialization
+        - `executor.py` — Execution layer (step descriptions, specialist dispatch)
+        - `lifecycle.py` — Lifecycle management
+        - `steps.py` — Orchestration nodes (router, verifier, etc.)
+        - `state.py` — GraphState definitions
+    - `knowledge_graph/` — Epistemic-graph authority facade and governance
+        - `core/engine.py` — IntelligenceGraphEngine
+        - `core/maintainer.py` — Pruning, decay, maintenance
+        - `retrieval/hybrid_retriever.py` — Vector + topological search
+        - `core/owl_bridge.py` — LPG <-> OWL transitive reasoning
+    - `harness/` — Agentic Harness Engineering (AHE)
+        - `verifier.py` — Decision observability
+        - `evolve_agent.py` — Prompt evolution loop
+        - (trace distillation lives in `knowledge_graph/adaptation/trace_distiller.py`)
+    - `mcp/` — MCP Orchestration
+        - `kg_server.py` — graph-os KG MCP server entry point
+        - `server_factory.py` — MCP server creation helpers
+    - `tools/` — Agent Tools
+        - `agent_tools.py` — Core agent tools
+        - `developer_tools.py` — Read-only code and KG discovery
+        - … 16 other tool categories
+    - `models/` — Pydantic Schemas
+        - `knowledge_graph.py` — RegistryNode, Edge schemas
+        - `sdd.py` — Spec, Plan, Tasks
+    - `prompts/` — JSON Prompt Blueprints
+        - `*.json`
+    - `rlm/` — Recursive Language Models
+        - `repl.py` — Sub-shell execution
+    - `sdd/` — Spec-Driven Development
+        - `orchestrator.py` — Pipeline engine
+    - `agent_data/` — Runtime data directory (git-ignored)
 
 ## Code Style & Conventions
 

@@ -178,12 +178,11 @@ A versioned metacognitive self-model that aggregates session outcomes into a per
 
 ### Architecture
 
-```
-[Anchor: self:agent-model]
-    ──CURRENT_SELF_MODEL──→ [SelfModel v3]
-                                ──SUPERSEDES──→ [SelfModel v2]
-                                                    ──SUPERSEDES──→ [SelfModel v1]
-```
+The anchor node `self:agent-model` points via a `CURRENT_SELF_MODEL` edge
+to the latest `SelfModel` version, which chains backward through
+`SUPERSEDES` edges to each prior version: `self:agent-model`
+`-[CURRENT_SELF_MODEL]->` `SelfModel v3` `-[SUPERSEDES]->` `SelfModel v2`
+`-[SUPERSEDES]->` `SelfModel v1`.
 
 - **Versioned chain**: Each session creates a new `MemoryRetrieverNode`
 - **CURRENT pointer**: O(1) lookup of latest version via `CURRENT_SELF_MODEL` edge

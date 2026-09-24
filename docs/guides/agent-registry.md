@@ -51,14 +51,12 @@ Each specialist package is a JSON file in the `available/` directory:
 
 ## Directory Structure
 
-```
-~/.agent-utilities/registry/
-├── available/           # Packages available for installation
-│   ├── salesforce-specialist.json
-│   └── jira-specialist.json
-└── installed/           # Currently installed packages
-    └── gitlab-specialist.json
-```
+- `~/.agent-utilities/registry/`
+    - `available/` — packages available for installation
+        - `salesforce-specialist.json`
+        - `jira-specialist.json`
+    - `installed/` — currently installed packages
+        - `gitlab-specialist.json`
 
 ## Configuration
 

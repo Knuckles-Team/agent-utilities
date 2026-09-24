@@ -14,33 +14,18 @@ RLM enables agents to:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────┐
-│  RLMEnvironment                         │
-│                                         │
-│  ┌─────────────────────────────┐        │
-│  │  Persistent Globals Dict    │        │
-│  │  - context, depth           │        │
-│  │  - rlm_query(schema=)       │        │
-│  │  - magma_view()             │        │
-│  │  - graph_query()            │        │
-│  │  - owl_query()      [NEW]   │        │
-│  │  - kg_bulk_export() [NEW]   │        │
-│  │  - sub_agent_call()         │        │
-│  │  - FINAL_VAR()              │        │
-│  │  - run_parallel_sub_calls() │        │
-│  └─────────────────────────────┘        │
-│                                         │
-│  execute(code)                          │
-│      │                                  │
-│      ▼  SandboxRouter (ORCH-1.38)        │
-│  ┌─────────────────────────────────────┐│
-│  │ ast-analyze → cheapest capable tier ││
-│  │ monty → wasm → docker → local        ││
-│  │ (escalate on SandboxRejected)        ││
-│  └─────────────────────────────────────┘│
-└─────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">RLMEnvironment: a persistent globals dict routed through a tiered sandbox</p>
+
+`RLMEnvironment` holds a **persistent globals dict** exposing `context`,
+`depth`, `rlm_query(schema=)`, `magma_view()`, `graph_query()`,
+`owl_query()` (new), `kg_bulk_export()` (new), `sub_agent_call()`,
+`FINAL_VAR()`, and `run_parallel_sub_calls()` to every recursive call.
+
+`execute(code)` routes through `SandboxRouter` (ORCH-1.38), which
+ast-analyzes the code and selects the cheapest capable tier — `monty` ->
+`wasm` -> `docker` -> `local` — escalating on `SandboxRejected`.
+</div>
 
 Code execution is no longer a hardcoded `local`/`container` switch: `execute()` routes each
 snippet through the **tiered sandbox router** (CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox) — see

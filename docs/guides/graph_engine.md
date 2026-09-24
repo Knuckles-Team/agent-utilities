@@ -11,33 +11,24 @@ and GraphOS reach it only through the authenticated MessagePack client over a
 private UDS or loopback-TCP transport, or an explicitly configured protected
 remote endpoint. There is no embedded Python engine and no second read authority.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              epistemic-graph engine (THE database)               │
-│                                                                 │
-│   • Authority / system of record (durable persistence)          │
-│   • In-memory cache for hot reads                               │
-│   • Graph compute (PageRank, centrality, shortest paths,        │
-│     community detection, VF2 subgraph isomorphism, causal        │
-│     do-calculus, spectral clustering, topological partitioning) │
-│   • Cypher queries, CRUD via MERGE/SET, schema enforcement      │
-│   • HNSW vector index, batch UNWIND, cascade DETACH DELETE      │
-│                                                                 │
-│   ALL READS are served here. WRITES commit here first.          │
-└───────────────────────────────┬─────────────────────────────────┘
-                                 │  async, lossless fan-out
-                                 │  (durable outbox, replay-on-reconnect)
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│            Optional mirrors — interop / BI / DR only             │
-│                                                                 │
-│   Postgres / pg-age   ·   Neo4j   ·   FalkorDB   ·   Ladybug     │
-│                                                                 │
-│   Never on the read path. Never the authority. Populated        │
-│   asynchronously for external query, business intelligence,      │
-│   and disaster recovery.                                        │
-└─────────────────────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">One authority, fanning out to optional mirrors</p>
+
+**epistemic-graph engine (THE database)** is the authority and system of
+record (durable persistence), with an in-memory cache for hot reads. It
+provides graph compute (PageRank, centrality, shortest paths, community
+detection, VF2 subgraph isomorphism, causal do-calculus, spectral
+clustering, topological partitioning), Cypher queries, CRUD via
+MERGE/SET, schema enforcement, an HNSW vector index, batch UNWIND, and
+cascade DETACH DELETE. **All reads are served here. Writes commit here
+first.**
+
+From there, an async, lossless fan-out (a durable outbox, replayed on
+reconnect) populates **optional mirrors — interop / BI / DR only**:
+Postgres/pg-age, Neo4j, FalkorDB, Ladybug. These are never on the read
+path and never the authority; they exist solely for external query,
+business intelligence, and disaster recovery.
+</div>
 
 ## Data Flow Paths
 

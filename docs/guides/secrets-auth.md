@@ -14,18 +14,14 @@ retrieving sensitive values (API keys, tokens, SSH credentials, etc.). It
 ships with two live backends and supports URI-style references for maximum
 flexibility (CONCEPT:AU-OS.identity.encrypted-secret-store).
 
-```
-┌─────────────────────────────┐
-│        SecretsClient        │  ← High-level API
-│  get_or_env() / resolve_ref │
-└────────┬────────────────────┘
-         │  (pluggable)
-   ┌─────┴───────────────────┬──────────────┐
-   │ InEpistemicGraphBackend │  Vault (hvac) │
-   │ (engine-encrypted,      │  (enterprise) │
-   │  default everywhere)    │               │
-   └─────────────────────────┴──────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">SecretsClient: a pluggable high-level API over two backends</p>
+
+`SecretsClient` (the high-level API, `get_or_env()` / `resolve_ref()`)
+delegates, pluggably, to one of two backends: `InEpistemicGraphBackend`
+(engine-encrypted, the default everywhere) or Vault via `hvac`
+(enterprise).
+</div>
 
 The default `InEpistemicGraphBackend` is a **durable, engine-backed** store:
 secrets live as `:Secret` nodes in a dedicated `__secrets__` epistemic-graph
@@ -389,25 +385,18 @@ secret-manager list
 
 The authentication flow utilizes the OAuth 2.0 Authorization Code Flow with Proof Key for Code Exchange (PKCE) (RFC 7636).
 
-```
-┌──────────────┐          1. Click link          ┌──────────────┐
-│ Agent / CLI  ├────────────────────────────────►│ x.com Auth   │
-│              │◄────────────────────────────────┤ Login Page   │
-│ (Spin Server)│     2. Callback with Code       └──────┬───────┘
-└──────┬───────┘    (or manual CLI input)               │
-       │                                                │
-       │ 3. Exchange Auth Code + Verifier               │
-       ▼                                                │
-┌──────────────┐                                        │
-│  xAI OAuth   │◄───────────────────────────────────────┘
-│  Token Endpt │
-└──────┬───────┘
-       │ 4. Store encrypted tokens in SecretsClient
-       ▼
-┌──────────────┐
-│SecretsClient │
-└──────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">xAI OAuth PKCE flow, four steps</p>
+
+1. **Click link** — Agent/CLI (running a spin server) sends the user to
+   the `x.com` Auth Login Page.
+2. **Callback with code** (or manual CLI input) — the login page redirects
+   back to the Agent/CLI with an authorization code.
+3. **Exchange auth code + verifier** — the Agent/CLI calls the xAI OAuth
+   Token Endpoint with the code and PKCE verifier.
+4. **Store encrypted tokens** — the xAI OAuth Token Endpoint's response is
+   stored encrypted in `SecretsClient`.
+</div>
 
 ### Flow Options
 
