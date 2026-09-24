@@ -20,19 +20,17 @@ Multi-tenancy provides **namespace isolation** within the same graph, with **hie
 
 Tenants form a tree structure:
 
-```
-Company (root tenant)
-├── Engineering
-│   ├── Backend Team
-│   ├── Frontend Team
-│   └── ML/AI Team
-├── Finance
-│   ├── Trading Desk
-│   └── Compliance
-└── HR
-    ├── Recruiting
-    └── People Analytics
-```
+- `Company` (root tenant)
+    - `Engineering`
+        - `Backend Team`
+        - `Frontend Team`
+        - `ML/AI Team`
+    - `Finance`
+        - `Trading Desk`
+        - `Compliance`
+    - `HR`
+        - `Recruiting`
+        - `People Analytics`
 
 **Visibility rules:**
 - A tenant can see **its own data** and **its children's data**

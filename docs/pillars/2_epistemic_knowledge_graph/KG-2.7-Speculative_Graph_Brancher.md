@@ -14,13 +14,9 @@ The brancher builds on the `KGVersionEngine`, which provides git-like transactio
 3. **Commit Layer** — `KGCommit` records the applied mutation count, parent commit reference, and rollback data, forming an append-only commit log (similar to git's DAG).
 4. **Branching Layer** — `SpeculativeGraphBrancher` manages named branches, each a deep-copy of the main graph state at branch creation time.
 
-```
-Main State ───────────────────────────────────────►
-       │                                     ▲
-       ├──► Branch "research-a" (deep copy) ─┤ merge
-       │                                     │
-       └──► Branch "research-b" (deep copy) ─┘
-```
+From the main state, two branches fork as deep copies — `"research-a"`
+and `"research-b"` — each running independently and later merging back
+into the main state.
 
 ## API Surface
 
