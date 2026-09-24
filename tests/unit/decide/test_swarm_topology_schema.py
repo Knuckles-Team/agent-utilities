@@ -52,7 +52,7 @@ def _projection(spec: TemplateSpec) -> str:
     for index, slot in enumerate(facts["slots"]):
         role = slot["role"].capitalize()
         lines.append(
-            f'<urn:t> swarm:hasSlot <urn:s{index}> . <urn:s{index}> a swarm:Slot ; '
+            f"<urn:t> swarm:hasSlot <urn:s{index}> . <urn:s{index}> a swarm:Slot ; "
             f'swarm:nodeId "{slot["node_id"]}" ; swarm:role swarm:{role} ; '
             f"swarm:minWidth {slot['min_width']} ; swarm:maxWidth {slot['max_width']} ; "
             f"swarm:maxRounds {slot['max_rounds']} ."
@@ -102,7 +102,11 @@ def _spec(graph_id: str) -> TemplateSpec:
 def test_the_vocabulary_hangs_off_the_engine_s_two_anchors() -> None:
     tbox = _tbox()
     assert (SWARM.admits, RDFS.subPropertyOf, EG.admitsTopology) in tbox
-    assert (SWARM.NeedsIndependentCheck, RDFS.subClassOf, EG.NeedsIndependentCheck) in tbox
+    assert (
+        SWARM.NeedsIndependentCheck,
+        RDFS.subClassOf,
+        EG.NeedsIndependentCheck,
+    ) in tbox
     fillers = set(tbox.objects(None, OWL.someValuesFrom))
     declared = set(tbox.subjects(RDFS.subClassOf, SWARM.Topology)) | {
         SWARM.Debate,
@@ -121,7 +125,11 @@ def test_a_sequential_span_never_admits_a_fan_out() -> None:
         for node in tbox.objects(SWARM.SequentialDependency, RDFS.subClassOf)
     ]
     assert SWARM.FanOutJoin not in restrictions
-    assert (SWARM.SequentialDependency, RDFS.subClassOf, SWARM.IndependentSubtasks) not in tbox
+    assert (
+        SWARM.SequentialDependency,
+        RDFS.subClassOf,
+        SWARM.IndependentSubtasks,
+    ) not in tbox
 
 
 @pytest.mark.parametrize("spec", REFERENCE_TEMPLATES, ids=lambda s: s.graph_id)
@@ -214,7 +222,9 @@ def test_the_publisher_sends_every_template_with_its_topology_facts() -> None:
 
     ids = asyncio.run(publish_reference_templates(graphs, context_for, _SLOT_AGENT))
     assert ids == [spec.graph_id for spec in REFERENCE_TEMPLATES]
-    for (draft, _context, key), spec in zip(graphs.published, REFERENCE_TEMPLATES, strict=True):
+    for (draft, _context, key), spec in zip(
+        graphs.published, REFERENCE_TEMPLATES, strict=True
+    ):
         assert key == f"swarm-template:{spec.graph_id}"
         assert draft["topology"] == topology_facts(spec)
         agents = [n for n in draft["shape"]["nodes"] if isinstance(n["kind"], dict)]

@@ -17,10 +17,13 @@ Each pattern maps to existing agent-utilities infrastructure:
     - AGENT_POOL → ``Council`` with advisory messaging
     - TEAMS → ``A2AClient`` with ``send_message``
 
-The ``SubagentPatternRouter`` selects the optimal pattern based on
-task complexity, parallelizability, and collaboration requirements.
-Pattern selection decisions are recorded as ``RoutingDecisionNode``
-entries in the Knowledge Graph for harness learning.
+The ``SubagentPatternRouter`` maps a task onto one of these executor
+families. The topology itself is EG's decision (SWARM-TOPOLOGY-DECIDE-DESIGN,
+EH-048): when a topology asker is installed the family is the projection of
+EG's certified plan; the cost-ordered tree below is only the deterministic
+fallback. Nothing here persists outcomes or learns from them (invariant T5):
+outcomes are credited by independent evaluation to the committed plan's
+whole slate in EG.
 
 See docs/overview.md §CONCEPT:AU-ORCH.execution.active-subagent-lifecycle
 """
@@ -113,11 +116,7 @@ def _decided_pattern(
 
 
 class SubagentPatternDecision(BaseModel):
-    """Records a pattern selection decision for KG persistence.
-
-    Stored as a node in the Knowledge Graph to enable the harness
-    to learn which patterns succeed for which task types.
-    """
+    """One pattern selection: the family, the facts it read and why."""
 
     pattern: SubagentPattern
     mode: SubagentMode = SubagentMode.READ_WRITE
@@ -131,10 +130,6 @@ class SubagentPatternDecision(BaseModel):
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )
 
-    # Outcome tracking (populated post-execution)
-    outcome_success: bool | None = None
-    outcome_duration_ms: float | None = None
-
 
 class SubagentPatternRouter:
     """Selects the optimal subagent interaction pattern for a task.
@@ -147,13 +142,11 @@ class SubagentPatternRouter:
         - AGENT_POOL: needs collaboration, complexity ≤ COMPLEX
         - TEAMS: complexity = EXPERT or cross-agent A2A required
 
-    The router integrates with the Knowledge Graph to:
-        1. Record decisions as ``SubagentPatternDecision`` nodes
-        2. Learn from historical outcomes via MemoryRetriever
-        3. Adjust thresholds based on team success rates (AHE-3.3)
+    The tree is the fallback; EG's topology plan decides when an asker is
+    installed (:func:`agent_utilities.decide.consumers.topology.install_topology`).
 
     Args:
-        engine: Optional KG engine for historical decision tracking.
+        engine: Optional KG engine for the specialist-count estimate.
     """
 
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
@@ -244,10 +237,6 @@ class SubagentPatternRouter:
         if read_only:
             reasoning += " [READ_ONLY: exploration-only, no file modifications]"
 
-        # Check historical performance if KG is available
-        if self.engine is not None:
-            confidence = self._adjust_from_history(pattern, confidence)
-
         decision = SubagentPatternDecision(
             pattern=pattern,
             mode=mode,
@@ -265,10 +254,6 @@ class SubagentPatternRouter:
             confidence,
             reasoning[:80],
         )
-
-        # Persist decision to KG
-        if self.engine is not None:
-            self._persist_decision(decision)
 
         return decision
 
@@ -304,155 +289,6 @@ class SubagentPatternRouter:
             pass
 
         return count
-
-    def _adjust_from_history(
-        self, pattern: SubagentPattern, base_confidence: float
-    ) -> float:
-        """Adjust confidence based on historical pattern success rates.
-
-        Integrates with CONCEPT:AU-AHE.evaluation.interpretability-tests (TeamConfig) and
-        CONCEPT:AU-KG.memory.tiered-memory-caching (MemoryRetriever) for learned pattern preferences.
-        """
-        if self.engine is None:
-            return base_confidence
-
-        try:
-            # Prefer backend (Tier 1) for O(1) lookups
-            if self.engine.backend:
-                try:
-                    results = self.engine.backend.execute(
-                        "MATCH (d:SubagentPatternDecision) "
-                        "WHERE d.pattern = $pattern AND d.outcome_success IS NOT NULL "
-                        "RETURN d.outcome_success AS success",
-                        {"pattern": pattern.value},
-                    )
-                    if results and len(results) >= 3:
-                        total_count = len(results)
-                        success_count = sum(
-                            1 for r in results if r.get("success") is True
-                        )
-                        historical_rate = success_count / total_count
-                        adjusted = 0.7 * base_confidence + 0.3 * historical_rate
-                        logger.debug(
-                            "[CONCEPT:AU-ORCH.execution.active-subagent-lifecycle] Adjusted confidence for %s: %.2f → %.2f "
-                            "(historical: %d/%d = %.2f, source=backend)",
-                            pattern.value,
-                            base_confidence,
-                            adjusted,
-                            success_count,
-                            total_count,
-                            historical_rate,
-                        )
-                        return adjusted
-                except Exception:  # nosec B110
-                    pass  # Fall through to NX fallback
-
-            # Fallback: O(N) NX graph scan
-            success_count = 0
-            total_count = 0
-            for nid, data in self.engine.graph.nodes(data=True):
-                if (
-                    data.get("node_type") == "subagent_pattern_decision"
-                    and data.get("pattern") == pattern.value
-                ):
-                    total_count += 1
-                    if data.get("outcome_success") is True:
-                        success_count += 1
-
-            if total_count >= 3:  # Need minimum sample size
-                historical_rate = success_count / total_count
-                # Blend: 70% base + 30% historical
-                adjusted = 0.7 * base_confidence + 0.3 * historical_rate
-                logger.debug(
-                    "[CONCEPT:AU-ORCH.execution.active-subagent-lifecycle] Adjusted confidence for %s: %.2f → %.2f "
-                    "(historical: %d/%d = %.2f)",
-                    pattern.value,
-                    base_confidence,
-                    adjusted,
-                    success_count,
-                    total_count,
-                    historical_rate,
-                )
-                return adjusted
-        except Exception as e:  # noqa: BLE001 — returns base_confidence, the value already computed by the caller before this optional adjustment; this outer except is the second layer of an already-layered backend/NX best-effort lookup
-            logger.debug("Historical pattern lookup failed: %s", e)
-
-        return base_confidence
-
-    def _persist_decision(self, decision: SubagentPatternDecision) -> None:
-        """Store a pattern decision in the Knowledge Graph.
-
-        Tiered write path: backend (Tier 1) when available, NX fallback.
-        """
-        if self.engine is None:
-            return
-
-        try:
-            import uuid
-
-            node_id = f"spd:{uuid.uuid4().hex}"
-            node_data = {
-                "id": node_id,
-                "node_type": "subagent_pattern_decision",
-                "pattern": decision.pattern.value,
-                "task_complexity": decision.task_complexity.value,
-                "parallelizable": decision.parallelizable,
-                "needs_collaboration": decision.needs_collaboration,
-                "specialist_count": decision.specialist_count,
-                "confidence": decision.confidence,
-                "reasoning": decision.reasoning,
-                "timestamp": decision.timestamp,
-                "outcome_success": None,
-                "importance_score": 0.3,
-            }
-
-            # Tier 1: Backend is source of truth
-            if hasattr(self.engine, "backend") and self.engine.backend:
-                self.engine._upsert_node("SubagentPatternDecision", node_id, node_data)
-            else:
-                # Tier 2 fallback: NX only
-                self.engine.graph.add_node(node_id, **node_data)
-        except Exception as e:  # noqa: BLE001 — select_pattern returns the in-memory decision object unconditionally regardless of persistence outcome; a failure only makes this one decision invisible to future _adjust_from_history queries, not a falsely-recorded state
-            logger.debug("Failed to persist pattern decision: %s", e)
-
-    def record_outcome(
-        self,
-        decision: SubagentPatternDecision,
-        success: bool,
-        duration_ms: float = 0.0,
-    ) -> None:
-        """Record the outcome of a pattern decision for learning.
-
-        Args:
-            decision: The original decision to update.
-            success: Whether the execution succeeded.
-            duration_ms: Wall-clock execution time.
-        """
-        decision.outcome_success = success
-        decision.outcome_duration_ms = duration_ms
-
-        if self.engine is None:
-            return
-
-        # Find and update the persisted node
-        try:
-            for nid, data in self.engine.graph.nodes(data=True):
-                if (
-                    data.get("node_type") == "subagent_pattern_decision"
-                    and data.get("timestamp") == decision.timestamp
-                    and data.get("pattern") == decision.pattern.value
-                ):
-                    self.engine.graph.nodes[nid]["outcome_success"] = success
-                    self.engine.graph.nodes[nid]["outcome_duration_ms"] = duration_ms
-                    logger.info(
-                        "[CONCEPT:AU-ORCH.execution.active-subagent-lifecycle] Pattern outcome recorded: %s → %s (%.0fms)",
-                        decision.pattern.value,
-                        "SUCCESS" if success else "FAILURE",
-                        duration_ms,
-                    )
-                    break
-        except Exception as e:  # noqa: BLE001 — decision.outcome_success is the in-memory return value callers act on; a KG-update failure here silently drops this one outcome from future _adjust_from_history stats, it does not mark anything as falsely successful
-            logger.debug("Failed to record pattern outcome: %s", e)
 
 
 def get_infrastructure_mapping() -> dict[SubagentPattern, dict[str, Any]]:
