@@ -137,13 +137,18 @@ class ElevationView(BaseModel):
     hard_expires_at_ms: int | None = None
     ended_at_ms: int | None = None
     remaining_ms: int = 0
+    own: bool = False
 
     @classmethod
-    def from_lease(cls, lease: Mapping[str, Any], now_ms: int) -> ElevationView:
+    def from_lease(
+        cls, lease: Mapping[str, Any], now_ms: int, caller: str = ""
+    ) -> ElevationView:
+        """``own`` marks the caller's own request, which it can never approve."""
         expires = lease.get("hard_expires_at_ms")
         active = lease.get("status") == "active" and isinstance(expires, int)
         remaining = max(0, expires - now_ms) if active and expires else 0
-        return cls.model_validate({**lease, "remaining_ms": remaining})
+        own = bool(caller) and lease.get("grantee") == caller
+        return cls.model_validate({**lease, "remaining_ms": remaining, "own": own})
 
 
 def _clock_ms() -> int:
@@ -200,11 +205,19 @@ class ElevationService:
 
     ``client`` is a tenant-routed EG client already bound to the caller's
     verified context (``use_verified_context``); the service never binds or
-    widens identity itself.
+    widens identity itself. ``caller`` (that context's ``agent_id``) only
+    labels the caller's own requests in views; it grants nothing.
     """
 
-    def __init__(self, client: Any, *, clock_ms: Callable[[], int] = _clock_ms) -> None:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        caller: str = "",
+        clock_ms: Callable[[], int] = _clock_ms,
+    ) -> None:
         self._client = client
+        self._caller = caller
         self._clock_ms = clock_ms
 
     async def _send(self, op: dict[str, Any]) -> Any:
@@ -214,7 +227,7 @@ class ElevationService:
         return _decoded(result.payload)
 
     def _view(self, lease: Mapping[str, Any]) -> ElevationView:
-        return ElevationView.from_lease(lease, self._clock_ms())
+        return ElevationView.from_lease(lease, self._clock_ms(), self._caller)
 
     async def request(self, ask: ElevationRequest) -> ElevationView:
         """File a request; it grants nothing until someone else approves it."""

@@ -49,7 +49,7 @@ def engine() -> FakeElevationEngine:
 
 @pytest.fixture
 def service(engine: FakeElevationEngine) -> ElevationService:
-    return ElevationService(engine, clock_ms=lambda: engine.now_ms)
+    return ElevationService(engine, caller="alice", clock_ms=lambda: engine.now_ms)
 
 
 async def _requested(engine: FakeElevationEngine, service: ElevationService) -> Any:
@@ -65,6 +65,7 @@ async def test_a_request_grants_nothing_and_carries_no_identity(
     view = await service.request(_ask())
     assert view.status == "requested" and view.remaining_ms == 0
     assert view.grantee == "alice", "the grantee is the verified caller"
+    assert view.own, "a console never offers to approve the caller's own request"
     assert view.elevation_id.startswith("elevation-")
     assert engine.sent == [
         {
