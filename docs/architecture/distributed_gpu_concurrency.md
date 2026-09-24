@@ -16,15 +16,20 @@ Concurrency is decided at three nested tiers. Each tier only ever *narrows* the
 one above it, and every tier is fail-safe (a missing/unknown value falls back to
 the conservative behaviour of the tier above — never to oversubscription).
 
-```mermaid
-flowchart TD
-    A["Tier (a): per-model adaptive target<br/>latency-gradient AIMD, AU-KG.compute.surfaces-universal-latency-signal<br/>floor = static capacity, ceiling = MODEL_MAX_CONCURRENCY"]
-    B["Tier (b): per-GPU-host shared budget<br/>GpuGroupBudget, AU-KG.compute.pure-config-enumeration-fail<br/>caps Σ member targets, reserves chat's floor"]
-    C["Tier (c): per-deployment aggregate<br/>Σ per-host shares across N GPU hosts<br/>endpoint list + cross-host balancing"]
-    A -->|"target(m)"| B
-    B -->|"allowed(m) = min of target and group share"| C
-    C -->|"per-host slice"| Gate["model_concurrency gate<br/>semaphore / thread pool"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Three nested concurrency tiers, each narrowing the one above</p>
+
+**Tier (a) — per-model adaptive target** (latency-gradient AIMD,
+`AU-KG.compute.surfaces-universal-latency-signal`): floor = static
+capacity, ceiling = `MODEL_MAX_CONCURRENCY`. Its `target(m)` feeds **Tier
+(b) — per-GPU-host shared budget** (`GpuGroupBudget`,
+`AU-KG.compute.pure-config-enumeration-fail`), which caps the sum of
+member targets and reserves chat's floor, producing `allowed(m) = min` of
+target and group share. That feeds **Tier (c) — per-deployment
+aggregate**: the sum of per-host shares across N GPU hosts, via the
+endpoint list and cross-host balancing, which yields the per-host slice
+passed to the `model_concurrency` gate (semaphore / thread pool).
+</div>
 
 ### (a) Per-model adaptive target — `CONCEPT:AU-KG.compute.surfaces-universal-latency-signal`
 
@@ -90,17 +95,16 @@ an **endpoint list per model** managed by the model scheduler:
   into; removing one shrinks it. No code change — it is a config-list edit, exactly
   like adding a replica to any governed service pool.
 
-```mermaid
-flowchart LR
-    Caller["fan-out (map_concurrent)"]
-    Caller --> R{{"per-model router<br/>least-in-flight / explicit affinity"}}
-    R --> H1["GPU host 1<br/>gpu_group=accelerator-a<br/>budget B1 (chat reserved)"]
-    R --> H2["GPU host 2<br/>gpu_group=accelerator-b<br/>budget B2 (chat reserved)"]
-    R --> H3["GPU host N<br/>gpu_group=...<br/>budget Bn"]
-    H1 -.->|"share s1"| Agg["aggregate cap(m) = Σ si"]
-    H2 -.->|"share s2"| Agg
-    H3 -.->|"share sn"| Agg
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Fan-out routes across GPU hosts, shares sum to an aggregate cap</p>
+
+The fan-out caller (`map_concurrent`) routes each call through a
+per-model router (least-in-flight / explicit affinity) to one of N GPU
+hosts, each with its own `gpu_group` and chat-reserved budget (host 1:
+`accelerator-a`, budget B1; host 2: `accelerator-b`, budget B2; host N:
+budget Bn). Each host contributes its share (s1, s2, … sn) to the
+aggregate capacity for the model, `cap(m) = Σ si`.
+</div>
 
 ## Optimal concurrency planning
 

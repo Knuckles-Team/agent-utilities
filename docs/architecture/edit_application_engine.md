@@ -32,18 +32,16 @@ Each search block is applied with the first matcher that hits, getting progressi
 more forgiving. A failure at every tier returns a *did-you-mean* hint (the closest
 existing lines) instead of silently doing nothing.
 
-```mermaid
-flowchart TD
-    A[search text] --> B{exact line match?}
-    B -- yes --> Z[apply]
-    B -- no --> C{match ignoring\nleading whitespace?}
-    C -- yes --> Z
-    C -- no --> D{drop spurious\nblank line → retry?}
-    D -- yes --> Z
-    D -- no --> E{SequenceMatcher\nclosest window ≥ 0.8?}
-    E -- yes --> Z
-    E -- no --> F[fail + nearest-lines hint]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The matching ladder, most to least strict</p>
+
+For each search block: try an exact line match first — if it hits,
+apply. Otherwise try matching while ignoring leading whitespace — if it
+hits, apply. Otherwise try dropping a spurious blank line and retrying —
+if it hits, apply. Otherwise try a `SequenceMatcher` closest-window match
+at or above 0.8 similarity — if it hits, apply. If every tier misses,
+fail with a nearest-lines hint.
+</div>
 
 ## The reflection loop
 
@@ -53,26 +51,18 @@ parse or a non-matching block re-prompts the model with the failure hints (up to
 applied batch (lint / tests) and, if it returns an error, feeds that back into the
 same loop — the computational "checker" half of a maker/checker cycle.
 
-```mermaid
-sequenceDiagram
-    participant M as Model
-    participant E as edit_engine
-    participant V as verify gate (lint/tests)
-    M->>E: edits (SEARCH/REPLACE or diff)
-    E->>E: parse + apply via matching ladder
-    alt malformed or a block failed
-        E-->>M: correction + did-you-mean hints
-        M->>E: corrected edits (≤ max_reflections)
-    else all applied
-        E->>V: run verify(result)
-        alt verify fails
-            V-->>M: error → fix it
-            M->>E: follow-up edits
-        else verify passes
-            E-->>M: EditResult (applied + diffs)
-        end
-    end
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">The reflection loop: parse, apply, verify, or bounce back to the model</p>
+
+The model sends edits (SEARCH/REPLACE or diff) to `edit_engine`, which
+parses and applies them via the matching ladder. If a block is malformed
+or fails to apply, `edit_engine` returns a correction with did-you-mean
+hints, and the model resends corrected edits (up to `max_reflections`
+times). Once every edit applies, `edit_engine` runs the verify gate
+(lint/tests): a failure feeds an error back to the model for a follow-up
+edit; a pass returns the final `EditResult` (applied changes + diffs) to
+the model.
+</div>
 
 ## Surface
 
