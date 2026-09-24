@@ -23,30 +23,21 @@ The Company Brain solves this by treating the Knowledge Graph not as a **storage
 
 ## Architectural Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Company Brain Facade                         │
-│                 (CompanyBrain class)                            │
-├──────────┬──────────┬──────────┬──────────┬──────────┬─────────┤
-│Concurrency│ Tenancy │ Conflict │Provenance│  Events  │Permiss- │
-│ Manager  │ Manager │ Resolver │ Tracker  │Ingester  │  ions   │
-├──────────┴──────────┴──────────┴──────────┴──────────┴─────────┤
-│              IntelligenceGraphEngine (KG-2.0)                  │
-│   ┌─────────┬─────────┬──────────┬──────────┬────────────┐    │
-│   │ Query   │ Memory  │Ingestion │   AHE    │ Federation │    │
-│   │ Mixin   │ Mixin   │  Mixin   │  Mixin   │   Mixin    │    │
-│   └─────────┴─────────┴──────────┴──────────┴────────────┘    │
-├───────────────────────────────────────────────────────────────┤
-│                   Graph Backends                               │
-│   ┌──────────────┬──────────┬──────────┬─────────────────┐   │
-│   │epistemic-graph│ Postgres │   OWL    │ contrib (neo4j, │   │
-│   │ (authority)  │ (mirror) │ (reason) │ falkordb, …)    │   │
-│   └──────────────┴──────────┴──────────┴─────────────────┘   │
-├───────────────────────────────────────────────────────────────┤
-│                  OWL Ontology (~26KB)                          │
-│          BFO / PROV-O / SKOS / FIBO aligned                   │
-└───────────────────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Company Brain Facade, layered down to the ontology</p>
+
+The `CompanyBrain` class is a facade over six managers — Concurrency
+Manager, Tenancy Manager, Conflict Resolver, Provenance Tracker, Events
+Ingester, and Permissions — all built on `IntelligenceGraphEngine`
+(KG-2.0), itself composed of five mixins (Query, Memory, Ingestion, AHE,
+Federation).
+
+`IntelligenceGraphEngine` sits on the Graph Backends layer:
+epistemic-graph (authority), Postgres (mirror), OWL (reason), and
+contrib backends (neo4j, falkordb, …).
+
+At the base is the OWL Ontology (~26KB), aligned to BFO/PROV-O/SKOS/FIBO.
+</div>
 
 ### Layer 1: OWL Ontology (Bottom)
 
@@ -184,34 +175,14 @@ The Company Brain is not a standalone product — it is the **substrate** that t
 
 ## Data Flow
 
-```
-External Events                    Actors (Human + AI)
-    │                                      │
-    ▼                                      ▼
-EventStreamIngester              ProvenanceTracker
-    │                                      │
-    ▼                                      ▼
-┌──────────────────────────────────────────────┐
-│           GraphConcurrencyManager            │
-│     (Version Vectors, CAS, Locks)            │
-├──────────────────────────────────────────────┤
-│              ConflictResolver                │
-│   (Detect → Strategy → Resolve/Escalate)     │
-├──────────────────────────────────────────────┤
-│              TenancyManager                  │
-│    (Tenant Scoping, Hierarchy, Isolation)     │
-├──────────────────────────────────────────────┤
-│           DataLevelPermissions               │
-│     (Node ACLs, Classification, Filtering)    │
-├──────────────────────────────────────────────┤
-│        IntelligenceGraphEngine               │
-│  (epistemic-graph authority + opt. mirrors)  │
-└──────────────────────────────────────────────┘
-                    │
-                    ▼
-            OWL Ontology (~26KB)
-         BFO/PROV-O/SKOS/FIBO
-```
+External events feed `EventStreamIngester`; actors (human + AI) feed
+`ProvenanceTracker`. Both converge into a shared pipeline: 
+`GraphConcurrencyManager` (version vectors, CAS, locks) -> 
+`ConflictResolver` (detect -> strategy -> resolve/escalate) -> 
+`TenancyManager` (tenant scoping, hierarchy, isolation) -> 
+`DataLevelPermissions` (node ACLs, classification, filtering) -> 
+`IntelligenceGraphEngine` (epistemic-graph authority + optional mirrors),
+which is grounded in the OWL Ontology (~26KB, BFO/PROV-O/SKOS/FIBO).
 
 1. **External events** arrive via `EventStreamIngester` (webhooks, Kafka, CDC)
 2. **Actors** (human or AI) submit mutations via the engine
