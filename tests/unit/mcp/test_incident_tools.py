@@ -525,9 +525,10 @@ def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
     ``incident.*`` has no explicit rule in the shipped default policy (mirrors
     ``claim.*`` in ``test_claim_tools.py``), so it falls to the conservative
     default tier (approval_required) — not an allowing decision.
-    ``kg_server._get_engine`` is stubbed to ``None`` — ``ActionPolicy(engine=
-    None)`` degrades gracefully throughout, exactly like
-    ``incidents.actuate_remediation``'s own no-engine default-held behavior."""
+    ``kg_server._get_engine`` is stubbed to ``None``: with no engine there is
+    no ``action.approval`` ControlLease authority to queue the hold on
+    (fe45551a8), so the approval tier fails CLOSED as ``unavailable`` rather
+    than claiming a queued approval that does not exist (EH-380)."""
     from agent_utilities.observability import incidents as inc
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
@@ -542,7 +543,8 @@ def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
         tool(action="ack", incident_id=incident_id, reason="", actor_id="")
     )
     assert out["error"] == "policy_denied"
-    assert out["policy"]["decision"] in ("queue_approval", "deny")
+    assert out["policy"]["decision"] == "unavailable"
+    assert out["policy"]["tier"] == "approval_required"
     assert mutated == []  # the mutation never ran
 
 
@@ -561,5 +563,6 @@ def test_resolve_denied_by_real_default_policy_never_mutates(monkeypatch):
         tool(action="resolve", incident_id=incident_id, reason="", actor_id="")
     )
     assert out["error"] == "policy_denied"
-    assert out["policy"]["decision"] in ("queue_approval", "deny")
+    assert out["policy"]["decision"] == "unavailable"
+    assert out["policy"]["tier"] == "approval_required"
     assert mutated == []

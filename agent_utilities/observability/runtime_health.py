@@ -829,6 +829,28 @@ def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
     return {"status": "ok", "detail": detail}
 
 
+def _check_cache_freshness(_cfg: Any) -> dict[str, Any]:
+    """EH-401 invalidation-feed pollers (``agent_utilities.caching.freshness_poller``).
+
+    ``degraded`` — never a readiness failure — while a poller is not reading its feed within
+    its lag bound: the caches it guards then fall back to callers' own tolerances.
+    """
+    from agent_utilities.caching.freshness_poller import poller_statuses
+
+    pollers = poller_statuses()
+    if not pollers:
+        return _not_configured(
+            "cache_freshness", "no invalidation-feed poller is running"
+        )
+    if any(poller["lagging"] for poller in pollers):
+        return _degraded(
+            "cache_freshness",
+            "an invalidation feed is not being read; caches fall back to caller tolerances",
+            detail={"pollers": pollers},
+        )
+    return _ok("cache_freshness", detail={"pollers": pollers})
+
+
 _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("engine", _check_engine),
     ("source_provenance", _check_source_provenance),
@@ -841,6 +863,7 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("bundled_skills", _check_bundled_skills),
     ("kg_mirrors", _check_kg_mirrors),
     ("embedding_endpoint", _check_embedding_endpoint),
+    ("cache_freshness", _check_cache_freshness),
 )
 
 

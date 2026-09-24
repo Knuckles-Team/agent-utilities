@@ -50,7 +50,7 @@ def test_carrier_round_trip_binds_versioned_tenant_session_job_and_expiry():
     )
 
     assert envelope.authenticate_carrier(now=101.0, secret=_CARRIER_SECRET) == carrier
-    assert carrier.version == 1
+    assert carrier.version == 2
     assert carrier.expires_at == 130.0
 
 

@@ -33,9 +33,11 @@ anything unchanged:
 
 * **prompts**    -> :func:`agent_utilities.agent.registry_builder.ingest_prompts_to_graph`
   (the same base+fleet+overlay prompt-registry reload the CLI/boot path uses).
-* **ontologies** -> the existing ontology package-application capability bound by
-  the graph-os composition root (the same federation-runtime reload
-  ``graph_ontology action='sync_packages'`` and graph-os boot already call).
+* **ontologies** -> NOT applied here. Ontology authority is EG GraphSchema
+  (43197d7c6) and package ontologies arrive through EG ``ConnectorPack.Import``
+  (RF-ADR-009). The leg reports ``status="delegated"`` with the providers the
+  manifest lists, so an installed ontology is never silently counted as
+  ingested (EH-380).
 * **skills**     -> :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows`
   AND :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills`
   (the corpus-wide workflow-skill leg, plus its atomic-skill sibling -- the
@@ -115,6 +117,21 @@ def _ingest_prompts_leg() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - one leg failing must not fail the rest
         logger.warning("package_install: prompts leg failed: %s", exc)
         return {"status": "error", "reason": str(exc)}
+
+
+def _ontologies_leg(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Report, never apply, the manifest's ontology providers (EH-380)."""
+    providers = sorted(str(p) for p in (manifest.get("ontologies") or {}))
+    if not providers:
+        return {"status": "none", "providers": []}
+    return {
+        "status": "delegated",
+        "providers": providers,
+        "reason": (
+            "package ontologies are applied by EG ConnectorPack.Import "
+            "(RF-ADR-009); agent-utilities does not attach them"
+        ),
+    }
 
 
 def _ingest_skills_leg(engine: Any) -> dict[str, Any]:
@@ -228,6 +245,7 @@ def sync_package_install(
 
     legs = {
         "prompts": _ingest_prompts_leg(),
+        "ontologies": _ontologies_leg(manifest),
         "skills": _ingest_skills_leg(engine),
     }
 

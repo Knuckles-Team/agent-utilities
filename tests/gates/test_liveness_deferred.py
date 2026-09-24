@@ -122,3 +122,31 @@ def test_real_liveness_deferred_tsv_is_well_formed_and_not_stale():
     )
     stale = ld.stale_entries(entries, date.today())
     assert not stale, f"real liveness_deferred.tsv has past-due entries: {stale}"
+
+
+def test_expiry_warning_window_covers_due_soon_but_not_stale_or_permanent():
+    """EH-176: entries due within the warning window are announced before
+    they expire; past-due and PERMANENT entries are not "expiring"."""
+    entries = ld.parse_entries(_FIXTURE_TEXT)
+    expiring = {e.pattern for e in ld.expiring_entries(entries, _AS_OF, within_days=1)}
+    assert expiring == {"agent_utilities/fresh.py", "agent_utilities/due_today.py"}
+    assert ld.expiring_entries(entries, _AS_OF, within_days=-1) == []
+
+
+def test_gate_prints_the_expiry_warning(capsys):
+    """The warning reaches the gate's output (the hook runs ``verbose``)."""
+    import importlib.util as ilu
+
+    spec = ilu.spec_from_file_location(
+        "_check_liveness_under_test", ROOT / "scripts" / "check_liveness.py"
+    )
+    assert spec is not None and spec.loader is not None
+    gate = ilu.module_from_spec(spec)
+    sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+    due = date.today().isoformat()
+    entries = ld.parse_entries(
+        f"orphan_modules\tagent_utilities/soon.py\t# owner=@proof review-by={due}"
+    )
+    gate._warn_expiring(entries)
+    assert "agent_utilities/soon.py" in capsys.readouterr().out

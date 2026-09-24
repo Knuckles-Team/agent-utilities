@@ -22,6 +22,12 @@ def client(monkeypatch):
             super().__init__()
 
     monkeypatch.setattr(runtime_router, "DockerWorkspace", _IsolatedTestWorkspace)
+    # The workspace policy gate audits on the active process engine (receipts).
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from tests.unit.fleet_autonomy_fakes import FakeEngine
+
+    engine = FakeEngine()
+    monkeypatch.setattr(IntelligenceGraphEngine, "get_active", lambda: engine)
     monkeypatch.setattr(config, "runtime_workspace_images", ["test-image"])
     app = FastAPI()
     app.include_router(runtime_router.router)

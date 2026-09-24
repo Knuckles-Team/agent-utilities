@@ -304,24 +304,3 @@ class TestSchemaPackRegistry:
 
 
 # --- SchemaPackNode Tests ---
-
-
-class TestSchemaPackNode:
-    """Test KG persistence model for schema packs."""
-
-    def test_schema_pack_node_creation(self):
-        """SchemaPackNode should instantiate with correct type."""
-        from agent_utilities.models.knowledge_graph import SchemaPackNode
-
-        node = SchemaPackNode(
-            id="pack-001",
-            name="research-state",
-            pack_name="research-state",
-            mode="additive",
-            active_node_types=["hypothesis", "dataset"],
-            active_edge_types=["cites_source"],
-        )
-        assert node.type == RegistryNodeType.SCHEMA_PACK
-        assert node.pack_name == "research-state"
-        assert node.mode == "additive"
-        assert "hypothesis" in node.active_node_types

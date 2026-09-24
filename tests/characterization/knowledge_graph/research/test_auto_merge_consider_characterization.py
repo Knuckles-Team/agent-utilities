@@ -21,7 +21,11 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
-from agent_utilities.orchestration.action_policy import ActionDecision, ActionRequest
+from agent_utilities.orchestration.action_policy import (
+    ActionDecision,
+    ActionRequest,
+    _policy_receipt,
+)
 
 
 def _strong_team() -> TeamSpec:
@@ -45,13 +49,18 @@ class _FakeActionPolicy:
         self._approval_id = approval_id
 
     def decide(self, request: ActionRequest) -> ActionDecision:
-        return ActionDecision(
+        decision = ActionDecision(
             decision=self._decision,
             tier="approval_required",
             request=request,
             reason=self._reason,
             approval_id=self._approval_id,
         )
+        # Real ActionPolicy decisions carry an audited receipt; only a
+        # receipt-backed approval authorizes an effect (5a4dd9a2f, EH-380).
+        decision.audit_id = "action_decision:characterization"
+        decision.receipt = _policy_receipt(decision)
+        return decision
 
 
 def test_disabled_policy_reason_is_exact() -> None:

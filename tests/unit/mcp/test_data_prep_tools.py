@@ -508,6 +508,16 @@ def test_manifest_and_intent_authority_expose_all_actions() -> None:
     )
 
 
+def _string_leaves(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, dict):
+        return set().union(*(_string_leaves(item) for item in value.values()))
+    if isinstance(value, list | tuple):
+        return set().union(*(_string_leaves(item) for item in value))
+    return set()
+
+
 def test_profile_is_bounded_privacy_safe_and_side_effect_free() -> None:
     authority, service, payload, session = _fixture()
 
@@ -516,7 +526,13 @@ def test_profile_is_bounded_privacy_safe_and_side_effect_free() -> None:
     assert result["side_effects"] == []
     assert result["profile"]["rows"] == 2
     assert authority.preview_calls == 0
-    assert "value" not in json.dumps(result, sort_keys=True)
+    # The source column is literally named "value". The profile identifies
+    # columns by ordinal and must never disclose the name. Check emitted
+    # string VALUES: schema keys such as ``min_value`` or a quantile's
+    # ``value`` field are not a disclosure (EH-380: the old substring check
+    # tripped on them once quantiles were emitted).
+    assert "value" not in _string_leaves(result)
+    assert all("name" not in column for column in result["profile"]["column_profiles"])
     assert "content_ref" not in result["artifact"]
 
 

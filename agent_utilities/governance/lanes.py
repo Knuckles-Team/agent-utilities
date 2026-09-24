@@ -1988,14 +1988,16 @@ def _unlink_if_identity(path: Path, identity: LeaseIdentity) -> None:
         _LOGGER.warning("lease file disappeared during identity-safe cleanup: %s", exc)
         return
     except OSError as exc:
-        _LOGGER.error("could not inspect lease file %s during cleanup: %s", path, exc)
+        _LOGGER.error(
+            "could not inspect lease file during cleanup: %s", type(exc).__name__
+        )
         return
     if (current.st_dev, current.st_ino) != identity:
         return
     try:
         path.unlink()
     except OSError as exc:
-        _LOGGER.error("could not remove owned lease file %s: %s", path, exc)
+        _LOGGER.error("could not remove owned lease file: %s", type(exc).__name__)
 
 
 def _close_failed_lease_fd(fd: int) -> None:

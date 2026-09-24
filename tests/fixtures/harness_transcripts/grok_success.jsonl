@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-session-1","update":{"sessionUpdate":"plan","entries":[{"content":"run the command","priority":"medium","status":"pending"}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-session-1","update":{"sessionUpdate":"tool_call","toolCallId":"call-1","title":"run_command","kind":"execute","status":"pending"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-session-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call-1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"harness-conformance"}}]}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"DO"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"NE"}}}}
+{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}

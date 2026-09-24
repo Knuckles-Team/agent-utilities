@@ -18,10 +18,20 @@ the check.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from agent_utilities.knowledge_graph import readiness as rd
+
+#: A composed EG GraphSchema listing (``OntologyLifecycle.list_ontologies``).
+_COMPOSED_SCHEMA = {
+    "count": 0,
+    "ontologies": [],
+    "schema_version": 2,
+    "graph": "tenant-a",
+    "composed_digest": "digest:2",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -177,10 +187,7 @@ def test_synthetic_query_ready_when_real_evidence_found(
     # Ontology activation is a separate concern from this test's target (the
     # synthetic-query canary) — stub it ready, like the connector-coverage
     # stub above isolates its own unrelated check.
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
-    )
+    monkeypatch.setattr(rd, "_graph_schema_view", lambda engine: _COMPOSED_SCHEMA)
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
     snapshot = rd.collect_readiness_snapshot(
@@ -209,10 +216,7 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: ["leanix"],
     )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
-    )
+    monkeypatch.setattr(rd, "_graph_schema_view", lambda engine: _COMPOSED_SCHEMA)
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
     class _Actor:
@@ -227,7 +231,9 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
         engine,
         session=_Session(),
         synthetic_query="collect_readiness_snapshot",
-        connector_freshness={"leanix": "2026-08-16T00:00:00Z"},
+        # Fresh relative to the wall clock: a fixed date aged past the
+        # coverage staleness window and turned this test red (EH-380).
+        connector_freshness={"leanix": datetime.now(UTC).isoformat()},
         deadline_s=2.0,
     )
 
@@ -399,50 +405,52 @@ def test_source_sync_degraded_on_partial_coverage(monkeypatch: pytest.MonkeyPatc
 # "ready" just because a socket/engine handle exists.
 # --------------------------------------------------------------------------- #
 def test_ontology_activation_unavailable_when_no_engine_supplied():
-    result = rd._check_ontology_activation(None, "")
+    result = rd._check_ontology_activation(None)
     assert result["state"] == "unavailable"
     assert result["reason"] == "no_engine_supplied"
 
 
-def test_ontology_activation_unavailable_when_never_attempted(
+def test_ontology_activation_unavailable_when_graph_schema_authority_missing():
+    """EH-380: an engine with no GraphSchema surface fails closed (real
+    OntologyLifecycle, no stub)."""
+    result = rd._check_ontology_activation(object())
+    assert result["state"] == "unavailable"
+    assert result["reason"] == "graph_schema_unavailable"
+    assert result["detail"] == {"error_class": "OntologyError"}
+
+
+def test_ontology_activation_ready_when_graph_schema_is_composed(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
-    )
-    result = rd._check_ontology_activation(object(), "")
-    assert result["state"] == "unavailable"
-    assert result["reason"] == "ontology_activation_not_attempted"
-
-
-def test_ontology_activation_ready_when_recorded_ready(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {
-            "state": "ready",
-            "reason": None,
-            "detail": {"attempts": 1},
-        },
-    )
-    result = rd._check_ontology_activation(object(), "acme")
+    monkeypatch.setattr(rd, "_graph_schema_view", lambda engine: _COMPOSED_SCHEMA)
+    result = rd._check_ontology_activation(object())
     assert result["state"] == "ready"
+    assert result["detail"]["schema_version"] == 2
 
 
-def test_ontology_activation_unavailable_when_recorded_failed(
+def test_ontology_activation_unavailable_when_not_composed(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {
-            "state": "unavailable",
-            "reason": "activation_timeout",
-            "detail": {},
-        },
+        rd,
+        "_graph_schema_view",
+        lambda engine: {**_COMPOSED_SCHEMA, "composed_digest": None},
     )
-    result = rd._check_ontology_activation(object(), "acme")
+    result = rd._check_ontology_activation(object())
     assert result["state"] == "unavailable"
-    assert result["reason"] == "activation_timeout"
+    assert result["reason"] == "graph_schema_not_composed"
+
+
+def test_ontology_activation_engine_error_is_reported_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _boom(engine):
+        raise RuntimeError("engine down")
+
+    monkeypatch.setattr(rd, "_graph_schema_view", _boom)
+    result = rd._check_ontology_activation(object())
+    assert result["state"] == "unavailable"
+    assert result["detail"] == {"error_class": "RuntimeError"}
 
 
 def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
@@ -458,8 +466,9 @@ def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
         lambda: [],
     )
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
+        rd,
+        "_graph_schema_view",
+        lambda engine: {**_COMPOSED_SCHEMA, "composed_digest": None},
     )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 

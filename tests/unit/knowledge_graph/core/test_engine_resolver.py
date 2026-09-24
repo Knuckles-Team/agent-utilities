@@ -807,7 +807,9 @@ def _local_graph_session(context, *, admin=True):
         def require_scope(self, scope):
             assert scope == "kg:admin"
             if not admin:
-                raise PermissionError("admin authority required")
+                from agent_utilities.knowledge_graph.core.session import ScopeError
+
+                raise ScopeError("admin authority required")
 
         def engine_verified_context(self):
             return dict(context)
@@ -983,16 +985,153 @@ def test_local_graph_readiness_fails_closed_when_create_race_is_unconfirmed():
         )
 
 
-def test_local_graph_readiness_requires_admin_before_engine_lifecycle_calls():
-    """A non-admin process cannot implicitly provision a local graph."""
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+def test_local_graph_readiness_requires_admin_before_engine_lifecycle_calls(
+    monkeypatch,
+):
+    """A non-admin process with NO tiny-profile local authority available
+    (e.g. a real configured external identity that was never granted
+    kg:admin) cannot implicitly provision a local graph -- the CONCEPT:X1
+    bootstrap fallback below only applies inside the zero-infra tiny profile.
+    """
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
 
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.local_process_authority_enabled",
+        lambda _config: False,
+    )
     with pytest.raises(PermissionError, match="admin authority required"):
-        GraphComputeEngine._ensure_local_session_graph(
+        gc.GraphComputeEngine._ensure_local_session_graph(
             object(),
             "tenant-verified:graph",
             _local_graph_session({"principal": "subject:verified"}, admin=False),
         )
+
+
+def test_local_graph_readiness_mints_scoped_bootstrap_authority_when_tiny(
+    monkeypatch,
+):
+    """CONCEPT:X1 (c): the zero-infra tiny-profile bootstrap path still works
+    even though the ambient local-process session no longer carries kg:admin
+    by default (X1's fix) -- it mints a one-shot, narrowly-scoped admin
+    authority for exactly this provisioning call instead of requiring ambient
+    admin on every local process, and never installs that authority as the
+    caller's ambient identity."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    bootstrap_context = {"principal": "graph-os:local-process-bootstrap"}
+    minted: list[object] = []
+
+    class _BootstrapSession:
+        def engine_verified_context(self):
+            return dict(bootstrap_context)
+
+    def _fake_mint_bootstrap_authority():
+        session = _BootstrapSession()
+        minted.append(session)
+        return session
+
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.local_process_authority_enabled",
+        lambda _config: True,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.mint_local_process_bootstrap_authority",
+        _fake_mint_bootstrap_authority,
+    )
+
+    graph_name = "tenant-verified:graph"
+    routed: list[tuple[str, str, int]] = []
+    created: list[tuple[str, str]] = []
+    contexts: list[dict[str, str]] = []
+
+    class _Placement:
+        @staticmethod
+        def route(tenant, sub_key, *, client_epoch):
+            routed.append((tenant, sub_key, client_epoch))
+
+    class _Tenants:
+        @staticmethod
+        def list():
+            return []
+
+        @staticmethod
+        def create(name, graph_type):
+            created.append((name, graph_type))
+
+    class _Client:
+        placement = _Placement()
+        tenants = _Tenants()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, supplied):
+            contexts.append(dict(supplied))
+            yield self
+
+    # The ambient session lacks kg:admin -- exactly the post-X1-fix default.
+    gc.GraphComputeEngine._ensure_local_session_graph(
+        _Client(),
+        graph_name,
+        _local_graph_session(
+            {
+                "principal": "graph-os:local-process",
+                "agent_id": "graph-os:local-process",
+                "tenant": "local",
+                "audience": "graph-os-local",
+                "policy_version": "local-ephemeral-v1",
+                "delegation": [],
+            },
+            admin=False,
+        ),
+    )
+
+    # The provisioning RPC ran under the minted bootstrap authority's
+    # context, not the caller's non-admin ambient context.
+    assert len(minted) == 1
+    assert contexts == [bootstrap_context]
+    assert routed == [("tenant-verified", "graph", 0)]
+    assert created == [(graph_name, "Agent")]
+
+
+def test_local_graph_readiness_never_bootstraps_a_nonlocal_session_in_tiny(
+    monkeypatch,
+):
+    """A tiny deployment still fails closed for a denied external identity.
+
+    The zero-infrastructure profile is a deployment predicate, not a blanket
+    admin grant.  A non-local verified carrier must not reach the bootstrap
+    minter merely because it lacks ``kg:admin``.
+    """
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.local_process_authority_enabled",
+        lambda _config: True,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.mint_local_process_bootstrap_authority",
+        lambda: pytest.fail("non-local session received bootstrap admin"),
+    )
+
+    with pytest.raises(PermissionError, match="admin authority required"):
+        gc.GraphComputeEngine._ensure_local_session_graph(
+            object(),
+            "tenant-verified:graph",
+            _local_graph_session({"principal": "subject:verified"}, admin=False),
+        )
+
+
+def test_local_graph_readiness_skips_bootstrap_mint_when_session_already_admin():
+    """An ambient session that already carries kg:admin (a real configured
+    identity) is used unchanged --
+    no bootstrap authority is minted and no extra provisioning path is taken."""
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    admin_context = {"principal": "subject:verified"}
+    resolved = GraphComputeEngine._local_graph_provisioning_authority(
+        _local_graph_session(admin_context, admin=True)
+    )
+
+    assert resolved.engine_verified_context() == admin_context
 
 
 def test_autostart_surfaces_early_child_exit_without_sensitive_details(monkeypatch):
@@ -1433,7 +1572,9 @@ def test_engine_path_ref_still_uses_the_secrets_client_for_store_schemes():
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(secrets_client_module, "create_secrets_client", _client)
 
-        assert gc._resolve_engine_path_ref("vault://apps/eg#backup") == "/srv/vault-root"
+        assert (
+            gc._resolve_engine_path_ref("vault://apps/eg#backup") == "/srv/vault-root"
+        )
 
     assert requested == ["vault://apps/eg#backup"]
 
@@ -1665,3 +1806,43 @@ def test_configured_endpoints_disable_autostart_and_graph_bootstrap(monkeypatch)
 
     with pytest.raises(ConnectionError):
         gc.GraphComputeEngine(graph_name=graph_name)
+
+
+@pytest.mark.parametrize(
+    ("graph_name", "expected"),
+    [
+        ("tenant__local__:default", ["__control__", "tenant__local__:default"]),
+        ("__commons__", ["__control__"]),
+        (None, ["__control__"]),
+    ],
+)
+def test_local_graph_readiness_provisions_control_graph_first(
+    monkeypatch, graph_name, expected
+):
+    """EH-187: a packaged local engine's open() creates only ``__commons__``;
+    this process is the whole cluster, so ``__control__`` (the WorkItem
+    authority) is materialized with the session graph, before either is used."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    provisioned: list[str] = []
+    session = object()
+    engine = object.__new__(gc.GraphComputeEngine)
+    engine.graph_name = graph_name
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.current_session",
+        lambda: session,
+    )
+
+    def _record(_client, name, bound_session):
+        assert bound_session is session
+        provisioned.append(name)
+
+    monkeypatch.setattr(
+        gc.GraphComputeEngine, "_ensure_local_session_graph", staticmethod(_record)
+    )
+    engine._ensure_local_graph_ready(object(), autostart_allowed=True)
+    assert provisioned == expected
+
+    provisioned.clear()
+    engine._ensure_local_graph_ready(object(), autostart_allowed=False)
+    assert provisioned == []

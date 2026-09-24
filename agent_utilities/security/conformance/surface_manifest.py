@@ -282,8 +282,9 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
         surface_id="au:cli-stdio-local-process-bootstrap",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(
-            "security/request_identity.py:339-392 mint_local_process_session -- "
-            "the ONE intentionally credential-free path, correctly scoped"
+            "security/request_identity.py:736-748 mint_local_process_session -- "
+            "the ONE intentionally credential-free path, correctly scoped "
+            "(CONCEPT:X1: kg:read/kg:write/fleet:events, never kg:admin)"
         ),
     ),
     SurfaceEntry(

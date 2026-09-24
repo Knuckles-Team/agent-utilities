@@ -98,6 +98,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from agent_utilities.caching.freshness import store_scoped
 from agent_utilities.observability.trace_ontology import trace_candidate_quality
 from agent_utilities.security.persistence_privacy import (
     persistence_reference,
@@ -105,7 +106,12 @@ from agent_utilities.security.persistence_privacy import (
 )
 
 from ..core.engine import cosine_similarity
-from ..core.session import GraphSession, resolve_session, use_session
+from ..core.session import (
+    GraphSession,
+    current_session,
+    resolve_session,
+    use_session,
+)
 from ..ontology.permissioning import enforce
 from .budget import RetrievalBudgetManager
 from .hybrid_retriever import _parse_instant
@@ -463,6 +469,15 @@ def compute_bundle_cache_key(
     canonical = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f"ctxbundle:{digest}"
+
+
+def _bundle_scope(bundle: ContextBundle) -> tuple[str, frozenset[str]]:
+    """The graph and KG classes a compiled bundle depends on (EH-401): the ambient session's
+    graph and the kind of every selected item. A class-scoped bundle is dropped from the cache
+    the moment the engine reports a write to one of its classes."""
+    session = current_session()
+    graph = str(getattr(session, "graph", "") or "") if session is not None else ""
+    return graph, frozenset(item.kind for item in bundle.items if item.kind)
 
 
 def _record_kv_cache_outcome(outcome: str) -> None:
@@ -1268,7 +1283,9 @@ class ContextCompiler:
             if prompt_copied or _privacy_report.changed:
                 stored = False
             else:
-                stored = kv_backend.put(cache_key, encoded)
+                stored = store_scoped(
+                    kv_backend, cache_key, encoded, *_bundle_scope(bundle)
+                )
         except Exception as exc:  # noqa: BLE001 — store is best-effort
             logger.debug(
                 "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "

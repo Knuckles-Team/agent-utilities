@@ -17,6 +17,7 @@ import time
 import pytest
 
 from agent_utilities.orchestration import deploy_watch as dw
+from agent_utilities.orchestration.action_policy import ACTION_APPROVAL_KIND
 from agent_utilities.orchestration.fleet_actuation import (
     DryRunActuator,
     set_fleet_actuator,
@@ -28,6 +29,7 @@ from .fleet_autonomy_fakes import (
     FakeEngine,
     FakeObserver,
     obs,
+    verified_fleet_session,
     write_policy,
 )
 
@@ -42,7 +44,14 @@ PERMISSIVE = (
 
 @pytest.fixture
 def engine():
-    return FakeEngine()
+    with verified_fleet_session():
+        yield FakeEngine()
+
+
+def _pending_approvals(engine) -> list[dict]:
+    return engine.control_leases.list(
+        tenant="fleet-autonomy", kind=ACTION_APPROVAL_KIND, status="active"
+    )["leases"]
 
 
 @pytest.fixture
@@ -116,8 +125,8 @@ def test_failure_triggers_policy_gated_rollback_queue(engine, notifier):
     assert result["outcome"] == dw.OUTCOME_FAILED
     # Shipped default policy: rollback_service is approval_required ⇒ queued.
     assert result["on_fail"]["rollback_decision"] == "queue_approval"
-    approvals = engine.by_type("ActionApproval")
-    assert [a["kind"] for a in approvals] == ["rollback_service"]
+    approvals = _pending_approvals(engine)
+    assert [a["grant"]["kind"] for a in approvals] == ["rollback_service"]
     assert any("deploy watch FAILED" in m for m in notifier.messages)
 
 
@@ -151,7 +160,7 @@ def test_unobserved_notifies_but_never_rolls_back(engine, notifier):
     result = _run(engine, "ghost-svc", job_id)
     assert result["outcome"] == dw.OUTCOME_UNOBSERVED
     assert actuator.applied == []
-    assert engine.by_type("ActionApproval") == []
+    assert _pending_approvals(engine) == []
     assert any("NO observations" in m for m in notifier.messages)
 
 

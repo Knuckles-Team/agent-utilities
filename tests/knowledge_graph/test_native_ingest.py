@@ -20,6 +20,7 @@ from agent_utilities.knowledge_graph.memory.native_ingest import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
+from tests.committed_shacl_fakes import CommittedShaclValidator
 
 
 @pytest.fixture(autouse=True)
@@ -94,16 +95,11 @@ class _FakeChanges:
         }
 
 
-class _FakeRdf:
-    def validate_shacl(self, _shapes: str, _data_graph: str) -> dict[str, Any]:
-        return {"conforms": True, "results": []}
-
-
 class _FakeClient:
     def __init__(self) -> None:
         self.nodes = _FakeNodes()
         self.changes = _FakeChanges(self.nodes)
-        self.rdf = _FakeRdf()
+        self.shacl_validate_committed = CommittedShaclValidator()
 
     @staticmethod
     def supports(operation: str) -> bool:

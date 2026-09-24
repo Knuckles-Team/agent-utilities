@@ -2760,7 +2760,7 @@ class GraphComputeEngine:
     def _ensure_local_graph_ready(
         self, transport_client: Any, *, autostart_allowed: bool
     ) -> None:
-        """Materialize the process session's one configured local graph.
+        """Materialize ``__control__`` and the process session's local graph.
 
         A packaged local engine can authoritatively route a tenant partition
         before that partition's graph has been materialized. Establish the process
@@ -2768,18 +2768,28 @@ class GraphComputeEngine:
         regardless of whether this process connected to an already running local
         engine or started a fresh one. Remote/sharded engines retain lifecycle
         authority and are never provisioned here.
+
+        EH-187: the engine's own ``open()`` creates only ``__commons__``. On a
+        packaged local engine this process is the whole cluster, so the
+        one-time genesis of the reserved ``__control__`` graph (the sole
+        WorkItem authority) is its job too. Without it the first WorkItem on a
+        fresh engine failed with "Graph '__control__' not found".
         """
-        local_graph_name = str(self.graph_name or "__commons__")
-        if not autostart_allowed or local_graph_name == "__commons__":
+        if not autostart_allowed:
             return
         from .session import current_session
+        from .shard_topology import CONTROL_GRAPH_NAME
 
+        local_graph_name = str(self.graph_name or "__commons__")
+        targets = dict.fromkeys((CONTROL_GRAPH_NAME, local_graph_name))
+        targets.pop("__commons__", None)
         session = current_session()
         if session is None:
             raise RuntimeError(
                 "local engine graph readiness requires verified process authority"
             )
-        self._ensure_local_session_graph(transport_client, local_graph_name, session)
+        for graph_name in targets:
+            self._ensure_local_session_graph(transport_client, graph_name, session)
 
     def _claim_process_engine(self) -> None:
         """Register this instance as THE process transport, or reject a duplicate."""
@@ -2953,6 +2963,52 @@ class GraphComputeEngine:
             time.sleep(_ENGINE_STARTUP_POLL_SECS)
 
     @staticmethod
+    def _local_graph_provisioning_authority(session: Any) -> Any:
+        """Resolve the authority used to materialize a local tenant graph.
+
+        CONCEPT:X1: the ambient ``tiny``-profile local-process session is
+        least-privilege (``kg:read``/``kg:write``/``fleet:events``) and never
+        carries ``kg:admin``
+        (``security/request_identity.py::mint_local_process_session``). When
+        ``session`` already holds ``kg:admin`` (a real configured identity),
+        it is used unchanged. Otherwise, first-run graph provisioning for the
+        packaged zero-infra local engine is the one admin-scoped engine action
+        this profile must still perform with no external IdP configured, so
+        this mints a one-shot authority carrying exactly the engine's
+        ``graph:admin`` lifecycle scope for this RPC (never installed as
+        ambient identity, never ``kg:admin``). Any other caller --
+        a real configured identity without ``kg:admin``, a network-served
+        session, ... -- still fails closed with the session's standard
+        ``require_scope`` error.
+        """
+        from agent_utilities.knowledge_graph.core.session import ScopeError
+
+        try:
+            session.require_scope("kg:admin")
+        except ScopeError:
+            from agent_utilities.core.config import config
+            from agent_utilities.security.request_identity import (
+                _is_local_process_context,
+                local_process_authority_enabled,
+                mint_local_process_bootstrap_authority,
+            )
+
+            if not local_process_authority_enabled(config):
+                raise
+
+            # The profile predicate alone only describes the deployment.  It
+            # must not turn an arbitrary non-admin session into a bootstrap
+            # authority when a caller happens to run with the tiny defaults.
+            # Revalidate the already-verified carrier first; this also checks
+            # the bounded lease and rejects an expired local session before any
+            # fresh admin proof is minted.
+            context = session.engine_verified_context()
+            if not _is_local_process_context(context):
+                raise
+            return mint_local_process_bootstrap_authority()
+        return session
+
+    @staticmethod
     def _ensure_local_session_graph(
         client: Any,
         graph_name: str,
@@ -2963,12 +3019,17 @@ class GraphComputeEngine:
         Placement routing proves authority but intentionally does not create a
         graph.  This local-only bootstrap seam closes that lifecycle gap without
         allowing request-scoped graph views or configured remote coordinators to
-        provision graphs implicitly.
+        provision graphs implicitly. See
+        :meth:`_local_graph_provisioning_authority` for how the graph-lifecycle
+        authority used here is resolved without the ambient tiny-profile
+        session ever carrying ``kg:admin`` (CONCEPT:X1).
         """
         if graph_name == "__commons__":
             return
-        session.require_scope("kg:admin")
-        verified_context = session.engine_verified_context()
+        provisioning_session = GraphComputeEngine._local_graph_provisioning_authority(
+            session
+        )
+        verified_context = provisioning_session.engine_verified_context()
         from agent_utilities.knowledge_graph.core.placement_catalog import (
             split_tenant_key,
         )

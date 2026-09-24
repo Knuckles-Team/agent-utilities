@@ -25,9 +25,13 @@ from agent_utilities.api.agent_control_contracts import (
     CapabilityResolution,
     CapabilitySearchPort,
     CapabilitySearchRequest,
+    RunOutput,
+    RunOutputPort,
+    RunOutputRequest,
     SignedAgentDispatchPort,
     SignedAgentDispatchReceipt,
     SignedAgentDispatchRequest,
+    TaskIri,
     WorkItemCancelRequest,
     WorkItemGetRequest,
     WorkItemListRequest,
@@ -208,6 +212,7 @@ class AgentControlPlane:
         agent_executor: AgentExecutionPort | None = None,
         work_item_store: WorkItemStorePort | None = None,
         signed_dispatch: SignedAgentDispatchPort | None = None,
+        run_output: RunOutputPort | None = None,
     ) -> None:
         if eg_client is None:
             raise ValueError("a session-routed epistemic-graph client is required")
@@ -223,6 +228,7 @@ class AgentControlPlane:
         self._agent_executor = agent_executor
         self._work_item_store = work_item_store
         self._signed_dispatch = signed_dispatch
+        self._run_output = run_output
         # Validate eagerly so invalid or expired authority never creates a usable
         # control plane. It is checked again immediately before every call.
         session.engine_verified_context()
@@ -274,6 +280,7 @@ class AgentControlPlane:
                 "kg:write",
                 (),
             ),
+            ("get_run_output", RunOutputRequest, RunOutput | None, "kg:read", ()),
         )
         return tuple(
             AgentOperationDescriptor(
@@ -346,7 +353,7 @@ class AgentControlPlane:
         )
 
     async def _prepare_agent_task(
-        self, task: str, agent_name: str | None
+        self, task: str, agent_name: str | None, task_iri: TaskIri | None
     ) -> tuple[str, CapabilityResolution]:
         from agent_utilities.orchestration.task_guard import (
             screen_and_redact_agent_task,
@@ -354,7 +361,9 @@ class AgentControlPlane:
 
         sanitized_task = screen_and_redact_agent_task(task)
         capability = await self.resolve_capability(
-            CapabilitySearchRequest(task=sanitized_task, agent_name=agent_name)
+            CapabilitySearchRequest(
+                task=sanitized_task, agent_name=agent_name, task_iri=task_iri
+            )
         )
         return sanitized_task, capability
 
@@ -367,7 +376,7 @@ class AgentControlPlane:
         session = self._verified_session("kg:write")
         port = self._require_port(self._agent_executor, "agent-execution")
         sanitized_task, capability = await self._prepare_agent_task(
-            request.task, request.agent_name
+            request.task, request.agent_name, request.task_iri
         )
         authorized_request = request.model_copy(
             update={"agent_name": capability.name, "task": sanitized_task}
@@ -391,7 +400,7 @@ class AgentControlPlane:
         dispatch = self._require_port(self._signed_dispatch, "signed-dispatch")
         self._reject_authority_metadata(request.metadata)
         sanitized_task, capability = await self._prepare_agent_task(
-            request.task, request.agent_name
+            request.task, request.agent_name, request.task_iri
         )
 
         submission = WorkItemSubmission(
@@ -419,9 +428,30 @@ class AgentControlPlane:
                 work_item_id=admission.item.work_item_id,
                 session_ref=request.session_ref,
                 agent_name=capability.name,
+                allowed_tools=request.allowed_tools,
             )
+            receipt = await self._dispatch_or_cancel(
+                dispatch, store, dispatch_request, session
+            )
+        return AgentTaskDispatchResult(
+            capability=capability, admission=admission, dispatch=receipt
+        )
+
+    async def _dispatch_or_cancel(
+        self,
+        dispatch: SignedAgentDispatchPort,
+        store: WorkItemStorePort,
+        request: SignedAgentDispatchRequest,
+        session: GraphSession,
+    ) -> SignedAgentDispatchReceipt:
+        """Enqueue the admitted item; cancel it if dispatch admission fails.
+
+        Without the compensating cancel a refused dispatch would leave an
+        admitted WorkItem that no worker was ever told to run.
+        """
+        try:
             with self._verified_client_context(session):
-                receipt = await dispatch.enqueue(dispatch_request, session=session)
+                receipt = await dispatch.enqueue(request, session=session)
             if (
                 not isinstance(receipt, SignedAgentDispatchReceipt)
                 or receipt.job_id != request.job_id
@@ -430,9 +460,28 @@ class AgentControlPlane:
                 raise AgentControlPlaneUnavailable(
                     "the signed-dispatch port did not accept the admitted work item"
                 )
-        return AgentTaskDispatchResult(
-            capability=capability, admission=admission, dispatch=receipt
-        )
+        except Exception:
+            cancel = WorkItemCancelRequest(
+                work_item_id=request.work_item_id, reason="dispatch_admission_failed"
+            )
+            with self._verified_client_context(session):
+                await store.cancel(cancel, session=session)
+            raise
+        return receipt
+
+    async def get_run_output(self, request: RunOutputRequest) -> RunOutput | None:
+        """The bounded, redacted final output of one run visible to the caller."""
+        if not isinstance(request, RunOutputRequest):
+            raise TypeError("request must be a validated RunOutputRequest")
+        session = self._verified_session("kg:read")
+        port = self._require_port(self._run_output, "run-output")
+        with self._verified_client_context(session):
+            result = await port.get_run_output(request, session=session)
+        if result is not None and not isinstance(result, RunOutput):
+            raise AgentControlPlaneUnavailable(
+                "the run-output port returned an invalid result"
+            )
+        return result
 
     async def get_work_item(
         self, request: WorkItemGetRequest
@@ -635,6 +684,7 @@ def compose_agent_control_plane(
     agent_executor: AgentExecutionPort | None = None,
     work_item_store: WorkItemStorePort | None = None,
     signed_dispatch: SignedAgentDispatchPort | None = None,
+    run_output: RunOutputPort | None = None,
 ) -> AgentControlPlane:
     """Compose AU application operations from verified inputs and explicit ports."""
     return AgentControlPlane(
@@ -644,6 +694,7 @@ def compose_agent_control_plane(
         agent_executor=agent_executor,
         work_item_store=work_item_store,
         signed_dispatch=signed_dispatch,
+        run_output=run_output,
     )
 
 

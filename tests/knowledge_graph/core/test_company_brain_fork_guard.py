@@ -52,6 +52,10 @@ class _GraphWithFork:
     def get_edges(self) -> list[tuple[str, str, str]]:
         return []
 
+    def get_rdf(self) -> str:
+        """The fork's canonical RDF projection, which EG validates."""
+        return "<urn:agent:test> a <http://knuckles.team/kg#Agent> .\n"
+
 
 def test_pre_commit_validate_fails_loudly_not_with_attributeerror_when_fork_is_missing():
     """The B-20 path must never surface a bare AttributeError."""
@@ -84,8 +88,23 @@ def test_pre_commit_validate_does_not_raise_attributeerror_when_fork_is_missing(
         )
 
 
-def test_pre_commit_validate_calls_fork_when_the_graph_supports_it():
-    """A graph object that DOES implement fork() is used, not rejected."""
+def test_pre_commit_validate_calls_fork_when_the_graph_supports_it(monkeypatch):
+    """A graph object that DOES implement fork() is used, not rejected.
+
+    The fork's RDF projection is validated by EG's committed GraphSchema
+    (43197d7c6), reached through the process GraphComputeEngine.
+    """
+    from types import SimpleNamespace
+
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+    from tests.committed_shacl_fakes import CommittedShaclValidator
+
+    validator = CommittedShaclValidator()
+    monkeypatch.setattr(
+        GraphComputeEngine,
+        "get_or_create",
+        classmethod(lambda cls: SimpleNamespace(shacl_validate_committed=validator)),
+    )
     brain = CompanyBrain()
     graph = _GraphWithFork()
 
@@ -95,4 +114,5 @@ def test_pre_commit_validate_calls_fork_when_the_graph_supports_it():
     )
 
     assert graph.forked is True
-    assert "conforms" in report
+    assert report["conforms"] is True
+    assert validator.validations == [graph.get_rdf()]

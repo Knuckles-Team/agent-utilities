@@ -50,7 +50,7 @@ import secrets
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,12 +67,18 @@ DISPATCH_GROUP = "agent-dispatch"
 #: Envelope kinds the dispatch workers know how to execute.
 KIND_GOAL_LOOP = "goal_loop"
 KIND_ORCHESTRATOR_TASK = "orchestrator_task"
+#: An agent turn over a WorkItem the hosted control plane admitted through EG.
+#: The admitted WorkItem is its own fence: ``payload_ref`` is its id.
+KIND_WORK_ITEM_TURN = "work_item_turn"
 
 # The broker carrier is deliberately a small, versioned, independently
 # verifiable envelope.  It is not a replacement for the native WorkItem
 # authority: the consumer verifies this transport proof first, then re-reads
 # the admitted WorkItem and claims/fences it through the engine.
-DISPATCH_CARRIER_VERSION = 1
+DISPATCH_CARRIER_VERSION = 2
+#: Upper bound on a signed execution tool allowlist (AU-2 / EH-044).
+MAX_DISPATCH_ALLOWED_TOOLS = 64
+MAX_DISPATCH_TOOL_NAME_BYTES = 256
 DISPATCH_CARRIER_TTL_S = 300.0
 DISPATCH_CARRIER_MAX_CLOCK_SKEW = 30.0
 DISPATCH_CARRIER_MAX_FIELD_BYTES = 256
@@ -150,6 +156,28 @@ def _carrier_text(value: Any, field_name: str, *, allow_empty: bool = False) -> 
     return rendered
 
 
+def normalize_allowed_tools(
+    tools: Sequence[str] | None,
+) -> tuple[str, ...] | None:
+    """Validate a signed tool allowlist; ``None`` means "no restriction"."""
+    if tools is None:
+        return None
+    normalized = tuple(str(tool) for tool in tools)
+    if len(normalized) > MAX_DISPATCH_ALLOWED_TOOLS:
+        raise DispatchCarrierError("dispatch tool allowlist exceeds its bound")
+    for tool in normalized:
+        if not tool.strip() or len(tool.encode("utf-8")) > MAX_DISPATCH_TOOL_NAME_BYTES:
+            raise DispatchCarrierError("dispatch tool allowlist entry is invalid")
+    if len(set(normalized)) != len(normalized):
+        raise DispatchCarrierError("dispatch tool allowlist entries must be unique")
+    return normalized
+
+
+def _tools_wire(tools: tuple[str, ...] | None) -> list[str] | None:
+    """The canonical (signed) JSON form of a tool allowlist."""
+    return None if tools is None else list(tools)
+
+
 class DispatchCarrier(BaseModel):
     """Signed broker proof binding one turn to tenant/session/job and time.
 
@@ -176,6 +204,13 @@ class DispatchCarrier(BaseModel):
     # removing the dispatch deadline.
     agent_name: str = ""
     deadline_unix: float | None = None
+    #: Signed execution tool allowlist; ``None`` leaves the agent's own set.
+    allowed_tools: tuple[str, ...] | None = None
+
+    @field_validator("allowed_tools")
+    @classmethod
+    def _allowed_tools(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        return normalize_allowed_tools(value)
 
     @field_validator("version")
     @classmethod
@@ -219,9 +254,11 @@ class DispatchCarrier(BaseModel):
         issued_at: float,
         expires_at: float,
         nonce: str,
+        allowed_tools: tuple[str, ...] | None = None,
     ) -> bytes:
         return json.dumps(
             {
+                "allowed_tools": _tools_wire(allowed_tools),
                 "expires_at": expires_at,
                 "deadline_unix": deadline_unix,
                 "issued_at": issued_at,
@@ -255,6 +292,7 @@ class DispatchCarrier(BaseModel):
         nonce: str | None = None,
         secret: str | bytes | None = None,
         allow_empty_tenant: bool = False,
+        allowed_tools: Sequence[str] | None = None,
     ) -> DispatchCarrier:
         tenant = _carrier_text(tenant, "tenant", allow_empty=allow_empty_tenant)
         session_id = _carrier_text(session_id, "session_id")
@@ -262,6 +300,7 @@ class DispatchCarrier(BaseModel):
         kind = _carrier_text(kind, "kind", allow_empty=True)
         payload_ref = _carrier_text(payload_ref, "payload_ref", allow_empty=True)
         agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
+        tools = normalize_allowed_tools(allowed_tools)
         issued_at = float(time.time() if now is None else now)
         ttl = float(ttl_seconds)
         if (
@@ -286,6 +325,7 @@ class DispatchCarrier(BaseModel):
             issued_at=issued_at,
             expires_at=expires_at,
             nonce=carrier_nonce,
+            allowed_tools=tools,
         )
         signature = hmac.new(
             _dispatch_carrier_secret(secret), payload, hashlib.sha256
@@ -302,6 +342,7 @@ class DispatchCarrier(BaseModel):
             expires_at=expires_at,
             nonce=carrier_nonce,
             signature=signature,
+            allowed_tools=tools,
         )
 
     def verify(
@@ -317,6 +358,7 @@ class DispatchCarrier(BaseModel):
         now: float | None = None,
         secret: str | bytes | None = None,
         require_tenant: bool = True,
+        allowed_tools: Sequence[str] | None = None,
     ) -> DispatchCarrier:
         expected_tenant = _carrier_text(
             tenant, "tenant", allow_empty=not require_tenant
@@ -342,6 +384,7 @@ class DispatchCarrier(BaseModel):
             self.payload_ref,
             self.agent_name,
             self.deadline_unix,
+            self.allowed_tools,
         ) != (
             expected_tenant,
             expected_session,
@@ -350,6 +393,7 @@ class DispatchCarrier(BaseModel):
             expected_payload_ref,
             expected_agent_name,
             float(deadline_unix) if deadline_unix is not None else None,
+            normalize_allowed_tools(allowed_tools),
         ):
             raise DispatchCarrierError("dispatch carrier identity binding mismatch")
         if not all(math.isfinite(value) for value in (self.issued_at, self.expires_at)):
@@ -377,6 +421,7 @@ class DispatchCarrier(BaseModel):
             issued_at=self.issued_at,
             expires_at=self.expires_at,
             nonce=self.nonce,
+            allowed_tools=self.allowed_tools,
         )
         expected_signature = hmac.new(
             _dispatch_carrier_secret(secret), payload, hashlib.sha256
@@ -422,6 +467,8 @@ class AgentTurnEnvelope(BaseModel):
     #: (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
     prio_bucket: int = 2
     deadline_unix: float | None = None
+    #: Signed execution tool allowlist (AU-2); enforced by the worker.
+    allowed_tools: tuple[str, ...] | None = None
     attempt: int = 0
     enqueued_at: float = Field(default_factory=time.time)
     #: Signed transport proof.  It is added at the explicit enqueue boundary;
@@ -462,6 +509,7 @@ class AgentTurnEnvelope(BaseModel):
                 payload_ref=self.payload_ref,
                 agent_name=self.agent_name,
                 deadline_unix=self.deadline_unix,
+                allowed_tools=self.allowed_tools,
                 now=self.enqueued_at,
                 allow_empty_tenant=True,
             )
@@ -487,6 +535,7 @@ class AgentTurnEnvelope(BaseModel):
                 payload_ref=self.payload_ref,
                 agent_name=self.agent_name,
                 deadline_unix=self.deadline_unix,
+                allowed_tools=self.allowed_tools,
                 now=now,
                 secret=secret,
             )
@@ -498,6 +547,7 @@ class AgentTurnEnvelope(BaseModel):
             payload_ref=self.payload_ref,
             agent_name=self.agent_name,
             deadline_unix=self.deadline_unix,
+            allowed_tools=self.allowed_tools,
             now=now,
             secret=secret,
         )
@@ -521,6 +571,7 @@ class AgentTurnEnvelope(BaseModel):
             payload_ref=self.payload_ref,
             agent_name=self.agent_name,
             deadline_unix=self.deadline_unix,
+            allowed_tools=self.allowed_tools,
             now=now,
             secret=secret,
         )

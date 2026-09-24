@@ -739,11 +739,33 @@ def get_change_publisher(
 
 
 def _stamp_approval(engine: Any, approval_id: str, status: str) -> None:
+    """Drain the ``action.approval`` ControlLease this publication consumed.
+
+    ``merge_promotion`` publication is always terminal here (no retry-pending
+    outbox state, unlike the fleet reconciler's actuator drain), so the
+    lease's ``consumed`` -> ``expired`` transition always applies; ``status``
+    ("executed"/"failed") is logged only — the durable disposition already
+    lives on the ``ActionExecution``/``spec_version`` nodes this module writes
+    (a generic ``ActionApproval`` node write is refused by the connected
+    engine's native row guard; eg-workitem WRAPUP §3d).
+    """
     try:
-        engine.backend.execute(
-            "MATCH (a:ActionApproval {id: $id}) "
-            "SET a.status = $status, a.executed_at = $ts",
-            {"id": approval_id, "status": status, "ts": _now_iso()},
+        from agent_utilities.orchestration.action_policy import (
+            approval_lease_client,
+            approval_lease_tenant,
+        )
+
+        leases = approval_lease_client(engine)
+        tenant = approval_lease_tenant()
+        current = leases.get(tenant=tenant, lease_id=str(approval_id))
+        if not isinstance(current, dict):
+            return
+        leases.transition(
+            tenant=tenant,
+            lease_id=str(approval_id),
+            expected_revision=current["revision"],
+            to="expired",
+            idempotency_key=f"drain:{approval_id}:{status}",
         )
     except Exception as exc:  # noqa: BLE001
         logger.debug("Approval stamp failed: error_type=%s", type(exc).__name__)

@@ -490,6 +490,78 @@ def _repo_tooling_imported_definitions() -> set[str]:
     return found
 
 
+# --- mechanism 8: {"module": ..., "entry": ...} service registries -----------
+
+
+def _module_entry_registry_definitions() -> set[str]:
+    """Every ``<module>:<entry>`` named by a dict literal carrying BOTH a
+    ``"module"`` key (an ``agent_utilities.``-prefixed dotted path) and an
+    ``"entry"`` key (a symbol name), anywhere under ``agent_utilities/``.
+
+    ``core/registry/service_adapter.py`` resolves each such row with
+    ``getattr(importlib.import_module(module), entry)`` -- a non-literal
+    getattr mechanism 3 cannot see (EH-380). Exact pair only: a bare
+    ``"entry"`` string elsewhere rescues nothing."""
+    found: set[str] = set()
+    for p in _iter_source_files(SRC_DIR):
+        tree = _parse(p)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            row = {
+                k.value: v.value
+                for k, v in zip(node.keys, node.values, strict=True)
+                if isinstance(k, ast.Constant)
+                and isinstance(v, ast.Constant)
+                and isinstance(v.value, str)
+            }
+            module, entry = row.get("module"), row.get("entry")
+            if not (module and entry and _ABSOLUTE_MODULE_RE.match(module)):
+                continue
+            found.add(f"{_relative_dotted(module)}:{entry}")
+    return found
+
+
+# --- mechanism 9: production `from <module> import Name [as alias]` -----------
+
+
+def _relative_dotted(module: str) -> str:
+    return module[len("agent_utilities.") :] if module != "agent_utilities" else ""
+
+
+def _production_from_imported_definitions() -> set[str]:
+    """Every ``<module>:<name>`` that PRODUCTION code imports by exact name.
+
+    The analyzer counts identifier uses, so ``from ..models.knowledge_graph
+    import CodeNode as cn`` (``knowledge_graph/__init__.py``'s PEP 562 lazy
+    export) is invisible: only ``cn`` is ever used (EH-380). Tests are not
+    scanned -- a symbol only tests import is still dead product code."""
+    found: set[str] = set()
+    for p in _iter_source_files(SRC_DIR):
+        tree = _parse(p)
+        if tree is None:
+            continue
+        rel = _rel(p)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = (
+                check_wiring.resolve_relative(rel, node)
+                if node.level
+                else node.module or ""
+            )
+            if not module or not (
+                module == "agent_utilities" or module.startswith("agent_utilities.")
+            ):
+                continue
+            for alias in node.names:
+                if alias.name != "*":
+                    found.add(f"{_relative_dotted(module)}:{alias.name}")
+    return found
+
+
 # --- composition -----------------------------------------------------------
 
 
@@ -502,6 +574,8 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
     orphan_raw = list(details.get("orphan_modules", []))
     dead_raw = list(details.get("dead_definitions", []))
     tooling_definitions = _repo_tooling_imported_definitions()
+    registry_definitions = _module_entry_registry_definitions()
+    imported_definitions = _production_from_imported_definitions()
 
     resolved_imports = _resolved_import_targets()
     ep_modules, ep_symbols = _entry_points()
@@ -551,6 +625,10 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
             mechanism = "getattr-registry"
         elif entry in tooling_definitions:
             mechanism = "repo-tooling-exact-import"
+        elif entry in registry_definitions:
+            mechanism = "module-entry-registry"
+        elif entry in imported_definitions:
+            mechanism = "production-exact-import"
         if mechanism:
             dead_rescued.append({"definition": entry, "mechanism": mechanism})
         else:

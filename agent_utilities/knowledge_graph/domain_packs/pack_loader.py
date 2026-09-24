@@ -28,11 +28,14 @@ never a partial/best-effort load):
    connector manifest. An optional ``signer``/``signature`` is verified with
    the same Ed25519 machinery (:mod:`..ontology.ontology_integrity`) when present.
 4. Every mapping rule's ``node_type``/``edge_target_type`` resolves to either
-   (a) one of the pack's own declared ``ontology.resources`` (fast path, no
-   canonical lookup needed) or (b) an existing class in the canonical ontology
-   library (:func:`canonical_ontology_class_names`) — never an invented class
-   name. This is the concrete enforcement of "packs must extend the canonical
-   ontology library."
+   (a) one of the pack's own declared ``ontology.resources`` or (b) a class in
+   the canonical vocabulary — never an invented class name. The canonical
+   ontology library is epistemic-graph's composed GraphSchema (43197d7c6
+   deleted AU's copy), so AU cannot answer (b) offline. The caller passes
+   EG's class vocabulary as ``canonical_classes``. Without it, every class
+   the pack does not declare is recorded in
+   :attr:`LoadedDomainPack.canonical_class_refs` with
+   ``canonical_refs_verified=False``. It is never reported as verified.
 5. Every bundled ``shacl_shapes`` file parses as valid Turtle/SHACL and its
    ``sh:targetClass`` values resolve under the same rule as (4).
 6. Every declared ``evaluation_cases`` entry reproduces **exactly** (entities +
@@ -68,7 +71,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DomainPackError",
     "LoadedDomainPack",
-    "canonical_ontology_class_names",
     "pack_integrity_hash",
     "load_pack",
     "DomainPackRegistry",
@@ -119,53 +121,32 @@ class LoadedDomainPack:
     manifest: DomainPackManifest
     ontology_spec: OntologySpec
     path: Path
+    #: Classes the pack references but does not declare: EG's to define.
+    canonical_class_refs: frozenset[str] = frozenset()
+    #: True only when every ref was checked against EG's class vocabulary.
+    canonical_refs_verified: bool = False
 
     @property
     def own_class_names(self) -> frozenset[str]:
         return frozenset(c.local for c in self.ontology_spec.classes)
 
 
-def _knowledge_graph_dir() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
-def canonical_ontology_class_names() -> frozenset[str]:
-    """Every ``owl:Class`` local name declared anywhere in the bundled
-    canonical ontology library (``ontology.ttl`` + every sibling
-    ``ontology_*.ttl`` domain module physically present in the package).
-
-    Offline, deterministic, no LLM — a straight rdflib parse over files that
-    ship with the package regardless of which are currently ``owl:imports``-ed
-    at runtime (mirrors ``manifest_compiler._canonical_owl_imports``'s own
-    file-based approach). Used only to check that a domain pack's mappings
-    reference a class that genuinely exists somewhere in the canonical
-    library — never to decide whether that module is wired/active.
-    """
-    import rdflib
-
-    kg_dir = _knowledge_graph_dir()
-    names: set[str] = set()
-    owl_class = rdflib.URIRef("http://www.w3.org/2002/07/owl#Class")
-    for ttl_path in sorted(kg_dir.glob("ontology*.ttl")):
-        graph = rdflib.Graph()
-        try:
-            graph.parse(str(ttl_path), format="turtle")
-        except Exception:  # noqa: BLE001 - a malformed sibling module must not
-            # hide a genuine pack-validation failure behind an unrelated parse
-            # error; skip it (it will independently fail its OWN gate).
-            continue
-        for subject in graph.subjects(rdflib.RDF.type, owl_class):
-            if isinstance(subject, rdflib.URIRef):
-                names.add(str(subject).rsplit("#", 1)[-1])
-    return frozenset(names)
-
-
 def _resolve_class(
-    name: str | None, *, own_classes: frozenset[str], canonical: frozenset[str]
+    name: str | None,
+    *,
+    own_classes: frozenset[str],
+    canonical: frozenset[str] | None,
+    refs: set[str],
 ) -> bool:
-    if name is None:
+    """False only for a name that is neither the pack's own nor canonical.
+
+    A non-own name is collected into ``refs``. With no vocabulary it is
+    accepted as an unverified reference to an EG class.
+    """
+    if name is None or name in own_classes:
         return True
-    return name in own_classes or name in canonical
+    refs.add(name)
+    return canonical is None or name in canonical
 
 
 def _mapping_class_names(rule: Any) -> list[tuple[str, str | None]]:
@@ -187,34 +168,42 @@ def _mapping_class_names(rule: Any) -> list[tuple[str, str | None]]:
 
 
 def _check_ontology_classes(
-    manifest: DomainPackManifest, ontology_spec: OntologySpec, *, label: str
+    manifest: DomainPackManifest,
+    ontology_spec: OntologySpec,
+    *,
+    label: str,
+    canonical: frozenset[str] | None,
+    refs: set[str],
 ) -> None:
     own_classes = frozenset(c.local for c in ontology_spec.classes)
-    canonical = canonical_ontology_class_names()
     for rule in manifest.mappings:
         for field_name, class_name in _mapping_class_names(rule):
             if not _resolve_class(
-                class_name, own_classes=own_classes, canonical=canonical
+                class_name, own_classes=own_classes, canonical=canonical, refs=refs
             ):
                 raise DomainPackError(
                     f"{label}: mapping {rule.kind!r} references unknown ontology "
                     f"class {class_name!r} in {field_name!r} — it is neither one of "
-                    f"this pack's own ontology.resources nor an existing class in "
-                    f"the canonical ontology library. Add it to ontology.resources "
+                    f"this pack's own ontology.resources nor a class in EG's "
+                    f"composed GraphSchema vocabulary. Add it to ontology.resources "
                     f"(with a schema_mappings.ontology_class crosswalk), or fix the "
                     f"typo."
                 )
 
 
 def _check_shacl_shapes(
-    manifest: DomainPackManifest, pack_dir: Path, *, label: str
+    manifest: DomainPackManifest,
+    pack_dir: Path,
+    *,
+    label: str,
+    canonical: frozenset[str] | None,
+    refs: set[str],
 ) -> None:
     if not manifest.shacl_shapes:
         return
     import rdflib
 
     own_classes = frozenset(r.name for r in manifest.ontology.resources)
-    canonical = canonical_ontology_class_names()
     sh_target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
     for rel_path in manifest.shacl_shapes:
         shape_path = pack_dir / rel_path
@@ -232,11 +221,11 @@ def _check_shacl_shapes(
         for target in graph.objects(predicate=sh_target_class):
             class_name = str(target).rsplit("#", 1)[-1]
             if not _resolve_class(
-                class_name, own_classes=own_classes, canonical=canonical
+                class_name, own_classes=own_classes, canonical=canonical, refs=refs
             ):
                 raise DomainPackError(
                     f"{label}: {rel_path} sh:targetClass {class_name!r} is neither "
-                    "a pack resource nor a canonical ontology class"
+                    "a pack resource nor a class in EG's GraphSchema vocabulary"
                 )
 
 
@@ -269,12 +258,16 @@ def _check_evaluation_cases(manifest: DomainPackManifest, *, label: str) -> None
             )
 
 
-def load_pack(path: str | Path) -> LoadedDomainPack:
+def load_pack(
+    path: str | Path, *, canonical_classes: frozenset[str] | None = None
+) -> LoadedDomainPack:
     """Load and fail-closed-validate one ``domain_pack.yml``.
 
     Raises :class:`DomainPackError` (or lets a schema ``ValidationError``
     surface) on ANY defect. There is no partial-success return — a pack either
     passes every check and is returned whole, or nothing is returned at all.
+    ``canonical_classes`` is EG's class vocabulary (check 4 in the module
+    docstring); ``None`` records non-own classes as unverified references.
     """
     pack_path = Path(path)
     manifest_path = pack_path / "domain_pack.yml" if pack_path.is_dir() else pack_path
@@ -327,12 +320,21 @@ def load_pack(path: str | Path) -> LoadedDomainPack:
             f"{label}: ontology extension does not compile ({type(exc).__name__})"
         ) from exc
 
-    _check_ontology_classes(manifest, ontology_spec, label=label)
-    _check_shacl_shapes(manifest, pack_dir, label=label)
+    refs: set[str] = set()
+    _check_ontology_classes(
+        manifest, ontology_spec, label=label, canonical=canonical_classes, refs=refs
+    )
+    _check_shacl_shapes(
+        manifest, pack_dir, label=label, canonical=canonical_classes, refs=refs
+    )
     _check_evaluation_cases(manifest, label=label)
 
     return LoadedDomainPack(
-        manifest=manifest, ontology_spec=ontology_spec, path=pack_dir
+        manifest=manifest,
+        ontology_spec=ontology_spec,
+        path=pack_dir,
+        canonical_class_refs=frozenset(refs),
+        canonical_refs_verified=canonical_classes is not None,
     )
 
 
@@ -347,8 +349,11 @@ class DomainPackRegistry:
     it already is across every existing domain ontology module).
     """
 
-    def __init__(self, root: str | Path):
+    def __init__(
+        self, root: str | Path, *, canonical_classes: frozenset[str] | None = None
+    ):
         self._root = Path(root)
+        self._canonical_classes = canonical_classes
         self._packs: dict[str, LoadedDomainPack] = {}
 
     @property
@@ -358,7 +363,7 @@ class DomainPackRegistry:
     def install(self, pack_dir: str | Path) -> LoadedDomainPack:
         """Validate and register one pack. Raises (never silently degrades)
         on any :class:`DomainPackError`."""
-        loaded = load_pack(pack_dir)
+        loaded = load_pack(pack_dir, canonical_classes=self._canonical_classes)
         self._packs[loaded.manifest.pack] = loaded
         return loaded
 
@@ -378,6 +383,14 @@ class DomainPackRegistry:
         # prefix sidesteps the collision without renaming the (well-established)
         # method.
         return sorted(self._packs.values(), key=lambda p: p.manifest.pack)
+
+    def unverified_canonical_refs(self) -> dict[str, frozenset[str]]:
+        """Per pack, the EG class references no vocabulary has checked yet."""
+        return {
+            name: pack.canonical_class_refs
+            for name, pack in sorted(self._packs.items())
+            if pack.canonical_class_refs and not pack.canonical_refs_verified
+        }
 
     def discover_and_install_all(self) -> builtins.list[LoadedDomainPack]:
         """Install every ``<root>/<pack>/domain_pack.yml`` found. Fails closed:

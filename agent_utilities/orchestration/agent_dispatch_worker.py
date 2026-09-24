@@ -74,6 +74,7 @@ from agent_utilities.orchestration.agent_dispatch import (
     DISPATCH_GROUP,
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
+    KIND_WORK_ITEM_TURN,
     AgentTurnEnvelope,
     DispatchCarrierError,
     SessionLockCapacityError,
@@ -1640,6 +1641,7 @@ def _execute_orchestrator_turn(
             task=claim["description"],
             session_id=envelope.session_id,
             run_id=envelope.job_id,
+            allowed_tools=_allowed_tools(envelope),
         )
 
     from agent_utilities.knowledge_graph.core import work_durability as _wi
@@ -1697,6 +1699,68 @@ def _execute_orchestrator_turn(
         "Orchestrator WorkItem %s completed (result_chars=%d)",
         bus_reference("work_item", item_id),
         len(str(output)),
+    )
+    return "completed"
+
+
+def dispatch_work_item_id(envelope: AgentTurnEnvelope) -> str:
+    """The WorkItem that fences (and whose terminal state acks) one delivery.
+
+    A ``work_item_turn`` executes the WorkItem the hosted control plane already
+    admitted, so that item is its own fence; every other kind carries a
+    separate dispatch WorkItem admitted by :func:`enqueue_agent_turn`.
+    """
+    if envelope.kind == KIND_WORK_ITEM_TURN:
+        return envelope.payload_ref
+    return f"workitem:dispatch:{envelope.job_id}"
+
+
+def _allowed_tools(envelope: AgentTurnEnvelope) -> list[str] | None:
+    """The signed tool allowlist as the runtime's list form (``None``: unrestricted)."""
+    tools = envelope.allowed_tools
+    return None if tools is None else list(tools)
+
+
+def _admitted_task_description(engine: Any, work_item_id: str) -> str:
+    """The sanitized task body the control plane stored on the admitted WorkItem."""
+    from agent_utilities.api.agent_control_adapters import DESCRIPTION_METADATA_KEY
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
+
+    item = _wi.get_work_item(engine, work_item_id) or {}
+    metadata = item.get("metadata")
+    description = (
+        metadata.get(DESCRIPTION_METADATA_KEY) if isinstance(metadata, dict) else None
+    )
+    if not isinstance(description, str) or not description.strip():
+        raise _wi.WorkItemBackendUnavailable(
+            "admitted WorkItem carries no task description"
+        )
+    return description
+
+
+def _execute_work_item_turn(
+    envelope: AgentTurnEnvelope, engine: Any, lease: WorkItemLeaseGuard
+) -> str:
+    """Run one hosted-control-plane task under the already-held WorkItem lease.
+
+    The caller (:func:`execute_agent_turn`) claimed ``payload_ref`` as the
+    dispatch WorkItem and commits its outcome; this only executes the agent
+    with the signed selector and tool allowlist.
+    """
+    import asyncio
+
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    task = _admitted_task_description(engine, envelope.payload_ref)
+    lease.require_current()
+    asyncio.run(
+        Orchestrator(engine).execute_agent(
+            agent_name=envelope.agent_name,
+            task=task,
+            session_id=envelope.session_id,
+            run_id=envelope.job_id,
+            allowed_tools=_allowed_tools(envelope),
+        )
     )
     return "completed"
 
@@ -1761,6 +1825,53 @@ def _resolve_dispatch_engine(engine: Any, envelope: AgentTurnEnvelope) -> Any:
     return engine
 
 
+@dataclass(frozen=True)
+class _TurnContext:
+    """Everything one kind handler may need to execute a claimed turn."""
+
+    envelope: AgentTurnEnvelope
+    engine: Any
+    lease: WorkItemLeaseGuard
+    token: str | None
+    now: float | None
+    claim_ttl_s: float
+
+
+def _goal_loop_turn(ctx: _TurnContext) -> str:
+    spec = load_goal_run(ctx.envelope.payload_ref, token=ctx.token, now=ctx.now)
+    if spec is None:
+        return "failed"
+    ctx.lease.require_current()
+    return _execute_goal_turn(spec, engine=ctx.engine)
+
+
+def _orchestrator_task_turn(ctx: _TurnContext) -> str:
+    claim = ctx.lease.side_effect(
+        claim_orchestrator_work_item,
+        ctx.engine,
+        ctx.envelope.payload_ref,
+        token=ctx.token,
+        now=ctx.now,
+        claim_ttl_s=ctx.claim_ttl_s,
+    )
+    if claim is None:
+        return "failed"
+    return _execute_orchestrator_turn(
+        ctx.engine, ctx.envelope, claim, claim_ttl_s=ctx.claim_ttl_s
+    )
+
+
+def _work_item_turn(ctx: _TurnContext) -> str:
+    return _execute_work_item_turn(ctx.envelope, ctx.engine, ctx.lease)
+
+
+_TURN_HANDLERS: dict[str, Callable[[_TurnContext], str]] = {
+    KIND_GOAL_LOOP: _goal_loop_turn,
+    KIND_ORCHESTRATOR_TASK: _orchestrator_task_turn,
+    KIND_WORK_ITEM_TURN: _work_item_turn,
+}
+
+
 def _run_agent_turn_kind(
     envelope: AgentTurnEnvelope,
     engine: Any,
@@ -1771,26 +1882,9 @@ def _run_agent_turn_kind(
     claim_ttl_s: float,
 ) -> str:
     """Dispatch by envelope kind; returns the turn outcome (default "failed")."""
-    if envelope.kind == KIND_GOAL_LOOP:
-        spec = load_goal_run(envelope.payload_ref, token=token, now=now)
-        if spec is None:
-            return "failed"
-        lease.require_current()
-        return _execute_goal_turn(spec, engine=engine)
-    if envelope.kind == KIND_ORCHESTRATOR_TASK:
-        claim = lease.side_effect(
-            claim_orchestrator_work_item,
-            engine,
-            envelope.payload_ref,
-            token=token,
-            now=now,
-            claim_ttl_s=claim_ttl_s,
-        )
-        if claim is None:
-            return "failed"
-        return _execute_orchestrator_turn(
-            engine, envelope, claim, claim_ttl_s=claim_ttl_s
-        )
+    handler = _TURN_HANDLERS.get(envelope.kind)
+    if handler is not None:
+        return handler(_TurnContext(envelope, engine, lease, token, now, claim_ttl_s))
     from agent_utilities.messaging.bus_privacy import bus_reference
 
     logger.error(
@@ -1856,7 +1950,7 @@ def execute_agent_turn(
 
     from agent_utilities.knowledge_graph.core import work_durability as _wi
 
-    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+    dispatch_item_id = dispatch_work_item_id(envelope)
     with session_execution_guard(envelope.session_id):
         if envelope.deadline_unix and (now or time.time()) > envelope.deadline_unix:
             _wi.cancel_work_item(
@@ -2260,7 +2354,7 @@ def _reject_tenant_mismatch(
     idle_sleep_s: float,
 ) -> None:
     """Dead-letter + ack a delivery whose wire tenant disagrees with the admitted WorkItem."""
-    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+    dispatch_item_id = dispatch_work_item_id(envelope)
     logger.error(
         "agent-dispatch tenant mismatch for %s: wire tenant "
         "disagrees with the admitted WorkItem — rejecting delivery",
@@ -2406,7 +2500,7 @@ def _receive_and_admit_delivery(
     if envelope is None:
         return None
 
-    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+    dispatch_item_id = dispatch_work_item_id(envelope)
 
     # The broker carrier is untrusted wire data.  Verify its signature,
     # exact tenant/session/job binding and expiry before reading or

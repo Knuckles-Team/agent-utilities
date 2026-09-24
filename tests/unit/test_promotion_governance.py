@@ -11,6 +11,8 @@ added to the failure analyzer's gate.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
@@ -21,6 +23,7 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
 from agent_utilities.knowledge_graph.research.promotion_governance import (
     PromotionGovernanceValidator,
 )
+from tests.unit.fleet_autonomy_fakes import ApprovingActionPolicy
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.promotion-governance-validator")
 
@@ -42,11 +45,20 @@ def _weak_team() -> TeamSpec:
 class _Engine:
     """Fake engine: seedable RegressionGateResult + governance-rule rows."""
 
-    def __init__(self, gate_rows=None, rule_rows=None):
+    def __init__(self, gate_rows=None, rule_rows=None, shacl_report=None):
         self.gate_rows = gate_rows or []
         self.rule_rows = rule_rows or []
         self.nodes = {}
         self.backend = object()
+        self.shacl_documents: list[str] = []
+        self._shacl_report = shacl_report or SimpleNamespace(conforms=True, results=[])
+
+    def shacl_validate_committed(self, document: str):
+        """EG's committed-GraphSchema SHACL authority (43197d7c6)."""
+        self.shacl_documents.append(document)
+        if isinstance(self._shacl_report, Exception):
+            raise self._shacl_report
+        return self._shacl_report
 
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
@@ -94,32 +106,41 @@ class TestMergePolicyRule:
 
 
 class TestShaclRule:
-    def test_team_spec_conforms_vacuously(self):
-        # No :Team shape exists in governance.shapes.ttl ⇒ conforms.
-        v = PromotionGovernanceValidator(None, policy=_policy())
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
+    """SHACL governance is EG's committed GraphSchema (43197d7c6): no local
+    shapes file, no "not applicable" pass. EH-380 rewrote these tests from
+    the retired local-shapes contract."""
 
-    def test_agent_without_name_violates_agent_shape(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
-        # :AgentShape requires a name — a nameless Agent proposal must fail.
-        check = v._check_shacl({"type": "Agent", "goal": "do things"})
+    def test_no_committed_authority_holds(self):
+        check = PromotionGovernanceValidator(None, policy=_policy())._check_shacl(
+            _strong_team()
+        )
         assert check.passed is False
+        assert "committed EG SHACL authority unavailable" in check.reason
 
-    def test_named_agent_conforms(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
+    def test_conforming_report_passes_and_types_the_focus_node(self):
+        eng = _Engine()
+        v = PromotionGovernanceValidator(eng, policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
         assert check.passed is True
+        assert len(eng.shacl_documents) == 1
+        assert "Agent" in eng.shacl_documents[0]
 
-    def test_missing_shapes_file_not_applicable(self):
-        v = PromotionGovernanceValidator(
-            None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
+    def test_violation_report_fails_with_its_messages(self):
+        report = SimpleNamespace(
+            conforms=False, results=[SimpleNamespace(message="name is required")]
         )
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-        assert "not found" in check.reason
+        v = PromotionGovernanceValidator(_Engine(shacl_report=report), policy=_policy())
+        check = v._check_shacl({"type": "Agent", "goal": "do things"})
+        assert check.passed is False
+        assert "name is required" in check.reason
+
+    def test_validator_error_holds(self):
+        eng = _Engine(shacl_report=RuntimeError("engine down"))
+        check = PromotionGovernanceValidator(eng, policy=_policy())._check_shacl(
+            _strong_team()
+        )
+        assert check.passed is False
+        assert "validation error" in check.reason
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +254,9 @@ class TestVerdictAndMergerIntegration:
             engine=_Engine(),
             policy=_policy(require_governance_valid=True),
             promoter=lambda spec: promoted.append(spec) or True,
+            # Real governance validator; approving merge gate (the gate itself
+            # is covered by test_auto_merge_action_policy.py).
+            action_policy=ApprovingActionPolicy(),
         )
         ev = merger.consider(_strong_team())
         assert ev.governance_valid is True

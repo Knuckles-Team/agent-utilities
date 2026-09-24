@@ -276,6 +276,15 @@ class WorkItemBackendUnavailable(RuntimeError):
     """
 
 
+class ControlGraphUnavailable(WorkItemBackendUnavailable):
+    """Raised when the ``__control__`` WorkItem authority view cannot be opened.
+
+    EH-379: falling back to the caller's content graph would split WorkItem
+    authority and leak control state into content (U-16/BUG-113), so the
+    failure is surfaced instead.
+    """
+
+
 class NativeWorkItemRequired(WorkItemBackendUnavailable):
     """Raised when production cannot reach the engine-native WorkItem verbs."""
 
@@ -355,7 +364,10 @@ def _claim_resource_class(
         return resource_class
     if item is None:
         return None
-    return str(row.get("resource_class") or "default")
+    # An exact-id claim filters on the row's OWN class. A row admitted by
+    # EG-native SubmitWorkItem carries no resource class (``""``); coercing that
+    # to "default" made the engine answer ``empty`` for a ready item.
+    return row.get("resource_class") or None
 
 
 def _claim_fairness_group(

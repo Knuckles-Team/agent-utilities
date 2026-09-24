@@ -3,7 +3,7 @@
 A `skill://` resource and an MCP `Tool` are two different WIRE shapes, but the
 SAME thing to a caller ranking or binding a capability: a named, describable,
 rankable, bindable unit of work. Before this module, `find_tools` ranked only
-fleet `Tool` entries and `Orchestrator.resolve_capability` special-cased
+fleet `Tool` entries while skill resolution special-cased
 `Skill`/`WorkflowDefinition` node types with no notion of a `Tool` at all — two
 disjoint, kind-branching paths a caller had to know about in advance.
 
@@ -139,7 +139,7 @@ def capability_kind_from_node(
 
     Table-driven so a new capability-bearing node type is one new predicate
     here, not a growing if/elif spread across every ranking call site — every
-    caller (``Orchestrator.resolve_capability``, ``find``, ``find_tools``)
+    caller (``find``, ``find_tools``)
     calls this one function instead of re-deriving the classification.
     Returns ``""`` when the node is not a recognized capability (caller should
     skip it, not guess).

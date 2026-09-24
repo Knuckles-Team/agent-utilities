@@ -17,11 +17,12 @@ from typing import Any
 import pytest
 
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+from tests.unit.fleet_autonomy_fakes import GovernedLoopAuthorities
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.insight-engine-closed-loop")
 
 
-class _InsightStubEngine:
+class _InsightStubEngine(GovernedLoopAuthorities):
     """Minimal engine double: records ``add_node`` calls, canned ``query_cypher``.
 
     ``governance_rule`` rows (scope='action_policy') let a test relax BOTH the

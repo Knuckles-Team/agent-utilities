@@ -9,13 +9,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from agent_utilities.api.session import GraphSession
 
 CapabilityKind = Literal["agent", "skill", "workflow"]
+#: The native EG task vocabulary. Free text is never sent to EG as a task;
+#: a caller (or an AU classification run, EH-206) maps it to one of these.
+TaskIri = Literal[
+    "eg:task/research",
+    "eg:task/implement",
+    "eg:task/review",
+    "eg:task/operate",
+    "eg:task/communicate",
+]
 WorkItemStatus = Literal[
     "submitted",
     "ready",
@@ -32,6 +41,12 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
+#: Bound on a signed execution tool allowlist (AU-2 / EH-044); mirrors
+#: ``orchestration.agent_dispatch.MAX_DISPATCH_ALLOWED_TOOLS``.
+MAX_ALLOWED_TOOLS = 64
+AllowedTools = tuple[Annotated[str, Field(min_length=1, max_length=256)], ...]
+
+
 class AgentControlPlaneUnavailable(RuntimeError):
     """A required application port is absent or not supported by its authority."""
 
@@ -46,6 +61,8 @@ class CapabilitySearchRequest(_StrictModel):
     task: str = Field(min_length=1, max_length=10_000)
     agent_name: str | None = Field(default=None, max_length=512)
     limit: int = Field(default=24, ge=1, le=256)
+    #: Typed task term for EG's ontology search; ``task`` stays AU-local text.
+    task_iri: TaskIri | None = None
 
 
 class CapabilityCandidate(_StrictModel):
@@ -104,6 +121,7 @@ class AgentExecutionRequest(_StrictModel):
     tool_server: str | None = Field(default=None, max_length=512)
     execution_mode: Literal["auto", "direct", "graph"] = "auto"
     grounding: Literal["required", "best_effort", "none"] = "required"
+    task_iri: TaskIri | None = None
 
 
 class AgentExecutionResult(_StrictModel):
@@ -214,6 +232,11 @@ class SignedAgentDispatchRequest(_StrictModel):
     session_ref: str = Field(min_length=1, max_length=512)
     kind: Literal["orchestrator_task"] = "orchestrator_task"
     agent_name: str = Field(min_length=1, max_length=512)
+    #: Signed into the dispatch carrier and enforced by the AU worker's
+    #: toolset construction; ``None`` leaves the agent's own tool set.
+    allowed_tools: AllowedTools | None = Field(
+        default=None, max_length=MAX_ALLOWED_TOOLS
+    )
 
 
 class SignedAgentDispatchReceipt(_StrictModel):
@@ -240,12 +263,41 @@ class AgentTaskDispatchRequest(_StrictModel):
     task: str = Field(min_length=1, max_length=100_000)
     agent_name: str | None = Field(default=None, max_length=512)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    allowed_tools: AllowedTools | None = Field(
+        default=None, max_length=MAX_ALLOWED_TOOLS
+    )
+    task_iri: TaskIri | None = None
 
 
 class AgentTaskDispatchResult(_StrictModel):
     capability: CapabilityResolution
     admission: WorkItemSubmissionResult
     dispatch: SignedAgentDispatchReceipt | None = None
+
+
+class RunOutputRequest(_StrictModel):
+    run_id: str = Field(min_length=1, max_length=512)
+
+
+RunStatus = Literal["running", "succeeded", "failed", "unknown"]
+
+
+class RunOutput(_StrictModel):
+    """Bounded, redacted final answer of one agent run (AU-5)."""
+
+    run_id: str = Field(min_length=1, max_length=512)
+    status: RunStatus
+    output: str = Field(default="", max_length=100_000)
+    truncated: bool = False
+
+
+@runtime_checkable
+class RunOutputPort(Protocol):
+    """Session-scoped read of a run's final output; ``None`` when not visible."""
+
+    async def get_run_output(
+        self, request: RunOutputRequest, *, session: GraphSession
+    ) -> RunOutput | None: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -39,6 +39,11 @@ _OWNER_TOKEN_RE = re.compile(r"\bowner=(\S+)")
 _REVIEW_BY_TOKEN_RE = re.compile(r"\breview-by=(\d{4}-\d{2}-\d{2})\b")
 _PERMANENT_TOKEN_RE = re.compile(r"\bPERMANENT\b")
 _REASON_TOKEN_RE = re.compile(r"\breason=(.+)$")
+
+#: Lead time before a ``review-by`` date at which the gate starts WARNING on
+#: every run (EH-176: the ledger used to age silently until five deferrals
+#: expired at once and blocked every commit with no notice).
+EXPIRY_WARNING_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -120,4 +125,20 @@ def stale_entries(entries: list[DeferredEntry], as_of: date) -> list[DeferredEnt
         e
         for e in entries
         if not e.permanent and e.review_by is not None and e.review_by < as_of
+    ]
+
+
+def expiring_entries(
+    entries: list[DeferredEntry], as_of: date, within_days: int = EXPIRY_WARNING_DAYS
+) -> list[DeferredEntry]:
+    """Time-boxed entries still current as of ``as_of`` whose ``review_by``
+    falls within ``within_days``. Pure like :func:`stale_entries`, so the
+    early-warning window is provable without the wall clock (EH-176)."""
+    horizon = as_of + timedelta(days=within_days)
+    return [
+        e
+        for e in entries
+        if not e.permanent
+        and e.review_by is not None
+        and as_of <= e.review_by <= horizon
     ]

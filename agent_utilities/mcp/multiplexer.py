@@ -2315,6 +2315,11 @@ class MCPMultiplexer:
         # concurrency cap as a newer call's probes, instead of every call
         # getting its own fresh set of slots.
         self._probe_semaphore = asyncio.Semaphore(_PROBE_CONCURRENCY)
+        # EH-368 (D-OBC-3): when each live probe task actually acquired a
+        # probe slot (monotonic). A task absent here is still queued behind
+        # the semaphore, so a budget miss is attributed to the queue, not to
+        # a server that was never contacted.
+        self._probe_started_at: dict[asyncio.Task, float] = {}
         # Optional in-process embedder for SEMANTIC find_tools ranking (injected by
         # graph-os via attach_fleet_loader). ``_embed_fn(texts)->list[vector]`` (sync,
         # called off-thread); per-tool embeddings are cached by ``server::tool`` so only
@@ -5406,6 +5411,7 @@ class MCPMultiplexer:
         if self._probe_inflight.get(server) is task:
             self._probe_inflight.pop(server, None)
         self._probe_tasks.discard(task)
+        self._probe_started_at.pop(task, None)
         if task.cancelled():
             return
         exc = task.exception()
@@ -5447,6 +5453,9 @@ class MCPMultiplexer:
 
         async def _run() -> dict:
             async with self._probe_semaphore:
+                current = asyncio.current_task()
+                if current is not None:
+                    self._probe_started_at[current] = time.monotonic()
                 return await self.probe_server(server, force=force, timeout=timeout)
 
         task = asyncio.create_task(_run())
@@ -5521,7 +5530,34 @@ class MCPMultiplexer:
                 result[server] = info
         return result
 
-    def _unsettled_probe_entry(self, server: str, now: float, budget: float) -> dict:
+    def _unsettled_probe_state(self, task: asyncio.Task, budget: float) -> dict:
+        """Why ONE probe missed this call's budget, from its own task state.
+
+        EH-368 (D-OBC-3, the D-OB-3 favorable-restatement class): probes are
+        admitted through a bounded semaphore, so a task still pending when the
+        aggregate budget expires may never have started. Attributing the miss
+        uniformly ("still probing") would claim the server was contacted and
+        is slow when it may only have been queued behind other servers.
+        """
+        started = self._probe_started_at.get(task)
+        if started is None:
+            return {
+                "probe_state": "queued",
+                "reason": (
+                    f"not started after {budget:g}s: waiting for one of "
+                    f"{_PROBE_CONCURRENCY} probe slots; the server has not been "
+                    "contacted yet"
+                ),
+            }
+        running_s = round(time.monotonic() - started, 3)
+        return {
+            "probe_state": "running",
+            "reason": f"still probing after {running_s:g}s of this server's own probe",
+        }
+
+    def _unsettled_probe_entry(
+        self, server: str, task: asyncio.Task, now: float, budget: float
+    ) -> dict:
         """The honest answer for a server still probing when the budget expired.
 
         Reachable two ways: an explicit force re-probe, or a TTL-expired cache
@@ -5529,21 +5565,26 @@ class MCPMultiplexer:
         re-targeted by ``_probe_targets`` — either way, serve the last known
         answer rather than a bare "unavailable", labelled so the caller knows
         it is not this round's live result. With no prior answer at all, say
-        so explicitly rather than implying the server is unreachable.
+        so explicitly rather than implying the server is unreachable. Either
+        way the entry says whether this server's probe is queued or running
+        (:meth:`_unsettled_probe_state`).
         """
+        state = self._unsettled_probe_state(task, budget)
         prior = self._probe_cache.get(server)
         if prior is None:
             return {
                 "tools": [],
                 "error": (
-                    f"still probing after {budget:g}s (no result yet) — "
-                    "the probe continues in the background; call again shortly"
+                    f"{state['reason']} (no result yet) — the probe continues "
+                    "in the background; call again shortly"
                 ),
                 "pending": True,
+                "probe_state": state["probe_state"],
             }
         stale = dict(prior)
         stale["stale"] = True
         stale["age_s"] = round(now - prior.get("probed_at", now), 3)
+        stale["probe_state"] = state["probe_state"]
         return stale
 
     async def probe_catalog(
@@ -5622,7 +5663,7 @@ class MCPMultiplexer:
             now = time.time()
             for task in pending:
                 server = tasks[task]
-                result[server] = self._unsettled_probe_entry(server, now, budget)
+                result[server] = self._unsettled_probe_entry(server, task, now, budget)
         return result
 
     @staticmethod
@@ -5653,7 +5694,12 @@ class MCPMultiplexer:
                     ),
                     "score": 0.0,
                     "mountable": True,
-                    "mounted": server in self.children,
+                    # D-OBC-1: a spawned child is a process-level fact, not
+                    # a dispatch-level one. A whole-server row is never a
+                    # dispatchable tool; per-tool truth is
+                    # :meth:`tool_dispatchable`.
+                    "mounted": False,
+                    "process_running": server in self.children,
                 }
             )
         return out

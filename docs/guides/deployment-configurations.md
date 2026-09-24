@@ -158,7 +158,18 @@ to that doctor selection when validating an external identity source.
 For the exact tiny packaged-local stdio boundary, GraphOS generates an asymmetric
 key in memory, signs a short-lived JWT with fixed neutral service claims as a
 one-time proof, validates it through the normal decoder, destroys the private key
-and token, and returns the immutable process-lifetime graph session. Every other
+and token, and returns the immutable process-lifetime graph session. That session
+is **least-privilege**: it carries `kg:read`/`kg:write` and `fleet:events`, never
+`kg:admin` — it is the identity every stdio tool call and background/system write
+runs under, so an ambient admin grant would let any local process perform
+`admin:*`/`security:*`/`*:control` engine actions with zero configuration. No
+setting widens it. The one admin-scoped engine action this rung performs —
+materializing a fresh packaged local engine's own tenant graph on first start —
+uses a separate, one-shot proof (`mint_local_process_bootstrap_authority`) that
+carries exactly the engine's `graph:admin` lifecycle scope, is minted only for
+that provisioning call, and is never installed as ambient identity. Any other
+administration needs a configured external identity (`KG_AUTH_TOKEN_REF` or
+`KG_IDENTITY_OAUTH2`), which takes the deployment off this rung. Every other
 boundary resolves exactly one runtime process identity and validates it against
 the configured JWKS/issuer/audience. Missing, ambiguous, unresolved, or invalid
 external identity aborts startup without local fallback.

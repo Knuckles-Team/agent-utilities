@@ -9,7 +9,6 @@ from agent_utilities.models.knowledge_graph import (
     MemoryRetrieverNode,
     ProposalNode,
     RegistryNodeType,
-    SwarmCoalitionNode,
 )
 
 
@@ -253,18 +252,6 @@ class TestNewNodeTypes:
         assert node.type == RegistryNodeType.SELF_MODEL
         assert node.version == 3
         assert node.domain_success_rates["gitlab"] == 0.9
-
-    def test_swarm_coalition_node_creation(self):
-        node = SwarmCoalitionNode(
-            id="swarm:test",
-            name="Test Swarm",
-            agents_spawned=5,
-            depth_reached=2,
-            parallelism_achieved=0.8,
-            task_description="Complex multi-domain task",
-        )
-        assert node.type == RegistryNodeType.SWARM_COALITION
-        assert node.agents_spawned == 5
 
     def test_proposal_node_creation(self):
         node = ProposalNode(

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 31 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
+409 publishable pages · 32 direct nav targets · 128 public capabilities · 826 action rows · 574 typed configuration fields · 372 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -150,6 +150,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — catalog
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — catalog
+- [Agent control plane](../architecture/agent-control-plane.md) — catalog
+- [Agent layers and harnesses](../architecture/agent-layers-and-harnesses.md) — catalog
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — catalog
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — catalog
 - [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — catalog
@@ -438,7 +440,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — catalog
 - [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — direct nav
 - [Exact installed local certification](../release/exact-local-gates.md) — direct nav
-- [Exact local GraphOS releases](../release/exact-local-release.md) — catalog
+- [Exact local GraphOS releases](../release/exact-local-release.md) — direct nav
 - [Exact OCI-layout export](../release/oci-layout-export.md) — catalog
 - [Exact OCI vulnerability scanning](../release/oci-vulnerability-scanning.md) — catalog
 - [Exact skill-validation certification](../release/skill-validation-certification.md) — catalog

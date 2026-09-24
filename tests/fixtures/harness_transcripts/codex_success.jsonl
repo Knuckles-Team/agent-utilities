@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a0cbdc-d145-7823-94fc-f4903d2faab6"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’m running the requested command now."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'echo harness-conformance'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'echo harness-conformance'","aggregated_output":"harness-conformance\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"DONE"}}
+{"type":"turn.completed","usage":{"input_tokens":30256,"cached_input_tokens":14848,"cache_write_input_tokens":0,"output_tokens":81,"reasoning_output_tokens":0}}

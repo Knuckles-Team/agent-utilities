@@ -81,9 +81,14 @@ class TestOrchestratorInjectionGateLivePath:
         if a refactor stops calling it, injection defence goes dark with no other
         test failing.
         """
+        from agent_utilities.orchestration import task_guard
+
         source = inspect.getsource(Orchestrator)
         assert source.count("self._scan_task(task)") >= 4
-        assert "self.scanner.scan_text(task)" in source
+        # d8e0d2e99 moved the scanner call into the shared task guard, which
+        # the typed agent control plane also uses.
+        assert "scan_agent_task(task, scanner=self.scanner)" in source
+        assert "scan_text(task)" in inspect.getsource(task_guard.scan_agent_task)
 
 
 class TestGuardrailsInjectionMigration:

@@ -46,11 +46,23 @@ def _dump(value: Any) -> dict[str, Any]:
 
 
 def _select_graph_compute(engine: Any, graph_name: str | None) -> Any:
+    """Resolve the GraphSchema authority for exactly the requested graph.
+
+    EH-367 (D-OBC-2, the D-OB-3 class): a requested ``graph_name`` that the
+    engine cannot scope to must fail loudly. Falling back to the engine's
+    default graph would attach or detach a schema on a graph the caller never
+    named and report success.
+    """
     graph_compute = getattr(engine, "graph_compute", engine)
+    if not graph_name:
+        return graph_compute
     for_graph = getattr(graph_compute, "for_graph", None)
-    return (
-        for_graph(graph_name) if graph_name and callable(for_graph) else graph_compute
-    )
+    if not callable(for_graph):
+        raise OntologyError(
+            f"graph {graph_name!r} was requested but the engine cannot scope "
+            "GraphSchema calls to it (no for_graph)"
+        )
+    return for_graph(graph_name)
 
 
 def _reject_legacy_filters(filters: tuple[Any, ...]) -> None:
@@ -78,7 +90,12 @@ class OntologyLifecycle:
         tenant: str | None = None,
         graph_name: str | None = None,
     ) -> None:
-        del tenant
+        if tenant is not None:
+            # The tenant comes from the verified session, never a caller
+            # argument; ignoring it would report success for the wrong tenant.
+            raise OntologyError(
+                "tenant is bound by the verified graph session, not selectable here"
+            )
         self._graph_compute = _select_graph_compute(engine, graph_name)
 
     def _require_engine(self) -> Any:
@@ -107,8 +124,17 @@ class OntologyLifecycle:
         category: str = "",
         tags: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Attach one admin-owned ontology source to the current graph."""
-        del category, tags
+        """Attach one admin-owned ontology source to the current graph.
+
+        Every argument either reaches EG or is refused: ``category``/``tags``
+        were local-registry metadata that GraphSchema does not store, and an
+        inactive record no longer exists. The receipt is EG's own; nothing in
+        it is restated from the request (EH-367).
+        """
+        if category or tags:
+            raise OntologyError(
+                "category/tags were local-registry metadata; GraphSchema does not store them"
+            )
         if not activate:
             raise OntologyError("inactive local ontology records no longer exist")
         iri, version = self._require_identity(iri, version)

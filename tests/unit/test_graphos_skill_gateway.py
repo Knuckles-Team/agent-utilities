@@ -25,174 +25,12 @@ def _orchestrator(engine: MagicMock) -> Orchestrator:
     return orchestrator
 
 
-def test_resolve_capability_prefers_typed_kg_skill(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agent_utilities.knowledge_graph.core import secured_reads
-
-    monkeypatch.setattr(secured_reads, "permit", lambda node_ids: node_ids)
-    engine = MagicMock()
-    engine.search_hybrid.return_value = [
-        {"id": "chunk:unrelated", "type": "Chunk", "score": 0.99},
-        {
-            "id": "resource:skill:github-review",
-            "node_type": "CallableResource",
-            "resource_type": "AGENT_SKILL",
-            "name": "github-review",
-            "score": 0.91,
-        },
-        {
-            "id": "skill_workflow:review-release",
-            "node_type": "WorkflowDefinition",
-            "name": "review-release",
-            "score": 0.83,
-        },
-    ]
-
-    resolved = _orchestrator(engine).resolve_capability("review GitHub PR 458")
-
-    assert resolved["kind"] == "skill"
-    assert resolved["name"] == "github-review"
-    assert resolved["source"] == "kg_hybrid"
-    assert resolved["alternatives"][0]["kind"] == "workflow"
-
-
-def test_resolve_capability_hides_unpermitted_cross_tenant_hits(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agent_utilities.knowledge_graph.core import secured_reads
-
-    monkeypatch.setattr(secured_reads, "permit", lambda _node_ids: [])
-    engine = MagicMock()
-    engine.search_hybrid.return_value = [
-        {
-            "id": "skill_workflow:stale-local-workflow",
-            "node_type": "WorkflowDefinition",
-            "name": "stale-local-workflow",
-            "score": 0.99,
-        }
-    ]
-
-    resolved = _orchestrator(engine).resolve_capability("review a pull request")
-
-    assert resolved["kind"] == "agent"
-    assert resolved["name"] == "agent-utilities-expert"
-    assert resolved["source"] == "default"
-
-
-def test_resolve_capability_falls_back_to_kg_bound_expert() -> None:
-    engine = MagicMock()
-    engine.search_hybrid.return_value = [
-        {"id": "document:1", "type": "Document", "score": 0.88}
-    ]
-
-    resolved = _orchestrator(engine).resolve_capability("handle an unusual task")
-
-    assert resolved == {
-        "kind": "agent",
-        "name": "agent-utilities-expert",
-        "id": "",
-        "score": 0.0,
-        "source": "default",
-        "alternatives": [],
-    }
-
-
-def test_resolve_capability_recognizes_a_bare_tool_hit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A ``:Tool`` node (CONCEPT:AU-KG.retrieval.unified-capability-contract) must resolve
-    to kind="tool" with its owning server, not be silently dropped."""
-    from agent_utilities.knowledge_graph.core import secured_reads
-
-    monkeypatch.setattr(secured_reads, "permit", lambda node_ids: node_ids)
-    engine = MagicMock()
-    engine.search_hybrid.return_value = [
-        {
-            "id": "tool_github-mcp_list_issues",
-            "node_type": "Tool",
-            "name": "list_issues",
-            "mcp_server": "github-mcp",
-            "score": 0.87,
-        }
-    ]
-
-    resolved = _orchestrator(engine).resolve_capability("list open GitHub issues")
-
-    assert resolved["kind"] == "tool"
-    assert resolved["name"] == "list_issues"
-    assert resolved["server"] == "github-mcp"
-
-
-@pytest.mark.asyncio
-async def test_execute_capability_binds_a_resolved_tool_via_capability_contract() -> (
-    None
-):
-    """When resolution lands on a bare tool (no caller skill_name/agent_name),
-    execute_capability must bind it through the same Capability contract a
-    ranked find/find_tools result would — the default expert scoped to just
-    that one tool — instead of mis-using the tool name as an agent name."""
-    engine = MagicMock()
-    orchestrator = _orchestrator(engine)
-    orchestrator.resolve_capability = MagicMock(
-        return_value={
-            "kind": "tool",
-            "name": "list_issues",
-            "id": "tool_github-mcp_list_issues",
-            "score": 0.87,
-            "source": "kg_hybrid",
-            "server": "github-mcp",
-            "alternatives": [],
-        }
-    )
-    orchestrator.execute_agent = AsyncMock(
-        return_value=json.dumps(
-            {
-                "output": "issues listed",
-                "run_id": "run:0123456789abcdef0123456789abcdef",
-                "run_summary": {"outcome": "ok"},
-            }
-        )
-    )
-    orchestrator._run_provenance = MagicMock(
-        return_value={
-            "status": "completed",
-            "tool_call_count": 1,
-            "tool_calls": [{"tool_name": "list_issues", "status": "ok"}],
-        }
-    )
-
-    result = await orchestrator.execute_capability(task="List open GitHub issues.")
-
-    assert result["resolution"]["kind"] == "tool"
-    call = orchestrator.execute_agent.await_args.kwargs
-    assert call["agent_name"] == "agent-utilities-expert"
-    assert call["tool_server"] == "github-mcp"
-    assert call["allowed_tools"] == ["list_issues"]
-    # The delegate must be named on BOTH keywords: run_agent enforces
-    # "tool_server requires skill_name" AND "skill_name must match the
-    # dispatched agent_name". This previously asserted None, which encoded the
-    # defect -- the real run_agent (mocked out here) raised ValueError on every
-    # auto-resolved Tool. See tests/unit/test_capability_binding_survives_real_guards.py.
-    assert call["skill_name"] == "agent-utilities-expert"
-
-
 @pytest.mark.asyncio
 async def test_execute_capability_runs_resolved_skill_and_returns_bounded_evidence() -> (
     None
 ):
     engine = MagicMock()
     orchestrator = _orchestrator(engine)
-    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
-        return_value={
-            "kind": "skill",
-            "name": "github-review",
-            "id": "resource:skill:github-review",
-            "score": 0.9,
-            "source": "kg_hybrid",
-            "alternatives": [],
-        }
-    )
     orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
         return_value=json.dumps(
             {
@@ -222,6 +60,7 @@ async def test_execute_capability_runs_resolved_skill_and_returns_bounded_eviden
 
     result = await orchestrator.execute_capability(
         task="Review GitHub PR 458.",
+        agent_name="github-review",
         allowed_tools=["github_pull_request_read"],
     )
 
@@ -240,16 +79,6 @@ async def test_execute_capability_runs_resolved_skill_and_returns_bounded_eviden
 async def test_execute_capability_forwards_explicit_pydantic_graph_contract() -> None:
     engine = MagicMock()
     orchestrator = _orchestrator(engine)
-    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
-        return_value={
-            "kind": "agent",
-            "name": "change-review",
-            "id": "",
-            "score": 1.0,
-            "source": "caller",
-            "alternatives": [],
-        }
-    )
     orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
         return_value=json.dumps(
             {
@@ -440,16 +269,6 @@ async def test_execute_capability_refuses_ungrounded_tool_required_envelope() ->
     """The result wrapper must not turn pseudo tool-call text into gateway success."""
     engine = MagicMock()
     orchestrator = _orchestrator(engine)
-    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
-        return_value={
-            "kind": "agent",
-            "name": "github-mcp",
-            "id": "",
-            "score": 1.0,
-            "source": "caller",
-            "alternatives": [],
-        }
-    )
     orchestrator.execute_agent = AsyncMock(  # type: ignore[method-assign]
         return_value=json.dumps(
             {
@@ -476,54 +295,19 @@ async def test_execute_capability_refuses_ungrounded_tool_required_envelope() ->
 
 
 @pytest.mark.asyncio
-async def test_execute_capability_runs_governed_workflow_and_surfaces_gate_request(
+async def test_execute_capability_never_searches_and_defaults_to_the_expert(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_utilities.knowledge_graph.core import workflow_gate
-
+    """Task resolution belongs to the control plane's typed EG search."""
     engine = MagicMock()
     orchestrator = _orchestrator(engine)
-    orchestrator.resolve_capability = MagicMock(  # type: ignore[method-assign]
-        return_value={
-            "kind": "workflow",
-            "name": "release-review",
-            "id": "skill_workflow:release-review",
-            "score": 0.92,
-            "source": "kg_hybrid",
-            "alternatives": [],
-        }
-    )
-    monkeypatch.setattr(
-        workflow_gate,
-        "gate_workflow_execution",
-        lambda _engine, _name: {"allowed": True},
-    )
-    orchestrator.execute_workflow = AsyncMock(  # type: ignore[method-assign]
-        return_value={
-            "workflow_name": "release-review",
-            "run_id": "wf-0123456789abcdef",
-            "status": "suspended",
-            "step_results": [
-                {
-                    "node_id": "approve-release",
-                    "status": "blocked_on_approval",
-                    "error": "awaiting gate satisfaction",
-                }
-            ],
-            "mermaid": "flowchart TD\nA-->B",
-        }
-    )
-    orchestrator._workflow_provenance = MagicMock(  # type: ignore[method-assign]
-        return_value={"session_id": "wf-0123456789abcdef", "run_count": 1}
-    )
+    execute = AsyncMock(return_value=json.dumps({"output": "done", "run_id": ""}))
+    monkeypatch.setattr(orchestrator, "execute_agent", execute)
 
-    result = await orchestrator.execute_capability(task="Run the release review.")
+    result = await orchestrator.execute_capability(task="Handle an unusual task.")
 
-    assert result["resolution"]["kind"] == "workflow"
-    assert result["approval_request"] == {
-        "required": True,
-        "approval_id": None,
-        "status": "suspended",
-        "reason": None,
-    }
-    assert result["provenance"]["run_count"] == 1
+    engine.search_hybrid.assert_not_called()
+    assert result["resolution"]["source"] == "default"
+    call = execute.await_args.kwargs
+    assert call["agent_name"] == result["resolution"]["name"]
+    assert call["skill_name"] is None

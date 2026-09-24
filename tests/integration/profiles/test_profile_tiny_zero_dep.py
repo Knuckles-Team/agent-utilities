@@ -15,6 +15,7 @@ Profile B (the full enterprise stack) lives in ``test_profile_enterprise_full.py
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -92,6 +93,46 @@ def test_cold_import_pulls_no_external_service_drivers():
     assert leaked == [], f"tiny profile leaked external-service drivers: {leaked}"
 
 
+@contextlib.contextmanager
+def _served_tenant_graph(tenant: str):
+    """Provision the tenant graph a served request is routed to.
+
+    EH-380: each authenticated request's minted GraphSession targets
+    ``tenant_graph_name(tenant, base="__commons__")``. Graph lifecycle belongs
+    to the cluster, never to a served request, and the ephemeral test engine
+    has no tenant onboarding step, so the test performs that explicit admin
+    operation itself (as the ``__control__`` acceptance tests do).
+    """
+    from _test_engine import TEST_AUTH_SECRET, request_context
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    from agent_utilities.knowledge_graph.core.graph_compute import (
+        _is_graph_already_exists_error,
+    )
+    from agent_utilities.knowledge_graph.core.shard_topology import tenant_graph_name
+
+    socket_path = os.environ["GRAPH_SERVICE_ENDPOINTS"].removeprefix("unix://")
+    graph_name = tenant_graph_name(tenant, base="__commons__")
+    client = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=TEST_AUTH_SECRET,
+        verified_context=request_context(),
+    )
+    created = False
+    try:
+        try:
+            client.tenants.create(graph_name)
+            created = True
+        except Exception as exc:
+            if not _is_graph_already_exists_error(exc, graph_name):
+                raise
+        yield graph_name
+    finally:
+        if created:
+            client.tenants.delete(graph_name)
+        client.close()
+
+
 def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     """Write + read the KG through the local gateway REST surface, no containers."""
     if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
@@ -119,10 +160,16 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     # verified Bearer identity. Mint one the same way
     # tests/integration/core/test_security_server.py's secure_client does,
     # without a real JWKS round-trip.
-    from _test_engine import TEST_TENANT
+    from _test_engine import TEST_AGENT_ID, TEST_TENANT
 
     actor = ActorContext(
-        actor_id="tiny-profile-test",
+        # EH-380: EG serves graph data only to a REGISTERED principal
+        # (``check_caller_is_known``/``check_graph_access`` in EG
+        # ``src/server/access.rs``). The former ad-hoc subject
+        # "tiny-profile-test" was never registered, so its write was denied
+        # -- correctly -- and the gateway used to restate that denial as
+        # ``status: success``. Use the suite's registered principal.
+        actor_id=TEST_AGENT_ID,
         actor_type=ActorType.AUTOMATED_SERVICE,
         roles=("kg:read", "kg:write"),
         # The shared epistemic-graph engine's placement catalog only knows
@@ -194,7 +241,7 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
         kg_server._get_engine()
 
     node_id = f"tiny:{uuid.uuid4().hex[:8]}"
-    with TestClient(app) as client:
+    with _served_tenant_graph(TEST_TENANT), TestClient(app) as client:
         write = client.post(
             "/api/graph/write",
             headers=auth_headers,

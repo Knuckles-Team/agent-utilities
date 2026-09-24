@@ -160,6 +160,7 @@ realm role does), so this table holds regardless of IdP:
 | `kg:read` | read-only graph access | base scope |
 | `kg:write` | graph mutation | **hierarchical** — expands to include `kg:read` |
 | `kg:admin` | graph administration | **hierarchical** — expands to `kg:read` + `kg:write` |
+| `graph:admin` | the engine's graph-lifecycle capability (`CreateGraph`/`DeleteGraph`/`ClearGraph`) | exact, **not** hierarchical and not `kg:admin`; the tiny profile's one-shot provisioning proof carries only this |
 | `admin:cluster-read` | the engine's `PlacementRoute` capability | required by every placement resolution; missing it fails as `ACCESS_DENIED: verified request context lacks required scope 'admin:cluster-read'` |
 | `webui:admin` | UI-level admin surfaces in agent-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
 

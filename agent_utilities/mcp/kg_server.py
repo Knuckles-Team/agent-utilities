@@ -1355,6 +1355,18 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
 BASE_ACTION_TOOL_ROUTES = MappingProxyType(dict(ACTION_TOOL_ROUTES))
 
 
+def _tool_success_response(parsed: Any) -> JSONResponse:
+    """Wrap a tool result, never restating a typed failure as success."""
+    from agent_utilities.security.error_surface import failed_operation_http_status
+
+    failed_status = failed_operation_http_status(parsed)
+    if failed_status is not None:
+        return JSONResponse(
+            {"status": "failed", "result": parsed}, status_code=failed_status
+        )
+    return JSONResponse({"status": "success", "result": parsed})
+
+
 def _is_engine_dispatch_client_error(parsed: Any) -> bool:
     """U-74 (GOC-83-W05): does a parsed ``engine_<domain>`` dispatch result
     represent a CALLER-caused parameter mistake, rather than a real result or
@@ -1441,7 +1453,7 @@ def _make_tool_endpoint(tool_name: str):
                 return JSONResponse(
                     {"status": "unavailable", "result": parsed}, status_code=503
                 )
-            return JSONResponse({"status": "success", "result": parsed})
+            return _tool_success_response(parsed)
         except UnsupportedToolFieldError as e:
             # U-74: a caller-supplied field the tool doesn't accept is a
             # client-side schema mismatch, not a server fault — deterministic
@@ -1530,7 +1542,7 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
 
     try:
         res = await _execute_tool("graph_query", **kwargs)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except UnsupportedToolFieldError as e:
         # Defense-in-depth: `_GRAPH_QUERY_TOOL_FIELDS` is kept in sync with
         # the tool's real signature above, so this should be unreachable —
@@ -1615,7 +1627,7 @@ async def graph_write_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e, status_code=400, code="invalid_request")
     try:
         res = await _dispatch_graph_write_action(action_model)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except UnsupportedToolFieldError as e:
         # U-74, same class of fix as `graph_search_endpoint` above.
         return _external_error_response(e, status_code=400, code="invalid_request")
@@ -1722,7 +1734,7 @@ async def _run_json_endpoint(
         )
     try:
         res = await _execute_tool(tool_name, **kwargs_factory(body))
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as exc:
         return _external_error_response(exc)
 
@@ -1895,7 +1907,7 @@ def _make_action_endpoint(tool_name: str):
             body = {}
         try:
             res = await _execute_tool(tool_name, **body)
-            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+            return _tool_success_response(safe_json_load(res))
         except UnsupportedToolFieldError as e:
             # U-74, same class of fix as `graph_search_endpoint` above: this
             # factory blind-splats the body the same way, so any tool it
@@ -1922,7 +1934,7 @@ async def graph_orchestrate_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool("graph_orchestrate", **body)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -1934,7 +1946,7 @@ async def graph_configure_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool("graph_configure", **body)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -1961,7 +1973,7 @@ async def graph_query_federated_endpoint(request: Request) -> JSONResponse:
             scope="federated",
             reference_id=body.get("reference_id", ""),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2352,7 +2364,7 @@ async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
         # Same DEFECT C field-name bug as `_AddNodeAction`'s dispatch above:
         # the tool parameter is ``node_id``, not ``id``.
         res = await _execute_tool("graph_write", action="delete_node", node_id=node_id)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except UnsupportedToolFieldError as e:
         return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
@@ -2381,7 +2393,7 @@ async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
             target_id=payload.target_id,
             rel_type=payload.rel_type,
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except UnsupportedToolFieldError as e:
         return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
@@ -2414,7 +2426,7 @@ async def graph_write_memory_endpoint(request: Request) -> JSONResponse:
             properties=body.get("content", ""),
             nodes=_to_json_str(body.get("tags", [])),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2457,7 +2469,7 @@ async def graph_ingest_submit_endpoint(request: Request) -> JSONResponse:
             max_depth=int(body.get("max_depth", 3)),
             agent_id=body.get("agent_id", ""),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2478,7 +2490,7 @@ async def graph_ingest_corpus_endpoint(request: Request) -> JSONResponse:
 async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="jobs")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2487,7 +2499,7 @@ async def connector_sources_endpoint(request: Request) -> JSONResponse:
     """List registered document-source connectors (CONCEPT:AU-ECO.connector.factory-ingestion-adaptor)."""
     try:
         res = await _execute_tool("source_connector", action="list")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2508,7 +2520,7 @@ async def connector_run_endpoint(request: Request) -> JSONResponse:
             contextual=bool(body.get("contextual", True)),
             incremental=bool(body.get("incremental", True)),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2517,7 +2529,7 @@ async def graph_ingest_job_status_endpoint(request: Request) -> JSONResponse:
     try:
         job_id = request.path_params.get("job_id", "")
         res = await _execute_tool("graph_ingest", action="job_status", job_id=job_id)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2525,7 +2537,7 @@ async def graph_ingest_job_status_endpoint(request: Request) -> JSONResponse:
 async def graph_ingest_rebuild_indexes_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="rebuild_indexes")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2545,7 +2557,7 @@ async def graph_ingest_observe_endpoint(request: Request) -> JSONResponse:
 async def graph_ingest_materialize_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="materialize")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2566,7 +2578,7 @@ async def graph_ingest_materialize_source_endpoint(request: Request) -> JSONResp
             corpus_name=category,
             description=json.dumps(config) if isinstance(config, dict) else "",
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2574,7 +2586,7 @@ async def graph_ingest_materialize_source_endpoint(request: Request) -> JSONResp
 async def graph_ingest_sync_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="sync")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2582,7 +2594,7 @@ async def graph_ingest_sync_endpoint(request: Request) -> JSONResponse:
 async def graph_ingest_reflect_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="reflect")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2599,7 +2611,7 @@ async def graph_ingest_agent_toolkit_endpoint(request: Request) -> JSONResponse:
             target_path=_to_json_str(body.get("sources", [])),
             description=body.get("agent_card_path", ""),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2671,7 +2683,7 @@ async def graph_analyze_blast_radius_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_code", action="blast_radius", node_id=node_id, depth=depth
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2680,7 +2692,7 @@ async def graph_analyze_inspect_endpoint(request: Request) -> JSONResponse:
     try:
         target = request.query_params.get("target", "")
         res = await _execute_tool("graph_analyze", action="inspect", target=target)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2697,7 +2709,7 @@ async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_code", action="call_graph", node_id=node_id, target=direction
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2712,7 +2724,7 @@ async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_code", action="similar_code", node_id=node_id, top_k=top_k
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2722,7 +2734,7 @@ async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
     graph — each Route, its handler, and the Service that serves it."""
     try:
         res = await _execute_tool("graph_code", action="routes")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2770,7 +2782,7 @@ async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_evaluate", action="harness_gate", query=_json.dumps(body)
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2801,7 +2813,7 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
         res = await _execute_tool(
             "graph_code", action="cross_repo_usages", query=symbol, top_k=top_k
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2815,7 +2827,7 @@ async def _run_graph_code_scope_endpoint(request: Request, action: str) -> JSONR
         res = await _execute_tool(
             "graph_code", action=action, target=scope, top_k=top_k
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2848,7 +2860,7 @@ async def graph_analyze_evaluate_alpha_endpoint(request: Request) -> JSONRespons
         res = await _execute_tool(
             "graph_evaluate", action="evaluate_alpha", target=body.get("target", "")
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2862,7 +2874,7 @@ async def graph_analyze_evaluate_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_evaluate", action="evaluate", target=body.get("target", "")
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2870,7 +2882,7 @@ async def graph_analyze_evaluate_endpoint(request: Request) -> JSONResponse:
 async def graph_analyze_evolve_model_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_evaluate", action="evolve_model")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2878,7 +2890,7 @@ async def graph_analyze_evolve_model_endpoint(request: Request) -> JSONResponse:
 async def graph_analyze_forecast_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_evaluate", action="forecast")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2886,7 +2898,7 @@ async def graph_analyze_forecast_endpoint(request: Request) -> JSONResponse:
 async def graph_analyze_causal_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_evaluate", action="causal")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2894,7 +2906,7 @@ async def graph_analyze_causal_endpoint(request: Request) -> JSONResponse:
 async def graph_analyze_invariant_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_evaluate", action="invariant")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2908,7 +2920,7 @@ async def graph_analyze_security_scan_endpoint(request: Request) -> JSONResponse
         res = await _execute_tool(
             "graph_analyze", action="security_scan", target=body.get("target", "")
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2951,7 +2963,7 @@ async def graph_configure_register_mcp_endpoint(request: Request) -> JSONRespons
             config_key=body.get("config_key", ""),
             config_value=_to_json_str(body.get("config_value", {})),
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -2981,7 +2993,7 @@ async def graph_configure_uninstall_hooks_endpoint(request: Request) -> JSONResp
 async def graph_configure_doctor_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_configure", action="doctor")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        return _tool_success_response(safe_json_load(res))
     except Exception as e:
         return _external_error_response(e)
 
@@ -3141,9 +3153,10 @@ def _get_engine():
     barrier; noncritical bootstrap work remains asynchronous.
     (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
-    from agent_utilities.core.paths import ensure_dirs
-    from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.process_engine import (
+        open_process_engine,
+    )
 
     def _register_runtime_authorities(value: Any) -> Any:
         # Registration is process-owned startup state.  The served callers can
@@ -3160,18 +3173,8 @@ def _get_engine():
         engine = IntelligenceGraphEngine.get_active()
         if engine is not None:
             return _register_runtime_authorities(engine)
-        # First-run: ensure XDG dirs exist and create backend
-        ensure_dirs()
-
-        def _factory():
-            backend = create_backend()
-            return IntelligenceGraphEngine(
-                backend=backend,
-                defer_background_start=True,
-            )
-
         return _register_runtime_authorities(
-            IntelligenceGraphEngine.get_or_create(factory=_factory)
+            open_process_engine(defer_background_start=True)
         )
 
 
@@ -4412,9 +4415,11 @@ def _run_boot_hydration_plan(
     """Run GraphOS boot hydration in its fixed resource-priority order.
 
     1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
-    2. prompts/agent templates;
-    3. package ontologies; and
+    2. prompts/agent templates; and
     4. codebases and configured connectors through their durable delta queues.
+
+    Priority 3 (package ontologies) was retired with the local ontology
+    registry: ontology attach is EG GraphSchema (43197d7c6).
 
     Each step is isolated so a failed optional source cannot prevent later
     priority classes from making progress.

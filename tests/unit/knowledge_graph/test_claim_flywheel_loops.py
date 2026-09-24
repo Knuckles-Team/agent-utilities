@@ -28,11 +28,12 @@ from agent_utilities.knowledge_graph.research.claim_flywheel import (
     ClaimLifecycleState,
 )
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+from tests.unit.fleet_autonomy_fakes import GovernedLoopAuthorities
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.mining-flywheel")
 
 
-class _FlywheelLoopStubEngine:
+class _FlywheelLoopStubEngine(GovernedLoopAuthorities):
     """Combines the existing insight/trace-mining stub shape (``governance_rule``
     lookups relax the ActionPolicy tier) with a REAL ``ClaimLifecycleEvent``
     round-trip (unlike the minimal stubs in the sibling test files) so the

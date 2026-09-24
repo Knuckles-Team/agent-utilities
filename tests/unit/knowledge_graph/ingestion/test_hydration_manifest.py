@@ -539,7 +539,6 @@ def test_boot_hydration_plan_records_a_signed_manifest(monkeypatch):
         "_ingest_self_tool_surface_at_boot",
         "_ingest_capabilities",
         "_ingest_prompts_at_boot",
-        "_sync_ontologies_at_boot",
         "_hydrate_code_and_configured_connectors",
     ):
         monkeypatch.setattr(kg_server, step, lambda *a, **k: None)
