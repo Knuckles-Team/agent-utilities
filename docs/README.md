@@ -17,56 +17,49 @@ All documentation is organized under the **5-Pillar Architecture**. Each pillar 
 - A **directory** containing detailed concept references, guides, and deep-dives
 - **Concept IDs** (`CONCEPT:AU-ORCH.planning.orchestration-overview`, `AU-KG.compute.kg-x`, etc.) linking docs to source code 1:1
 
-```
-docs/
-├── index.md                          ← You are here
-├── journey.md                        ← The Technical Novel: Narrative Journey
-├── overview.md                       ← Concept Galaxy (70 canonical concepts, Mermaid map)
-│
-└── pillars/
-    ├── 1_graph_orchestration.md       ← Pillar 1 summary
-    ├── 1_graph_orchestration/         ← Concept references & guides
-    │   ├── architecture.md
-    │   ├── agents.md
-    │   ├── ORCH-1.3-Execution_&_State_Safety.md
-    │   └── ...
-    │
-    ├── 2_epistemic_knowledge_graph.md ← Pillar 2 summary
-    ├── 2_epistemic_knowledge_graph/   ← Concept references & guides
-    │   ├── knowledge-graph.md
-    │   ├── KG-2.5-Topological_Mincut_Partitioning.md
-    │   ├── enterprise_ingestion.md
-    │   ├── company_brain/             ← Company Brain deep-dive (11 pages)
-    │   │   ├── 00_index.md
-    │   │   ├── architecture.md
-    │   │   ├── concurrency.md
-    │   │   ├── multi_tenancy.md
-    │   │   ├── conflict_resolution.md
-    │   │   ├── provenance.md
-    │   │   ├── event_streaming.md
-    │   │   ├── permissions.md
-    │   │   ├── ontology.md
-    │   │   ├── gap_analysis.md
-    │   │   └── roadmap.md
-    │   └── ...
-    │
-    ├── 3_agentic_harness_engineering.md
-    ├── 3_agentic_harness_engineering/
-    │   ├── AHE_ARCHITECTURE.md
-    │   ├── AHE-3.7-Heavy_Thinking_Orchestration.md
-    │   └── ...
-    │
-    ├── 4_ecosystem_peripherals.md
-    ├── 4_ecosystem_peripherals/
-    │   └── ...
-    │
-    ├── 5_agent_os_infrastructure.md
-    └── 5_agent_os_infrastructure/
-        ├── permissions-kernel.md
-        ├── OS-5.3-Session_Concurrency_Management.md
-        ├── OS-5.9-Gateway_Service_Dashboard.md
-        └── ...
-```
+- `docs/`
+    - `index.md` — you are here
+    - `journey.md` — the Technical Novel: narrative journey
+    - `overview.md` — Concept Galaxy (70 canonical concepts, Mermaid map)
+    - `pillars/`
+        - `1_graph_orchestration.md` — Pillar 1 summary
+        - `1_graph_orchestration/` — concept references & guides
+            - `architecture.md`
+            - `agents.md`
+            - `ORCH-1.3-Execution_&_State_Safety.md`
+            - `...`
+        - `2_epistemic_knowledge_graph.md` — Pillar 2 summary
+        - `2_epistemic_knowledge_graph/` — concept references & guides
+            - `knowledge-graph.md`
+            - `KG-2.5-Topological_Mincut_Partitioning.md`
+            - `enterprise_ingestion.md`
+            - `company_brain/` — Company Brain deep-dive (11 pages)
+                - `00_index.md`
+                - `architecture.md`
+                - `concurrency.md`
+                - `multi_tenancy.md`
+                - `conflict_resolution.md`
+                - `provenance.md`
+                - `event_streaming.md`
+                - `permissions.md`
+                - `ontology.md`
+                - `gap_analysis.md`
+                - `roadmap.md`
+            - `...`
+        - `3_agentic_harness_engineering.md`
+        - `3_agentic_harness_engineering/`
+            - `AHE_ARCHITECTURE.md`
+            - `AHE-3.7-Heavy_Thinking_Orchestration.md`
+            - `...`
+        - `4_ecosystem_peripherals.md`
+        - `4_ecosystem_peripherals/`
+            - `...`
+        - `5_agent_os_infrastructure.md`
+        - `5_agent_os_infrastructure/`
+            - `permissions-kernel.md`
+            - `OS-5.3-Session_Concurrency_Management.md`
+            - `OS-5.9-Gateway_Service_Dashboard.md`
+            - `...`
 
 ---
 
