@@ -34,9 +34,12 @@ that optimizes six axes and returns a fully-cited, provenance-bearing bundle:
 4. **Freshness** — bi-temporal recency decay against ``event_time`` /
    ``valid_from`` / ``timestamp`` / ``created_at`` (same half-life-decay shape
    ``HybridRetriever._recency_boost`` uses), neutral for undated results.
-5. **Token cost** — the existing ``RetrievalBudgetManager`` (CONCEPT:AU-KG.memory.tiered-memory-caching)
-   greedily fits the MMR-ranked list to the caller's token budget; nothing is
-   silently truncated — every drop is logged.
+5. **Token cost** — with a sizing policy installed (EH-399,
+   :mod:`.context_knapsack`) the MMR-ranked list is fitted by EG's certified
+   multi-resolution knapsack over exact token counts and the model's capacity;
+   otherwise the existing ``RetrievalBudgetManager`` (CONCEPT:AU-KG.memory.tiered-memory-caching)
+   greedily fits it to the caller's token budget. Nothing is silently
+   truncated — every drop is logged.
 6. **Policy** — every candidate is passed through the SAME fine-grained
    permissioning gate the live read path uses,
    :func:`~agent_utilities.knowledge_graph.ontology.permissioning.enforce`
@@ -113,7 +116,7 @@ from ..core.session import (
     use_session,
 )
 from ..ontology.permissioning import enforce
-from .budget import RetrievalBudgetManager
+from .context_knapsack import fit_to_budget, sizing_key
 from .hybrid_retriever import _parse_instant
 
 logger = logging.getLogger(__name__)
@@ -1135,8 +1138,11 @@ class ContextCompiler:
         )
 
         # ---- 5. TOKEN COST — fit the MMR-ranked selection within budget.
-        mgr = RetrievalBudgetManager(token_budget)
-        budget_result = mgr.fit(selected, text_of=lambda r: self._text_of(r["node"]))
+        # EH-399: the installed sizer's certified multi-resolution knapsack
+        # (exact tokens, model capacity), else the greedy fit.
+        budget_result = fit_to_budget(
+            selected, token_budget, text_of=lambda r: self._text_of(r["node"])
+        )
         kept_ids = {r["nid"] for r in budget_result.kept}
         for rec in selected:
             if rec["nid"] not in kept_ids:
@@ -1390,7 +1396,7 @@ class ContextCompiler:
             mask_redactions=mask_redactions,
             token_budget=token_budget,
             evidence_ordering_version=evidence_ordering_version,
-            model_version=model_version,
+            model_version=sizing_key(model_version),
             redaction_version=redaction_version,
             snapshot=snapshot,
         )

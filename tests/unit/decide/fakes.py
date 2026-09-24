@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,6 +42,8 @@ class FakeTransport:
     fail: BaseException | None = None
     requests: list[Mapping[str, Any]] = field(default_factory=list)
     ops: list[Mapping[str, Any]] = field(default_factory=list)
+    #: Answers a ``DecisionLog`` op (default: a bare logged acknowledgement).
+    log_answer: Callable[[Mapping[str, Any]], Any] = lambda op: {"record_id": "logged"}
 
     async def decide(self, request: Mapping[str, Any]) -> Any:
         self.requests.append(request)
@@ -51,7 +53,7 @@ class FakeTransport:
 
     async def log(self, op: Mapping[str, Any]) -> Any:
         self.ops.append(op)
-        return {"record_id": "logged"}
+        return self.log_answer(op)
 
     def run(self, call: Any) -> Any:
         return asyncio.run(call)

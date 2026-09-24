@@ -484,7 +484,11 @@ class HybridRetriever:
         ``target_paths`` a substring match on the hydrated ``target_path`` — never a
         full-graph scan.
         """
-        graph = getattr(self.engine, "graph", None)
+        from agent_utilities.decide.learning.generation import active_generation
+
+        # EH-397: the vector arm probes the logical graph's ACTIVE embedding
+        # generation (ids are shared, so hydration below reads the same rows).
+        graph = active_generation(getattr(self.engine, "graph", None))
         if graph is None:
             return []
 
@@ -2161,9 +2165,13 @@ class HybridRetriever:
         if trivial is not None:
             return trivial
 
-        from agent_utilities.decide.consumers.retrieval import choose_retrieval_plan
+        from agent_utilities.decide.learning.runs import (
+            first_pass,
+            note_returned,
+            plan_retrieval,
+        )
 
-        plan = _resolve_hyde_plan(self, query, choose_retrieval_plan(query, mode))
+        plan = _resolve_hyde_plan(self, query, plan_retrieval(self, query, mode))
         threshold = threshold_for_mode(plan.search_mode)
         queries = plan.effective_queries(query)
         sub_window = max(2, context_window)
@@ -2175,7 +2183,12 @@ class HybridRetriever:
             session=session,
         )
 
-        first_lists = _run_retrieval_pass(self, queries, threshold, args)
+        first_lists = first_pass(
+            self,
+            query,
+            sub_window,
+            lambda: _run_retrieval_pass(self, queries, threshold, args),
+        )
         nodes = merge_retrievals(first_lists, context_window)
 
         nodes = _maybe_self_correct(
@@ -2195,6 +2208,8 @@ class HybridRetriever:
         self.usage_telemetry.record_recall(
             [str(n.get("id")) for n in nodes if n.get("id")]
         )
+        # EH-395: what this run returned, for the outcome the answer attests.
+        note_returned(self, query, nodes)
 
         if with_ledger:
             return {
@@ -2223,10 +2238,14 @@ class HybridRetriever:
         Records usage, persists trained ``trust_score`` onto those nodes, and returns a generation
         lineage record (query → retrieved → used). Call this from the generation step.
         """
+        from agent_utilities.decide.learning.runs import attest_citations
+
         from .retrieval_quality import build_lineage
 
         self.usage_telemetry.record_usage(used_ids)
         self.usage_telemetry.flush_to_engine(self.engine)
+        # EH-395: the cited units join the run's committed plan record in EG.
+        attest_citations(self, query, used_ids)
         return build_lineage(
             query, list(self.usage_telemetry._recalled), used_ids=used_ids
         ).model_dump()
