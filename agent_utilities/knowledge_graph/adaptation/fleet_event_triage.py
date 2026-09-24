@@ -143,9 +143,11 @@ def register_playbook(key: str, playbook: PlaybookFn) -> None:
 
 
 def _resolve_playbook(source: str, severity: str) -> PlaybookFn:
+    """The playbook for one event: EG ``Decide`` (EH-041), else the specificity lookup."""
+    from agent_utilities.decide.consumers.connectors import triage_playbook
+
     return (
-        PLAYBOOKS.get(f"{source}:{severity}")
-        or PLAYBOOKS.get(source)
+        PLAYBOOKS.get(triage_playbook(source, severity, PLAYBOOKS))
         or PLAYBOOKS["default"]
     )
 

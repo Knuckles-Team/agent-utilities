@@ -137,6 +137,11 @@ class FrictionFinding:
     similarity: float  # topical overlap of the two claims, in [0, 1]
     reason: str  # human-readable explanation of the opposition
     severity: str  # "high" | "medium" | "low"
+    #: EG's suggested handling (EH-034): ``retract:<id>`` or ``keep_both``.
+    #: A suggestion only -- nothing is ever retracted by the detector.
+    suggestion: str = "keep_both"
+    #: The decision record behind ``suggestion``, when EG was consulted.
+    decision_record: str | None = None
 
 
 def _content_tokens(text: str) -> list[str]:
@@ -325,12 +330,17 @@ class ContradictionDetector:
             f"[FRICTION] new claim '{new.text}' opposes existing belief "
             f"'{existing.text}' (topical similarity {sim:.2f})"
         )
+        from agent_utilities.decide.consumers.contradiction import suggest_handling
+
+        suggestion, record = suggest_handling(new.id, existing.id, sim)
         return FrictionFinding(
             new_id=new.id,
             conflict_id=existing.id,
             similarity=round(sim, 6),
             reason=reason,
             severity=_severity_for(sim),
+            suggestion=suggestion,
+            decision_record=record,
         )
 
     def check(

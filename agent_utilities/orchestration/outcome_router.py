@@ -64,18 +64,26 @@ class OutcomeRouter:
         return self._id(task_class, choice)
 
     def select(self, task_class: str, prior: str, candidates: tuple[str, ...]) -> str:
-        """Return the chosen candidate: the heuristic ``prior`` nudged by the learned reward-EMA.
+        """Return the chosen candidate: EG ``Decide`` first (EH-035), else the heuristic.
 
-        ``score(c) = (prior_bias if c is the prior else 0) + reward_of(c)``. Early (all EMA at the
-        0.5 neutral default) the prior wins; as outcomes accumulate the EMA can flip it, and an
-        untried alternative (neutral 0.5) is explored when the prior's EMA falls below it.
+        The heuristic is the ``prior`` nudged by the learned reward-EMA:
+        ``score(c) = (prior_bias if c is the prior else 0) + reward_of(c)``. Early
+        (all EMA at the 0.5 neutral default) the prior wins; as outcomes accumulate
+        the EMA can flip it, and an untried alternative (neutral 0.5) is explored
+        when the prior's EMA falls below it. The candidates, the prior and each
+        reward go to EG as declared claims (``au.route.choice``); when EG does not
+        decide, the heuristic's answer stands and the EG record is kept either way.
         """
+        from agent_utilities.decide.consumers.routing import route_choice
+
+        rewards: dict[str, float] = {}
         best, best_score = prior, float("-inf")
         for c in candidates:
-            score = (_PRIOR_BIAS if c == prior else 0.0) + self.reward_of(task_class, c)
+            rewards[c] = self.reward_of(task_class, c)
+            score = (_PRIOR_BIAS if c == prior else 0.0) + rewards[c]
             if score > best_score:
                 best, best_score = c, score
-        return best
+        return route_choice(self._ns, task_class, prior, rewards, best)
 
     def record(self, task_class: str, choice: str, reward: float) -> None:
         """Feed a run outcome back into the shared reward-EMA (best-effort, never raises)."""
