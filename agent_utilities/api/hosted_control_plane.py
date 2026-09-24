@@ -8,7 +8,8 @@ AU internals:
 
 * capability search and the WorkItem store over EG
   (:mod:`agent_utilities.api.agent_control_adapters`);
-* agent execution on the process runtime's ``Orchestrator``;
+* agent execution on the process runtime's ``Orchestrator``, through the L4
+  ``HarnessPort`` (:class:`~agent_utilities.api.harness_executor.HarnessAgentExecutor`);
 * :class:`QueueSignedAgentDispatch`, which signs a ``work_item_turn`` carrier
   (including the tool allowlist) onto AU's ``agent_turns`` queue;
 * :class:`ProcessRunOutputReader`, the redacted run-output read (AU-5).
@@ -28,7 +29,6 @@ from agent_utilities.api.agent_control_adapters import (
     AuthenticationMethod,
     EgCapabilitySearch,
     EgWorkItemStore,
-    OrchestratorAgentExecutor,
 )
 from agent_utilities.api.agent_control_contracts import (
     AgentControlPlaneUnavailable,
@@ -38,6 +38,7 @@ from agent_utilities.api.agent_control_contracts import (
     SignedAgentDispatchReceipt,
     SignedAgentDispatchRequest,
 )
+from agent_utilities.api.harness_executor import HarnessAgentExecutor
 from agent_utilities.api.session import GraphSession, use_session
 
 if TYPE_CHECKING:
@@ -251,7 +252,7 @@ def compose_hosted_agent_control_plane(
         eg_client,
         session,
         capability_search=EgCapabilitySearch(eg_client),
-        agent_executor=OrchestratorAgentExecutor(_ProcessRunner()),
+        agent_executor=HarnessAgentExecutor.in_process(_ProcessRunner()),
         work_item_store=EgWorkItemStore(
             _ControlGraphClient(),
             graph=_control_graph_name(),

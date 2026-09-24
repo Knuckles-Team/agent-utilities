@@ -9,8 +9,10 @@ binds to them:
   and the session-authorized ``GetWorkItem``/``ListWorkItems`` reads).
 * :class:`EgCapabilitySearch` -- the ``CapabilitySearchPort`` over EG's typed
   ``AgentComponent.Search`` capability query.
-* :class:`OrchestratorAgentExecutor` -- the ``AgentExecutionPort`` over AU's
-  own agent runtime (``Orchestrator.execute_agent``).
+* agent execution is bound to
+  :class:`~agent_utilities.api.harness_executor.HarnessAgentExecutor`, which
+  runs AU's own runtime (``Orchestrator.execute_agent``) through the L4
+  ``HarnessPort``.
 
 Every adapter derives tenant, graph and principal from the verified
 :class:`GraphSession`; no caller-supplied authority reaches EG. Payloads are
@@ -34,8 +36,6 @@ from pydantic import JsonValue
 
 from agent_utilities.api.agent_control_contracts import (
     AgentControlPlaneUnavailable,
-    AgentExecutionRequest,
-    AgentExecutionResult,
     AgentWorkItemNotCancelable,
     CapabilityCandidate,
     CapabilityKind,
@@ -49,6 +49,7 @@ from agent_utilities.api.agent_control_contracts import (
     WorkItemSubmission,
     WorkItemSubmissionResult,
 )
+from agent_utilities.api.harness_executor import HarnessAgentExecutor
 from agent_utilities.api.session import GraphSession, use_session
 
 if TYPE_CHECKING:
@@ -556,70 +557,6 @@ class EgCapabilitySearch:
         return await self._by_name(request.agent_name, session)
 
 
-# ---------------------------------------------------------------------------
-# Agent execution
-# ---------------------------------------------------------------------------
-
-
-def _execution_options(request: AgentExecutionRequest, run_id: str) -> dict[str, Any]:
-    return {
-        "max_steps": request.max_steps,
-        "return_mermaid": request.return_mermaid,
-        "context": request.context,
-        "budget_tokens": request.budget_tokens,
-        "context_ref": request.context_ref,
-        "allowed_tools": _optional_list(request.allowed_tools),
-        "required_tools": _optional_list(request.required_tools),
-        "cred_ref": request.credential_ref,
-        "session_id": request.session_ref,
-        "open_channel": request.open_channel,
-        "memento_source": request.memento_source,
-        "execution_profile": request.execution_profile,
-        "reasoning_effort": request.reasoning_effort,
-        "model_class": request.model_class,
-        "response_format": request.response_format,
-        "run_id": run_id,
-        "include_run_summary": request.include_run_summary,
-        "skill_name": request.skill_name,
-        "tool_server": request.tool_server,
-        "execution_mode": request.execution_mode,
-        "grounding": request.grounding,
-    }
-
-
-def _optional_list(values: tuple[str, ...] | None) -> list[str] | None:
-    return None if values is None else list(values)
-
-
-class OrchestratorAgentExecutor:
-    """``AgentExecutionPort`` over AU's own agent runtime.
-
-    The verified session is bound as the ambient graph authority for the whole
-    run, so every graph read/write the agent makes is attributed to, and
-    authorized as, the caller -- never a process identity.
-    """
-
-    def __init__(self, runner: Any) -> None:
-        if not callable(getattr(runner, "execute_agent", None)):
-            raise TypeError("an AU agent runner with execute_agent is required")
-        self._runner = runner
-
-    async def execute_agent(
-        self, request: AgentExecutionRequest, *, session: GraphSession
-    ) -> AgentExecutionResult:
-        run_id = request.run_id or f"run-{uuid.uuid4().hex}"
-        with use_session(session):
-            output = await self._runner.execute_agent(
-                request.agent_name,
-                request.task,
-                **_execution_options(request, run_id),
-            )
-        mode = None if request.execution_mode == "auto" else request.execution_mode
-        return AgentExecutionResult(
-            run_id=run_id, output=str(output), execution_mode=mode
-        )
-
-
 def compose_eg_agent_control_plane(
     eg_client: Any,
     session: GraphSession,
@@ -643,7 +580,7 @@ def compose_eg_agent_control_plane(
         eg_client,
         session,
         capability_search=EgCapabilitySearch(eg_client),
-        agent_executor=OrchestratorAgentExecutor(runner),
+        agent_executor=HarnessAgentExecutor.in_process(runner),
         work_item_store=EgWorkItemStore(
             eg_client,
             authentication_method=authentication_method,
@@ -662,7 +599,6 @@ __all__ = [
     "AuthenticationMethod",
     "EgCapabilitySearch",
     "EgWorkItemStore",
-    "OrchestratorAgentExecutor",
     "WorkItemIdempotencyConflict",
     "WorkItemPayloadTooLarge",
     "candidates_from_entries",

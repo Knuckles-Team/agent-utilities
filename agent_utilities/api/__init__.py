@@ -4,7 +4,6 @@ from agent_utilities.api.agent_control_adapters import (
     AuthenticationMethod,
     EgCapabilitySearch,
     EgWorkItemStore,
-    OrchestratorAgentExecutor,
     WorkItemIdempotencyConflict,
     WorkItemPayloadTooLarge,
     compose_eg_agent_control_plane,
@@ -68,6 +67,7 @@ from agent_utilities.api.catalog import (
     WorkflowCatalogRecord,
     catalog_read_ports,
 )
+from agent_utilities.api.harness_executor import HarnessAgentExecutor
 from agent_utilities.api.hosted_control_plane import (
     ProcessRunOutputReader,
     QueueSignedAgentDispatch,
@@ -124,7 +124,7 @@ __all__ = [
     "GraphRlmRunRequest",
     "GraphRlmRunResult",
     "GraphSession",
-    "OrchestratorAgentExecutor",
+    "HarnessAgentExecutor",
     "PackImportAuthorityResolver",
     "ProcessRunOutputReader",
     "ProvisioningAuthorityError",

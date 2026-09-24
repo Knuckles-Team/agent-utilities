@@ -10,11 +10,12 @@ flowchart LR
   Host["GraphOS (transport, auth)"] -->|verified GraphSession| Plane["AgentControlPlane"]
   Plane --> Search["EgCapabilitySearch"]
   Plane --> Store["EgWorkItemStore"]
-  Plane --> Exec["OrchestratorAgentExecutor"]
+  Plane --> Exec["HarnessAgentExecutor"]
   Plane --> Dispatch["SignedAgentDispatchPort (host-injected)"]
   Search -->|AgentComponent.Search| EG[(Epistemic Graph)]
   Store -->|SubmitWorkItem / GetWorkItem / ListWorkItems / CancelWorkItem| EG
-  Exec --> Runtime["AU agent runtime"]
+  Exec -->|RunSpec| Harness["HarnessPort (agent_utilities.layers)"]
+  Harness --> Runtime["AU agent runtime (pydantic-ai adapter)"]
 ```
 
 ## Operations
@@ -64,8 +65,13 @@ binds the concrete adapters:
 * **`EgCapabilitySearch`** sends a typed, tenant-scoped `AgentComponent.Search`
   for `skill` and `a2a_agent_card` components (with `task_iri` when given) and
   keeps EG's ranking order.
-* **`OrchestratorAgentExecutor`** runs AU's agent runtime with the caller's
-  verified session bound as the ambient graph authority for the whole run.
+* **`HarnessAgentExecutor`** turns each request into a digest-bound `RunSpec`
+  and runs it through the L4 `HarnessPort` (RF-ADR-010). The default harness is
+  the in-process `pydantic-ai` adapter over AU's own runtime, with the caller's
+  verified session bound as the ambient graph authority for the whole run. A
+  refused, absent or unconfigured harness raises `AgentControlPlaneUnavailable`;
+  a runtime failure re-raises the runtime's own exception. See
+  [agent layers and harnesses](agent-layers-and-harnesses.md).
 
 An adapter whose EG method is not served by the connected engine raises
 `AgentControlPlaneUnavailable`. Agent Utilities never falls back to raw
