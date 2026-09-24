@@ -1,13 +1,13 @@
-"""ST-1 / ST-2: the swarm-topology vocabulary, its shapes and the reference templates.
+"""ST-1 / ST-2: the reference templates against EG's swarm-topology core source.
 
-The TBox is the data EG reasons (admissibility entails from it, proofs
-included); the shapes are published to EG as the ``swarm-topology`` schema
-source and validated BY THE ENGINE (``shacl_validate_ad_hoc``, the served
-component-shape path) -- AU never validates shapes itself (RF-ADR-009 clean
-cut; SHACL/OWL are EG-owned). Every reference template's RDF projection must
-conform (positive fixtures) and each planted defect must not (negative
-fixtures); these need a real engine (``engine_graph``). EG also enforces the
-rules programmatically at publish (``TemplateTopologyShape``).
+The vocabulary and shapes are the EG core schema source
+``core:swarm-topology@1`` (RF-ADR-009 clean cut: AU ships and parses no TTL;
+EG's own tests cover the vocabulary and planted SHACL fixtures). Here every
+reference template's RDF projection is validated BY THE ENGINE against the
+committed composed schema (``shacl_validate_committed``, shapes omitted), so
+the templates AU publishes and the shapes EG enforces cannot drift; these need
+a real engine (``engine_graph``). EG also enforces the rules programmatically at
+publish (``TemplateTopologyShape``).
 """
 
 from __future__ import annotations
@@ -18,28 +18,16 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-import rdflib
-from rdflib.namespace import OWL, RDFS
 
 from agent_utilities.decide.topology import (
     REFERENCE_TEMPLATES,
     SOURCE_ID,
     SWARM_NS,
     TemplateSpec,
-    attach_swarm_topology,
-    ontology_ttl,
     publish_reference_templates,
-    shapes_ttl,
     template_draft,
     topology_facts,
 )
-
-SWARM = rdflib.Namespace(SWARM_NS)
-EG = rdflib.Namespace("http://epistemic-graph/owl#")
-
-
-def _tbox() -> rdflib.Graph:
-    return rdflib.Graph().parse(data=ontology_ttl(), format="turtle")
 
 
 def _projection(spec: TemplateSpec) -> str:
@@ -84,54 +72,23 @@ def _stop_ttl(stop: Mapping[str, Any]) -> str:
     )
     return (
         f"<urn:t> swarm:hasStopRule <urn:stop> . "
-        f"<urn:stop> a swarm:{_STOP_CLASS[stop['rule']]}{numbers} ."
+        f"<urn:stop> a swarm:StopRule, swarm:{_STOP_CLASS[stop['rule']]}{numbers} ."
     )
 
 
 def _conforms(engine_graph: Any, data_ttl: str) -> bool:
-    """The engine's SHACL verdict on a projection; the TBox rides with the data
-    so subclass targets (``QuorumStop`` under ``StopRule``) resolve."""
-    report = engine_graph.shacl_validate_ad_hoc(
-        ontology_ttl() + "\n" + data_ttl, shapes_ttl()
-    )
-    return bool(report.conforms)
+    """The engine's verdict under the committed composed schema (shapes omitted)."""
+    return bool(engine_graph.shacl_validate_committed(data_ttl).conforms)
 
 
 def _spec(graph_id: str) -> TemplateSpec:
     return next(spec for spec in REFERENCE_TEMPLATES if spec.graph_id == graph_id)
 
 
-def test_the_vocabulary_hangs_off_the_engine_s_two_anchors() -> None:
-    tbox = _tbox()
-    assert (SWARM.admits, RDFS.subPropertyOf, EG.admitsTopology) in tbox
-    assert (
-        SWARM.NeedsIndependentCheck,
-        RDFS.subClassOf,
-        EG.NeedsIndependentCheck,
-    ) in tbox
-    fillers = set(tbox.objects(None, OWL.someValuesFrom))
-    declared = set(tbox.subjects(RDFS.subClassOf, SWARM.Topology)) | {
-        SWARM.Debate,
-        SWARM.Council,
-        SWARM.CritiqueLoop,
-    }
-    assert fillers <= declared, "every admitted class is a declared topology class"
+def test_the_vocabulary_is_referenced_by_its_core_source_id() -> None:
+    assert SOURCE_ID == "core:swarm-topology@1"
     for spec in REFERENCE_TEMPLATES:
-        assert rdflib.URIRef(spec.class_iri) in declared, spec.graph_id
-
-
-def test_a_sequential_span_never_admits_a_fan_out() -> None:
-    tbox = _tbox()
-    restrictions = [
-        tbox.value(node, OWL.someValuesFrom)
-        for node in tbox.objects(SWARM.SequentialDependency, RDFS.subClassOf)
-    ]
-    assert SWARM.FanOutJoin not in restrictions
-    assert (
-        SWARM.SequentialDependency,
-        RDFS.subClassOf,
-        SWARM.IndependentSubtasks,
-    ) not in tbox
+        assert spec.class_iri.startswith(SWARM_NS)
 
 
 @pytest.mark.parametrize("spec", REFERENCE_TEMPLATES, ids=lambda s: s.graph_id)
@@ -179,25 +136,6 @@ def test_each_planted_defect_is_flagged(
 ) -> None:
     assert _conforms(engine_graph, _projection(_spec(graph_id)))
     assert not _conforms(engine_graph, _projection(plant(_spec(graph_id))))
-
-
-class _Compute:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-
-    def graph_schema_attach(self, source_id: str, **documents: Any) -> str:
-        self.calls.append((source_id, documents))
-        return "attached"
-
-
-def test_the_vocabulary_is_attached_as_one_keyed_schema_source() -> None:
-    compute = _Compute()
-    assert attach_swarm_topology(compute, if_composed_digest="sha256:ab") == "attached"
-    [(source_id, documents)] = compute.calls
-    assert source_id == SOURCE_ID
-    assert documents["ontology_ttl"] == ontology_ttl()
-    assert documents["shapes_ttl"] == shapes_ttl()
-    assert documents["if_composed_digest"] == "sha256:ab"
 
 
 class _Graphs:

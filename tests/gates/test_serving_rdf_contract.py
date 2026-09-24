@@ -18,20 +18,17 @@ def test_serving_includes_the_minimal_rdf_ingestion_extra() -> None:
     assert "[owl]" not in serving
 
 
-def test_unified_image_installs_and_checks_the_rdf_runtime() -> None:
+def test_unified_image_carries_no_eg_owned_semantic_library() -> None:
     dockerfile = (ROOT / "docker" / "graphos-unified.Dockerfile").read_text(
         encoding="utf-8"
     )
 
-    # The `owl` extra (owlready2 + pyshacl) was deleted when semantic
-    # authority moved into EG (43197d7c6): OWL reasoning and SHACL validation
-    # are engine-native generated contracts. The unified image therefore
-    # carries only the RDF parser, and never imports a SHACL/OWL library AU
-    # does not declare (SHACL/OWL are EG-owned).
-    assert "agent-headless,rdf,logfire" in dockerfile
-    assert "owlready2" not in dockerfile
-    assert "pyshacl" not in dockerfile
-    assert "import rdflib" in dockerfile
+    # RDF/OWL/SHACL semantics are EG-owned (RF-ADR-009 clean cut): the unified
+    # image installs neither the deleted `owl` extra nor the `rdf` extra, and
+    # its smoke check imports no rdflib/owlready2/pyshacl.
+    assert "agent-headless,logfire" in dockerfile
+    for library in ("owlready2", "pyshacl", "import rdflib"):
+        assert library not in dockerfile, library
 
 
 def test_no_runtime_module_imports_an_eg_owned_semantic_library() -> None:
