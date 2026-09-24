@@ -45,6 +45,7 @@ from agent_utilities.orchestration.resilience import (
     run_with_resilience,
 )
 
+from ..decide.consumers.continuation import after_wave
 from ..models.execution_manifest import (
     AgentExecutionResult,
     AgentSpec,
@@ -282,6 +283,9 @@ class ParallelEngine:
                 wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
             )
             wave_results.append(wave_result)
+            # ST-11: a committed topology plan's run may only narrow or stop here.
+            if not await after_wave(resolved.metadata, wave_idx, waves):
+                break
 
             logger.info(
                 "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d complete — success_rate=%.1f%%, "
