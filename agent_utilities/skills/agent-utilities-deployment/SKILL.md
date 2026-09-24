@@ -162,8 +162,10 @@ realm role does), so this table holds regardless of IdP:
 | `kg:admin` | graph administration | **hierarchical** — expands to `kg:read` + `kg:write` |
 | `admin:cluster-read` | the engine's `PlacementRoute` capability | required by every placement resolution; missing it fails as `ACCESS_DENIED: verified request context lacks required scope 'admin:cluster-read'` |
 | `rbac:approve-elevation` | approve another person's just-in-time elevation (EH-405) | **independent, exact** — never implied by `kg:admin`; granted only via the Keycloak `elevation-approvers` group, never to a service identity |
-| `capacity:throttle` | send error-budget windows to EG `ThrottleCapacityCell` (EH-406) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or `capacity:admin` |
-| `capacity:admin` | declare/update EG `CapacityCell`s (throttle cells, EH-347 training cells, EH-407 applied profiles) | **independent, exact** — graph-os process identity only; not implied by `kg:admin`; does not imply `capacity:throttle` |
+| `capacity:throttle` | send error-budget windows to EG `ThrottleCapacityCell` (EH-406) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or any other `capacity:*` |
+| `capacity:admin` | declare/update EG `CapacityCell`s (throttle cells, EH-347 training cells, EH-407 applied profiles) | **independent, exact** — graph-os process identity only; not implied by `kg:admin`; implies no other `capacity:*` |
+| `capacity:lease` | acquire/release/renew EG `CapacityLease`s (EH-347 training leases, swarm-topology leases) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or any other `capacity:*` |
+| `capacity:read` | EG `CapacityStatus` reads (cells, leases) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or any other `capacity:*` |
 | `webui:admin` | UI-level admin surfaces in agent-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
 
 (Hierarchy source: `agent_utilities/security/request_identity.py`,

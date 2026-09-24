@@ -262,18 +262,26 @@ class TestActorFromClaims:
         [
             ("capacity:throttle", {"capacity:throttle"}),
             ("capacity:admin", {"capacity:admin"}),
+            ("capacity:lease", {"capacity:lease"}),
+            ("capacity:read", {"capacity:read"}),
             (
-                "capacity:throttle capacity:admin",
-                {"capacity:throttle", "capacity:admin"},
+                "capacity:throttle capacity:admin capacity:lease capacity:read",
+                {
+                    "capacity:throttle",
+                    "capacity:admin",
+                    "capacity:lease",
+                    "capacity:read",
+                },
             ),
             ("kg:admin", set()),
-            ("capacity:* capacity:lease", set()),
+            ("capacity:* capacity:write", set()),
         ],
     )
     def test_capacity_scopes_are_exact_and_independent(self, granted, expected):
-        """EH-406/EH-347: graph-os gets capacity:throttle + capacity:admin without
-        kg:admin; kg:admin never implies them, they never imply each other, and
-        no wildcard or neighbouring capacity scope is projected."""
+        """EH-406/EH-347: graph-os gets exactly capacity:throttle/admin/lease/read
+        without kg:admin; kg:admin implies none, none implies another (each
+        single grant projects only itself), and no wildcard or undeclared
+        capacity scope is projected."""
         actor = actor_from_claims(
             {
                 "sub": "service:graph-os",
