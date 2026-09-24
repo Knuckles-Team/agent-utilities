@@ -182,7 +182,7 @@ class _Policy:
         self.queued.append(request)
         return "approval:queued"
 
-    def granted_approval_id(self, request: Any) -> str | None:
+    def granted_approval(self, request: Any) -> str | None:
         return self.granted_ids.get(request.digest())
 
 

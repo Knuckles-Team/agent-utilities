@@ -263,7 +263,7 @@ class ActionPolicyLoosenApprovals:
         )
 
     def _granted(self, plan: ProfilePlan) -> str | None:
-        return self._policy.granted_approval_id(self._request(plan))
+        return self._policy.granted_approval(self._request(plan))
 
     def _file(self, plan: ProfilePlan) -> str | None:
         from agent_utilities.orchestration.action_policy import DECISION_QUEUE
