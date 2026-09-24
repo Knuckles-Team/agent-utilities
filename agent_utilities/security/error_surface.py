@@ -529,3 +529,36 @@ def public_error_text(
     """Return the same structured operation failure as compact JSON text."""
 
     return public_error_json(exc, logger=logger, code=code, context=context)
+
+
+#: HTTP status for a typed failed ``OperationResult``, keyed by its public
+#: error code (:data:`PUBLIC_ERROR_MESSAGES`). Shared by every REST tool twin:
+#: AU ``kg_server`` and graph-os's served gateway (EH-380 a / EH-386).
+FAILED_OPERATION_HTTP_STATUS = MappingProxyType(
+    {
+        "invalid_request": 400,
+        "permission_denied": 403,
+        "dependency_unavailable": 503,
+        "engine_degraded": 503,
+        "operation_failed": 500,
+    }
+)
+
+
+def failed_operation_http_status(parsed: Any) -> int | None:
+    """HTTP status for a tool result that is a typed failed ``OperationResult``.
+
+    Tools return :func:`public_error_json` (``status: "failed"``) instead of
+    raising. A REST twin that wraps that in ``{"status": "success"}`` with HTTP
+    200 turns an engine ``ACCESS_DENIED`` write into an apparent success (the
+    D-OB-3 favorable-restatement class). ``None`` for any other result; an
+    unknown code maps to 500.
+    """
+    if not (
+        isinstance(parsed, dict)
+        and parsed.get("status") == "failed"
+        and "operation_id" in parsed
+        and isinstance(parsed.get("error"), dict)
+    ):
+        return None
+    return FAILED_OPERATION_HTTP_STATUS.get(str(parsed["error"].get("code")), 500)

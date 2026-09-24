@@ -98,7 +98,7 @@ class TestMarketRegimeDetector:
     def test_detect_short_series(self):
         """Series shorter than window → all SIDEWAYS."""
         detector = MarketRegimeDetector(window=20)
-        states = detector.detect(np.random.randn(10))
+        states = detector.detect(np.random.default_rng(7).standard_normal(10))
         assert all(s == RegimeState.SIDEWAYS for s in states)
 
     def test_detect_with_custom_thresholds(self, synthetic_returns: np.ndarray):
@@ -235,7 +235,7 @@ class TestWalkForwardBacktest:
         result = model.walk_forward_backtest(long_returns, lookback=200)
 
         # All signals before the lookback window should be zero
-        assert all(result.signals[:200] == 0.0)
+        assert all(signal == 0.0 for signal in result.signals[:200])
 
 
 # --- Core MarkovTransitionModel Enhancement Tests ---

@@ -74,17 +74,6 @@ class AgentRuntime:
         )
 
 
-def _create_engine(defer_background_start: bool) -> Any:
-    from agent_utilities.core.paths import ensure_dirs
-    from agent_utilities.knowledge_graph.backends import create_backend
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    ensure_dirs()
-    return IntelligenceGraphEngine(
-        backend=create_backend(), defer_background_start=defer_background_start
-    )
-
-
 def open_process_runtime(
     *, role: RuntimeRole, defer_background_start: bool
 ) -> AgentRuntime:
@@ -95,6 +84,9 @@ def open_process_runtime(
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.host_lock import resolve_daemon_role
+    from agent_utilities.knowledge_graph.core.process_engine import (
+        open_process_engine,
+    )
 
     with _OPEN_LOCK:
         active = IntelligenceGraphEngine.get_active()
@@ -102,9 +94,7 @@ def open_process_runtime(
             return AgentRuntime(active, role)
         os.environ["KG_DAEMON_ROLE"] = role
         resolve_daemon_role(role)
-        engine = IntelligenceGraphEngine.get_or_create(
-            factory=lambda: _create_engine(defer_background_start)
-        )
+        engine = open_process_engine(defer_background_start=defer_background_start)
         return AgentRuntime(engine, role)
 
 

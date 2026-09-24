@@ -15,6 +15,30 @@ from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
 )
 from agent_utilities.models.company_brain import DataClassification
 
+_EXTERNAL_GRAPH = "agent_utilities.knowledge_graph.ingestion.external_graph"
+
+
+def _route_envelopes(monkeypatch, writer) -> None:
+    """Send every envelope external_graph commits through ``writer``.
+
+    Entity pages go through the batch primitive ``ingest_envelopes``
+    (BUG-CX-010, b18f18b5a) and the CDC marker through ``ingest_envelope``.
+    Patching only the singular name left every page on the real native path.
+    """
+    monkeypatch.setattr(f"{_EXTERNAL_GRAPH}.ingest_envelope", writer)
+    monkeypatch.setattr(
+        f"{_EXTERNAL_GRAPH}.ingest_envelopes",
+        lambda engine, envelopes: [writer(engine, env) for env in envelopes],
+    )
+
+
+def _capture_into(captured: list):
+    def _write(_engine, envelope) -> dict:
+        captured.append(envelope)
+        return {"status": "success"}
+
+    return _write
+
 
 @pytest.fixture(autouse=True)
 def _certified_external_graph_bundle(monkeypatch) -> None:
@@ -239,10 +263,7 @@ def test_external_graph_ingestion_uses_envelopes_and_never_persists_raw_identity
         captured.append(envelope)
         return {"status": "success"}
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        fake_ingest,
-    )
+    _route_envelopes(monkeypatch, fake_ingest)
     result = ingest_registered_graph(
         object(),
         _Registry(_ExternalEngine()),
@@ -336,10 +357,7 @@ def test_external_graph_material_version_changes_for_edge_only_delta(
                 rows[0]["properties"]["confidence"] = self.confidence
             return rows
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        fake_ingest,
-    )
+    _route_envelopes(monkeypatch, fake_ingest)
     ingest_registered_graph(
         object(), _Registry(_EdgeDeltaGraph(0.4)), _request(), profile=_profile()
     )
@@ -613,10 +631,7 @@ class _PagedGraph:
 def test_external_graph_drains_deterministic_pages_before_writing(monkeypatch) -> None:
     captured = []
     graph = _PagedGraph(5)
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(
         **{**_request().__dict__, "page_size": 2, "max_pages": 3}
     )
@@ -635,10 +650,7 @@ def test_external_graph_drains_deterministic_pages_before_writing(monkeypatch) -
 
 def test_external_graph_page_overflow_fails_before_any_write(monkeypatch) -> None:
     captured = []
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(
         **{**_request().__dict__, "page_size": 2, "max_pages": 2}
     )
@@ -692,10 +704,7 @@ def test_external_graph_rejects_snapshot_token_drift_before_any_write(
                 ),
             }
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(
         **{**_request().__dict__, "page_size": 2, "max_pages": 3}
     )
@@ -744,10 +753,7 @@ def test_external_graph_missing_identity_makes_snapshot_nonauthoritative(
             "properties": {"title": "Missing identity"},
         },
     ]
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
 
     result = ingest_registered_graph(
         object(), _Registry(_RowsGraph(rows)), _request(), profile=_node_only_profile()
@@ -772,10 +778,7 @@ def test_external_graph_missing_edge_identity_suppresses_reconciliation(
                 rows[0].pop("target")
             return rows
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
 
     result = ingest_registered_graph(
         object(), _Registry(_MissingEdgeIdentityGraph()), _request(), profile=_profile()
@@ -854,10 +857,7 @@ def test_external_graph_enforces_structural_payload_budgets_before_writes(
     monkeypatch, rows, limits, message
 ) -> None:
     captured = []
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(**{**_request().__dict__, **limits})
 
     with pytest.raises(ExternalGraphIngestionError, match=message):
@@ -897,10 +897,7 @@ def test_external_graph_enforces_payload_budget_on_cdc_events(monkeypatch) -> No
         "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
         lambda _engine, _connector, *, source_instance: "cursor-1",
     )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(
         **{
             **_request().__dict__,
@@ -976,10 +973,7 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
         "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
         lambda _engine, _connector, *, source_instance: "cursor-1",
     )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
     request = ExternalGraphIngestionRequest(
         **{**_request().__dict__, "page_size": 2, "max_pages": 2}
     )
@@ -1047,10 +1041,7 @@ def test_external_graph_rejects_nonempty_terminal_cdc_page_without_advanced_curs
         "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
         lambda _engine, _connector, *, source_instance: "cursor-1",
     )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
 
     with pytest.raises(ExternalGraphIngestionError, match=message):
         ingest_registered_graph(
@@ -1094,10 +1085,7 @@ def test_external_graph_empty_snapshot_requires_explicit_reconcile_approval(
     monkeypatch,
 ) -> None:
     captured = []
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        lambda _engine, envelope: captured.append(envelope) or {"status": "success"},
-    )
+    _route_envelopes(monkeypatch, _capture_into(captured))
 
     with pytest.raises(ExternalGraphIngestionError, match="not approved"):
         ingest_registered_graph(

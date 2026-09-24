@@ -39,6 +39,7 @@ from agent_utilities.knowledge_graph.research.placement_mining import (
     run_canary,
     run_placement_mining_cycle,
 )
+from tests.unit.fleet_autonomy_fakes import GovernedLoopAuthorities
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.placement-mining-canary-loop")
 
@@ -801,7 +802,7 @@ def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-class _CycleStubEngine:
+class _CycleStubEngine(GovernedLoopAuthorities):
     """Same shape as ``test_trace_pattern_miner.py``'s ``_TraceMiningStubEngine``:
     empty governance-adjacent query results ⇒ ``PromotionGovernanceValidator``
     passes by default; ``governance_rules`` relaxes the ActionPolicy tier."""

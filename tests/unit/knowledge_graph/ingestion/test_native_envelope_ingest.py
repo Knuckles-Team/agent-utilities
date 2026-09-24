@@ -6,6 +6,7 @@ import contextvars
 import json
 import threading
 from types import SimpleNamespace
+from typing import Any
 
 import msgpack
 import pytest
@@ -28,6 +29,11 @@ from agent_utilities.models.company_brain import DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+from tests.committed_shacl_fakes import (
+    CommittedShaclValidator,
+    shacl_report,
+    shacl_result,
+)
 
 TEST_EMBEDDING_DIMENSION = configured_embedding_dimension()
 
@@ -175,23 +181,10 @@ class _Changes:
         return results
 
 
-class _Rdf:
-    def __init__(self) -> None:
-        self.reports: list[dict[str, object]] = [{"conforms": True, "results": []}]
-        self.validations: list[tuple[str, str]] = []
-
-    def validate_shacl(self, shapes: str, data_graph: str):
-        self.validations.append((shapes, data_graph))
-        if len(self.reports) > 1:
-            return self.reports.pop(0)
-        return self.reports[0]
-
-
 class _Client:
     def __init__(self, *, supported: bool = True, batch_supported: bool = True) -> None:
         self.nodes = _Nodes()
         self.changes = _Changes(self.nodes)
-        self.rdf = _Rdf()
         self.supported = supported
         self.batch_supported = batch_supported
 
@@ -212,6 +205,8 @@ class _Compute:
         self.catalog_epoch = 3
         self.placement_group = 8
         self.client = _Client(supported=supported, batch_supported=batch_supported)
+        # EG's committed-GraphSchema validator (EH-385): no shapes are sent.
+        self.shacl_validate_committed: Any = CommittedShaclValidator()
         self.embedding_index: dict[str, list[float]] = {}
         self.atomic_embedding_calls: list[
             tuple[str, dict[str, object], dict[str, object], list[float]]
@@ -685,8 +680,8 @@ def test_native_apply_commits_auxiliary_nodes_edges_and_policy_together() -> Non
     }
     assert result["write_result"]["nodes"] == 3
     assert result["write_result"]["edges"] == 2
-    assert len(compute.client.rdf.validations) == 1
-    _shapes, data_graph = compute.client.rdf.validations[0]
+    assert len(compute.shacl_validate_committed.validations) == 1
+    data_graph = compute.shacl_validate_committed.validations[0]
     assert "Document" in data_graph
     assert "Chunk" in data_graph
     assert "Section" in data_graph
@@ -1273,7 +1268,9 @@ def test_missing_native_capability_fails_closed_without_write() -> None:
 
 def test_shacl_rejection_never_materializes_connector_rows() -> None:
     compute = _Compute("graph-governance")
-    compute.client.rdf.reports = [{"conforms": False, "results": [{}]}]
+    compute.shacl_validate_committed = CommittedShaclValidator(
+        shacl_report(conforms=False, results=(shacl_result(),))
+    )
 
     result = module.ingest_envelope(compute, _envelope())
 
@@ -1285,7 +1282,7 @@ def test_shacl_rejection_never_materializes_connector_rows() -> None:
 
 def test_missing_native_shacl_capability_fails_closed_before_write() -> None:
     compute = _Compute("graph-no-shacl")
-    compute.client.rdf = object()
+    compute.shacl_validate_committed = None
 
     result = module.ingest_envelope(compute, _envelope())
 

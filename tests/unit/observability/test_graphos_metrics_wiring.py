@@ -28,6 +28,7 @@ import logging
 
 import pytest
 
+from agent_utilities.mcp.catalog_reconciliation import CatalogIdentity
 from agent_utilities.observability import gateway_metrics as gm
 
 prometheus_client = pytest.importorskip(
@@ -461,6 +462,19 @@ class TestRunningVsDispatchable:
 
             _mounted_tool_counts = mux_mod.MCPMultiplexer._mounted_tool_counts
             status_snapshot = mux_mod.MCPMultiplexer.status_snapshot
+
+            @staticmethod
+            def catalog_identity() -> CatalogIdentity:
+                # status_snapshot publishes the catalog identity (5e803371f).
+                return CatalogIdentity(
+                    served_instance_id="graph-os:test",
+                    release_id="test",
+                    config_revision="config-1",
+                    catalog_generation=0,
+                    snapshot_digest="a" * 64,
+                    child_connection_generation=0,
+                    authorization_scope_digest="b" * 64,
+                )
 
         fake = _FakeMux()
         snapshot = fake.status_snapshot()

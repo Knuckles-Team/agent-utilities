@@ -30,7 +30,7 @@ _SEED = 7
 
 
 def _clustered_catalog() -> tuple[
-    list[tuple[str, list[float]]], dict[str, int], np.ndarray
+    list[tuple[str, list[float]]], dict[str, int], list[list[float]]
 ]:
     """Build three well-separated clusters of unit-ish embeddings.
 
@@ -38,20 +38,26 @@ def _clustered_catalog() -> tuple[
     map, and the three cluster centers (for crafting near-cluster queries).
     """
     rng = np.random.default_rng(_SEED)
-    centers = np.zeros((3, _DIM), dtype=np.float64)
-    centers[0, 0] = 5.0
-    centers[1, 5] = 5.0
-    centers[2, 10] = 5.0
+    # The numpy-free numeric shim returns builtin lists (EH-380 m).
+    centers = [[0.0] * _DIM for _ in range(3)]
+    centers[0][0] = 5.0
+    centers[1][5] = 5.0
+    centers[2][10] = 5.0
 
     catalog: list[tuple[str, list[float]]] = []
     cluster_of: dict[str, int] = {}
     for c in range(3):
         for j in range(_N_PER_CLUSTER):
-            vec = centers[c] + 0.1 * rng.standard_normal(_DIM)
+            noise = rng.standard_normal(_DIM)
+            vec = [x + 0.1 * float(n) for x, n in zip(centers[c], noise, strict=True)]
             item_id = f"c{c}_i{j}"
-            catalog.append((item_id, vec.tolist()))
+            catalog.append((item_id, vec))
             cluster_of[item_id] = c
     return catalog, cluster_of, centers
+
+
+def _mix(a: list[float], wa: float, b: list[float], wb: float) -> list[float]:
+    return [wa * x + wb * y for x, y in zip(a, b, strict=True)]
 
 
 def _make_encoder() -> TemporalSemanticIdEncoder:
@@ -62,7 +68,7 @@ def _make_encoder() -> TemporalSemanticIdEncoder:
 
 def _fitted_recommender(
     pause_steps: int = 2,
-) -> tuple[ImplicitReasoningRecommender, dict[str, int], np.ndarray]:
+) -> tuple[ImplicitReasoningRecommender, dict[str, int], list[list[float]]]:
     catalog, cluster_of, centers = _clustered_catalog()
     rec = ImplicitReasoningRecommender(_make_encoder(), pause_steps=pause_steps)
     rec.fit_catalog(catalog)
@@ -104,7 +110,7 @@ def test_fit_catalog_with_temporal_sids() -> None:
 def test_bridge_project_returns_in_range_code_tuple() -> None:
     rec, _, centers = _fitted_recommender()
     bridge = TextSidBridge(rec._encoder)
-    sid = bridge.project(centers[0].tolist())
+    sid = bridge.project(list(centers[0]))
     assert isinstance(sid, tuple)
     assert len(sid) == 3
     assert all(0 <= code < 8 for code in sid)
@@ -112,7 +118,7 @@ def test_bridge_project_returns_in_range_code_tuple() -> None:
 
 def test_recommend_returns_top_k_ranked_recommendations() -> None:
     rec, _, centers = _fitted_recommender()
-    out = rec.recommend(centers[1].tolist(), top_k=5)
+    out = rec.recommend(list(centers[1]), top_k=5)
     assert len(out) == 5
     assert all(isinstance(r, Recommendation) for r in out)
     scores = [r.score for r in out]
@@ -123,7 +129,7 @@ def test_recommend_returns_top_k_ranked_recommendations() -> None:
 def test_query_near_cluster_recommends_that_cluster() -> None:
     rec, cluster_of, centers = _fitted_recommender()
     for target_cluster in range(3):
-        out = rec.recommend(centers[target_cluster].tolist(), top_k=5)
+        out = rec.recommend(list(centers[target_cluster]), top_k=5)
         clusters = [cluster_of[r.item_id] for r in out]
         # The dominant recommended cluster must be the queried cluster.
         majority = max(set(clusters), key=clusters.count)
@@ -133,7 +139,7 @@ def test_query_near_cluster_recommends_that_cluster() -> None:
 def test_history_biases_recommendations() -> None:
     rec, cluster_of, centers = _fitted_recommender()
     # Query sits between cluster 0 and cluster 2; history points at cluster 2.
-    ambiguous = (0.5 * centers[0] + 0.5 * centers[2]).tolist()
+    ambiguous = _mix(centers[0], 0.5, centers[2], 0.5)
     cluster2_item = next(i for i, c in cluster_of.items() if c == 2)
     hist_sid = rec._encoder.encode_content(dict(_clustered_catalog()[0])[cluster2_item])
 
@@ -149,7 +155,7 @@ def test_history_biases_recommendations() -> None:
 
 def test_pause_steps_zero_vs_positive_differ() -> None:
     catalog, _, centers = _clustered_catalog()
-    ambiguous = (0.6 * centers[0] + 0.4 * centers[1]).tolist()
+    ambiguous = _mix(centers[0], 0.6, centers[1], 0.4)
 
     rec0 = ImplicitReasoningRecommender(_make_encoder(), pause_steps=0)
     rec0.fit_catalog(catalog)
@@ -176,7 +182,7 @@ def test_explain_budget_reports_implicit_no_rationale() -> None:
 
 def test_determinism() -> None:
     _, _, centers = _clustered_catalog()
-    query = centers[2].tolist()
+    query = list(centers[2])
 
     rec_a, _, _ = _fitted_recommender()
     rec_b, _, _ = _fitted_recommender()

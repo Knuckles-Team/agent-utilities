@@ -137,7 +137,7 @@ class OpenSearchClient:
             ca_certs=self.config.ca_certs,
             timeout=self.config.timeout,
         )
-        logger.info("OpenSearch client connected to %s", self.config.endpoint)
+        logger.info("OpenSearch client connected")
 
     @property
     def raw(self) -> Any:

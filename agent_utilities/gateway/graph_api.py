@@ -216,7 +216,7 @@ def _mount_sql_schema_route(app, prefix: str = "/api") -> None:
         )
     else:  # plain Starlette
         app.add_route(path, _sql_schema_endpoint, methods=["POST"])
-    logger.info("Mounted read-only SQL catalog introspection at %s", path)
+    logger.info("Mounted read-only SQL catalog introspection route")
 
 
 def register_graph_routes(app, prefix: str = "/api") -> None:

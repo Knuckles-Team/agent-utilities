@@ -42,6 +42,11 @@ from agent_utilities.models.company_brain import DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+from tests.committed_shacl_fakes import (
+    CommittedShaclValidator,
+    shacl_report,
+    shacl_result,
+)
 from tests.unit.knowledge_graph.ingestion.test_native_envelope_ingest import (
     _Compute,
 )
@@ -211,7 +216,9 @@ def _claim(engine_domain: str = "cmdb", **overrides: Any) -> promotion.Promotion
 
 def test_shacl_failing_claim_is_rejected_and_never_materialized() -> None:
     engine = _PromotionEngine()
-    engine.client.rdf.reports = [{"conforms": False, "results": [{}]}]
+    engine.shacl_validate_committed = CommittedShaclValidator(
+        shacl_report(conforms=False, results=(shacl_result(),))
+    )
     claim = _claim()
 
     outcome = promotion.evaluate_and_advance(engine, claim)

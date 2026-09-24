@@ -133,6 +133,26 @@ def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestCl
         audience="test",
     )
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
+    # The catalog RPC runs under the process's own service identity
+    # (test_registry_api covers which one). Pin it here, because
+    # system_write_session() only mints the tiny local identity when no
+    # GRAPH_SERVICE_ENDPOINTS is exported, and the suite's live-engine session
+    # fixture exports one for the rest of its xdist worker.
+    service = GraphSession(
+        actor=ActorContext(
+            actor_id="service:registry-catalog",
+            actor_type=ActorType.AUTOMATED_SERVICE,
+            roles=("registry:read",),
+            tenant_id=tenant,
+            authenticated=True,
+        ),
+        tenant=tenant,
+        scopes=frozenset({"kg:read"}),
+        graph=tenant,
+        policy_version="test",
+        audience="test",
+    )
+    monkeypatch.setattr(registry_api, "_catalog_service_session", lambda: service)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
     return TestClient(_BindAuthority(app, actor, session))

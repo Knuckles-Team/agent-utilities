@@ -47,3 +47,13 @@ def test_ordinary_results_stay_success(result) -> None:
     response = _tool_success_response(result)
     assert response.status_code == 200
     assert json.loads(response.body) == {"status": "success", "result": result}
+
+
+def test_unknown_failure_code_maps_to_500_through_the_shared_helper() -> None:
+    """graph-os serves the same REST twins, so the mapping is one public helper."""
+    from agent_utilities.security.error_surface import failed_operation_http_status
+
+    payload = public_error_payload(RuntimeError("boom"))
+    payload["error"]["code"] = "not_a_public_code"
+    assert failed_operation_http_status(payload) == 500
+    assert failed_operation_http_status({"status": "failed"}) is None

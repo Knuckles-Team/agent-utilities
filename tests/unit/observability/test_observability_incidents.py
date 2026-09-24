@@ -701,35 +701,40 @@ def test_actuate_remediation_refuses_when_no_target_entity():
 def test_actuate_remediation_defaults_to_held_pending_human_approval():
     """The whole point of the seam: with the SHIPPED default ActionPolicy
     (restart_service = approval_required), a safe restart-class proposal is
-    always HELD, never executed — no monkeypatching of the policy at all."""
+    always HELD, never executed — no monkeypatching of the policy at all.
+
+    The hold is a real ``action.approval`` ControlLease (fe45551a8). Without an
+    engine that can record it, the same default fails closed as
+    ``unavailable``; ``test_incident_tools`` covers that branch.
+    """
+    from tests.unit.fleet_autonomy_fakes import FakeEngine, verified_fleet_session
+
     proposal = {
         "id": "health:remediation:x",
         "proposedAction": "restart_or_cordon_pod",
         "entity": "cm:node:analysis-node-a",
         "incident": "health:incident:analysis-node-a:abc",
     }
-    out = inc.actuate_remediation(proposal)
+    engine = FakeEngine()
+    with verified_fleet_session():
+        out = inc.actuate_remediation(proposal, engine=engine)
     assert out["status"] == "held"
     assert out["decision"] == "queue_approval"
+    assert len(engine.control_leases._leases) == 1
     assert out["tier"] == "approval_required"
     assert out["action_kind"] == "restart_service"
     assert out["target"] == "analysis-node-a"
 
 
 def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeypatch):
+    """Only a receipt-backed allow authorizes the effect (5a4dd9a2f)."""
     from agent_utilities.orchestration import action_policy as ap
     from agent_utilities.orchestration import fleet_actuation as fa
+    from tests.unit.fleet_autonomy_fakes import ApprovingActionPolicy
 
-    class _AllowPolicy:
-        def decide(self, request):
-            return ap.ActionDecision(
-                decision=ap.DECISION_ALLOW,
-                tier=ap.TIER_AUTO,
-                request=request,
-                reason="test-allow",
-            )
-
-    monkeypatch.setattr(ap, "get_action_policy", lambda engine=None: _AllowPolicy())
+    monkeypatch.setattr(
+        ap, "get_action_policy", lambda engine=None: ApprovingActionPolicy()
+    )
     executed: list = []
     monkeypatch.setattr(
         fa,
