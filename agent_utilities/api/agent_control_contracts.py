@@ -122,6 +122,9 @@ class AgentExecutionRequest(_StrictModel):
     execution_mode: Literal["auto", "direct", "graph"] = "auto"
     grounding: Literal["required", "best_effort", "none"] = "required"
     task_iri: TaskIri | None = None
+    #: The native sub-agent allowance of the committed topology plan node this
+    #: run executes (``SubagentAllowance`` fields); absent grants none.
+    subagents: dict[str, JsonValue] | None = None
 
 
 class AgentExecutionResult(_StrictModel):

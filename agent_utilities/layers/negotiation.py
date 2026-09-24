@@ -20,6 +20,7 @@ from agent_utilities.layers.contracts import (
     HarnessRefused,
     NegotiatedRunSpec,
     RunSpec,
+    SubagentGrant,
 )
 
 #: Strongest containment first; the first mode both sides accept is chosen.
@@ -163,6 +164,40 @@ _RULES: tuple[Rule, ...] = (
 )
 
 
+def _budget_caps_subagents(spec: RunSpec, desc: HarnessDescriptor) -> bool:
+    """A strict token or cost budget the harness enforces caps every native
+    sub-agent together (their count is then only observed, in L5)."""
+    metered = spec.budget.units() - {"wall_time"}
+    return spec.budget.mode == "strict" and bool(metered & desc.enforceable_budgets)
+
+
+def grant_subagents(spec: RunSpec, desc: HarnessDescriptor) -> SubagentGrant:
+    """Native sub-agents under the plan's allowance (ruling 2026-09-24, Q1).
+
+    Enforced only where the harness bounds count and depth from outside;
+    otherwise DISABLED, unless the plan recorded the harness's policy opt-in
+    (``token_budget``) and the run carries a strict budget the harness
+    enforces. No plan, a zero allowance or no native sub-agents: disabled.
+    """
+    allowance = spec.subagents
+    if (
+        allowance is None
+        or allowance.max_children == 0
+        or "sub_agents" not in desc.capabilities
+    ):
+        return SubagentGrant()
+    if {"count", "depth"} <= desc.subagent_limits:
+        return SubagentGrant(
+            mode="enforced",
+            max_children=allowance.max_children,
+            max_depth=allowance.max_depth,
+            max_tokens=allowance.max_tokens,
+        )
+    if allowance.fallback == "token_budget" and _budget_caps_subagents(spec, desc):
+        return SubagentGrant(mode="budget_capped", max_tokens=allowance.max_tokens)
+    return SubagentGrant()
+
+
 def refusal_reasons(
     spec: RunSpec, desc: HarnessDescriptor, policy: HarnessPolicy
 ) -> tuple[str, ...]:
@@ -192,7 +227,8 @@ def negotiate(
         granted_capabilities=spec.required_capabilities | granted_optional,
         absent_optional=spec.optional_capabilities - desc.capabilities,
         usage_quality=desc.usage_quality,
+        subagents=grant_subagents(spec, desc),
     )
 
 
-__all__ = ["HarnessPolicy", "negotiate", "refusal_reasons"]
+__all__ = ["HarnessPolicy", "grant_subagents", "negotiate", "refusal_reasons"]

@@ -34,6 +34,7 @@ from agent_utilities.layers.contracts import (
     HarnessRunFailed,
     RunSpec,
     RunToolset,
+    SubagentAllowance,
 )
 from agent_utilities.layers.execution import (
     HarnessRegistry,
@@ -90,6 +91,9 @@ def run_spec_for(request: AgentExecutionRequest, run_id: str) -> RunSpec:
         ),
         account_mode="api_key" if request.credential_ref else "subscription",
         account_ref=request.credential_ref,
+        subagents=None
+        if request.subagents is None
+        else SubagentAllowance.model_validate(request.subagents, strict=False),
         runtime_options=options,
     )
 

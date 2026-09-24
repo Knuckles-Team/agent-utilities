@@ -40,6 +40,8 @@ from agent_utilities.layers.contracts import (
 from agent_utilities.layers.session import RunContext
 
 HARNESS_NAME = "claude-code"
+#: Claude Code's native sub-agent tool.
+SUBAGENT_TOOL = "Task"
 
 DESCRIPTOR = HarnessDescriptor(
     **CLI_DESCRIPTOR_DEFAULTS,
@@ -250,6 +252,10 @@ class ClaudeCodeHarness(CliHarness):
         ]
         if spec.toolset.allowed_tools is not None:
             argv += ["--allowedTools", *spec.toolset.allowed_tools]
+        if run.negotiated.subagents.mode == "disabled":
+            # Claude Code cannot bound a child count or depth from outside:
+            # its native sub-agent tool runs only under a budget-capped grant.
+            argv += ["--disallowedTools", SUBAGENT_TOOL]
         if spec.model:
             argv += ["--model", spec.model]
         if spec.budget.max_cost_usd is not None:
@@ -258,4 +264,4 @@ class ClaudeCodeHarness(CliHarness):
         return Invocation(argv=tuple(argv), env=env, stdin_text=spec.task)
 
 
-__all__ = ["DESCRIPTOR", "HARNESS_NAME", "ClaudeCodeHarness"]
+__all__ = ["DESCRIPTOR", "HARNESS_NAME", "SUBAGENT_TOOL", "ClaudeCodeHarness"]

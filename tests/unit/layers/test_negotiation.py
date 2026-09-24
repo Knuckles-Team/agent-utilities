@@ -19,6 +19,7 @@ from agent_utilities.layers.contracts import (
     RunSpec,
     RunToolset,
     SkillRef,
+    SubagentAllowance,
     VendorTerms,
 )
 from agent_utilities.layers.negotiation import (
@@ -122,3 +123,75 @@ def test_in_process_runtime_accepts_its_declared_options_only() -> None:
 def test_devin_is_provider_managed_remote_only() -> None:
     spec = _spec(allowed_environments=frozenset({"provider-managed-remote"}))
     assert negotiate(spec, DEVIN, OPEN).environment == "provider-managed-remote"
+
+
+# --- ST-10: native sub-agents under the plan's allowance (ruling 2026-09-24 Q1)
+
+PLAN_ALLOWANCE = SubagentAllowance(
+    max_children=3, max_depth=1, max_tokens=8000, record_ref="decision:ab"
+)
+COUNTING = HarnessDescriptor(
+    **{
+        **CLAUDE.model_dump(),
+        "name": "counting",
+        "subagent_limits": frozenset({"count", "depth", "tokens"}),
+    }
+)
+
+
+def test_no_plan_grants_no_native_sub_agents() -> None:
+    assert negotiate(_spec(), CLAUDE, OPEN).subagents.mode == "disabled"
+    assert negotiate(_spec(), COUNTING, OPEN).subagents.mode == "disabled"
+
+
+def test_a_harness_that_bounds_count_and_depth_is_granted_the_allowance() -> None:
+    grant = negotiate(_spec(subagents=PLAN_ALLOWANCE), COUNTING, OPEN).subagents
+    assert (grant.mode, grant.max_children, grant.max_depth, grant.max_tokens) == (
+        "enforced",
+        3,
+        1,
+        8000,
+    )
+
+
+def test_a_harness_that_cannot_bound_a_child_count_is_disabled_by_default() -> None:
+    grant = negotiate(_spec(subagents=PLAN_ALLOWANCE), CLAUDE, OPEN).subagents
+    assert grant.mode == "disabled"
+
+
+def test_the_budget_opt_in_needs_a_strict_budget_the_harness_enforces() -> None:
+    opted = PLAN_ALLOWANCE.model_copy(update={"fallback": "token_budget"})
+    advisory = _spec(subagents=opted)
+    assert negotiate(advisory, CLAUDE, OPEN).subagents.mode == "disabled"
+    strict = _spec(subagents=opted, budget=RunBudget(max_cost_usd=2.0, mode="strict"))
+    grant = negotiate(strict, CLAUDE, OPEN).subagents
+    assert (grant.mode, grant.max_children, grant.max_tokens) == (
+        "budget_capped",
+        0,
+        8000,
+    )
+
+
+def test_a_harness_without_native_sub_agents_is_never_granted_them() -> None:
+    assert negotiate(_spec(subagents=PLAN_ALLOWANCE), CODEX, OPEN).subagents.mode == (
+        "disabled"
+    )
+
+
+def test_an_execution_request_carries_its_plan_node_s_allowance() -> None:
+    from agent_utilities.api.agent_control_contracts import AgentExecutionRequest
+    from agent_utilities.api.harness_executor import run_spec_for
+
+    request = AgentExecutionRequest(
+        agent_name="agent-lead",
+        task="survey",
+        subagents={"max_children": 2, "max_depth": 1, "record_ref": "decision:ab"},
+    )
+    spec = run_spec_for(request, "run-1")
+    assert spec.subagents == SubagentAllowance(
+        max_children=2, max_depth=1, record_ref="decision:ab"
+    )
+    assert (
+        run_spec_for(request.model_copy(update={"subagents": None}), "r").subagents
+        is None
+    )
