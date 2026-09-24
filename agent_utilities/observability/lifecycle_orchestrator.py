@@ -16,8 +16,8 @@ orchestrator:
 2. **Diffs against the actual graph state** — walks the loop spine forward
    (missing downstream stages) AND backward (an entry with a missing upstream link,
    e.g. an MR with no linked :SpecProposal), using the REQUIRED shape
-   (:data:`FORWARD_CHAIN`, the operational projection of
-   ``shapes/sdlc_lifecycle.shapes.ttl``).
+   (:data:`FORWARD_CHAIN`, the operational projection of EG's committed
+   ``sdlc-lifecycle-shapes`` core source).
 3. **Emits each missing transition as a REPORT-ONLY** ``:LifecycleStep`` proposal
    bound (``:boundCapability``) to the fleet capability that WOULD execute it —
    **without executing anything**. Idempotent/deduped on a stable signature.

@@ -36,6 +36,7 @@ from ...models.company_brain import DataClassification
 from ...protocols.source_connectors.base import ExternalAccess
 from ...protocols.source_connectors.tool_schema import validate_live_tool_contract
 from ...security.persistence_privacy import PersistencePrivacyGuard
+from ..core.typed_triples import TypedTriple, kg, literal, triple, typed
 from ..ingestion.change_envelope import ChangeEnvelope
 from ..ontology import ontology_integrity
 from ..ontology.connector_manifest import ConnectorManifest, SyncSpec
@@ -1583,46 +1584,43 @@ def _semantic_validation(
         _declared_semantic_validation(bundle, envelopes)
         return "declared-shacl-contract"
     try:
-        import rdflib
-
-        data = _build_certification_data_graph(rdflib, envelopes)
-        rendered = data.serialize(format="turtle")
-        data_turtle = (
-            rendered.decode() if isinstance(rendered, bytes) else str(rendered)
-        )
-        return _validate_native_shacl(data_turtle, bundle.shapes_text)
+        triples = _certification_data_triples(envelopes)
+        return _validate_native_shacl(triples, bundle.shapes_text)
     except CertificationError:
         raise
     except Exception as exc:
         raise CertificationError("epistemic-graph semantic validation failed") from exc
 
 
-def _validate_native_shacl(data_turtle: str, shapes_text: str) -> str:
+def _validate_native_shacl(triples: list[TypedTriple], shapes_text: str) -> str:
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     report = GraphComputeEngine.get_or_create().shacl_validate_ad_hoc(
-        data_turtle, shapes_text
+        shapes=shapes_text, data_triples=triples
     )
     if not bool(report.conforms):
         raise CertificationError("synthetic fixture does not conform to SHACL")
     return "epistemic-graph"
 
 
-def _build_certification_data_graph(
-    rdflib: Any, envelopes: Sequence[ChangeEnvelope]
-) -> Any:
-    data = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
+def _certification_data_triples(
+    envelopes: Sequence[ChangeEnvelope],
+) -> list[TypedTriple]:
+    """The synthetic fixture's envelopes as typed triples for EG (EH-472)."""
+    triples: list[TypedTriple] = []
     for index, envelope in enumerate(envelopes):
         payload = envelope.typed_payload or {}
         resource = str(payload.get("type") or "Document")
-        subject = rdflib.URIRef(f"urn:graphos:connector-certification:{index}")
-        data.add((subject, rdflib.RDF.type, kg[resource]))
-        data.add((subject, kg.sourceRecordRef, rdflib.Literal("opaque")))
-        data.add((subject, kg.tenantReference, rdflib.Literal("bound")))
-        data.add((subject, kg.accessPolicyReference, rdflib.Literal("bound")))
-        data.add((subject, kg.provenanceReference, rdflib.Literal("bound")))
-    return data
+        subject = f"urn:graphos:connector-certification:{index}"
+        triples.append(typed(subject, kg(resource)))
+        triples.append(triple(subject, kg("sourceRecordRef"), literal("opaque")))
+        for reference in (
+            "tenantReference",
+            "accessPolicyReference",
+            "provenanceReference",
+        ):
+            triples.append(triple(subject, kg(reference), literal("bound")))
+    return triples
 
 
 def _declared_semantic_validation(

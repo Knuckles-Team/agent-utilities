@@ -27,7 +27,7 @@ boundary uses a neutral in-memory bootstrap session, so it needs no IdP credenti
 ```bash
 pip install "agent-utilities[serving]"             # supported GraphOS runtime
 # Optional external integrations compose by name, for example:
-pip install "agent-utilities[serving,owl,postgresql,stardog]"
+pip install "agent-utilities[serving,postgresql,stardog]"
 ```
 
 ## 2. Generate your config (all options)

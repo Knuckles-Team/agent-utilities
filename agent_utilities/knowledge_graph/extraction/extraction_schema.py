@@ -1,11 +1,12 @@
 """Ontology-guided extraction schema (CONCEPT:AU-KG.retrieval.mmr-diversification).
 
-Loads the OWL **TBox** (``owl:Class`` + ``owl:ObjectProperty`` with
-``rdfs:domain``/``rdfs:range`` + labels) from the canonical ontology ``.ttl``
-modules into a compact, prompt-ready :class:`ExtractionSchema`, so the LLM fact
-extractor (:mod:`agent_utilities.knowledge_graph.extraction.fact_extractor`)
-extracts **ontology-typed** entities and **direction-constrained** relations
-instead of free snake_case predicates.
+Reads the OWL **TBox** (``owl:Class`` + ``owl:ObjectProperty`` with
+``rdfs:domain``/``rdfs:range`` + labels) of the graph's committed GraphSchema
+sources from Epistemic Graph (``OntologyInspect``, EH-471) into a compact,
+prompt-ready :class:`ExtractionSchema`, so the LLM fact extractor
+(:mod:`agent_utilities.knowledge_graph.extraction.fact_extractor`) extracts
+**ontology-typed** entities and **direction-constrained** relations instead of
+free snake_case predicates.
 
 The schema *is* the ontology. sift-kg injects a flat YAML schema into its prompt;
 we inject our formal OWL classes + ``rdfs:domain/range``, then keep the post-hoc
@@ -14,18 +15,12 @@ generation-time guidance *and* reasoning, which a flat schema cannot give.
 
 Design notes:
 
-* **rdflib lives in the ``[owl]`` extra, NOT the serving plane** (KG-2.242). This
-  module import-guards rdflib and degrades to ``None`` (free-vocab extraction)
-  when it is absent, so the lean serving image is unaffected and ontology
-  guidance auto-activates wherever the owl stack is installed (host daemon /
-  enterprise profile). This is auto-detection, not a flag (Configuration
-  discipline): the enhancement runs when the resource is present.
-* The ``.ttl`` files themselves are always-present package data; only the rdflib
-  *parser* is optional.
-* The TBox default namespace is ``http://knuckles.team/kg#`` (the ``:`` prefix in
-  the modules) — distinct from the engine LPG-projection ``au:`` namespace
-  (``_AU_NS``), which is for *instance* data (KG-2.240/2.242). We read class/
-  property *definitions* here, so the static ``.ttl`` parse is the right path.
+* **Epistemic Graph is the only RDF parser.** Agent Utilities never loads an
+  ontology document; it names EG core sources (``core:<module>@1``) and reads the
+  typed vocabulary view back. An unavailable engine degrades to ``None``
+  (free-vocab extraction), so ingestion never breaks on a schema read.
+* The TBox namespace is ``http://knuckles.team/kg#`` — distinct from the engine
+  LPG-projection ``au:`` namespace, which is for *instance* data (KG-2.240/2.242).
 """
 
 from __future__ import annotations
@@ -34,12 +29,10 @@ import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# knowledge_graph/ — the directory the ontology_*.ttl modules live in.
-_KG_DIR = Path(__file__).resolve().parent.parent
 _TBOX_NS = "http://knuckles.team/kg#"
 
 # Cap the injected schema so a small model's prompt never bloats (top-N by
@@ -54,33 +47,24 @@ _SKIP_TYPES: frozenset[str] = frozenset(
     {"codebase", "config", "event", "mcp_server", "skill", "prompt", "sparql"}
 )
 
-# The foundational core module — applies to all prose content as the default
-# closed vocabulary. Domain-specific source types additionally load their module.
-_CORE_MODULES: tuple[str, ...] = ("ontology",)
+# The foundational core source — applies to all prose content as the default
+# closed vocabulary. Domain-specific source types additionally read their EG core
+# module.
+_CORE_SOURCES: tuple[str, ...] = ("core:foundation@1",)
 
-# Source-type → extra domain ontology module(s), merged with the core. Keyed on
+# Source-type → extra EG core ontology source(s), merged with the core. Keyed on
 # the substring that identifies the domain in the source_type/connector name, so
-# both ``"servicenow"`` and ``"connector:servicenow"`` resolve. Static map, not a
-# flag (Configuration discipline). Unmatched prose content uses the core only.
-_DOMAIN_MODULES: dict[str, tuple[str, ...]] = {
-    "servicenow": ("ontology_servicenow",),
-    "leanix": ("ontology_leanix",),
-    "legal": ("ontology_legal",),
-    "medical": ("ontology_medical",),
-    "wellness": ("ontology_wellness",),
-    "hr": ("ontology_hr",),
-    "finance": ("ontology_banking", "ontology_trading"),
-    "banking": ("ontology_banking",),
-    "trading": ("ontology_trading",),
-    "government": ("ontology_government",),
-    "enterprise": ("ontology_enterprise",),
-    "infrastructure": ("ontology_infrastructure",),
-    "grafana": ("ontology_grafana",),
-    "observability": ("ontology_observability",),
-    "media": ("ontology_media",),
-    "social": ("ontology_social",),
-    "calendar": ("ontology_calendar",),
-    "energy": ("ontology_energy_geopolitics",),
+# both ``"medical"`` and ``"connector:medical"`` resolve. Static map, not a flag
+# (Configuration discipline). Unmatched prose content uses the core only; a
+# connector's own vocabulary lives in its connector pack, not in this table.
+_DOMAIN_SOURCES: dict[str, tuple[str, ...]] = {
+    "medical": ("core:medical@1",),
+    "hr": ("core:hr@1",),
+    "government": ("core:government@1",),
+    "enterprise": ("core:enterprise@1",),
+    "infrastructure": ("core:infrastructure@1",),
+    "calendar": ("core:calendar@1",),
+    "energy": ("core:energy_geopolitics@1",),
 }
 
 
@@ -165,18 +149,16 @@ class ExtractionSchema:
         return "\n".join(lines)
 
 
-def _module_paths(source_type: str) -> tuple[str, ...] | None:
-    """Resolve the ontology module basenames for ``source_type`` (or None to skip)."""
+def _source_ids(source_type: str) -> tuple[str, ...] | None:
+    """Resolve the EG core source ids for ``source_type`` (or None to skip)."""
     st = (source_type or "").strip().lower()
     if not st or st in _SKIP_TYPES:
         return None
-    modules: list[str] = list(_CORE_MODULES)
-    for key, mods in _DOMAIN_MODULES.items():
+    sources: list[str] = list(_CORE_SOURCES)
+    for key, ids in _DOMAIN_SOURCES.items():
         if key in st:
-            for m in mods:
-                if m not in modules:
-                    modules.append(m)
-    return tuple(modules)
+            sources.extend(source for source in ids if source not in sources)
+    return tuple(sources)
 
 
 def _synonyms_for(class_local: str) -> tuple[str, ...]:
@@ -198,113 +180,68 @@ def _synonyms_for(class_local: str) -> tuple[str, ...]:
     return tuple(syns)
 
 
-def _parse_modules(modules: tuple[str, ...]) -> ExtractionSchema | None:
-    """Parse the given ontology modules into an ExtractionSchema (rdflib-guarded)."""
-    try:
-        import rdflib
-    except ImportError:
-        # Lean serving plane has no rdflib (KG-2.242) → free-vocab extraction.
-        return None
+def _local(iri: str) -> str:
+    text = str(iri)
+    return text.rsplit("#", 1)[1] if "#" in text else text.rsplit("/", 1)[-1]
 
-    g = rdflib.Graph()
-    parsed_any = False
-    for mod in modules:
-        path = _KG_DIR / f"{mod}.ttl"
-        if not path.exists():
-            continue
-        try:
-            g.parse(str(path), format="turtle")
-            parsed_any = True
-        except Exception as e:  # noqa: BLE001 — a malformed module never breaks ingest
-            logger.debug("extraction_schema: parse failed (%s)", type(e).__name__)
-    if not parsed_any:
-        return None
 
-    OWL = rdflib.OWL
-    RDFS = rdflib.RDFS
-    SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
+def _describe(term: Any) -> str:
+    text = term.comment or term.label or ""
+    return str(text).strip().replace("\n", " ")[:160]
 
-    def _local(uri: object) -> str:
-        s = str(uri)
-        if "#" in s:
-            return s.rsplit("#", 1)[1]
-        return s.rsplit("/", 1)[-1]
 
-    def _label(subj: rdflib.term.Node) -> str:
-        for pred in (RDFS.comment, RDFS.label, SKOS.prefLabel):
-            val = g.value(subject=subj, predicate=pred)
-            if val:
-                return str(val).strip().replace("\n", " ")[:160]
-        return ""
+def _tbox_locals(iris: Any) -> tuple[str, ...]:
+    return tuple(_local(iri) for iri in iris if str(iri).startswith(_TBOX_NS))
 
-    # --- classes -> entity types ---
-    entity_types: list[EntityType] = []
-    seen_classes: set[str] = set()
-    for cls in g.subjects(rdflib.RDF.type, OWL.Class):
-        if not str(cls).startswith(_TBOX_NS):
-            continue
-        local = _local(cls)
-        if local in seen_classes:
-            continue
-        seen_classes.add(local)
-        entity_types.append(
-            EntityType(
-                name=local,
-                description=_label(cls),
-                synonyms=_synonyms_for(local),
+
+def _entity_types(view: Any) -> list[EntityType]:
+    entity_types: dict[str, EntityType] = {}
+    for term in view.classes:
+        local = _local(term.iri)
+        if str(term.iri).startswith(_TBOX_NS) and local not in entity_types:
+            entity_types[local] = EntityType(
+                name=local, description=_describe(term), synonyms=_synonyms_for(local)
             )
-        )
+    return list(entity_types.values())
 
-    # --- object properties -> typed relations ---
-    relations: list[Relation] = []
-    seen_preds: set[str] = set()
-    symmetric_props = {
-        _local(s) for s in g.subjects(rdflib.RDF.type, OWL.SymmetricProperty)
-    }
-    for prop in g.subjects(rdflib.RDF.type, OWL.ObjectProperty):
-        if not str(prop).startswith(_TBOX_NS):
-            continue
-        local = _local(prop)
-        pred = _camel_to_snake(local)
-        if pred in seen_preds:
-            continue
-        seen_preds.add(pred)
-        domain = tuple(
-            _local(d)
-            for d in g.objects(prop, RDFS.domain)
-            if str(d).startswith(_TBOX_NS)
-        )
-        rng = tuple(
-            _local(r)
-            for r in g.objects(prop, RDFS.range)
-            if str(r).startswith(_TBOX_NS)
-        )
-        relations.append(
-            Relation(
-                predicate=pred,
-                label=str(g.value(prop, RDFS.label) or "").strip(),
-                domain=domain,
-                range=rng,
-                symmetric=local in symmetric_props,
-            )
-        )
 
+def _relations(view: Any) -> list[Relation]:
+    relations: dict[str, Relation] = {}
+    for prop in view.object_properties:
+        predicate = _camel_to_snake(_local(prop.iri))
+        if not str(prop.iri).startswith(_TBOX_NS) or predicate in relations:
+            continue
+        relations[predicate] = Relation(
+            predicate=predicate,
+            label=str(prop.label or "").strip(),
+            domain=_tbox_locals(prop.domains),
+            range=_tbox_locals(prop.ranges),
+            symmetric=bool(prop.symmetric),
+        )
+    return list(relations.values())
+
+
+def _schema_from_view(name: str, view: Any) -> ExtractionSchema | None:
+    """Build the schema from EG's typed vocabulary view (EH-471)."""
+    entity_types = _entity_types(view)
+    relations = _relations(view)
     if not entity_types and not relations:
         return None
-
     # Relevance ordering: relations with BOTH endpoints typed first (they carry
     # direction constraints F uses); classes referenced by a relation first.
-    referenced: set[str] = set()
-    for r in relations:
-        referenced.update(r.domain)
-        referenced.update(r.range)
+    referenced = {local for r in relations for local in (*r.domain, *r.range)}
     entity_types.sort(key=lambda e: (e.name not in referenced, e.name))
     relations.sort(key=lambda r: (not (r.domain and r.range), r.predicate))
-
     return ExtractionSchema(
-        name="+".join(modules),
-        entity_types=tuple(entity_types),
-        relations=tuple(relations),
+        name=name, entity_types=tuple(entity_types), relations=tuple(relations)
+    )
+
+
+def _inspect_sources(source_ids: tuple[str, ...]) -> Any:
+    from ..core.graph_compute import GraphComputeEngine
+
+    return GraphComputeEngine.get_or_create().ontology_inspect(
+        source_ids=list(source_ids)
     )
 
 
@@ -313,20 +250,25 @@ def load_extraction_schema(source_type: str) -> ExtractionSchema | None:
     """Return the ontology-guided extraction schema for ``source_type`` (cached).
 
     ``None`` means *no ontology guidance* — the extractor falls back to its
-    free-vocab prompt unchanged (non-prose content, rdflib absent, or an empty
-    parse). Never raises: ingestion must not break on a schema-load failure.
+    free-vocab prompt unchanged (non-prose content, EG unavailable, or an empty
+    read). Never raises: ingestion must not break on a schema-load failure.
     """
-    try:
-        modules = _module_paths(source_type)
-        if not modules:
-            return None
-        schema = _parse_modules(modules)
-        if schema is None or schema.is_empty:
-            return None
-        return schema
-    except Exception as e:  # noqa: BLE001 — returns None (the documented 'no schema' case, the same shape as the empty/is_empty branches just above) so callers already handle a missing schema uniformly
-        logger.debug("load_extraction_schema(%s) failed: %s", source_type, e)
+    sources = _source_ids(source_type)
+    if not sources:
         return None
+    try:
+        view = _inspect_sources(sources)
+    except Exception as exc:
+        logger.warning(
+            "load_extraction_schema(%s): EG OntologyInspect failed: %s",
+            source_type,
+            exc,
+        )
+        return None
+    schema = _schema_from_view("+".join(sources), view)
+    if schema is None or schema.is_empty:
+        return None
+    return schema
 
 
 __all__ = [
@@ -338,4 +280,4 @@ __all__ = [
 ]
 
 # Public alias for the content→ontology map (referenced in docs/tests).
-CONTENT_TYPE_TO_ONTOLOGY = _DOMAIN_MODULES
+CONTENT_TYPE_TO_ONTOLOGY = _DOMAIN_SOURCES

@@ -153,12 +153,7 @@ def build_manifest(
     placeholder = _placeholder(fingerprints)
     spec = compile_manifest(placeholder)
     ttl = export_manifest_ttl(spec, source=placeholder.resolved_ontology_source)
-
-    import rdflib
-
-    graph = rdflib.Graph()
-    graph.parse(data=ttl, format="turtle")
-    digest, triple_count = ontology_integrity.canonical_hash(graph)
+    digest, triple_count = ontology_integrity.canonical_ttl_hash(ttl)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
     # An UNSIGNED preview must not require key custody: the release
     # orchestrator's contract is that every mode short of --sign is safe to

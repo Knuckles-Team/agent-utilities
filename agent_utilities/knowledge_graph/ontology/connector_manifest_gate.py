@@ -18,12 +18,15 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import re
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "NATIVE_FINGERPRINT_FORMAT",
@@ -1495,37 +1498,35 @@ def _load_and_validate_manifest(path: Path, label: str) -> tuple[Any, Any, list[
     return manifest, data, []
 
 
-def _compiled_manifest_graph(manifest: Any, label: str) -> tuple[Any, list[str]]:
+def _compiled_manifest_hash(
+    manifest: Any, label: str
+) -> tuple[tuple[str, int] | None, list[str]]:
+    """Compile the manifest and take its canonical digest from EG (EH-471)."""
+    from . import ontology_integrity
     from .manifest_compiler import compile_manifest, export_manifest_ttl
 
     try:
         spec = compile_manifest(manifest)
         ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
-        import rdflib
-
-        g = rdflib.Graph()
-        g.parse(data=ttl, format="turtle")
-    except ImportError:
-        # rdflib is deliberately excluded from the lean `serving` plane
-        # (see KG-2.242) and lives only in the `[owl]` extra — but THIS gate
-        # (the mandatory D17 compile-before-sync check for the signed connector
-        # fleet) has no engine-native fallback and
-        # genuinely needs it to parse/hash the compiled ontology. Degrade to one
-        # clear, actionable line instead of a bare ModuleNotFoundError bubbling
-        # up as "manifest does not compile cleanly".
-        return None, [
-            f"[dependency] {label}: the connector-manifest compile-before-sync "
-            "gate needs rdflib to parse/hash the compiled ontology, and it is "
-            "not installed on this deployment — install the 'owl' extra "
-            "(pip install 'agent-utilities[owl]', or add it to this service's "
-            "image) to enable manifest-gated sync for this source."
-        ]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
+        logger.warning("connector manifest %s does not compile: %s", label, exc)
         return None, [
             f"[compile] {label}: manifest does not compile cleanly "
             f"({type(exc).__name__})"
         ]
-    return g, []
+    try:
+        return ontology_integrity.canonical_ttl_hash(ttl), []
+    except Exception as exc:
+        logger.warning(
+            "connector manifest %s could not be hashed by EG: %s", label, exc
+        )
+        return None, [
+            f"[dependency] {label}: the connector-manifest compile-before-sync gate "
+            "hashes the compiled ontology through the epistemic-graph engine "
+            f"(OntologyInspect), which could not answer ({type(exc).__name__}); "
+            "connect this service to its graph engine to enable manifest-gated "
+            "sync for this source."
+        ]
 
 
 def _attestation_gate_violations(
@@ -1554,19 +1555,17 @@ def _check_manifest_bytes(
     agents_root: Path | None = None,
 ) -> list[str]:
     """Implementation shared by runtime and direct hash-only callers."""
-    from . import ontology_integrity
-
     label = _manifest_label(path)
     manifest, data, schema_violations = _load_and_validate_manifest(path, label)
     if manifest is None:
         return schema_violations
 
-    g, compile_violations = _compiled_manifest_graph(manifest, label)
-    if g is None:
+    hashed, compile_violations = _compiled_manifest_hash(manifest, label)
+    if hashed is None:
         return compile_violations
 
     violations: list[str] = []
-    digest, triple_count = ontology_integrity.canonical_hash(g)
+    digest, triple_count = hashed
     if digest != manifest.provenance.integrity.hash:
         violations.append(
             f"[integrity] {label}: recomputed hash {digest} (n={triple_count}) != "

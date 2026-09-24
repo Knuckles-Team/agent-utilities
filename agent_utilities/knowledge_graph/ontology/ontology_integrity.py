@@ -3,7 +3,7 @@
 CONCEPT:AU-KG.ontology.supply-chain-integrity — fleet-wide guarantee that a generated/
 reconciled ``ontology_<source>.ttl`` (or federated ``<pkg>/ontology/*.ttl``) is exactly
 the graph a trusted party produced: a **canonical, serialization-order-invariant hash**
-(URDNA2015-equivalent, via rdflib's own RDF-canonicalization) plus an Ed25519 release
+(URDNA2015-equivalent, computed by Epistemic Graph's ``OntologyInspect``) plus an Ed25519 release
 signature whose public key is independently pinned and can be verified without access
 to the private runtime signing secret.
 
@@ -29,7 +29,7 @@ __all__ = [
     "unsigned_release_placeholder",
     "active_release_public_key",
     "assert_signing_key_matches_locks",
-    "canonical_hash",
+    "canonical_ttl_hash",
     "canonical_manifest_hash",
     "canonical_signed_document_hash",
     "repository_commit_sha",
@@ -438,24 +438,25 @@ def verify_release_signature(
         return False
 
 
-def canonical_hash(graph: Any) -> tuple[str, int]:
-    """A URDNA2015-equivalent canonical hash of an RDF graph.
+def canonical_ttl_hash(ttl: str) -> tuple[str, int]:
+    """The canonical ``urdna2015-sha256`` identity of a Turtle document, from EG.
 
-    Uses :func:`rdflib.compare.to_canonical_graph` (deterministic SHA-256 bnode
-    labeling correlated with graph contents — the same guarantee URDNA2015 gives),
-    then hashes the *sorted* N3 serialization of every canonicalized triple. Sorting
-    makes the result invariant to the graph's internal/serialization triple order —
-    parsing the same ontology from Turtle vs. N-Triples vs. JSON-LD yields the same hash.
+    Epistemic Graph's ``OntologyInspect`` parses the document and hashes the
+    sorted N-Triples lines of its distinct triples -- serialization-order
+    invariant, and byte-identical to the digests already pinned for compiled
+    connector manifests (which carry no blank nodes). Agent Utilities parses no
+    RDF itself (EH-471). A document with blank nodes has no canonical digest and
+    is refused.
 
     Returns:
         ``(hex_digest, triple_count)``.
     """
-    from rdflib.compare import to_canonical_graph
+    from ..core.graph_compute import GraphComputeEngine
 
-    canon = to_canonical_graph(graph)
-    lines = sorted(f"{s.n3()} {p.n3()} {o.n3()} ." for s, p, o in canon)
-    payload = "\n".join(lines).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest(), len(lines)
+    view = GraphComputeEngine.get_or_create().ontology_inspect([ttl])
+    if view.canonical_digest is None:
+        raise ValueError("a document with blank nodes has no canonical digest")
+    return str(view.canonical_digest), int(view.triple_count)
 
 
 def canonical_manifest_hash(manifest: Any) -> str:

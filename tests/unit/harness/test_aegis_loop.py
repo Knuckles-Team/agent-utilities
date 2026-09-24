@@ -8,10 +8,6 @@ diversifies ships every round.
 
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("pyshacl")
-
 from agent_utilities.harness.aegis_loop import AegisLoop
 
 

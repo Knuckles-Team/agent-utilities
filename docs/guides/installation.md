@@ -55,9 +55,8 @@ pip install agent-utilities[embeddings-ollama]
 # ---------------------------------------------------------
 # 5. OWL Reasoning & Ontologies
 # ---------------------------------------------------------
-# Core OWL reasoning (Owlready2 + HermiT)
-# Note: Requires Java Runtime Environment (sudo apt install default-jre)
-pip install agent-utilities[owl]
+# OWL reasoning, SHACL validation and RDF parsing are served by the
+# epistemic-graph engine (a base dependency); there is no Python OWL extra.
 
 # Stardog OWL backend
 pip install agent-utilities[stardog]

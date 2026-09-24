@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -21,6 +20,7 @@ from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
     QualifiedObjectRelationship,
     SemanticEntityRef,
 )
+from tests.graph_slice_triples import slice_triples
 
 
 def _slice_payload() -> dict:
@@ -297,60 +297,17 @@ def test_contract_types_remain_directly_constructible_for_owned_consumers() -> N
     )
 
 
-def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes() -> None:
-    """Prove the executable ChangeEnvelope names match the semantic contract."""
-    rdflib = pytest.importorskip("rdflib")
-    pyshacl = pytest.importorskip("pyshacl")
-    from rdflib.namespace import RDF, XSD
-
+def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes(
+    engine_graph,
+) -> None:
+    """Prove the executable ChangeEnvelope names match EG's committed
+    ``process-intelligence-shapes`` contract; EG validates the typed triples."""
     model = ObjectCentricGraphSlice.model_validate(_slice_payload())
     entities, links = model.to_graph_slice()
-    graph = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
-
-    def literal(value: object) -> object | None:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, str) and value:
-            return rdflib.Literal(value)
-        if isinstance(value, int):
-            return rdflib.Literal(value, datatype=XSD.integer)
-        if isinstance(value, float):
-            return rdflib.Literal(value, datatype=XSD.double)
-        return None
-
-    for entity in entities:
-        subject = kg[f"node/{entity['id']}"]
-        graph.add((subject, RDF.type, kg[entity["node_type"]]))
-        for key, value in entity.items():
-            if key in {"id", "node_type"}:
-                continue
-            object_value = literal(value)
-            if object_value is not None:
-                graph.add((subject, kg[key], object_value))
-    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
-    for link in links:
-        graph.add(
-            (
-                node_iris[link["source"]],
-                kg[link["relationship"]],
-                node_iris[link["target"]],
-            )
-        )
-
-    shapes_path = (
-        Path(__file__).parents[3]
-        / "agent_utilities"
-        / "knowledge_graph"
-        / "shapes"
-        / "process_intelligence.shapes.ttl"
+    report = engine_graph.shacl_validate_committed(
+        data_triples=slice_triples(entities, links)
     )
-    conforms, _, report = pyshacl.validate(
-        graph,
-        shacl_graph=str(shapes_path),
-        inference="none",
-    )
-    assert conforms, report
+    assert report.conforms, report.results
 
 
 # ── graph round-trip (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip) ───────────

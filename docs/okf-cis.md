@@ -30,10 +30,8 @@ generated from source markers, not edited by hand.
 3. Add the exact marker to source and its design evidence.
 4. Run `python scripts/build_concepts_yaml.py`.
 5. Run `python scripts/check_concepts.py` and
-   `python scripts/check_domain_vocab.py`.
-6. Rebuild RDF with `python scripts/build_concept_rdf.py --registry
-   docs/concepts.yaml --out
-   agent_utilities/knowledge_graph/ontology_concepts.ttl`.
+   `python scripts/check_domain_vocab.py`. The concept RDF is the
+   epistemic-graph core source `concepts-v1.ttl`; Agent Utilities emits none.
 
 `agent-utilities concept resolve --id <ID>` returns the parsed slug, pillar,
 domain, semantic segments, OKF path, and IRI. It rejects every noncanonical

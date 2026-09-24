@@ -72,13 +72,6 @@ from agent_utilities.orchestration.fleet_reconciler import (  # noqa: E402
 )
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
-_OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
-_OWL_OBJECT_PROPERTY = "http://www.w3.org/2002/07/owl#ObjectProperty"
-_OWL_DATATYPE_PROPERTY = "http://www.w3.org/2002/07/owl#DatatypeProperty"
-_RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
-_RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
-_RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
-_RDFS_SUBCLASSOF = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
 ONTOLOGY_LOCK = ROOT / "agent_utilities" / "knowledge_graph" / "ontology.lock"
 _CONNECTOR_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -375,7 +368,7 @@ def _find_module_dir(connector_root: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _detect_ontology_source(graph: Any) -> str | None:
+def _detect_ontology_source(view: Any) -> str | None:
     """The ttl's own declared ``owl:Ontology`` IRI local slug (e.g. "servicenow"), if any.
 
     A connector's python package name (``servicenow-api``) commonly differs from the
@@ -384,20 +377,91 @@ def _detect_ontology_source(graph: Any) -> str | None:
     package name == IRI slug) is what makes the anti-sprawl "already wired" check land
     on the real, existing federated module instead of a false new-source guess.
     """
-    import rdflib
-
-    iris = sorted(
-        str(s)
-        for s in graph.subjects(
-            predicate=rdflib.RDF.type,
-            object=rdflib.URIRef("http://www.w3.org/2002/07/owl#Ontology"),
-        )
-        if isinstance(s, rdflib.URIRef)
-    )
-    for iri in iris:
+    for iri in sorted(str(item) for item in view.ontologies):
         if iri.startswith("http://knuckles.team/kg/"):
             return _local(iri)
     return None
+
+
+def _inspect_ontology_dir(module_dir: Path) -> Any | None:
+    """EG's ``OntologyInspect`` view of every ``*.ttl`` in ``module_dir/ontology``.
+
+    Epistemic Graph is the only RDF parser (EH-471); ``None`` when the connector
+    ships no ontology documents (an empty request would inspect the composed schema).
+    """
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    documents = [
+        path.read_text(encoding="utf-8")
+        for path in sorted((module_dir / "ontology").glob("*.ttl"))
+    ]
+    if not documents:
+        return None
+    return GraphComputeEngine.get_or_create().ontology_inspect(documents)
+
+
+def _term_label(term: Any) -> str:
+    return str(term.label) if term.label else _humanize(_local(str(term.iri)))
+
+
+def _field_vocabulary(view: Any) -> dict[str, str]:
+    """Datatype properties: global (domain-free) field vocabulary, matching the
+    existing fleet convention (ontology_leanix.ttl, servicenow.ttl, gitlab.ttl all
+    keep DatatypeProperty domain-free) — shared across every resource in this ttl set."""
+    return {
+        _local(str(prop.iri)): _xsd_curie(str(prop.ranges[0]))
+        if prop.ranges
+        else "xsd:string"
+        for prop in view.datatype_properties
+    }
+
+
+def _relations_by_domain(
+    view: Any, class_locals: set[str], todos: list[str]
+) -> dict[str, list[ResourceRelation]]:
+    """Object properties: only attach to a resource when rdfs:domain is explicitly
+    declared AND resolves to a known class — never guess a domain (Wire-First: no
+    LLM/heuristic invention of structure the source ttl doesn't state)."""
+    relations: dict[str, list[ResourceRelation]] = {}
+    for prop in view.object_properties:
+        local = _local(str(prop.iri))
+        domain = _local(str(prop.domains[0])) if prop.domains else None
+        target = _local(str(prop.ranges[0])) if prop.ranges else "owl:Thing"
+        if domain in class_locals:
+            relations.setdefault(domain, []).append(
+                ResourceRelation(name=local, label=_term_label(prop), target=target)
+            )
+            continue
+        todos.append(
+            f"relation '{local}' has no declared rdfs:domain resolving to a known "
+            f"resource in this connector's ontology — not attached to any resource; "
+            f"verify its true domain manually."
+        )
+    return relations
+
+
+def _crosswalk(name: str, parents: list[Any]) -> tuple[str | None, str]:
+    """D16 residue: three-tier crosswalk, tried in decreasing order of confidence —
+    (1) the source ttl's OWN declared rdfs:subClassOf (not a heuristic at all),
+    (2) DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate fact-sheet lookup by name),
+    (3) HUB_NAME_HEURISTIC_CROSSWALK (nearest hub-ontology class by name — a
+        best-effort DRAFT, human sign-off required, never auto-enforced).
+    Never invented beyond this conservative table: no hit anywhere -> None."""
+    if parents:
+        return _local(str(parents[0])), "source ttl rdfs:subClassOf"
+    archimate = DEFAULT_ARCHIMATE_CROSSWALK.get(name)
+    if archimate:
+        return (
+            archimate,
+            "DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate lookup by resource name)",
+        )
+    hub = nearest_hub_class(name)
+    if hub:
+        return hub, (
+            "DRAFT — nearest hub-canonical-class-by-name heuristic "
+            "(D16 residue; human sign-off required before use)"
+        )
+    return None, "UNRESOLVED — no crosswalk found by any heuristic"
 
 
 def _read_ontology(
@@ -408,140 +472,23 @@ def _read_ontology(
     Returns ``(resources, schema_mappings, review_todos, ontology_source)``, sorted
     deterministically by resource/local name.
     """
-    import rdflib
-
-    graph = rdflib.Graph()
-    for ttl in sorted((module_dir / "ontology").glob("*.ttl")):
-        graph.parse(str(ttl), format="turtle")
-
-    ontology_source = _detect_ontology_source(graph)
+    view = _inspect_ontology_dir(module_dir)
+    if view is None:
+        return [], {}, [], None
     todos: list[str] = []
-
-    class_uris = sorted(
-        {
-            str(s)
-            for s in graph.subjects(
-                predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_CLASS)
-            )
-            if isinstance(s, rdflib.URIRef)
-        }
-    )
-    class_locals = {_local(u) for u in class_uris}
-
-    def _label(uri: str) -> str:
-        for lbl in graph.objects(
-            subject=rdflib.URIRef(uri), predicate=rdflib.URIRef(_RDFS_LABEL)
-        ):
-            return str(lbl)
-        return _humanize(_local(uri))
-
-    # datatype properties: global (domain-free) field vocabulary, matching the
-    # existing fleet convention (ontology_leanix.ttl, servicenow.ttl, gitlab.ttl all
-    # keep DatatypeProperty domain-free) — shared across every resource in this ttl set.
-    fields: dict[str, str] = {}
-    for uri in sorted(
-        {
-            str(s)
-            for s in graph.subjects(
-                predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_DATATYPE_PROPERTY)
-            )
-            if isinstance(s, rdflib.URIRef)
-        }
-    ):
-        rng = next(
-            graph.objects(
-                subject=rdflib.URIRef(uri), predicate=rdflib.URIRef(_RDFS_RANGE)
-            ),
-            None,
-        )
-        fields[_local(uri)] = _xsd_curie(str(rng)) if rng is not None else "xsd:string"
-
-    # object properties: only attach to a resource when rdfs:domain is explicitly
-    # declared AND resolves to a known class — never guess a domain (Wire-First: no
-    # LLM/heuristic invention of structure the source ttl doesn't state).
-    relations_by_domain: dict[str, list[ResourceRelation]] = {}
-    for uri in sorted(
-        {
-            str(s)
-            for s in graph.subjects(
-                predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_OBJECT_PROPERTY)
-            )
-            if isinstance(s, rdflib.URIRef)
-        }
-    ):
-        domain = next(
-            graph.objects(
-                subject=rdflib.URIRef(uri), predicate=rdflib.URIRef(_RDFS_DOMAIN)
-            ),
-            None,
-        )
-        rng = next(
-            graph.objects(
-                subject=rdflib.URIRef(uri), predicate=rdflib.URIRef(_RDFS_RANGE)
-            ),
-            None,
-        )
-        target = _local(str(rng)) if isinstance(rng, rdflib.URIRef) else "owl:Thing"
-        local = _local(uri)
-        if isinstance(domain, rdflib.URIRef) and _local(str(domain)) in class_locals:
-            relations_by_domain.setdefault(_local(str(domain)), []).append(
-                ResourceRelation(name=local, label=_label(uri), target=target)
-            )
-        else:
-            todos.append(
-                f"relation '{local}' has no declared rdfs:domain resolving to a known "
-                f"resource in this connector's ontology — not attached to any resource; "
-                f"verify its true domain manually."
-            )
-
+    classes = sorted(view.classes, key=lambda term: str(term.iri))
+    class_locals = {_local(str(term.iri)) for term in classes}
+    fields = _field_vocabulary(view)
+    relations_by_domain = _relations_by_domain(view, class_locals, todos)
     resources: list[ResourceSpec] = []
     schema_mappings: dict[str, SchemaMapping] = {}
-    for uri in class_uris:
-        name = _local(uri)
-        parent_ref = next(
-            graph.objects(
-                subject=rdflib.URIRef(uri), predicate=rdflib.URIRef(_RDFS_SUBCLASSOF)
-            ),
-            None,
-        )
-        # D16 residue: three-tier crosswalk, tried in decreasing order of confidence —
-        # (1) the source ttl's OWN declared rdfs:subClassOf (not a heuristic at all),
-        # (2) DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate fact-sheet lookup by name),
-        # (3) HUB_NAME_HEURISTIC_CROSSWALK (nearest hub-ontology class by name — a
-        #     best-effort DRAFT, human sign-off required, never auto-enforced).
-        # Never invented beyond this conservative table: no hit anywhere -> left None.
-        subclass_crosswalk = (
-            _local(str(parent_ref)) if isinstance(parent_ref, rdflib.URIRef) else None
-        )
-        archimate_crosswalk = (
-            DEFAULT_ARCHIMATE_CROSSWALK.get(name)
-            if subclass_crosswalk is None
-            else None
-        )
-        hub_name_crosswalk = (
-            nearest_hub_class(name)
-            if subclass_crosswalk is None and archimate_crosswalk is None
-            else None
-        )
-        crosswalk = subclass_crosswalk or archimate_crosswalk or hub_name_crosswalk
-        crosswalk_kind = (
-            "source ttl rdfs:subClassOf"
-            if subclass_crosswalk
-            else (
-                "DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate lookup by resource name)"
-                if archimate_crosswalk
-                else (
-                    "DRAFT — nearest hub-canonical-class-by-name heuristic "
-                    "(D16 residue; human sign-off required before use)"
-                    if hub_name_crosswalk
-                    else "UNRESOLVED — no crosswalk found by any heuristic"
-                )
-            )
-        )
+    for term in classes:
+        name = _local(str(term.iri))
+        crosswalk, crosswalk_kind = _crosswalk(name, list(term.parents))
         resources.append(
             ResourceSpec(
                 name=name,
-                label=_label(uri),
+                label=_term_label(term),
                 id_prefix=name.lower(),
                 relations=sorted(
                     relations_by_domain.get(name, []), key=lambda r: r.name
@@ -555,8 +502,7 @@ def _read_ontology(
             f"schema_mappings.{name}.ontology_class = {crosswalk!r} [{crosswalk_kind}] "
             "— verify manually before relying on this crosswalk for reasoning/joins."
         )
-
-    return resources, schema_mappings, todos, ontology_source
+    return resources, schema_mappings, todos, _detect_ontology_source(view)
 
 
 def _read_sync(
@@ -781,11 +727,7 @@ def build_manifest(
 
     spec = compile_manifest(placeholder)
     ttl = export_manifest_ttl(spec, source=source_slug)
-    import rdflib
-
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    digest, triple_count = ontology_integrity.canonical_hash(g)
+    digest, triple_count = ontology_integrity.canonical_ttl_hash(ttl)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # See generate_native_connector_manifest.py: an UNSIGNED preview must not

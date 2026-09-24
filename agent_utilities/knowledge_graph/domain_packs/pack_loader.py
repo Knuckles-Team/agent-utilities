@@ -30,7 +30,7 @@ never a partial/best-effort load):
 4. Every mapping rule's ``node_type``/``edge_target_type`` resolves to either
    (a) one of the pack's own declared ``ontology.resources`` (fast path, no
    canonical lookup needed) or (b) an existing class in the canonical ontology
-   library (:func:`canonical_ontology_class_names`) — never an invented class
+   library (:func:`canonical_ontology_class_names`, read from EG) — never an invented class
    name. This is the concrete enforcement of "packs must extend the canonical
    ontology library."
 5. Every bundled ``shacl_shapes`` file parses as valid Turtle/SHACL and its
@@ -125,39 +125,29 @@ class LoadedDomainPack:
         return frozenset(c.local for c in self.ontology_spec.classes)
 
 
-def _knowledge_graph_dir() -> Path:
-    return Path(__file__).resolve().parent.parent
+def _inspect_ontology(documents: list[str]) -> Any:
+    """EG's ``OntologyInspect`` view (EH-471): the composed GraphSchema when
+    ``documents`` is empty, else exactly those Turtle documents. Epistemic Graph
+    is the only RDF parser; Agent Utilities reads the typed view."""
+    from ..core.graph_compute import GraphComputeEngine
+
+    return GraphComputeEngine.get_or_create().ontology_inspect(documents)
+
+
+def _local_name(iri: str) -> str:
+    return str(iri).rsplit("#", 1)[-1]
 
 
 def canonical_ontology_class_names() -> frozenset[str]:
-    """Every ``owl:Class`` local name declared anywhere in the bundled
-    canonical ontology library (``ontology.ttl`` + every sibling
-    ``ontology_*.ttl`` domain module physically present in the package).
+    """Every ``owl:Class`` local name the graph's composed GraphSchema declares.
 
-    Offline, deterministic, no LLM — a straight rdflib parse over files that
-    ship with the package regardless of which are currently ``owl:imports``-ed
-    at runtime (mirrors ``manifest_compiler._canonical_owl_imports``'s own
-    file-based approach). Used only to check that a domain pack's mappings
-    reference a class that genuinely exists somewhere in the canonical
-    library — never to decide whether that module is wired/active.
+    Read from Epistemic Graph (``OntologyInspect`` over the composed core and
+    attached sources) — offline, deterministic, no LLM. Used only to check that a
+    domain pack's mappings reference a class that genuinely exists in the
+    canonical library — never to decide whether that module is wired/active.
     """
-    import rdflib
-
-    kg_dir = _knowledge_graph_dir()
-    names: set[str] = set()
-    owl_class = rdflib.URIRef("http://www.w3.org/2002/07/owl#Class")
-    for ttl_path in sorted(kg_dir.glob("ontology*.ttl")):
-        graph = rdflib.Graph()
-        try:
-            graph.parse(str(ttl_path), format="turtle")
-        except Exception:  # noqa: BLE001 - a malformed sibling module must not
-            # hide a genuine pack-validation failure behind an unrelated parse
-            # error; skip it (it will independently fail its OWN gate).
-            continue
-        for subject in graph.subjects(rdflib.RDF.type, owl_class):
-            if isinstance(subject, rdflib.URIRef):
-                names.add(str(subject).rsplit("#", 1)[-1])
-    return frozenset(names)
+    view = _inspect_ontology([])
+    return frozenset(_local_name(term.iri) for term in view.classes)
 
 
 def _resolve_class(
@@ -211,26 +201,10 @@ def _check_shacl_shapes(
 ) -> None:
     if not manifest.shacl_shapes:
         return
-    import rdflib
-
     own_classes = frozenset(r.name for r in manifest.ontology.resources)
     canonical = canonical_ontology_class_names()
-    sh_target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
     for rel_path in manifest.shacl_shapes:
-        shape_path = pack_dir / rel_path
-        if not shape_path.is_file():
-            raise DomainPackError(
-                f"{label}: shacl_shapes entry {rel_path!r} does not exist"
-            )
-        graph = rdflib.Graph()
-        try:
-            graph.parse(str(shape_path), format="turtle")
-        except Exception as exc:  # noqa: BLE001 - fail-closed on invalid SHACL
-            raise DomainPackError(
-                f"{label}: shacl_shapes entry {rel_path!r} is not valid Turtle/SHACL"
-            ) from exc
-        for target in graph.objects(predicate=sh_target_class):
-            class_name = str(target).rsplit("#", 1)[-1]
+        for class_name in _shape_target_names(pack_dir, rel_path, label=label):
             if not _resolve_class(
                 class_name, own_classes=own_classes, canonical=canonical
             ):
@@ -238,6 +212,21 @@ def _check_shacl_shapes(
                     f"{label}: {rel_path} sh:targetClass {class_name!r} is neither "
                     "a pack resource nor a canonical ontology class"
                 )
+
+
+def _shape_target_names(pack_dir: Path, rel_path: str, *, label: str) -> list[str]:
+    shape_path = pack_dir / rel_path
+    if not shape_path.is_file():
+        raise DomainPackError(
+            f"{label}: shacl_shapes entry {rel_path!r} does not exist"
+        )
+    try:
+        view = _inspect_ontology([shape_path.read_text(encoding="utf-8")])
+    except Exception as exc:
+        raise DomainPackError(
+            f"{label}: shacl_shapes entry {rel_path!r} is not valid Turtle/SHACL"
+        ) from exc
+    return [_local_name(target) for target in view.shape_target_classes]
 
 
 def _as_set(dicts: list[dict[str, Any]]) -> set[str]:

@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
@@ -4730,10 +4730,9 @@ class GraphComputeEngine:
         routes to the engine's native ``client.rdf.sparql`` so the
         query executes against the engine's RDF projection of the live property graph
         (resource object -> typed edge, literal -> typed property cell, ``rdf:type`` ->
-        the engine ``type`` label) -- NOT a rdflib materialization. Returns one dict per
-        result row keyed by projected variable. Raises if the engine/op is unavailable
-        (e.g. a server built without the ``sparql`` feature) so callers can fall back to
-        the rdflib path.
+        the engine ``type`` label). Returns one dict per result row keyed by projected
+        variable. Raises if the engine/op is unavailable (e.g. a server built without
+        the ``sparql`` feature); there is no local RDF fallback.
 
         ``base_iri`` + ``type_convention`` select the engine's LPG→RDF projection
         vocabulary (engine concept KG-2.240): empty ⇒ the identity projection (verbatim keys);
@@ -4972,14 +4971,26 @@ class GraphComputeEngine:
             )
         return report
 
-    def shacl_validate_committed(self, data_graph: str) -> Any:
-        """Validate RDF data against EG's committed composed GraphSchema.
+    @staticmethod
+    def _shacl_params(
+        data_graph: str,
+        data_triples: Sequence[Mapping[str, Any]],
+        shapes: str | None = None,
+    ) -> dict[str, Any]:
+        """One ``ShaclValidate`` body: Turtle, typed triples (EH-472) or neither.
 
-        The request deliberately omits ``shapes``.  The generated EG contract is
-        the only validator and returns the digest of the exact schema snapshot
-        used for this validation; no AU-local shape parsing or fallback exists.
+        Neither validates the request graph's live RDF inside EG. Agent Utilities
+        never renders or parses RDF itself; typed triples are plain values the
+        engine turns into terms.
         """
+        params: dict[str, Any] = {"data_graph": data_graph}
+        if data_triples:
+            params["data_triples"] = [dict(item) for item in data_triples]
+        if shapes is not None:
+            params["shapes"] = shapes
+        return params
 
+    def _send_shacl(self, params: dict[str, Any]) -> Any:
         import asyncio as _asyncio
 
         from epistemic_graph.generated.reasoning import send_shacl_validate
@@ -4990,55 +5001,100 @@ class GraphComputeEngine:
 
         async def _drive() -> Any:
             return await send_shacl_validate(
-                self._engine_async_client(),
-                {"data_graph": data_graph},
-                self.graph_name,
+                self._engine_async_client(), params, self.graph_name
             )
 
-        future = _asyncio.run_coroutine_threadsafe(_drive(), loop)
-        return self._require_committed_shacl_receipt(future.result())
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
 
-    async def shacl_validate_committed_async(self, data_graph: str) -> Any:
+    def shacl_validate_committed(
+        self,
+        data_graph: str = "",
+        *,
+        data_triples: Sequence[Mapping[str, Any]] = (),
+    ) -> Any:
+        """Validate data against EG's committed composed GraphSchema.
+
+        The request deliberately omits ``shapes``.  The generated EG contract is
+        the only validator and returns the digest of the exact schema snapshot
+        used for this validation; no AU-local shape parsing or fallback exists.
+        With neither ``data_graph`` nor ``data_triples`` EG validates this
+        graph's live RDF.
+        """
+
+        report = self._send_shacl(self._shacl_params(data_graph, data_triples))
+        return self._require_committed_shacl_receipt(report)
+
+    async def shacl_validate_committed_async(
+        self,
+        data_graph: str = "",
+        *,
+        data_triples: Sequence[Mapping[str, Any]] = (),
+    ) -> Any:
         """Async counterpart of :meth:`shacl_validate_committed`."""
 
         from epistemic_graph.generated.reasoning import send_shacl_validate
 
         report = await send_shacl_validate(
             self.async_client,
-            {"data_graph": data_graph},
+            self._shacl_params(data_graph, data_triples),
             self.graph_name,
         )
         return self._require_committed_shacl_receipt(report)
 
-    def shacl_validate_ad_hoc(self, data_graph: str, shapes: str) -> Any:
+    def shacl_validate_ad_hoc(
+        self,
+        data_graph: str = "",
+        shapes: str = "",
+        *,
+        data_triples: Sequence[Mapping[str, Any]] = (),
+    ) -> Any:
         """Validate with explicit component-owned shapes in EG.
 
-        This surface is only for non-governance specialist checks whose shapes
-        have not yet been attached to GraphSchema. The engine remains the sole
-        interpreter; its empty schema receipt proves the caller supplied an
-        ad-hoc document rather than committed governance authority.
+        This surface is only for shapes a connector package owns and ships (its
+        certification bundle); every agent-orchestration shape is an EG core
+        source validated through :meth:`shacl_validate_committed`. The engine
+        remains the sole interpreter; its empty schema receipt proves the caller
+        supplied an ad-hoc document rather than committed governance authority.
+        """
+
+        if not shapes.strip():
+            raise ValueError(
+                "ad-hoc SHACL validation needs an explicit shapes document"
+            )
+        report = self._send_shacl(self._shacl_params(data_graph, data_triples, shapes))
+        if report.composed_digest is not None or list(report.schema_digests):
+            raise RuntimeError("ad-hoc SHACL validation returned a committed receipt")
+        return report
+
+    def ontology_inspect(
+        self,
+        documents: Sequence[str] = (),
+        *,
+        source_ids: Sequence[str] = (),
+    ) -> Any:
+        """Read vocabulary through EG's ``OntologyInspect`` (EH-471).
+
+        Inline Turtle ``documents`` or this graph's composed GraphSchema sources
+        (``source_ids``, or all of them when both are empty). Returns the typed
+        ``OntologyInspection``: classes, object/datatype properties, SHACL target
+        classes, triple count and canonical digest. EG is the only RDF parser.
         """
 
         import asyncio as _asyncio
 
-        from epistemic_graph.generated.reasoning import send_shacl_validate
+        from epistemic_graph.generated.reasoning import send_ontology_inspect
 
         loop = self._engine_loop()
         if loop is None:
-            raise RuntimeError("no engine loop available for SHACL validation")
+            raise RuntimeError("no engine loop available for OntologyInspect")
+        params = {"documents": list(documents), "source_ids": list(source_ids)}
 
         async def _drive() -> Any:
-            return await send_shacl_validate(
-                self._engine_async_client(),
-                {"data_graph": data_graph, "shapes": shapes},
-                self.graph_name,
+            return await send_ontology_inspect(
+                self._engine_async_client(), params, self.graph_name
             )
 
-        future = _asyncio.run_coroutine_threadsafe(_drive(), loop)
-        report = future.result()
-        if report.composed_digest is not None or list(report.schema_digests):
-            raise RuntimeError("ad-hoc SHACL validation returned a committed receipt")
-        return report
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
 
     def add_triples(
         self, turtle: str | None = None, ntriples: str | None = None

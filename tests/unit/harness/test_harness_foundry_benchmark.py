@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("pyshacl")
-
 from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdown
 
 

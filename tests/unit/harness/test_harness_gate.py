@@ -7,11 +7,10 @@ formal guarantee the paper's per-edit pass@2 gate explicitly lacks.
 
 from __future__ import annotations
 
-import pytest
+from types import SimpleNamespace
 
-pytest.importorskip("pyshacl")
-
-from agent_utilities.harness.harness_gate import HarnessGate
+from agent_utilities.harness.harness_gate import HarnessGate, build_evolution_triples
+from agent_utilities.knowledge_graph.core.typed_triples import RDF_TYPE, kg
 
 
 def test_concentration_blocks_the_tau3_failure():
@@ -144,3 +143,64 @@ def test_singleton_distinct_groups_pass():
         },
     ]
     assert HarnessGate().check_facts(edits, processors=processors).passed
+
+
+# ── the typed facts AU sends (EH-472: EG validates; AU owns no shapes or RDF) ──
+
+
+class _RecordingEngine:
+    def __init__(self, messages=()):
+        self.messages = list(messages)
+        self.calls: list[dict] = []
+
+    def shacl_validate_committed(self, data_graph="", *, data_triples=()):
+        self.calls.append(
+            {"data_graph": data_graph, "data_triples": list(data_triples)}
+        )
+        results = [
+            SimpleNamespace(model_dump=lambda mode, m=m: {"message": m})
+            for m in self.messages
+        ]
+        return SimpleNamespace(conforms=not results, results=results)
+
+
+def test_evolution_facts_are_typed_triples_in_the_kg_namespace():
+    triples = build_evolution_triples(
+        [
+            {
+                "id": "e1",
+                "dimension": "D2",
+                "round": 3,
+                "at_hook": "step_end",
+                "modifies_field": "prompt",
+            }
+        ],
+        variants=[{"id": "v1", "status": "accepted", "applies": ["e1"]}],
+        pathologies=[{"id": "p1", "kind": "reward_hacking", "exhibited_by": "e1"}],
+        processors=[{"id": "proc", "hook": "h", "singleton_group": "g"}],
+    )
+    typed = {
+        (t["subject"], t["object"]["iri"])
+        for t in triples
+        if t["predicate"] == RDF_TYPE
+    }
+    assert (kg("e1"), kg("HarnessEdit")) in typed
+    assert (kg("step_end"), kg("HarnessHook")) in typed
+    assert (kg("v1"), kg("HarnessVariant")) in typed
+    assert (kg("proc"), kg("Processor")) in typed
+    read_only = next(t for t in triples if t["predicate"] == kg("hookReadOnly"))
+    assert read_only["object"]["lexical"] == "true"
+    round_fact = next(t for t in triples if t["predicate"] == kg("editRound"))
+    assert round_fact["object"]["datatype"].endswith("#integer")
+
+
+def test_the_gate_validates_through_committed_shapes_and_reports_messages():
+    engine = _RecordingEngine(messages=["Edit concentration: diversify."])
+    verdict = HarnessGate(engine=engine).check_facts(
+        [{"id": "e1", "dimension": "D2", "round": 2}]
+    )
+    assert not verdict.passed
+    assert verdict.reasons == ["Edit concentration: diversify."]
+    [call] = engine.calls
+    assert call["data_graph"] == ""
+    assert call["data_triples"]

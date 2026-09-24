@@ -90,7 +90,6 @@ def _optional_extras_present() -> dict[str, bool]:
     return {
         label: importlib.util.find_spec(mod) is not None
         for mod, label in (
-            ("rdflib", "owl/sparql"),
             ("psycopg", "postgres"),
             ("stardog", "stardog"),
         )

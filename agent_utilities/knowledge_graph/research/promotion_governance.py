@@ -105,7 +105,7 @@ def _spec_class(spec: Any) -> str:
 
 
 class _OneNodeGraph:
-    """Minimal ``graph.nodes(data=True)`` shim for ``build_data_graph``."""
+    """Minimal ``graph.nodes(data=True)`` shim for ``build_data_triples``."""
 
     def __init__(self, node_id: str, data: dict[str, Any]):
         self._node_id = node_id
@@ -199,7 +199,7 @@ class PromotionGovernanceValidator:
             return GovernanceCheck("shacl", False, f"validation error: {exc}")
 
     def _validate_shacl_spec(self, spec: Any) -> GovernanceCheck:
-        from ..pipeline.phases.shacl_gate import build_data_graph
+        from ..pipeline.phases.shacl_gate import build_data_triples
 
         if self.engine is None or not hasattr(self.engine, "shacl_validate_committed"):
             return GovernanceCheck(
@@ -207,14 +207,13 @@ class PromotionGovernanceValidator:
             )
 
         data = self._spec_to_shacl_data(spec)
-        # ``build_data_graph`` materializes the focus node's ``rdf:type`` from
+        # ``build_data_triples`` materializes the focus node's ``rdf:type`` from
         # the ``node_type`` key, matching the key every other KG write uses.
         # A plain ``type`` key would make the shape conform vacuously.
         data["node_type"] = _spec_class(spec)
         node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
-        graph = build_data_graph(_OneNodeGraph(node_id, data))
-        document = graph.serialize(format="turtle")
-        report = self.engine.shacl_validate_committed(str(document))
+        triples = build_data_triples(_OneNodeGraph(node_id, data)) or []
+        report = self.engine.shacl_validate_committed(data_triples=triples)
         return self._shacl_report_to_check(report)
 
     @staticmethod

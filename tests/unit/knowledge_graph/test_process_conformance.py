@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -18,6 +17,7 @@ from agent_utilities.knowledge_graph.ingestion.process_conformance import (
 from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
     ProcessPerspective,
 )
+from tests.graph_slice_triples import slice_triples
 
 
 def _perspective(**overrides: object) -> ProcessPerspective:
@@ -280,14 +280,14 @@ def test_conformance_run_graph_slice_with_no_deviations_has_no_run_node() -> Non
     assert {link["relationship"] for link in links} == {"CHECKED_UNDER_PERSPECTIVE"}
 
 
-def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -> None:
-    """Prove the emitted LPG vocabulary matches the SHACL contract — mirrors
+def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes(
+    engine_graph,
+) -> None:
+    """Prove the emitted LPG vocabulary matches EG's committed
+    ``process-intelligence-shapes`` — mirrors
     ``test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes`` in
-    ``test_semantic_event_model.py`` for the OCEL slice."""
-    rdflib = pytest.importorskip("rdflib")
-    pyshacl = pytest.importorskip("pyshacl")
-    from rdflib.namespace import RDF, XSD
-
+    ``test_semantic_event_model.py`` for the OCEL slice. EG validates the typed
+    triples; Agent Utilities parses no RDF (EH-473)."""
     run = _run()
     allowed_edges = {("create", "approve")}
     _, deviations = run_conformance_check(
@@ -296,30 +296,6 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -
     entities, links = conformance_run_graph_slice(
         run, deviations, source_ref="src:test"
     )
-
-    graph = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
-
-    def literal(value: object) -> object | None:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, str) and value:
-            return rdflib.Literal(value)
-        if isinstance(value, int):
-            return rdflib.Literal(value, datatype=XSD.integer)
-        if isinstance(value, float):
-            return rdflib.Literal(value, datatype=XSD.double)
-        return None
-
-    for entity in entities:
-        subject = kg[f"node/{entity['id']}"]
-        graph.add((subject, RDF.type, kg[entity["node_type"]]))
-        for key, value in entity.items():
-            if key in {"id", "node_type"}:
-                continue
-            object_value = literal(value)
-            if object_value is not None:
-                graph.add((subject, kg[key], object_value))
     # The referenced ProcessPerspective node is out of this slice's scope (an
     # OCEL commit would have created it) — declare its type directly so the
     # shape's ``sh:class :ProcessPerspective`` constraint on
@@ -329,28 +305,8 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -
         for link in links
         if link["relationship"] == "CHECKED_UNDER_PERSPECTIVE"
     )
-    graph.add((kg[f"node/{perspective_target}"], RDF.type, kg["ProcessPerspective"]))
-    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
-    node_iris[perspective_target] = kg[f"node/{perspective_target}"]
-    for link in links:
-        graph.add(
-            (
-                node_iris[link["source"]],
-                kg[link["relationship"]],
-                node_iris[link["target"]],
-            )
-        )
-
-    shapes_path = (
-        Path(__file__).parents[3]
-        / "agent_utilities"
-        / "knowledge_graph"
-        / "shapes"
-        / "process_intelligence.shapes.ttl"
+    triples = slice_triples(
+        entities, links, declared_types=[(perspective_target, "ProcessPerspective")]
     )
-    conforms, _, report = pyshacl.validate(
-        graph,
-        shacl_graph=str(shapes_path),
-        inference="none",
-    )
-    assert conforms, report
+    report = engine_graph.shacl_validate_committed(data_triples=triples)
+    assert report.conforms, report.results

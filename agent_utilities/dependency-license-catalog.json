@@ -111,7 +111,6 @@
     "python-telegram-bot": "LGPL-3.0-only",
     "pyyaml": "MIT",
     "qbittorrent-agent": "MIT",
-    "rdflib": "BSD-3-Clause",
     "repository-manager": "MIT",
     "requests": "Apache-2.0",
     "ruff": "MIT",

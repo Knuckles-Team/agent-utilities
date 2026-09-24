@@ -69,6 +69,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.knowledge_graph.core.typed_triples import (
+    TypedTriple,
+    kg,
+    literal,
+    triple,
+    typed,
+)
 from agent_utilities.observability import health_ingest
 
 logger = logging.getLogger("agent_utilities.observability.portfolio_intelligence")
@@ -794,50 +801,36 @@ def _decide_verdict(
 def validate_verdict_shape(
     recommendation: dict[str, Any], *, engine: Any
 ) -> dict[str, Any]:
-    """ADDITIVE SHACL audit of the computed verdict
-    (``shapes/portfolio_intelligence.shapes.ttl``) — confirms the
+    """ADDITIVE SHACL audit of the computed verdict against EG's committed
+    ``portfolio-intelligence-shapes`` core source — confirms the
     ``:Recommendation``/``:Assessment`` the engine would write is well-formed
     (valid verdict enum, non-empty rationale, a recorded score). Never itself
     decides the verdict; mirrors
     :meth:`~agent_utilities.knowledge_graph.research.promotion_governance.PromotionGovernanceValidator._check_shacl`.
     Epistemic Graph is the sole validator; an unavailable engine fails closed."""
-    import rdflib
-
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
-    graph = rdflib.Graph()
-    node = rdflib.URIRef(
-        kg[f"{recommendation.get('candidateId', 'candidate')}:recommendation"]
+    candidate = recommendation.get("candidateId", "candidate")
+    node = kg(f"{candidate}:recommendation")
+    triples = [typed(node, kg("Recommendation"))]
+    for key in ("verdict", "rationale"):
+        value = str(recommendation.get(key) or "")
+        if value:
+            triples.append(triple(node, kg(key), literal(value)))
+    assessment = kg(f"{candidate}:assessment")
+    score = float(recommendation.get("assessmentScore") or 0.0)
+    triples.append(typed(assessment, kg("Assessment")))
+    triples.append(
+        triple(assessment, kg("assessmentScore"), literal(score, datatype="float"))
     )
-    graph.add((node, rdflib.RDF.type, kg.Recommendation))
-    verdict = str(recommendation.get("verdict") or "")
-    if verdict:
-        graph.add((node, kg.verdict, rdflib.Literal(verdict)))
-    rationale = str(recommendation.get("rationale") or "")
-    if rationale:
-        graph.add((node, kg.rationale, rdflib.Literal(rationale)))
-    assessment = rdflib.URIRef(
-        kg[f"{recommendation.get('candidateId', 'candidate')}:assessment"]
-    )
-    graph.add((assessment, rdflib.RDF.type, kg.Assessment))
-    graph.add(
-        (
-            assessment,
-            kg.assessmentScore,
-            rdflib.Literal(
-                float(recommendation.get("assessmentScore") or 0.0),
-                datatype=rdflib.XSD.float,
-            ),
-        )
-    )
-    return _validate_verdict_graph(engine, graph)
+    return _validate_verdict_triples(engine, triples)
 
 
-def _validate_verdict_graph(engine: Any, graph: Any) -> dict[str, Any]:
+def _validate_verdict_triples(
+    engine: Any, triples: list[TypedTriple]
+) -> dict[str, Any]:
     graph_compute = getattr(engine, "graph_compute", engine)
     if not hasattr(graph_compute, "shacl_validate_committed"):
         raise RuntimeError("committed EG SHACL authority is unavailable")
-    data = graph.serialize(format="turtle")
-    report = graph_compute.shacl_validate_committed(str(data))
+    report = graph_compute.shacl_validate_committed(data_triples=triples)
     return {
         "conforms": bool(report.conforms),
         "violations": [item.model_dump(mode="json") for item in report.results],

@@ -373,17 +373,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: turtle-format
-    name: Format Turtle with rdflib==7.6.0
-    entry: python -m scripts.format_ttl
-    language: python
-    additional_dependencies: [rdflib==7.6.0]
-    files: \.ttl$
-    # SHACL shape files use anonymous `sh:property [ ]` shapes that rdflib==7.6.0's
-    # turtle serializer cannot canonicalize idempotently (blank-node relabeling),
-    # so the formatter would rewrite them on every run. They remain valid turtle
-    # and are parsed/validated by the SHACL gate — just not cosmetically reformatted.
-    exclude: ^agent_utilities/knowledge_graph/shapes/
   - id: check-identifier-interpolation
     name: Identifier interpolation — every label/table/rel-type f-string is validated
     entry: python3 scripts/check_identifier_interpolation.py

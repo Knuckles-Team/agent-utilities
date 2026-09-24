@@ -70,7 +70,7 @@ stores only opaque session and design references. Regenerate and validate:
 python scripts/build_concepts_yaml.py
 python scripts/check_concepts.py
 python scripts/check_domain_vocab.py
-python scripts/build_concept_rdf.py \
-  --registry docs/concepts.yaml \
-  --out agent_utilities/knowledge_graph/ontology_concepts.ttl
 ```
+
+The concept RDF (`concepts-v1.ttl`) is an epistemic-graph core ontology source;
+Agent Utilities emits no RDF.

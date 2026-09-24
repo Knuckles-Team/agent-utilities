@@ -171,17 +171,11 @@ def _lock_entry(
     # authorship record for them. The identity check above and the compiled-TTL
     # digest below are the pins that actually detect a stale or edited manifest.
     # Hash the RAW document, not the validated model — see `_load_raw`.
-    manifest_hash = ontology_integrity.canonical_manifest_hash(
-        _load_raw(manifest_path)
-    )
+    manifest_hash = ontology_integrity.canonical_manifest_hash(_load_raw(manifest_path))
 
     spec = compile_manifest(manifest)
     ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
-    import rdflib
-
-    graph = rdflib.Graph()
-    graph.parse(data=ttl, format="turtle")
-    digest, triple_count = ontology_integrity.canonical_hash(graph)
+    digest, triple_count = ontology_integrity.canonical_ttl_hash(ttl)
     certification = (
         _certification_metadata(
             certification_repo,

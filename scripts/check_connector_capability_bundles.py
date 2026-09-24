@@ -371,12 +371,14 @@ def check_one(
 
     shapes = module / "ontology" / "shapes" / "connector.shacl.ttl"
     try:
-        import rdflib
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
-        graph = rdflib.Graph()
-        graph.parse(str(shapes), format="turtle")
-        target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
-        targets = {str(value) for value in graph.objects(predicate=target_class)}
+        view = GraphComputeEngine.get_or_create().ontology_inspect(
+            [shapes.read_text(encoding="utf-8")]
+        )
+        targets = {str(value) for value in view.shape_target_classes}
         for resource in manifest.resources:
             if f"http://knuckles.team/kg#{resource.name}" not in targets:
                 violations.append("SHACL coverage is incomplete")

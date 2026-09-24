@@ -14,7 +14,7 @@ and must not change during the refactor commit that follows.
 
 from __future__ import annotations
 
-import pytest
+from types import SimpleNamespace
 
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import MergePolicy
@@ -53,75 +53,64 @@ class _RuleEngine:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_shacl_not_installed_is_not_applicable(monkeypatch) -> None:
-    from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
+class _ShaclEngine:
+    """Committed-SHACL stand-in answering with seeded violation messages."""
 
-    monkeypatch.setattr(shacl_gate, "SHACL_SUPPORT", False)
+    def __init__(self, violations=(), raises=None):
+        self.violations = list(violations)
+        self.raises = raises
+
+    def shacl_validate_committed(self, data_graph="", *, data_triples=()):
+        if self.raises is not None:
+            raise self.raises
+        results = [SimpleNamespace(message=message) for message in self.violations]
+        return SimpleNamespace(conforms=not results, results=results)
+
+
+def test_shacl_without_committed_authority_holds() -> None:
     v = PromotionGovernanceValidator(None, policy=_policy())
     check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not installed" in check.reason
-
-
-def test_shacl_missing_shapes_file_is_not_applicable() -> None:
-    v = PromotionGovernanceValidator(
-        None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-    )
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not found" in check.reason
-
-
-def test_shacl_pydantic_spec_conforms_vacuously_no_team_shape() -> None:
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert check.reason == "conforms"
+    assert check.passed is False
+    assert check.reason == "committed EG SHACL authority unavailable"
     assert check.name == "shacl"
 
 
-def test_shacl_dict_spec_agent_without_name_violates() -> None:
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl({"type": "Agent", "goal": "do things"})
-    assert check.passed is False
-    assert check.reason  # non-empty violation message(s)
-
-
-def test_shacl_dict_spec_named_agent_conforms() -> None:
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
+def test_shacl_conforming_report_passes() -> None:
+    v = PromotionGovernanceValidator(_ShaclEngine(), policy=_policy())
+    check = v._check_shacl(_strong_team())
     assert check.passed is True
+    assert check.reason == "conforms"
 
 
 def test_shacl_violation_messages_join_up_to_three() -> None:
-    # ADRShape requires context/decision/authority -- an ADR spec with none of
-    # them set produces exactly 3 violations, and all 3 must appear in the
-    # joined message (the cap is [:3], not [:1] or unlimited).
-    pytest.importorskip("pyshacl")
-    v = PromotionGovernanceValidator(None, policy=_policy())
+    # The first three violation messages appear in the joined reason; the cap is
+    # [:3], not [:1] or unlimited.
+    messages = ["no context", "no decision", "no authority", "fourth"]
+    v = PromotionGovernanceValidator(_ShaclEngine(messages), policy=_policy())
+    check = v._check_shacl({"type": "ArchitectureDecisionRecord", "name": "x"})
+    assert check.passed is False
+    assert check.reason == "no context; no decision; no authority"
+
+
+def test_shacl_exception_during_validation_holds_not_passes() -> None:
+    # OBSERVED: any exception anywhere in the SHACL path degrades to a FAILING
+    # check (cannot prove conformance -> hold).
+    engine = _ShaclEngine(raises=RuntimeError("engine exploded"))
+    v = PromotionGovernanceValidator(engine, policy=_policy())
+    check = v._check_shacl(_strong_team())
+    assert check.passed is False
+    assert "validation error" in check.reason
+
+
+def test_shacl_adr_without_its_fields_violates_three_committed_constraints(
+    engine_graph,
+) -> None:
+    v = PromotionGovernanceValidator(engine_graph, policy=_policy())
     check = v._check_shacl({"type": "ArchitectureDecisionRecord", "name": "x"})
     assert check.passed is False
     assert "context" in check.reason
     assert "decision" in check.reason
     assert "authority" in check.reason
-
-
-def test_shacl_exception_during_validation_holds_not_passes(monkeypatch) -> None:
-    # OBSERVED: any exception anywhere in the SHACL path degrades to a FAILING
-    # check (cannot prove conformance -> hold), unlike the not-applicable
-    # short-circuits above, which pass.
-    from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
-
-    def _boom(*_a, **_kw):
-        raise RuntimeError("graph build exploded")
-
-    monkeypatch.setattr(shacl_gate, "build_data_graph", _boom)
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is False
-    assert "validation error" in check.reason
 
 
 # ─────────────────────────────────────────────────────────────────────────

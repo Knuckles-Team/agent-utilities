@@ -11,8 +11,11 @@ added to the failure analyzer's gate.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from agent_utilities.knowledge_graph.core.typed_triples import RDF_TYPE, kg
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
@@ -40,13 +43,23 @@ def _weak_team() -> TeamSpec:
 
 
 class _Engine:
-    """Fake engine: seedable RegressionGateResult + governance-rule rows."""
+    """Fake engine: seedable RegressionGateResult + governance-rule rows, and a
+    committed-SHACL validator that records the typed triples it was sent and
+    answers with the seeded violation messages (none ⇒ conforms)."""
 
-    def __init__(self, gate_rows=None, rule_rows=None):
+    def __init__(self, gate_rows=None, rule_rows=None, violations=()):
         self.gate_rows = gate_rows or []
         self.rule_rows = rule_rows or []
+        self.violations = list(violations)
+        self.shacl_calls: list[list[dict]] = []
         self.nodes = {}
         self.backend = object()
+
+    def shacl_validate_committed(self, data_graph="", *, data_triples=()):
+        assert data_graph == ""
+        self.shacl_calls.append(list(data_triples))
+        results = [SimpleNamespace(message=message) for message in self.violations]
+        return SimpleNamespace(conforms=not results, results=results)
 
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
@@ -94,32 +107,37 @@ class TestMergePolicyRule:
 
 
 class TestShaclRule:
-    def test_team_spec_conforms_vacuously(self):
-        # No :Team shape exists in governance.shapes.ttl ⇒ conforms.
+    def test_without_an_engine_the_rule_fails_closed(self):
         v = PromotionGovernanceValidator(None, policy=_policy())
         check = v._check_shacl(_strong_team())
-        assert check.passed is True
-
-    def test_agent_without_name_violates_agent_shape(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
-        # :AgentShape requires a name — a nameless Agent proposal must fail.
-        check = v._check_shacl({"type": "Agent", "goal": "do things"})
         assert check.passed is False
+        assert "unavailable" in check.reason
 
-    def test_named_agent_conforms(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
+    def test_the_spec_is_sent_as_typed_triples_of_its_class(self):
+        engine = _Engine()
+        v = PromotionGovernanceValidator(engine, policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
         assert check.passed is True
+        [triples] = engine.shacl_calls
+        types = {t["object"].get("iri") for t in triples if t["predicate"] == RDF_TYPE}
+        assert types == {kg("Agent")}
+        names = [
+            t["object"]["lexical"] for t in triples if t["predicate"] == kg("name")
+        ]
+        assert names == ["researcher"]
 
-    def test_missing_shapes_file_not_applicable(self):
-        v = PromotionGovernanceValidator(
-            None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-        )
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-        assert "not found" in check.reason
+    def test_engine_violations_fail_the_rule_with_their_messages(self):
+        engine = _Engine(violations=["Agent must have a name."])
+        v = PromotionGovernanceValidator(engine, policy=_policy())
+        check = v._check_shacl({"type": "Agent", "goal": "do things"})
+        assert check.passed is False
+        assert "Agent must have a name." in check.reason
+
+    def test_agent_without_name_violates_the_committed_agent_shape(self, engine_graph):
+        v = PromotionGovernanceValidator(engine_graph, policy=_policy())
+        assert v._check_shacl({"type": "Agent", "goal": "do things"}).passed is False
+        named = {"type": "Agent", "name": "researcher", "goal": "g"}
+        assert v._check_shacl(named).passed is True
 
 
 # ---------------------------------------------------------------------------

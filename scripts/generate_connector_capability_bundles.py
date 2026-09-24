@@ -323,11 +323,13 @@ def _validate_written_bundle(
     ):
         raise RuntimeError("provider synthetic fixture contract is invalid")
 
-    import rdflib
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     shapes_path = module / "ontology" / "shapes" / "connector.shacl.ttl"
-    shapes = rdflib.Graph()
-    shapes.parse(str(shapes_path), format="turtle")
+    # EG is the only RDF parser (EH-471): inspecting the shapes proves they parse.
+    GraphComputeEngine.get_or_create().ontology_inspect(
+        [shapes_path.read_text(encoding="utf-8")]
+    )
 
     # Release artifacts must be deterministic across the workstation/runner
     # that generates them. Runtime identity deny terms include the local account

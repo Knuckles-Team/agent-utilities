@@ -48,10 +48,10 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from importlib.resources import files
 from typing import Any
 from urllib.parse import quote
 
+from ..core.typed_triples import TypedTriple, kg, literal, triple, typed
 from .change_envelope import ChangeEnvelope
 
 logger = logging.getLogger(__name__)
@@ -261,7 +261,6 @@ _STALE_GRAPH_VERSION_RE = re.compile(
 # ── mandatory engine-native SHACL admission ──
 
 
-_KG_NS = "http://knuckles.team/kg#"
 _SHACL_SKIP_PROPERTIES = {"embedding", "ewc_fisher_diag", "node_type"}
 
 
@@ -276,32 +275,33 @@ def _shacl_class_name(node_type: Any) -> str:
 
 
 def _shacl_iri(value: Any) -> str:
-    return f"<{_KG_NS}{quote(str(value), safe='')}>"
+    return kg(quote(str(value), safe=""))
 
 
-def _shacl_data_graph(rows: list[tuple[str, dict[str, Any]]]) -> str:
-    """Render deterministic, injection-safe Turtle for connector rows."""
-    triples = [
-        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .",
-        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
-    ]
+def _shacl_row_value(value: Any) -> dict[str, Any] | None:
+    """The literal a row property contributes, or ``None`` when it is skipped."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        return literal(value) if value else None
+    if isinstance(value, int) or (isinstance(value, float) and math.isfinite(value)):
+        return literal(value)
+    return None
+
+
+def _shacl_data_triples(rows: list[tuple[str, dict[str, Any]]]) -> list[TypedTriple]:
+    """Connector rows as deterministic, injection-safe typed triples (EH-472)."""
+    triples: list[TypedTriple] = []
     for node_id, row in rows:
         subject = _shacl_iri(f"node/{node_id}")
-        class_iri = _shacl_iri(_shacl_class_name(row.get("node_type")))
-        triples.append(f"{subject} rdf:type {class_iri} .")
+        triples.append(
+            typed(subject, _shacl_iri(_shacl_class_name(row.get("node_type"))))
+        )
         for key, value in sorted(row.items(), key=lambda item: str(item[0])):
-            if key in _SHACL_SKIP_PROPERTIES or isinstance(value, bool):
-                continue
-            predicate = _shacl_iri(key)
-            if isinstance(value, str) and value:
-                triples.append(
-                    f"{subject} {predicate} {json.dumps(value, ensure_ascii=False)} ."
-                )
-            elif isinstance(value, int):
-                triples.append(f'{subject} {predicate} "{value}"^^xsd:integer .')
-            elif isinstance(value, float) and math.isfinite(value):
-                triples.append(f'{subject} {predicate} "{value}"^^xsd:double .')
-    return "\n".join(triples) + "\n"
+            obj = None if key in _SHACL_SKIP_PROPERTIES else _shacl_row_value(value)
+            if obj is not None:
+                triples.append(triple(subject, _shacl_iri(key), obj))
+    return triples
 
 
 def _shacl_validate_rows(
@@ -311,23 +311,20 @@ def _shacl_validate_rows(
     """Admit connector rows only after native canonical SHACL validation.
 
     Connector material is an external trust boundary. Validation therefore is
-    unconditional: an unavailable engine validator, missing packaged shapes,
-    malformed report, or non-conforming data fails closed before the native
-    ChangeEnvelope is constructed. Invalid rows are never materialized.
+    unconditional: an unavailable engine validator, malformed report, or
+    non-conforming data fails closed before the native ChangeEnvelope is
+    constructed. Invalid rows are never materialized. The shapes are EG's
+    committed GraphSchema (the governance shapes are an EG core source); Agent
+    Utilities sends typed triples and ships no shapes of its own.
     """
     try:
-        shapes = (
-            files("agent_utilities.knowledge_graph")
-            .joinpath("shapes", "governance.shapes.ttl")
-            .read_text(encoding="utf-8")
-        )
         rdf = getattr(client, "rdf", None)
-        validate = getattr(rdf, "validate_shacl", None)
+        validate = getattr(rdf, "validate_committed", None)
         if not callable(validate):
             raise NativeChangeEnvelopeUnavailable(
                 "connector SHACL validation support is unavailable"
             )
-        report = validate(shapes, _shacl_data_graph(rows))
+        report = validate(data_triples=_shacl_data_triples(rows))
     except (NativeChangeEnvelopeUnavailable, ValueError):
         raise
     except Exception as exc:
@@ -369,7 +366,7 @@ def _shacl_violation_detail(item: Any) -> str:
         return ""
     return " ".join(
         str(item[key])
-        for key in ("focusNode", "resultPath", "sourceShape", "resultMessage")
+        for key in ("focus_node", "path", "source_shape", "message")
         if item.get(key)
     )
 

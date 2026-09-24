@@ -9,8 +9,8 @@ Until now the ontology (SHACL shapes, permission ACLs) governed *ingestion*
 
 1. **Shape gate** (``KG_WORKFLOW_SHAPE_GATE``, default ON — cheap, LLM-free):
    the stored ``WorkflowDefinition`` + its ``WorkflowStep`` nodes are
-   materialized into a focused RDF graph (``http://knuckles.team/kg#``
-   namespace, matching the ``sh:targetClass`` IRIs) and validated by
+   sent as typed triples (``http://knuckles.team/kg#`` namespace, matching
+   the ``sh:targetClass`` IRIs) and validated by
    epistemic-graph against its committed composed GraphSchema
    (``WorkflowDefinitionShape`` / ``WorkflowStepShape``). Violations refuse execution with a structured
    report — a malformed definition never burns an agent run.
@@ -32,10 +32,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from .typed_triples import TypedTriple, kg, literal, triple, typed
 
-# kg# namespace — matches the ontology + shapes files and the pipeline gate.
-KG_NS = "http://knuckles.team/kg#"
+logger = logging.getLogger(__name__)
 
 
 class WorkflowGateDeniedError(PermissionError):
@@ -173,36 +172,34 @@ def _find_workflow(
 # ---------------------------------------------------------------------------
 
 
-def _build_workflow_rdf(
+def _build_workflow_triples(
     workflow_id: str, props: dict[str, Any], steps: list[dict[str, Any]]
-) -> Any:
-    """Materialize the stored definition into a focused rdflib graph (kg# ns)."""
-    import rdflib
-
-    g = rdflib.Graph()
-    kg = rdflib.Namespace(KG_NS)
-    g.bind("", kg)
-
-    wf_uri = kg[str(workflow_id).replace(" ", "_")]
-    g.add((wf_uri, rdflib.RDF.type, kg.WorkflowDefinition))
+) -> list[TypedTriple]:
+    """The stored definition as typed ``kg#`` triples for EG (EH-472)."""
+    subject = kg(str(workflow_id).replace(" ", "_"))
+    triples = [typed(subject, kg("WorkflowDefinition"))]
     name = props.get("name")
     if isinstance(name, str) and name:
-        g.add((wf_uri, kg.name, rdflib.Literal(name)))
+        triples.append(triple(subject, kg("name"), literal(name)))
     step_count = props.get("step_count")
     if isinstance(step_count, int | float):
-        g.add((wf_uri, kg.step_count, rdflib.Literal(int(step_count))))
-
+        triples.append(triple(subject, kg("step_count"), literal(int(step_count))))
     for step in steps:
-        sid = str(step.get("sid") or f"{workflow_id}:step").replace(" ", "_")
-        step_uri = kg[sid]
-        g.add((step_uri, rdflib.RDF.type, kg.WorkflowStep))
-        node_id = step.get("node_id")
-        if isinstance(node_id, str) and node_id:
-            g.add((step_uri, kg.node_id, rdflib.Literal(node_id)))
-        order = step.get("step_order")
-        if isinstance(order, int | float):
-            g.add((step_uri, kg.step_order, rdflib.Literal(int(order))))
-    return g
+        triples.extend(_step_triples(workflow_id, step))
+    return triples
+
+
+def _step_triples(workflow_id: str, step: dict[str, Any]) -> list[TypedTriple]:
+    sid = str(step.get("sid") or f"{workflow_id}:step").replace(" ", "_")
+    subject = kg(sid)
+    triples = [typed(subject, kg("WorkflowStep"))]
+    node_id = step.get("node_id")
+    if isinstance(node_id, str) and node_id:
+        triples.append(triple(subject, kg("node_id"), literal(node_id)))
+    order = step.get("step_order")
+    if isinstance(order, int | float):
+        triples.append(triple(subject, kg("step_order"), literal(int(order))))
+    return triples
 
 
 def _validate_workflow_shape(
@@ -213,21 +210,19 @@ def _validate_workflow_shape(
 ) -> dict[str, Any]:
     """Validate the focused workflow through committed EG GraphSchema."""
 
-    data_graph = _build_workflow_rdf(workflow_id, props, steps)
-    rendered = data_graph.serialize(format="turtle")
-    turtle = rendered.decode() if isinstance(rendered, bytes) else str(rendered)
-    report = _committed_shacl_report(engine, turtle)
+    triples = _build_workflow_triples(workflow_id, props, steps)
+    report = _committed_shacl_report(engine, triples)
     return {
         "conforms": bool(report.conforms),
         "violations": [result.model_dump(mode="json") for result in report.results],
     }
 
 
-def _committed_shacl_report(engine: Any, turtle: str) -> Any:
+def _committed_shacl_report(engine: Any, triples: list[TypedTriple]) -> Any:
     graph_compute = getattr(engine, "graph_compute", None)
     if graph_compute is None:
         graph_compute = engine.graph
-    return graph_compute.shacl_validate_committed(turtle)
+    return graph_compute.shacl_validate_committed(data_triples=triples)
 
 
 # ---------------------------------------------------------------------------
