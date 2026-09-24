@@ -621,7 +621,7 @@ def counterfactual_replay(
     * **Policy swap** — ``policy_overrides`` (a policy YAML's own ``{version, defaults,
       rules}`` shape) is written to a throwaway file and a fresh
       :class:`~agent_utilities.orchestration.action_policy.ActionPolicy` is built
-      against it (``engine=None`` — no KG audit write). ``ActionPolicy.decide()`` is a
+      against it (``engine=None`` — no KG audit write). ``ActionPolicy.evaluate()`` is a
       pure function of ``(request, loaded rules)``, so re-invoking it against every
       recorded :class:`~agent_utilities.orchestration.action_policy.ActionRequest` is
       NOT a side effect — it genuinely recomputes what the swapped policy would have
@@ -674,7 +674,10 @@ def counterfactual_replay(
         with _policy_from_overrides(policy_overrides) as policy:
             for d in twin.policy_decisions:
                 req = ActionRequest(**d["request"])
-                recomputed = policy.decide(req)
+                # evaluate(), not decide(): decide() binds an audited receipt
+                # and queues approvals (5a4dd9a2f/fe45551a8). On this engine-less
+                # throwaway policy every allow/queue would read "unavailable".
+                recomputed = policy.evaluate(req)
                 if recomputed.decision != d["decision"] or recomputed.tier != d["tier"]:
                     decision_delta.append(
                         {
