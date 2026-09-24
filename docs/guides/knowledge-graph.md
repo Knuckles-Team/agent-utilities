@@ -35,111 +35,44 @@ The `GraphMaintainer` (`knowledge_graph/core/maintainer.py`) autonomously manage
 
 ## Knowledge Graph Architecture
 
-```mermaid
-graph TD
-    subgraph Ingestion_Pipeline ["5-Stage / 17-Phase Intelligence Pipeline"]
-        direction LR
-        S1[Stage 1: Context] --> S2[Stage 2: Structure] --> S3[Stage 3: Topology] --> S4[Stage 4: Epistemic] --> S5[Stage 5: Governance]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Five-stage ingestion commits to one authority, mirrors fan out async</p>
 
-        subgraph S1 [Stage 1: Context Hydration]
-            direction LR
-            Mem --> Scan --> WS[ECO-4.1: WS Sync] --> Reg
-        end
-
-        subgraph S2 [Stage 2: Structural Extraction]
-            direction LR
-            Parse --> Resolve --> MRO --> Ref
-        end
-
-        subgraph S3 [Stage 3: Topological Enrichment]
-            direction LR
-            Comm --> Cent --> Emb
-        end
-
-        subgraph S4 [Stage 4: Epistemic Consolidation]
-            direction LR
-            Sync --> OWL --> Ext[KG-2.6: Ext Graphs] --> KB
-        end
-
-        subgraph S5 ["Stage 5: Governance & Evolution"]
-            direction LR
-            Val[AHE-3.1: Validate] --> Exp[AHE-3.1: Distill] -.->|Async| Evo[AHE-3.2: Evolution]
-        end
-    end
-
-    subgraph Engine_Layer ["epistemic-graph engine (the one database / authority)"]
-        direction TB
-        EG[("KG-2.0: epistemic_graph — authority")]
-        EG -- "Cache · Compute · Cypher · Vectors · Ontology" --> EG
-    end
-
-    subgraph Mirror_Layer ["Optional mirrors (interop / BI / DR — async fan-out)"]
-        direction TB
-        PG[("Postgres / pg-age")]
-        LDB[("LadybugDB")]
-        FDB[("FalkorDB")]
-        N4J[("Neo4j")]
-    end
-
-    subgraph Query_Layer ["MCP / CLI / Tool Interface"]
-        direction LR
-        Q_Impact[KG-2.5: get_code_impact]
-        Q_Query[KG-2.3: search_knowledge_graph]
-        Q_CRUD[KG-2.0: Memory CRUD]
-    end
-
-    Ingestion_Pipeline -- "Commits to" --> Engine_Layer
-    Engine_Layer -. "async, lossless fan-out (durable outbox)" .-> Mirror_Layer
-    Query_Layer -- "All reads & writes" --> Engine_Layer
-
-    subgraph Autonomous_Loop ["Autonomous Self-Improvement Loop"]
-        direction TB
-        Outcome[AHE-3.1: Outcome Evaluation] --> Critique["Critique / Textual Gradient"]
-        Critique --> PromptEvolution["AHE-3.2: Prompt/Skill Evolution"]
-        PromptEvolution --> Engine_Layer
-    end
-
-    style Ingestion_Pipeline fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Engine_Layer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style Mirror_Layer fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style Query_Layer fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Autonomous_Loop fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-```
+The 5-stage/17-phase intelligence pipeline runs in sequence: **Stage 1
+Context Hydration** (memory → scan → workspace sync → register), **Stage 2
+Structural Extraction** (parse → resolve → MRO → references), **Stage 3
+Topological Enrichment** (community detection → centrality →
+embeddings), **Stage 4 Epistemic Consolidation** (sync → OWL → external
+graphs → knowledge base), **Stage 5 Governance & Evolution** (validate →
+distill → async evolution). The whole pipeline commits to the
+epistemic-graph engine — the one database/authority (cache, compute,
+Cypher, vectors, ontology all in one place). The engine async, losslessly
+fans out to optional mirrors (Postgres/pg-age, LadybugDB, FalkorDB, Neo4j)
+via a durable outbox, for interop/BI/DR only. The MCP/CLI/tool interface
+(`get_code_impact`, `search_knowledge_graph`, memory CRUD) reads and writes
+exclusively through the engine, never a mirror. Separately, an autonomous
+self-improvement loop — outcome evaluation → critique/textual gradient →
+prompt/skill evolution — feeds back into the engine.
+</div>
 
 ## OWL Reasoning Sidecar
 
 The Knowledge Graph supports an optional **Hybrid OWL Reasoning Layer** that enriches the LPG with deterministic, cross-domain semantic inference. OWL reasoning runs as a warm-path sidecar -- the LPG remains the hot-path engine, while the OWL layer handles formal ontological reasoning (transitive closure, subclass inference, disjointness checking) via HermiT (Owlready2) or Stardog.
 
-```mermaid
-graph TB
-    subgraph HotPath ["Agent Runtime - Hot Path"]
-        A[ORCH-1.0: IntelligenceGraphEngine] --> C[KG-2.0: GraphBackend ABC]
-        C --> D[KG-2.0: epistemic_graph — the database / authority]
-        D -.->|async fan-out: interop/BI/DR| P[Postgres / pg-age mirror]
-        D -.->|async fan-out| E[Neo4j mirror]
-        D -.->|async fan-out| F[FalkorDB mirror]
-        D -.->|async fan-out| L[LadybugDB mirror]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Hot-path LPG, warm-path OWL, bridged by promotion and downfeed</p>
 
-    subgraph WarmPath ["OWL Reasoning - Warm Path"]
-        H[KG-2.2: OWLBackend ABC] --> I[KG-2.2: Owlready2Backend]
-        H --> J[KG-2.6: StardogBackend]
-        H --> K[KG-2.6: JenaBackend stub]
-        I --> L["KG-2.2: ontology.ttl"]
-        I --> M[KG-2.2: HermiT Reasoner]
-        J --> N[KG-2.6: pystardog SPARQL]
-    end
-
-    subgraph HybridBridge ["Hybrid Bridge"]
-        O[KG-2.2: OWLBridge] -->|promote| H
-        O -->|downfeed| A
-        O -->|"triggered by"| P[ORCH-1.21: PipelineRunner post-hook]
-        O -->|"triggered by"| Q[KG-2.0: GraphMaintainer.run_all]
-    end
-
-    A -.->|stable nodes| O
-    M -.->|inferred facts| O
-```
+**Hot path.** `IntelligenceGraphEngine` reaches `GraphBackend` ABC, which
+reaches `epistemic_graph` (the database/authority), which async fans out to
+optional Postgres/pg-age, Neo4j, FalkorDB, and LadybugDB mirrors (interop/
+BI/DR only). **Warm path.** `OWLBackend` ABC has three implementations:
+`Owlready2Backend` (reads `ontology.ttl`, runs the HermiT reasoner),
+`StardogBackend` (queries via pystardog SPARQL), and a `JenaBackend` stub.
+**Hybrid bridge.** `OWLBridge` promotes stable nodes from the hot path into
+the warm path, and downfeeds the warm path's inferred facts back into the
+hot path — triggered both by `PipelineRunner`'s post-hook and by
+`GraphMaintainer.run_all`.
+</div>
 
 **Key design decisions:**
 1. **OWL is a sidecar, not a replacement** -- LPG stays the hot-path engine
@@ -343,30 +276,13 @@ The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several 
 
 The Document Pipeline provides a tightly-wired system for managing documents natively within the Knowledge Graph. By leveraging the Graph DB's inherent structure and native vector indexing capabilities, it eliminates the need for redundant external document and vector storage dependencies. The Knowledge Graph acts as the single source of truth for seamless semantic and topological retrieval.
 
-```mermaid
-graph TD
-    subgraph Document_Pipeline ["Document Pipeline Architecture"]
-        direction TB
-        Ingest[KG-2.6: Document Ingestion Pipeline]
-        Update[KG-2.6: Document Update Pipeline]
-        Delete[KG-2.6: Document Deletion Pipeline]
-        Cleanup[KG-2.6: Document Cleanup Manager]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Four document pipelines, all writing through the same two authorities</p>
 
-        Ingest --> KGNode[("KG-2.0: Knowledge Graph")]
-        Ingest --> IDReg[("OS-5.1: Unified ID Registry")]
-
-        Update --> KGNode
-        Update --> IDReg
-
-        Delete --> KGNode
-        Delete --> IDReg
-
-        Cleanup --> KGNode
-        Cleanup --> IDReg
-    end
-
-    style Document_Pipeline fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-```
+The Document Ingestion, Update, Deletion, and Cleanup pipelines each write
+independently into both the Knowledge Graph and the Unified ID Registry —
+no pipeline bypasses either authority.
+</div>
 
 ## KG v2 Schema Extensions
 
@@ -416,116 +332,33 @@ The knowledge graph ontology (`ontology.ttl`) is formally aligned to industry-st
 
 Every entity class is formally classified under the BFO (Basic Formal Ontology, ISO 21838-2) hierarchy. This enables the OWL reasoner to automatically classify entities and propagate properties through the hierarchy.
 
-```mermaid
-graph TB
-    subgraph "KG-2.2: BFO Upper Ontology (ISO 21838-2)"
-        Entity["KG-2.2: bfo:Entity"]
-        Continuant["KG-2.2: bfo:Continuant"]
-        Occurrent["KG-2.2: bfo:Occurrent"]
-        IndCont["KG-2.2: bfo:IndependentContinuant"]
-        SpecDep["KG-2.2: bfo:SpecificallyDependentContinuant"]
-        GenDep["KG-2.2: bfo:GenericallyDependentContinuant"]
-        Process["KG-2.2: bfo:Process"]
-        TempReg["KG-2.2: bfo:TemporalRegion"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">BFO upper ontology backbone, five domain-class families hung off it</p>
 
-        Entity --> Continuant
-        Entity --> Occurrent
-        Continuant --> IndCont
-        Continuant --> SpecDep
-        Continuant --> GenDep
-        Occurrent --> Process
-        Occurrent --> TempReg
-    end
+**BFO backbone (ISO 21838-2):** `bfo:Entity` splits into `Continuant` and
+`Occurrent`. `Continuant` splits into `IndependentContinuant`,
+`SpecificallyDependentContinuant`, and `GenericallyDependentContinuant`.
+`Occurrent` splits into `Process` and `TemporalRegion`.
 
-    subgraph "Independent Continuants"
-        Agent["KG-2.2: :Agent ≡ prov:SoftwareAgent"]
-        Person[":Person ≡ foaf:Person"]
-        Organization["KG-2.2: :Organization ≡ foaf:Organization"]
-        Tool["KG-2.2: :Tool → schema:SoftwareApplication"]
-        System[":System"]
-        Place["KG-2.2: :Place → schema:Place"]
-        SoftwareProject["KG-2.2: :SoftwareProject"]
-        MedicalEntity["KG-2.2: :MedicalEntity"]
-    end
-
-    subgraph "Generically Dependent Continuants"
-        Memory["KG-2.2: :Memory → prov:Entity"]
-        Fact["KG-2.2: :Fact → skos:Concept"]
-        Concept["KG-2.2: :Concept ⊂ skos:Concept"]
-        Document["KG-2.2: :Document → bibo:Document"]
-        CreativeWork["KG-2.2: :CreativeWork ≡ schema:CreativeWork"]
-        Dataset["KG-2.2: :Dataset ≡ schema:Dataset"]
-        FinInstrument["KG-2.2: :FinancialInstrument → FIBO"]
-        Regulation["KG-2.2: :Regulation"]
-        Policy["KG-2.2: :Policy"]
-        Evidence["KG-2.2: :Evidence"]
-    end
-
-    subgraph "Specifically Dependent Continuants"
-        Belief["KG-2.2: :Belief"]
-        Hypothesis["KG-2.2: :Hypothesis ⊂ Belief"]
-        Role["KG-2.2: :Role"]
-        Reflection["KG-2.2: :Reflection"]
-    end
-
-    subgraph "Processes (Occurrents)"
-        Event["KG-2.2: :Event ≡ schema:Event"]
-        Episode["KG-2.2: :Episode → prov:Activity"]
-        Action["KG-2.2: :Action → prov:Activity"]
-        Incident["KG-2.2: :Incident ⊂ Event"]
-        Decision["KG-2.2: :Decision ⊂ Event"]
-        Observation["KG-2.2: :Observation ⊂ Event"]
-        ReasoningTrace["KG-2.2: :ReasoningTrace"]
-        Procedure["KG-2.2: :Procedure → schema:HowTo"]
-        FinTxn["KG-2.2: :FinancialTransaction"]
-    end
-
-    subgraph "Temporal Regions"
-        Phase[":Phase → time:ProperInterval"]
-    end
-
-    IndCont -.-> Agent
-    IndCont -.-> Person
-    IndCont -.-> Organization
-    IndCont -.-> Tool
-    IndCont -.-> System
-    IndCont -.-> Place
-    IndCont -.-> SoftwareProject
-    IndCont -.-> MedicalEntity
-
-    GenDep -.-> Memory
-    GenDep -.-> Fact
-    GenDep -.-> Concept
-    GenDep -.-> Document
-    GenDep -.-> CreativeWork
-    GenDep -.-> Dataset
-    GenDep -.-> FinInstrument
-    GenDep -.-> Regulation
-    GenDep -.-> Policy
-    GenDep -.-> Evidence
-
-    SpecDep -.-> Belief
-    SpecDep -.-> Hypothesis
-    SpecDep -.-> Role
-    SpecDep -.-> Reflection
-
-    Process -.-> Event
-    Process -.-> Episode
-    Process -.-> Action
-    Process -.-> ReasoningTrace
-    Process -.-> Procedure
-    Process -.-> FinTxn
-    TempReg -.-> Phase
-
-    style Entity fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style Continuant fill:#1565c0,stroke:#0d47a1,color:#fff
-    style Occurrent fill:#f57c00,stroke:#e65100,color:#fff
-    style IndCont fill:#42a5f5,stroke:#1e88e5,color:#fff
-    style SpecDep fill:#7e57c2,stroke:#5e35b1,color:#fff
-    style GenDep fill:#26a69a,stroke:#00897b,color:#fff
-    style Process fill:#ff7043,stroke:#e64a19,color:#fff
-    style TempReg fill:#ffb74d,stroke:#f57c00,color:#fff
-```
+- **Independent Continuants** (things that exist on their own): `:Agent`
+  (≡ `prov:SoftwareAgent`), `:Person` (≡ `foaf:Person`), `:Organization`
+  (≡ `foaf:Organization`), `:Tool` (→ `schema:SoftwareApplication`),
+  `:System`, `:Place` (→ `schema:Place`), `:SoftwareProject`,
+  `:MedicalEntity`.
+- **Generically Dependent Continuants** (content that could be copied):
+  `:Memory` (→ `prov:Entity`), `:Fact` (→ `skos:Concept`), `:Concept`
+  (⊂ `skos:Concept`), `:Document` (→ `bibo:Document`), `:CreativeWork`
+  (≡ `schema:CreativeWork`), `:Dataset` (≡ `schema:Dataset`),
+  `:FinancialInstrument` (→ FIBO), `:Regulation`, `:Policy`, `:Evidence`.
+- **Specifically Dependent Continuants** (properties/states of something
+  else): `:Belief`, `:Hypothesis` (⊂ `Belief`), `:Role`, `:Reflection`.
+- **Processes (Occurrents):** `:Event` (≡ `schema:Event`), `:Episode`
+  (→ `prov:Activity`), `:Action` (→ `prov:Activity`), `:Incident`
+  (⊂ `Event`), `:Decision` (⊂ `Event`), `:Observation` (⊂ `Event`),
+  `:ReasoningTrace`, `:Procedure` (→ `schema:HowTo`),
+  `:FinancialTransaction`.
+- **Temporal Regions:** `:Phase` (→ `time:ProperInterval`).
+</div>
 
 ### Cross-Domain Coverage Matrix
 
@@ -544,26 +377,16 @@ The standard ontology alignment provides coverage across all major professional 
 
 The ontology provides full SKOS (Simple Knowledge Organization System) taxonomy support for concept hierarchies:
 
-```mermaid
-graph TD
-    A["Concept: Computer Science<br/>(skos:Concept)"] -->|broader| B["KG-2.2: Concept: Science"]
-    C["KG-2.2: Concept: Machine Learning"] -->|broader| A
-    D["KG-2.2: Concept: Deep Learning"] -->|broader| C
-    E["KG-2.2: Concept: NLP"] -->|broader| C
-    F["KG-2.2: Concept: Transformer Models"] -->|broader| E
+<div class="admonition architecture" markdown>
+<p class="admonition-title">A SKOS concept hierarchy, with cross-vocabulary linking</p>
 
-    C ---|related| G["KG-2.2: Concept: Statistics"]
-    D ---|exactMatch| H["Concept: Neural Networks<br/>(external vocabulary)"]
-
-    style A fill:#1565c0,stroke:#0d47a1,color:#fff
-    style B fill:#2e7d32,stroke:#1b5e20,color:#fff
-    style C fill:#1565c0,stroke:#0d47a1,color:#fff
-    style D fill:#42a5f5,stroke:#1e88e5,color:#fff
-    style E fill:#42a5f5,stroke:#1e88e5,color:#fff
-    style F fill:#90caf9,stroke:#42a5f5,color:#000
-    style G fill:#7e57c2,stroke:#5e35b1,color:#fff
-    style H fill:#f57c00,stroke:#e65100,color:#fff
-```
+Science is the `skos:broader` concept of Computer Science, which is
+`broader` than Machine Learning, which is in turn `broader` than both
+Deep Learning and NLP; NLP is `broader` than Transformer Models. Machine
+Learning is `related` to Statistics (a lateral link, not a hierarchy
+edge), and Deep Learning has an `exactMatch` to an external vocabulary's
+"Neural Networks" concept.
+</div>
 
 **SKOS Properties Available:**
 | Property | Type | Purpose |
@@ -697,26 +520,15 @@ The KG Eval Capture harness records real queries and their retrieval results to 
 
 ### Architecture
 
-```
-┌─────────────┐     ┌─────────────────────┐
-│  KG Engine   │────▶│  HybridRetriever    │
-│              │     │  (backlink boost)   │
-└─────────────┘     └────────┬────────────┘
-                              │ capture()
-                    ┌─────────▼──────────┐
-                    │  eval_log.db       │  ← Separate SQLite
-                    │  (query, results,  │
-                    │   scores, latency) │
-                    └─────────┬──────────┘
-                              │ replay()
-                    ┌─────────▼──────────┐
-                    │  EvalReplayResult  │
-                    │  - Jaccard@k       │
-                    │  - top-1 stability │
-                    │  - latency delta   │
-                    │  - regressions[]   │
-                    └────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Capture to a separate SQLite log, then replay for regression scoring</p>
+
+The KG Engine feeds `HybridRetriever` (backlink boost), which
+`capture()`s each query/results/scores/latency into a separate SQLite
+database, `eval_log.db` — never the KG itself. `replay()` reads that log
+back and produces an `EvalReplayResult`: Jaccard@k, top-1 stability,
+latency delta, and a list of regressions.
+</div>
 
 ### Configuration
 
