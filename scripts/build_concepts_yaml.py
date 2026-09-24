@@ -62,13 +62,21 @@ _PRIVATE_DOC_PATTERNS = (
 _CITATION_TOKEN_RE = re.compile(r"^/\s*([A-Za-z0-9](?:[A-Za-z0-9.\-]*[A-Za-z0-9])?)")
 
 
+#: Unicode box-drawing block (U+2500-U+257F) — used as decorative comment
+#: dividers in source (e.g. ``# ── Section (CONCEPT:...) ──``). Never
+#: legitimate doc prose; stripped alongside the ASCII/typographic separators
+#: below so a marker embedded in a divider comment doesn't leak "──" as its
+#: extracted name/doc (D3: no box-drawing characters in generated docs).
+_BOX_DRAWING_RE = r"─-╿"
+
+
 def _clean_doc(rest: str) -> str:
     """Extract a best-effort one-line description from text after the marker."""
     text = rest.strip()
     # Common forms: " — Confidence-Gated Router", " - Adaptive ...",
     # ": Nested Subfolder Instructions", "] Adversarial ...".
     # Strip a single leading separator.
-    text = re.sub(r"^[\s\)\]\}\.:,;—\-–]+", "", text)
+    text = re.sub(rf"^[\s\)\]\}}\.:,;—\-–{_BOX_DRAWING_RE}]+", "", text)
     # A spaced slash citation is always metadata, never doc prose — but only
     # the TOKEN after it is dropped wholesale when it reads as a legacy
     # numbering (contains a digit: `KG-2.91`, `ECO-4.97`, `D-INT-4`, a bare
@@ -82,7 +90,7 @@ def _clean_doc(rest: str) -> str:
             text = text[match.end() :]
         else:
             text = text[1:]
-        text = re.sub(r"^[\s\)\]\}\.:,;—\-–]+", "", text)
+        text = re.sub(rf"^[\s\)\]\}}\.:,;—\-–{_BOX_DRAWING_RE}]+", "", text)
     # Cut at characters that usually terminate a human-readable phrase.
     # Stop at code-ish punctuation that signals the prose has ended.
     for stop in ("(", ")", "]", "}", '"', "'", "`", "{", ":", "%", "#"):
@@ -90,6 +98,12 @@ def _clean_doc(rest: str) -> str:
         if idx != -1:
             text = text[:idx]
     text = text.strip(" .,—-–\t")
+    text = re.sub(rf"^[{_BOX_DRAWING_RE}]+|[{_BOX_DRAWING_RE}]+$", "", text).strip()
+    # A comment divider with no adjacent prose (e.g. a bare run of box-drawing
+    # characters) leaves nothing after stripping; treat that the same as no
+    # doc found rather than persisting an empty-looking decorative string.
+    if not any(ch.isalnum() for ch in text):
+        return ""
     # Concept documentation is persisted and distributed. If the nearest
     # source comment contains an endpoint, machine path, address, or identity
     # shape, discard that prose and let the caller use the neutral concept id.
