@@ -25,7 +25,7 @@ from tests.unit.decide.fakes import FakeTransport
 def _pointer(target: str | None) -> dict[str, Any]:
     active = None if target is None else {"transition": "activated", "target": target}
     return {
-        "result": "pointer",
+        "recorded": "pointer",
         "key": "k",
         "active": active,
         "stack": [],
@@ -33,14 +33,26 @@ def _pointer(target: str | None) -> dict[str, Any]:
     }
 
 
-def _scripted(answers: Mapping[str, Any]) -> FakeTransport:
+def _key(op: Mapping[str, Any]) -> str:
+    """A write's scripted key: the write kind, a pointer move's movement."""
+    write = op.get("write")
+    if not write:
+        return str(op["op"])
+    movement = (write.get("movement") or {}).get("movement")
+    return f"{write['write']}:{movement}" if movement else str(write["write"])
+
+
+def _scripted(
+    answers: Mapping[str, Any], sql: Mapping[str, Any] | None = None
+) -> FakeTransport:
     def answer(op: Mapping[str, Any]) -> Any:
-        retrieval = op.get("retrieval")
-        key = retrieval["action"] if retrieval else op["op"]
-        value = answers[key]
+        value = answers[_key(op)]
         return value(op) if callable(value) else value
 
-    return FakeTransport(log_answer=answer)
+    def query(text: str) -> Any:
+        return next(v for k, v in (sql or {}).items() if k in text)
+
+    return FakeTransport(log_answer=answer, sql_answer=query)
 
 
 def _session(transport: FakeTransport) -> LearningSession:
@@ -48,7 +60,7 @@ def _session(transport: FakeTransport) -> LearningSession:
 
 
 FITTED = {
-    "result": "fitted",
+    "recorded": "fitted",
     "adapter_digest": "sha256:a",
     "receipt_digest": "sha256:r",
     "body": {},
@@ -57,13 +69,16 @@ FITTED = {
 
 
 def test_an_adapter_is_activated_only_with_its_passing_receipt() -> None:
-    eg = _scripted({"fit_adapter": FITTED, "activate_adapter": _pointer("sha256:a")})
+    eg = _scripted(
+        {"fit_adapter": FITTED, "move_pointer:activate": _pointer("sha256:a")}
+    )
     promoter = AdapterPromoter(_session(eg))
     done = asyncio.run(promoter.promote(AdapterPlan("kg", "sha256:space")))
     assert done.promoted and done.pointer is not None
-    fit, activate = (op["retrieval"] for op in eg.ops)
+    fit, move = (op["write"] for op in eg.ops)
     assert fit["request"]["graph"] == "kg" and fit["request"]["max_gain_q16"] <= 1 << 15
-    assert (activate["adapter_digest"], activate["receipt_digest"]) == (
+    assert move["pointer"] == {"pointer": "adapter", "graph": "kg"}
+    assert (move["movement"]["target"], move["movement"]["receipt_digest"]) == (
         "sha256:a",
         "sha256:r",
     )
@@ -74,7 +89,7 @@ def test_a_failed_receipt_activates_nothing() -> None:
     eg = _scripted({"fit_adapter": failed})
     done = asyncio.run(AdapterPromoter(_session(eg)).promote(AdapterPlan("kg", "s")))
     assert (done.promoted, done.stage) == (False, "eval")
-    assert [op["retrieval"]["action"] for op in eg.ops] == ["fit_adapter"]
+    assert [_key(op) for op in eg.ops] == ["fit_adapter"]
 
 
 class _Embedder:
@@ -100,7 +115,7 @@ def _swap(eg: FakeTransport, trained: str | None, leases: list[str]) -> Generati
 
 
 PLAN = GenerationPlan("kg", "kg", "sha256:s1", "kg-2", "sha256:s2", min_eval_items=1)
-VIEW = {"columns": ["record_id"], "rows": [[{"cell": "text", "value": "rec-1"}]]}
+JUDGED = {"columns": ["record_id"], "rows": [["rec-1"]]}
 ENTRY = {
     "record": {
         "inputs": {
@@ -112,28 +127,27 @@ ENTRY = {
 
 def test_a_generation_swaps_only_with_a_passing_receipt_and_rolls_back() -> None:
     evaluated = {
-        "result": "generation",
+        "recorded": "generation",
         "receipt_digest": "sha256:g",
         "receipt": {"passed": True},
     }
     eg = _scripted(
         {
-            "query": VIEW,
             "get": ENTRY,
             "evaluate_generation": evaluated,
-            "activate_generation": _pointer("kg-2"),
-            "rollback_generation": _pointer(None),
-        }
+            "move_pointer:activate": _pointer("kg-2"),
+            "move_pointer:rollback": _pointer(None),
+        },
+        {"decision_retrieval_outcomes": JUDGED},
     )
     leases: list[str] = []
     done = asyncio.run(_swap(eg, "tuned", leases).run(PLAN, "base"))
     assert done.activated, done
     assert leases == ["held", "reembed kg->kg-2 with tuned", "released"]
     request = next(
-        op["retrieval"]["request"]
-        for op in eg.ops
-        if (op.get("retrieval") or {}).get("action") == "evaluate_generation"
+        op["write"]["request"] for op in eg.ops if _key(op) == "evaluate_generation"
     )
+    assert "verdict = 'success'" in eg.queries[0]
     assert request["items"] == [
         {"record_id": "rec-1", "active_q16": [65536, 0], "shadow_q16": [0, 65536]}
     ]
@@ -146,11 +160,14 @@ def test_no_trained_model_or_a_failed_receipt_stops_the_swap() -> None:
     eg = _scripted({})
     assert asyncio.run(_swap(eg, None, []).run(PLAN, "base")).stage == "train"
     failed = {
-        "result": "generation",
+        "recorded": "generation",
         "receipt_digest": "d",
         "receipt": {"passed": False},
     }
-    eg = _scripted({"query": VIEW, "get": ENTRY, "evaluate_generation": failed})
+    eg = _scripted(
+        {"get": ENTRY, "evaluate_generation": failed},
+        {"decision_retrieval_outcomes": JUDGED},
+    )
     done = asyncio.run(_swap(eg, "tuned", []).run(PLAN, "base"))
     assert (done.activated, done.stage) == (False, "eval")
 
@@ -171,16 +188,16 @@ def _fresh_pointers() -> Iterator[None]:
 
 
 def test_the_retrieval_path_resolves_the_active_generation(eg: FakeTransport) -> None:
-    eg.log_answer = lambda op: _pointer("kg-2")
+    eg.sql_answer = lambda query: {"columns": ["target"], "rows": [["kg-2"]]}
     view = active_generation(_GraphView("kg"))
     assert view.graph_name == "kg-2"
+    assert "pointer_key = 'generation:kg'" in eg.queries[0]
     assert resolve_generation("kg") == "kg-2"
-    assert len(eg.ops) == 1, "the pointer is read once per TTL"
+    assert len(eg.queries) == 1, "the pointer is read once per TTL"
     assert resolve_generation("kg", now=lambda: 1e12) == "kg-2"
-    assert len(eg.ops) == 2
+    assert len(eg.queries) == 2
 
 
 def test_no_session_or_no_pointer_keeps_the_logical_graph(eg: FakeTransport) -> None:
-    eg.log_answer = lambda op: _pointer(None)
     assert active_generation(_GraphView("kg")).graph_name == "kg"
     assert active_generation(None) is None

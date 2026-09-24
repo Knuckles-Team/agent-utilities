@@ -13,6 +13,7 @@ and its pending run, bounded, until the answer reports its citations.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
@@ -21,10 +22,9 @@ from typing import Any
 
 from agent_utilities.decide.consumers.retrieval import PATH_PREFIX, choose_retrieval
 from agent_utilities.decide.learning.ops import (
+    literal,
     outcome_op,
-    paths_op,
     q16,
-    result_of,
     space_identity,
 )
 from agent_utilities.decide.learning.session import current_session
@@ -84,18 +84,36 @@ def ledger_of(retriever: Any) -> RunLedger:
     return ledger
 
 
+_PATHS_SQL = (
+    "SELECT template_digest, successes, failures, template_json "
+    "FROM decision_proven_paths WHERE task_class = {task} AND composed_digest = {schema} "
+    "ORDER BY successes DESC, failures, template_digest"
+)
+
+
+def _path_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "template_digest": row["template_digest"],
+        "successes": int(row.get("successes") or 0),
+        "failures": int(row.get("failures") or 0),
+        "template": json.loads(str(row["template_json"])),
+    }
+
+
 def proven_paths(scope: PathScope | None) -> list[Mapping[str, Any]]:
-    """The task class's proven paths under its schema identity (EG's rows)."""
+    """The task class's proven paths under its schema identity (EG's
+    ``decision_proven_paths`` relation, as this caller may see it)."""
     session = current_session()
     if scope is None or session is None:
         return []
-    op = paths_op(session.tenant, scope.task_class, scope.composed_digest)
+    sql = _PATHS_SQL.format(
+        task=literal(scope.task_class), schema=literal(scope.composed_digest)
+    )
     try:
-        rows = result_of(session.send(op), "paths").get("rows") or []
+        return [_path_row(row) for row in session.query(sql)]
     except Exception as exc:
         logger.warning("proven retrieval paths unavailable: %s", exc)
         return []
-    return [row for row in rows if isinstance(row, Mapping)]
 
 
 def plan_retrieval(retriever: Any, query: str, mode: str) -> str:

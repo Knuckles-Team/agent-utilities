@@ -29,7 +29,13 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from agent_utilities.decide.learning.ops import q16, result_of, retrieval_op
+from agent_utilities.decide.learning.ops import (
+    ROLLBACK,
+    activate,
+    generation_pointer,
+    literal,
+    q16,
+)
 from agent_utilities.decide.learning.session import LearningSession, current_session
 
 logger = logging.getLogger(__name__)
@@ -39,9 +45,12 @@ POINTER_TTL_S = 30.0
 #: The judged runs one evaluation replays at most (EG's own bound).
 MAX_EVAL_ITEMS = 1024
 _JUDGED_SQL = (
-    "SELECT DISTINCT d.record_id FROM decisions d JOIN evaluations e "
-    "ON d.record_id = e.record_id WHERE d.question_id = '{question}' "
-    "AND e.success = true ORDER BY d.record_id LIMIT {limit}"
+    "SELECT DISTINCT record_id FROM decision_retrieval_outcomes "
+    "WHERE verdict = 'success' AND question_id = {question} "
+    "ORDER BY record_id LIMIT {limit}"
+)
+_POINTER_SQL = (
+    "SELECT target FROM decision_pointers WHERE active AND pointer_key = {key}"
 )
 
 
@@ -87,10 +96,6 @@ Reembedder = Callable[[str, str, str], Awaitable[int]]
 CapacityLease = Callable[[], AbstractContextManager[Any]]
 
 
-def _cell(cell: Any) -> Any:
-    return cell.get("value") if isinstance(cell, Mapping) else cell
-
-
 def _query_param(entry: Mapping[str, Any]) -> str | None:
     params = ((entry.get("record") or {}).get("inputs") or {}).get("params") or []
     for param in params:
@@ -103,14 +108,13 @@ def _query_param(entry: Mapping[str, Any]) -> str | None:
 async def judged_queries(
     session: LearningSession, question_id: str, limit: int = MAX_EVAL_ITEMS
 ) -> list[tuple[str, str]]:
-    """``(record_id, query text)`` of the question's successfully evaluated runs
-    the caller may read (EG's SQL view, then each record's ``query`` param)."""
-    sql = _JUDGED_SQL.format(question=question_id.replace("'", "''"), limit=int(limit))
-    view = await session.asend({"op": "query", "tenant_id": session.tenant, "sql": sql})
-    body = getattr(view, "payload", view) or {}
-    ids = [str(_cell(row[0])) for row in body.get("rows") or [] if row]
+    """``(record_id, query text)`` of the question's independently judged
+    successful runs the caller may read (``decision_retrieval_outcomes``), the
+    text from each record's ``query`` parameter."""
+    sql = _JUDGED_SQL.format(question=literal(question_id), limit=int(limit))
     out: list[tuple[str, str]] = []
-    for record_id in ids:
+    for row in await session.aquery(sql):
+        record_id = str(row["record_id"])
         op = {"op": "get", "tenant_id": session.tenant, "record_id": record_id}
         entry = await session.asend(op)
         text = _query_param(getattr(entry, "payload", entry) or {})
@@ -178,7 +182,7 @@ class GenerationSwap:
         items = eval_items(
             queries, self.embedder_for(base_model), self.embedder_for(shadow_model)
         )
-        return await self.session.ask(
+        return await self.session.learn(
             "evaluate_generation", "generation", request=eval_request(plan, items)
         )
 
@@ -190,19 +194,21 @@ class GenerationSwap:
         receipt = evaluated.get("receipt") or {}
         if not receipt.get("passed"):
             return GenerationOutcome(False, "eval", "the receipt did not pass", receipt)
-        pointer = await self.session.ask(
-            "activate_generation",
+        pointer = await self.session.learn(
+            "move_pointer",
             "pointer",
-            logical=plan.logical,
-            shadow_graph=plan.shadow_graph,
-            receipt_digest=evaluated["receipt_digest"],
+            pointer=generation_pointer(plan.logical),
+            movement=activate(plan.shadow_graph, evaluated["receipt_digest"]),
         )
         _forget(plan.logical)
         return GenerationOutcome(True, "activated", receipt=receipt, pointer=pointer)
 
     async def rollback(self, logical: str) -> Mapping[str, Any]:
-        pointer = await self.session.ask(
-            "rollback_generation", "pointer", logical=logical
+        pointer = await self.session.learn(
+            "move_pointer",
+            "pointer",
+            pointer=generation_pointer(logical),
+            movement=ROLLBACK,
         )
         _forget(logical)
         return pointer
@@ -228,13 +234,13 @@ def resolve_generation(
     session = current_session()
     if session is None:
         return logical
-    op = retrieval_op(session.tenant, "generation_status", logical=logical)
+    sql = _POINTER_SQL.format(key=literal(f"generation:{logical}"))
     try:
-        pointer = result_of(session.send(op), "pointer")
+        rows = session.query(sql)
     except Exception as exc:
         logger.warning("generation pointer of %s unreadable: %s", logical, exc)
         return logical
-    target = str(((pointer.get("active") or {}).get("target")) or logical)
+    target = str(rows[0].get("target") or logical) if rows else logical
     _RESOLVED[logical] = (target, now())
     return target
 

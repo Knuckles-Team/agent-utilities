@@ -10,24 +10,22 @@ only with EG's receipts (:mod:`.adapter`, :mod:`.generation`).
 """
 
 from agent_utilities.decide.learning.ops import (
+    learn_op,
     outcome_op,
-    paths_op,
     q16,
-    result_of,
-    retrieval_op,
+    recorded,
+    rows_of,
     space_identity,
-    usage_op,
 )
 from agent_utilities.decide.learning.session import LearningSession, current_session
 
 __all__ = [
     "LearningSession",
     "current_session",
+    "learn_op",
     "outcome_op",
-    "paths_op",
     "q16",
-    "result_of",
-    "retrieval_op",
+    "recorded",
+    "rows_of",
     "space_identity",
-    "usage_op",
 ]

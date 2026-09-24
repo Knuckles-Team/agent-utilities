@@ -3,7 +3,7 @@
 EH-269's admission table decides which content classes get a vector. Whether
 an admitted class earns its vectors is a retrieval fact: EG aggregates, per
 content class, how often the caller's visible runs returned and cited units of
-it (``DecisionLog.retrieval`` ``usage``, k-anonymised by the policy's
+it (the ``decision_class_usage`` relation of EG's decision views, k-anonymised by the policy's
 ``min_support``). From that aggregate this module derives REVIEWED proposals:
 
 * ``never_retrieved`` -- an admitted class absent from every visible run over
@@ -108,6 +108,22 @@ def log_sink(proposals: Sequence[AdmissionProposal]) -> None:
         )
 
 
+_USAGE_SQL = "SELECT content_class, returned, cited FROM decision_class_usage"
+_OUTCOMES_SQL = (
+    "SELECT count(DISTINCT record_id) AS runs FROM decision_retrieval_outcomes"
+)
+
+
+async def read_usage(session: Any) -> dict[str, Any]:
+    """EG's per-class usage over the caller's visible runs, from the decision
+    views. The relation is already k-anonymised (a class below the policy's
+    ``min_support`` reports zero counts), so any non-zero count clears it."""
+    rows = await session.aquery(_USAGE_SQL)
+    runs = await session.aquery(_OUTCOMES_SQL)
+    outcomes = int((runs[0] if runs else {}).get("runs") or 0)
+    return {"min_support": 1, "outcomes": outcomes, "rows": rows}
+
+
 async def review_admission_feedback(
     session: Any,
     sink: ProposalSink = log_sink,
@@ -115,10 +131,9 @@ async def review_admission_feedback(
     min_outcomes: int = DEFAULT_MIN_OUTCOMES,
 ) -> list[AdmissionProposal]:
     """Read EG's per-class usage and hand the resulting proposals to ``sink``."""
-    from agent_utilities.decide.learning.ops import result_of, usage_op
-
-    usage = result_of(await session.asend(usage_op(session.tenant)), "usage")
-    proposals = propose_admission_changes(usage, min_outcomes=min_outcomes)
+    proposals = propose_admission_changes(
+        await read_usage(session), min_outcomes=min_outcomes
+    )
     sink(proposals)
     return proposals
 
@@ -130,5 +145,6 @@ __all__ = [
     "admitted_classes",
     "log_sink",
     "propose_admission_changes",
+    "read_usage",
     "review_admission_feedback",
 ]

@@ -12,12 +12,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_utilities import decide
-from agent_utilities.decide.learning.ops import result_of, retrieval_op
+from agent_utilities.decide.learning.ops import learn_op, recorded, rows_of
 
 
 @dataclass(frozen=True, slots=True)
 class LearningSession:
-    """One tenant's ``DecisionLog.retrieval`` channel."""
+    """One tenant's retrieval-learning channel: ``DecisionLog`` writes and
+    SQL reads of the decision views."""
 
     transport: Any
     tenant: str
@@ -25,11 +26,17 @@ class LearningSession:
     async def asend(self, op: Mapping[str, Any]) -> Any:
         return await self.transport.log(op)
 
-    async def ask(self, action: str, kind: str, **fields: Any) -> Mapping[str, Any]:
-        """One ``DecisionLog.retrieval`` op; its ``kind`` result body."""
-        return result_of(
-            await self.asend(retrieval_op(self.tenant, action, **fields)), kind
-        )
+    async def learn(self, write: str, kind: str, **fields: Any) -> Mapping[str, Any]:
+        """One ``DecisionLog.learn`` write; its ``kind`` recorded body."""
+        return recorded(await self.asend(learn_op(self.tenant, write, **fields)), kind)
+
+    async def aquery(self, sql: str) -> list[dict[str, Any]]:
+        """One read-only SQL statement over the caller's decision views."""
+        return rows_of(await self.transport.sql(sql))
+
+    def query(self, sql: str) -> list[dict[str, Any]]:
+        """Drive :meth:`aquery` from a sync call site on the engine loop."""
+        return self.transport.run(self.aquery(sql))
 
     def send(self, op: Mapping[str, Any]) -> Any:
         """Drive :meth:`asend` from a sync call site on the engine loop."""

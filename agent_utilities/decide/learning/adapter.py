@@ -15,7 +15,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from agent_utilities.decide.learning.ops import ALL_TIME
+from agent_utilities.decide.learning.ops import (
+    ALL_TIME,
+    ROLLBACK,
+    activate,
+    adapter_pointer,
+    literal,
+)
 from agent_utilities.decide.learning.session import LearningSession
 
 
@@ -58,7 +64,7 @@ def fit_request(plan: AdapterPlan) -> dict[str, Any]:
 
 @dataclass
 class AdapterPromoter:
-    """Fit -> activate-with-receipt -> (rollback), over ``DecisionLog.retrieval``.
+    """Fit -> activate-with-receipt -> (rollback), over ``DecisionLog.learn``.
 
     The session's principal must hold EG's ``admin:decision-head`` action.
     """
@@ -66,7 +72,7 @@ class AdapterPromoter:
     session: LearningSession
 
     async def promote(self, plan: AdapterPlan) -> AdapterPromotion:
-        fitted = await self.session.ask(
+        fitted = await self.session.learn(
             "fit_adapter", "fitted", request=fit_request(plan)
         )
         receipt = fitted.get("receipt") or {}
@@ -74,20 +80,28 @@ class AdapterPromoter:
             return AdapterPromotion(
                 False, "eval", "the held-out receipt did not pass", receipt
             )
-        pointer = await self.session.ask(
-            "activate_adapter",
+        pointer = await self.session.learn(
+            "move_pointer",
             "pointer",
-            graph=plan.graph,
-            adapter_digest=fitted["adapter_digest"],
-            receipt_digest=fitted["receipt_digest"],
+            pointer=adapter_pointer(plan.graph),
+            movement=activate(fitted["adapter_digest"], fitted["receipt_digest"]),
         )
         return AdapterPromotion(True, "activated", receipt=receipt, pointer=pointer)
 
     async def rollback(self, graph: str) -> Mapping[str, Any]:
-        return await self.session.ask("rollback_adapter", "pointer", graph=graph)
+        return await self.session.learn(
+            "move_pointer", "pointer", pointer=adapter_pointer(graph), movement=ROLLBACK
+        )
 
-    async def status(self, graph: str) -> Mapping[str, Any]:
-        return await self.session.ask("adapter_status", "pointer", graph=graph)
+    async def history(self, graph: str) -> list[dict[str, Any]]:
+        """The graph's audited adapter moves (``decision_pointers``)."""
+        sql = (
+            "SELECT seq, transition, target, receipt_digest, principal, at_ms, active "
+            "FROM decision_pointers WHERE pointer_key = "
+            + literal(f"adapter:{graph}")
+            + " ORDER BY seq"
+        )
+        return await self.session.aquery(sql)
 
 
 __all__ = ["AdapterPlan", "AdapterPromoter", "AdapterPromotion", "fit_request"]

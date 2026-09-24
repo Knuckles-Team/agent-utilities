@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from agent_utilities.decide.learning.session import LearningSession
@@ -51,9 +51,11 @@ def test_retrieved_but_never_cited_is_proposed_and_cited_is_not() -> None:
 
 
 class _Transport:
-    async def log(self, op: Mapping[str, Any]) -> Any:
-        assert op["retrieval"]["action"] == "usage"
-        return _usage([], outcomes=1000)
+    async def sql(self, query: str) -> Any:
+        if "decision_class_usage" in query:
+            return {"columns": ["content_class", "returned", "cited"], "rows": []}
+        assert "decision_retrieval_outcomes" in query
+        return {"columns": ["runs"], "rows": [[1000]]}
 
     def run(self, call: Any) -> Any:
         return asyncio.run(call)

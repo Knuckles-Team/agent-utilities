@@ -8,6 +8,7 @@ choice; a chosen path runs as a unified plan before any template.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -68,22 +69,33 @@ def _logged(option: str) -> dict[str, Any]:
     return batch
 
 
-def _answers(paths: list[Mapping[str, Any]]) -> Any:
-    def answer(op: Mapping[str, Any]) -> Any:
-        action = (op.get("retrieval") or {}).get("action")
-        if action == "paths":
-            return {"result": "paths", "schema_version": 1, "rows": paths}
-        return {"record_id": "logged"}
+def _paths_answer(paths: list[Mapping[str, Any]]) -> Any:
+    def answer(query: str) -> Any:
+        assert "FROM decision_proven_paths" in query
+        rows = [
+            [
+                p["template_digest"],
+                p["successes"],
+                p["failures"],
+                json.dumps(p["template"]),
+            ]
+            for p in paths
+        ]
+        return {
+            "columns": ["template_digest", "successes", "failures", "template_json"],
+            "rows": rows,
+        }
 
     return answer
 
 
 def test_a_proven_path_joins_the_plan_choice_and_runs_first(eg: FakeTransport) -> None:
-    eg.log_answer = _answers([PATH])
+    eg.sql_answer = _paths_answer([PATH])
     eg.answer = _logged("path:sha256:p1")
     retriever = _Retriever()
     mode = runs.plan_retrieval(retriever, "why is billing down?", "hyde")
     assert mode == "standard", "a chosen path skips the HyDE planner"
+    assert "task_class = 'urn:task:triage'" in eg.queries[0]
     options = [o["option_id"] for o in eg.requests[0]["candidates"]["options"]]
     assert "path:sha256:p1" in options
     lists = runs.first_pass(
@@ -97,7 +109,6 @@ def test_a_proven_path_joins_the_plan_choice_and_runs_first(eg: FakeTransport) -
 
 
 def test_the_answer_attests_what_the_run_returned_and_cited(eg: FakeTransport) -> None:
-    eg.log_answer = _answers([])
     eg.answer = _logged("deep")
     retriever = _Retriever()
     query = "who owns billing?"
@@ -108,7 +119,7 @@ def test_the_answer_attests_what_the_run_returned_and_cited(eg: FakeTransport) -
         [{"id": "a", "description": "prose about the billing owner team"}, {"id": "b"}],
     )
     assert runs.attest_citations(retriever, query, ["b", "not-returned"])
-    sent = eg.ops[-1]["retrieval"]["outcome"]
+    sent = eg.ops[-1]["write"]["outcome"]
     assert sent["record_id"] == record({})["record_id"]
     assert [r["evidence_id"] for r in sent["returned"]] == ["a", "b"]
     assert sent["returned"][0]["content_class"] == "prose"
@@ -119,7 +130,6 @@ def test_the_answer_attests_what_the_run_returned_and_cited(eg: FakeTransport) -
 
 
 def test_an_abstention_leaves_nothing_to_attest(eg: FakeTransport) -> None:
-    eg.log_answer = _answers([])
     eg.answer = {"records": [record({"outcome": "abstained", "reasons": []})]}
     retriever = _Retriever()
     assert runs.plan_retrieval(retriever, "q", "hyde") == "hyde"
@@ -143,5 +153,5 @@ def test_the_pending_runs_are_bounded() -> None:
 
 def test_an_outcome_keeps_citations_inside_the_returned_set() -> None:
     op = outcome_op("t", "r", [("a", "prose"), ("b", None)], ["b", "b", "c"])
-    assert op["retrieval"]["outcome"]["cited"] == ["b"]
-    assert op["retrieval"]["action"] == "record_outcome"
+    assert op["write"]["outcome"]["cited"] == ["b"]
+    assert (op["op"], op["write"]["write"]) == ("learn", "record_outcome")
