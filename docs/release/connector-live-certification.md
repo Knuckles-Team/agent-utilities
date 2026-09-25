@@ -59,6 +59,11 @@ values are never written. Failures are signed with an exception class only.
 Offline mode uses the same lifecycle sequence against a bounded in-memory reference
 driver. It is useful while authoring a bundle, but the record is deliberately marked
 `offline-validated` and `live_certified=false`; the release gate rejects it.
+Both modes send the signed shapes and typed fixture triples to Epistemic Graph for
+SHACL validation. Certification also removes each required governance path in turn
+and requires the engine to reject the resulting fixture for every declared type.
+If the engine is unavailable or a shape does not constrain those paths, the
+certification fails.
 
 ```sh
 graph-os-certify-connector \
