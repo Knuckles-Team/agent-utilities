@@ -5,8 +5,8 @@ ask_data	pending			ask_data			await served parity and operator-reviewed disposit
 document_process	pending			document_process			await served parity and operator-reviewed disposition
 engine_admin_audit_prove_inclusion	pending			engine_admin	audit_prove_inclusion		await served parity and operator-reviewed disposition
 engine_admin_audit_verify	pending		security.audit.verify	engine_admin	audit_verify	eg:AuditVerify	EG wire-callable and exact scope security:audit (admin); served runtime and behavior parity pending
-engine_admin_backup	pending		ops.backup	engine_admin	backup	eg:Backup	EG exact scope admin:backup differs from GraphOS admin:backup,ops:admin; composition blocked
-engine_admin_restore	pending		ops.restore	engine_admin	restore	eg:Restore	EG exact scope admin:backup differs from GraphOS admin:backup,ops:admin; composition blocked
+engine_admin_backup	pending		ops.backup	engine_admin	backup	eg:Backup	EG exact admin:backup scope now declared by GraphOS T5; registry/served runtime and behavior parity pending
+engine_admin_restore	pending		ops.restore	engine_admin	restore	eg:Restore	EG exact admin:backup scope now declared by GraphOS T5; registry/served runtime and behavior parity pending
 engine_analytics_betweenness_centrality	pending			engine_analytics	betweenness_centrality		await served parity and operator-reviewed disposition
 engine_analytics_degree_centrality	pending			engine_analytics	degree_centrality		await served parity and operator-reviewed disposition
 engine_analytics_degree_centrality_all	pending			engine_analytics	degree_centrality_all		await served parity and operator-reviewed disposition
@@ -226,7 +226,7 @@ engine_modalities_query_video_window	pending			engine_modalities	query_video_win
 engine_modalities_restore	pending			engine_modalities	restore		await served parity and operator-reviewed disposition
 engine_modalities_search_documents	pending			engine_modalities	search_documents		await served parity and operator-reviewed disposition
 engine_modalities_stats	pending			engine_modalities	stats		await served parity and operator-reviewed disposition
-engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	eg:AddNode	EG method wire-callable, but legacy NodeClient.add encodes JSON properties to properties_msgpack; direct raw AddNode op requires adapter; served parity pending
+engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	composite:graph_os.api.ops.graph.node_add_handler	GraphOS T5 high-level adapter encodes JSON properties to properties_msgpack through verified graph; served parity pending
 engine_nodes_claim_next	pending			engine_nodes	claim_next		await served parity and operator-reviewed disposition
 engine_nodes_compare_and_set	pending			engine_nodes	compare_and_set		await served parity and operator-reviewed disposition
 engine_nodes_count	pending			engine_nodes	count		await served parity and operator-reviewed disposition
@@ -243,7 +243,7 @@ engine_nodes_neighbors_batch	pending			engine_nodes	neighbors_batch		await serve
 engine_nodes_neighbors_union	pending			engine_nodes	neighbors_union		await served parity and operator-reviewed disposition
 engine_nodes_out_degree	pending			engine_nodes	out_degree		await served parity and operator-reviewed disposition
 engine_nodes_predecessors	pending			engine_nodes	predecessors		await served parity and operator-reviewed disposition
-engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	eg:GetNodeProperties	EG method wire-callable, but legacy NodeClient.properties decodes MessagePack to dict; direct raw GetNodeProperties result needs adapter proof; served parity pending
+engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	composite:graph_os.api.ops.graph.node_properties_handler	GraphOS T5 high-level adapter decodes GetNodeProperties MessagePack to object/null through verified graph; served parity pending
 engine_nodes_properties_batch	pending			engine_nodes	properties_batch		await served parity and operator-reviewed disposition
 engine_nodes_properties_union	pending			engine_nodes	properties_union		await served parity and operator-reviewed disposition
 engine_nodes_remove	pending		graph.nodes.remove	engine_nodes	remove	eg:RemoveNode	EG wire-callable and exact scope node:write (user); served runtime and behavior parity pending
@@ -299,9 +299,9 @@ engine_resharding_catalog_assign	pending			engine_resharding	catalog_assign		awa
 engine_resharding_catalog_list	pending			engine_resharding	catalog_list		await served parity and operator-reviewed disposition
 engine_resharding_catalog_reassign	pending			engine_resharding	catalog_reassign		await served parity and operator-reviewed disposition
 engine_resharding_catalog_remove	pending			engine_resharding	catalog_remove		await served parity and operator-reviewed disposition
-engine_resharding_rebalance_execute	pending		ops.shards.execute	engine_resharding	rebalance_execute	eg:RebalanceExecute	EG exact scope admin:cluster differs from GraphOS admin:cluster,ops:admin; composition blocked
-engine_resharding_rebalance_plan	pending		ops.shards.plan	engine_resharding	rebalance_plan	eg:RebalancePlan	EG exact scope admin:cluster-read differs from GraphOS admin:cluster-read,ops:read; composition blocked
-engine_resharding_reshard	pending		ops.shards.reshard	engine_resharding	reshard	eg:Reshard	EG exact scope admin:cluster differs from GraphOS admin:cluster,ops:admin; composition blocked
+engine_resharding_rebalance_execute	pending		ops.shards.execute	engine_resharding	rebalance_execute	eg:RebalanceExecute	EG exact admin:cluster scope now declared by GraphOS T5; registry/served runtime and behavior parity pending
+engine_resharding_rebalance_plan	pending		ops.shards.plan	engine_resharding	rebalance_plan	eg:RebalancePlan	EG exact admin:cluster-read scope now declared by GraphOS T5; registry/served runtime and behavior parity pending
+engine_resharding_reshard	pending		ops.shards.reshard	engine_resharding	reshard	eg:Reshard	EG exact admin:cluster scope now declared by GraphOS T5; registry/served runtime and behavior parity pending
 engine_streaming_cdc_read	pending			engine_streaming	cdc_read		await served parity and operator-reviewed disposition
 engine_streaming_cdc_read_with_watermark	pending			engine_streaming	cdc_read_with_watermark		await served parity and operator-reviewed disposition
 engine_streaming_cep_poll	pending		telemetry.cep.poll	engine_streaming	cep_poll	eg:CepPoll	EG wire-callable and exact scope cep:read (user); served runtime and behavior parity pending
@@ -320,12 +320,12 @@ engine_tenants_delete	pending			engine_tenants	delete		await served parity and o
 engine_tenants_list	pending			engine_tenants	list		await served parity and operator-reviewed disposition
 engine_timeseries_append	pending			engine_timeseries	append		await served parity and operator-reviewed disposition
 engine_timeseries_asof_join	pending			engine_timeseries	asof_join		await served parity and operator-reviewed disposition
-engine_timeseries_delete_series	pending		analytics.series.drop	engine_timeseries	delete_series	eg:TsDeleteSeries	EG scope timeseries:write is service-only but GraphOS principal is any; composition blocked
+engine_timeseries_delete_series	pending		analytics.series.drop	engine_timeseries	delete_series	eg:TsDeleteSeries	EG service-only timeseries:write now declared by GraphOS T5; registry/served runtime and behavior parity pending
 engine_timeseries_evict_before	pending			engine_timeseries	evict_before		await served parity and operator-reviewed disposition
 engine_timeseries_gap_fill	pending			engine_timeseries	gap_fill		await served parity and operator-reviewed disposition
 engine_timeseries_list_series	pending		analytics.series.list	engine_timeseries	list_series	eg:TsListSeries	EG wire-callable and exact scope timeseries:read (user); served runtime and behavior parity pending
 engine_timeseries_range	pending			engine_timeseries	range		await served parity and operator-reviewed disposition
-engine_timeseries_register_series	pending		analytics.series.define	engine_timeseries	register_series	eg:TsDefineSeries	EG scope timeseries:write is service-only but GraphOS principal is any; composition blocked
+engine_timeseries_register_series	pending		analytics.series.define	engine_timeseries	register_series	eg:TsDefineSeries	EG service-only timeseries:write now declared by GraphOS T5; registry/served runtime and behavior parity pending
 engine_timeseries_window	pending			engine_timeseries	window		await served parity and operator-reviewed disposition
 engine_txn_add_edge	pending			engine_txn	add_edge		await served parity and operator-reviewed disposition
 engine_txn_add_embedding	pending			engine_txn	add_embedding		await served parity and operator-reviewed disposition
