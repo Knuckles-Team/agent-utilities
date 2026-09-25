@@ -2460,6 +2460,9 @@ class _ControlPlaneWorkItemEngine:
             return self._native_work_item_method("renew_work_item_lease")(request)
 
     def commit_work_item_result(self, request: dict[str, Any]) -> Any:
+        """Forward the complete native commit request, including an optional
+        terminal ``outcome_extension``, under the verified control session.
+        """
         with self._control_session_scope():
             return self._native_work_item_method("commit_work_item_result")(request)
 

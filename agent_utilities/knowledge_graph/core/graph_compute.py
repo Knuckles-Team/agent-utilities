@@ -3609,7 +3609,7 @@ class GraphComputeEngine:
             raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
                 "connected engine has no work_items.commit_result"
             )
-        return method(
+        kwargs = dict(
             tenant=str(request.get("tenant") or ""),
             work_item_id=str(request.get("work_item_id") or ""),
             worker_id=str(request.get("worker_ref") or ""),
@@ -3622,6 +3622,9 @@ class GraphComputeEngine:
             error_ref=request.get("error_ref"),
             retryable=bool(request.get("retryable", False)),
         )
+        if "outcome_extension" in request:
+            kwargs["outcome_extension"] = request["outcome_extension"]
+        return method(**kwargs)
 
     def cancel_work_item(self, request: dict[str, Any]) -> Any:
         """Cancel an unleased WorkItem without manufacturing ownership."""

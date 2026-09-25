@@ -1859,6 +1859,33 @@ def test_reap_expired_lease_exhausted_retries_goes_to_dead_letter(
 # ---------------------------------------------------------------------------
 
 
+def test_commit_result_forwards_optional_outcome_extension(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    captured: list[dict[str, Any]] = []
+    original = engine.commit_work_item_result
+
+    def capture(request: dict[str, Any]) -> dict[str, Any]:
+        captured.append(request)
+        return original(request)
+
+    engine.commit_work_item_result = capture  # type: ignore[method-assign]
+    extension = {"schema_version": "1", "terminal_outcome": {"run_id": "run:1"}}
+    assert wi.commit_result(
+        engine,
+        item_id,
+        claim,
+        outcome="succeeded",
+        result_ref="result:1",
+        outcome_extension=extension,
+        now=11.0,
+    ) == "committed"
+    assert captured[0]["outcome_extension"] == extension
+
+
 def test_commit_result_success_is_idempotent_noop_on_redelivery(
     cas_engine: CasEngine,
 ) -> None:

@@ -53,7 +53,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, cast
 
 from agent_utilities.protocols.epistemic_operations import (
@@ -1785,6 +1785,7 @@ def commit_result(
     result_ref: str | None = None,
     error_ref: str | None = None,
     retryable: bool = True,
+    outcome_extension: Mapping[str, Any] | None = None,
     now: float | None = None,
 ) -> str:
     """Commit a claimed WorkItem's outcome: ``running -> succeeded|failed|dead_letter``,
@@ -1807,25 +1808,24 @@ def commit_result(
     item = get_work_item(engine, item_id)
     if item is None:
         return "missing"
-    native = _native_call(
-        engine,
-        "commit_work_item_result",
-        {
-            "work_item_id": item_id,
-            "tenant": str(item.get("tenant") or ""),
-            "worker_ref": claim.get("lease_owner") or _default_token(),
-            "expected_epoch": epoch,
-            "fencing_token": fencing_token,
-            "outcome": outcome,
-            "result_ref": result_ref,
-            "error_ref": error_ref,
-            "retryable": bool(retryable),
-            "now_unix": now,
-            "idempotency_key": (
-                f"commit:{item_id}:{epoch}:{outcome}:{result_ref or error_ref or ''}"
-            ),
-        },
-    )
+    request = {
+        "work_item_id": item_id,
+        "tenant": str(item.get("tenant") or ""),
+        "worker_ref": claim.get("lease_owner") or _default_token(),
+        "expected_epoch": epoch,
+        "fencing_token": fencing_token,
+        "outcome": outcome,
+        "result_ref": result_ref,
+        "error_ref": error_ref,
+        "retryable": bool(retryable),
+        "now_unix": now,
+        "idempotency_key": (
+            f"commit:{item_id}:{epoch}:{outcome}:{result_ref or error_ref or ''}"
+        ),
+    }
+    if outcome_extension is not None:
+        request["outcome_extension"] = dict(outcome_extension)
+    native = _native_call(engine, "commit_work_item_result", request)
     return _normalize_commit_result_status(native)
 
 
