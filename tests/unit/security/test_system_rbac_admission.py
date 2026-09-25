@@ -275,7 +275,7 @@ def test_get_identity_engine_contract_is_read_only_and_admin_gated() -> None:
 
     ledger_path = (
         Path(__file__).resolve().parents[3]
-        / "docs/_vendor_eg_capability_ledger.json"
+        / "contract/_vendor_eg_capability_ledger.json"
     )
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     contract = ledger["rows"]["GetIdentity"]
