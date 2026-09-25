@@ -21,12 +21,12 @@
 [global]
 min_similarity          = 0.9      # ON. 45 duplicate violations measured.
 duplication_enabled     = true
-orphan_module_enabled   = false    # OFF: check_liveness.py already owns
-                                   # "orphan_modules" with a different
-                                   # definition. Two gates, two definitions,
-                                   # one word = guaranteed disagreement.
-                                   # kiss measures 65 here; check_liveness
-                                   # measures 2. Reconcile before enabling.
+# Orphan modules: OFF here -- check_liveness.py owns "orphan_modules" with a
+# different definition (two gates, two definitions, one word = guaranteed
+# disagreement; kiss measured 65, check_liveness 2). kiss 0.4.11 moved the key
+# from [global] orphan_module_enabled to [test] orphan_detection, and an unknown
+# [global] key makes kiss 0.4.12 silently drop this WHOLE table -- so the old
+# key must not appear here (pipelines' kiss config-key check refuses it).
 comment_removal_enabled = false    # OFF PERMANENTLY. This repo's comments are
                                    # its institutional memory (BUG-043 in
                                    # check_root_hygiene, D-SWG-1 in
@@ -92,7 +92,7 @@ concrete_types_per_file   = 999999 # OFF: default 1 = one class per file.
 # ABSOLUTE ZERO, no baseline, no grandfathering.  STATUS: green -- "OK: 0
 # eager-import cycles among 1693 modules, 2871 eager top-level import edges".
 # Same shape as branches_per_function above (owned by check_complexity.py) and
-# orphan_module_enabled (owned by check_liveness.py): two gates, two
+# orphan detection (owned by check_liveness.py): two gates, two
 # definitions, one word is a guaranteed disagreement, so exactly ONE tool owns
 # each metric.
 #
