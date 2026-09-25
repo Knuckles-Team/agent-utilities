@@ -135,6 +135,23 @@ def test_release_gate_accepts_current_signed_live_record(
     assert gate._check_one(bundle, tmp_path, require_live=True) == []
 
 
+def test_release_gate_rejects_signed_live_record_without_engine_shacl(
+    tmp_path: Path,
+    bundle: CertificationBundle,
+    signer: ontology_integrity.ReleaseSigner,
+) -> None:
+    record = _record(bundle, signer, live=True)
+    record["semantic_validator"] = "declared-shacl-contract"
+    record["signature"] = None
+    record["signature"] = signer.sign(
+        ontology_integrity.canonical_signed_document_hash(record)
+    )
+    write_certification_record(tmp_path / "fixture-connector.json", record)
+    assert "connector has no passing external live certification" in gate._check_one(
+        bundle, tmp_path, require_live=True
+    )
+
+
 def test_release_gate_rejects_offline_and_stale_bundle_records(
     tmp_path: Path,
     bundle: CertificationBundle,

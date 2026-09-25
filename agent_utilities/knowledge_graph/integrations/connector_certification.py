@@ -1132,6 +1132,7 @@ def _verify_cert_require_live(record: Mapping[str, Any], checks: Any) -> list[st
         or not isinstance(checks, dict)
         or any(checks.get(name) != "passed" for name in REQUIRED_CHECKS)
         or record.get("runtime_configuration") != "externalized"
+        or record.get("semantic_validator") != "epistemic-graph"
         or record.get("failure_class") is not None
     ):
         return ["connector has no passing external live certification"]
