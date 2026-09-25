@@ -581,7 +581,7 @@ class EpistemicGraphBackend(GraphBackend):
         when an edge endpoint is missing. That call happens only for a node that
         actually carries such a property.
         """
-        from ..enrichment.relation_projection import (
+        from epistemic_graph.relation_projection import (
             project_relations,
             projects_anything,
         )
