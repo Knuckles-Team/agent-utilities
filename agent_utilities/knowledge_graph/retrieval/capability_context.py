@@ -60,7 +60,7 @@ def capability_power_context(
                 {"id": c["id"], "one_line": c.get("one_line", "")}
                 for c in cpds.values()
             ],
-            "citations": ["docs/capabilities-power.md", "docs/capabilities-power.json"],
+            "citations": ["contract/capabilities-power.md", "contract/capabilities-power.json"],
         }
     cpd = cpds.get(cap_id)
     if cpd is None:
@@ -73,5 +73,5 @@ def capability_power_context(
         "status": "ok",
         "answer": cpd.get("one_line", ""),
         "cpd": cpd,
-        "citations": [f"docs/capabilities-power.md#{cap_id.replace('_', '')}"],
+        "citations": [f"contract/capabilities-power.md#{cap_id.replace('_', '')}"],
     }
