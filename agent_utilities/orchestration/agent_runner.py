@@ -721,6 +721,7 @@ async def run_agent(
     required_tools: list[str] | None = None,
     skill_name: str | None = None,
     tool_server: str | None = None,
+    context_endpoint: Any | None = None,
     execution_mode: ExecutionMode = "auto",
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
@@ -872,6 +873,7 @@ async def run_agent(
             code_context_prime=code_context_prime,
             model_class=model_class,
             allowed_tools=allowed_tools,
+            context_endpoint=context_endpoint,
         )
         config["response_format"] = response_format
         config["execution_mode"] = requested_execution_mode
@@ -1986,6 +1988,27 @@ async def _select_and_dispatch(
     see ``_dispatch_pydantic_graph_forced`` for the contract — so a caller's
     exception handler always sees the branch that was actually entered.
     """
+    if config.get("verified_context_endpoint"):
+        # L4's run-scoped endpoint is already authenticated and bound above.
+        # Execute it directly: a graph/fleet fallback could silently widen the
+        # tool surface or answer without ever reaching EG context.
+        state["actual_execution_mode"] = "single_server_agent"
+        state["route"] = {
+            "agents": [agent_name],
+            "servers": [config["verified_context_endpoint"]],
+            "why": "verified EG MCP context endpoint",
+        }
+        state["stage_reached"] = "verified-context-endpoint"
+        return await _execute_single_server(
+            config=config,
+            task=task,
+            max_steps=max_steps,
+            agent_meta=agent_meta,
+            agent_name=agent_name,
+            bound_tool_grounding=True,
+            progress_sink=progress_sink,
+            run_id=run_id,
+        )
     if requested_execution_mode == "pydantic_graph":
         return await _dispatch_pydantic_graph_forced(
             state,
@@ -4135,6 +4158,7 @@ def _build_execution_config(
     code_context_prime: str | None = None,
     model_class: str = "standard",
     allowed_tools: list[str] | None = None,
+    context_endpoint: Any | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -4222,8 +4246,17 @@ def _build_execution_config(
     if allowed_tools:
         config["invoker_allowed_tools"] = list(allowed_tools)
 
-    _bind_server_toolset(engine, agent_name, agent_meta, config)
-    _bind_agent_template_toolsets(engine, agent_name, agent_meta, config)
+    if context_endpoint is not None:
+        from agent_utilities.layers.context_transport import bind_context_toolset
+        from agent_utilities.layers.contracts import McpEndpoint
+
+        if not isinstance(context_endpoint, McpEndpoint):
+            raise TypeError("verified EG MCP endpoint is required")
+        config["mcp_toolsets"] = [bind_context_toolset(context_endpoint)]
+        config["verified_context_endpoint"] = context_endpoint.name
+    else:
+        _bind_server_toolset(engine, agent_name, agent_meta, config)
+        _bind_agent_template_toolsets(engine, agent_name, agent_meta, config)
 
     return config
 

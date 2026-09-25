@@ -108,4 +108,5 @@ def test_worker_harness_commits_once_with_real_trace(monkeypatch: Any) -> None:
         work_items.calls[0]["outcome_extension"]["outcome_bundle"]["run_id"]
         == "job-one"
     )
-    assert seen["options"]["tool_server"] == "graphos"
+    assert seen["options"]["context_endpoint"] == ENDPOINT
+    assert seen["options"]["execution_mode"] == "pydantic_graph"
