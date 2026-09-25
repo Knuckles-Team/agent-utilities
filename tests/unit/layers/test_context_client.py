@@ -15,6 +15,7 @@ def _export() -> dict:
     url = "https://graphos.example/mcp"
     return {
         "ok": True,
+        "meta": {"registry_digest": "a" * 64, "api_version": "v1"},
         "result": {
             "endpoint": {
                 "name": "epistemic-graph-context",
@@ -62,3 +63,10 @@ def test_context_client_refuses_incomplete_proof(missing: str) -> None:
 def test_context_client_refuses_untrusted_http_api() -> None:
     with pytest.raises(ContextExportUnavailable, match="HTTPS"):
         GraphOSContextClient("http://graphos.example", lambda: "token").fetch()
+
+
+def test_context_client_refuses_registry_digest_mismatch() -> None:
+    payload = _export()
+    payload["meta"]["registry_digest"] = "b" * 64
+    with pytest.raises(ContextExportUnavailable, match="incomplete"):
+        parse_context_export(payload)

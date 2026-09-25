@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import httpx
 import pytest
 
 from agent_utilities.layers.context_transport import (
@@ -59,6 +60,18 @@ def test_context_transport_accepts_openbao_reference_via_sdk(monkeypatch: Any) -
         bearer_ref="openbao://apps/graphos#bearer",
     )
     assert bind_context_toolset(endpoint) is not None
+
+
+def test_reference_bearer_resolves_fresh_token_per_request(monkeypatch: Any) -> None:
+    from agent_utilities.layers import context_transport
+
+    issued = iter(("first", "second", "third"))
+    monkeypatch.setattr(context_transport, "_resolve_bearer", lambda _ref: next(issued))
+    auth = context_transport._ReferenceBearerAuth("env://GRAPHOS_BEARER")
+    first = next(auth.auth_flow(httpx.Request("GET", "https://graphos.example/mcp")))
+    second = next(auth.auth_flow(httpx.Request("GET", "https://graphos.example/mcp")))
+    assert first.headers["Authorization"] == "Bearer second"
+    assert second.headers["Authorization"] == "Bearer third"
 
 
 @pytest.mark.parametrize(

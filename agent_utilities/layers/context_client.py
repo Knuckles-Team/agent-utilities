@@ -28,7 +28,8 @@ def parse_context_export(payload: Any) -> McpEndpoint:
     if not isinstance(result, Mapping):
         raise ContextExportUnavailable("GraphOS context export has no result")
     proof = result.get("proof")
-    if not isinstance(proof, Mapping):
+    meta = payload.get("meta")
+    if not isinstance(proof, Mapping) or not isinstance(meta, Mapping):
         raise ContextExportUnavailable("GraphOS context export has no proof")
     try:
         endpoint = McpEndpoint.model_validate(result["endpoint"])
@@ -39,6 +40,7 @@ def parse_context_export(payload: Any) -> McpEndpoint:
     if (
         endpoint.url != proof.get("endpoint_url")
         or _DIGEST.fullmatch(str(proof.get("registry_digest") or "")) is None
+        or proof.get("registry_digest") != meta.get("registry_digest")
         or not _REQUIRED_TOOLS.issubset(tools)
         or not _REQUIRED_OPS.issubset(operations)
         or not endpoint.bearer_ref
