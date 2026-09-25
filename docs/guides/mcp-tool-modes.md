@@ -111,19 +111,16 @@ regardless of the ad-hoc tags the author wrote, and records the exact
 condensed tool always carries `{<domain>, …}` and a verbose tool `{verbose, <parent>}` —
 and the README generator reads the exact toggle map rather than guessing from tags.
 
-## GraphOS: intent by default, granular tools on demand
+## GraphOS cutover
 
-`graph-os` (the KG server — an action wrapper over the API gateway) uses
-**`intent`** by default. Its intent verbs and fleet meta-tools are resident. The
-action-routed `graph_*`, `engine_*`, and related granular tools remain registered
-with the `gated` tag as backing capabilities.
-
-GraphOS's embedded fleet gateway keeps the resident context small:
-gated tools are **held in the catalog but not auto-exposed**. A client uses
-`find_tools` to resolve the right capability and `load_tools` to reveal the exact
-action-routed tool for that session; `unload_tools` retracts it afterward. Full
-CRUD remains reachable while the default resident surface stays small. Choose
-explicit `verbose` or `both` only when a client intentionally needs the 1:1 API
-method surface resident.
+`MCP_TOOL_MODE` is a setting for standalone connector servers and fleet children.
+The approved GraphOS intent-surface design does not read this setting. GraphOS
+serves six intent verbs (`find`, `ask`, `why`, `write`, `act`, `manage`) and the
+four resident multiplexer tools (`find_tools`, `load_tools`, `unload_tools`,
+`multiplexer_status`). Its operation registry and governed `invoke` path provide
+the underlying capabilities; the multiplexer can load fleet tools per session.
+See `plans/refactor/architecture/GRAPHOS-MCP-INTENT-SURFACE-DESIGN.md` for the
+cutover contract. Until MCPI-29/31 complete, legacy AU-host mode descriptions
+elsewhere in this guide describe that host only, not the target GraphOS API.
 
 CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization.
