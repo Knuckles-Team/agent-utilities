@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+from epistemic_graph.repository_provenance import (
     POINTS_AT,
     SNAPSHOT_OF,
     Branch,

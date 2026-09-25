@@ -867,7 +867,7 @@ _CLASSIFICATION_CLAIMS_ACTIONS: dict[str, Callable[[_ClassificationClaimsCtx], s
 def _repo_provenance_snapshot(
     repo_id: str, commit_sha: str, ref: str
 ) -> tuple[Any, str, str | None]:
-    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+    from epistemic_graph.repository_provenance import (
         RepositorySnapshot,
     )
 
@@ -889,7 +889,7 @@ def _repo_provenance_snapshot(
 def _repo_provenance_branch(
     repo_id: str, name: str, commit_sha: str
 ) -> tuple[Any, str, str | None]:
-    from agent_utilities.knowledge_graph.ontology.repository_provenance import Branch
+    from epistemic_graph.repository_provenance import Branch
 
     if not name or not commit_sha:
         return (
@@ -909,7 +909,7 @@ def _repo_provenance_branch(
 def _repo_provenance_tag(
     repo_id: str, name: str, commit_sha: str, annotation: str
 ) -> tuple[Any, str, str | None]:
-    from agent_utilities.knowledge_graph.ontology.repository_provenance import Tag
+    from epistemic_graph.repository_provenance import Tag
 
     if not name or not commit_sha:
         return (
@@ -931,7 +931,7 @@ def _repo_provenance_change_event(
 ) -> tuple[Any, str, str | None]:
     from datetime import UTC, datetime
 
-    from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+    from epistemic_graph.repository_provenance import (
         ChangeEvent,
     )
 
@@ -1226,7 +1226,7 @@ def _graph_share_private(node_id: str) -> str:
 
 
 def _object_set_path(source_id: str, target_id: str) -> str:
-    from agent_utilities.knowledge_graph.ontology.object_path import find_object_path
+    from epistemic_graph.object_path import find_object_path
 
     if not source_id or not target_id:
         return json.dumps({"error": "action='path' requires source_id and target_id"})
