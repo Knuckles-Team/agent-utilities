@@ -2275,7 +2275,7 @@ def _observed_tool_aliases(server_name: str, observed: list[str]) -> dict[str, s
     public_prefix = _configured_fleet_server_prefix(server_name) if server_name else ""
     if not (public_prefix and server_name):
         return {}
-    from agent_utilities.mcp.multiplexer import clean_tool_name
+    from agent_utilities.capabilities.fleet_naming import clean_tool_name
 
     return {
         clean_tool_name(public_prefix, server_name, name): name
@@ -4432,7 +4432,7 @@ def _filter_toolsets_to_allowed(
                 f"'{agent_name}'"
             )
         if public_prefix:
-            from agent_utilities.mcp.multiplexer import clean_tool_name
+            from agent_utilities.capabilities.fleet_naming import clean_tool_name
 
             filtered.append(
                 _filter(

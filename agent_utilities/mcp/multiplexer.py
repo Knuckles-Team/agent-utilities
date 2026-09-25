@@ -48,6 +48,7 @@ from fastmcp.tools import FunctionTool, Tool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
 
+from agent_utilities.capabilities.fleet_naming import clean_tool_name
 from agent_utilities.mcp.protocol_compat import mcp_types_module
 
 if TYPE_CHECKING:
@@ -1305,47 +1306,6 @@ def get_server_prefix(server_name: str, cfg: dict | None = None) -> str:
             if clean:
                 return clean[:10]
     return auto_server_prefix(server_name)
-
-
-def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> str:
-    """Removes redundant server/module name prefixes from the tool name and ensures strict length compliance."""
-    if server_name.startswith("systems-manager-mcp-"):
-        base_server = "systems-manager-mcp"
-    elif server_name.startswith("container-manager-mcp-"):
-        base_server = "container-manager-mcp"
-    else:
-        base_server = server_name
-
-    clean_server = base_server.replace("-", "_").lower()
-    cleaned = original_tool_name
-
-    # Build potential redundant prefixes to strip from the tool name
-    strips = [
-        f"{clean_server}_mcp_",
-        f"{clean_server}_",
-        f"{prefix}_mcp_",
-        f"{prefix}_",
-    ]
-
-    if base_server.endswith("-mcp"):
-        mod_server = base_server[:-4].replace("-", "_").lower()
-        strips.append(f"{mod_server}_mcp_")
-        strips.append(f"{mod_server}_")
-
-    for s in strips:
-        if cleaned.startswith(s):
-            cleaned = cleaned[len(s) :]
-            break
-
-    # Build the final namespaced candidate
-    candidate = f"{prefix}__{cleaned}"
-
-    # Target maximum budget: 44 characters (so client-prefixed name is <= 64 characters)
-    if len(candidate) > 44:
-        budget = 44 - len(prefix) - 2  # 2 for "__"
-        candidate = f"{prefix}__{cleaned[:budget].strip('_')}"
-
-    return candidate
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

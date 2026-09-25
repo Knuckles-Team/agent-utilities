@@ -123,7 +123,7 @@ class FleetToolset(AbstractToolset[Any]):
         from pydantic_ai.toolsets import ToolsetTool
 
         from agent_utilities.core.config import config as agent_config
-        from agent_utilities.mcp.multiplexer import clean_tool_name
+        from agent_utilities.capabilities.fleet_naming import clean_tool_name
 
         probe = await self._mux.probe_catalog(
             budget=agent_config.mcp_dynamic_discovery_timeout
