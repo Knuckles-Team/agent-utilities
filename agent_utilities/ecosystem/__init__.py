@@ -14,12 +14,10 @@ Modules:
     - ``permission_policy`` — Permission deny/allow engine (ECO-4.13)
     - ``config_staleness_auditor`` — Periodic config staleness audit (ECO-4.21)
     - ``governance_workflow`` — Unified governance pipeline (ECO-4.22)
-    - ``agent_manager_dashboard`` — Governance dashboard CLI
 """
 
 from __future__ import annotations
 
-from .agent_manager_dashboard import AgentManagerDashboard, DashboardReport
 from .agents_md_reflector import AgentsMdReflector, create_reflector_hook
 from .bridge import EcosystemBridge
 from .config_staleness_auditor import ConfigStalenessAuditor, StalenessReport
@@ -35,12 +33,10 @@ from .permission_policy import PermissionPolicyEngine, create_permission_hook
 from .plugin_bundle import PluginBundle, PluginBundleManager
 
 __all__ = [
-    "AgentManagerDashboard",
     "AgentsMdReflector",
     "ChangeProposal",
     "ChangeType",
     "ConfigStalenessAuditor",
-    "DashboardReport",
     "EcosystemBridge",
     "GovernanceDecision",
     "GovernanceReport",
