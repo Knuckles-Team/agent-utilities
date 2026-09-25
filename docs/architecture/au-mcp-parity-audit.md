@@ -15,4 +15,6 @@ With the AU environment and the current GraphOS and EG T5 source paths, calling 
 
 `au-skill-operation-requirements.tsv` reconciles the deployment skill's 105 distinct legacy-shaped names: 101 are AU tool names covering 745 of the 810 action rows; four (`graph_finance`, `graph_mine`, `graph_mine_deep`, `graph_rlm`) are outside that AU source inventory and need GraphOS/external ownership decisions. None of these 105 skill names is yet a verified operation mapping. Keep their executable examples marked as EH-624 pending.
 
+The legacy `engine_*` wrapper parses `params_json`, injects the resolved graph when the client method requires it, and pre-embeds quoted-text `RANK BY ~"..."` for UQL. In particular, `engine_query_uql` is not behavior-equivalent to the direct `query.uql` EG binding until quoted-rank handling is proven at the new surface. This is recorded in its candidate row.
+
 No AU caller was migrated and no legacy host or tool-spec files were deleted at this checkpoint. These changes depend on the corrected composed registry and action-by-action served proof.

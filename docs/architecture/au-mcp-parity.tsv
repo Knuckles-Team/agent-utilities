@@ -276,7 +276,7 @@ engine_query_sql	pending		query.sql	engine_query	sql	eg:Sql	EG wire-callable and
 engine_query_sql_source_batch	pending			engine_query	sql_source_batch		await served parity and operator-reviewed disposition
 engine_query_stale_materializations	pending			engine_query	stale_materializations		await served parity and operator-reviewed disposition
 engine_query_unified	pending			engine_query	unified		await served parity and operator-reviewed disposition
-engine_query_uql	pending		query.uql	engine_query	uql	eg:Uql	EG wire-callable and exact scope query:unified (user); served runtime and behavior parity pending
+engine_query_uql	pending		query.uql	engine_query	uql	eg:Uql	EG wire-callable and exact scope query:unified; legacy AU pre-embeds quoted-text RANK, direct GraphOS EG binding has no proven equivalent; served/behavior parity pending
 engine_query_what_changed	pending			engine_query	what_changed		await served parity and operator-reviewed disposition
 engine_rbac_add_grant	pending			engine_rbac	add_grant		await served parity and operator-reviewed disposition
 engine_rbac_add_role	pending			engine_rbac	add_role		await served parity and operator-reviewed disposition
