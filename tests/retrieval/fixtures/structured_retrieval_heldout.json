@@ -1,0 +1,47 @@
+{
+  "corpus": "held-out ecosystem documentation, frozen from three sibling repositories",
+  "documents": [
+    {
+      "path": "tests/retrieval/fixtures/heldout_docs/eg-change-envelope.md",
+      "source": "epistemic-graph@a1bb9fb95:docs/architecture/change_envelope.md",
+      "sha256": "1b52151008840354a3c5e798306e30f0a4a9cc771b3ee9d5bfb869f51dc95be7",
+      "cases": [
+        {"query": "Which mutation ordering is required?", "gold_path": ["Governed ChangeEnvelope protocol", "Typed ordering"]},
+        {"query": "How does the envelope prove tenant authority and privacy?", "gold_path": ["Governed ChangeEnvelope protocol", "Verified authority and privacy"]},
+        {"query": "What happens after a cluster crash or replay?", "gold_path": ["Governed ChangeEnvelope protocol", "Cluster and lifecycle guarantees"]},
+        {"query": "Can a client read reconciliation state?", "gold_path": ["Governed ChangeEnvelope protocol", "Reconciliation reads"]}
+      ],
+      "updates": [
+        {"leaf_path": ["Governed ChangeEnvelope protocol", "Reconciliation reads"], "append_text": "A new receipt field is available after reconciliation."}
+      ]
+    },
+    {
+      "path": "tests/retrieval/fixtures/heldout_docs/graphos-deployment.md",
+      "source": "graph-os@df4b4a1:docs/deployment.md",
+      "sha256": "40ebcebe639b8fb4f4dd1d4671e41c8b4f2a6a1b89c5473eb81329b2c77f5373",
+      "cases": [
+        {"query": "How do I generate the deployment configuration?", "gold_path": ["Deployment and configuration", "Generate configuration"]},
+        {"query": "How is local MCP transport configured?", "gold_path": ["Deployment and configuration", "Local MCP transport"]},
+        {"query": "What is required for a network listener?", "gold_path": ["Deployment and configuration", "Network transport"], "allowed_paths": [["Deployment and configuration", "Network transport"], ["Deployment and configuration", "Local MCP transport"]]},
+        {"query": "How do I validate a candidate deployment?", "gold_path": ["Deployment and configuration", "Validate a candidate"]}
+      ],
+      "updates": [
+        {"leaf_path": ["Deployment and configuration", "Network transport"], "append_text": "A new listener check verifies the bound host."}
+      ]
+    },
+    {
+      "path": "tests/retrieval/fixtures/heldout_docs/sdk-extension-ports.md",
+      "source": "agent-connector-sdk@b92df56:docs/extension-ports.md",
+      "sha256": "ec65a650aba85d44775de5e91f339764f4ddcfc62e9e0f0178dfd21a0b19ff72",
+      "cases": [
+        {"query": "What does a source adapter return?", "gold_path": ["Extension ports", "SourceAdapter"]},
+        {"query": "How do I declare an artifact kind?", "gold_path": ["Extension ports", "ArtifactKind"]},
+        {"query": "Where is write-back handled?", "gold_path": ["Extension ports", "WriteBackPort"]},
+        {"query": "Which component owns the contract?", "gold_path": ["Extension ports", "Contract ownership"]}
+      ],
+      "updates": [
+        {"leaf_path": ["Extension ports", "WriteBackPort"], "append_text": "A new write-back receipt must carry the source revision."}
+      ]
+    }
+  ]
+}
