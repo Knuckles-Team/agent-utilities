@@ -65,7 +65,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from ...security.identifiers import validate_identifier
-from ..backends.sparql.source_partition import make_source_id
+from .source_partition import make_source_id
 
 logger = logging.getLogger(__name__)
 

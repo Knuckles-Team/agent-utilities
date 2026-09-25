@@ -76,20 +76,13 @@ def test_run_etl_inbound_only_calls_sync_source():
     assert out["lineage"]["direction"] == "inbound"
 
 
-def test_run_etl_outbound_to_sparql_backend_pushes():
+def test_run_etl_outbound_to_sparql_backend_refuses_legacy_sink():
     eng = _Engine()
 
     class _SparqlBE:
         supports_sparql = True
 
     with (
-        patch(
-            "agent_utilities.knowledge_graph.integrations.stardog_sync.push_to_stardog",
-            return_value={
-                "status": "ok",
-                "counts": {"nodes": 3, "edges": 1},
-            },
-        ) as push,
         patch(
             "agent_utilities.knowledge_graph.etl.lineage.record_etl_run",
             return_value="run-2",
@@ -100,9 +93,8 @@ def test_run_etl_outbound_to_sparql_backend_pushes():
         ),
     ):
         out = run_etl(eng, sink="stardog", sink_backend=_SparqlBE(), sources=["leanix"])
-    push.assert_called_once()
-    assert out["outbound"]["counts"]["nodes"] == 3
-    assert out["lineage"]["direction"] == "outbound"
+    assert out["outbound"]["status"] == "error"
+    assert "EG federation" in out["outbound"]["error"]
 
 
 def test_run_etl_outbound_to_writeback_sink():

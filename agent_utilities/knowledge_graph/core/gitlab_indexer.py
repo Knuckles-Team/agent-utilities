@@ -23,8 +23,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from ..backends.sparql.source_partition import make_source_id
 from ..enrichment.models import RESOLVED_EDGE_RUNG, EdgeRung
+from .source_partition import make_source_id
 
 logger = logging.getLogger(__name__)
 

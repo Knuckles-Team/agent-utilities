@@ -122,8 +122,6 @@ _KNOWN_BACKEND_TYPES = frozenset(
         "file",
         "postgresql",
         "age",
-        "jena_fuseki",
-        "stardog",
         "ladybug",
         "falkordb",
         "neo4j",
@@ -248,8 +246,6 @@ __all__ = [
     "FalkorDBBackend",
     "Neo4jBackend",
     "PostgreSQLBackend",
-    "JenaFusekiBackend",
-    "StardogSparqlBackend",
     "LADYBUG_AVAILABLE",
     "create_backend",
     "get_active_backend",
@@ -285,14 +281,6 @@ def __getattr__(name: str):
         from .postgresql_backend import PostgreSQLBackend
 
         return PostgreSQLBackend
-    if name == "JenaFusekiBackend":
-        from .sparql.jena_fuseki_backend import JenaFusekiBackend
-
-        return JenaFusekiBackend
-    if name == "StardogSparqlBackend":
-        from .sparql.stardog_backend import StardogSparqlBackend
-
-        return StardogSparqlBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -359,16 +347,13 @@ def _resolve_mirror_target_names() -> list[str]:
 
 
 def _role_mirror_names(_cfg: Any) -> list[str]:
-    """Connection names carrying ``role="mirror"``, plus the implicit
-    continuous-stardog mirror when that setting is enabled."""
+    """Connection names carrying ``role="mirror"`."""
     role_mirrors = [
         str(s.get("name") or "").strip()
         for s in (_cfg.kg_connections or [])
         if str(s.get("role") or "").strip().lower() == "mirror"
         and str(s.get("name") or "").strip()
     ]
-    if getattr(_cfg, "continuous_stardog_mirror", False):
-        role_mirrors.append("stardog")
     return role_mirrors
 
 
@@ -714,25 +699,6 @@ def _create_postgresql_backend(backend_type: str, uri, db_name, kwargs):
     return backend
 
 
-def _create_jena_fuseki_backend(kwargs):
-    from agent_utilities.core.config import config as _cfg
-
-    from .sparql.jena_fuseki_backend import JenaFusekiBackend
-
-    resolved_url = kwargs.get("jena_fuseki_url") or _cfg.kg_fuseki_endpoint
-    resolved_dataset = (
-        kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
-    )
-    resolved_jena_fuseki_user = kwargs.get("username") or setting("GRAPH_FUSEKI_USER")
-    backend = JenaFusekiBackend(
-        jena_fuseki_url=resolved_url,
-        dataset=resolved_dataset,
-        username=resolved_jena_fuseki_user,
-        password_ref=(kwargs.get("password_ref") or _cfg.graph_fuseki_password_ref),
-    )
-    return backend
-
-
 def _create_fanout_backend() -> "GraphBackend":
     # Concurrent N-way projection (CONCEPT:AU-KG.backend.mirror-health-repair):
     # EpistemicGraphBackend is fixed as the read/write-ack authority. External
@@ -759,36 +725,6 @@ def _create_fanout_backend() -> "GraphBackend":
 
         outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
         backend = FanOutBackend(mirrors, outbox_path=outbox_path)
-    return backend
-
-
-def _create_stardog_backend(uri, user, password, db_name, kwargs):
-    # First-class external SPARQL DATA backend (push/pull/query of instance
-    # data), usable standalone, as a fan-out mirror, or ad hoc. Schema
-    # composition and reasoning remain owned by epistemic-graph.
-    from .sparql.stardog_backend import (
-        DEFAULT_DATABASE,
-        STARDOG_LEVELS,
-        StardogSparqlBackend,
-    )
-
-    stardog_database = db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
-    backend = StardogSparqlBackend(
-        endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
-        database=stardog_database,
-        username=user or kwargs.get("username") or setting("STARDOG_USER"),
-        password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
-        # Stardog is the two-level store: a dedicated target defaults to a
-        # named graph inside the configured database, and can name the
-        # database instead with ``{"mode": "dedicated", "level": "database"}``.
-        mirror_target=_resolve_mirror_target(
-            kwargs,
-            backend_type="stardog",
-            named_selector=stardog_database,
-            default_name=DEFAULT_DATABASE,
-            supported_levels=STARDOG_LEVELS,
-        ),
-    )
     return backend
 
 
@@ -1044,20 +980,14 @@ def create_backend(
     elif backend_type in ("postgresql", "age", "pggraph_age"):
         backend = _create_postgresql_backend(backend_type, uri, db_name, kwargs)
 
-    elif backend_type == "jena_fuseki":
-        backend = _create_jena_fuseki_backend(kwargs)
-
     elif backend_type == "fanout":
         backend = _create_fanout_backend()
-
-    elif backend_type == "stardog":
-        backend = _create_stardog_backend(uri, user, password, db_name, kwargs)
 
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
             f"Supported: epistemic_graph, fanout, memory, file, postgresql, age, "
-            f"jena_fuseki, stardog, ladybug, falkordb, neo4j"
+            f"ladybug, falkordb, neo4j"
         )
         return None
     return _finalize_backend(

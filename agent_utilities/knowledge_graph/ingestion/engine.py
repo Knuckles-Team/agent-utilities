@@ -2478,7 +2478,7 @@ class IngestionEngine:
         not the per-shard routing key, so all shards of one repo share one source
         partition.
         """
-        from ..backends.sparql.source_partition import make_source_id
+        from ..core.source_partition import make_source_id
         from ..enrichment.pipeline import (
             EnrichmentPipeline,
             make_batch_parse_fn,
@@ -2730,8 +2730,8 @@ class IngestionEngine:
         """
         import asyncio as _asyncio
 
-        from ..backends.sparql.source_partition import make_source_id
         from ..core.engine_tasks import compute_ingest_worker_count
+        from ..core.source_partition import make_source_id
         from .repo_classifier import classify_repo
 
         plan = classify_repo(source_path)
@@ -4395,40 +4395,12 @@ class IngestionEngine:
 
     @adaptor(ContentType.SPARQL)
     async def _ingest_sparql(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest entities from a SPARQL endpoint.
-
-        CONCEPT:AU-KG.query.vendor-agnostic-traversal
-
-        Pulls entities from an external SPARQL endpoint and maps them to
-        native ``RegistryNode`` schema using configurable ontology mappings.
-        ``source_uri`` should be the SPARQL endpoint URL.
-        """
-        try:
-            from ..integrations.sparql_ingestor import FederatedSparqlIngestor
-
-            graph_compute = getattr(self.kg, "graph_compute", None)
-            endpoints = [manifest.source_uri]
-            limit = manifest.metadata.get("limit", 100)
-            mapping = manifest.metadata.get("mapping")
-
-            ingestor = FederatedSparqlIngestor(
-                endpoints=endpoints,
-                engine=graph_compute,
-                mapping_config=mapping,
-            )
-            total = ingestor.ingest_entities(limit=limit)
-
-            return IngestionResult(
-                manifest=manifest,
-                status="success",
-                nodes_created=total,
-                details={
-                    "endpoint": manifest.source_uri,
-                    "entities_ingested": total,
-                },
-            )
-        except Exception as e:
-            return IngestionResult(manifest=manifest, status="failed", error=str(e))
+        """External SPARQL ingestion is owned by EG foreign-source federation."""
+        return IngestionResult(
+            manifest=manifest,
+            status="failed",
+            error="external SPARQL ingestion requires EG ForeignSourceSpec federation",
+        )
 
     def _materialize_body_chunks(
         self,
