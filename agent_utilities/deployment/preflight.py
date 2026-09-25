@@ -17,7 +17,7 @@ Design notes that shaped the checks:
   the wheel"; ``cargo`` presence is reported as informational, never required.
 * **Profile-scoped.** Docker is only needed once you leave the ``tiny`` (zero-infra)
   profile. ``tiny`` needs nothing but Python.
-* **Component-scoped.** Node+pnpm are only checked when ``agent-webui`` is selected;
+* **Component-scoped.** Node+pnpm are only checked when ``graph-os-webui`` is selected;
   Qt system libs + a display only when ``geniusbot`` is selected. The core deploy
   never drags those in.
 
@@ -42,7 +42,7 @@ from .doctor import _RANK, _result
 # Profiles that require a container runtime (everything above zero-infra tiny).
 _DOCKER_PROFILES = {"single-node-prod", "enterprise"}
 PROFILES = ("tiny", "single-node-prod", "enterprise")
-COMPONENTS = ("agent-terminal-ui", "agent-webui", "geniusbot")
+COMPONENTS = ("agent-terminal-ui", "graph-os-webui", "geniusbot")
 
 
 def _os_family() -> str:
@@ -212,22 +212,22 @@ def _check_webui() -> dict[str, Any]:
     pnpm = shutil.which("pnpm")
     if ver is None:
         return _result(
-            "agent-webui",
+            "graph-os-webui",
             "fail",
-            "Node.js not found (agent-webui builds with Vite on Node)",
+            "Node.js not found (graph-os-webui builds with Vite on Node)",
             remediation="install Node.js >=18 and `corepack enable` / `npm i -g pnpm`",
         )
     node_ok = (not ver) or ver[0] >= 18
     if node_ok and pnpm:
         vtxt = ".".join(map(str, ver)) if ver else "present"
-        return _result("agent-webui", "ok", f"Node {vtxt} + pnpm present")
+        return _result("graph-os-webui", "ok", f"Node {vtxt} + pnpm present")
     missing = []
     if not node_ok:
         missing.append(f"Node>=18 (have {'.'.join(map(str, ver))})")
     if not pnpm:
         missing.append("pnpm (the project's package manager)")
     return _result(
-        "agent-webui",
+        "graph-os-webui",
         "warn",
         "Node present but " + ", ".join(missing),
         remediation="install Node>=18 and pnpm 10.x (`corepack enable`)",
@@ -256,7 +256,7 @@ def _check_geniusbot() -> dict[str, Any]:
             "no X11/Wayland display ($DISPLAY/$WAYLAND_DISPLAY unset) — geniusbot is a desktop app",
             remediation=(
                 "run on a desktop session, or skip geniusbot for headless hosts "
-                "(use agent-webui/agent-terminal-ui instead)"
+                "(use graph-os-webui/agent-terminal-ui instead)"
             ),
         )
     if libgl is False:
@@ -277,7 +277,7 @@ def _check_terminal_ui() -> dict[str, Any]:
 
 
 _COMPONENT_CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
-    "agent-webui": _check_webui,
+    "graph-os-webui": _check_webui,
     "geniusbot": _check_geniusbot,
     "agent-terminal-ui": _check_terminal_ui,
 }
@@ -291,7 +291,7 @@ def run_preflight(
 
     Args:
         profile: ``tiny`` | ``single-node-prod`` | ``enterprise``.
-        components: any of ``agent-webui`` / ``geniusbot`` / ``agent-terminal-ui``.
+        components: any of ``graph-os-webui`` / ``geniusbot`` / ``agent-terminal-ui``.
     """
     components = components or []
     results: list[dict[str, Any]] = [

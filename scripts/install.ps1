@@ -14,7 +14,7 @@
 
 .EXAMPLE
   # From a clone:
-  .\scripts\install.ps1 -DeployProfile single-node-prod -Component agent-webui
+  .\scripts\install.ps1 -DeployProfile single-node-prod -Component graph-os-webui
 
 #>
 [CmdletBinding()]
@@ -53,6 +53,12 @@ function Invoke-Step {
 # Components from env (comma-separated) merged with -Component.
 if ($env:AU_COMPONENTS) { $Component += $env:AU_COMPONENTS.Split(',') }
 $Component = $Component | Where-Object { $_ }
+foreach ($c in $Component) {
+  if ($c -notin @('graph-os-webui', 'geniusbot', 'agent-terminal-ui')) {
+    Write-Err "unknown component: $c"
+    exit 2
+  }
+}
 
 # Auto extras: full integration unless the zero-infra tiny profile.
 if (-not $Extras) { $Extras = if ($DeployProfile -eq 'tiny') { 'none' } else { 'all' } }

@@ -79,6 +79,16 @@ def test_unknown_component_is_skip_not_crash():
     assert c["status"] == "skip"
 
 
+def test_webui_component_uses_graph_os_name():
+    assert "graph-os-webui" in P.COMPONENTS
+    report = P.run_preflight("tiny", ["graph-os-webui"])
+    assert any(c["name"] == "graph-os-webui" for c in report["checks"])
+    old = P.run_preflight("tiny", ["agent-webui"])
+    assert (
+        next(c for c in old["checks"] if c["name"] == "agent-webui")["status"] == "skip"
+    )
+
+
 def test_component_checks_never_raise():
     for name, fn in P._COMPONENT_CHECKS.items():
         res = fn()

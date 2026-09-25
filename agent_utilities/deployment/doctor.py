@@ -6213,7 +6213,7 @@ def _doctor_arg_parser() -> Any:
         dest="components",
         action="append",
         default=None,
-        help="UI component to preflight (repeatable): agent-webui | geniusbot | agent-terminal-ui.",
+        help="UI component to preflight (repeatable): graph-os-webui | geniusbot | agent-terminal-ui.",
     )
     parser.add_argument(
         "--interactive",

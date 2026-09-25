@@ -2,7 +2,7 @@
 # One-link self-deploy bootstrap for agent-utilities.
 #
 # Run this reviewed local file from a release artifact or clone:
-#   ./scripts/install.sh --profile single-node-prod --component agent-webui
+#   ./scripts/install.sh --profile single-node-prod --component graph-os-webui
 #
 # What it does (idempotent, safe to re-run):
 #   1. checks Python (>=3.11,<3.15) and ensures uv is available
@@ -46,7 +46,7 @@ agent-utilities one-link installer
 
 Usage: install.sh [options]
   --profile <p>       tiny | single-node-prod | enterprise   (default: tiny)
-  --component <c>     opt-in UI: agent-webui | geniusbot | agent-terminal-ui (repeatable)
+  --component <c>     opt-in UI: graph-os-webui | geniusbot | agent-terminal-ui (repeatable)
   --extras all|none   force install extras (default: auto — all for non-tiny)
   --editable          pip install -e from the current repo checkout (dev)
   --no-skills         do not install the skill toolkit into agent tools
@@ -79,6 +79,12 @@ if [ -n "${AU_COMPONENTS:-}" ]; then
   IFS=',' read -r -a _env_comps <<< "$AU_COMPONENTS"
   COMPONENTS+=("${_env_comps[@]}")
 fi
+for c in "${COMPONENTS[@]}"; do
+  case "$c" in
+    graph-os-webui|geniusbot|agent-terminal-ui) ;;
+    *) c_err "unknown component: $c"; exit 2 ;;
+  esac
+done
 
 # Auto extras: full integration unless the zero-infra tiny profile.
 if [ -z "$EXTRAS" ]; then

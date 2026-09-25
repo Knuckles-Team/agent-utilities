@@ -227,7 +227,7 @@ COMPONENTS = {
         "container": True,
         "note": "thin Textual TUI over the gateway; many fit on a Pi-class node",
     },
-    "agent-webui": {
+    "graph-os-webui": {
         "connect": "http",
         "deps": ["node>=18", "pnpm>=10"],
         "container": "needs-dockerfile",

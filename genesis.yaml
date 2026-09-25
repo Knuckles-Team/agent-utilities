@@ -188,7 +188,7 @@ components:
     - python>=3.11
     container: true
     note: thin Textual TUI over the gateway; many fit on a Pi-class node
-  agent-webui:
+  graph-os-webui:
     connect: http
     deps:
     - node>=18
