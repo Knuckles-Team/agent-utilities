@@ -19,6 +19,16 @@ import pytest
 from agent_utilities.deployment import doctor as D
 
 
+def test_remote_eunomia_endpoint_uses_sdk_source_url_admission() -> None:
+    config = SimpleNamespace(eunomia_remote_url="http://127.0.0.1:8181")
+    assert D._eunomia_require_bounded_endpoint(config, {"127.0.0.1"}) is None
+    with pytest.raises(ValueError):
+        D._eunomia_require_bounded_endpoint(config, frozenset())
+    config.eunomia_remote_url = "http://example.com/policy"
+    with pytest.raises(ValueError, match="HTTPS"):
+        D._eunomia_require_bounded_endpoint(config, frozenset())
+
+
 def _ok(name):
     return lambda **kw: D._result(name, "ok", "fine")
 

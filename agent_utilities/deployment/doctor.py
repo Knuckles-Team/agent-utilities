@@ -1313,10 +1313,11 @@ def _egress_tls_data(cfg: Any) -> tuple[dict[str, Any], bool]:
 def _check_source_egress() -> dict[str, Any]:
     """Report the shared SSRF/redirect/body boundary without exposing hosts."""
     try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.protocols.source_connectors.http_safety import (
+        from agent_connector_sdk.http.source_egress import (
             normalize_allowed_hosts,
         )
+
+        from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
         private_hosts = normalize_allowed_hosts(cfg.source_http_allowed_private_hosts)
@@ -1403,7 +1404,7 @@ def _eunomia_require_bounded_endpoint(cfg: Any, private_hosts: Any) -> None:
     """Raise unless the remote PDP endpoint is present, allowlisted, and HTTPS."""
     from urllib.parse import urlsplit
 
-    from agent_utilities.protocols.source_connectors.http_safety import (
+    from agent_connector_sdk.http.source_egress import (
         require_safe_source_url,
     )
 
@@ -1413,7 +1414,6 @@ def _eunomia_require_bounded_endpoint(cfg: Any, private_hosts: Any) -> None:
     host = require_safe_source_url(
         endpoint,
         allowed_private_hosts=private_hosts,
-        resolve_dns=False,
     )
     parsed = urlsplit(endpoint)
     insecure_transport = parsed.scheme == "http" and host not in {
@@ -1475,10 +1475,11 @@ def _eunomia_remote_result(cfg: Any, private_hosts: Any) -> dict[str, Any]:
 def _check_eunomia() -> dict[str, Any]:
     """Validate the native policy-decision-point configuration without I/O."""
     try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.protocols.source_connectors.http_safety import (
+        from agent_connector_sdk.http.source_egress import (
             normalize_allowed_hosts,
         )
+
+        from agent_utilities.core.config import AgentConfig
 
         cfg = AgentConfig()
         mode = cfg.eunomia_type
