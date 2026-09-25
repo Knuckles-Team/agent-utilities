@@ -138,26 +138,11 @@ def test_work_item_turn_is_its_own_fence() -> None:
     assert worker.dispatch_work_item_id(legacy) == "workitem:dispatch:job-1"
 
 
-def test_worker_runs_admitted_description_with_signed_allowlist(monkeypatch) -> None:
-    from agent_utilities.knowledge_graph.core import work_durability
-    from agent_utilities.orchestration import manager
+def test_worker_refuses_hosted_run_without_verified_context_endpoint(
+    monkeypatch,
+) -> None:
+    from agent_utilities.layers.l5_writer import L5WriterUnavailable
 
-    calls: list[dict[str, Any]] = []
-
-    class _Orchestrator:
-        def __init__(self, engine):
-            pass
-
-        async def execute_agent(self, **kwargs):
-            calls.append(kwargs)
-            return "answer"
-
-    monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
-    monkeypatch.setattr(
-        work_durability,
-        "get_work_item",
-        lambda engine, item_id: {"metadata": {"au:description": "sanitized task"}},
-    )
     envelope = AgentTurnEnvelope(
         job_id="job-1",
         session_id="s",
@@ -167,11 +152,8 @@ def test_worker_runs_admitted_description_with_signed_allowlist(monkeypatch) -> 
         allowed_tools=("search",),
     )
     lease = SimpleNamespace(require_current=lambda: None)
-    assert worker._execute_work_item_turn(envelope, object(), lease) == "completed"
-    (call,) = calls
-    assert call["task"] == "sanitized task"
-    assert call["allowed_tools"] == ["search"]
-    assert call["run_id"] == "job-1"
+    with pytest.raises(L5WriterUnavailable, match="verified EG MCP"):
+        worker._execute_work_item_turn(envelope, object(), lease, {}, None)
 
 
 def test_worker_refuses_an_item_without_a_description(monkeypatch) -> None:
