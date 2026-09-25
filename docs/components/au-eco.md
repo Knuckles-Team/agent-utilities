@@ -27,7 +27,7 @@
 - **`AU-ECO.connector.incremental-poll-watermark`** — incremental poll keyed on a crawl-time watermark + seen ids (`agent_utilities/mcp/tools/ontology_tools.py`)
 - **`AU-ECO.connector.ingest-external-ard-registry`** — ingest an external ARD registry (`agent_utilities/protocols/source_connectors/connectors/ard.py`)
 - **`AU-ECO.connector.mcp-package-adapter`** — MCP Agent-Package Connector Adapter (`agent_utilities/protocols/source_connectors/connectors/mcp_package.py`)
-- **`AU-ECO.connector.mcp-tool-connector`** — ───────────────── (`agent_utilities/protocols/source_connectors/connectors/mcp_tool.py`)
+- **`AU-ECO.connector.mcp-tool-connector`** (`agent_utilities/protocols/source_connectors/connectors/mcp_tool.py`)
 - **`AU-ECO.connector.okf-roundtrip-sync`** — the KG→OKF push arm of the (`agent_utilities/knowledge_graph/distillation/okf_bundle.py`)
 - **`AU-ECO.connector.openwiki-preset`** — independent of file mtimes (`agent_utilities/knowledge_graph/distillation/okf_bundle.py`)
 - **`AU-ECO.connector.package-manifest-catalog`** — declarative catalog driving the MCP fleet adapter (`agent_utilities/protocols/source_connectors/connectors/package_manifest.py`)
