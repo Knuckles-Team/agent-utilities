@@ -1,6 +1,6 @@
 name	disposition	target	candidate_op	legacy_tool	legacy_action	declaration_binding	reason
-act	pending			act			Legacy AU act registrar is a broad resolver; MCPI-31 GraphOS act verb must be served with EH-615 authority parity before retiring this implementation
-ask	pending			ask			Legacy AU ask registrar is a broad resolver; MCPI-31 GraphOS ask verb must be served with EH-615 authority parity before retiring this implementation
+act	pending			act			MCPI-31 GraphOS act changes AU's execute=false default to execute=true: NL-resolved writes must still get a plan; exact op writes may execute subject to idempotency/confirm policy (intent design §4.3.5). Await served EH-615 authority and behavior proof
+ask	pending			ask			MCPI-31 GraphOS ask replaces AU hints_json routing with op/intent/params projection. Await served EH-615 discovery, resolver and authority proof before retiring AU
 ask_data	pending			ask_data			await served parity and operator-reviewed disposition
 document_process	pending			document_process			await served parity and operator-reviewed disposition
 engine_admin_audit_prove_inclusion	pending			engine_admin	audit_prove_inclusion		await served parity and operator-reviewed disposition
@@ -347,7 +347,7 @@ engine_txn_unified_query	pending			engine_txn	unified_query		await served parity
 engine_txn_unified_query_plan	pending			engine_txn	unified_query_plan		await served parity and operator-reviewed disposition
 engine_viz_capability_matrix	pending			engine_viz	capability_matrix		await served parity and operator-reviewed disposition
 engine_viz_render	pending			engine_viz	render		await served parity and operator-reviewed disposition
-find	pending			find			Legacy AU find registrar is a broad resolver; MCPI-31 GraphOS find verb must be served with EH-615 authority parity before retiring this implementation
+find	pending			find			MCPI-31 GraphOS find replaces AU hints_json routing with op/intent/params projection. Await served EH-615 discovery, resolver and authority proof before retiring AU
 graph_agents_computer_use	pending			graph_agents	computer_use		await served parity and operator-reviewed disposition
 graph_agents_reason	pending			graph_agents	reason		await served parity and operator-reviewed disposition
 graph_agents_run_org	pending			graph_agents	run_org		await served parity and operator-reviewed disposition
@@ -715,7 +715,7 @@ graph_writeback	pending			graph_writeback			await served parity and operator-rev
 ingest_sessions_collect	pending			ingest_sessions	collect		await served parity and operator-reviewed disposition
 ingest_sessions_paths	pending			ingest_sessions	paths		await served parity and operator-reviewed disposition
 ingest_sessions_upload	pending			ingest_sessions	upload		await served parity and operator-reviewed disposition
-manage	pending			manage			Legacy AU manage registrar is a broad resolver; MCPI-31 GraphOS manage verb must be served with EH-615 authority parity before retiring this implementation
+manage	pending			manage			MCPI-31 GraphOS manage changes AU's execute=false default to execute=true: NL-resolved writes must still get a plan; exact op writes may execute subject to idempotency/confirm policy (intent design §4.3.5). Await served EH-615 authority and behavior proof
 nl_query	pending			nl_query			await served parity and operator-reviewed disposition
 object_edits_as_of	pending			object_edits	as_of		await served parity and operator-reviewed disposition
 object_edits_history	pending			object_edits	history		await served parity and operator-reviewed disposition
@@ -807,5 +807,5 @@ usage_query_summary	pending			usage_query	summary		await served parity and opera
 usage_query_tools	pending			usage_query	tools		await served parity and operator-reviewed disposition
 usage_query_top_sessions	pending			usage_query	top_sessions		await served parity and operator-reviewed disposition
 usage_query_traces	pending			usage_query	traces		await served parity and operator-reviewed disposition
-why	pending			why			Legacy AU why registrar is a broad resolver; MCPI-31 GraphOS why verb must be served with EH-615 authority parity before retiring this implementation
-write	pending			write			Legacy AU write registrar is a broad resolver; MCPI-31 GraphOS write verb must be served with EH-615 authority parity before retiring this implementation
+why	pending			why			MCPI-31 GraphOS why replaces AU hints_json routing with op/intent/params projection. Await served EH-615 discovery, resolver and authority proof before retiring AU
+write	pending			write			MCPI-31 GraphOS write changes AU's execute=false default to execute=true: NL-resolved writes must still get a plan; exact op writes may execute subject to idempotency/confirm policy (intent design §4.3.5). Await served EH-615 authority and behavior proof
