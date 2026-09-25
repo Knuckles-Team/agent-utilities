@@ -44,6 +44,11 @@ class DecisionPoint:
     sample_every: int = 1
     escalate: bool = False
     proposal_only: bool = False
+    #: EH-395: the declared policy role whose holders may evaluate this point's
+    #: committed records (EG grants them a record-scoped, expiring,
+    #: evaluation-only lease; never the committer). A binding naming an
+    #: evaluator principal overrides it.
+    evaluator_role: str | None = None
 
     @property
     def schema_component_id(self) -> str:
@@ -57,12 +62,21 @@ def _point(row: str, question_id: str, kind: str, **extra: Any) -> DecisionPoint
 
 _SAMPLED = {"log_mode": LogMode.SAMPLED, "sample_every": 16}
 
+#: The policy role an independent evaluator of AU's retrieval runs holds
+#: (granted to the evaluator's identity by the deployment, never to AU's).
+DECIDE_EVALUATOR_ROLE = "decide-evaluator"
+
 #: Every decision point, by question id. EG's ``QuestionKind`` and
 #: ``QuestionSafety`` wire names (snake_case) are used verbatim.
 POINTS: dict[str, DecisionPoint] = {
     p.question_id: p
     for p in (
-        _point("EH-029", "au.retrieval.plan", "retrieval_plan"),
+        _point(
+            "EH-029",
+            "au.retrieval.plan",
+            "retrieval_plan",
+            evaluator_role=DECIDE_EVALUATOR_ROLE,
+        ),
         _point("EH-030", "au.ingestion.lane", "ingestion_lane", **_SAMPLED),
         _point("EH-031", "au.enrichment.schedule", "enrichment_schedule"),
         _point(

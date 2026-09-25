@@ -72,21 +72,36 @@ def request_for(
     }
 
 
+def _evaluator(
+    binding: Binding | None, role: str | None, now_ms: int
+) -> dict[str, Any] | None:
+    """Who the commit names to evaluate: the binding's principal, else the
+    point's declared policy role, else nobody."""
+    principal = None if binding is None else binding.evaluator
+    if principal is None and role is None:
+        return None
+    ttl_s = 3600 if binding is None else binding.evaluator_ttl_s
+    return {
+        "principal": principal,
+        "role": None if principal is not None else role,
+        "expires_at_ms": now_ms + 1000 * ttl_s,
+    }
+
+
 def commit_op(
-    record: Mapping[str, Any], binding: Binding | None, now_ms: int
+    record: Mapping[str, Any],
+    binding: Binding | None,
+    now_ms: int,
+    role: str | None = None,
 ) -> dict[str, Any]:
-    """The ``DecisionLog.commit`` of ``record``, naming the binding's
-    evaluator (EG issues it an expiring, record-scoped evaluation grant)."""
-    evaluator = None if binding is None else binding.evaluator
-    named = (
-        None
-        if evaluator is None
-        else {
-            "principal": evaluator,
-            "expires_at_ms": now_ms + 1000 * binding.evaluator_ttl_s,
-        }
-    )
-    return {"op": "commit", "record": dict(record), "evaluator": named}
+    """The ``DecisionLog.commit`` of ``record``, naming its evaluator -- the
+    binding's principal or the point's policy ``role`` (EG issues an expiring,
+    record-scoped, evaluation-only grant)."""
+    return {
+        "op": "commit",
+        "record": dict(record),
+        "evaluator": _evaluator(binding, role, now_ms),
+    }
 
 
 def _record_of(batch: Any) -> Mapping[str, Any] | None:

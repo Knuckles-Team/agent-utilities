@@ -93,7 +93,7 @@ def test_capacity_is_the_tightest_limit() -> None:
     assert ck.capacity_of(definition).tokens() == 4000
 
 
-def test_the_compiler_fit_uses_the_installed_sizer_and_keys_bundles_by_it() -> None:
+def test_the_compiler_fit_uses_the_scoped_sizer_and_keys_bundles_by_it() -> None:
     records = [
         {
             "nid": "a",
@@ -108,12 +108,10 @@ def test_the_compiler_fit_uses_the_installed_sizer_and_keys_bundles_by_it() -> N
 
     assert ck.sizing_key("m") == "m"
     sizer = ck.ContextSizer(_Words(), ck.Capacity(window=10))
-    ck.install_context_sizer(sizer)
-    try:
+    with ck.sizing_scope(sizer):
         result = ck.fit_to_budget(records, 10, text_of=text_of)
         assert ck.sizing_key("m") == f"m|{sizer.identity()}"
-    finally:
-        ck.install_context_sizer(None)
+    assert ck.current_sizer() is None, "the scope ends with the call"
     kept = {r["nid"]: r for r in result.kept}
     assert kept["a"]["node"] == {"summary": "short a"}, "a fits only as its summary"
     assert set(kept) == {"a", "b"} and result.tokens_used <= 10

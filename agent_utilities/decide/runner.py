@@ -172,7 +172,12 @@ class DecisionRunner:
         if record is None or not _loggable(point, record):
             return False
         try:
-            op = commit_op(record, prepared.binding, int(time.time() * 1000))
+            op = commit_op(
+                record,
+                prepared.binding,
+                int(time.time() * 1000),
+                point.evaluator_role,
+            )
             await self.transport.log(op)
         except Exception as exc:  # noqa: BLE001 — a log failure keeps the answer; the cause is logged
             logger.warning("decision %s not logged: %s", point.question_id, exc)

@@ -129,6 +129,31 @@ def test_a_bound_evaluator_is_named_at_commit() -> None:
     op = commit_op({"record_id": "r"}, binding, 1_000)
     assert op["evaluator"] == {
         "principal": "principal:sha256:ab",
+        "role": None,
         "expires_at_ms": 61_000,
     }
     assert commit_op({"record_id": "r"}, None, 1_000)["evaluator"] is None
+    by_role = commit_op({"record_id": "r"}, None, 1_000, "decide-evaluator")
+    assert by_role["evaluator"] == {
+        "principal": None,
+        "role": "decide-evaluator",
+        "expires_at_ms": 3_601_000,
+    }
+    overridden = commit_op({"record_id": "r"}, binding, 1_000, "decide-evaluator")
+    assert overridden["evaluator"]["role"] is None
+
+
+def test_the_retrieval_plan_commit_names_its_policy_evaluator_role() -> None:
+    """EH-395 (policy role): the LIVE commit path -- ``DecisionRunner.choose``
+    on the retrieval-plan point -- names the point's declared evaluator role."""
+    from agent_utilities.decide.points import DECIDE_EVALUATOR_ROLE, POINTS
+
+    assert POINTS["au.retrieval.plan"].evaluator_role == DECIDE_EVALUATOR_ROLE
+    transport = FakeTransport(answer=acted("plan-a"))
+    runner(transport).choose("au.retrieval.plan", OPTIONS, lambda: "plan-b")
+    (commit,) = transport.ops
+    assert commit["evaluator"]["role"] == DECIDE_EVALUATOR_ROLE
+    assert commit["evaluator"]["principal"] is None
+    other = FakeTransport(answer=acted("plan-a"))
+    runner(other).choose("au.route.cost", OPTIONS, lambda: "plan-b")
+    assert other.ops[0]["evaluator"] is None, "only a declaring point names one"

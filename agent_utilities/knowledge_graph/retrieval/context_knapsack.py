@@ -20,15 +20,25 @@ When EG is unreachable or does not certify, the deterministic greedy fit runs
 instead and the result says so (``certified=False``). The sizing identity
 (tokenizer, capacity, floor) is part of the bundle cache key, so a different
 sizing never reuses another's bundle.
+
+The sizer is per MODEL: ``compile_model_context`` -- the one entrypoint every
+model invocation's evidence goes through -- resolves the invoked model's
+:class:`ContextSizer` (:func:`sizer_for_model`: its registry definition's
+window/output/price, its exact tokenizer, EG's ``Solve`` over the installed
+decision transport) and compiles inside :func:`sizing_scope`. A model with no
+registry definition or no exact tokenizer keeps the greedy fit.
 """
 
 from __future__ import annotations
 
+import contextvars
+import functools
 import hashlib
 import json
 import logging
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -61,6 +71,7 @@ class TiktokenCounter:
         ]
 
 
+@functools.lru_cache(maxsize=64)
 def tiktoken_counter(model_name: str) -> TiktokenCounter | None:
     """The exact counter for ``model_name`` when tiktoken knows its encoding."""
     try:
@@ -320,16 +331,59 @@ class ContextSizer:
         return "sizer:" + hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 
 
-_INSTALLED: list[ContextSizer | None] = [None]
+_SIZER: contextvars.ContextVar[ContextSizer | None] = contextvars.ContextVar(
+    "context_sizer", default=None
+)
 
 
-def install_context_sizer(sizer: ContextSizer | None) -> None:
-    """Install the process's sizing policy (``None`` restores the greedy fit)."""
-    _INSTALLED[0] = sizer
+@contextmanager
+def sizing_scope(sizer: ContextSizer | None) -> Iterator[None]:
+    """Compile under ``sizer`` (``None``: the greedy fit) for this call only."""
+    token = _SIZER.set(sizer)
+    try:
+        yield
+    finally:
+        _SIZER.reset(token)
 
 
 def current_sizer() -> ContextSizer | None:
-    return _INSTALLED[0]
+    return _SIZER.get()
+
+
+def _definition_of(model_name: str) -> Any | None:
+    """The registry's definition of ``model_name`` (by id, model id or name)."""
+    from agent_utilities.models.model_registry import load_active_registry
+
+    for definition in load_active_registry().models:
+        if model_name in (definition.id, definition.model_id, definition.name):
+            return definition
+    return None
+
+
+def engine_solver() -> Solver | None:
+    """EG ``Solve`` over the installed decision runner's transport, or ``None``
+    when no runner (or a transport without ``solve``) is installed."""
+    from agent_utilities import decide
+
+    runner = decide.current_runner()
+    transport = None if runner is None else runner.transport
+    if transport is None or not hasattr(transport, "solve"):
+        return None
+    return lambda request: transport.run(transport.solve(request))
+
+
+def sizer_for_model(model_name: str) -> ContextSizer | None:
+    """The sizing policy of the invoked model: its registry definition's
+    capacity, its exact tokenizer, EG's certified solve. ``None`` (the greedy
+    fit) for an unregistered model, one with no window, or no exact tokenizer."""
+    definition = _definition_of(model_name) if model_name else None
+    if definition is None:
+        return None
+    capacity = capacity_of(definition)
+    counter = tiktoken_counter(str(definition.model_id))
+    if counter is None or capacity.tokens() <= 0:
+        return None
+    return ContextSizer(counter, capacity, solve=engine_solver())
 
 
 def sizing_key(model_version: str) -> str:
@@ -412,11 +466,13 @@ __all__ = [
     "capacity_of",
     "current_sizer",
     "fit_to_budget",
+    "engine_solver",
     "greedy_choice",
-    "install_context_sizer",
     "knapsack_model",
     "select_slices",
+    "sizer_for_model",
     "sizing_key",
+    "sizing_scope",
     "summary_view",
     "tiktoken_counter",
 ]
