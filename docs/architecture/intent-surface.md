@@ -8,6 +8,10 @@
 > standalone connector and fleet-child servers. The AU host and this document
 > retire only after every legacy AU action has an exact operation mapping or
 > an explicit, reviewed drop in the MCPI-29 parity audit.
+> The row-level audit lives in `docs/architecture/au-mcp-parity.tsv`. Its
+> `candidate_op` column records possible targets for review; only `disposition=op`
+> with served-binding evidence or `disposition=drop` with a reviewed reason
+> counts toward retirement.
 
 > **Status:** kickoff slice (Phases 2-3) shipped on `feat/au-intent-surface`; the CPD (Phase 1,
 > `feat/au-cpd`) and this doc's §7 remaining work (Phases 4-5 — CPD-backed ranking, the
