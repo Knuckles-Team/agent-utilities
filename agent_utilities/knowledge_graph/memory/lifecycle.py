@@ -27,11 +27,9 @@ Design notes:
     the same ``engine.backend.execute`` Cypher-subset path as
     :class:`~agent_utilities.knowledge_graph.memory.hygiene.MemoryHygiene`
     (CONCEPT:EG-KG.compute.compiled-semantic-reasoner), and generates summary text via the shared
-    ``memento_compressor._memento_llm`` one-shot completion helper. The engine
-    primitives are resolved defensively (a typed method on the engine / backend /
-    compute engine, else the raw wire ``_send`` op) so the loop degrades gracefully
-    on a build where a primitive is not yet wrapped, and a MOCK engine that exposes
-    the methods directly drives it in tests.
+    ``memento_compressor._memento_llm`` one-shot completion helper. Native
+    mutations use the session-routed EG graph client. A missing client is
+    reported as an error rather than silently skipping a requested write.
   * **Safe + idempotent.** ``tick`` never raises into the scheduler and dedupes an
     already-processed cluster (per stable signature) so a repeat tick does not
     re-summarize the same episodes.
@@ -147,16 +145,6 @@ class MemoryLifecycleConfig:
         )
 
 
-# The engine memory primitives (EG-220/221/222): the typed method name AU calls,
-# and the raw wire op name to fall back to when the client does not wrap it yet.
-_PRIM_CREATE_SUMMARY = ("create_summary_node", "CreateSummaryNode")
-_PRIM_CONSOLIDATE = ("consolidate", "Consolidate")
-_PRIM_MAINTAIN = ("maintain", "Maintain")
-
-# Sentinel distinguishing "primitive not available" from a call that returned None.
-_UNAVAILABLE = object()
-
-
 def _age_hours(node: dict[str, Any], now: datetime) -> float:
     for key in ("created_at", "storage_time", "event_time", "updated_at"):
         raw = node.get(key)
@@ -205,78 +193,16 @@ class MemoryLifecycle:
 
         return _memento_llm(system_prompt, user_content)
 
-    # ── Engine-primitive resolution (typed method → raw wire op) ──────────────
-    def _call_primitive(
-        self, typed_name: str, wire_name: str, payload: dict[str, Any]
-    ) -> Any:
-        """Invoke an engine memory primitive; returns its result or ``_UNAVAILABLE``.
-
-        Resolution order (defensive so the loop works whether or not the AU client
-        wraps the EG-220/221/222 primitive yet):
-
-          1. a typed method ``<typed_name>`` on the engine, its ``backend``, the
-             backend's compute ``graph``, or the engine's ``graph`` — called with
-             ``**payload`` (the payload keys ARE the primitive's kwargs);
-          2. the raw wire op ``<wire_name>`` via ``engine._send_wire`` or the
-             underlying async client's ``_send``.
-
-        Never raises: a call failure is logged and surfaced as ``_UNAVAILABLE`` so
-        the caller records a skip rather than aborting the tick.
-        """
+    # ── One typed EG client path ───────────────────────────────────────────────
+    def _memory_client(self) -> Any:
+        """Return the session-routed EG graph namespace, never a raw wire escape."""
         backend = getattr(self.engine, "backend", None)
-        targets = (
-            self.engine,
-            backend,
-            getattr(backend, "graph", None),
-            getattr(self.engine, "graph", None),
-        )
-        seen: set[int] = set()
-        for target in targets:
-            if target is None or id(target) in seen:
-                continue
-            seen.add(id(target))
-            fn = getattr(target, typed_name, None)
-            if callable(fn):
-                try:
-                    return fn(**payload)
-                except Exception as e:  # noqa: BLE001 — degrade, never abort the tick
-                    logger.warning(
-                        "[KG-2.307] primitive %s call failed: %s", typed_name, e
-                    )
-                    return _UNAVAILABLE
-        wired = self._wire_call(wire_name, payload)
-        return wired
-
-    def _wire_call(self, wire_name: str, payload: dict[str, Any]) -> Any:
-        """Best-effort raw wire dispatch of ``wire_name`` (else ``_UNAVAILABLE``)."""
-        send = getattr(self.engine, "_send_wire", None)
-        if callable(send):
-            try:
-                return send(wire_name, payload)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("[KG-2.307] wire %s failed: %s", wire_name, e)
-                return _UNAVAILABLE
-        # Unwrap the compute engine's async client and drive its ``_send`` op.
-        backend = getattr(self.engine, "backend", None)
-        graph = (
-            getattr(backend, "graph", None)
-            or getattr(self.engine, "graph", None)
-            or getattr(self.engine, "_graph", None)
-        )
-        client = getattr(graph, "_client", None)
-        sc = getattr(client, "__wrapped__", client)
-        async_client = getattr(sc, "_client", None)
-        loop = getattr(sc, "_loop", None)
-        if async_client is None or loop is None:
-            return _UNAVAILABLE
-        try:
-            import asyncio
-
-            coro = async_client._send(wire_name, payload)
-            return asyncio.run_coroutine_threadsafe(coro, loop).result()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[KG-2.307] wire %s dispatch failed: %s", wire_name, e)
-            return _UNAVAILABLE
+        graph = getattr(backend, "graph", None)
+        client = getattr(graph, "client", None)
+        memory = getattr(client, "graph", None)
+        if memory is None:
+            raise RuntimeError("EG memory client is unavailable")
+        return memory
 
     # ── Working-set read (localized, bounded) ─────────────────────────────────
     def _read_working_set(self, now: datetime) -> list[dict[str, Any]]:
@@ -394,27 +320,15 @@ class MemoryLifecycle:
         if not summary_text or not summary_text.strip():
             return {"status": "skipped", "reason": "no_summary_text", "child_ids": ids}
         summary_text = summary_text.strip()[: self.config.summary_max_chars]
-        payload = {
-            "summary_text": summary_text,
-            "child_ids": ids,
-            "memory_type": "semantic",
-            "metadata": {
+        summary_id = self._memory_client().create_summary_node(
+            child_ids=ids,
+            summary_text=summary_text,
+            metadata={
                 "source": "memory_lifecycle",
                 "concept": "AU-KG.memory.drive-one-agent-native",
                 **dict(self.config.extra_metadata),
             },
-        }
-        res = self._call_primitive(*_PRIM_CREATE_SUMMARY, payload)
-        if res is _UNAVAILABLE:
-            return {
-                "status": "skipped",
-                "reason": "primitive_unavailable:create_summary_node",
-                "child_ids": ids,
-                "summary_text": summary_text,
-            }
-        summary_id = res
-        if isinstance(res, dict):
-            summary_id = res.get("id") or res.get("summary_id") or res.get("node_id")
+        )
         return {
             "status": "ok",
             "summary_id": summary_id,
@@ -424,22 +338,22 @@ class MemoryLifecycle:
 
     # ── Phase: consolidation → engine consolidate (EG-221) ────────────────────
     def run_consolidation(
-        self, cluster: list[dict[str, Any]], summary_id: Any = None
+        self,
+        cluster: list[dict[str, Any]],
+        summary_id: str,
+        summary_text: str,
     ) -> dict[str, Any]:
         """Fold the episodic cluster into semantic memory via the engine (EG-221)."""
         ids = self._cluster_ids(cluster)
         if not ids:
             return {"status": "skipped", "reason": "empty_cluster"}
-        payload: dict[str, Any] = {"node_ids": ids}
-        if summary_id is not None:
-            payload["summary_id"] = summary_id
-        res = self._call_primitive(*_PRIM_CONSOLIDATE, payload)
-        if res is _UNAVAILABLE:
-            return {
-                "status": "skipped",
-                "reason": "primitive_unavailable:consolidate",
-                "node_ids": ids,
-            }
+        if not summary_id or not summary_text:
+            raise ValueError(
+                "EG summary ID and text are required for memory consolidation"
+            )
+        res = self._memory_client().consolidate_memories(
+            episodic_ids=ids, summary_id=summary_id, summary_text=summary_text
+        )
         return {"status": "ok", "node_ids": ids, "result": res}
 
     # ── Phase: maintenance → engine maintain = decay + evict (EG-222) ─────────
@@ -457,21 +371,15 @@ class MemoryLifecycle:
         ids = [str(n.get("id", "")) for n in working_set if n.get("id")]
         if not ids:
             return {"status": "skipped", "reason": "empty_working_set"}
-        payload: dict[str, Any] = {
-            "node_ids": ids,
-            "now": now.isoformat(),
-            "half_life_secs": self.config.decay_half_life_secs,
-            "decay_floor": self.config.decay_floor,
-        }
         if self.config.evict_max_nodes > 0:
-            payload["evict_max_nodes"] = self.config.evict_max_nodes
-        res = self._call_primitive(*_PRIM_MAINTAIN, payload)
-        if res is _UNAVAILABLE:
-            return {
-                "status": "skipped",
-                "reason": "primitive_unavailable:maintain",
-                "node_count": len(ids),
-            }
+            raise ValueError("EG Maintain supports a threshold, not evict_max_nodes")
+        res = self._memory_client().maintain_memories(
+            ids=ids,
+            now_ms=int(now.timestamp() * 1000),
+            half_life_ms=int(self.config.decay_half_life_secs * 1000),
+            evict_threshold=self.config.decay_floor,
+            delete=False,
+        )
         return {"status": "ok", "node_count": len(ids), "result": res}
 
     # ── The scheduled entry point ─────────────────────────────────────────────
@@ -504,7 +412,9 @@ class MemoryLifecycle:
                     result["summarization"] = summ
                     if summ.get("status") == "ok":
                         result["summarized"] = 1
-                        cons = self.run_consolidation(cluster, summ.get("summary_id"))
+                        cons = self.run_consolidation(
+                            cluster, summ["summary_id"], summ["summary_text"]
+                        )
                         result["consolidation"] = cons
                         if cons.get("status") == "ok":
                             result["consolidated"] = 1

@@ -1,13 +1,15 @@
 """Unit tests for the agent-native memory lifecycle loop (CONCEPT:AU-KG.memory.drive-one-agent-native).
 
-Drives the AU-side lifecycle policy with a MOCK engine client (records calls to the
-engine memory primitives ``create_summary_node`` / ``consolidate`` / ``maintain``)
+Drives the AU-side lifecycle policy with a mock session-routed EG graph client
+(records calls to ``create_summary_node`` / ``consolidate_memories`` /
+``maintain_memories``)
 and a MOCK LLM (returns fixed summary text). No live engine or model is required.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from agent_utilities.knowledge_graph.memory.lifecycle import (
@@ -33,25 +35,26 @@ class _MockBackend:
 
 
 class _MockEngine:
-    """Mock engine exposing the EG-220/221/222 primitives as typed methods."""
+    """Mock the session-routed EG graph namespace used in production."""
 
     def __init__(self, nodes: list[dict[str, Any]]) -> None:
         self.backend = _MockBackend(nodes)
         self.create_summary_node_calls: list[dict[str, Any]] = []
         self.consolidate_calls: list[dict[str, Any]] = []
         self.maintain_calls: list[dict[str, Any]] = []
+        self.backend.graph = SimpleNamespace(client=SimpleNamespace(graph=self))
 
-    def create_summary_node(self, **kwargs: Any) -> dict[str, Any]:
+    def create_summary_node(self, **kwargs: Any) -> str:
         self.create_summary_node_calls.append(kwargs)
-        return {"id": "summary-1"}
+        return "summary-1"
 
-    def consolidate(self, **kwargs: Any) -> dict[str, Any]:
+    def consolidate_memories(self, **kwargs: Any) -> str:
         self.consolidate_calls.append(kwargs)
-        return {"consolidated": len(kwargs.get("node_ids", []))}
+        return "semantic-1"
 
-    def maintain(self, **kwargs: Any) -> dict[str, Any]:
+    def maintain_memories(self, **kwargs: Any) -> tuple[int, list[str]]:
         self.maintain_calls.append(kwargs)
-        return {"decayed": len(kwargs.get("node_ids", [])), "evicted": 0}
+        return len(kwargs.get("ids", [])), []
 
 
 def _mock_llm(system_prompt: str, user_content: str) -> str:
@@ -200,13 +203,16 @@ def test_kg_2_307_consolidation_calls_engine_consolidate() -> None:
     life = _lifecycle(engine)
     cluster = life.select_consolidation_candidates(nodes, now)
 
-    res = life.run_consolidation(cluster, summary_id="summary-1")
+    res = life.run_consolidation(
+        cluster, summary_id="summary-1", summary_text="durable fact"
+    )
 
     assert res["status"] == "ok"
     assert len(engine.consolidate_calls) == 1
     call = engine.consolidate_calls[0]
-    assert set(call["node_ids"]) == {"ep-alpha-0", "ep-alpha-1", "ep-alpha-2"}
+    assert set(call["episodic_ids"]) == {"ep-alpha-0", "ep-alpha-1", "ep-alpha-2"}
     assert call["summary_id"] == "summary-1"
+    assert call["summary_text"] == "durable fact"
 
 
 # ── run_maintenance → maintain (localized: only the working set) ───────────────
@@ -222,9 +228,9 @@ def test_kg_2_307_maintenance_calls_maintain_on_the_working_set() -> None:
     assert len(engine.maintain_calls) == 1
     call = engine.maintain_calls[0]
     # Localized maintenance: scoped to exactly the working-set node ids.
-    assert set(call["node_ids"]) == {n["id"] for n in nodes}
-    assert call["half_life_secs"] == life.config.decay_half_life_secs
-    assert "now" in call
+    assert set(call["ids"]) == {n["id"] for n in nodes}
+    assert call["half_life_ms"] == int(life.config.decay_half_life_secs * 1000)
+    assert call["now_ms"] == int(now.timestamp() * 1000)
 
 
 # ── tick: end-to-end wiring + idempotency + safety ────────────────────────────
@@ -266,7 +272,7 @@ def test_kg_2_307_tick_disabled_by_default_is_a_noop() -> None:
 
 
 def test_kg_2_307_tick_is_safe_when_primitives_unavailable() -> None:
-    """A build where the engine has not wrapped the primitives degrades, never raises."""
+    """A missing EG memory client reports an error, never a successful tick."""
     now = datetime.now(UTC)
     nodes = _episodes_ripe_and_unripe(now)
 
@@ -281,10 +287,8 @@ def test_kg_2_307_tick_is_safe_when_primitives_unavailable() -> None:
     )
     res = life.tick(now)
 
-    assert res["status"] == "ok"
-    # Summary text was generated but the primitive was unavailable → skipped, safely.
-    assert res["summarized"] == 0
-    assert res["summarization"]["reason"].startswith("primitive_unavailable")
+    assert res["status"] == "error"
+    assert "EG memory client is unavailable" in res["error"]
 
 
 def test_kg_2_307_run_memory_lifecycle_entrypoint_respects_disabled_default() -> None:
