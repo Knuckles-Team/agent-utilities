@@ -23,14 +23,12 @@ is enforced on every layer the platform already runs:
 1.  a **runtime validator** — :meth:`ValueType.validate` / :meth:`ValueType.coerce`
     first coerce through the base ``PropertyType`` (so an ``ISOCurrencyCode`` is
     a real string, a ``Percentage`` a real float) and then apply the constraints;
-2.  a **SHACL shape** — :meth:`ValueType.to_shacl` emits a reusable
+2.  a **SHACL shape** — :meth:`ValueType.to_shacl` asks EG to compile a reusable
     ``sh:NodeShape`` turtle fragment (``sh:pattern``, ``sh:minInclusive`` /
     ``sh:maxInclusive``, ``sh:minLength`` / ``sh:maxLength``, ``sh:in``) so the
     committed epistemic-graph SHACL gate enforces the same rules at graph write
-    time. :func:`write_value_shapes_ttl` materializes the whole registry
-    into ``shapes/value_types.shapes.ttl`` — a file the validator loads exactly
-    like ``governance.shapes.ttl``; and
-3.  an **OWL datatype restriction** — :meth:`ValueType.to_owl` emits an
+    time. The shape document is submitted through EG's GraphSchema pack authority; and
+3.  an **OWL datatype restriction** — :meth:`ValueType.to_owl` asks EG to compile an
     ``rdfs:Datatype`` defined by an ``owl:withRestrictions`` facet list
     (``xsd:pattern`` / ``xsd:minInclusive`` / … ) over the base XSD datatype, so
     the value type round-trips into the ``owl_bridge`` RDF/OWL substrate.
@@ -47,42 +45,16 @@ from collections.abc import Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from epistemic_graph.value_type_pack import (
+    VALUE_TYPE_PREFIXES as SHAPES_PREFIXES,
+)
+from epistemic_graph.value_type_pack import (
+    compile_value_type_owl,
+    compile_value_type_shape,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .property_types import KG, XSD, PropertyType, parse_type_ref
-
-# A handful of XSD constraining facets used by ``owl:withRestrictions``.
-_XSD_FACETS = {
-    "pattern": XSD + "pattern",
-    "minInclusive": XSD + "minInclusive",
-    "maxInclusive": XSD + "maxInclusive",
-    "minExclusive": XSD + "minExclusive",
-    "maxExclusive": XSD + "maxExclusive",
-    "minLength": XSD + "minLength",
-    "maxLength": XSD + "maxLength",
-    "length": XSD + "length",
-}
-
-
-def _ttl_escape(text: str) -> str:
-    """Escape a Python string for a double-quoted turtle literal."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
-
-
-def _ttl_number(value: int | float | Decimal) -> str:
-    """Render a numeric bound as a typed turtle literal."""
-    if isinstance(value, bool):  # defensive — bool is an int subclass
-        raise ValueError("numeric bound cannot be a boolean")
-    if isinstance(value, int):
-        return f'"{value}"^^xsd:integer'
-    # float / Decimal → xsd:decimal (avoids float-repr surprises in turtle)
-    return f'"{Decimal(str(value))}"^^xsd:decimal'
+from .property_types import KG, PropertyType, parse_type_ref
 
 
 class ValueConstraints(BaseModel):
@@ -335,185 +307,26 @@ class ValueType(BaseModel):
             return float(value)
         raise ValueError(f"{value!r} is not numeric for a min/max constraint")
 
-    # -- SHACL property shape ----------------------------------------------
-    def _shacl_property_lines(self, *, indent: str = "        ") -> list[str]:
-        """Constraint lines for an ``sh:PropertyShape`` body (no path/closing)."""
-        c = self.constraints
-        pt = self.property_type
-        lines = [f"{indent}sh:datatype <{pt.xsd_iri}> ;"]
-        if c.pattern is not None:
-            lines.append(f'{indent}sh:pattern "{_ttl_escape(c.pattern)}" ;')
-            if c.case_insensitive:
-                lines.append(f'{indent}sh:flags "i" ;')
-        if c.min_value is not None:
-            facet = "sh:minExclusive" if c.exclusive_min else "sh:minInclusive"
-            lines.append(f"{indent}{facet} {_ttl_number(c.min_value)} ;")
-        if c.max_value is not None:
-            facet = "sh:maxExclusive" if c.exclusive_max else "sh:maxInclusive"
-            lines.append(f"{indent}{facet} {_ttl_number(c.max_value)} ;")
-        if c.min_length is not None:
-            lines.append(f'{indent}sh:minLength "{c.min_length}"^^xsd:integer ;')
-        if c.max_length is not None:
-            lines.append(f'{indent}sh:maxLength "{c.max_length}"^^xsd:integer ;')
-        if c.allowed_values is not None:
-            members = " ".join(self._ttl_value(v) for v in c.allowed_values)
-            lines.append(f"{indent}sh:in ( {members} ) ;")
-        if c.unit:
-            lines.append(f'{indent}qudt:unit "{_ttl_escape(c.unit)}" ;')
-        return lines
-
-    def _ttl_value(self, value: Any) -> str:
-        """Render an enumeration member as a typed turtle literal."""
-        if isinstance(value, bool):
-            return f'"{str(value).lower()}"^^xsd:boolean'
-        if isinstance(value, int):
-            return f'"{value}"^^xsd:integer'
-        if isinstance(value, float):
-            return f'"{value}"^^xsd:double'
-        if isinstance(value, Decimal):
-            return f'"{value}"^^xsd:decimal'
-        return f'"{_ttl_escape(str(value))}"'
+    def _semantic_declaration(self) -> dict[str, Any]:
+        """The typed input for EG's value-type pack compiler."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "base_iri": self.property_type.xsd_iri,
+            "constraints": self.constraints.model_dump(),
+        }
 
     def to_shacl(
         self, *, path: str | None = None, target_class: str | None = None
     ) -> str:
-        """Emit a SHACL turtle fragment enforcing this value type.
-
-        CONCEPT:AU-KG.ontology.value-type-shacl-load — by default emits a reusable ``sh:NodeShape``
-        (``:<Name>ValueShape``) carrying the constraints; callers reuse it with
-        ``sh:node`` on a property shape. (A reusable shape must be a NodeShape,
-        not a PropertyShape — a path-less ``sh:PropertyShape`` is invalid SHACL
-        and EG rejects it at schema-attach time.) When ``path`` (and optionally
-        ``target_class``) is given it emits a node shape that binds the
-        constraints to that property path — the form the SHACL gate validates
-        directly.
-
-        The emitted turtle uses the same prefixes bound in
-        ``shapes/governance.shapes.ttl`` (``:`` → ``http://knuckles.team/kg#``,
-        ``sh:``, ``xsd:``).
-        """
-        shape_iri = f":{self.name}ValueShape"
-        desc = _ttl_escape(self.description or f"{self.name} value type.")
-        # Constraint lines at 4-space indent for top-level predicates.
-        body = self._shacl_property_lines(indent="    ")
-        if path is None:
-            # Reusable constraint shape (no sh:path). A path-less shape must be a
-            # sh:NodeShape — EG rejects a sh:PropertyShape without an sh:path.
-            # The trailing ' ;' of the last constraint line is replaced by ' .' to
-            # close the shape.
-            head = (
-                f"{shape_iri} a sh:NodeShape ;\n"
-                f'    sh:name "{self.name}" ;\n'
-                f'    sh:description "{desc}" ;\n'
-            )
-            constraint_block = "\n".join(body)
-            assert constraint_block.endswith(" ;")
-            constraint_block = constraint_block[: -len(" ;")] + " ."
-            return head + constraint_block + "\n"
-        node_iri = f":{self.name}Shape"
-        # Re-render constraint lines at the deeper indent of the property node.
-        prop_lines = "\n".join(self._shacl_property_lines(indent="        "))
-        prop_block = (
-            "    sh:property [\n"
-            f"        sh:path :{path} ;\n"
-            f"{prop_lines}\n"
-            f'        sh:message "Value violates the {self.name} value type." ;\n'
-            "    ] ;"
-        )
-        target = f"    sh:targetClass :{target_class} ;\n" if target_class else ""
-        return (
-            f"{node_iri} a sh:NodeShape ;\n"
-            f'    sh:name "{self.name} Shape" ;\n'
-            f'    sh:description "{desc}" ;\n'
-            f"{target}"
-            f"{prop_block}\n"
-            f"    sh:closed false .\n"
+        """Compile this declaration as an EG-owned SHACL shape."""
+        return compile_value_type_shape(
+            self._semantic_declaration(), path=path, target_class=target_class
         )
 
-    # -- OWL datatype restriction ------------------------------------------
     def to_owl(self) -> str:
-        """Emit an ``rdfs:Datatype`` defined by an OWL facet restriction.
-
-        CONCEPT:AU-KG.ontology.value-type-shacl-load — the value type becomes a named ``rdfs:Datatype``
-        (``:<Name>``) equivalent to its base XSD datatype restricted by the
-        constraint facets (``owl:withRestrictions``). Enum value types instead
-        emit an ``owl:oneOf`` data range. This is the RDF/OWL-substrate form
-        consumed by ``owl_bridge`` reasoning.
-        """
-        c = self.constraints
-        base_iri = self.property_type.xsd_iri
-        comment = _ttl_escape(self.description or f"{self.name} value type.")
-        header = (
-            f":{self.name} a rdfs:Datatype ;\n"
-            f'    rdfs:label "{self.name}" ;\n'
-            f'    rdfs:comment "{comment}" ;\n'
-        )
-
-        # Pure enumeration → owl:oneOf data range.
-        if (
-            c.allowed_values is not None
-            and c.is_empty() is False
-            and not (
-                c.pattern
-                or c.min_value is not None
-                or c.max_value is not None
-                or c.min_length is not None
-                or c.max_length is not None
-            )
-        ):
-            members = " ".join(self._ttl_value(v) for v in c.allowed_values)
-            return (
-                header
-                + f"    owl:equivalentClass [\n        a rdfs:Datatype ;\n        owl:oneOf ( {members} )\n    ] .\n"
-            )
-
-        facets: list[str] = []
-        if c.pattern is not None:
-            facets.append(f'        [ xsd:pattern "{_ttl_escape(c.pattern)}" ]')
-        if c.min_value is not None:
-            key = "minExclusive" if c.exclusive_min else "minInclusive"
-            facets.append(f"        [ {_owl_facet(key, c.min_value)} ]")
-        if c.max_value is not None:
-            key = "maxExclusive" if c.exclusive_max else "maxInclusive"
-            facets.append(f"        [ {_owl_facet(key, c.max_value)} ]")
-        if c.min_length is not None:
-            facets.append(f'        [ xsd:minLength "{c.min_length}"^^xsd:integer ]')
-        if c.max_length is not None:
-            facets.append(f'        [ xsd:maxLength "{c.max_length}"^^xsd:integer ]')
-
-        if not facets:
-            # No restrictable facet → plain subtype of the base datatype.
-            return header + f"    owl:equivalentClass <{base_iri}> .\n"
-
-        " ".join(facets).strip()
-        return (
-            header
-            + "    owl:equivalentClass [\n"
-            + "        a rdfs:Datatype ;\n"
-            + f"        owl:onDatatype <{base_iri}> ;\n"
-            + "        owl:withRestrictions (\n"
-            + "\n".join(facets)
-            + "\n        )\n    ] .\n"
-        )
-
-
-def _owl_facet(key: str, value: int | float) -> str:
-    if key not in _XSD_FACETS:  # pragma: no cover - defensive
-        raise ValueError(f"unknown OWL facet {key!r}")
-    return f"xsd:{key} {_ttl_number(value)}"
-
-
-# ---------------------------------------------------------------------------
-# Turtle prefix header (matches governance.shapes.ttl bindings)
-# ---------------------------------------------------------------------------
-SHAPES_PREFIXES = (
-    "@prefix : <http://knuckles.team/kg#> .\n"
-    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
-    "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
-    "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-    "@prefix qudt: <http://qudt.org/schema/qudt/> .\n"
-    "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
-)
+        """Compile this declaration as an EG-owned OWL datatype restriction."""
+        return compile_value_type_owl(self._semantic_declaration())
 
 
 # ---------------------------------------------------------------------------
@@ -800,26 +613,11 @@ def value_types_owl_ttl(
 
 
 def write_value_shapes_ttl(target_path: str | None = None) -> str:
-    """Materialize the value-type SHACL shapes to ``shapes/value_types.shapes.ttl``.
-
-    CONCEPT:AU-KG.ontology.value-type-shacl-load — the live consumer hook. Writes the combined SHACL document
-    next to ``governance.shapes.ttl`` so the existing SHACL gate picks it up. The
-    file location is returned. Idempotent: re-running rewrites the same content.
-
-    Args:
-        target_path: Override path; defaults to the package ``shapes`` directory.
-    """
-    from pathlib import Path
-
-    if target_path is None:
-        shapes_dir = Path(__file__).resolve().parent.parent / "shapes"
-        shapes_dir.mkdir(parents=True, exist_ok=True)
-        path = shapes_dir / "value_types.shapes.ttl"
-    else:
-        path = Path(target_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value_types_shapes_ttl(), encoding="utf-8")
-    return str(path)
+    """Reject AU-owned shape files; publish through the SDK/EG pack authority."""
+    raise RuntimeError(
+        "AU no longer writes ontology shapes; publish typed declarations "
+        "through the SDK ConnectorContent pack and EG GraphSchema"
+    )
 
 
 # KG namespace re-export so consumers can build value-type IRIs.

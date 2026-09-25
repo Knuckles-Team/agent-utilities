@@ -197,13 +197,12 @@ def test_full_registry_owl_ttl_parses():
     assert turtle.count("a rdfs:Datatype") >= len(list_value_types())
 
 
-# --- live-path materialization to shapes/ ------------------------------------
-def test_write_value_shapes_ttl_materializes_loadable_file(tmp_path):
+# --- AU cannot materialize ontology files -------------------------------------
+def test_write_value_shapes_ttl_rejects_au_owned_file(tmp_path):
     target = tmp_path / "value_types.shapes.ttl"
-    written = write_value_shapes_ttl(str(target))
-    assert written == str(target)
-    content = target.read_text(encoding="utf-8")
-    assert "sh:NodeShape" in content
+    with pytest.raises(RuntimeError, match="AU no longer writes ontology shapes"):
+        write_value_shapes_ttl(str(target))
+    assert not target.exists()
 
 
 def test_value_type_documents_parse_in_eg(engine_graph):
