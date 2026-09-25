@@ -713,7 +713,13 @@ class LocalProcessGrant(Enum):
 #: local engine's own tenant graph: ``kg:read`` for ``PlacementRoute`` /
 #: ``ListGraphs`` and the exact ``graph:admin`` scope ``CreateGraph`` needs.
 _LOCAL_PROCESS_GRANTS: dict[LocalProcessGrant, tuple[str, tuple[str, ...]]] = {
-    LocalProcessGrant.AMBIENT: (_LOCAL_PROCESS_SUBJECT, ("kg:write", "fleet:events")),
+    # mcp:discover / mcp:delegate (EH-629): a stdio graph-os runs fleet
+    # discovery and delegation as its own process principal; neither is
+    # administrative.
+    LocalProcessGrant.AMBIENT: (
+        _LOCAL_PROCESS_SUBJECT,
+        ("kg:write", "fleet:events", "mcp:discover", "mcp:delegate"),
+    ),
     LocalProcessGrant.GRAPH_PROVISIONING: (
         _LOCAL_PROCESS_BOOTSTRAP_SUBJECT,
         ("kg:read", "graph:admin"),

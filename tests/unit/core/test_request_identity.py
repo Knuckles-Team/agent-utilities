@@ -1011,6 +1011,22 @@ class TestStdioProcessIdentity:
             == session.actor.credential_expires_at
         )
 
+    def test_tiny_local_process_actor_holds_exact_fleet_scopes(self):
+        """EH-629: a stdio graph-os runs fleet discovery/delegation as its own
+        process principal, so the ambient grant carries exactly
+        ``mcp:discover`` + ``mcp:delegate`` (never ``mcp:admin``/``kg:admin``)."""
+        from agent_utilities.security.request_identity import (
+            mint_local_process_session,
+        )
+
+        cfg = _make_config()
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            session = mint_local_process_session()
+
+        roles = frozenset(str(role) for role in session.actor.roles)
+        assert {"mcp:discover", "mcp:delegate"} <= roles
+        assert not roles & {"mcp:admin", "kg:admin", "admin", "*"}
+
     def test_tiny_local_process_session_default_has_no_admin_or_control_scope(self):
         """CONCEPT:X1 (a): the default tiny-profile local process must never be
         able to pass an admin/security/control gate. Checks both the aggregate
