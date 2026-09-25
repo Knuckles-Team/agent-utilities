@@ -8,8 +8,8 @@ resources/actions/events it exposes, how records map onto the canonical ontology
 CONCEPT:AU-KG.ingest.mcp-tool-connector), what it protects (``identity``/``permissions``/``policy``),
 and — the X6 supply-chain-integrity leg — a signed, hash-pinned ``provenance`` block.
 
-This module is pure schema (Pydantic + dataclasses); the compiler that turns a
-manifest into OWL/SHACL lives in :mod:`manifest_compiler`, and the hash/signature
+This module is pure schema (Pydantic + dataclasses); :mod:`manifest_compiler`
+projects a manifest into typed declarations for EG's ontology pack compiler, and the hash/signature
 primitives reused by ``provenance.integrity`` live in :mod:`ontology_integrity`.
 No network, no LLM — every field here is either read verbatim from an existing
 connector artifact (ontology ``.ttl``, ``mcp_source_presets.json``, ``a2a.json``) or a
