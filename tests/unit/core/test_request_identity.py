@@ -232,6 +232,27 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
+    def test_broker_process_scope_projects_only_from_exact_verified_claim(self):
+        broker = actor_from_claims(
+            {
+                "sub": "svc:graph-os",
+                "scope": "identity:authenticate",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        assert _mint(broker).scopes == frozenset({"identity:authenticate"})
+
+        admin = actor_from_claims(
+            {
+                "sub": "svc:admin",
+                "scope": "kg:admin identity:*",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        assert _mint(admin).scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+
     def test_the_elevation_approval_scope_reaches_the_session_only_as_itself(self):
         """EH-405: an ``elevation-approvers`` member's realm role projects as the
         exact scope EG requires; ``kg:admin`` never implies it."""

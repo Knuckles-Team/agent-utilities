@@ -141,6 +141,9 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # question it asks about the caller's (and, per alert, each subscriber's)
 # read authority first. All are exact: none implies another, the kg hierarchy implies
 # none, and no wildcard is projected.
+# ``identity:authenticate`` is the exact broker-only capability of the
+# GraphOS process identity. It is projected only from verified token roles;
+# neither ``kg:admin`` nor any identity prefix implies it.
 _FINANCE_DOMAIN_SCOPES: frozenset[str] = frozenset(
     {
         "finance:alerts",
@@ -175,6 +178,7 @@ _GRAPH_AUTH_SCOPES: frozenset[str] = (
             "kg:admin",
             "fleet:events",
             "graph:admin",
+            "identity:authenticate",
             "rbac:approve-elevation",
             "capacity:throttle",
             "capacity:admin",
