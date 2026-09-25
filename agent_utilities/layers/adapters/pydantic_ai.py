@@ -110,7 +110,9 @@ def _options(spec: RunSpec) -> dict[str, Any]:
         required_tools=list(toolset.required_tools) or None,
         cred_ref=spec.account_ref,
     )
-    if toolset.mcp_servers:
+    if toolset.context_endpoint is not None:
+        options["tool_server"] = toolset.context_endpoint.name
+    elif toolset.mcp_servers:
         options["tool_server"] = toolset.mcp_servers[0].name
     if toolset.skills:
         options["skill_name"] = toolset.skills[0].name
@@ -160,10 +162,10 @@ class PydanticAiHarness(HarnessRuntime):
     def preflight(self, spec: RunSpec) -> None:
         if spec.account_mode == "api_key" and not spec.account_ref:
             raise HarnessNotConfigured("pydantic-ai api_key mode needs an account_ref")
-        if len(spec.toolset.mcp_servers) > 1:
+        if len(spec.toolset.endpoints()) > 1:
             raise HarnessRefused(
                 HARNESS_NAME,
-                ("the in-process runtime binds at most one fleet tool server per run",),
+                ("the in-process runtime binds at most one MCP server per run",),
             )
 
     async def drive(self, run: RunContext) -> DriveOutcome:
