@@ -1363,7 +1363,7 @@ def _collect_projected_relations(
     edge is one whose target this projection did not itself write, so it still
     needs an existence probe before it may be committed.
     """
-    from ..enrichment.relation_projection import project_relations, projects_anything
+    from epistemic_graph.relation_projection import project_relations, projects_anything
 
     derived: list[tuple[str, dict[str, Any]]] = []
     edges: list[tuple[str, str, str]] = []
@@ -1412,7 +1412,7 @@ def _project_relations_into(
     CONCEPT:AU-KG.enrichment.relation-projection — materialise the edges a node's
     own properties already encode. This is the connector leg of the SAME
     projection ``EpistemicGraphBackend.add_node`` applies, sharing one
-    :func:`~...enrichment.relation_projection.project_relations` implementation
+    :func:`epistemic_graph.relation_projection.project_relations` implementation
     rather than a second copy of the convention. Injected here (not in
     :func:`_graph_operations`) so derived rows are SHACL-validated and folded
     into the envelope's content digest exactly like the rows that caused them.
