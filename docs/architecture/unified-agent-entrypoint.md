@@ -19,7 +19,7 @@ wraps the graph with (a) the escalating execution-shape planner, (b) KG agent re
 provenance** (KG-2.296) + Session anchoring. The MCP, messaging, and workflow surfaces all reach the
 graph **through** `run_agent`, so they inherit memory + provenance for free.
 
-The **one gap** was the streaming REST gateway (`/ag-ui`, `/stream` — the path the `agent-webui` /
+The **one gap** was the streaming REST gateway (`/ag-ui`, `/stream` — the path the `graph-os-webui` /
 `agent-terminal-ui` frontends hit *directly*). It streams the **same** graph via
 `AgentOrchestrationEngine.iter_graph` (token-by-token, which cannot return through `run_agent`'s
 string contract), and historically skipped the seam's memory + provenance wrapper — leaving those
@@ -36,7 +36,7 @@ which calls `run_agent` — shape planner, KG resolve, memory prime,
 code-context, `RunTrace` + `:ToolCall` provenance, session anchor.
 
 `run_agent` calls `create_graph_agent`, which is also reached directly by
-`agent-webui`/`agent-terminal-ui` (`POST /ag-ui`/`/stream`, streaming via
+`graph-os-webui`/`agent-terminal-ui` (`POST /ag-ui`/`/stream`, streaming via
 `iter_graph`). Both paths reach `AgentOrchestrationEngine` (the one graph
 + executor); a separate `session_continuity` prime + persist step
 (ORCH-1.104) feeds into it as well. `AgentOrchestrationEngine` runs
@@ -49,7 +49,7 @@ pydantic-ai graph agents, which read/write the Knowledge Graph.
 | **graph-os MCP** | `graph_orchestrate(...)` | `mcp/tools/analysis_tools.py` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full (prime + RunTrace + ToolCall) |
 | **graph-os MCP (workflow)** | `graph_workflows(action='execute')` | `mcp/tools/workflow_tools.py` → `Orchestrator.execute_workflow` → `workflows/runner.py::WorkflowRunner` → `run_agent` per step | ✅ per step | ✅ full per step |
 | **messaging** (Telegram live; Mattermost, Discord, Slack, Signal, Teams, Matrix, IRC, … 18 backends) | `Backend.listen()` → `InboundRouter._dispatch` (`messaging/router.py:273`) → planner default handler (`daemon.py:47`) | `messaging/router.py:880` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full + `_persist_and_enrich` writes the per-channel memento (`router.py:447/596`) |
-| **agent-webui / agent-terminal-ui** (separate repos) | `POST /ag-ui`, `POST /stream` on the gateway | `server/routers/agent_ui.py` → `execute_graph_iter` → `AgentOrchestrationEngine.iter_graph` (the **same** graph) | ⚠️ **No** (streaming) — but now joins the same continuity seam via **`session_continuity`** (ORCH-1.104) | ✅ after ORCH-1.104: `prime_session_context` (recall) + `persist_session_turn` (RunTrace + memento) |
+| **graph-os-webui / agent-terminal-ui** (separate repos) | `POST /ag-ui`, `POST /stream` on the gateway | `server/routers/agent_ui.py` → `execute_graph_iter` → `AgentOrchestrationEngine.iter_graph` (the **same** graph) | ⚠️ **No** (streaming) — but now joins the same continuity seam via **`session_continuity`** (ORCH-1.104) | ✅ after ORCH-1.104: `prime_session_context` (recall) + `persist_session_turn` (RunTrace + memento) |
 | **dedicated `agent_server.py`** | `server/__init__.py::create_agent_server` / `_run_agent_server` | This **is** the gateway that hosts `/ag-ui` + the MCP — it does **not** duplicate orchestration; it serves the routers above | — | inherits the surfaces' wiring |
 | **geniusbot (desktop)** | separate repo | reaches the platform through the graph-os MCP / the gateway REST — no own agent-kickoff | via MCP/REST | inherits the surface it calls |
 
@@ -67,7 +67,7 @@ hot-path `session_memento_cache`. The **`source` key is the join**: any two surf
 |---|---|---|---|
 | MCP / workflow | `run_agent::_prime_recent_mementos` | `run_agent` post-run (`compress_to_memento`) | `memento_source` or agent name |
 | messaging | `run_agent` priming | `messaging/router.py::_persist_and_enrich` (`compress_to_memento` + cache refresh) | the channel session id |
-| **agent-webui / agent-terminal-ui** | **`session_continuity.prime_session_context`** (injected as `invoker_context`) | **`session_continuity.persist_session_turn`** (RunTrace + `compress_to_memento` + cache refresh) | the request `session_id` (== `run_id`) |
+| **graph-os-webui / agent-terminal-ui** | **`session_continuity.prime_session_context`** (injected as `invoker_context`) | **`session_continuity.persist_session_turn`** (RunTrace + `compress_to_memento` + cache refresh) | the request `session_id` (== `run_id`) |
 
 **Cross-surface recall** therefore works whenever the surfaces are keyed to the **same** stable,
 user-scoped `session_id`. A webui session that sends `session_id="user:alice"` will recall the

@@ -4,11 +4,11 @@ CONCEPT:AU-ECO.ui.one-engine-authority
 
 ``AGENTS.md`` → *Universal capability — ONE core, thin entrypoints* says every
 user/system-facing surface (messaging, the A2A protocol layer every
-``agents/*/agent_server.py`` shares, ``agent-webui``, ``agent-terminal-ui``,
+``agents/*/agent_server.py`` shares, ``graph-os-webui``, ``agent-terminal-ui``,
 ``geniusbot``) is a thin transport over the ONE orchestrator, backed by the ONE
 process-wide :class:`IntelligenceGraphEngine` authority
 (``get_active()``/``get_or_create()``). D-WD-7 found this violated: a second,
-hand-rolled construction path inside ``agent_webui.api_extensions.get_engine()``
+hand-rolled construction path inside ``graph_os_webui.api_extensions.get_engine()``
 could win the process-wide singleton race with a disconnected local backend,
 silently becoming the authority the REST route (and every other route sharing
 the process) then read from.
@@ -49,7 +49,7 @@ _WORKSPACE_ROOT = _REPO_ROOT.parent
 ENTRYPOINT_TREES = {
     "messaging": _REPO_ROOT / "agent_utilities" / "messaging",
     "a2a-protocol": _REPO_ROOT / "agent_utilities" / "protocols",
-    "agent-webui": _WORKSPACE_ROOT / "agent-webui" / "agent" / "agent_webui",
+    "graph-os-webui": _WORKSPACE_ROOT / "graph-os-webui" / "agent" / "graph_os_webui",
     "agent-terminal-ui": _WORKSPACE_ROOT / "agent-terminal-ui" / "agent_terminal_ui",
     "geniusbot": _WORKSPACE_ROOT / "geniusbot" / "geniusbot",
 }

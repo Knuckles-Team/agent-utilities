@@ -151,7 +151,7 @@ repos in the first place. `/home/app/workspace/pyproject.toml` (the former
 ecosystem workspace root) now carries an explicit `D-EGSFT-1` header dated
 **2026-08-14** ("owner-approved architecture change"): it is "intentionally NOT a
 `[tool.uv.workspace]` root anymore." Every repo (69/69 `agents/*` + `agent-utilities`
-+ `epistemic-graph` + `agent-webui` + `geniusbot` + `langfuse-agent` +
++ `epistemic-graph` + `graph-os-webui` + `geniusbot` + `langfuse-agent` +
 `leanix-agent`, per that file's own verification note) now resolves and locks
 independently against its own `uv.lock`, so a bare `uv sync` run inside any one
 repo resolves *that repo's own lock* — the correct behavior — rather than being

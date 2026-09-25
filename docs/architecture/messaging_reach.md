@@ -213,7 +213,7 @@ The WebUI contact route uses a narrow AU host adapter rather than the generic
 reach route. Set `AGENT_WEBUI_CONTACT_DESTINATION` to the server-owned
 `platform:channel` pair and set `AGENT_WEBUI_CONTACT_RETENTION_DAYS=0`.
 Nonzero retention is refused until a governed purge authority exists.
-The host negotiates this port from the installed agent-webui factory signature;
+The host negotiates this port from the installed graph-os-webui factory signature;
 an older package without the contact contract receives no adapter, leaving the
 route unavailable until a contract-bearing release is installed.
 
@@ -225,7 +225,7 @@ CAS counter limits each actor to five new attempts per fixed minute. Authority,
 read, or CAS ambiguity fails closed, and an existing non-succeeded item is
 never reclaimed or sent again.
 
-Admission and commit run through agent-webui's fixed-capacity synchronous-work
+Admission and commit run through graph-os-webui's fixed-capacity synchronous-work
 executor with a ten-second inner deadline, so a slow graph RPC cannot block the
 ASGI event loop or escape the route's outer deadline. The limiter keeps one
 bounded node per tenant/actor and a maximum of five item references; replaying

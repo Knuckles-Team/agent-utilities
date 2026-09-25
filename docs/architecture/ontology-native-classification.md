@@ -67,7 +67,7 @@
 > FleetCatalog: servers, tools, prompts, resources, skills) and the
 > `_write_fleet_nodes` entities loop (Cypher `ApplyChangeEnvelope`, landing
 > as `:MCPServer` / `:Tool` / `:Skill`). The EG tables are the primary read
-> path (`registry_api.py` + agent-webui); the KG nodes are secondary
+> path (`registry_api.py` + graph-os-webui); the KG nodes are secondary
 > enrichment (KG queries, reasoning).
 > </div>
 

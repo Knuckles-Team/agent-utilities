@@ -97,7 +97,7 @@ non-zero on any `BLOCKED` record.
   same catalog-payload helper as the WebUI route.
 - **No Epistemic Graph catalog projection.** The design's
   "graph-os catalog projection" step is not implemented; WebUI's typed client
-  (`agent-webui/src/lib/frontend-contributions.ts`) validates the same record
+  (`graph-os-webui/src/lib/frontend-contributions.ts`) validates the same record
   shape directly, standing in for that projection until it exists.
 - **No fleet rollout.** Zero of the 68 fleet packages were given a
   `contribution.json`/entry point in this lane; the TCK proves the CONTRACT

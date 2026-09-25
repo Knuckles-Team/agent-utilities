@@ -775,7 +775,7 @@ def test_real_au_webui_and_agent_manifest_paths_are_scannable() -> None:
             continue
         workspace = candidate_root.parent
         for candidate in (
-            workspace / "agent-webui/pyproject.toml",
+            workspace / "graph-os-webui/pyproject.toml",
             workspace / "agents/ansible-tower-mcp/uv.lock",
         ):
             if candidate.is_file():

@@ -137,7 +137,7 @@ def discover_repos() -> list[Path]:
         for child in sorted(agents_dir.iterdir()):
             if (child / ".git").exists() and (child / "pyproject.toml").is_file():
                 repos.append(child)
-    for name in ("agent-webui", "agent-terminal-ui", "geniusbot"):
+    for name in ("graph-os-webui", "agent-terminal-ui", "geniusbot"):
         p = WORKSPACE_ROOT / name
         if (p / ".git").exists():
             repos.append(p)

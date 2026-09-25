@@ -14,7 +14,7 @@ own ``app.openapi()`` into two committed artifacts under ``docs/reference/``
   from the live app (never a hardcoded route list) and actually fires when
   a route really does carry no schema.
 
-Building the real app is comparable in cost to agent-webui's own
+Building the real app is comparable in cost to graph-os-webui's own
 ``test_canonical_gateway_mount.py`` drift guard, so this is marked
 ``integration`` like that test.
 """
@@ -40,7 +40,7 @@ _SPEC.loader.exec_module(gen)
 
 
 def test_openapi_spec_matches_the_served_app():
-    """The generator's app is the real one: same title/paths agent-webui pins."""
+    """The generator's app is the real one: same title/paths graph-os-webui pins."""
     spec = gen.openapi_spec()
     assert spec["info"]["title"] == "Agent Web Dashboard"
     assert spec["openapi"].startswith("3.")
@@ -216,7 +216,7 @@ class TestFailClosedOnTruncatedSurface:
         generator error out rather than silently writing whatever spec the
         (now headless) app happens to produce.
 
-        Post-fix, ``agent_webui.server.create_agent_web_app`` itself
+        Post-fix, ``graph_os_webui.server.create_agent_web_app`` itself
         refuses to build a headless app and raises ``RuntimeError`` --
         this proves the generator does not swallow that failure either.
         """

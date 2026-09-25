@@ -4,9 +4,9 @@ from __future__ import annotations
 
 """Regression guard: every ``/api/enhanced/*`` route has at least one consumer.
 
-Scans ``agent_webui.api_extensions`` for ``@router`` declarations and asserts
+Scans ``graph_os_webui.api_extensions`` for ``@router`` declarations and asserts
 that every route is referenced by either the React frontend
-(``agent-webui/src/``) or the terminal UI
+(``graph-os-webui/src/``) or the terminal UI
 (``agent-terminal-ui/agent_terminal_ui/``). Agent-internal routes that are
 intentionally not UI-wired live in ``ADMIN_ONLY_ENDPOINTS`` with a short
 justification each.
@@ -31,7 +31,7 @@ ENHANCED_PREFIX = "/api/enhanced"
 
 
 def _find_agent_packages_root() -> Path:
-    """Locate the ``agent-packages`` root that holds the sibling ``agent-webui``.
+    """Locate the ``agent-packages`` root that holds the sibling ``graph-os-webui``.
 
     The conventional layout has ``agent-utilities`` directly under
     ``agent-packages`` (``parents[4]``). An isolated worktree may not contain
@@ -41,16 +41,16 @@ def _find_agent_packages_root() -> Path:
     here = Path(__file__).resolve()
     candidates = [here.parents[4], *here.parents]
     for cand in candidates:
-        if (cand / "agent-webui").is_dir():
+        if (cand / "graph-os-webui").is_dir():
             return cand
     return here.parents[4]  # give up; the skip in _load_api_extensions_text handles it
 
 
 _AGENT_PACKAGES_ROOT = _find_agent_packages_root()
 _API_EXTENSIONS = (
-    _AGENT_PACKAGES_ROOT / "agent-webui" / "agent" / "agent_webui" / "api_extensions.py"
+    _AGENT_PACKAGES_ROOT / "graph-os-webui" / "agent" / "graph_os_webui" / "api_extensions.py"
 )
-_WEBUI_SRC = _AGENT_PACKAGES_ROOT / "agent-webui" / "src"
+_WEBUI_SRC = _AGENT_PACKAGES_ROOT / "graph-os-webui" / "src"
 _TERMINAL_UI_SRC = _AGENT_PACKAGES_ROOT / "agent-terminal-ui" / "agent_terminal_ui"
 
 _ROUTER_DECORATOR = re.compile(
@@ -148,15 +148,15 @@ ADMIN_ONLY_ENDPOINTS: dict[str, str] = {
 def _load_api_extensions_text() -> str:
     """Return ``api_extensions.py`` contents for regex parsing.
 
-    Skips (rather than errors) when the sibling ``agent-webui`` repo isn't present
+    Skips (rather than errors) when the sibling ``graph-os-webui`` repo isn't present
     — this is a cross-repo coverage check, not a hard dependency of this repo's
-    suite, so a checkout without ``agent-webui`` should not fail collection.
+    suite, so a checkout without ``graph-os-webui`` should not fail collection.
     """
     if not _API_EXTENSIONS.is_file():
         import pytest
 
         pytest.skip(
-            "agent-webui sibling is unavailable (cross-repository coverage test)"
+            "graph-os-webui sibling is unavailable (cross-repository coverage test)"
         )
     return _API_EXTENSIONS.read_text(encoding="utf-8")
 
@@ -274,7 +274,7 @@ class TestEndpointConsumerCoverage:
             pytest.fail(
                 "The following enhanced routes have no UI consumer and are "
                 f"not in ADMIN_ONLY_ENDPOINTS:\n{rendered}\n\n"
-                "Either wire a consumer in agent-webui or agent-terminal-ui, "
+                "Either wire a consumer in graph-os-webui or agent-terminal-ui, "
                 "or add the path to ADMIN_ONLY_ENDPOINTS with a short "
                 "justification."
             )
@@ -338,7 +338,7 @@ class TestConsumerDetection:
         """``/graph/stats`` is consumed by both UIs.
 
         Depends on the ``api_source`` fixture purely to inherit
-        ``_load_api_extensions_text``'s skip when the ``agent-webui`` sibling
+        ``_load_api_extensions_text``'s skip when the ``graph-os-webui`` sibling
         repo isn't checked out alongside this one (e.g. an isolated worktree)
         — unlike ``_has_web_consumer``/``_has_terminal_consumer`` themselves,
         which have no such guard and would otherwise assert False against an

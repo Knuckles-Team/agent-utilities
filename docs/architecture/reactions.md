@@ -23,7 +23,7 @@ model-agnostic heuristic), which consults `EmoteRegistry` (the one emote
 menu plus `ActionPolicy` governance) to produce an `AgentReaction`
 (`{emote, target_message_id?, intensity?}`). That single reaction feeds
 five independent renderers: the Telegram renderer
-(`send_reaction`/`setMessageReaction`), agent-webui's reaction chip,
+(`send_reaction`/`setMessageReaction`), graph-os-webui's reaction chip,
 agent-terminal-ui's emote glyph, geniusbot's desktop affordance, and
 `agent_server.py`'s `response.reaction` field.
 </div>
@@ -54,7 +54,7 @@ stable across process / repo boundaries:
 | Entrypoint | Status | What it implements |
 |---|---|---|
 | **messaging (Telegram, …)** | ✅ done | `MessagingService.render_reaction(platform, channel_id, reaction)` → `react()` → backend `send_reaction` → Telegram `setMessageReaction`. The router's `_react_in_background` now calls the **core** `decide_reaction` and renders the result (CONCEPT:AU-ECO.messaging.messaging-as-renderer). Other backends (Slack `reactions.add`, …) expose `send_reaction` and degrade gracefully where the emote is unsupported. |
-| **`agent-webui`** | ▢ stub (separate repo) | Render `reaction.emote` as an **emoji reaction chip** on the assistant message; map `intensity` to chip emphasis if present. Read the `reaction` field off the turn's response (below). No emote list of its own — the menu is `EmoteRegistry.available()`. |
+| **`graph-os-webui`** | ▢ stub (separate repo) | Render `reaction.emote` as an **emoji reaction chip** on the assistant message; map `intensity` to chip emphasis if present. Read the `reaction` field off the turn's response (below). No emote list of its own — the menu is `EmoteRegistry.available()`. |
 | **`agent-terminal-ui`** | ▢ stub (separate repo) | Render an **inline emote glyph / reaction line** next to the turn (e.g. a dim ` 👀` suffix). `target_message_id` is usually `None` here (standalone glyph). |
 | **`geniusbot`** | ▢ stub (separate repo) | Surface a **desktop reaction affordance** (a small emoji badge on the message bubble / a toast). |
 | **`agents/*/…/agent_server.py`** | ▢ stub (separate repo) | Add an optional **`reaction`** field to the A2A/HTTP response envelope carrying `AgentReaction.to_dict()`; clients (webui/geniusbot) render it. The orchestrator populates it when a turn reacts. |
@@ -79,7 +79,7 @@ entrypoints, it's in the wrong layer.
 
 ## Follow-ups (separate repos — not in this slice)
 
-- `agent-webui`: reaction chip component + read `reaction` off the response envelope.
+- `graph-os-webui`: reaction chip component + read `reaction` off the response envelope.
 - `agent-terminal-ui`: inline emote glyph renderer.
 - `geniusbot`: desktop reaction affordance.
 - `agents/*` (`agent_server.py`): add the `reaction` response-envelope field + have the

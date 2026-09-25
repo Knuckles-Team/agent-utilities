@@ -4,7 +4,7 @@
     "agent-connector-sdk": "MIT",
     "agent-terminal-ui": "MIT",
     "agent-utilities": "MIT",
-    "agent-webui": "MIT",
+    "graph-os-webui": "MIT",
     "aiohttp": "Apache-2.0 AND MIT",
     "aiokafka": "Apache-2.0",
     "ansible-tower-mcp": "MIT",

@@ -86,7 +86,7 @@ sampling profiles, CONCEPT:AU-KG.ontology.sampling-profile-coupling, see
 [Task-Aware Sampling Profiles](sampling_profiles.md)) (plus
 edit / permissioning / document-processing handlers in the same registration block).
 
-### 4.2 REST (`agent-webui` `api_extensions.py`, `/api/enhanced/ontology/*`)
+### 4.2 REST (`graph-os-webui` `api_extensions.py`, `/api/enhanced/ontology/*`)
 Object-type & schema reads (`object-types`, `property-types`, `interfaces`,
 `interfaces/{name}/implementers`); object-set ops (`object-set/search`,
 `search-around`, `pivot`, `aggregate`, `save`, `list`); actions (`actions`,
@@ -94,7 +94,7 @@ Object-type & schema reads (`object-types`, `property-types`, `interfaces`,
 `object/{id}/revert`); functions/derived/documents (`function/invoke`, `derive`,
 `document/process`); configurable views (`object-view/{type}` GET/POST).
 
-### 4.3 Operator UI (`agent-webui` React views)
+### 4.3 Operator UI (`graph-os-webui` React views)
 - **`ObjectExplorerView.tsx`** — Foundry Object Explorer parity: search/filter,
   aggregate, search-around pivot, bulk actions, saved object sets.
 - **`ObjectView.tsx`** — Foundry Object Views parity: properties, links, actions,
@@ -107,7 +107,7 @@ Object-type & schema reads (`object-types`, `property-types`, `interfaces`,
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Surfaces to facade to composition root to substrate</p>
 
-Three surfaces reach the ontology system: `agent-webui`'s
+Three surfaces reach the ontology system: `graph-os-webui`'s
 `ObjectExplorerView`/`ObjectView`/`VertexView` (via `/api/enhanced/ontology/*`
 REST), and `kg_server`'s `ontology_*` MCP tools directly — both REST and
 MCP converge on the `KnowledgeGraph` facade (`kg.ontology`), which addresses
@@ -141,5 +141,5 @@ to optional Postgres/pg-age mirrors.
 ---
 
 *Anchored to the live modules under `knowledge_graph/ontology/`, `knowledge_graph/
-actions/`, `knowledge_graph/facade.py`, `mcp/kg_server.py`, and the agent-webui
+actions/`, `knowledge_graph/facade.py`, `mcp/kg_server.py`, and the graph-os-webui
 ontology surfaces. Re-audit when the composition root or surfaces change.*

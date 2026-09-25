@@ -21,7 +21,7 @@ courses, each with one or more lessons (a title, a Markdown body path, and an
 optional multiple-choice quiz). Nothing here is code — adding a lesson is
 adding a Markdown file plus a manifest entry, no new machinery required.
 
-The same manifest (mirrored into `agent-webui`'s own `src/content/learn/` so
+The same manifest (mirrored into `graph-os-webui`'s own `src/content/learn/` so
 the in-app **Learn** view works standalone, with no backend round-trip — see
 that repo's `LearnView`) drives:
 
@@ -47,7 +47,7 @@ epistemic reasoning over a single snapshot — with a short quiz at the end.
 
 To add a lesson: write a Markdown file under `docs/learn/lessons/<course-id>/`,
 then add a `lessons:` entry (`id`, `title`, `body`, optional `quiz`) to
-[`manifest.yaml`](manifest.yaml) — and mirror both into `agent-webui`'s
+[`manifest.yaml`](manifest.yaml) — and mirror both into `graph-os-webui`'s
 `src/content/learn/` so the in-app view picks it up. To add a course, add a
 new top-level entry to the same manifest. No code changes are required for
 either.

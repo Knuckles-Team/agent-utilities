@@ -27,7 +27,7 @@ artifacts rather than duplicating them.
 | Data (mirrors) | **optional** Postgres/pg-age **mirror** (write-only fan-out for SQL-side querying/BI) · Kafka (event backbone) |
 | agent-utilities | REST gateway + KG host daemon, replicated; graph-os over streamable-http |
 | Connectors | the **entire** `*-mcp` fleet (`enterprise` profile) via Portainer GitOps |
-| UIs | agent-webui (Fleet Supervisor), agent-terminal-ui, geniusbot |
+| UIs | graph-os-webui (Fleet Supervisor), agent-terminal-ui, geniusbot |
 
 ## Deploy (skill-workflow)
 
@@ -154,7 +154,7 @@ manifests — is in the `agent-os-genesis` skill's
 
 ## Operate
 
-The **agent-webui Fleet Supervisor** (`/api/fleet/*`) is your single pane of
+The **graph-os-webui Fleet Supervisor** (`/api/fleet/*`) is your single pane of
 glass: per-domain health/error-rates, live topology, one-click pause/kill
 containment, and the mutation/risk approval queue.
 

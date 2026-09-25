@@ -21,7 +21,7 @@ license = "MIT"
 # of base into the `[graphos]` extra because a hard base dependency on an
 # unpublished eg floor (`>=2.27.0`, PyPI's newest was 2.23.0) blocked every
 # consumer that imports `agent_utilities` but never touches the engine (e.g.
-# agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph`
+# graph-os-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph`
 # usage at the time). That trade made the package's OWN declared metadata lie
 # about its own code: `agent_utilities/numeric/__init__.py` has always
 # unconditionally imported `epistemic_graph.numeric` at module-load time (see the
@@ -273,8 +273,8 @@ agent-runtime = [
     "pydantic-ai-harness>=0.14.0,<0.15.0",
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
-# pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
-# process never renders — and agent-webui depends on the FULL `pydantic-ai`
+# pulls `ag-ui` (graph-os-webui) + `terminal` (agent-terminal-ui), which a serving
+# process never renders — and graph-os-webui depends on the FULL `pydantic-ai`
 # meta-package, dragging temporalio/botocore/google-genai/grpc/mistralai onto the
 # serving image (~140 MB). `agent-headless` is the same skill/runtime stack the
 # agent actually needs at serve time, minus those two frontend libs. Used by
@@ -318,8 +318,8 @@ ag-ui = [
     # `to_web()` dropped that kwarg in favor of `capabilities=[NativeTool(...)]`
     # on the Agent constructor, so 1.1.0 raised
     # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
-    # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
-    "agent-webui>=2.4.0"]
+    # against any current pydantic-ai. Fixed by the frontend before the rename.
+    "graph-os-webui>=2.6.2"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
@@ -534,8 +534,8 @@ serving = [
     #   - finance: scipy + pandas + statsmodels (~360 MB). The only serving consumer was the
     #     `quant` MCP tool's boot-time registration; that registration is now guarded
     #     (mcp/tools/ontology_tools.py) so kg_server boots cleanly without it.
-    #   - agent-runtime (→ ag-ui/terminal): agent-webui + agent-terminal-ui are FRONTEND component
-    #     libs a server never renders, and agent-webui pulls the full pydantic-ai meta
+    #   - agent-runtime (→ ag-ui/terminal): graph-os-webui + agent-terminal-ui are FRONTEND component
+    #     libs a server never renders, and graph-os-webui pulls the full pydantic-ai meta
     #     (temporalio/botocore/google-genai/grpc/mistralai, ~140 MB). Replaced by the
     #     `agent-headless` extra (same skill/runtime stack, no frontends).
     #   - documents: a no-op alias (D2 — document loading is native, no extra
@@ -1212,6 +1212,7 @@ searxng = ["pyyaml", "msgspec", "typing-extensions", "setuptools"]
 # here. The SDK contract remains in the `[langfuse]` extra above.
 epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph", editable = true }
 agent-connector-sdk = { path = ".uv-workspace-siblings/agent-connector-sdk", editable = true }
+graph-os-webui = { path = ".uv-workspace-siblings/graph-os-webui", editable = true }
 
 [dependency-groups]
 guardrails = [

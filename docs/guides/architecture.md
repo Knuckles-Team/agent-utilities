@@ -5,7 +5,7 @@
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Clients in, through the unified execution layer, to specialists — with a human-in-the-loop escape</p>
 
-**Entry.** A user's request (plus images) reaches agent-webui,
+**Entry.** A user's request (plus images) reaches graph-os-webui,
 agent-terminal-ui, an external AG-UI client, or an ACP-compatible editor.
 The three AG-UI-speaking clients call the agent-utilities server's
 `/ag-ui` route directly; the ACP editor talks stdio JSON-RPC to

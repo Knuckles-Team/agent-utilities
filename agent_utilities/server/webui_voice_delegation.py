@@ -2,10 +2,10 @@
 
 CONCEPT:AU-ECO.mcp.webui-voice-transcription-delegation
 
-``agent_webui.api_extensions``'s ``POST /voice/transcribe`` route never talks to a
+``graph_os_webui.api_extensions``'s ``POST /voice/transcribe`` route never talks to a
 transcription backend itself. It calls one host-supplied workspace helper,
 ``transcribe_voice``, and reports 501 when it is absent (GOC-07's honest-501
-contract — see ``agent-webui``'s ``tests/test_destubbed_endpoints.py::
+contract — see ``graph-os-webui``'s ``tests/test_destubbed_endpoints.py::
 test_voice_transcribe_honest_without_whisper``). This module is that host side,
 mirroring :mod:`~agent_utilities.server.webui_mcp_delegation`'s shape.
 

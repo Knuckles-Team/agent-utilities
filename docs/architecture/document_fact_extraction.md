@@ -41,7 +41,7 @@ epistemic-graph durable backends, and are also written to
 The same extraction emits events over
 `/api/enhanced/extract/stream` (`round_start`/`fact`/`metrics`/
 `round_end`/`done`/`job_done`), consumed live by all three frontends:
-`agent-webui` (Sigma.js graph), `agent-terminal-ui` (fact rows), and
+`graph-os-webui` (Sigma.js graph), `agent-terminal-ui` (fact rows), and
 `geniusbot` (QGraphicsView force graph).
 </div>
 
@@ -124,7 +124,7 @@ One gateway contract, three native renderings:
 <p class="admonition-title">One gateway contract, three native renderings</p>
 
 The gateway (`/api/enhanced/extract/*`) serves three frontends directly,
-each with its own native rendering: `agent-webui` (React) —
+each with its own native rendering: `graph-os-webui` (React) —
 `ExtractionView` rendering a Sigma.js + ForceAtlas2 graph with edge-fact
 hover cards, longest-path, and JSONL export; `agent-terminal-ui`
 (Textual) — an `/ingest` command driving live colorized fact rows with
@@ -135,7 +135,7 @@ JSONL export.
 
 | Frontend | Graph | Edge metadata | Live stream | Export |
 |----------|-------|---------------|-------------|--------|
-| agent-webui | Sigma.js / ForceAtlas2 | hover card + dup badge | EventSource | JSONL + RDF |
+| graph-os-webui | Sigma.js / ForceAtlas2 | hover card + dup badge | EventSource | JSONL + RDF |
 | agent-terminal-ui | colorized fact table | inline per row | `client.stream_extraction` | JSONL |
 | geniusbot | native QGraphicsView (`relax_layout`) | click → fact card | worker `progress` signal | JSONL |
 

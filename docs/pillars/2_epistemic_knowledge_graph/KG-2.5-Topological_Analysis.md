@@ -26,10 +26,10 @@ Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (E
 # Topological Graph Visualization (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
-Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for 100K+ scale.
+Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `graph-os-webui`. Implements intelligent mass assignment and radial clustering for 100K+ scale.
 
 ## Implementation Details
-- **Source Code**: ``agent-webui/src/components/knowledge-graph/``
+- **Source Code**: ``graph-os-webui/src/components/knowledge-graph/``
 - **Pillar**: KG
 
 ## Documentation Coverage

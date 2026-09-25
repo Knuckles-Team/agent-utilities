@@ -119,6 +119,14 @@ jobs:
         name: Checkout pinned Agent Connector SDK source
         uses: ./.github/actions/checkout-agent-connector-sdk
 
+      - &webui-checkout
+        name: Checkout GraphOS WebUI source for the local AU lock
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/graph-os-webui
+          path: .uv-workspace-siblings/graph-os-webui
+          persist-credentials: false
+
       - name: Sync advisory environment (source contracts, no native engine build)
         run: |
           uv sync --frozen --extra test --group guardrails --extra agent-runtime \
@@ -569,6 +577,8 @@ jobs:
 
       - *sdk-checkout
 
+      - *webui-checkout
+
       # Same pattern release.yml's `gates` job uses for its static/test-suite
       # lane: no native engine (Linux-built binary; not what this job is
       # proving), test extras + guardrails group only. agent-connector-sdk is
@@ -665,6 +675,8 @@ jobs:
       - *setup-uv-locked
 
       - *sdk-checkout
+
+      - *webui-checkout
 
       # RF-ADR-009 (43197d7c6) deleted the `owl` extra (owlready2/pyshacl full
       # OWL-DL reasoning) when semantic authority moved to epistemic-graph;

@@ -64,7 +64,7 @@ graphos:
     AUTH_TYPE: jwt
     MCP_TOOL_MODE: intent
     KG_DAEMON_ROLE: client
-    # graph-os serves the agent-webui dashboard itself, as a supervised
+    # graph-os serves the graph-os-webui dashboard itself, as a supervised
     # co-service in the same process, over `webUiPort` below. The dashboard is
     # the frontend facade over the gateway routers graph-os already serves, so
     # it shares one identity, one lifecycle, and one ingress hostname with them
@@ -164,7 +164,7 @@ connectors: []
 #   replicas: 1
 #   resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
 
-# Extra first-party workloads to deploy alongside the core. The agent-webui
+# Extra first-party workloads to deploy alongside the core. The graph-os-webui
 # dashboard is NOT one of them -- graph-os serves it in-process (see
 # `graphos.config.ENABLE_WEB_UI`), so listing it here would run a second,
 # redundant copy with an identity that cannot sign engine admission.

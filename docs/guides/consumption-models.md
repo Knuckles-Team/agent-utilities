@@ -99,7 +99,7 @@ Scale it with `GATEWAY_WORKERS` and front it with Caddy/nginx — see
 [Scaling the Gateway](https://knuckles-team.github.io/graph-os/architecture/gateway-scaling/) and the
 [deployment configuration ladder](deployment-configurations.md).
 
-When to use: web UIs (agent-webui consumes this), scripts, the fleet supervisor,
+When to use: web UIs (graph-os-webui consumes this), scripts, the fleet supervisor,
 and any non-MCP HTTP client.
 
 > The REST surface and the MCP tool surface are kept at **strict 1:1 parity** by

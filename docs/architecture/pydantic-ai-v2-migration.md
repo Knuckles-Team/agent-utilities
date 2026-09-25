@@ -50,7 +50,7 @@ transport feeds `MCPToolset`, which becomes the agent's toolsets.
   (`fastmcp`→`mcp`; the removed `a2a` extra → a direct `fasta2a[pydantic-ai]>=0.6.1` dependency;
   `anthropic` added as a default-bundle provider). Per-provider opt-in extras (`agent-google`,
   `agent-groq`, `agent-mistral`, `agent-anthropic`, `agent-huggingface`) unchanged in shape.
-- `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
+- `graph-os-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
 - `[dynamic-workflow]` is an opt-in `pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0`
   integration. `graph_workflows action=execute_dynamic` invokes the real upstream

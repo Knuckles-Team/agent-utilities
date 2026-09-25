@@ -57,7 +57,7 @@ architecture) directly.
 Every external consumer reaches `agent-utilities` its own way: Antigravity
 IDE and Claude Code via MCP (KG queries/tool execution, shared KG
 read/write); OpenCode and Devin via MCP (shared KG read); `agent-terminal-ui`
-via the library API through the shared GraphOS runtime; `agent-webui` via
+via the library API through the shared GraphOS runtime; `graph-os-webui` via
 ACP/AG-UI; geniusbot via the library API + `AgentBridge` through the
 shared runtime; `universal-skills` via the DSTDD pipeline and skill
 ingestion.
@@ -485,7 +485,7 @@ into `ConfigManager`, producing `ServiceConfig[]` for the Widget
 Registry, which lazy-imports the 50 widget modules, which fetch data
 through the Aggregator. The Aggregator serves `WidgetData{}` via REST
 (`/api/dashboard`) and streams via WebSocket (`/ws/dashboard`) to
-`agent-webui`, and serves `agent-terminal-ui` (direct Python) and
+`graph-os-webui`, and serves `agent-terminal-ui` (direct Python) and
 geniusbot (QThread) directly.
 </div>
 
@@ -534,14 +534,14 @@ bidirectionally in several places:
 
 Three client packages depend on `agent-utilities` (Python):
 `agent-terminal-ui` (Python/Textual) depends on it directly and via
-`gateway.Aggregator`; `agent-webui` (React/Next.js) interfaces with it
+`gateway.Aggregator`; `graph-os-webui` (React/Next.js) interfaces with it
 directly and via `gateway.api` + WS; `geniusbot` (Python/PySide6)
 interfaces with it directly and via `gateway.Aggregator`.
 
 `agent-utilities` itself depends on `pydantic-ai`, `pydantic-graph`,
 `pydantic-ai-harness` ACP, `pydantic-ai-skills`, `fastmcp`, `fastapi`,
 and `logfire`. `agent-terminal-ui` depends on `textual`, `rich`, and
-`httpx`. `agent-webui` depends on `@ai-sdk/react` (Vercel), `ai` (Vercel
+`httpx`. `graph-os-webui` depends on `@ai-sdk/react` (Vercel), `ai` (Vercel
 SDK), `react`, `tailwindcss`, and `vite`. `geniusbot` depends on
 `PySide6`, `QtCharts`, and `QWebEngineView`.
 </div>

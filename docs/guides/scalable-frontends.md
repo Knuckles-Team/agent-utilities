@@ -52,7 +52,7 @@ specifically to avoid importing the backend. A `--headless` mode (`headless.py`,
 ~30 MB, no Textual widget tree) runs many non-interactive instances per node, and a
 runtime-only `Dockerfile` ships the frontend without the backend. ~30–50 MB/instance.
 
-### agent-webui — thin via client role
+### graph-os-webui — thin via client role
 The React SPA scales infinitely in the browser; the **Python API server** is what you
 scale horizontally. It needs `agent-utilities[agent-runtime,graph]` for model runtime and
 canonical gateway helpers; the full engine is already a hard base dependency. It is not

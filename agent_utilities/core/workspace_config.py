@@ -59,7 +59,7 @@ subdirectories:
     repositories:
       - url: "https://github.com/Knuckles-Team/agent-utilities.git"
         description: "Shared utility functions, base classes, and server common code."
-      - url: "https://github.com/Knuckles-Team/agent-webui.git"
+      - url: "https://github.com/Knuckles-Team/graph-os-webui.git"
         description: "Standard web UI component library for agents."
       - url: "https://github.com/Knuckles-Team/agent-terminal-ui.git"
         description: "Standard terminal UI component library for agents."
@@ -117,7 +117,7 @@ maintenance:
       projects:
         - "universal-skills"
         - "skill-graphs"
-        - "agent-webui"
+        - "graph-os-webui"
         - "agent-terminal-ui"
       wait_minutes: 12
     - name: "Phase 2: agent-utilities"

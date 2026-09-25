@@ -173,7 +173,7 @@ async def test_action_policy_deadline_keeps_event_loop_live_and_never_sends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The production WebUI runner bounds a stalled synchronous policy gate."""
-    from agent_webui.api_extensions import _invoke_governed_helper
+    from graph_os_webui.api_extensions import _invoke_governed_helper
 
     engine = _FakeEngine()
     service = MessagingService(engine)
@@ -215,7 +215,7 @@ async def test_action_policy_cancellation_never_reaches_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cancelling admission propagates while the charged worker finishes safely."""
-    from agent_webui.api_extensions import _invoke_governed_helper
+    from graph_os_webui.api_extensions import _invoke_governed_helper
 
     service = MessagingService(_FakeEngine())
     backend = _FakeBackend()

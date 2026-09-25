@@ -235,7 +235,7 @@ a preview is stored.
 **Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):** the former
 `kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and
 `kg-mux-extend`/`kg-mux-use` (folded into `graph-runtime-and-governance`), `kg-delegate`
-(folded into `graph-orchestration-and-automation`) — plus, from the separate `agent-webui`
+(folded into `graph-orchestration-and-automation`) — plus, from the separate `graph-os-webui`
 package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
 `kg-webui-extraction`, `kg-webui-graphviz`, `kg-webui-ontology-operator`, `kg-webui-swe`.
 

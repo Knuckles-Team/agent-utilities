@@ -174,7 +174,7 @@ emit_graph_event(
 ### Frontend Event Consumers
 | Frontend | Events Used | Purpose |
 |---|---|---|
-| **agent-webui** (`GraphActivity.tsx`) | `routing_started`, `routing_completed`, `expert_tool_call`, `subagent_tool_call`, `approval_required` | Graph activity visualizer, approval cards |
+| **graph-os-webui** (`GraphActivity.tsx`) | `routing_started`, `routing_completed`, `expert_tool_call`, `subagent_tool_call`, `approval_required` | Graph activity visualizer, approval cards |
 | **agent-terminal-ui** (`app.py`) | `specialist_enter`, `routing_started`, `routing_completed`, `approval_required` | Status line updates, tool approval modal |
 
 ## Governance & Operational Workflows

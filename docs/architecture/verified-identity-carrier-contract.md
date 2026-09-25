@@ -127,7 +127,7 @@ exactly like W2.4's `priority` rollout note already documents in
 
 ## WebUI browser credential boundary (verified)
 
-`agent-webui`'s `oidc_session.py` (`agent/agent_webui/oidc_session.py`) is a
+`graph-os-webui`'s `oidc_session.py` (`agent/graph_os_webui/oidc_session.py`) is a
 pure-ASGI middleware mounted **outside**
 `agent_utilities.security.request_identity.ActorIdentityMiddleware`. Verified
 mechanism, reading the live code (not the module docstring alone):

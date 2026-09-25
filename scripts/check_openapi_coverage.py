@@ -88,12 +88,12 @@ registry/remote-oauth) runs for real, unmocked.
 
 What this DOES NOT cover, on purpose:
 
-* ``enable_web_ui=False`` — **agent-webui is out of scope for this lane**
+* ``enable_web_ui=False`` — **graph-os-webui is out of scope for this lane**
   (five parallel lanes own it right now; this script's owner may not edit
   it). Its own FastAPI sub-app (mounted at ``/`` in production, including
   its own ``add_pydantic_routes``-style raw mounts and whatever serves
   ``/api/chat``) is therefore NOT enumerated or measured here. Audit that
-  surface with its own gate, in agent-webui's own repo/lane.
+  surface with its own gate, in graph-os-webui's own repo/lane.
 * The ``/api/enhanced`` facade router (``server/routers/enhanced.py``) is
   only included inside the ``enable_web_ui`` branch of
   ``build_agent_app``, so with web UI disabled it is not mounted at all —
@@ -238,7 +238,7 @@ def _build_target_app() -> Any:
             provider="test-provider",
             model_id="test-model",
             host="127.0.0.1",  # loopback: avoids the non-loopback TLS guard
-            enable_web_ui=False,  # agent-webui is out of scope for this lane
+            enable_web_ui=False,  # graph-os-webui is out of scope for this lane
             enable_acp=False,
             enable_otel=False,
             name="OpenAPICoverageGateProbe",

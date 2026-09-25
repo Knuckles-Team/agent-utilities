@@ -134,7 +134,7 @@ acp = [
     { name = "pydantic-ai-harness", extra = ["acp"] },
 ]
 ag-ui = [
-    { name = "agent-webui" },
+    { name = "graph-os-webui" },
 ]
 agent-anthropic = [
     { name = "pydantic-ai-slim", extra = ["anthropic"] },
@@ -171,11 +171,11 @@ agent-mistral = [
 ]
 agent-runtime = [
     { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
     { name = "eunomia-core" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "graph-os-webui" },
     { name = "httpx" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
@@ -191,7 +191,6 @@ agent-runtime = [
 ]
 all = [
     { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
     { name = "aiohttp" },
     { name = "botbuilder-core" },
     { name = "confluent-kafka" },
@@ -203,6 +202,7 @@ all = [
     { name = "feedparser" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
+    { name = "graph-os-webui" },
     { name = "hmmlearn" },
     { name = "hnswlib" },
     { name = "httpx" },
@@ -530,7 +530,6 @@ terminal = [
 ]
 test = [
     { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
     { name = "aiohttp" },
     { name = "confluent-kafka" },
     { name = "eunomia-core" },
@@ -538,6 +537,7 @@ test = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "feedparser" },
+    { name = "graph-os-webui" },
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
@@ -576,7 +576,6 @@ test = [
 ]
 test-backends = [
     { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
     { name = "aiohttp" },
     { name = "aiokafka" },
     { name = "confluent-kafka" },
@@ -586,6 +585,7 @@ test-backends = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "feedparser" },
+    { name = "graph-os-webui" },
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
@@ -664,7 +664,6 @@ requires-dist = [
     { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["rdf"], marker = "extra == 'stardog'" },
-    { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=2.4.0" },
     { name = "aiohttp", marker = "extra == 'test'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
     { name = "ansible-tower-mcp", marker = "extra == 'gateway-widgets'", specifier = ">=2.0.1" },
@@ -696,6 +695,7 @@ requires-dist = [
     { name = "google-api-python-client", marker = "extra == 'messaging-googlemeet'", specifier = ">=2.198.0" },
     { name = "google-auth", marker = "extra == 'messaging-googlechat'", specifier = ">=2.56.1" },
     { name = "google-auth", marker = "extra == 'messaging-googlemeet'", specifier = ">=2.56.1" },
+    { name = "graph-os-webui", marker = "extra == 'ag-ui'", editable = ".uv-workspace-siblings/graph-os-webui" },
     { name = "graphql-core", specifier = ">=3.2.11,<4" },
     { name = "great-expectations", marker = "extra == 'data-quality-ge'", specifier = ">=1.3.0,<2" },
     { name = "hmmlearn", marker = "extra == 'finance'", specifier = ">=0.3.3" },
@@ -839,27 +839,6 @@ guardrails = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rdflib", specifier = ">=7.6.0" },
-]
-
-[[package]]
-name = "agent-webui"
-version = "2.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "fastapi" },
-    { name = "joserfc" },
-    { name = "langfuse" },
-    { name = "logfire", extra = ["fastapi", "starlette"] },
-    { name = "pydantic-ai-slim", extra = ["ui"] },
-    { name = "python-multipart" },
-    { name = "sse-starlette" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-    { name = "watchfiles" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/ae/5874923599ff182fec6c803bac24912b4172dcee1992e0f7fdd6d2947398/agent_webui-2.4.0.tar.gz", hash = "sha256:ccbc364234fbbf4b00139ddefa55b2e25355387020da4a1ee37f2cb5219215cd", size = 4744926, upload-time = "2026-08-11T05:20:54.89Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/75/807882e008641d4151f3629390fa7f72a9571c41a8d1553f7a43853a21fc/agent_webui-2.4.0-py3-none-any.whl", hash = "sha256:3d95d8996fae225d2905842c8470945e1f3b7a0552cfc39f7c48d5e14d0e6464", size = 4976335, upload-time = "2026-08-11T05:20:50.693Z" },
 ]
 
 [[package]]
@@ -2630,6 +2609,49 @@ requests = [
     { name = "requests" },
     { name = "requests-toolbelt" },
 ]
+
+[[package]]
+name = "graph-os-webui"
+version = "2.6.2"
+source = { editable = ".uv-workspace-siblings/graph-os-webui" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "joserfc" },
+    { name = "langfuse" },
+    { name = "logfire", extra = ["fastapi", "starlette"] },
+    { name = "pydantic-ai-slim", extra = ["ui"] },
+    { name = "python-multipart" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+    { name = "watchfiles" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-utilities", extras = ["agent-headless", "graph", "graphos", "metrics"], marker = "extra == 'test'", editable = ".uv-workspace-siblings/graph-os-webui/.uv-workspace-siblings/agent-utilities" },
+    { name = "fastapi", specifier = ">=0.139.2" },
+    { name = "joserfc", specifier = ">=1.7.4" },
+    { name = "langfuse", specifier = ">=4.14.1" },
+    { name = "logfire", extras = ["fastapi", "starlette"], specifier = ">=4.38.0" },
+    { name = "networkx", marker = "extra == 'test'", specifier = ">=3.6.1" },
+    { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'", specifier = ">=0.65b0" },
+    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'", specifier = ">=0.65b0" },
+    { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'", specifier = ">=0.65b0" },
+    { name = "pydantic-ai-slim", extras = ["ui"], specifier = ">=2.14.1" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
+    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1.0" },
+    { name = "pytest-env", marker = "extra == 'test'", specifier = ">=1.7.0" },
+    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
+    { name = "sse-starlette", specifier = ">=3.4.6" },
+    { name = "starlette", specifier = ">=1.3.1" },
+    { name = "uvicorn", specifier = ">=0.51.0" },
+    { name = "watchfiles", specifier = ">=1.2.0" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "graphql-core"

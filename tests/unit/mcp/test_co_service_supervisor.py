@@ -88,7 +88,7 @@ def test_detect_composition_reads_existing_config_only(monkeypatch):
     assert plan.messaging_configured is True
     assert plan.messaging_intake_configured is True
     assert plan.web_ui_enabled is True
-    assert plan.co_service_names() == ("messaging", "agent-webui")
+    assert plan.co_service_names() == ("messaging", "graph-os-webui")
 
 
 def test_detect_composition_nothing_configured(monkeypatch):
@@ -263,7 +263,7 @@ def test_start_co_services_rolls_back_a_partial_composition(monkeypatch):
     original_start = cosvc.CoServiceSupervisor.start_service
 
     def _fail_webui(self, name, run, session):
-        if name == "agent-webui":
+        if name == "graph-os-webui":
             assert started.wait(timeout=5.0)
             raise RuntimeError("web UI failed during startup")
         return original_start(self, name, run, session)

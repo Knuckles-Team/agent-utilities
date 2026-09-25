@@ -10,7 +10,7 @@ To avoid circular dependency updates and update propagation issues inside the ag
 
 Phase 1 (GitHub Pipelines) precedes Phase 2 (Epistemic Graph), which
 precedes Phase 3 (agent-utilities), which precedes Phase 4 (Core Tools &
-UIs — `universal-skills`, `skill-graphs`, `agent-webui`,
+UIs — `universal-skills`, `skill-graphs`, `graph-os-webui`,
 `agent-terminal-ui`, `geniusbot`), which precedes Phase 5 (Agents —
 `servicenow-api`, `github-agent`, and the rest of the agent fleet).
 </div>
@@ -26,7 +26,7 @@ UIs — `universal-skills`, `skill-graphs`, `agent-webui`,
 3. **Phase 3: agent-utilities** (`agent-utilities`)
    - The central library containing base Pydantic AI agent definitions, RLM/GEPA optimizers, and knowledge graph persistence layers. It depends on `epistemic-graph`.
 
-4. **Phase 4: Core Tools and UIs** (`universal-skills`, `skill-graphs`, `agent-webui`, `agent-terminal-ui`, `geniusbot`)
+4. **Phase 4: Core Tools and UIs** (`universal-skills`, `skill-graphs`, `graph-os-webui`, `agent-terminal-ui`, `geniusbot`)
    - High-level tools and user interfaces that consume the unified interfaces exposed by `agent-utilities`. By placing these in Phase 4, we ensure that they are bumped after `agent-utilities` has been released, allowing them to pull the latest published dependency from PyPI or local packages.
 
 5. **Phase 5: Agents** (Individual agent-packages)

@@ -148,7 +148,7 @@ def work_item_submission(context: ContactDeliveryContext) -> dict[str, Any]:
         "fairness_group": context.actor_reference,
         "max_attempts": 1,
         "idempotency_key": idempotency_ref,
-        "description": "Governed agent-webui contact delivery",
+        "description": "Governed graph-os-webui contact delivery",
         "created_by": context.actor_reference,
         "metadata": {
             "request_digest": context.request_digest,
@@ -261,7 +261,7 @@ def contact_delivery_factory_kwargs(
     app_factory: Callable[..., Any],
     sync_runner: Callable[[Callable[[], Any]], Awaitable[Any]],
 ) -> dict[str, Any]:
-    """Return the host port only for a contract-bearing agent-webui factory."""
+    """Return the host port only for a contract-bearing graph-os-webui factory."""
     try:
         supports_contact = (
             "contact_delivery" in inspect.signature(app_factory).parameters

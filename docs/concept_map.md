@@ -180,7 +180,7 @@ Key modules: `core/paths.py`, `security/guardrails.py`, `security/tool_guard.py`
 |----|----------------|:------------:|:-----:|----------|
 | `AU-OS.config.gateway-service-dashboard` | Gateway Service Dashboard | 58 | 7 | [AU-OS.config.gateway-service-dashboard](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) |
 
-Key modules: `gateway/__init__.py`, `gateway/models.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/aggregator.py`, `gateway/api.py`, `gateway/widgets/base.py`, `gateway/widgets/*.py` (50 widget modules) — the WebSocket half (`/ws/dashboard`) lives inline in agent-webui's `server.py` (`_dashboard_ws`), not `gateway/ws.py` (unused dead code, removed by BUG-PE-006)
+Key modules: `gateway/__init__.py`, `gateway/models.py`, `gateway/registry.py`, `gateway/config.py`, `gateway/aggregator.py`, `gateway/api.py`, `gateway/widgets/base.py`, `gateway/widgets/*.py` (50 widget modules) — the WebSocket half (`/ws/dashboard`) lives inline in graph-os-webui's `server.py` (`_dashboard_ws`), not `gateway/ws.py` (unused dead code, removed by BUG-PE-006)
 
 ---
 

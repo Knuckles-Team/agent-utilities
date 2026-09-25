@@ -41,7 +41,7 @@ def _load():
     "token",
     [
         "agent_utilities.security.system_rbac_admission.ensure_system_principal_access",
-        "agent_webui.graph_admission.ensure_tenant_admission",
+        "graph_os_webui.graph_admission.ensure_tenant_admission",
         "agent_utilities.security.SystemAdmissionError",
         "agent_utilities.security.CONTROL_ROLE_NAME",
     ],

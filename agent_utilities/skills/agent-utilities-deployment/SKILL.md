@@ -123,7 +123,7 @@ Use an economy model for inventory classification, configuration comparison,
 and checklist execution. Escalate architecture, security, and recovery decisions
 when the evidence is ambiguous or the blast radius is high.
 
-## Identity & authorization — graph-os + agent-webui (READ before wiring identity)
+## Identity & authorization — graph-os + graph-os-webui (READ before wiring identity)
 
 `agent-os-genesis` resolves *whether* an OIDC provider is deployed or reused
 (the `identity_ref` in its Phase 7 handoff). It does not resolve *this*
@@ -136,6 +136,9 @@ declaring Verify (step 5) complete.
 ### Two OIDC clients — conflating them is the trap
 
 Two separate identities call graph-os, not one:
+
+The client IDs below are the deployed Keycloak identities. The browser package
+is named `graph-os-webui`; renaming the package does not rename live IdP clients.
 
 - **`agent-webui`** — the browser/user-facing client (env
   `WEBUI_OIDC_CLIENT_ID`). Standard authorization-code (+ PKCE) flow; its
@@ -167,7 +170,7 @@ realm role does), so this table holds regardless of IdP:
 | `capacity:admin` | declare/update EG `CapacityCell`s (throttle cells, EH-347 training cells, EH-407 applied profiles) | **independent, exact** — graph-os process identity only; not implied by `kg:admin`; implies no other `capacity:*` |
 | `capacity:lease` | acquire/release/renew EG `CapacityLease`s (EH-347 training leases, swarm-topology leases) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or any other `capacity:*` |
 | `capacity:read` | EG `CapacityStatus` reads (cells, leases) | **independent, exact** — graph-os process identity only; not implied by `kg:admin` or any other `capacity:*` |
-| `webui:admin` | UI-level admin surfaces in agent-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
+| `webui:admin` | UI-level admin surfaces in graph-os-webui | **not equivalent to `kg:admin`.** The code is explicit: "a generic application role named `admin` is not equivalent" to the graph capability. A user with only `webui:admin` gets into the UI and then every KG-backed panel fails — empty graph, no MCP tools, 503s. |
 
 (Hierarchy source: `agent_utilities/security/request_identity.py`,
 `_GRAPH_AUTH_SCOPES`.)

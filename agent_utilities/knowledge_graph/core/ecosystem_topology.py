@@ -269,7 +269,7 @@ class EcosystemTopologyBuilder:
 
         # Classify package
         info.is_kernel = name == "agent-utilities"
-        info.is_frontend = name in ("agent-terminal-ui", "agent-webui")
+        info.is_frontend = name in ("agent-terminal-ui", "graph-os-webui")
         info.is_skill_package = name in ("universal-skills", "skill-graphs")
         info.is_mcp_server = (
             not info.is_kernel
@@ -358,7 +358,7 @@ class EcosystemTopologyBuilder:
         Example::
 
             impact = builder.get_impact_radius("agent-utilities", dep_graph)
-            # Returns: ["agent-terminal-ui", "agent-webui", "genius-agent", ...]
+            # Returns: ["agent-terminal-ui", "graph-os-webui", "genius-agent", ...]
         """
         # Build reverse graph (dependents)
         reverse: dict[str, list[str]] = {name: [] for name in dep_graph}

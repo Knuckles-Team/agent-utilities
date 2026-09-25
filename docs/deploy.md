@@ -56,7 +56,7 @@ curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s --
 | One durable server | `single-node-prod` | Postgres/pg-age + the core MCP connector fleet. |
 | An enterprise | `enterprise` | Multi-host Swarm — Vault, SSO, DNS, ingress, observability, all 50+ connectors. |
 
-Optional UIs (add `--component`): `agent-webui`, `agent-terminal-ui`, `geniusbot`.
+Optional UIs (add `--component`): `graph-os-webui`, `agent-terminal-ui`, `geniusbot`.
 
 ## For AI agents
 

@@ -17,7 +17,7 @@ direct-import widget, and why).
 
 | Frontend | Integration | Data Flow |
 |----------|-------------|-----------|
-| **agent-webui** | `dashboard_router` mounted at `/api/dashboard` | REST + WebSocket |
+| **graph-os-webui** | `dashboard_router` mounted at `/api/dashboard` | REST + WebSocket |
 | **agent-terminal-ui** | `Aggregator` imported directly | Direct Python API |
 | **geniusbot** | `Aggregator` imported directly | Direct Python API (QThread) |
 
@@ -223,7 +223,7 @@ All paths delegate to `agent_utilities.core.paths` — **no duplicate XDG logic*
 
 ## API Endpoints
 
-When mounted in agent-webui via `app.include_router(dashboard_router, prefix='/api/dashboard')`:
+When mounted in graph-os-webui via `app.include_router(dashboard_router, prefix='/api/dashboard')`:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

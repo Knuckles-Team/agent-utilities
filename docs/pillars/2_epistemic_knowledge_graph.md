@@ -133,7 +133,7 @@ purpose, never the vendor.
   many-to-many junction reification onto the existing graph-write path, with reverse traversal.
 
 The layer is exposed over the `ontology_*` MCP tools (`mcp/kg_server.py`) and an operator
-UI in agent-webui — `/api/enhanced/ontology/*` routes plus the **ObjectExplorerView /
+UI in graph-os-webui — `/api/enhanced/ontology/*` routes plus the **ObjectExplorerView /
 ObjectView / VertexView** views. **Unique value-adds vs Foundry**: OWL/SHACL-backed
 interfaces + value types (reasoning + validation), embedding/cypher/sparql-backed derived
 properties, reified junction links, entailment-aware ACL marking propagation, a bitemporal

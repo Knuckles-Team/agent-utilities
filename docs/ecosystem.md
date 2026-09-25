@@ -18,7 +18,7 @@ on. This page maps the pieces and how a request flows through them.
 ### Frontends (all consume the agent-utilities REST gateway / MCP)
 | Project | Role |
 |---|---|
-| **agent-webui** | React web dashboard — chat, graph explorer, ontology Object/Vertex views, and the **Fleet Supervisor** (swarm health, topology, pause/kill, approvals). |
+| **graph-os-webui** | React web dashboard — chat, graph explorer, ontology Object/Vertex views, and the **Fleet Supervisor** (swarm health, topology, pause/kill, approvals). |
 | **agent-terminal-ui** | Textual TUI — sessions, goals, durable task queue, multi-session agent view. |
 | **geniusbot** | PySide6 desktop cockpit — service/finance/infra dashboards + embedded terminal. |
 
@@ -102,7 +102,7 @@ against the `*-mcp` connector fleet, which reaches external systems
 (ServiceNow, ERPNext, GitLab, Kafka, …).
 
 The gateway also drives the fleet supervisor + autonomy plane
-(`/api/fleet/*` -> `ActionPolicy`), which feeds agent-webui/TUI/geniusbot,
+(`/api/fleet/*` -> `ActionPolicy`), which feeds graph-os-webui/TUI/geniusbot,
 and separately emits traces to Langfuse and metrics to Prometheus.
 </div>
 

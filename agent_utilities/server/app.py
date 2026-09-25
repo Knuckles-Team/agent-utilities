@@ -217,7 +217,7 @@ def _graph_native_list_skills() -> list[dict[str, Any]]:
     query read the row back under ``"description_text"``. The mangled alias
     meant the real description was returned under a key nothing read, so
     ``desc_text``/``description`` always fell back to the ``""`` default —
-    which is exactly what agent-webui's ``/skills`` chat command
+    which is exactly what graph-os-webui's ``/skills`` chat command
     (``api_extensions.py``'s ``cmd_name == 'skills'`` branch) renders
     verbatim into its response markdown.
     """
@@ -775,7 +775,7 @@ def _mount_web_ui(
             from .routers import enhanced
 
             app.include_router(enhanced.router)
-            from agent_webui.server import create_agent_web_app
+            from graph_os_webui.server import create_agent_web_app
 
             from agent_utilities.core.chat_persistence import (
                 delete_chat_from_disk,
@@ -822,7 +822,7 @@ def _mount_web_ui(
             from .webui_voice_delegation import webui_voice_delegation_helpers
 
             helpers.update(webui_voice_delegation_helpers())
-            from agent_webui.api_extensions import _invoke_governed_helper
+            from graph_os_webui.api_extensions import _invoke_governed_helper
 
             from .webui_contact_governance import contact_delivery_factory_kwargs
 

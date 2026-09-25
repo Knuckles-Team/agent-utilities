@@ -83,7 +83,7 @@ source when an exact `env://` target is declared.
 
 ## 🏠 Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard)
 
-The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
+The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (graph-os-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
 
 > [!NOTE]
 > Synthesized from the former standalone `service-dashboard-core` package into
@@ -98,12 +98,12 @@ The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is 
 | **Config Manager** | `gateway/config.py` | YAML service layout + auto-discovery from `mcp_config.json` |
 | **Aggregator** | `gateway/aggregator.py` | Async parallel data fetching via `ThreadPoolExecutor` |
 | **Dashboard Router** | `gateway/api.py` | REST endpoints: `/layout`, `/data`, `/widgets`, `/health`, `/discover` |
-| **WebSocket Manager** | agent-webui `server.py`'s `_dashboard_ws` | Real-time streaming at `/ws/dashboard` — inline in agent-webui, `kg:admin`-gated by `WebUIAuthorizationMiddleware`; **not** `gateway/ws.py` (unused dead code, removed by BUG-PE-006) |
+| **WebSocket Manager** | graph-os-webui `server.py`'s `_dashboard_ws` | Real-time streaming at `/ws/dashboard` — inline in graph-os-webui, `kg:admin`-gated by `WebUIAuthorizationMiddleware`; **not** `gateway/ws.py` (unused dead code, removed by BUG-PE-006) |
 | **Widget Modules** | `gateway/widgets/*.py` | 50 service-specific implementations (Portainer, GitLab, Jellyfin, etc.) |
 
 ### Integration Architecture
 
-`agent-webui` reaches the Aggregator via REST `/api/dashboard` and WS
+`graph-os-webui` reaches the Aggregator via REST `/api/dashboard` and WS
 `/ws/dashboard`; `agent-terminal-ui` reaches it via direct Python;
 `geniusbot` reaches it via QThread/direct. The Aggregator in turn drives
 the Registry, which serves the 50 widgets.
@@ -395,7 +395,7 @@ The Python gateway tier is observable and self-protecting:
 
 - **Prometheus metrics** (`observability/gateway_metrics.py`): ASGI middleware
   + `GET /metrics` (mounted by `register_graph_routes`, so the gateway and the
-  agent-webui backend get identical instrumentation) emitting
+  graph-os-webui backend get identical instrumentation) emitting
   `agent_utilities_gateway_requests_total{route,method,status}` and its
   siblings (`agent_utilities_gateway_` + `request_duration_seconds{route}`,
   `in_flight_requests`, `rate_limited_total{tenant}`,
@@ -518,4 +518,4 @@ deps persist across steps.
   (`runtime.action_policy_gate`); the shipped default sets them to `auto` (the sandbox
   is the boundary) and an operator can override any to `approval_required`.
 - **Surface.** `/api/runtime/*` — create a session, post typed actions, and stream the
-  action/observation event log over SSE (consumed by the agent-webui SWE view, AU-OS.scaling.kg-provenance-panel-data).
+  action/observation event log over SSE (consumed by the graph-os-webui SWE view, AU-OS.scaling.kg-provenance-panel-data).

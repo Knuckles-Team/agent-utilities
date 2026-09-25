@@ -9,7 +9,7 @@ registrations and docstrings.
 
 ## How to scrape
 
-- The gateway (and the agent-webui backend — both mount `register_graph_routes`)
+- The gateway (and the graph-os-webui backend — both mount `register_graph_routes`)
   exposes `GET /metrics` in Prometheus exposition format. The endpoint is exempt
   from the identity middleware and rate limiting (scrapers cannot mint JWTs).
 - `prometheus_client` is the optional `metrics` extra. Without it every series

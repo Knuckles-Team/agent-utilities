@@ -1,4 +1,4 @@
-"""Governed AU host adapter for agent-webui contact delivery."""
+"""Governed AU host adapter for graph-os-webui contact delivery."""
 
 from __future__ import annotations
 
@@ -55,12 +55,12 @@ class _Request:
 
 @pytest.fixture(autouse=True)
 def _contact_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    contract = types.ModuleType("agent_webui.contact_delivery")
+    contract = types.ModuleType("graph_os_webui.contact_delivery")
     contract.ContactDeliveryResult = _ContactDeliveryResult
     contract.load_contact_delivery_config = lambda: SimpleNamespace(
         destination="telegram:support-inbox", retention_days=0
     )
-    monkeypatch.setitem(sys.modules, "agent_webui.contact_delivery", contract)
+    monkeypatch.setitem(sys.modules, "graph_os_webui.contact_delivery", contract)
 
 
 @pytest.fixture
@@ -274,7 +274,7 @@ def test_factory_declares_capabilities_only_for_complete_delivery_policy(
     assert adapter.supports_shared_rate_limit is True
 
     monkeypatch.setattr(
-        sys.modules["agent_webui.contact_delivery"],
+        sys.modules["graph_os_webui.contact_delivery"],
         "load_contact_delivery_config",
         lambda: SimpleNamespace(destination="telegram:support-inbox", retention_days=1),
     )

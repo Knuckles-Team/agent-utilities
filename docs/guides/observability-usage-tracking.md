@@ -2,7 +2,7 @@
 
 Track token usage, cost, model/tool/skill/db-call metrics, and Langfuse traces
 across **every AI coding agent you run** — and across our own agent runtime —
-through one gateway API and native views in all three frontends (agent-webui,
+through one gateway API and native views in all three frontends (graph-os-webui,
 agent-terminal-ui, geniusbot).
 
 This assimilates the capabilities of [agentsview](https://github.com/) natively
@@ -284,7 +284,7 @@ metadata-only session detail/timeline, top sessions, session-shape, governed
 search (when sanitized content retention is explicitly enabled), and opaque
 Langfuse trace references (when enabled).
 
-- **agent-webui** — `Usage` view (`src/components/views/UsageView.tsx`).
+- **graph-os-webui** — `Usage` view (`src/components/views/UsageView.tsx`).
 - **agent-terminal-ui** — `UsageScreen` (`Alt+U` or `/usage`); reconciles the
   live local `cost_tracker` against gateway-historical.
 - **geniusbot** — `Usage & Cost` cockpit panel.

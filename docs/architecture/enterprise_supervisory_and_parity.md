@@ -11,7 +11,7 @@ correlation. These records exist so the rationale survives as the surface grows.
 Three consumers reach the single-process gateway: agents call graph-os MCP's
 collapsed action tools; HTTP/automation clients call either the REST
 collapsed twins (`ACTION_TOOL_ROUTES`) or the granular typed ontology/object
-GET routes (`ontology_api.py`, published as OpenAPI); agent-webui's Fleet
+GET routes (`ontology_api.py`, published as OpenAPI); graph-os-webui's Fleet
 view calls the supervisory `/api/fleet/*` routes (health, topology,
 pause/kill, approvals, trace, touched). All four gateway surfaces —
 MCP, the REST twins, the granular GETs, and the fleet routes — call the same
@@ -68,7 +68,7 @@ whole-domain pause/kill (blast-radius containment reusing `core.sessions` cancel
 mechanics), the mutation/risk approval queue (read/grant via the parity-covered
 `graph_query`/`graph_orchestrate` tools), and the correlation query endpoints
 (`GET /api/fleet/trace?correlation_id=…`, `GET /api/fleet/touched?resource=…`,
-see §4). The `agent-webui` Fleet Supervisor view is the single pane of glass over
+see §4). The `graph-os-webui` Fleet Supervisor view is the single pane of glass over
 it. Multi-agent containment + recovery are covered end-to-end by
 `tests/integration/test_fleet_chaos.py` (domain pause contains only its domain;
 concurrent goal loops honor pause with zero side effects).

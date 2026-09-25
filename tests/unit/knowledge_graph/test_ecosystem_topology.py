@@ -55,12 +55,12 @@ def workspace(tmp_path: Path) -> Path:
     )
 
     # Frontend (WebUI)
-    webui = tmp_path / "agent-webui"
+    webui = tmp_path / "graph-os-webui"
     webui.mkdir()
     (webui / "pyproject.toml").write_text(
         textwrap.dedent("""\
             [project]
-            name = "agent-webui"
+            name = "graph-os-webui"
             version = "0.8.2"
             description = "Web UI"
             dependencies = ["agent-utilities>=0.4.0"]
@@ -131,7 +131,7 @@ class TestPackageDiscovery:
         names = {p.name for p in packages}
         assert "agent-utilities" in names
         assert "agent-terminal-ui" in names
-        assert "agent-webui" in names
+        assert "graph-os-webui" in names
         assert "container-manager-mcp" in names
         assert "jellyfin-mcp" in names
         assert "universal-skills" in names
@@ -235,7 +235,7 @@ class TestImpactRadius:
         impact = builder.get_impact_radius("agent-utilities", graph)
         # All packages that depend on agent-utilities
         assert "agent-terminal-ui" in impact
-        assert "agent-webui" in impact
+        assert "graph-os-webui" in impact
         assert "container-manager-mcp" in impact
         assert "jellyfin-mcp" in impact
 
@@ -265,9 +265,9 @@ class TestMCPCoverage:
         packages = builder.discover_packages()
         coverage = builder.compute_mcp_coverage(packages)
         assert "agent-terminal-ui" in coverage
-        assert "agent-webui" in coverage
+        assert "graph-os-webui" in coverage
         assert "container-manager-mcp" in coverage["agent-terminal-ui"]
-        assert "jellyfin-mcp" in coverage["agent-webui"]
+        assert "jellyfin-mcp" in coverage["graph-os-webui"]
 
 
 # ---------------------------------------------------------------------------

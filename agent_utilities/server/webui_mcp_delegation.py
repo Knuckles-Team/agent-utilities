@@ -2,7 +2,7 @@
 
 CONCEPT:AU-ECO.mcp.webui-governed-mcp-delegation
 
-``agent_webui.api_extensions`` never builds an MCP client of its own. It calls
+``graph_os_webui.api_extensions`` never builds an MCP client of its own. It calls
 three host-supplied workspace helpers — ``list_mcp_server_tools``,
 ``call_mcp_tool`` and ``read_mcp_resource`` — and reports 501 when one is
 absent, so that the allow-list, credentials and transport stay with the host
@@ -38,7 +38,7 @@ fleet ``mcp_config``: an unknown name raises ``McpToolSourceError`` (for
 ``call_mcp_tool``/``read_mcp_resource``) or a typed probe error (for
 ``list_mcp_server_tools``) before any connection is opened. On the WebUI side
 the routes additionally require ``kg:admin``
-(``agent_webui.server._ADMIN_MUTATION_ROUTE_PREFIXES``), because invoking an
+(``graph_os_webui.server._ADMIN_MUTATION_ROUTE_PREFIXES``), because invoking an
 arbitrary fleet tool is at least as powerful as any other admin mutation.
 """
 
@@ -82,7 +82,7 @@ class _ReadMcpResource(Protocol):
 class WebUiMcpDelegation(TypedDict):
     """The three workspace-helper keys the WebUI looks up by name.
 
-    A typed seam on purpose: ``agent_webui.api_extensions`` resolves these with
+    A typed seam on purpose: ``graph_os_webui.api_extensions`` resolves these with
     ``get_helper('list_mcp_server_tools')`` / ``get_helper('call_mcp_tool')`` /
     ``get_helper('read_mcp_resource')`` and answers 501 when one is missing, so
     a rename here must be a type error rather than a silently-unwired route.

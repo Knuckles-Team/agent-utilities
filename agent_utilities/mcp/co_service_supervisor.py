@@ -24,7 +24,7 @@ Detection signals
   before calling the low-level serving body.  The standalone
   ``agent-utilities-messaging`` entrypoint uses the same boundary with its
   minted verified session.
-* **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
+* **graph-os-webui** — configured iff ``config.enable_web_ui`` (the existing
   ``ENABLE_WEB_UI`` field), and started IN-PROCESS via
   :func:`agent_utilities.server.webui_co_service.run_web_ui`. It ships a FastAPI
   application factory and serves its built Vite bundle as SPA static files, so
@@ -113,7 +113,7 @@ class CompositionPlan:
         if self.messaging_intake_configured:
             names.append("messaging")
         if self.web_ui_enabled:
-            names.append("agent-webui")
+            names.append("graph-os-webui")
         return tuple(names)
 
 
@@ -335,9 +335,9 @@ def _resolve_web_ui_runner(
         from agent_utilities.server.webui_co_service import run_web_ui
     except ImportError:
         logger.error(
-            "agent-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
+            "graph-os-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
             "is not installed, so it cannot be served in-process. Install "
-            "`agent-utilities[ag-ui]`, or run agent-webui as its own "
+            "`agent-utilities[ag-ui]`, or run graph-os-webui as its own "
             "deployment."
         )
         return None
@@ -386,7 +386,7 @@ def _start_web_ui_service(
 ) -> None:
     """Start the optional WebUI after all preceding service setup succeeds."""
     if runner is not None:
-        supervisor.start_service("agent-webui", runner, session)
+        supervisor.start_service("graph-os-webui", runner, session)
 
 
 def _rollback_co_service_startup(supervisor: CoServiceSupervisor) -> None:

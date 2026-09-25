@@ -21,7 +21,7 @@
 
 **Endpoint**
 - `GET /models` returns the models from `AgentConfig`.
-- Mirrored at `GET /api/enhanced/models` by `agent-webui`.
+- Mirrored at `GET /api/enhanced/models` by `graph-os-webui`.
 
 **Example JSON (`~/.config/agent-utilities/config.json`)**
 
@@ -497,7 +497,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Project-Aware Memory (AGENTS.md) (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
 - **Agent-Interpretable Model Evolver (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Autoresearch loop that evolves scikit-learn-compatible model classes optimized for both predictive accuracy and LLM readability via `__str__()`. Manages Pareto frontier tracking, reward decomposition (AHE-3.10 integration), and KG-native evolutionary lineage via `EVOLVED_MODEL` edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808).
 - **LLM-Graded Interpretability Tests (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: 6-category, 200-test protocol measuring whether an LLM can simulate model behavior (predictions, feature effects, counterfactuals) from `__str__()` alone. Includes reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808.
-- **Topological Graph Visualization (CONCEPT:AU-KG.research.research-pipeline-runner)**: Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
+- **Topological Graph Visualization (CONCEPT:AU-KG.research.research-pipeline-runner)**: Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `graph-os-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
 - **Model Display Optimization (CONCEPT:AU-KG.research.research-pipeline-runner)**: Display-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, and adaptive (SmartAdditive pattern). Bounded complexity budgets and per-feature R² gating. Based on arXiv:2605.03808.
 - **Learned Agent Routing (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)**: Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy, TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra research (arXiv:2605.05007v1).
 - **Elastic Context Operators (CONCEPT:AU-KG.ingest.engineering-rules)**: 5 atomic operators (Skip, Compress, Rollback, Snippet, Delete) for elastic context orchestration with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1).

@@ -220,7 +220,7 @@ The REST gateway exposes a native **fleet supervisor** (no separate service):
 `/api/fleet/pause`, `/api/fleet/kill`, `/api/fleet/approvals` (+ `/grant`) —
 per-domain error rates, live topology (including dispatch workers), monitoring
 event ingress, blast-radius containment, and a mutation/risk approval queue.
-See pillar 5 and the [agent-webui](ecosystem.md) Fleet Supervisor view.
+See pillar 5 and the [graph-os-webui](ecosystem.md) Fleet Supervisor view.
 
 On top of the supervisor sits an opt-in autonomy control plane: every
 autonomous mutating action is gated by the **ActionPolicy** decision point

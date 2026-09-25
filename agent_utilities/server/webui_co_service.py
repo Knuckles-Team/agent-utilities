@@ -1,24 +1,24 @@
-"""Serve agent-webui inside the graph-os process as a supervised co-service.
+"""Serve graph-os-webui inside the graph-os process as a supervised co-service.
 
-CONCEPT:AU-OS.deployment.webui-co-service — agent-webui as a graph-os co-service
+CONCEPT:AU-OS.deployment.webui-co-service — graph-os-webui as a graph-os co-service
 
 Why this exists
 ---------------
 Every piece of this was already built and only the last wire was missing:
 
-* ``agent-utilities[ag-ui]`` already declares ``agent-webui`` as an optional
+* ``agent-utilities[ag-ui]`` already declares ``graph-os-webui`` as an optional
   dependency, so the package is installable alongside graph-os with no new
   distribution work.
 * the gateway routers the dashboard fronts (``agent_utilities.gateway.*``) are
-  already served from this process — agent-webui is the frontend facade over
+  already served from this process — graph-os-webui is the frontend facade over
   them, which is why serving it here duplicates nothing.
 * ``ENABLE_WEB_UI`` is already real config, and
   :func:`agent_utilities.mcp.co_service_supervisor.detect_composition` already
   reports it as part of the composition plan.
 
 What was missing is the branch that actually starts it. That branch previously
-declined on the premise that agent-webui is "a separate Node/Vite frontend,
-not a Python asyncio task". That premise is stale: agent-webui ships a FastAPI
+declined on the premise that graph-os-webui is "a separate Node/Vite frontend,
+not a Python asyncio task". That premise is stale: graph-os-webui ships a FastAPI
 application factory and *serves* its built Vite bundle as SPA static files, so
 it runs in-process like any other ASGI app.
 
@@ -31,7 +31,7 @@ request handled here can sign engine admission **as itself**
 (:func:`agent_utilities.security.admission_authority.resolve_admission_authority`)
 — which is the only pairing the engine accepts
 (``verify_register_identity_signature`` requires ``signer == principal``). Run
-as a separate deployment, agent-webui holds no signer entry at all, which is
+as a separate deployment, graph-os-webui holds no signer entry at all, which is
 why tenant admission failed for every sign-in.
 """
 
@@ -55,9 +55,9 @@ _STOP_POLL_SECONDS = 0.5
 WEB_UI_PORT_ENV = "GRAPH_OS_WEBUI_PORT"
 DEFAULT_WEB_UI_PORT = 8080
 
-#: agent-webui refuses a non-loopback listener until the raw-query logging
-#: decision is explicit. Mirrors ``agent_webui.server._ACCESS_LOG_POLICY_ENV``.
-ACCESS_LOG_POLICY_ENV = "AGENT_WEBUI_ACCESS_LOG_POLICY"
+#: graph-os-webui refuses a non-loopback listener until the raw-query logging
+#: decision is explicit. Mirrors ``graph_os_webui.server._ACCESS_LOG_POLICY_ENV``.
+ACCESS_LOG_POLICY_ENV = "GRAPH_OS_WEBUI_ACCESS_LOG_POLICY"
 
 
 def run_web_ui(
@@ -110,7 +110,7 @@ def run_web_ui(
     # logging decision explicitly: a non-loopback listener refuses to start
     # without one (`_resolve_access_log_policy`). We pass `access_log=False` to
     # uvicorn below, so `disabled` is the declaration that matches what this
-    # server actually does -- the same choice agent-webui's own entrypoint
+    # server actually does -- the same choice graph-os-webui's own entrypoint
     # makes. `setdefault`, so an operator may select `redacted` instead and
     # supply a redacting access logger.
     os.environ.setdefault(ACCESS_LOG_POLICY_ENV, "disabled")
@@ -118,12 +118,12 @@ def run_web_ui(
     # Import here, not at module import: graph-os must start normally when the
     # `ag-ui` extra is absent, and only a deployment that asked for the WebUI
     # should ever pay this import.
-    from agent_webui.api_extensions import (
+    from graph_os_webui.api_extensions import (
         _get_engine_bounded,
         _invoke_governed_helper,
     )
-    from agent_webui.orchestrator_model import build_orchestrator_model
-    from agent_webui.server import create_agent_web_app
+    from graph_os_webui.orchestrator_model import build_orchestrator_model
+    from graph_os_webui.server import create_agent_web_app
 
     from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.server.webui_contact_governance import (
@@ -136,7 +136,7 @@ def run_web_ui(
         webui_voice_delegation_helpers,
     )
 
-    # Assemble exactly what agent-webui's own entrypoint assembles.
+    # Assemble exactly what graph-os-webui's own entrypoint assembles.
     #
     # NOT `server.app.build_agent_app`: that constructs au's ENTIRE server
     # application -- skills, ontology, A2A, embedding writes -- and mounts the
@@ -163,7 +163,7 @@ def run_web_ui(
     )
 
     # Uvicorn access records include the raw query string, which can carry user
-    # searches and graph symbols — same redaction posture as agent-webui's own
+    # searches and graph symbols — same redaction posture as graph-os-webui's own
     # standalone entrypoint.
     server = uvicorn.Server(
         uvicorn.Config(app, host=bind_host, port=bind_port, access_log=False)
@@ -182,6 +182,6 @@ def run_web_ui(
             await task
 
     logger.info(
-        "agent-webui co-service serving in-process on %s:%s", bind_host, bind_port
+        "graph-os-webui co-service serving in-process on %s:%s", bind_host, bind_port
     )
     asyncio.run(_serve())

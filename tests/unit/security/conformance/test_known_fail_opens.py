@@ -126,12 +126,12 @@ def test_eg_obs_ingest_fail_open_proof_exists_in_source() -> None:
 
 def test_websocket_dashboard_citation_does_not_regress_to_the_dead_module() -> None:
     """BUG-PE-038: this entry used to cite `gateway/ws.py:78-154` -- a module
-    that is unused dead code today (nothing imports it; agent-webui's own
+    that is unused dead code today (nothing imports it; graph-os-webui's own
     `/ws/dashboard` handler has a `Deliberately NOT
     agent_utilities.gateway.ws.dashboard_ws_router` comment explaining why)
     and is removed outright on `fix/dead-routes-and-union-perf` (BUG-PE-006).
     The real enforcement this surface's `AUTHENTICATED_REQUIRED` disposition
-    describes is `WebUIAuthorizationMiddleware` in agent-webui's
+    describes is `WebUIAuthorizationMiddleware` in graph-os-webui's
     `server.py`. A citation drifting back to the dead module would be worse
     than no citation -- a false sense of where the proof actually lives (the
     same "citation to a deleted/renamed file" failure mode
@@ -150,19 +150,19 @@ def test_websocket_dashboard_citation_does_not_regress_to_the_dead_module() -> N
     assert "gateway/ws.py:78-154" not in entry.citation
     assert "server.py" in entry.citation
 
-    # When agent-webui is checked out as a sibling repo, the cited file+line
+    # When graph-os-webui is checked out as a sibling repo, the cited file+line
     # should actually exist -- best-effort, skipped rather than failed when
     # the sibling isn't present in this environment (matches this file's own
     # BUG-037 pattern for the epistemic-graph sibling above).
     candidates = [
-        _REPO_ROOT.parent / "agent-webui" / "agent" / "agent_webui" / "server.py",
+        _REPO_ROOT.parent / "graph-os-webui" / "agent" / "graph_os_webui" / "server.py",
     ]
     server_py = next((c for c in candidates if c.is_file()), None)
     if server_py is None:
         import pytest
 
         pytest.skip(
-            "agent-webui sibling repo not present in this environment -- the "
+            "graph-os-webui sibling repo not present in this environment -- the "
             "cited server.py cannot be checked from here"
         )
     source = server_py.read_text(encoding="utf-8")

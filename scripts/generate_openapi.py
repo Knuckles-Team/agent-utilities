@@ -17,9 +17,9 @@ into two committed artifacts:
   schema yet (see :func:`schemaless_routes`) rather than presenting a partial
   spec as if it were the whole API.
 
-Both artifacts are built the same way a drift guard in agent-webui itself
-builds the app (``agent_webui/__tests__/test_canonical_gateway_mount.py``):
-the real ``agent_webui.server.create_agent_web_app`` factory, a deterministic
+Both artifacts are built the same way a drift guard in graph-os-webui itself
+builds the app (``graph_os_webui/__tests__/test_canonical_gateway_mount.py``):
+the real ``graph_os_webui.server.create_agent_web_app`` factory, a deterministic
 ``TestModel`` agent (no LLM credentials or network calls required), and a
 loopback listener. Browser SSO is forced unconfigured so generation never
 depends on ambient OIDC secrets reachable from the host running this script
@@ -52,7 +52,7 @@ _HTTP_METHODS = frozenset(
 
 _WRITE_CMD = "`python scripts/generate_openapi.py --write`"
 
-# Sanity floor, not a coverage target. `agent_webui.server.create_agent_web_app`
+# Sanity floor, not a coverage target. `graph_os_webui.server.create_agent_web_app`
 # mounts several distinct optional/mandatory route groups (the service
 # dashboard API, the canonical Knowledge Graph REST surface via
 # `register_graph_routes`, ...) behind their own import/registration guards.
@@ -95,7 +95,7 @@ def _assert_surface_complete(spec: dict[str, Any]) -> None:
             "mounted API surface (the service dashboard API, the canonical "
             "KG REST surface, ...) failed to register on the built app -- "
             "not that the documented API legitimately shrank. Check "
-            "agent_webui.server logs / build_app() output for a dashboard "
+            "graph_os_webui.server logs / build_app() output for a dashboard "
             "'not available' message or a canonical KG REST surface "
             "RuntimeError, fix the underlying mount failure, and rerun."
         )
@@ -108,12 +108,12 @@ def build_app() -> Any:
     listener is pinned to loopback: both keep this deterministic across
     machines without changing the route/schema surface being documented.
     """
-    from agent_webui.server import create_agent_web_app
+    from graph_os_webui.server import create_agent_web_app
     from pydantic_ai.models.test import TestModel
 
     from agent_utilities.core.contextual_model import create_context_agent
 
-    with patch("agent_webui.oidc_session.load_settings", return_value=None):
+    with patch("graph_os_webui.oidc_session.load_settings", return_value=None):
         return create_agent_web_app(
             create_context_agent(TestModel(), default_capabilities=False),
             {"get_path": lambda value: value},
@@ -218,7 +218,7 @@ def render_page(
         "",
         f"> **GENERATED — do not edit by hand.** Run {_WRITE_CMD}. Source: "
         "the served app's own `app.openapi()`, projected from "
-        "`agent_webui.server.create_agent_web_app` exactly as production "
+        "`graph_os_webui.server.create_agent_web_app` exactly as production "
         "builds it — not hand-copied.",
         "",
         f'This is the generated reference for **{title or "the served app"}** '

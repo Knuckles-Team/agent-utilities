@@ -262,11 +262,11 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
         surface_id="au:websocket-dashboard",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(
-            "agent-webui/agent/agent_webui/server.py:1822 _dashboard_ws -- "
+            "graph-os-webui/agent/graph_os_webui/server.py:1822 _dashboard_ws -- "
             "WebUIAuthorizationMiddleware enforces kg:admin on /ws/dashboard "
             "(BUG-PE-038: agent_utilities/gateway/ws.py's dashboard_ws_router, "
             "this entry's prior citation, is unused dead code -- never mounted "
-            "by agent-webui, which deliberately does not use it because its "
+            "by graph-os-webui, which deliberately does not use it because its "
             "OLDER gateway:read/write/admin capability namespace never maps "
             "kg:admin -> gateway:admin -- and is removed on "
             "fix/dead-routes-and-union-perf, BUG-PE-006)"

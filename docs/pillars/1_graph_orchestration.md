@@ -90,7 +90,7 @@ the `TeamConfig` match step for the next query.
 
 | `adguard-home-agent` | Graph |
 | `agent-utilities` | Library | Production-grade Orchestration. Supports Parallel execution, Real-time sub-agent streaming, High-fidelity observability, and Session Resumability |
-| `agent-webui` | Library | Cinematic Graph Activity Visualization. |
+| `graph-os-webui` | Library | Cinematic Graph Activity Visualization. |
 | `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) achieving feature parity with **Claude Code** (Slash commands, Keyboard shortcuts, File mentions). |
 
 `agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience. Protocol adapters (AG-UI, ACP) leverage `graph.iter()` for direct, step-by-step graph execution — bypassing the outer LLM agent entirely when a graph is present.

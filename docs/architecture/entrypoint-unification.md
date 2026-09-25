@@ -12,7 +12,7 @@ and renders its output — never a place that re-implements agent capability:
 | Entrypoint | What it is |
 |---|---|
 | messaging stack (Telegram, Slack, Teams, … — `messaging/`) | chat transport |
-| `agent-webui` | browser transport |
+| `graph-os-webui` | browser transport |
 | `agent-terminal-ui` | TUI transport |
 | `geniusbot` | desktop transport |
 | `agents/*/…/agent_server.py` (e.g. servicenow-api) | A2A/HTTP transport |
@@ -52,7 +52,7 @@ What landed:
    router's background reaction step calls the core decision and paints the result
    (CONCEPT:AU-ECO.messaging.messaging-as-renderer).
 4. **Renderer contract** ✅ — the thin interface each entrypoint implements is documented in
-   [`reactions.md`](reactions.md): Telegram (done) plus the stubs/contract for `agent-webui`
+   [`reactions.md`](reactions.md): Telegram (done) plus the stubs/contract for `graph-os-webui`
    reaction chips, `agent-terminal-ui` emote glyph, `geniusbot`, and the `agent_server.py`
    response-envelope `reaction` field. Those frontends are separate repos — the contract is
    defined here; the per-frontend renderers are the remaining follow-up.

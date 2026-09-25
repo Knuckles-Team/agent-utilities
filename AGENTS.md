@@ -21,7 +21,7 @@ Adjacent repositories remain authoritative for their own layers:
 | `epistemic-graph` | Durable graph state, UQL/query execution, transactions, RDF/OWL/SHACL, provenance, schemas, proofs, and durable work state |
 | `graph-os` | Public MCP, REST, A2A, authentication, deployment, and service composition |
 | `agent-connector-sdk` | Source transport, pagination, credentials, conflict handling, and write-back effects |
-| `agent-webui` | Browser client for GraphOS contracts |
+| `graph-os-webui` | Browser client for GraphOS contracts |
 
 Do not implement a second graph engine, ontology authority, public gateway, or
 connector transport here. Agent Utilities coordinates those capabilities through

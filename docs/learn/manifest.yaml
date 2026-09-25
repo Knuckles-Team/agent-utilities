@@ -11,8 +11,8 @@
 # Python package, see pyproject.toml `exclude`, so nothing here is reachable
 # from a deployed agent-utilities process):
 #   - this docs site (mkdocs nav links straight to the lesson .md files below)
-#   - agent-webui's LearnView, which carries its own copy of this manifest +
-#     lessons (agent-webui/src/content/learn/) so the in-app course list /
+#   - graph-os-webui's LearnView, which carries its own copy of this manifest +
+#     lessons (graph-os-webui/src/content/learn/) so the in-app course list /
 #     lesson reader / presentation mode / quiz work with no backend round-trip
 #
 # Lesson bodies are plain Markdown; a frontend presentation mode splits a

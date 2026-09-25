@@ -446,7 +446,7 @@ All agent-packages projects connect to agent-utilities via `CONCEPT:AU-ECO.messa
 | `SYS` | systems-manager | | `STIRLINGPDF` | stirlingpdf-agent |
 | `TUI` | agent-terminal-ui | | `TUN` | tunnel-manager |
 | `UKA` | uptime-kuma-agent | | `VEC` | vector-mcp |
-| `WEBUI` | agent-webui | | `WGER` | wger-agent |
+| `WEBUI` | graph-os-webui | | `WGER` | wger-agent |
 | `ANSIBLE` | ansible-tower-mcp | | | |
 
 ### Cross-Project Synergy Mapping

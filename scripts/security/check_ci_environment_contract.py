@@ -73,6 +73,8 @@ WORKFLOW_DIR = Path(".github/workflows")
 #: with this action; a tracked-files-only export never has it materialized.
 SDK_CHECKOUT_ACTION = "./.github/actions/checkout-agent-connector-sdk"
 SDK_SIBLING_DIR = Path(".uv-workspace-siblings/agent-connector-sdk")
+WEBUI_CHECKOUT_REPOSITORY = "Knuckles-Team/graph-os-webui"
+WEBUI_SIBLING_DIR = Path(".uv-workspace-siblings/graph-os-webui")
 
 #: Commands that build a job's environment. ``uv sync`` is enforced (it is
 #: fully offline-resolvable from ``uv.lock`` and is what has actually broken);
@@ -198,7 +200,7 @@ def _run_blocks(text: str) -> list[tuple[str, str]]:
     return blocks
 
 
-def sdk_checkout_jobs(text: str) -> set[str]:
+def sdk_checkout_jobs(text: str, *, webui: bool = False) -> set[str]:
     """Job names in *text* whose steps run :data:`SDK_CHECKOUT_ACTION`.
 
     A real (alias-resolving) YAML load, deliberately scoped to the ``uses:``
@@ -222,7 +224,16 @@ def sdk_checkout_jobs(text: str) -> set[str]:
         if not isinstance(job, dict):
             continue
         for step in job.get("steps") or []:
-            if isinstance(step, dict) and step.get("uses") == SDK_CHECKOUT_ACTION:
+            if not isinstance(step, dict):
+                continue
+            source = step.get("with") or {}
+            present = (
+                source.get("repository") == WEBUI_CHECKOUT_REPOSITORY
+                and source.get("path") == str(WEBUI_SIBLING_DIR)
+                if webui
+                else step.get("uses") == SDK_CHECKOUT_ACTION
+            )
+            if present:
                 provisioned.add(name)
                 break
     return provisioned
@@ -302,12 +313,14 @@ def replay(tree: Path, build: EnvBuild) -> tuple[bool, str]:
     return False, "\n".join(tail.splitlines()[-4:])
 
 
-def _provisioned_jobs_by_workflow(repo_root: Path) -> dict[str, set[str]]:
+def _provisioned_jobs_by_workflow(
+    repo_root: Path, *, webui: bool = False
+) -> dict[str, set[str]]:
     """``{workflow filename: {job names that run SDK_CHECKOUT_ACTION}}``."""
     wf_dir = repo_root / WORKFLOW_DIR
     out: dict[str, set[str]] = {}
     for path in sorted(wf_dir.glob("*.yml")) + sorted(wf_dir.glob("*.yaml")):
-        out[path.name] = sdk_checkout_jobs(path.read_text(encoding="utf-8"))
+        out[path.name] = sdk_checkout_jobs(path.read_text(encoding="utf-8"), webui=webui)
     return out
 
 
@@ -349,6 +362,35 @@ def _set_sdk_stub_present(tree: Path, present: bool) -> None:
         pkg.mkdir(parents=True, exist_ok=True)
         (pkg / "__init__.py").touch()
         (sibling / "pyproject.toml").write_text(_SDK_STUB_PYPROJECT, encoding="utf-8")
+    elif sibling.is_dir():
+        shutil.rmtree(sibling)
+
+
+_WEBUI_STUB_PYPROJECT = """\
+[project]
+name = "graph-os-webui"
+version = "2.6.2"
+requires-python = ">=3.12,<3.15"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=80.9.0"]
+build-backend = "setuptools.build_meta"
+"""
+
+
+def _set_webui_stub_present(tree: Path, present: bool) -> None:
+    """Model the GraphOS WebUI checkout each CI job supplies to uv."""
+    sibling = tree / WEBUI_SIBLING_DIR
+    if present:
+        if sibling.is_dir():
+            return
+        package = sibling / "agent" / "graph_os_webui"
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "__init__.py").touch()
+        (sibling / "pyproject.toml").write_text(
+            _WEBUI_STUB_PYPROJECT, encoding="utf-8"
+        )
     elif sibling.is_dir():
         shutil.rmtree(sibling)
 
@@ -452,6 +494,7 @@ def check(repo_root: Path) -> tuple[int, dict]:
     baseline = load_baseline(repo_root)
     index = _baseline_index(baseline)
     provisioned = _provisioned_jobs_by_workflow(repo_root)
+    webui_provisioned = _provisioned_jobs_by_workflow(repo_root, webui=True)
     with tempfile.TemporaryDirectory(prefix="ci-env-contract-") as tmp:
         tree = Path(tmp) / "tracked"
         export_tracked_tree(repo_root, tree)
@@ -461,6 +504,9 @@ def check(repo_root: Path) -> tuple[int, dict]:
         for build in enforced:
             _set_sdk_stub_present(
                 tree, build.job in provisioned.get(build.workflow, set())
+            )
+            _set_webui_stub_present(
+                tree, build.job in webui_provisioned.get(build.workflow, set())
             )
             ok, detail = replay(tree, build)
             baselined = (build.workflow, command_key(build.command)) in index
