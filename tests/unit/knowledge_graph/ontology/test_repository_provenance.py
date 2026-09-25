@@ -8,7 +8,6 @@ node id convention ``enrichment/git_history.py`` already writes.
 from __future__ import annotations
 
 import pytest
-
 from epistemic_graph.repository_provenance import (
     POINTS_AT,
     SNAPSHOT_OF,
