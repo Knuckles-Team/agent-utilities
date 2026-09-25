@@ -240,7 +240,7 @@ _TEXT_FIELDS = ("content", "text", "description", "summary", "name")
 def content_class_of(node: Mapping[str, Any]) -> str:
     """The unit's ingestion content class (EH-269's deterministic classifier),
     the label EG's per-class usage and AU's admission feedback key on."""
-    from agent_utilities.knowledge_graph.ingestion.embedding_admission import (
+    from epistemic_graph.ingestion.embedding_admission import (
         classify_unit,
     )
 

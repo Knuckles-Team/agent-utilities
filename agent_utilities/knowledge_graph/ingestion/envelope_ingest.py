@@ -2840,7 +2840,7 @@ def _admit_pending_text(
     admits it, else ``None``. See ``embedding_admission.py`` for the full
     decision table and its rationale; this is the one call site that wires
     it INTO the D-EMB chokepoint rather than around it."""
-    from .embedding_admission import classify_unit
+    from epistemic_graph.ingestion.embedding_admission import classify_unit
 
     verdict = classify_unit(connector=connector, row=row, text=text)
     if verdict.admit:
@@ -2861,7 +2861,7 @@ def _expand_deduplicated_vectors(
     entropy/duplication gate), then fan each vector back out to every
     position that shared its exact text — one embed call per distinct
     string, not one per row."""
-    from .embedding_admission import dedupe_by_content_hash
+    from epistemic_graph.ingestion.embedding_admission import dedupe_by_content_hash
 
     unique_pending, alias_map = dedupe_by_content_hash(pending)
     vectors = _generate_pending_vectors(unique_pending)
@@ -2904,8 +2904,21 @@ def _prepare_embedding_envelopes(
     already nulled it — identical to the pre-existing "auto-embed disabled"
     outcome, never a durability failure.
     """
+    from epistemic_graph.ingestion.embedding_admission import sql_free_text_fields
+
     from ..core.ingest_profile import stage as _ingest_stage
-    from .embedding_admission import sql_free_text_fields
+    from ..enrichment.semantic import (
+        _ENTITY_NAME_FIELDS,
+        _ENTITY_SUMMARY_FIELDS,
+        _ENTITY_TEXT_SKIP_KEYS,
+    )
+
+    protected_fields = (
+        frozenset({"id", "type", "node_type"})
+        | _ENTITY_TEXT_SKIP_KEYS
+        | frozenset(_ENTITY_NAME_FIELDS)
+        | frozenset(_ENTITY_SUMMARY_FIELDS)
+    )
 
     primary = _primary_upsert_targets(envelopes)
     existing = _node_properties_batch(client, [node_id for _, node_id, _ in primary])
@@ -2918,9 +2931,13 @@ def _prepare_embedding_envelopes(
             payload = envelope.typed_payload
             assert payload is not None
             filtered_current = sql_free_text_fields(
-                envelope.connector, existing.get(node_id, {})
+                envelope.connector,
+                existing.get(node_id, {}),
+                protected_fields=protected_fields,
             )
-            filtered_row = sql_free_text_fields(envelope.connector, row)
+            filtered_row = sql_free_text_fields(
+                envelope.connector, row, protected_fields=protected_fields
+            )
             staged = _stage_embedding_change(payload, filtered_current, filtered_row)
             if staged is None:
                 continue

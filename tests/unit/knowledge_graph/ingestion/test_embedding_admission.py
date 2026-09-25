@@ -9,8 +9,7 @@ to be a filter, not a blanket denial.
 from __future__ import annotations
 
 import pytest
-
-from agent_utilities.knowledge_graph.ingestion.embedding_admission import (
+from epistemic_graph.ingestion.embedding_admission import (
     NEVER_EMBED_CLASSES,
     AdmissionVerdict,
     ContentClass,
@@ -138,7 +137,12 @@ def test_is_sql_row_connector_only_cdc_today() -> None:
 
 def test_sql_free_text_fields_is_a_noop_for_non_sql_connectors() -> None:
     row = {"status": "ACTIVE", "notes": "free text", "id": "1"}
-    assert sql_free_text_fields("servicenow", row) == row
+    assert (
+        sql_free_text_fields(
+            "servicenow", row, protected_fields=frozenset({"id", "type", "node_type"})
+        )
+        == row
+    )
 
 
 def test_sql_free_text_fields_drops_enum_fk_timestamp_string_columns_for_cdc() -> None:
@@ -156,7 +160,9 @@ def test_sql_free_text_fields_drops_enum_fk_timestamp_string_columns_for_cdc() -
         "amount": 42,
         "notes": "the actual free text a human wrote",
     }
-    filtered = sql_free_text_fields("cdc", row)
+    filtered = sql_free_text_fields(
+        "cdc", row, protected_fields=frozenset({"id", "type", "node_type"})
+    )
     assert filtered == {
         "id": "1",
         "is_deleted": False,
@@ -173,7 +179,9 @@ def test_sql_free_text_fields_never_strips_structural_or_priority_fields() -> No
     also an enum-name-hint substring — breaking node-type detection would be
     a correctness regression, not a savings."""
     row = {"id": "1", "type": "Order", "node_type": "Order", "status": "OPEN"}
-    filtered = sql_free_text_fields("cdc", row)
+    filtered = sql_free_text_fields(
+        "cdc", row, protected_fields=frozenset({"id", "type", "node_type"})
+    )
     assert filtered["type"] == "Order"
     assert filtered["node_type"] == "Order"
     assert "status" not in filtered

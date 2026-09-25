@@ -25,7 +25,10 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .embedding_admission import NEVER_EMBED_CLASSES, ContentClass
+from epistemic_graph.ingestion.embedding_admission import (
+    NEVER_EMBED_CLASSES,
+    ContentClass,
+)
 
 logger = logging.getLogger(__name__)
 
