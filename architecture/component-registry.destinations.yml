@@ -1,0 +1,21 @@
+schema: architecture-destination-owner/v1
+owner_repository: agent-utilities
+components:
+  - component_id: au.agent-execution
+    parent_layer: application
+    capability_ids: [au.agent-execution]
+    owned_source_roots: [agent_utilities/agent, agent_utilities/orchestration]
+    legacy_au_source_roots: []
+    console_scripts: [agent-utilities, agent-activation-worker, agent-dispatch-worker]
+  - component_id: au.harness
+    parent_layer: application
+    capability_ids: [au.harness]
+    owned_source_roots: [agent_utilities/harness, agent_utilities/skills]
+    legacy_au_source_roots: []
+    console_scripts: [agent-utilities-validate-skills, agent-utilities-validate-skill-fleet]
+  - component_id: au.control-policy
+    parent_layer: domain
+    capability_ids: [au.control-policy]
+    owned_source_roots: [agent_utilities/security, agent_utilities/core]
+    legacy_au_source_roots: []
+    console_scripts: []
