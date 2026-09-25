@@ -69,7 +69,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from .actor_identity import ActorType
-from .scope_registry import SESSION_SCOPES
 from .brain_context import (
     ActorContext,
     CredentialExpiredError,
@@ -78,6 +77,7 @@ from .brain_context import (
     set_actor,
     use_actor,
 )
+from .scope_registry import SESSION_SCOPES
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.session import GraphSession
