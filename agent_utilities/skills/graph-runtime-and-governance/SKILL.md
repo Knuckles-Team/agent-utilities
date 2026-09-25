@@ -91,42 +91,33 @@ metrics, traces, and audit surfaces over speculative configuration changes.
 
 ### 3. Manage tool visibility responsibly
 
-Use the intent verbs `ask`, `find`, `write`, `act`, `manage`, and `why` when a
-small tool surface is appropriate. Use `find_tools` or `list_catalog` to discover
-a capability, `load_tools` to expose only what the current task needs, and
-`unload_tools` when finished. Pin an exact tool when ambiguity would be unsafe.
+After the GraphOS operation-API cutover, use the six resident intent verbs
+`find`, `ask`, `why`, `write`, `act`, and `manage`. Their common input is an
+exact `op` or natural-language `intent`, object-valued `params`, optional
+`plan_ref` and `idempotency_key`, and `execute`. Discover a schema with
+`find(op="<operation.id>")`, then use an exact operation ID for a mutation.
+Natural-language mutation requests return a preview; destructive operations
+need a plan, while approval and administration need human console confirmation
+with fresh MFA. The server enforces the same authority checks on every surface.
 
-**The six intent verbs** (`MCP_TOOL_MODE=intent`, graph-os's default profile — the
-granular surface still registers fully, REST + `_execute_tool` unaffected; verbs
-just front it for small/cheap-LLM sessions): `<verb>(intent="<natural language>",
-hints_json="{...}", execute=true)`. `hints_json={"tool": "..."}` pins an exact tool,
-bypassing ranking entirely; `execute=false` returns only the routing decision.
+The four other resident tools are `find_tools`, `load_tools`, `unload_tools`, and
+`multiplexer_status`. `find_tools(browse=true)` replaces `list_catalog()`.
+Loading an item exposes it to the current MCP session subject to exact scopes
+and Eunomia policy; it does not confer authority. A loaded child tool also has
+an `act(op="fleet.call", params={...})` fallback if the client misses
+`list_changed`. Use `multiplexer_status` to inspect loaded items and delivery.
 
-| Verb | Resolves to (examples) | Use for |
-|---|---|---|
-| `ask` | `graph_query`, `graph_search`, `graph_analyze`, `nl_query`, `ask_data`, `graph_explain`, … | Any natural-language read/analysis question |
-| `find` | every verb, unfiltered (+ fleet-wide when a multiplexer is attached) | Capability discovery when you don't know the verb either |
-| `write` | `graph_write`, `graph_ingest`, `graph_writeback`, `source_sync`, `graph_etl`, … | Ingest/mutate/persist intents |
-| `act` | `graph_orchestrate`, `graph_loops`, `graph_goals`, `graph_sandbox`, `graph_bus`, … | Execute/orchestrate/schedule intents |
-| `manage` | `graph_configure`, `graph_secret`, `graph_sessions`, `graph_kvcache`, `graph_ontology`, … + the load/unload lifecycle | Configure/admin intents, and reclaiming tool-list context |
-| `why` | `graph_explain`, `graph_evaluate`, `graph_observe`, … | Explain a decision/belief/change — including the routing decision itself |
+The action reference above records legacy `graph_*` entry points. Treat them
+as migration clues, not operation IDs: resolve each behavior in the generated
+GraphOS registry before invoking it. Until the cutover is served, inspect the
+running server's actual tool list and use its current contract.
 
-Resolution ranks each candidate against its generated Capability Power Descriptor
-(falling back per-capability to a lexical score over its docstring, never a silent
-gap), blends in a learned reward EMA from a durable-bandit outcome loop (a capability
-that keeps failing under a verb sinks in the ranking), and serves a repeated
-`(verb, intent, hints)` from a small bounded cache. `find(...)` never dispatches, so
-it never records an outcome. Reclaiming context is a `manage` concern, not a 7th
-verb — `manage(intent="...", hints_json='{"action": "load", "tools": [...],
-"auto_unload": true}')` pulls a tool in for one call and auto-retracts it right after.
-
-**Onboarding a brand-new child MCP server** (as opposed to using one that already
-exists) keeps three surfaces in lockstep: the `mcp_config*.json` server entry
-(`command`/`args`/`env`), the README `mcp_config` examples (regenerated from the one
-authoritative env set), and the live registry — `graph_configure(action="register_mcp",
-config_key="<name>", config_value="{...}")` merges the entry and persists it. Verify
-with `list_catalog()`/`find_tools(...)`/`multiplexer_status`, then `load_tools(servers=
-["<name>"])`.
+When onboarding a child MCP server on the pre-cutover surface, update the
+`mcp_config*.json` entry, generated README example, and live registry together.
+Verify with the currently served `list_catalog` or `find_tools` and
+`multiplexer_status`, then load the specific discovered items. On the new
+surface, use `find_tools(browse=true)` or resolve the corresponding `fleet.*`
+operation in `find` first.
 
 ### 4. Remediate minimally
 
