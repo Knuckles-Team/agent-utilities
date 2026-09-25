@@ -72,13 +72,13 @@ engine_datascience_predict_estimator	pending			engine_datascience	predict_estima
 engine_datascience_sgd_step	pending			engine_datascience	sgd_step		await served parity and operator-reviewed disposition
 engine_datascience_softmax	pending			engine_datascience	softmax		await served parity and operator-reviewed disposition
 engine_datascience_train_test_split	pending			engine_datascience	train_test_split		await served parity and operator-reviewed disposition
-engine_edges_add	pending		graph.edges.add	engine_edges	add	eg:AddEdge	EG method wire-callable, but legacy EdgeClient.add encodes JSON properties to properties_msgpack; direct raw AddEdge op requires adapter; served parity pending
+engine_edges_add	pending		graph.edges.add	engine_edges	add	composite:graph_os.api.ops.graph.edge_add_handler	GraphOS T5 high-level adapter encodes JSON properties to properties_msgpack through verified graph; served parity pending
 engine_edges_count	pending			engine_edges	count		await served parity and operator-reviewed disposition
 engine_edges_has	pending			engine_edges	has		await served parity and operator-reviewed disposition
 engine_edges_invalidate	pending			engine_edges	invalidate		await served parity and operator-reviewed disposition
 engine_edges_list	pending			engine_edges	list		await served parity and operator-reviewed disposition
 engine_edges_list_page	pending		graph.edges.list	engine_edges	list_page	eg:GetEdgesPage	EG wire-callable and exact scope edge:read (user); served runtime and behavior parity pending
-engine_edges_properties	pending		graph.edges.get	engine_edges	properties	eg:GetEdgeProperties	EG method wire-callable, but legacy EdgeClient.properties decodes MessagePack to list[dict]; direct raw GetEdgeProperties result needs adapter proof; served parity pending
+engine_edges_properties	pending		graph.edges.get	engine_edges	properties	composite:graph_os.api.ops.graph.edge_properties_handler	GraphOS T5 high-level adapter decodes GetEdgeProperties MessagePack to parallel-edge object list (nil to empty list) through verified graph; served parity pending
 engine_edges_properties_batch	pending			engine_edges	properties_batch		await served parity and operator-reviewed disposition
 engine_edges_remove	pending		graph.edges.remove	engine_edges	remove	eg:RemoveEdge	EG wire-callable and exact scope edge:write (user); served runtime and behavior parity pending
 engine_edges_supersede	pending			engine_edges	supersede		await served parity and operator-reviewed disposition
