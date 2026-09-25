@@ -110,7 +110,7 @@ def test_worker_harness_commits_once_with_real_trace(monkeypatch: Any) -> None:
         == "job-one"
     )
     assert seen["options"]["context_endpoint"] == ENDPOINT
-    assert seen["options"]["execution_mode"] == "pydantic_graph"
+    assert "execution_mode" not in seen["options"]
 
 
 def test_worker_harness_refuses_fenced_terminal_commit() -> None:
