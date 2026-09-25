@@ -122,13 +122,10 @@ class _ControlGraphClient:
 
 
 class _ProcessRunner:
-    """Resolves the process ``Orchestrator`` per call, never at composition."""
+    """Uses the opened process runtime per call, never at composition."""
 
     async def execute_agent(self, agent_name: str, task: str, **options: Any) -> str:
-        from agent_utilities.orchestration.manager import Orchestrator
-
-        runner = Orchestrator(process_engine())
-        return await runner.execute_agent(agent_name, task, **options)
+        return await _process_runtime().execute_agent(agent_name, task, **options)
 
 
 class QueueSignedAgentDispatch:
@@ -222,13 +219,9 @@ class ProcessRunOutputReader:
     async def get_run_output(
         self, request: RunOutputRequest, *, session: GraphSession
     ) -> RunOutput | None:
-        from agent_utilities.orchestration.manager import Orchestrator
-
-        runner = Orchestrator(process_engine())
-
         def _read() -> dict[str, Any]:
             with use_session(session):
-                return runner.get_run_trace(request.run_id)
+                return _process_runtime().run_trace(request.run_id)
 
         trace = await asyncio.to_thread(_read)
         return run_output_from_trace(request.run_id, trace)

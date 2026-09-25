@@ -73,6 +73,20 @@ class AgentRuntime:
             raise RuntimeError("the AU runtime has no graph transport")
         return compute.for_graph(CONTROL_GRAPH_NAME).async_client
 
+    async def execute_agent(self, agent_name: str, task: str, **options: Any) -> str:
+        """Run one agent turn through the process-owned orchestration capability."""
+        from agent_utilities.orchestration.manager import Orchestrator
+
+        return await Orchestrator(self._engine).execute_agent(
+            agent_name, task, **options
+        )
+
+    def run_trace(self, run_id: str) -> dict[str, Any]:
+        """Read one run trace through the same process-owned capability."""
+        from agent_utilities.orchestration.manager import Orchestrator
+
+        return Orchestrator(self._engine).get_run_trace(run_id)
+
     def start_background_daemons(self) -> None:
         self._engine.start_background_daemons()
 

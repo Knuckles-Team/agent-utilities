@@ -395,6 +395,7 @@ def test_run_output_is_mapped_redacted_and_bounded() -> None:
 
 async def test_run_output_reads_under_the_callers_session(monkeypatch) -> None:
     from agent_utilities.api import current_session
+    from agent_utilities.api import runtime as runtime_port
     from agent_utilities.orchestration import manager
 
     seen: list[Any] = []
@@ -408,7 +409,7 @@ async def test_run_output_reads_under_the_callers_session(monkeypatch) -> None:
             return {"status": "completed", "result_preview": "ok"}
 
     monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
-    monkeypatch.setattr(hosted, "process_engine", lambda: object())
+    monkeypatch.setattr(runtime_port, "_OPEN_RUNTIME", AgentRuntime(object(), "client"))
     session = _session()
     plane = compose_agent_control_plane(
         _Client(), session, run_output=ProcessRunOutputReader()
@@ -417,6 +418,28 @@ async def test_run_output_reads_under_the_callers_session(monkeypatch) -> None:
         result = await plane.get_run_output(RunOutputRequest(run_id="job-1"))
     assert result == RunOutput(run_id="job-1", status="succeeded", output="ok")
     assert seen == [session]
+
+
+async def test_hosted_process_runner_uses_open_runtime(monkeypatch) -> None:
+    from agent_utilities.api import runtime as runtime_port
+    from agent_utilities.orchestration import manager
+
+    engine = object()
+    calls: list[tuple[Any, str, str]] = []
+
+    class _Orchestrator:
+        def __init__(self, bound_engine):
+            self.bound_engine = bound_engine
+
+        async def execute_agent(self, agent_name, task, **_options):
+            calls.append((self.bound_engine, agent_name, task))
+            return "done"
+
+    monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
+    monkeypatch.setattr(runtime_port, "_OPEN_RUNTIME", AgentRuntime(engine, "client"))
+    result = await hosted._ProcessRunner().execute_agent("worker", "task")
+    assert result == "done"
+    assert calls == [(engine, "worker", "task")]
 
 
 # --- AU-3: runtime port --------------------------------------------------------
