@@ -785,9 +785,7 @@ async def _certify_connector_run(
     updated = await _certify_connector_update(driver, envelopes, scope, counts, checks)
     await _certify_connector_delete(driver, updated, envelopes, scope, counts, checks)
 
-    semantic_validator = _semantic_validation(
-        bundle, envelopes, require_engine_shacl=mode == "external-live"
-    )
+    semantic_validator = _semantic_validation(bundle, envelopes)
     checks["semantic_validation"] = "passed"
     checks["count_reconciliation"] = "passed"
 
@@ -1577,30 +1575,63 @@ def _verify_live_tools(result: Mapping[str, Any], syncs: Sequence[SyncSpec]) -> 
 def _semantic_validation(
     bundle: CertificationBundle,
     envelopes: Sequence[ChangeEnvelope],
-    *,
-    require_engine_shacl: bool,
 ) -> str:
-    if not require_engine_shacl:
-        _declared_semantic_validation(bundle, envelopes)
-        return "declared-shacl-contract"
+    """Validate both certification modes with EG's SHACL implementation."""
     try:
+        if not 1 <= len(bundle.shapes_text.encode("utf-8")) <= _MAX_ARTIFACT_BYTES:
+            raise CertificationError("declared semantic artifact is invalid")
         triples = _certification_data_triples(envelopes)
-        return _validate_native_shacl(triples, bundle.shapes_text)
+        if not _native_shacl_conforms(triples, bundle.shapes_text):
+            raise CertificationError("synthetic fixture does not conform to SHACL")
+        _assert_required_shape_coverage(envelopes, bundle.shapes_text)
+        return "epistemic-graph"
     except CertificationError:
         raise
     except Exception as exc:
         raise CertificationError("epistemic-graph semantic validation failed") from exc
 
 
-def _validate_native_shacl(triples: list[TypedTriple], shapes_text: str) -> str:
+def _native_shacl_conforms(triples: list[TypedTriple], shapes_text: str) -> bool:
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     report = GraphComputeEngine.get_or_create().shacl_validate_ad_hoc(
         shapes=shapes_text, data_triples=triples
     )
-    if not bool(report.conforms):
-        raise CertificationError("synthetic fixture does not conform to SHACL")
-    return "epistemic-graph"
+    return bool(report.conforms)
+
+
+def _assert_required_shape_coverage(
+    envelopes: Sequence[ChangeEnvelope], shapes_text: str
+) -> None:
+    """Prove the engine applies every required path to every fixture class.
+
+    SHACL reports conformance for a data graph with no matching target class.
+    Negative probes avoid accepting a syntactically valid but ineffective pack.
+    """
+    first_by_type: dict[str, ChangeEnvelope] = {}
+    for envelope in envelopes:
+        resource = str((envelope.typed_payload or {}).get("type") or "Document")
+        first_by_type.setdefault(resource, envelope)
+    if not first_by_type:
+        raise CertificationError("semantic validation needs a fixture")
+    for resource, envelope in first_by_type.items():
+        triples = _certification_data_triples((envelope,))
+        if not _native_shacl_conforms(triples, shapes_text):
+            raise CertificationError(
+                f"declared semantic coverage cannot be isolated for {resource}"
+            )
+        for local in (
+            "sourceRecordRef",
+            "tenantReference",
+            "accessPolicyReference",
+            "provenanceReference",
+        ):
+            predicate = kg(local)
+            probe = [row for row in triples if row["predicate"] != predicate]
+            if _native_shacl_conforms(probe, shapes_text):
+                raise CertificationError(
+                    f"declared semantic coverage is incomplete for {resource}.{local}"
+                )
 
 
 def _certification_data_triples(
@@ -1621,39 +1652,6 @@ def _certification_data_triples(
         ):
             triples.append(triple(subject, kg(reference), literal("bound")))
     return triples
-
-
-def _declared_semantic_validation(
-    bundle: CertificationBundle, envelopes: Sequence[ChangeEnvelope]
-) -> None:
-    """Dependency-free validation of the signed generated SHACL declaration."""
-
-    if not 1 <= len(bundle.shapes_text.encode("utf-8")) <= _MAX_ARTIFACT_BYTES:
-        raise CertificationError("declared semantic artifact is invalid")
-    targets = set(
-        re.findall(
-            r"\bsh:targetClass\s+:([A-Za-z_][A-Za-z0-9_-]{0,127})\b",
-            bundle.shapes_text,
-        )
-    )
-    declared = {
-        str((envelope.typed_payload or {}).get("type") or "Document")
-        for envelope in envelopes
-    }
-    required_paths = {
-        "sourceRecordRef",
-        "tenantReference",
-        "accessPolicyReference",
-        "provenanceReference",
-    }
-    paths = set(
-        re.findall(
-            r"\bsh:path\s+:([A-Za-z_][A-Za-z0-9_-]{0,127})\b",
-            bundle.shapes_text,
-        )
-    )
-    if not declared.issubset(targets) or not required_paths.issubset(paths):
-        raise CertificationError("declared semantic coverage is incomplete")
 
 
 def _delegated_environment(

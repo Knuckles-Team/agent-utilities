@@ -41,6 +41,22 @@ shape:WidgetShape a sh:NodeShape ;
 """
 
 
+def _fixture_shape_conforms(triples: list[dict], shapes: str) -> bool:
+    """Stand in for EG in lifecycle tests; require all four declared paths."""
+    if shapes != _SHAPES:
+        return True
+    predicates = {row["predicate"] for row in triples}
+    return all(
+        module.kg(local) in predicates
+        for local in (
+            "sourceRecordRef",
+            "tenantReference",
+            "accessPolicyReference",
+            "provenanceReference",
+        )
+    )
+
+
 @pytest.fixture
 def signer(monkeypatch: pytest.MonkeyPatch) -> ReleaseSigner:
     key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
@@ -92,7 +108,9 @@ def bundle() -> module.CertificationBundle:
 async def test_offline_fixture_mode_proves_lifecycle_without_claiming_live_success(
     bundle: module.CertificationBundle,
     signer: ReleaseSigner,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(module, "_native_shacl_conforms", _fixture_shape_conforms)
     record = await module.certify_connector(
         bundle,
         mode="offline-fixture",
@@ -101,6 +119,7 @@ async def test_offline_fixture_mode_proves_lifecycle_without_claiming_live_succe
 
     assert record["status"] == "offline-validated"
     assert record["live_certified"] is False
+    assert record["semantic_validator"] == "epistemic-graph"
     assert record["checks"]["live_tool_schema"] == "not-run"
     assert record["checks"]["replay_idempotency"] == "passed"
     assert record["checks"]["governance_preservation"] == "passed"
@@ -195,7 +214,9 @@ def test_runtime_profile_rejects_literal_connection_configuration() -> None:
 async def test_tampered_signed_record_is_rejected(
     bundle: module.CertificationBundle,
     signer: ReleaseSigner,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(module, "_native_shacl_conforms", _fixture_shape_conforms)
     record = await module.certify_connector(
         bundle,
         mode="offline-fixture",
@@ -209,3 +230,18 @@ async def test_tampered_signed_record_is_rejected(
             record, trusted_public_keys=(signer.public_key,)
         )
     )
+
+
+def test_declared_shape_without_required_constraint_fails_closed(
+    bundle: module.CertificationBundle,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(module, "_native_shacl_conforms", lambda *_: True)
+    envelope = module.ChangeEnvelope(
+        connector="fixture",
+        source_object_id="record",
+        operation="upsert",
+        typed_payload={"type": "Widget"},
+    )
+    with pytest.raises(module.CertificationError, match="coverage is incomplete"):
+        module._semantic_validation(bundle, [envelope])
