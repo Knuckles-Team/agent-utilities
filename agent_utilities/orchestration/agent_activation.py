@@ -1779,7 +1779,6 @@ def main(argv: list[str] | None = None) -> int:
     ``agent_activation`` WorkItems and runs dormant statechart-agents on demand.
     """
     import argparse
-    import os
     import signal
 
     parser = argparse.ArgumentParser(
@@ -1824,11 +1823,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
-    os.environ.setdefault("KG_DAEMON_ROLE", "client")
+    from agent_utilities.api.runtime import open_process_runtime
 
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    engine = IntelligenceGraphEngine.get_or_create()
+    engine = open_process_runtime(role="client", defer_background_start=True).engine
     if not callable(getattr(engine, "claim_work_item", None)):
         parser.exit(
             2,

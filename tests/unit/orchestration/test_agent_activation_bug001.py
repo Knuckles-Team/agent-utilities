@@ -33,12 +33,35 @@ This module is the BUG-001 evidence + regression suite:
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 
 import pytest
 
 from agent_utilities.knowledge_graph.core import work_durability as wi
 from agent_utilities.orchestration import agent_activation as aa
 from tests.unit.orchestration.test_agent_activation import ActivationEngine
+
+
+def test_activation_main_opens_client_runtime_port(monkeypatch) -> None:
+    """The worker composes its client transport through AU's public runtime."""
+    from agent_utilities.api import runtime as runtime_port
+
+    opened: list[tuple[str, bool]] = []
+    engine = SimpleNamespace(
+        claim_work_item=lambda: None,
+        query_cypher=lambda _query: [],
+    )
+
+    def open_runtime(*, role: str, defer_background_start: bool) -> SimpleNamespace:
+        opened.append((role, defer_background_start))
+        return SimpleNamespace(engine=engine)
+
+    monkeypatch.setattr(runtime_port, "open_process_runtime", open_runtime)
+    monkeypatch.setattr(aa, "activation_worker_readiness", lambda: (False, "test stop"))
+    with pytest.raises(SystemExit) as stopped:
+        aa.main(["--workers", "1"])
+    assert stopped.value.code == 2
+    assert opened == [("client", True)]
 
 
 @pytest.fixture
