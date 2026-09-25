@@ -1,0 +1,47 @@
+{
+  "documents": [
+    {
+      "path": "docs/start-here.md",
+      "cases": [
+        {
+          "query": "How do I give another agent the knowledge graph through MCP?",
+          "gold_path": ["Start Here — What agent-utilities Is & How to Use It", "Three ways to use it (pick one)", "2. As an MCP server (give any agent the KG + tools)"]
+        },
+        {
+          "query": "What are the five pillars of the platform?",
+          "gold_path": ["Start Here — What agent-utilities Is & How to Use It", "The 5 pillars (what's inside)"]
+        },
+        {
+          "query": "When is one host not enough?",
+          "gold_path": ["Start Here — What agent-utilities Is & How to Use It", "When one host is not enough"]
+        }
+      ]
+    },
+    {
+      "path": "docs/operations/production-cell-runbook.md",
+      "cases": [
+        {
+          "query": "How do we hot-swap a cell and roll back?",
+          "gold_path": ["Production cell runbook", "Hot-swap and rollback"]
+        },
+        {
+          "query": "Which observability checks and SLO response steps apply?",
+          "gold_path": ["Production cell runbook", "Observability and SLO response"]
+        }
+      ]
+    },
+    {
+      "path": "docs/operations/disaster-recovery.md",
+      "cases": [
+        {
+          "query": "How is a restore validated continuously?",
+          "gold_path": ["Backup, restore and cross-cell recovery", "Continuous restore validation"]
+        },
+        {
+          "query": "How does cross-cell cutover work?",
+          "gold_path": ["Backup, restore and cross-cell recovery", "Cross-cell cutover"]
+        }
+      ]
+    }
+  ]
+}
