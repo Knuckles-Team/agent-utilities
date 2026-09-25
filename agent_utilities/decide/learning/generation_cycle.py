@@ -39,6 +39,7 @@ from agent_utilities.decide.learning.generation import (
     resolve_generation,
 )
 from agent_utilities.decide.learning.ops import space_identity
+from agent_utilities.decide.learning.runs import unit_text
 from agent_utilities.decide.learning.session import LearningSession, current_session
 
 logger = logging.getLogger(__name__)
@@ -48,8 +49,6 @@ LOOP_FLAG = "KG_LOOP_EMBEDDING_GENERATION"
 MODEL_SETTING = "EMBEDDING_GENERATION_MODEL"
 #: Nodes copied per property read / embedding batch.
 REEMBED_BATCH = 128
-#: The node fields a unit's embedded text is read from, in priority order.
-TEXT_FIELDS = ("content", "text", "description", "summary", "name")
 _SPACE_PROBE = "embedding space probe"
 
 
@@ -57,10 +56,6 @@ def shadow_graph_of(logical: str, model: str) -> str:
     """The shadow generation of ``logical`` embedded by ``model``."""
     digest = hashlib.sha256(model.encode("utf-8")).hexdigest()[:12]
     return f"{logical}--gen-{digest}"
-
-
-def unit_text(props: dict[str, Any]) -> str:
-    return next((str(props[k]) for k in TEXT_FIELDS if props.get(k)), "")
 
 
 def _batches(ids: Sequence[str], size: int) -> list[list[str]]:
@@ -228,5 +223,4 @@ __all__ = [
     "run_generation_cycle",
     "shadow_graph_of",
     "swap_generation",
-    "unit_text",
 ]

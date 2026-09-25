@@ -295,7 +295,12 @@ def _query_vector(retriever: Any, query: str) -> dict[str, Any] | None:
 
 
 #: The node fields whose text the admission classifier reads, in priority order.
-_TEXT_FIELDS = ("content", "text", "description", "summary", "name")
+TEXT_FIELDS = ("content", "text", "description", "summary", "name")
+
+
+def unit_text(node: Mapping[str, Any]) -> str:
+    """A unit's text as ingestion embedded and classified it."""
+    return next((str(node[k]) for k in TEXT_FIELDS if node.get(k)), "")
 
 
 def content_class_of(node: Mapping[str, Any]) -> str:
@@ -308,7 +313,7 @@ def content_class_of(node: Mapping[str, Any]) -> str:
     declared = node.get("content_class")
     if declared:
         return str(declared)
-    text = next((str(node[k]) for k in _TEXT_FIELDS if node.get(k)), "")
+    text = unit_text(node)
     row = dict(node)
     verdict = classify_unit(
         connector=str(node.get("connector") or ""), row=row, text=text
@@ -404,6 +409,7 @@ def attest_answer(retrievals: Sequence[tuple[Any, str]], answer: Any) -> int:
 __all__ = [
     "DEFAULT_TASK_CLASS",
     "MAX_PENDING_RUNS",
+    "TEXT_FIELDS",
     "PathScope",
     "PendingRun",
     "RunLedger",
@@ -420,4 +426,5 @@ __all__ = [
     "proven_paths",
     "run_path",
     "seeded_template",
+    "unit_text",
 ]
