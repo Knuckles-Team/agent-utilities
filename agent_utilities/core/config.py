@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 from urllib.parse import urlsplit
 
 import platformdirs
+from agent_connector_sdk.config import normalize_http_host_allowlist
 from pydantic import Field, StrictBool, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -2422,42 +2423,6 @@ def _validated_mcp_fleet_secret_entry(
         )
     _assert_mcp_fleet_reference_target(reference)
     return alias, reference
-
-
-def _assert_ascii_http_host(host: str) -> None:
-    """An allow-list host must be ASCII, bounded, and free of URL punctuation."""
-    try:
-        host.encode("ascii")
-    except UnicodeEncodeError as exc:
-        raise ValueError("HTTP host allow-lists require ASCII hostnames") from exc
-    if (
-        not host
-        or len(host) > 253
-        or any(ord(character) < 33 for character in host)
-        or any(character in host for character in "/@*?#[]")
-    ):
-        raise ValueError("HTTP host allow-lists require exact hostnames")
-
-
-def _is_exact_hostname_label(label: str) -> bool:
-    """One DNS label: non-empty, <=63 chars, no leading/trailing '-', LDH only."""
-    return bool(
-        label
-        and len(label) <= 63
-        and not label.startswith("-")
-        and not label.endswith("-")
-        and all(character.isalnum() or character == "-" for character in label)
-    )
-
-
-def _assert_exact_http_host(host: str) -> None:
-    """Accept a literal IP address, or a hostname whose every label is exact."""
-    _assert_ascii_http_host(host)
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        if not all(_is_exact_hostname_label(label) for label in host.split(".")):
-            raise ValueError("HTTP host allow-lists require exact hostnames") from None
 
 
 # Model role keyword -> the AgentConfig property that resolves it. A dispatch
@@ -5053,15 +5018,8 @@ class AgentConfig(BaseSettings):
     )
     @classmethod
     def _validate_http_host_allowlists(cls, value: list[str]) -> list[str]:
-        """Accept only a small, exact, environment-owned hostname set."""
-        if len(value) > 256:
-            raise ValueError("HTTP host allow-lists may contain at most 256 entries")
-        normalized: set[str] = set()
-        for raw in value:
-            host = str(raw).strip().lower().rstrip(".")
-            _assert_exact_http_host(host)
-            normalized.add(host)
-        return sorted(normalized)
+        """Use the connector SDK's exact outbound-host contract."""
+        return normalize_http_host_allowlist(value)
 
     @field_validator(
         "tls_profile_ref",
