@@ -53,6 +53,10 @@ import hashlib
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from epistemic_graph.interface_pack import (
+    compile_interface_implementers,
+    compile_interface_shape,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
@@ -65,10 +69,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # owl_bridge RDF materialization, so interface classes/shapes resolve in the same
 # graph (CONCEPT:AU-KG.ontology.conformance-check).
 KG = "http://knuckles.team/kg#"
-OWL = "http://www.w3.org/2002/07/owl#"
-RDFS = "http://www.w3.org/2000/01/rdf-schema#"
-SH = "http://www.w3.org/ns/shacl#"
-XSD = "http://www.w3.org/2001/XMLSchema#"
 
 
 def _camel(name: str) -> str:
@@ -305,82 +305,26 @@ class Interface(BaseModel):
         return KG + _camel(self.name) + "Shape"
 
     def to_owl(self, *, registry: InterfaceRegistry | None = None) -> str:
-        """Emit the interface as an ``owl:Class`` plus a SHACL ``sh:NodeShape``.
-
-        CONCEPT:AU-KG.ontology.conformance-check — OWL/SHACL projection, reusing the ``owl_bridge``
-        namespace conventions (``kg:`` = ``http://knuckles.team/kg#``):
-
-          - The interface becomes an ``owl:Class`` (abstract — no individuals are
-            promoted for it). ``extends`` parents map to ``rdfs:subClassOf`` so
-            interface inheritance is OWL subsumption.
-          - A ``sh:NodeShape`` (``<Name>Shape``) carries one ``sh:property`` per
-            *required* interface-property (``sh:minCount 1`` + ``sh:datatype``
-            from the :class:`PropertyType`'s ``xsd_iri``) and one ``sh:property``
-            per required link constraint (``sh:path`` = the edge type, ``sh:minCount``
-            = ``min_count``). An object type that ``implement``\\ s this interface
-            is emitted ``rdfs:subClassOf`` the class and ``sh:node`` the shape.
-
-        The returned Turtle is self-contained (prefixes included) so it can be
-        appended to a pack's ``owl_extensions`` ``.ttl`` and loaded by the OWL
-        reasoner / SHACL gate alongside EG's committed core shapes.
-        """
-        local = _camel(self.name)
-        lines: list[str] = [
-            f"@prefix : <{KG}> .",
-            f"@prefix owl: <{OWL}> .",
-            f"@prefix rdfs: <{RDFS}> .",
-            f"@prefix sh: <{SH}> .",
-            f"@prefix xsd: <{XSD}> .",
-            "",
+        """Send this typed interface contract to EG's OWL/SHACL pack compiler."""
+        properties = [
+            {"path": name, "datatype": item.property_type().xsd_iri}
+            for name, item in self.all_properties(registry).items()
+            if item.required
         ]
-
-        # owl:Class for the interface, with rdfs:subClassOf for each parent.
-        class_lines = [f":{local} a owl:Class ;"]
-        class_lines.append(f'    rdfs:label "{self.name}" ;')
-        if self.description:
-            comment = self.description.replace('"', "'").replace("\n", " ")
-            class_lines.append(f'    rdfs:comment "{comment}" ;')
-        class_lines.append(
-            "    rdfs:comment "
-            '"Abstract ontology interface (CONCEPT:AU-KG.ontology.conformance-check); '
-            'no own individuals — implemented by object types." ;'
+        links = [
+            {"path": item.edge_type.value, "min_count": max(0, int(item.min_count))}
+            for item in self.all_link_constraints(registry).values()
+        ]
+        return compile_interface_shape(
+            {
+                "local": _camel(self.name),
+                "name": self.name,
+                "description": self.description,
+                "parents": [_camel(parent) for parent in self.extends],
+                "properties": properties,
+                "links": links,
+            }
         )
-        for parent in self.extends:
-            class_lines.append(f"    rdfs:subClassOf :{_camel(parent)} ;")
-        class_lines[-1] = class_lines[-1].rstrip(" ;") + " ."
-        lines.extend(class_lines)
-        lines.append("")
-
-        # SHACL NodeShape capturing the contract.
-        shape_lines = [f":{local}Shape a sh:NodeShape ;"]
-        shape_lines.append(f"    sh:targetClass :{local} ;")
-        shape_lines.append(f'    sh:name "{self.name} Shape" ;')
-        prop_blocks: list[str] = []
-        for name, iface_prop in self.all_properties(registry).items():
-            if not iface_prop.required:
-                continue
-            xsd_iri = iface_prop.property_type().xsd_iri
-            prop_blocks.append(
-                f"    sh:property [ sh:path :{name} ;\n"
-                f"            sh:datatype <{xsd_iri}> ;\n"
-                "            sh:minCount 1 ;\n"
-                f'            sh:message "{self.name} must declare interface-property {name}." ]'
-            )
-        for cname, constraint in self.all_link_constraints(registry).items():
-            mincount = max(0, int(constraint.min_count))
-            edge = constraint.edge_type.value
-            prop_blocks.append(
-                f"    sh:property [ sh:path :{edge} ;\n"
-                f"            sh:minCount {mincount} ;\n"
-                f'            sh:message "{self.name} must expose link {edge}." ]'
-            )
-        if prop_blocks:
-            shape_lines.append(",\n".join(prop_blocks) + " .")
-        else:
-            shape_lines[-1] = shape_lines[-1].rstrip(" ;") + " ."
-        lines.extend(shape_lines)
-        lines.append("")
-        return "\n".join(lines)
 
     def signature(self) -> str:
         """Return a stable content hash of the interface shape (cache-key use)."""
@@ -662,33 +606,15 @@ class InterfaceRegistry:
         return [type_or_interface]
 
     def to_owl(self) -> str:
-        """Emit OWL/SHACL for every registered interface and its implementers.
-
-        CONCEPT:AU-KG.ontology.conformance-check — concatenates each interface's :meth:`Interface.to_owl`
-        and appends the ``rdfs:subClassOf`` / ``sh:node`` assertions linking each
-        implementing object-type class to the interface class + shape. The result
-        is loadable alongside EG's committed core shapes.
-        """
-        chunks: list[str] = []
-        for iface in self._interfaces.values():
-            chunks.append(iface.to_owl(registry=self))
-        # Implements assertions: <Type> rdfs:subClassOf :<Iface> ; sh:node :<Iface>Shape .
-        impl_lines: list[str] = [
-            f"@prefix : <{KG}> .",
-            f"@prefix rdfs: <{RDFS}> .",
-            f"@prefix sh: <{SH}> .",
-            "",
+        """Ask EG to compile implementations beside typed interface shapes."""
+        chunks = [iface.to_owl(registry=self) for iface in self._interfaces.values()]
+        implementations = [
+            {"object_type": _camel(tv), "interface": _camel(iface_name)}
+            for iface_name, impls in self._implementers.items()
+            if iface_name in self._interfaces
+            for tv in sorted(impls)
         ]
-        for iface_name, impls in self._implementers.items():
-            if iface_name not in self._interfaces:
-                continue
-            for tv in sorted(impls):
-                type_local = _camel(tv)
-                impl_lines.append(
-                    f":{type_local} rdfs:subClassOf :{_camel(iface_name)} ; "
-                    f"sh:node :{_camel(iface_name)}Shape ."
-                )
-        chunks.append("\n".join(impl_lines))
+        chunks.append(compile_interface_implementers(implementations))
         return "\n\n".join(chunks)
 
 
