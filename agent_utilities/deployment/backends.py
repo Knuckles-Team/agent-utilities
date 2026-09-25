@@ -238,13 +238,11 @@ def render_compose(
     image: str,
     transport: str = "streamable-http",
     port: int = 8000,
-    webui_image: str | None = None,
 ) -> str:
     """Render the compose YAML for one self-composing ``graph-os`` service.
 
     Only ONE served ``graph-os`` service is rendered — messaging is an in-process
-    co-service and ``agent-webui`` is a genuinely separate service (a Node/Vite
-    frontend — see ``co_service_supervisor``'s module docstring). An explicit
+    co-service and the WebUI is hosted by GraphOS. An explicit
     client deployment must pair this plan with a gateway or standalone
     ``graph-os-daemon`` host; it is never hidden inside the served process. This is the
     lightweight single-node case (``agent-utilities-deployment`` tiny/single-node-
@@ -271,13 +269,6 @@ def render_compose(
             "restart": "unless-stopped",
         }
     }
-    if composition.web_ui_enabled:
-        services["agent-webui"] = {
-            "image": webui_image or "agent-webui:latest",
-            "environment": {"ENABLE_WEB_UI": "true"},
-            "ports": ["5173:5173"],
-            "restart": "unless-stopped",
-        }
     return yaml.safe_dump({"services": services}, sort_keys=False)
 
 
@@ -356,7 +347,6 @@ def render_k8s_manifest(
     image: str,
     namespace: str = "default",
     port: int = 8000,
-    webui_image: str | None = None,
 ) -> str:
     """Render a plain Deployment+Service manifest for one self-composing ``graph-os``.
 
@@ -411,30 +401,6 @@ def render_k8s_manifest(
             },
         },
     ]
-    if composition.web_ui_enabled:
-        documents.append(
-            {
-                "apiVersion": "apps/v1",
-                "kind": "Deployment",
-                "metadata": {"name": "agent-webui", "namespace": namespace},
-                "spec": {
-                    "replicas": 1,
-                    "selector": {"matchLabels": {"app": "agent-webui"}},
-                    "template": {
-                        "metadata": {"labels": {"app": "agent-webui"}},
-                        "spec": {
-                            "containers": [
-                                {
-                                    "name": "agent-webui",
-                                    "image": webui_image or "agent-webui:latest",
-                                    "ports": [{"containerPort": 5173}],
-                                }
-                            ]
-                        },
-                    },
-                },
-            }
-        )
     return yaml.safe_dump_all(documents, sort_keys=False)
 
 

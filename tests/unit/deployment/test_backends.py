@@ -200,7 +200,7 @@ def test_container_plan_renders_valid_compose_yaml():
     assert plan.live_capable is False
     compose = yaml.safe_load(plan.artifacts["compose.yml"])
     assert compose["services"]["graph-os"]["image"] == "agent-utilities:1.2.3"
-    assert "agent-webui" not in compose["services"]  # not configured in this test
+    assert set(compose["services"]) == {"graph-os"}
 
     fleet_calls = [s.fleet_call for s in plan.steps if s.fleet_call]
     assert len(fleet_calls) == 1
@@ -211,14 +211,14 @@ def test_container_plan_renders_valid_compose_yaml():
     assert call.args["host"] == "container-host"
 
 
-def test_container_plan_includes_webui_when_configured(monkeypatch):
+def test_container_plan_keeps_webui_in_graphos_when_configured(monkeypatch):
     class _Cfg:
         enable_web_ui = True
 
     monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
     plan = backends.ContainerBackend().plan(target="container-host")
     compose = yaml.safe_load(plan.artifacts["compose.yml"])
-    assert "agent-webui" in compose["services"]
+    assert set(compose["services"]) == {"graph-os"}
 
 
 def test_container_apply_never_executes_only_plans():
@@ -239,12 +239,23 @@ def test_kubernetes_plan_renders_manifest_and_never_claims_a_live_apply_tool():
     docs = list(yaml.safe_load_all(plan.artifacts["manifest.yaml"]))
     kinds = {d["kind"] for d in docs}
     assert kinds == {"Deployment", "Service"}
+    assert {d["metadata"]["name"] for d in docs} == {"graph-os"}
     assert any("no generic manifest-apply" in w for w in plan.warnings)
     assert any("READ-ONLY" in w for w in plan.warnings)
     # The only fleet call offered is one that genuinely exists.
     fleet_calls = [s.fleet_call for s in plan.steps if s.fleet_call]
     assert all(c.server == "container-manager-mcp" for c in fleet_calls)
     assert all(c.tool == "cm_k8s_config" for c in fleet_calls)
+
+
+def test_kubernetes_plan_keeps_webui_in_graphos_when_configured(monkeypatch):
+    class _Cfg:
+        enable_web_ui = True
+
+    monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
+    plan = backends.KubernetesBackend().plan(target="prod-cluster")
+    docs = list(yaml.safe_load_all(plan.artifacts["manifest.yaml"]))
+    assert {doc["metadata"]["name"] for doc in docs} == {"graph-os"}
 
 
 def test_kubernetes_apply_always_refuses():
