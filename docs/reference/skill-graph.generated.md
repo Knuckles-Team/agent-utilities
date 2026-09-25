@@ -95,6 +95,9 @@ _No components._
 - **Observability** — `guides/observability-usage-tracking.md`
 - **Connector certification** — `release/connector-live-certification.md`
 - **Compatibility and certification** — `release/compatibility-and-certification.md`
+- **Exact-artifact closure evidence** — `release/exact-artifact-closure.md`
+- **Exact Installed Local Certification** — `release/exact-local-gates.md`
+- **Exact Local GraphOS Releases** — `release/exact-local-release.md`
 
 ## Prebundled skills
 
