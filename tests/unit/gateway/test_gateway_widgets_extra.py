@@ -166,7 +166,6 @@ def test_widget_connector_inventory_is_exhaustive() -> None:
         "audio_transcriber",
         "data_science",
         "emerald_exchange",
-        "genius_agent",
         "gitlab",  # aliased to gitlab_api above via WIDGET_CONNECTOR_IMPORTS
         "google_workspace",
         "legal_peripherals",

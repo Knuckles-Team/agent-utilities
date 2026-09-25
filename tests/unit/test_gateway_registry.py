@@ -15,6 +15,8 @@ def test_list_all_known():
     assert "portainer" in known
     assert "uptime_kuma" in known
     assert "technitium" in known
+    # The former genius_agent widget returned fixed fabricated counts.
+    assert "genius_agent" not in known
 
 
 def test_get_invalid_widget():
