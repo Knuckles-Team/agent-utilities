@@ -12,7 +12,7 @@ from agent_utilities.knowledge_graph.infra.inventory_collector import (
     InfraInventoryCollector,
     parse_tm_system,
 )
-from agent_utilities.knowledge_graph.infra.placement_optimizer import (
+from epistemic_graph.infra_placement import (
     HostCapacity,
     ServiceSpec,
     optimize_from_graph,

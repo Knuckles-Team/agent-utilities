@@ -18,7 +18,7 @@ from .inventory_collector import (
     InfraInventoryCollector,
     collect_and_persist,
 )
-from .placement_optimizer import (
+from epistemic_graph.infra_placement import (
     DEFAULT_OBJECTIVE_WEIGHTS,
     HostCapacity,
     PlacementPlan,

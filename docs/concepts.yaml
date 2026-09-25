@@ -4100,7 +4100,6 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/writeback/spec_link.py
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
-  - agent_utilities/knowledge_graph/infra/placement_optimizer.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
   - agent_utilities/knowledge_graph/memory/native_ingest.py
