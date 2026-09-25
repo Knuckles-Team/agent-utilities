@@ -626,6 +626,50 @@ def test_resolve_admission_authority_signs_as_the_verified_principal(
     assert authority.signer_id == authority.agent_id
 
 
+def test_resolve_admission_authority_rejects_unauthenticated_bound_actor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
+    token = brain_context.set_actor(
+        brain_context.ActorContext(
+            actor_id=ADMITTING_PRINCIPAL,
+            authenticated=False,
+        )
+    )
+    try:
+        with pytest.raises(
+            admission_authority.AdmissionAuthorityError,
+            match="authenticated actor",
+        ):
+            admission_authority.resolve_admission_authority()
+    finally:
+        brain_context.reset_actor(token)
+
+
+@pytest.mark.parametrize("entry", ["", None, {"key": ""}, {"key": 1}])
+def test_resolve_admission_authority_rejects_invalid_configured_entry(
+    monkeypatch: pytest.MonkeyPatch, entry: object
+) -> None:
+    monkeypatch.setenv(
+        admission_authority.SIGNER_REGISTRY_ENV,
+        json.dumps({ADMITTING_PRINCIPAL: entry}),
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    monkeypatch.setattr(
+        GraphComputeEngine,
+        "get_active",
+        lambda: SimpleNamespace(
+            _local_bootstrap_identity=(ADMITTING_PRINCIPAL, "bootstrap-key", None)
+        ),
+    )
+    with pytest.raises(
+        admission_authority.AdmissionAuthorityError,
+        match="verified principal",
+    ):
+        admission_authority.resolve_admission_authority()
+
+
 # ---------------------------------------------------------------------------
 # CLI: dry-run vs apply, and CLI == boot-path provisioning.
 # ---------------------------------------------------------------------------

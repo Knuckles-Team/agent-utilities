@@ -125,12 +125,23 @@ def _signer_key_for(principal: str) -> str | None:
         # reading only the legacy shape means the moment a deployment is
         # correctly scoped, the key becomes invisible here.
         entry = registry.get(principal)
+        if principal in registry and not isinstance(entry, str | dict):
+            raise AdmissionAuthorityError(
+                f"{SIGNER_REGISTRY_ENV} has an invalid entry for the verified principal"
+            )
         if isinstance(entry, str) and entry:
             return entry
         if isinstance(entry, dict):
             key = entry.get("key")
             if isinstance(key, str) and key:
                 return key
+            raise AdmissionAuthorityError(
+                f"{SIGNER_REGISTRY_ENV} has no usable key for the verified principal"
+            )
+        if isinstance(entry, str):
+            raise AdmissionAuthorityError(
+                f"{SIGNER_REGISTRY_ENV} has no usable key for the verified principal"
+            )
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
@@ -160,6 +171,9 @@ def resolve_admission_authority() -> AdmissionAuthority:
         raise AdmissionAuthorityError(
             "admission requires a bound verified actor; none is in scope"
         ) from exc
+
+    if not actor.authenticated:
+        raise AdmissionAuthorityError("admission requires a bound authenticated actor")
 
     principal = str(getattr(actor, "actor_id", "") or "").strip()
     if not principal:
