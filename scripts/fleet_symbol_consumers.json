@@ -1,28 +1,28 @@
 {
   "_comment": "Fleet consumer index for check_removed_symbol_consumers.py. Maps a fully-qualified agent_utilities dotted target (module path + symbol name, OR a bare module path for a whole-module import) to every agents/*  and skills/* repo+file+line that imports it. Regenerate with `python3 scripts/gen_fleet_symbol_consumers.py --update` after any fleet-wide checkout refresh; the gate FAILS closed if this file is missing or older than its staleness threshold \u2014 see that script's docstring.",
-  "generated_at": "2026-09-24T23:15:07+00:00",
+  "generated_at": "2026-09-25T02:24:48+00:00",
   "workspace_manifest_sha256": "c67110abf391c50425fb52242f5db4e98c82ab1e098f9a039cae8f6486bf5328",
   "workspace_root": "/var/tmp/l9/wave-b-rest/ws-view",
   "repos_scanned": {
     "ansible-tower-mcp": {
       "kind": "agents",
-      "head_sha": "447ed4e529d21343fed01bc406381d71718a43c3"
+      "head_sha": "5915d33f359ec27b17b1ec32e2a78d695938526c"
     },
     "archimate-mcp": {
       "kind": "agents",
-      "head_sha": "e759dab50ea630678c30f9b6ba0d8bdb9bb482e4"
+      "head_sha": "dfff196df6168273d3f4ae60200abe54237e9024"
     },
     "archivebox-api": {
       "kind": "agents",
-      "head_sha": "f29b0028c21884b4306f8e5d690ddfa05a5cd3c9"
+      "head_sha": "fc04efba93f2a5e99b714a726c0bf48a5932639c"
     },
     "aris-mcp": {
       "kind": "agents",
-      "head_sha": "ec24de42c183129834abf30fcacbcfe099355be1"
+      "head_sha": "281fd94adbac83e5392a86c8dd642ad19460a1b1"
     },
     "arr-mcp": {
       "kind": "agents",
-      "head_sha": "fe0657145488d082c1faaa0e10208155d9181ff6"
+      "head_sha": "1110e489928b6027251121612ccc22dd1bbef9e2"
     },
     "atlassian-agent": {
       "kind": "agents",
@@ -30,31 +30,31 @@
     },
     "audio-transcriber": {
       "kind": "agents",
-      "head_sha": "f612ef4f1cce6a3669874390a1ed9c7a11cd55da"
+      "head_sha": "6ca12a58e2555b52e0fff2a775bbb3516f816515"
     },
     "audiobookshelf-mcp": {
       "kind": "agents",
-      "head_sha": "19c0d53f2f31137db603bcf6532f9f561409920e"
+      "head_sha": "32700399f32129fc2fabb8b2d9bf3700761a14b9"
     },
     "caddy-mcp": {
       "kind": "agents",
-      "head_sha": "91858f0e6d2f96405165871cb966c5bedf1357ad"
+      "head_sha": "93ac5bf44184edf50208f09bc7957b04342048ec"
     },
     "camunda-mcp": {
       "kind": "agents",
-      "head_sha": "490bd71a0d5381111f797247947bf9e87747e360"
+      "head_sha": "8712c98b6af8959c24dab26eea9fd6229a3959c5"
     },
     "ciso-assistant-api": {
       "kind": "agents",
-      "head_sha": "04992b722adf9c0e9eb9b528bf22da403eaeb0a6"
+      "head_sha": "3ee8982c3f7a3ea97ef53fb9535deef6fe682161"
     },
     "clarity-api": {
       "kind": "agents",
-      "head_sha": "11343c7c6b5c3ba23614248d0df6a3c50c0c9c9f"
+      "head_sha": "48730b290672b6434b6d81828a28947421300fc7"
     },
     "container-manager-mcp": {
       "kind": "agents",
-      "head_sha": "0e2014e4b21f8b4c289ec0f64b3f2312a55513cb"
+      "head_sha": "a12f5a764dc0ecae60847cd70a1614ce114eeff7"
     },
     "data-science-mcp": {
       "kind": "agents",
@@ -62,51 +62,51 @@
     },
     "dockerhub-api": {
       "kind": "agents",
-      "head_sha": "d8632507256a08824db2d52f82dcd7b7a4214a40"
+      "head_sha": "12bc86be50618c75787b3f52c07f40fabb742825"
     },
     "documentdb-mcp": {
       "kind": "agents",
-      "head_sha": "da9a32c4aa4fb80b661bc74d5383d9c6e4418de6"
+      "head_sha": "3dadb15e975005e33cdf30adb3df56fdccf2f2b3"
     },
     "egeria-mcp": {
       "kind": "agents",
-      "head_sha": "0e76b8da8582e9f67cfca6f382e01080ce4bfae1"
+      "head_sha": "8803b5aa4151431386ab15eb25c79ed08726ae24"
     },
     "emerald-exchange": {
       "kind": "agents",
-      "head_sha": "5f96846137b71deee2b4b7fb6736f4ad319bb393"
+      "head_sha": "3606f98299fb7c55fc36fe50503719692dfc531a"
     },
     "erpnext-agent": {
       "kind": "agents",
-      "head_sha": "2b185e80d58e19965de97dff3d72de0851c3c3dc"
+      "head_sha": "6b029cad2f635437428abb1166b943a04a7fa90d"
     },
     "fan-manager": {
       "kind": "agents",
-      "head_sha": "f91ffed50ee18f8b6502fc47f4b97a2d6bc49777"
+      "head_sha": "53de43f6250acd1750fe585bf542bdc67797e721"
     },
     "firefly-iii-mcp": {
       "kind": "agents",
-      "head_sha": "b4feeb1fe804451eceef91e6ee71e6b892934cb2"
+      "head_sha": "8a76ace1d009873a7e441308e381c067cc00db5c"
     },
     "freshrss-agent": {
       "kind": "agents",
-      "head_sha": "8a84a273ca0aee44d5eb4c841eec583861f1e082"
+      "head_sha": "5a0c94bad864f60fe66773b392152bdfcd7d5738"
     },
     "genius-agent": {
       "kind": "agents",
-      "head_sha": "82dd3ec8ab6fdf569103c71cd35dc632914ffcf0"
+      "head_sha": "669f1725d5c4de00775ea492d2087f0069135448"
     },
     "github-agent": {
       "kind": "agents",
-      "head_sha": "2be26eabeb72f60b53840912e00a6faf78f60d1c"
+      "head_sha": "91cc91a6d86fadf15f718747a7a34c864505c37a"
     },
     "gitlab-api": {
       "kind": "agents",
-      "head_sha": "2f64e824976f580802acbc6a33d506dd1e382954"
+      "head_sha": "89309053ff88af5d15074c93b816040ae4575890"
     },
     "gramps-mcp": {
       "kind": "agents",
-      "head_sha": "e19b4993210d0be20dbf3529a44b80f22398c675"
+      "head_sha": "315ce5df806cdc4a727c7fd309cece5df9a70e36"
     },
     "hdhomerun-mcp": {
       "kind": "agents",
@@ -118,7 +118,7 @@
     },
     "jellyfin-mcp": {
       "kind": "agents",
-      "head_sha": "8692927680df50e408bcc96b177366031b323803"
+      "head_sha": "e1717aa9b04f13be00cb50f17a07bb35b33ef16f"
     },
     "jena-mcp": {
       "kind": "agents",
@@ -126,11 +126,11 @@
     },
     "kafka-mcp": {
       "kind": "agents",
-      "head_sha": "a3b519279d3ed89aed354c55ad2e9ffcc5cf8997"
+      "head_sha": "1f005419cef7a72ae0f721cec10e1fa23033aae2"
     },
     "keycloak-agent": {
       "kind": "agents",
-      "head_sha": "470e7b63147f608ff26d5f09a5e37542fb1af2ce"
+      "head_sha": "5feabf13f117b2ecf4eadc0a4e000e86b6aa98d4"
     },
     "lakekeeper-mcp": {
       "kind": "agents",
@@ -138,31 +138,31 @@
     },
     "langfuse-agent": {
       "kind": "agents",
-      "head_sha": "4d3dffcfefcbd670a6bdcde7dace11d383296ab5"
+      "head_sha": "4efa2da7648f17ef9bd03e0ed9c81eacfc29711b"
     },
     "leanix-agent": {
       "kind": "agents",
-      "head_sha": "b116085d7df29756c4a5dc55ce18ddb11a1d8beb"
+      "head_sha": "affe9401e7f6a4ab644f0c5ef1ee4798ea8af013"
     },
     "legal-peripherals-mcp": {
       "kind": "agents",
-      "head_sha": "1426800b0ec8455b6a4e0a4b763475b91de16185"
+      "head_sha": "061594e50f6fb46f93281dc707302ec75e923c27"
     },
     "lgtm-mcp": {
       "kind": "agents",
-      "head_sha": "69114effdf1bcca729040c084860583bd35ac54c"
+      "head_sha": "c4adcc75a2d0b9a7cab2467375fca5ae43277a3e"
     },
     "listmonk-api": {
       "kind": "agents",
-      "head_sha": "49001aeecc9da6f924653295ac7c1ca8f4e327a8"
+      "head_sha": "236af53e1cb50b53940bbe423655b1abd8accf78"
     },
     "mattermost-mcp": {
       "kind": "agents",
-      "head_sha": "7f3a30afb1f31363578ffacfea9934d5da8290bb"
+      "head_sha": "6092749b9a82bf245f7900fc2fd5eb8930cfb3bf"
     },
     "mealie-mcp": {
       "kind": "agents",
-      "head_sha": "f0a6b0fa7781c4dd8d0d01de85fe535e6fbe0afd"
+      "head_sha": "4e0dbdeeca9ade23e2c9d095e4ef3b8e11bf47cb"
     },
     "media-downloader": {
       "kind": "agents",
@@ -178,19 +178,19 @@
     },
     "objectstore-mcp": {
       "kind": "agents",
-      "head_sha": "d261a7291e8b1024316f453cc5421168b313317c"
+      "head_sha": "854c6d4f38dbd1819feb5611273c791daf25828b"
     },
     "okta-agent": {
       "kind": "agents",
-      "head_sha": "e394a897d06976c5e9d0ee2be1a53c278e572230"
+      "head_sha": "44a1dce5f87718a757c4e82ecbf764774a1ebec9"
     },
     "onetrust-api": {
       "kind": "agents",
-      "head_sha": "f0884a237fa7f5e750375181b769e9d2e479c2b0"
+      "head_sha": "3a598ddbcafb48952bd625f74cc1f644ba7fa16c"
     },
     "openbao-mcp": {
       "kind": "agents",
-      "head_sha": "6c341d0f5d37a20e44c1cb8514faffa09ed67b00"
+      "head_sha": "5c9af845acbcc7befa22f84a3089d455fc35ada9"
     },
     "opensearch-mcp": {
       "kind": "agents",
@@ -198,7 +198,7 @@
     },
     "owncast-agent": {
       "kind": "agents",
-      "head_sha": "a4acd8c6a52df3e450d23198c8af024f68fe1fed"
+      "head_sha": "1ed4de9527bee1da31e95bf3002e0c0be150b5c3"
     },
     "paperless-ngx-mcp": {
       "kind": "agents",
@@ -206,23 +206,23 @@
     },
     "plane-agent": {
       "kind": "agents",
-      "head_sha": "cfbd80cff14f154cfe776855e66c83a666f22182"
+      "head_sha": "aa78ff72f2c081d2c82b1bc01db093a3effa786a"
     },
     "portainer-agent": {
       "kind": "agents",
-      "head_sha": "fc7b8086c26a12b78b3d7e00264a7b5207aa6eda"
+      "head_sha": "6b9859b962f885293fd3deba8cc0bf35f5a1e0f8"
     },
     "postiz-agent": {
       "kind": "agents",
-      "head_sha": "b29e6191dfbf21bb5461240c709beaedad208f6e"
+      "head_sha": "efa536f46352bc1ae43f52fe2feb8907caa5fd6c"
     },
     "pulselink-mcp": {
       "kind": "agents",
-      "head_sha": "4eea8b669e90ff8874f3017791518c9efa2a47ba"
+      "head_sha": "f4bcf42b34fd9a7201c059cf3259e7799c6f05db"
     },
     "qbittorrent-agent": {
       "kind": "agents",
-      "head_sha": "12f6fdc0a77e35e000fe493e774af08b1346e4cc"
+      "head_sha": "7075ede96a7f065dd944742aa8f5b3b31a44f2a1"
     },
     "repository-manager": {
       "kind": "agents",
@@ -230,23 +230,23 @@
     },
     "rom-manager": {
       "kind": "agents",
-      "head_sha": "85a1be142d30051e0b26f808103902008ff6ce06"
+      "head_sha": "d6e6e1a22b8d4fc77041bbacce7f0aa1b5497fa5"
     },
     "salesforce-agent": {
       "kind": "agents",
-      "head_sha": "d800200b064a19b6c6ad3cbb417353eb38c438a0"
+      "head_sha": "4ff54b0f461eacb23e146c644cde2af3add45467"
     },
     "scholarx": {
       "kind": "agents",
-      "head_sha": "5461435f4157ab75e925d5d9fb2551ee5f151590"
+      "head_sha": "b56786b80f79d6456d960594278e8022a9f5d114"
     },
     "searxng-mcp": {
       "kind": "agents",
-      "head_sha": "e6a5c8224495575081af074e4549d960d4114f94"
+      "head_sha": "315a19aa77cb95f9ddd59407d4cd3a5c39a3c7ed"
     },
     "servicenow-api": {
       "kind": "agents",
-      "head_sha": "927c3f888fdee8bc9bdfb49c5b48a29eaa701bd7"
+      "head_sha": "45486f278793feb5add3b1b628e17967f955228f"
     },
     "spark-mcp": {
       "kind": "agents",
@@ -254,11 +254,11 @@
     },
     "sql-mcp": {
       "kind": "agents",
-      "head_sha": "4cdce7d09ddc654e7de16c954b126a57eb2bd2fb"
+      "head_sha": "45eb75e1a5c26efd53a2e393bcf5e74a3230b1b3"
     },
     "stirlingpdf-agent": {
       "kind": "agents",
-      "head_sha": "59a839de506d1691cf0c635d19958837cea0fc79"
+      "head_sha": "c3a278fed99baa59852e8b3fce0026b3ffc85875"
     },
     "systems-manager": {
       "kind": "agents",
@@ -266,19 +266,19 @@
     },
     "technitium-dns-mcp": {
       "kind": "agents",
-      "head_sha": "a7d03d30de1a40ed8552c93b8460891d42774b59"
+      "head_sha": "bf590b57c6cf9290ecc68eb02da81d02547196b3"
     },
     "tunnel-manager": {
       "kind": "agents",
-      "head_sha": "9e575b4779c4a88af455514779a5e8534b83f820"
+      "head_sha": "a1665f72e73b47c242fc943f90fb651095f9a94a"
     },
     "twenty-mcp": {
       "kind": "agents",
-      "head_sha": "130eea93dece4d418411f5184275cad64a77ce78"
+      "head_sha": "a92e2b7660ab10cdaefc800e48ea554f6dd29ea6"
     },
     "uptime-kuma-agent": {
       "kind": "agents",
-      "head_sha": "efceda640cdb60bef8103700f92a0603572825ed"
+      "head_sha": "ef5d5972ee25ebe99d86c88d9f99808a258c5c29"
     },
     "vaultwarden-mcp": {
       "kind": "agents",
@@ -290,7 +290,7 @@
     },
     "wger-agent": {
       "kind": "agents",
-      "head_sha": "8d7540c696b49481c071145ac231f38b007f6311"
+      "head_sha": "b3f21940722b886a3abe2743336c76ba89d4bc18"
     },
     "skill-graphs": {
       "kind": "skills",
@@ -298,7 +298,7 @@
     },
     "universal-skills": {
       "kind": "skills",
-      "head_sha": "90d97ea62d07d1fda8665aea64b4d5d11c886cee"
+      "head_sha": "aa7cc0f0c5b51b2262bc4e2f2422a8ea6140b50a"
     }
   },
   "repos_missing_locally": [],
@@ -1412,7 +1412,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 34
+        "line": 31
       },
       {
         "repo": "data-science-mcp",
@@ -1642,7 +1642,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 13
+        "line": 15
       },
       {
         "repo": "searxng-mcp",
@@ -1772,6 +1772,11 @@
         "repo": "caddy-mcp",
         "file": "caddy_mcp/auth.py",
         "line": 4
+      },
+      {
+        "repo": "caddy-mcp",
+        "file": "caddy_mcp/mcp/mcp_config.py",
+        "line": 265
       },
       {
         "repo": "camunda-mcp",
@@ -2054,6 +2059,11 @@
         "line": 29
       },
       {
+        "repo": "gitlab-api",
+        "file": "gitlab_api/pipeline_events.py",
+        "line": 151
+      },
+      {
         "repo": "gramps-mcp",
         "file": "gramps_mcp/auth.py",
         "line": 8
@@ -2189,6 +2199,11 @@
         "line": 4
       },
       {
+        "repo": "openbao-mcp",
+        "file": "openbao_mcp/mcp/mcp_sys.py",
+        "line": 153
+      },
+      {
         "repo": "opensearch-mcp",
         "file": "opensearch_mcp/auth.py",
         "line": 45
@@ -2281,7 +2296,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 13
+        "line": 15
       },
       {
         "repo": "searxng-mcp",
@@ -2720,7 +2735,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 301
+        "line": 295
       },
       {
         "repo": "dockerhub-api",
@@ -2827,7 +2842,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 301
+        "line": 295
       },
       {
         "repo": "dockerhub-api",
@@ -3920,7 +3935,7 @@
       {
         "repo": "dockerhub-api",
         "file": "dockerhub_api/api/api_client_registry_base.py",
-        "line": 301
+        "line": 295
       },
       {
         "repo": "dockerhub-api",
@@ -7565,7 +7580,7 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 78
+        "line": 53
       },
       {
         "repo": "repository-manager",
@@ -7586,13 +7601,6 @@
         "repo": "stirlingpdf-agent",
         "file": "stirlingpdf_agent/kg_media.py",
         "line": 41
-      }
-    ],
-    "agent_utilities.knowledge_graph.core.owl_bridge.register_promotable_node_types": [
-      {
-        "repo": "leanix-agent",
-        "file": "leanix_agent/metamodel.py",
-        "line": 477
       }
     ],
     "agent_utilities.knowledge_graph.core.session.GraphSession": [
@@ -7724,7 +7732,7 @@
       {
         "repo": "jellyfin-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "kafka-mcp",
@@ -7774,7 +7782,7 @@
       {
         "repo": "objectstore-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "okta-agent",
@@ -7784,12 +7792,12 @@
       {
         "repo": "onetrust-api",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "openbao-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "owncast-agent",
@@ -7799,7 +7807,7 @@
       {
         "repo": "plane-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "portainer-agent",
@@ -8047,7 +8055,7 @@
       {
         "repo": "jellyfin-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "kafka-mcp",
@@ -8097,7 +8105,7 @@
       {
         "repo": "objectstore-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "okta-agent",
@@ -8107,12 +8115,12 @@
       {
         "repo": "onetrust-api",
         "file": "tests/test_kg_ingest.py",
-        "line": 19
+        "line": 16
       },
       {
         "repo": "openbao-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "owncast-agent",
@@ -8122,7 +8130,7 @@
       {
         "repo": "plane-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 18
+        "line": 15
       },
       {
         "repo": "portainer-agent",
@@ -8505,7 +8513,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 1352
+        "line": 1347
       },
       {
         "repo": "container-manager-mcp",
@@ -8580,7 +8588,7 @@
       {
         "repo": "jellyfin-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "kafka-mcp",
@@ -8655,7 +8663,7 @@
       {
         "repo": "objectstore-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "okta-agent",
@@ -8665,7 +8673,7 @@
       {
         "repo": "onetrust-api",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 17
       },
       {
         "repo": "openbao-mcp",
@@ -8675,7 +8683,7 @@
       {
         "repo": "openbao-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "opensearch-mcp",
@@ -8695,7 +8703,7 @@
       {
         "repo": "plane-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 15
+        "line": 16
       },
       {
         "repo": "portainer-agent",
@@ -8922,7 +8930,7 @@
       {
         "repo": "gramps-mcp",
         "file": "gramps_mcp/kg_ingest.py",
-        "line": 23
+        "line": 26
       },
       {
         "repo": "jellyfin-mcp",
@@ -8992,7 +9000,7 @@
       {
         "repo": "qbittorrent-agent",
         "file": "qbittorrent_agent/kg_ingest.py",
-        "line": 24
+        "line": 27
       },
       {
         "repo": "repository-manager",
@@ -9159,7 +9167,7 @@
       {
         "repo": "gramps-mcp",
         "file": "gramps_mcp/kg_ingest.py",
-        "line": 23
+        "line": 29
       },
       {
         "repo": "home-assistant-agent",
@@ -9284,7 +9292,7 @@
       {
         "repo": "qbittorrent-agent",
         "file": "qbittorrent_agent/kg_ingest.py",
-        "line": 24
+        "line": 30
       },
       {
         "repo": "repository-manager",
@@ -10012,7 +10020,7 @@
       {
         "repo": "langfuse-agent",
         "file": "langfuse_agent/tools/kg.py",
-        "line": 11
+        "line": 12
       },
       {
         "repo": "stirlingpdf-agent",
@@ -10034,7 +10042,7 @@
       {
         "repo": "stirlingpdf-agent",
         "file": "stirlingpdf_agent/mcp/mcp_pdf.py",
-        "line": 79
+        "line": 91
       }
     ],
     "agent_utilities.mcp.action_dispatch.resolve_action": [
@@ -10056,7 +10064,7 @@
       {
         "repo": "audiobookshelf-mcp",
         "file": "audiobookshelf_mcp/mcp/mcp_libraries.py",
-        "line": 1
+        "line": 3
       },
       {
         "repo": "audiobookshelf-mcp",
@@ -10076,7 +10084,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 35
+        "line": 32
       },
       {
         "repo": "firefly-iii-mcp",
@@ -10086,7 +10094,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_accounts.py",
-        "line": 3
+        "line": 4
       },
       {
         "repo": "firefly-iii-mcp",
@@ -10111,7 +10119,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_budgets.py",
-        "line": 3
+        "line": 4
       },
       {
         "repo": "firefly-iii-mcp",
@@ -10201,7 +10209,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_transactions.py",
-        "line": 3
+        "line": 4
       },
       {
         "repo": "firefly-iii-mcp",
@@ -10221,7 +10229,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/mcp/mcp_reader.py",
-        "line": 7
+        "line": 8
       },
       {
         "repo": "freshrss-agent",
@@ -10906,7 +10914,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 14
+        "line": 16
       },
       {
         "repo": "servicenow-api",
@@ -11243,7 +11251,7 @@
       {
         "repo": "audiobookshelf-mcp",
         "file": "audiobookshelf_mcp/mcp/mcp_libraries.py",
-        "line": 2
+        "line": 4
       },
       {
         "repo": "audiobookshelf-mcp",
@@ -11263,7 +11271,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_docker_swarm.py",
-        "line": 12
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
@@ -11273,57 +11281,57 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_cluster.py",
-        "line": 12
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_config.py",
-        "line": 12
+        "line": 11
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_governance.py",
-        "line": 11
+        "line": 10
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_networking.py",
-        "line": 13
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_observability.py",
-        "line": 11
+        "line": 10
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_rbac.py",
-        "line": 13
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_storage.py",
-        "line": 13
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_k8s_workloads.py",
-        "line": 11
+        "line": 10
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_multi_context.py",
-        "line": 11
+        "line": 10
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp/mcp_podman.py",
-        "line": 13
+        "line": 12
       },
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 36
+        "line": 33
       },
       {
         "repo": "container-manager-mcp",
@@ -11338,7 +11346,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_accounts.py",
-        "line": 4
+        "line": 5
       },
       {
         "repo": "firefly-iii-mcp",
@@ -11363,7 +11371,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_budgets.py",
-        "line": 4
+        "line": 5
       },
       {
         "repo": "firefly-iii-mcp",
@@ -11458,7 +11466,7 @@
       {
         "repo": "firefly-iii-mcp",
         "file": "firefly_iii_mcp/mcp/mcp_transactions.py",
-        "line": 4
+        "line": 5
       },
       {
         "repo": "firefly-iii-mcp",
@@ -11483,7 +11491,7 @@
       {
         "repo": "freshrss-agent",
         "file": "freshrss_agent/mcp/mcp_reader.py",
-        "line": 6
+        "line": 9
       },
       {
         "repo": "freshrss-agent",
@@ -11973,7 +11981,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 15
+        "line": 17
       },
       {
         "repo": "servicenow-api",
@@ -12075,7 +12083,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 65
+        "line": 62
       },
       {
         "repo": "systems-manager",
@@ -12112,12 +12120,12 @@
       {
         "repo": "github-agent",
         "file": "github_agent/mcp_server.py",
-        "line": 3601
+        "line": 3664
       },
       {
         "repo": "gitlab-api",
         "file": "gitlab_api/mcp_server.py",
-        "line": 1247
+        "line": 1304
       },
       {
         "repo": "twenty-mcp",
@@ -12129,12 +12137,12 @@
       {
         "repo": "github-agent",
         "file": "github_agent/mcp_server.py",
-        "line": 3601
+        "line": 3664
       },
       {
         "repo": "gitlab-api",
         "file": "gitlab_api/mcp_server.py",
-        "line": 1247
+        "line": 1304
       },
       {
         "repo": "twenty-mcp",
@@ -12151,7 +12159,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 145
+        "line": 142
       },
       {
         "repo": "systems-manager",
@@ -12203,7 +12211,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 44
+        "line": 41
       },
       {
         "repo": "tunnel-manager",
@@ -12307,7 +12315,7 @@
       {
         "repo": "onetrust-api",
         "file": "onetrust_api/auth.py",
-        "line": 84
+        "line": 98
       },
       {
         "repo": "opensearch-mcp",
@@ -12453,7 +12461,7 @@
       {
         "repo": "onetrust-api",
         "file": "onetrust_api/auth.py",
-        "line": 149
+        "line": 163
       },
       {
         "repo": "opensearch-mcp",
@@ -12571,7 +12579,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 37
+        "line": 34
       },
       {
         "repo": "data-science-mcp",
@@ -12801,7 +12809,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 579
+        "line": 582
       },
       {
         "repo": "searxng-mcp",
@@ -12873,12 +12881,12 @@
       {
         "repo": "github-agent",
         "file": "github_agent/auth.py",
-        "line": 158
+        "line": 154
       },
       {
         "repo": "github-agent",
         "file": "github_agent/auth.py",
-        "line": 191
+        "line": 187
       },
       {
         "repo": "listmonk-api",
@@ -12900,7 +12908,7 @@
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/mcp_server.py",
-        "line": 3644
+        "line": 3649
       }
     ],
     "agent_utilities.mcp.tools.intent_tools._approval_satisfied_by_session_load": [
@@ -12993,7 +13001,7 @@
       {
         "repo": "container-manager-mcp",
         "file": "container_manager_mcp/mcp_server.py",
-        "line": 38
+        "line": 35
       },
       {
         "repo": "data-science-mcp",
@@ -13218,7 +13226,7 @@
       {
         "repo": "scholarx",
         "file": "scholarx/mcp_server.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "servicenow-api",
@@ -14030,6 +14038,55 @@
         "line": 17
       }
     ],
+    "agent_utilities.security.audit_pseudonym.AuditFieldPolicy": [
+      {
+        "repo": "caddy-mcp",
+        "file": "caddy_mcp/crowdsec_feed.py",
+        "line": 69
+      },
+      {
+        "repo": "keycloak-agent",
+        "file": "keycloak_agent/kg_ingest.py",
+        "line": 269
+      },
+      {
+        "repo": "openbao-mcp",
+        "file": "openbao_mcp/audit_feed.py",
+        "line": 87
+      }
+    ],
+    "agent_utilities.security.audit_pseudonym.AuditPseudonymizer": [
+      {
+        "repo": "caddy-mcp",
+        "file": "caddy_mcp/crowdsec_feed.py",
+        "line": 69
+      },
+      {
+        "repo": "caddy-mcp",
+        "file": "tests/test_crowdsec_feed.py",
+        "line": 7
+      },
+      {
+        "repo": "keycloak-agent",
+        "file": "keycloak_agent/kg_ingest.py",
+        "line": 269
+      },
+      {
+        "repo": "keycloak-agent",
+        "file": "tests/test_security_events.py",
+        "line": 7
+      },
+      {
+        "repo": "openbao-mcp",
+        "file": "openbao_mcp/audit_feed.py",
+        "line": 87
+      },
+      {
+        "repo": "openbao-mcp",
+        "file": "tests/test_audit_feed.py",
+        "line": 8
+      }
+    ],
     "agent_utilities.security.brain_context.ActorContext": [
       {
         "repo": "ansible-tower-mcp",
@@ -14159,7 +14216,7 @@
       {
         "repo": "jellyfin-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "kafka-mcp",
@@ -14209,7 +14266,7 @@
       {
         "repo": "objectstore-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "okta-agent",
@@ -14219,12 +14276,12 @@
       {
         "repo": "onetrust-api",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "openbao-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "owncast-agent",
@@ -14234,7 +14291,7 @@
       {
         "repo": "plane-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "portainer-agent",
@@ -14485,7 +14542,7 @@
       {
         "repo": "jellyfin-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "kafka-mcp",
@@ -14525,7 +14582,7 @@
       {
         "repo": "objectstore-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "okta-agent",
@@ -14535,12 +14592,12 @@
       {
         "repo": "onetrust-api",
         "file": "tests/test_kg_ingest.py",
-        "line": 17
+        "line": 19
       },
       {
         "repo": "openbao-mcp",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "owncast-agent",
@@ -14550,7 +14607,7 @@
       {
         "repo": "plane-agent",
         "file": "tests/test_kg_ingest.py",
-        "line": 16
+        "line": 18
       },
       {
         "repo": "portainer-agent",
@@ -14952,14 +15009,21 @@
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/mcp_server.py",
-        "line": 3647
+        "line": 3652
       }
     ],
     "agent_utilities.security.secrets_client.InEpistemicGraphBackend": [
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 79
+        "line": 56
+      }
+    ],
+    "agent_utilities.security.secrets_client.SecretsBackend": [
+      {
+        "repo": "pulselink-mcp",
+        "file": "pulselink_mcp/mcp_server.py",
+        "line": 18
       }
     ],
     "agent_utilities.security.secrets_client.SecretsClient": [
@@ -14971,12 +15035,12 @@
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 20
+        "line": 27
       },
       {
         "repo": "pulselink-mcp",
         "file": "pulselink_mcp/mcp_server.py",
-        "line": 79
+        "line": 129
       },
       {
         "repo": "pulselink-mcp",
@@ -14990,6 +15054,16 @@
       }
     ],
     "agent_utilities.security.secrets_client.create_secrets_client": [
+      {
+        "repo": "caddy-mcp",
+        "file": "caddy_mcp/mcp/mcp_config.py",
+        "line": 266
+      },
+      {
+        "repo": "gitlab-api",
+        "file": "gitlab_api/pipeline_events.py",
+        "line": 152
+      },
       {
         "repo": "tunnel-manager",
         "file": "tunnel_manager/connection_security.py",
