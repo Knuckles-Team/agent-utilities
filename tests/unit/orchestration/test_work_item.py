@@ -742,6 +742,96 @@ def test_submit_work_item_input_double_submit_only_wins_once(
     }
 
 
+def test_graphos_plan_pause_requires_exact_resume_and_blocks_generic_input(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    plan_ref = "graphos_plan:" + "a" * 48
+    assert wi.request_work_item_plan_approval(
+        engine,
+        item_id,
+        claim,
+        plan_ref=plan_ref,
+        op="graphos.tool",
+        params_digest="b" * 64,
+        expires_at_ms=20_000,
+        principal="alice",
+        preview={"effect": "write", "summary": "Update the record"},
+        now=11.0,
+    )
+    pending = wi.get_work_item(engine, item_id)["metadata"]["pending_input_request"]
+    assert pending["kind"] == "graphos.plan"
+    assert "params" not in pending
+    assert not wi.submit_work_item_input(
+        engine, item_id, tenant="tenant-a", response={"confirmed": True}, now=12.0
+    )
+    for tenant, principal, ref, now in [
+        ("tenant-b", "alice", plan_ref, 12.0),
+        ("tenant-a", "bob", plan_ref, 12.0),
+        ("tenant-a", "alice", "graphos_plan:" + "c" * 48, 12.0),
+        ("tenant-a", "alice", plan_ref, 20.0),
+    ]:
+        assert not wi.resume_work_item_plan_approval(
+            engine,
+            item_id,
+            tenant=tenant,
+            principal=principal,
+            plan_ref=ref,
+            result_ref="graphos_result:receipt",
+            now=now,
+        )
+    assert wi.resume_work_item_plan_approval(
+        engine,
+        item_id,
+        tenant="tenant-a",
+        principal="alice",
+        plan_ref=plan_ref,
+        result_ref="graphos_result:receipt",
+        now=12.0,
+    )
+    assert not wi.resume_work_item_plan_approval(
+        engine,
+        item_id,
+        tenant="tenant-a",
+        principal="alice",
+        plan_ref=plan_ref,
+        result_ref="graphos_result:another",
+        now=13.0,
+    )
+    metadata = wi.get_work_item(engine, item_id)["metadata"]
+    assert "pending_input_request" not in metadata
+    assert metadata["pending_input_response"] == {
+        "kind": "graphos.plan",
+        "plan_ref": plan_ref,
+        "result_ref": "graphos_result:receipt",
+    }
+
+
+def test_graphos_plan_pause_rejects_unbounded_preview(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    with pytest.raises(ValueError, match="summary"):
+        wi.request_work_item_plan_approval(
+            engine,
+            item_id,
+            claim,
+            plan_ref="graphos_plan:" + "a" * 48,
+            op="graphos.tool",
+            params_digest="b" * 64,
+            expires_at_ms=20_000,
+            principal="alice",
+            preview={"effect": "write", "summary": "x" * 257},
+            now=11.0,
+        )
+
+
 def test_set_work_item_priority_applies_via_native_cas(engine: NativeEngine) -> None:
     item_id = wi.submit_work_item(
         engine, kind="generic", payload_ref="p", tenant="tenant-a"

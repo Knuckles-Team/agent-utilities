@@ -21,6 +21,7 @@ from agent_utilities.api import (
     WorkItemGetRequest,
     WorkItemListRequest,
     WorkItemPage,
+    WorkItemPlanResumeRequest,
     WorkItemSnapshot,
     WorkItemSubmissionResult,
     compose_agent_control_plane,
@@ -243,6 +244,35 @@ async def test_missing_ports_and_nonambient_session_fail_closed():
             await control.get_work_item(WorkItemGetRequest(work_item_id="wi:1"))
     with suspend_session(), pytest.raises(PermissionError):
         await control.resolve_capability(CapabilitySearchRequest(task="a task"))
+
+
+@pytest.mark.asyncio
+async def test_plan_resume_uses_verified_session_and_explicit_port():
+    session = _session()
+    request = WorkItemPlanResumeRequest(
+        work_item_id="wi:task-1",
+        plan_ref="graphos_plan:" + "a" * 48,
+        result_ref="graphos_result:receipt",
+    )
+    without_port = compose_agent_control_plane(_EpistemicGraphClient(), session)
+    with use_session(session):
+        with pytest.raises(AgentControlPlaneUnavailable, match="work-item-plan-approval"):
+            await without_port.resume_work_item_plan(request)
+
+    class ApprovalPort:
+        calls = []
+
+        async def resume(self, request, *, session):
+            self.calls.append((request, session))
+            return True
+
+    port = ApprovalPort()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(), session, work_item_plan_approval=port
+    )
+    with use_session(session):
+        assert await control.resume_work_item_plan(request)
+    assert port.calls == [(request, session)]
 
 
 @pytest.mark.asyncio

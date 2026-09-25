@@ -241,6 +241,23 @@ class WorkItemCancelRequest(_StrictModel):
     )
 
 
+class WorkItemPlanResumeRequest(_StrictModel):
+    """Trusted GraphOS confirmation result for one pending WorkItem PLAN."""
+
+    work_item_id: str = Field(min_length=1, max_length=512)
+    plan_ref: str = Field(pattern=r"^graphos_plan:[0-9a-f]{48}$")
+    result_ref: str = Field(min_length=1, max_length=512)
+
+
+@runtime_checkable
+class WorkItemPlanApprovalPort(Protocol):
+    """CAS transition after the caller's PLAN effect completed in GraphOS."""
+
+    async def resume(
+        self, request: WorkItemPlanResumeRequest, *, session: GraphSession
+    ) -> bool: ...
+
+
 @runtime_checkable
 class WorkItemStorePort(Protocol):
     """Explicit typed WorkItem authority, scoped by the verified session."""

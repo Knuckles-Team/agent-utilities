@@ -88,6 +88,8 @@ __all__ = [
     "defer_work_item",
     "request_work_item_input",
     "submit_work_item_input",
+    "request_work_item_plan_approval",
+    "resume_work_item_plan_approval",
     "reap_expired_leases",
     "tenant_in_flight_count",
     "machine_state_distribution",
@@ -2028,7 +2030,131 @@ def submit_work_item_input(
     old_metadata = dict(item.get("metadata") or {})
     if not old_metadata.get("pending_input_request"):
         return False
+    # GraphOS PLAN confirmation has its own single-use authority and must not
+    # be consumed through the generic MCP tasks/update response path.
+    if isinstance(old_metadata["pending_input_request"], dict) and old_metadata[
+        "pending_input_request"
+    ].get("kind") == "graphos.plan":
+        return False
     clean_response, _report = PersistencePrivacyGuard().sanitize(dict(response))
+    new_metadata = dict(old_metadata)
+    new_metadata["pending_input_response"] = clean_response
+    new_metadata.pop("pending_input_request", None)
+    return _cas_work_item_metadata(
+        engine,
+        tenant=tenant,
+        item_id=item_id,
+        expected_status=["leased", "running"],
+        now=now,
+        expected_metadata=old_metadata,
+        set_metadata=new_metadata,
+    )
+
+
+def request_work_item_plan_approval(
+    engine: Any,
+    item_id: str,
+    claim: dict[str, Any],
+    *,
+    plan_ref: str,
+    op: str,
+    params_digest: str,
+    expires_at_ms: int,
+    principal: str,
+    preview: dict[str, str],
+    now: float | None = None,
+) -> bool:
+    """Persist a bounded GraphOS PLAN pause under the worker's live lease.
+
+    The plan lease and its parameters remain GraphOS authority. Only an opaque
+    reference and a safe preview are durable WorkItem metadata.
+    """
+    import re
+
+    now = now if now is not None else _now()
+    if not re.fullmatch(r"graphos_plan:[0-9a-f]{48}", plan_ref):
+        raise ValueError("invalid GraphOS plan reference")
+    if not re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", op):
+        raise ValueError("invalid GraphOS operation")
+    if not re.fullmatch(r"[0-9a-f]{64}", params_digest):
+        raise ValueError("invalid GraphOS parameters digest")
+    if not principal or len(principal) > 512:
+        raise ValueError("a bounded verified principal is required")
+    if not isinstance(expires_at_ms, int) or isinstance(expires_at_ms, bool) or expires_at_ms <= int(now * 1000):
+        raise ValueError("GraphOS plan expiry must be in the future")
+    if not isinstance(preview, dict) or set(preview) != {"effect", "summary"}:
+        raise ValueError("plan preview must contain effect and summary only")
+    if preview["effect"] not in {"read", "write", "destructive", "admin"}:
+        raise ValueError("invalid plan effect")
+    if not isinstance(preview["summary"], str) or len(preview["summary"]) > 256:
+        raise ValueError("plan summary must be bounded text")
+    request = {
+        "kind": "graphos.plan",
+        "plan_ref": plan_ref,
+        "op": op,
+        "params_digest": params_digest,
+        "expires_at_ms": expires_at_ms,
+        "principal": principal,
+        "preview": preview,
+    }
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    clean_request, _ = PersistencePrivacyGuard().sanitize(request)
+    if clean_request != request:
+        raise ValueError("plan metadata must not contain sensitive values")
+    return request_work_item_input(
+        engine,
+        item_id,
+        claim,
+        request=request,
+        now=now,
+    )
+
+
+def resume_work_item_plan_approval(
+    engine: Any,
+    item_id: str,
+    *,
+    tenant: str,
+    principal: str,
+    plan_ref: str,
+    result_ref: str,
+    now: float | None = None,
+) -> bool:
+    """Consume one pending PLAN pause after GraphOS confirms and executes it.
+
+    The trusted GraphOS bridge supplies an opaque persisted result reference;
+    the worker must consume that result rather than execute the operation again.
+    A different principal requires an explicit delegated approval flow upstream.
+    """
+    import re
+
+    now = now if now is not None else _now()
+    if not re.fullmatch(r"graphos_plan:[0-9a-f]{48}", plan_ref):
+        raise ValueError("invalid GraphOS plan reference")
+    if not result_ref or len(result_ref) > 512 or any(c.isspace() for c in result_ref):
+        raise ValueError("an opaque confirmed result reference is required")
+    item = get_work_item(engine, item_id)
+    if item is None or item.get("status") not in {"leased", "running"}:
+        return False
+    if str(item.get("tenant") or "") != tenant:
+        return False
+    old_metadata = dict(item.get("metadata") or {})
+    pending = old_metadata.get("pending_input_request")
+    if not isinstance(pending, dict) or pending.get("kind") != "graphos.plan":
+        return False
+    if (
+        pending.get("plan_ref") != plan_ref
+        or pending.get("principal") != principal
+        or int(pending.get("expires_at_ms") or 0) <= int(now * 1000)
+    ):
+        return False
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    response = {"kind": "graphos.plan", "plan_ref": plan_ref, "result_ref": result_ref}
+    clean_response, _ = PersistencePrivacyGuard().sanitize(response)
+    if clean_response != response:
+        return False
     new_metadata = dict(old_metadata)
     new_metadata["pending_input_response"] = clean_response
     new_metadata.pop("pending_input_request", None)

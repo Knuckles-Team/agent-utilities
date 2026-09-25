@@ -37,6 +37,8 @@ from agent_utilities.api.agent_control_contracts import (
     WorkItemGetRequest,
     WorkItemListRequest,
     WorkItemPage,
+    WorkItemPlanApprovalPort,
+    WorkItemPlanResumeRequest,
     WorkItemSnapshot,
     WorkItemStorePort,
     WorkItemSubmission,
@@ -212,6 +214,7 @@ class AgentControlPlane:
         capability_search: CapabilitySearchPort | None = None,
         agent_executor: AgentExecutionPort | None = None,
         work_item_store: WorkItemStorePort | None = None,
+        work_item_plan_approval: WorkItemPlanApprovalPort | None = None,
         signed_dispatch: SignedAgentDispatchPort | None = None,
         run_output: RunOutputPort | None = None,
     ) -> None:
@@ -228,6 +231,7 @@ class AgentControlPlane:
         self._capability_search = capability_search
         self._agent_executor = agent_executor
         self._work_item_store = work_item_store
+        self._work_item_plan_approval = work_item_plan_approval
         self._signed_dispatch = signed_dispatch
         self._run_output = run_output
         # Validate eagerly so invalid or expired authority never creates a usable
@@ -552,6 +556,22 @@ class AgentControlPlane:
             )
         return result
 
+    async def resume_work_item_plan(
+        self, request: WorkItemPlanResumeRequest
+    ) -> bool:
+        """Record a confirmed GraphOS PLAN result against its pending WorkItem."""
+        if not isinstance(request, WorkItemPlanResumeRequest):
+            raise TypeError("request must be a validated WorkItemPlanResumeRequest")
+        session = self._verified_session("kg:write")
+        port = self._require_port(self._work_item_plan_approval, "work-item-plan-approval")
+        with self._verified_client_context(session):
+            result = await port.resume(request, session=session)
+        if not isinstance(result, bool):
+            raise AgentControlPlaneUnavailable(
+                "the WorkItem plan approval port returned an invalid result"
+            )
+        return result
+
     @classmethod
     def _reject_authority_metadata(cls, value: Any) -> None:
         authority_names = {
@@ -709,6 +729,7 @@ def compose_agent_control_plane(
     capability_search: CapabilitySearchPort | None = None,
     agent_executor: AgentExecutionPort | None = None,
     work_item_store: WorkItemStorePort | None = None,
+    work_item_plan_approval: WorkItemPlanApprovalPort | None = None,
     signed_dispatch: SignedAgentDispatchPort | None = None,
     run_output: RunOutputPort | None = None,
 ) -> AgentControlPlane:
@@ -719,6 +740,7 @@ def compose_agent_control_plane(
         capability_search=capability_search,
         agent_executor=agent_executor,
         work_item_store=work_item_store,
+        work_item_plan_approval=work_item_plan_approval,
         signed_dispatch=signed_dispatch,
         run_output=run_output,
     )
