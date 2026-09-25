@@ -6,8 +6,9 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
+from epistemic_graph.ingestion import embedding_admission
+
 from agent_utilities.decide.learning.session import LearningSession
-from agent_utilities.knowledge_graph.ingestion import embedding_admission
 from agent_utilities.knowledge_graph.ingestion.admission_feedback import (
     AdmissionProposal,
     admitted_classes,
