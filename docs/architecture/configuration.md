@@ -323,16 +323,11 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) |
 | `KG_DSPY_OPTIMIZATION_INTERVAL` | `3600` | DSPy optimization sweep interval (s) |
 
-**`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:AU-KG.ontology.authoritative-tbox`), typed on
-`AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
-modules (the authoritative TBox) to an optional enterprise Fuseki triplestore for SPARQL
-federation. Off by default — Fuseki is optional infrastructure.
-
-| Flag | Default | Notes |
-|---|---|---|
-| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick |
-| `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
-| `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
+**Legacy Fuseki publishing settings.** Older `KG_FUSEKI_*` fields remain in
+`AgentConfig` until the config cutover lands. They do not activate an ontology
+publisher: the engine has no Fuseki publishing tick. RDF authority is in
+epistemic-graph. The separately managed Jena service retains its own health
+check and widget.
 
 **`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:AU-ORCH.execution.ontology-validation-execution-path`),
 typed on `AgentConfig`, default ON.** `execute_workflow` AND its background twin

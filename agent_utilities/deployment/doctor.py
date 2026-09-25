@@ -92,7 +92,6 @@ def _optional_extras_present() -> dict[str, bool]:
         for mod, label in (
             ("rdflib", "owl/sparql"),
             ("psycopg", "postgres"),
-            ("stardog", "stardog"),
         )
     }
 
@@ -5380,8 +5379,8 @@ def _check_fuseki(live: bool = False) -> dict[str, Any]:
             "skip",
             "the Jena/Fuseki SPARQL endpoint is not configured (KG_FUSEKI_ENDPOINT unset)",
             remediation=(
-                "deploy `services/apache-jena` and set KG_FUSEKI_ENDPOINT if ontology "
-                "publish/query via Fuseki is needed"
+                "deploy `services/apache-jena` and set KG_FUSEKI_ENDPOINT if the "
+                "separately managed Jena query service is needed"
             ),
             prescription=prescription,
             data={"configured": False, "live_probed": live},

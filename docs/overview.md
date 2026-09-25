@@ -160,7 +160,7 @@ OS-5.24-5.29 → OS-5.14.
 | KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 | AU-KG.ontology.populated-at-import-real-3 | Remote VCS Enumeration | Enterprise-scale ingestion: enumerate every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
-| KG-2.52 | Ontology Publisher Tick | Background publish of the authoritative TBox to Fuseki (`core/ontology_publisher.py`) |
+| KG-2.52 | Ontology authority | RDF ontology state and query live in epistemic-graph; the unused AU Fuseki publishing tick was retired |
 | AU-KG.ontology.descriptive-process-world-gains | BPMN Process Lift | Step-level shape for the descriptive process world (Camunda extractor + `owl_bridge`) |
 | AU-KG.ingest.cross-host-safe-kg | Cross-Host Task Queue | Atomic SKIP LOCKED claims + visibility-timeout recovery on the shared Postgres state store |
 | KG-2.55 | Fail-Loud Queue Backend Selection | `TASK_QUEUE_BACKEND=sqlite\|postgres\|kafka`; explicit backends fail loud at startup instead of silently degrading |

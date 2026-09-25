@@ -359,15 +359,11 @@ Default governance shapes (`shapes/governance.shapes.ttl`) enforce:
 - Specification must have a `name`
 - Requirement should have a `priority`
 
-### Ontology Publisher
+### Ontology authority
 
-The `OntologyPublisher` (`core/ontology_publisher.py`) enables agent-utilities to serve as both ontology author and distributor:
-
-- **Local export**: Serialize RDF to TTL/XML/N3 with version tags
-- **Stardog push**: Upload via `pystardog` to centralized Stardog instances
-- **Fuseki push**: Upload via REST API to Apache Jena Fuseki (`push_to_jena_fuseki`)
-
-This completes the "Hub-and-Spoke" ontology distribution pattern where agent-utilities maintains the authoritative source and pushes evolved ontologies to enterprise infrastructure.
+epistemic-graph owns RDF storage, query and reasoning. AU no longer exposes the
+unused Stardog/Fuseki ontology push module. A separately managed Jena service
+may still be monitored as an external service; it is not an AU publishing path.
 
 
 ### Unified Native Ingestion Pipeline
@@ -562,12 +558,12 @@ subgraphs (`PRECEDES` edges) distill into graph-native skill-**workflows**; a si
 [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md).
 Extends KG-2.7.
 
-### KG-2.52 / AU-KG.ontology.descriptive-process-world-gains — Published TBox + BPMN Process Lift
+### AU-KG.ontology.descriptive-process-world-gains — Ontology authority + BPMN Process Lift
 
-The ontology the platform ships is published, not just held in memory: a
-background daemon tick (`knowledge_graph/core/ontology_publisher.py`) publishes
-the authoritative TBox to the Fuseki SPARQL endpoint, so external reasoners and
-the execution gate (AU-ORCH.execution.ontology-validation-execution-path) validate against the same source of truth.
+The RDF ontology is held by the epistemic-graph authority. The former AU
+Fuseki publishing daemon was not wired and has been retired. The execution
+gate (AU-ORCH.execution.ontology-validation-execution-path) uses the graph
+authority rather than an AU-managed external triplestore.
 Alongside it, the descriptive process world gains step-level shape (AU-KG.ontology.descriptive-process-world-gains):
 the Camunda extractor (`enrichment/extractors/camunda.py`) and `owl_bridge`
 model BPMN processes down to their steps, which is what makes

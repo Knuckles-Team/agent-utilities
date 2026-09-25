@@ -285,8 +285,9 @@ the loop at every step:
   descriptive↔executable provenance loop — the process model, the compiled
   plan, and the run that executed it stay connected.
 
-The authoritative TBox these steps validate against is published to Fuseki on a
-background tick (**KG-2.52**, `knowledge_graph/core/ontology_publisher.py`).
+The workflow gate reads the ontology from the epistemic-graph authority. The
+former AU Fuseki publishing tick is retired; it was never wired into the
+engine task scheduler.
 Walkthrough: [ontology-to-workflow example](../examples/ontology-to-workflow.md).
 
 ### AU-ORCH.session.durable-goal-registry-goals — Durable Goal Registry

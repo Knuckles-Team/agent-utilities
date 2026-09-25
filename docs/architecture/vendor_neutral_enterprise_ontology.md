@@ -328,9 +328,9 @@ end-to-end:
    (process external id/GUID, workflow id, run id, status, timestamps) — the
    seam a deployment uses to wire egeria-mcp's `assert_lineage` without
    agent-utilities depending on it (see the `workflows/runner.py` docstring).
-5. **Distribution (`KG-2.52`)** — the opt-in `fuseki_publish` daemon tick
-   (`KG_FUSEKI_PUBLISH`) pushes the bundled ontology modules to an Apache
-   Jena Fuseki triplestore for enterprise SPARQL federation.
+5. **Distribution** — the former AU `fuseki_publish` tick was never wired
+   into engine tasks and is retired. Any future external ontology distribution
+   needs a verified consumer and a governed engine contract.
 
 ## Query cookbook
 
