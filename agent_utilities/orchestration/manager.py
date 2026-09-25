@@ -492,6 +492,7 @@ class Orchestrator:
         required_tools: list[str] | None = None,
         skill_name: str | None = None,
         tool_server: str | None = None,
+        context_endpoint: Any | None = None,
         execution_mode: ExecutionMode = "auto",
         grounding: GroundingPolicy = "required",
     ) -> str:
@@ -598,6 +599,7 @@ class Orchestrator:
                     required_tools=required_tools,
                     skill_name=skill_name,
                     tool_server=tool_server,
+                    context_endpoint=context_endpoint,
                     execution_mode=execution_mode,
                     cred_ref=cred_ref,
                     session_id=session_id,

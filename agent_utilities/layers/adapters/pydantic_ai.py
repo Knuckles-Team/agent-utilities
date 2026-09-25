@@ -111,7 +111,8 @@ def _options(spec: RunSpec) -> dict[str, Any]:
         cred_ref=spec.account_ref,
     )
     if toolset.context_endpoint is not None:
-        options["tool_server"] = toolset.context_endpoint.name
+        options["context_endpoint"] = toolset.context_endpoint
+        options["execution_mode"] = "pydantic_graph"
     elif toolset.mcp_servers:
         options["tool_server"] = toolset.mcp_servers[0].name
     if toolset.skills:
