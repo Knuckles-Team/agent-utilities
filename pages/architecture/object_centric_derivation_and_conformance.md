@@ -7,8 +7,8 @@ without conflating that check with the discovery step that produced the model.
 
 ## Incremental derivation (CONCEPT:AU-KG.mining.incremental-object-centric-derivation)
 
-`agent_utilities/knowledge_graph/ingestion/object_centric_derivation.py`
-maintains, per object, an ordered event index keyed by
+`epistemic_graph/ingestion/object_centric_derivation.py` owns and maintains,
+per object, an ordered event index keyed by
 `(occurred_at, sequence_tiebreaker, event_id)` — the same total order the
 static `event_log_adapter` projection uses. An arriving or corrected event
 only ever affects the ONE predecessor/successor pair it lands between:
@@ -43,7 +43,7 @@ added, and `ObjectState` is materialized only for the affected suffix.
 Replay determinism: `IncrementalObjectCentricDeriver` reaches the same
 aggregate DFG and the same final `ObjectState` for one object regardless of
 whether its events arrived strictly in order or with a late insertion
-(`tests/unit/knowledge_graph/test_object_centric_derivation.py`).
+(`epistemic-graph/tests/test_object_centric_derivation.py`).
 
 ## Discovery vs conformance, formally separated (CONCEPT:AU-KG.mining.process-conformance-checking)
 
@@ -51,7 +51,7 @@ Process **mining** discovers a model from observed traces. Process
 **conformance** checks whether SOME traces fit a GIVEN model. Conflating them —
 a "conformance score" that re-discovers its reference model from the same data
 it is checking — can never find a deviation by construction.
-`agent_utilities/knowledge_graph/ingestion/process_conformance.py` keeps that
+`epistemic_graph/ingestion/process_conformance.py` keeps that
 boundary structural:
 
 - **`ConformanceRun`** freezes the five things a result depends on:

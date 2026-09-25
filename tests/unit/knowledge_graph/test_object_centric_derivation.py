@@ -8,13 +8,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
-from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
+from epistemic_graph.ingestion.object_centric_derivation import (
     IncrementalObjectCentricDeriver,
     ObjectTimeline,
     Watermark,
 )
-from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+from epistemic_graph.ingestion.semantic_event_model import (
     EventObjectParticipation,
     ProcessEvent,
     TemporalAttributeValue,

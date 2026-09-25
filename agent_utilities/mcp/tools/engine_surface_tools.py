@@ -992,7 +992,7 @@ def _require_process_perspective(params: dict[str, Any]) -> Any:
     consumes; raises ``ValueError`` (caught by the caller's existing
     invalid-request handling) when any is missing.
     """
-    from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+    from epistemic_graph.ingestion.semantic_event_model import (
         ProcessPerspective,
     )
 
@@ -2097,7 +2097,7 @@ def _ocel_replay_deriver(slice_: Any) -> Any:
     CONCEPT:AU-KG.mining.incremental-object-centric-derivation — read-only by
     construction; commits nothing.
     """
-    from agent_utilities.knowledge_graph.ingestion.object_centric_derivation import (
+    from epistemic_graph.ingestion.object_centric_derivation import (
         IncrementalObjectCentricDeriver,
     )
 
@@ -2450,11 +2450,12 @@ def _conformance_commit(
     inputs: dict[str, Any], run: Any, deviations: Any
 ) -> dict[str, Any]:
     """Commit one ``ConformanceRun`` (+ its Deviations) as a tenant-scoped slice."""
+    from epistemic_graph.ingestion.process_conformance import (
+        conformance_run_graph_slice,
+    )
+
     from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
         ingest_graph_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.process_conformance import (
-        conformance_run_graph_slice,
     )
 
     entities, links = conformance_run_graph_slice(
@@ -2522,12 +2523,13 @@ def _graph_mine_process_conformance(
     # here (there is no engine-side conformance primitive to dispatch
     # to — the whole point of the ``ConformanceWorker`` seam is that the
     # native/default worker needs none).
-    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before _conformance_commit was extracted
-        ingest_graph_slice,
-    )
-    from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+    from epistemic_graph.ingestion.process_conformance import (
         ConformanceRun,
         run_conformance_check,
+    )
+
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (  # noqa: F401 — imported up-front so an unavailable write path fails here, exactly as it did before _conformance_commit was extracted
+        ingest_graph_slice,
     )
 
     try:

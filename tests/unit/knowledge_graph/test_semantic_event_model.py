@@ -6,9 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
-from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+from epistemic_graph.ingestion.semantic_event_model import (
     BusinessObject,
     EntityResolutionProposal,
     EventObjectParticipation,
@@ -21,6 +19,7 @@ from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
     QualifiedObjectRelationship,
     SemanticEntityRef,
 )
+from pydantic import ValidationError
 
 
 def _slice_payload() -> dict:

@@ -6,18 +6,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
-from agent_utilities.knowledge_graph.ingestion.process_conformance import (
+from epistemic_graph.ingestion.process_conformance import (
     ConformanceRun,
     Deviation,
     check_directly_follows_conformance,
     conformance_run_graph_slice,
     run_conformance_check,
 )
-from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+from epistemic_graph.ingestion.semantic_event_model import (
     ProcessPerspective,
 )
+from pydantic import ValidationError
 
 
 def _perspective(**overrides: object) -> ProcessPerspective:
@@ -258,7 +257,7 @@ def test_conformance_run_graph_slice_checked_under_perspective_matches_ocel_node
     node id — otherwise a conformance run committed after an OCEL commit under
     the same ``source_ref``/perspective would silently create a DUPLICATE,
     disconnected perspective node instead of joining the existing one."""
-    from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
+    from epistemic_graph.ingestion.semantic_event_model import (
         _stable_id,
     )
 

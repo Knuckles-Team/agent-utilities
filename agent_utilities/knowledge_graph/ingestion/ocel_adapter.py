@@ -26,9 +26,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, TypeVar, cast
 
-from pydantic import ValidationError
-
-from .semantic_event_model import (
+from epistemic_graph.ingestion.semantic_event_model import (
     BusinessObject,
     EventAttributeValue,
     EventObjectParticipation,
@@ -44,6 +42,7 @@ from .semantic_event_model import (
     SemanticEntityRef,
     TemporalAttributeValue,
 )
+from pydantic import ValidationError
 
 OCEL_VERSION = "2.0"
 OCEL_MAPPING_VERSION = "ocel-json-2.0"

@@ -17,7 +17,8 @@ the OCEL source truth PLUS that perspective as one tenant-scoped `ChangeEnvelope
 via the same `ingest_envelope` idiom every other connector uses — a real graph
 write, not just a plan (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip).
 
-The exchange adapter converts JSON-OCEL into `ObjectCentricGraphSlice`, which
+The exchange adapter converts JSON-OCEL into EG-owned
+`epistemic_graph.ingestion.semantic_event_model.ObjectCentricGraphSlice`, which
 retains event/object type declarations, typed attribute values and temporal
 object-attribute revisions, and qualified E2O/O2O relationships. Tenant,
 source, mapping version, and structured or unstructured provenance are
@@ -42,7 +43,7 @@ objects with qualified O2O relationships and temporal attributes, derived
 `(entities, links)` pair a reader queries out of the committed graph. A slice
 reconstructed this way reproduces the same `canonical_digest()` and the same
 official OCEL export as the original — the actual "OCEL → graph → OCEL" proof
-(`tests/unit/knowledge_graph/test_semantic_event_model.py`). Neural
+(`epistemic-graph/tests/test_semantic_event_model.py`). Neural
 representations/predictions/entity-resolution proposals are a separate
 governed lane's boundary and are deliberately excluded from reconstruction.
 
