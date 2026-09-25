@@ -28,6 +28,8 @@ from agent_utilities.api import (
 )
 from agent_utilities.api import hosted_control_plane as hosted
 from agent_utilities.api.runtime import AgentRuntime
+from agent_utilities.api.session import SessionRequiredError
+from agent_utilities.knowledge_graph.core.session import suspend_session
 from agent_utilities.orchestration import agent_dispatch_worker as worker
 from agent_utilities.orchestration.agent_dispatch import (
     DISPATCH_CARRIER_VERSION,
@@ -343,13 +345,32 @@ def test_admission_digests_are_stable_hex() -> None:
 
 
 async def test_hosted_execution_fails_closed_without_a_runtime(monkeypatch) -> None:
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.api import runtime as runtime_port
 
-    monkeypatch.setattr(
-        IntelligenceGraphEngine, "get_active", classmethod(lambda cls: None)
-    )
+    monkeypatch.setattr(runtime_port, "_OPEN_RUNTIME", None)
     with pytest.raises(AgentControlPlaneUnavailable, match="runtime is not open"):
         hosted.process_engine()
+
+
+def test_hosted_control_client_reuses_verified_runtime(monkeypatch) -> None:
+    from agent_utilities.api import runtime as runtime_port
+    from agent_utilities.knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
+
+    graphs: list[str] = []
+
+    def for_graph(graph: str) -> SimpleNamespace:
+        graphs.append(graph)
+        return SimpleNamespace(async_client=SimpleNamespace(work_items="control-store"))
+
+    runtime = AgentRuntime(
+        SimpleNamespace(graph_compute=SimpleNamespace(for_graph=for_graph)), "host"
+    )
+    monkeypatch.setattr(runtime_port, "_OPEN_RUNTIME", runtime)
+    with suspend_session(), pytest.raises(SessionRequiredError):
+        _ = hosted._ControlGraphClient().work_items
+    with use_session(_session()):
+        assert hosted._ControlGraphClient().work_items == "control-store"
+    assert graphs == [CONTROL_GRAPH_NAME]
 
 
 # --- AU-5: run output --------------------------------------------------------
@@ -436,6 +457,7 @@ def test_open_process_runtime_reuses_the_active_engine(monkeypatch) -> None:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     active = object()
+    monkeypatch.setattr(runtime_port, "_OPEN_RUNTIME", None)
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", classmethod(lambda cls: active)
     )
@@ -443,3 +465,4 @@ def test_open_process_runtime_reuses_the_active_engine(monkeypatch) -> None:
         role="client", defer_background_start=True
     )
     assert opened.engine is active
+    assert runtime_port.current_process_runtime() is opened

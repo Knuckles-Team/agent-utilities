@@ -23,6 +23,7 @@ from agent_utilities.knowledge_graph.core.host_lock import (
 RuntimeRole = Literal["host", "client"]
 
 _OPEN_LOCK = threading.Lock()
+_OPEN_RUNTIME: AgentRuntime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,19 @@ class AgentRuntime:
             raise RuntimeError("the AU runtime has no graph transport")
         return compute.for_graph(graph).async_client
 
+    def control_graph_client(self) -> Any:
+        """A verified session's EG WorkItem view of the shared control graph."""
+        from agent_utilities.api.session import resolve_session
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            CONTROL_GRAPH_NAME,
+        )
+
+        resolve_session()
+        compute = getattr(self._engine, "graph_compute", None)
+        if compute is None:
+            raise RuntimeError("the AU runtime has no graph transport")
+        return compute.for_graph(CONTROL_GRAPH_NAME).async_client
+
     def start_background_daemons(self) -> None:
         self._engine.start_background_daemons()
 
@@ -67,11 +81,16 @@ class AgentRuntime:
 
     def drain_and_close(self, timeout_s: float | None = None) -> DrainResult:
         """Drain the shared transport, then close it; continuity is never claimed."""
+        global _OPEN_RUNTIME
         compute = getattr(self._engine, "graph_compute", None)
         if compute is None:
+            if _OPEN_RUNTIME is self:
+                _OPEN_RUNTIME = None
             return DrainResult(timed_out=False, active_requests=None)
         status = compute.drain(timeout_s)
         compute.close()
+        if _OPEN_RUNTIME is self:
+            _OPEN_RUNTIME = None
         return DrainResult(
             timed_out=bool(getattr(status, "timed_out", False)),
             active_requests=getattr(status, "active_requests", None),
@@ -92,14 +111,23 @@ def open_process_runtime(
         open_process_engine,
     )
 
+    global _OPEN_RUNTIME
     with _OPEN_LOCK:
         active = IntelligenceGraphEngine.get_active()
         if active is not None:
-            return AgentRuntime(active, role)
+            if _OPEN_RUNTIME is None or _OPEN_RUNTIME.engine is not active:
+                _OPEN_RUNTIME = AgentRuntime(active, role)
+            return _OPEN_RUNTIME
         os.environ["KG_DAEMON_ROLE"] = role
         resolve_daemon_role(role)
         engine = open_process_engine(defer_background_start=defer_background_start)
-        return AgentRuntime(engine, role)
+        _OPEN_RUNTIME = AgentRuntime(engine, role)
+        return _OPEN_RUNTIME
+
+
+def current_process_runtime() -> AgentRuntime | None:
+    """Return the opened process runtime without starting or probing an engine."""
+    return _OPEN_RUNTIME
 
 
 def acquire_host_lock() -> None:
@@ -132,6 +160,7 @@ __all__ = [
     "HostAlreadyRunning",
     "RuntimeRole",
     "acquire_host_lock",
+    "current_process_runtime",
     "host_lock_holder",
     "open_process_runtime",
     "release_host_lock",

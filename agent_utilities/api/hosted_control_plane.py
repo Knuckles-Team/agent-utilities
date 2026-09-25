@@ -62,14 +62,18 @@ _RUN_STATUSES: dict[str, RunStatus] = {
 
 def process_engine() -> Any:
     """The already-open AU process runtime engine, or fail closed."""
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    return _process_runtime().engine
 
-    engine = IntelligenceGraphEngine.get_active()
-    if engine is None:
+
+def _process_runtime() -> Any:
+    from agent_utilities.api.runtime import current_process_runtime
+
+    runtime = current_process_runtime()
+    if runtime is None:
         raise AgentControlPlaneUnavailable(
             "the AU process runtime is not open; call open_process_runtime first"
         )
-    return engine
+    return runtime
 
 
 def _digest(label: str, value: str) -> str:
@@ -114,12 +118,7 @@ class _ControlGraphClient:
     """
 
     def __getattr__(self, name: str) -> Any:
-        from agent_utilities.knowledge_graph.core.shard_topology import (
-            CONTROL_GRAPH_NAME,
-        )
-
-        control = process_engine().graph_compute.for_graph(CONTROL_GRAPH_NAME)
-        return getattr(control.async_client, name)
+        return getattr(_process_runtime().control_graph_client(), name)
 
 
 class _ProcessRunner:
