@@ -55,8 +55,11 @@ own consumer, so partitions spread across threads AND processes uniformly.
 
 import json
 import logging
+import re
 import threading
 import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +81,233 @@ logger = logging.getLogger(__name__)
 
 #: Long-running parse/LLM tasks must not trip a group rebalance mid-task.
 _MAX_POLL_INTERVAL_MS = 3_600_000  # 1h; independent from the fenced WorkItem lease
+
+_ENRICHMENT_KINDS = (
+    "enrichment.classical",
+    "enrichment.embed",
+    "enrichment.llm",
+)
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichmentTask:
+    """One EG-admitted, leased rung-3/4/5 task with a durable source reference."""
+
+    work_item_id: str
+    tenant: str
+    kind: str
+    input_ref: str
+    content_digest: str
+    parser_capability_digest: str
+    policy_digest: str
+    catalog_digest: str
+    model_digest: str
+    reserved_compute_units: int
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichmentExecution:
+    """Idempotently persisted output; the worker commits only its reference."""
+
+    result_ref: str
+    spent_compute_units: int
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichmentDrain:
+    claimed: int = 0
+    completed: int = 0
+    deferred: int = 0
+    failed: int = 0
+    fenced: int = 0
+    reserved_compute_units: int = 0
+    spent_compute_units: int = 0
+
+
+def _admitted_enrichment_task(item: Mapping[str, Any], tenant: str) -> EnrichmentTask:
+    """Validate EG's durable admission rather than trusting a queue notice."""
+    metadata = item.get("metadata")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("enrichment WorkItem has no admission metadata")
+    kind = item.get("kind")
+    if kind not in _ENRICHMENT_KINDS or item.get("queue") != kind:
+        raise ValueError("enrichment WorkItem has an invalid queue")
+    if item.get("tenant") != tenant:
+        raise ValueError("enrichment WorkItem tenant mismatch")
+    digests = {
+        "content_digest": metadata.get("content_digest"),
+        "parser_capability_digest": metadata.get("parser_capability_digest"),
+        "policy_digest": item.get("policy_digest"),
+        "catalog_digest": item.get("catalog_digest"),
+        "model_digest": item.get("model_digest"),
+    }
+    if any(not isinstance(value, str) or not _DIGEST.fullmatch(value) for value in digests.values()):
+        raise ValueError("enrichment WorkItem has no pinned digests")
+    input_ref = item.get("payload_ref")
+    if not isinstance(input_ref, str) or not input_ref or len(input_ref) > 512:
+        raise ValueError("enrichment WorkItem has no durable input reference")
+    units = metadata.get("reserved_compute_units")
+    if not isinstance(units, int) or isinstance(units, bool) or not 1 <= units <= 1_000_000:
+        raise ValueError("enrichment WorkItem has no bounded compute reservation")
+    return EnrichmentTask(
+        work_item_id=str(item.get("id") or item.get("work_item_id") or ""),
+        tenant=tenant,
+        kind=kind,
+        input_ref=input_ref,
+        reserved_compute_units=units,
+        **digests,
+    )
+
+
+def drain_enrichment_work_items(
+    work_item_engine: Any,
+    *,
+    tenant: str,
+    token: str,
+    execute: Callable[[EnrichmentTask, Callable[[], bool]], EnrichmentExecution],
+    max_items: int,
+    max_compute_units: int,
+    lease_ttl_s: float = 300.0,
+    stop_event: threading.Event | None = None,
+) -> EnrichmentDrain:
+    """Claim and finish a bounded set of EG-native enrichment WorkItems.
+
+    The injected executor resolves ``input_ref`` from durable EG source bytes,
+    writes its result idempotently under the content/parser identity, and
+    returns an opaque result reference. A long execution calls the supplied
+    lease-renewal function. No Kafka notice or second queue owns status.
+    """
+    from agent_utilities.knowledge_graph.core import work_durability as wi
+
+    if not tenant or not token or not callable(execute):
+        raise ValueError("verified tenant, worker token, and executor are required")
+    if not 1 <= max_items <= 64 or not 1 <= max_compute_units <= 1_000_000:
+        raise ValueError("enrichment drain bounds are invalid")
+    if not 1 <= lease_ttl_s <= 3600:
+        raise ValueError("enrichment lease TTL is invalid")
+    counts = {"claimed": 0, "completed": 0, "deferred": 0, "failed": 0,
+              "fenced": 0, "reserved_compute_units": 0, "spent_compute_units": 0}
+    blocked_kinds: set[str] = set()
+    for turn in range(max_items):
+        if stop_event is not None and stop_event.is_set():
+            break
+        selected = None
+        for offset in range(len(_ENRICHMENT_KINDS)):
+            kind = _ENRICHMENT_KINDS[(turn + offset) % len(_ENRICHMENT_KINDS)]
+            if kind in blocked_kinds:
+                continue
+            claim = wi.claim_next(
+                work_item_engine,
+                tenant=tenant,
+                queue=kind,
+                token=token,
+                lease_ttl_s=lease_ttl_s,
+            )
+            if claim is not None:
+                selected = kind, claim
+                break
+        if selected is None:
+            break
+        kind, claim = selected
+        item_id = claim["work_item_id"]
+        counts["claimed"] += 1
+        item = wi.get_work_item(work_item_engine, item_id)
+        try:
+            if item is None:
+                raise ValueError("claimed enrichment WorkItem is unreadable")
+            task = _admitted_enrichment_task(item, tenant)
+            if task.work_item_id != item_id or task.kind != kind:
+                raise ValueError("claimed enrichment WorkItem identity mismatch")
+        except ValueError:
+            status = wi.commit_result(
+                work_item_engine, item_id, claim,
+                outcome="failed", error_ref="enrichment:invalid_admission",
+                retryable=False,
+            )
+            counts["fenced" if status == "fenced" else "failed"] += 1
+            continue
+        if task.reserved_compute_units > max_compute_units - counts["reserved_compute_units"]:
+            if wi.defer_work_item(
+                work_item_engine, item_id, claim,
+                next_retry_at=time.time() + 30.0,
+                reason_ref="enrichment:drain_budget",
+            ):
+                counts["deferred"] += 1
+            else:
+                counts["fenced"] += 1
+            blocked_kinds.add(kind)
+            continue
+        if not wi.mark_running(work_item_engine, item_id, claim):
+            counts["fenced"] += 1
+            continue
+        # Charge the reservation before invoking a model. An exception may
+        # leave its actual spend unknown; it must not release this poll's cap.
+        counts["reserved_compute_units"] += task.reserved_compute_units
+        try:
+            result = execute(
+                task,
+                lambda item_id=item_id, claim=claim: wi.heartbeat(
+                    work_item_engine, item_id, claim, lease_ttl_s=lease_ttl_s
+                ),
+            )
+            if (
+                not isinstance(result, EnrichmentExecution)
+                or not isinstance(result.result_ref, str)
+                or not result.result_ref
+                or len(result.result_ref) > 512
+                or any(char.isspace() for char in result.result_ref)
+                or not isinstance(result.spent_compute_units, int)
+                or isinstance(result.spent_compute_units, bool)
+                or not 0 <= result.spent_compute_units <= task.reserved_compute_units
+            ):
+                raise ValueError("enrichment executor exceeded its admitted result contract")
+        except Exception:  # noqa: BLE001 - stable error ref; no content in logs
+            status = wi.commit_result(
+                work_item_engine, item_id, claim,
+                outcome="failed", error_ref="enrichment:execution_failed",
+                retryable=True,
+            )
+            counts["fenced" if status == "fenced" else "failed"] += 1
+            continue
+        status = wi.commit_result(
+            work_item_engine, item_id, claim,
+            outcome="succeeded", result_ref=result.result_ref,
+        )
+        if status == "committed":
+            counts["completed"] += 1
+            counts["spent_compute_units"] += result.spent_compute_units
+        else:
+            counts["fenced" if status == "fenced" else "failed"] += 1
+    return EnrichmentDrain(**counts)
+
+
+def run_enrichment_worker_loop(
+    work_item_engine: Any,
+    stop_event: threading.Event,
+    *,
+    tenant: str,
+    token: str,
+    execute: Callable[[EnrichmentTask, Callable[[], bool]], EnrichmentExecution],
+    max_items_per_poll: int = 16,
+    max_compute_units_per_poll: int = 1_000,
+    idle_wait_s: float = 1.0,
+) -> None:
+    """Poll the native enrichment queues until shutdown, with a bounded turn."""
+    if not 0.01 <= idle_wait_s <= 60:
+        raise ValueError("enrichment idle wait is invalid")
+    while not stop_event.is_set():
+        drained = drain_enrichment_work_items(
+            work_item_engine,
+            tenant=tenant,
+            token=token,
+            execute=execute,
+            max_items=max_items_per_poll,
+            max_compute_units=max_compute_units_per_poll,
+            stop_event=stop_event,
+        )
+        if drained.claimed == 0 or drained.deferred == drained.claimed:
+            stop_event.wait(idle_wait_s)
 
 
 def claim_task_envelope(
