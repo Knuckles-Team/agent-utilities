@@ -66,7 +66,7 @@ import os
 import secrets
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -83,6 +83,10 @@ from agent_utilities.orchestration.agent_dispatch import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The standalone GraphOS op client supplies only live, caller-authorized
+# endpoints. There is no local endpoint or anonymous fallback.
+ContextEndpointProvider = Callable[[AgentTurnEnvelope], Awaitable[Any]]
 
 _PROCESS_WORKER_TOKEN = f"worker:{secrets.token_hex(16)}"
 
@@ -1739,30 +1743,37 @@ def _admitted_task_description(engine: Any, work_item_id: str) -> str:
 
 
 def _execute_work_item_turn(
-    envelope: AgentTurnEnvelope, engine: Any, lease: WorkItemLeaseGuard
+    envelope: AgentTurnEnvelope,
+    engine: Any,
+    lease: WorkItemLeaseGuard,
+    claim: dict[str, Any],
+    context_endpoint_provider: ContextEndpointProvider | None,
 ) -> str:
-    """Run one hosted-control-plane task under the already-held WorkItem lease.
-
-    The caller (:func:`execute_agent_turn`) claimed ``payload_ref`` as the
-    dispatch WorkItem and commits its outcome; this only executes the agent
-    with the signed selector and tool allowlist.
-    """
+    """Run one admitted task and atomically commit its L5 terminal receipt."""
     import asyncio
 
+    from agent_utilities.knowledge_graph.core import work_durability as _wi
+    from agent_utilities.layers.l5_writer import L5WriterUnavailable, RunOutcomeWriter
+    from agent_utilities.layers.worker_run import build_worker_run, run_worker_harness
     from agent_utilities.orchestration.manager import Orchestrator
 
-    task = _admitted_task_description(engine, envelope.payload_ref)
+    if context_endpoint_provider is None:
+        raise L5WriterUnavailable("verified EG MCP context endpoint is unavailable")
+    row = _wi.get_work_item(engine, envelope.payload_ref)
+    if row is None:
+        raise L5WriterUnavailable("admitted WorkItem is unavailable")
+    verified_carrier = authenticate_dispatch_delivery(envelope)
     lease.require_current()
-    asyncio.run(
-        Orchestrator(engine).execute_agent(
-            agent_name=envelope.agent_name,
-            task=task,
-            session_id=envelope.session_id,
-            run_id=envelope.job_id,
-            allowed_tools=_allowed_tools(envelope),
+
+    async def _invoke() -> str:
+        endpoint = await context_endpoint_provider(envelope)
+        worker_run = build_worker_run(row, claim, envelope, endpoint, verified_carrier)
+        outcome, _receipt = await run_worker_harness(
+            worker_run, Orchestrator(engine), RunOutcomeWriter.from_engine(engine)
         )
-    )
-    return "completed"
+        return "completed" if outcome.result.status == "succeeded" else "failed"
+
+    return asyncio.run(_invoke())
 
 
 def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
@@ -1835,6 +1846,8 @@ class _TurnContext:
     token: str | None
     now: float | None
     claim_ttl_s: float
+    claim: dict[str, Any]
+    context_endpoint_provider: ContextEndpointProvider | None
 
 
 def _goal_loop_turn(ctx: _TurnContext) -> str:
@@ -1862,7 +1875,13 @@ def _orchestrator_task_turn(ctx: _TurnContext) -> str:
 
 
 def _work_item_turn(ctx: _TurnContext) -> str:
-    return _execute_work_item_turn(ctx.envelope, ctx.engine, ctx.lease)
+    return _execute_work_item_turn(
+        ctx.envelope,
+        ctx.engine,
+        ctx.lease,
+        ctx.claim,
+        ctx.context_endpoint_provider,
+    )
 
 
 _TURN_HANDLERS: dict[str, Callable[[_TurnContext], str]] = {
@@ -1880,11 +1899,24 @@ def _run_agent_turn_kind(
     token: str | None,
     now: float | None,
     claim_ttl_s: float,
+    claim: dict[str, Any],
+    context_endpoint_provider: ContextEndpointProvider | None,
 ) -> str:
     """Dispatch by envelope kind; returns the turn outcome (default "failed")."""
     handler = _TURN_HANDLERS.get(envelope.kind)
     if handler is not None:
-        return handler(_TurnContext(envelope, engine, lease, token, now, claim_ttl_s))
+        return handler(
+            _TurnContext(
+                envelope,
+                engine,
+                lease,
+                token,
+                now,
+                claim_ttl_s,
+                claim,
+                context_endpoint_provider,
+            )
+        )
     from agent_utilities.messaging.bus_privacy import bus_reference
 
     logger.error(
@@ -1937,6 +1969,7 @@ def execute_agent_turn(
     token: str | None = None,
     now: float | None = None,
     claim_ttl_s: float | None = None,
+    context_endpoint_provider: ContextEndpointProvider | None = None,
 ) -> str:
     """Claim + execute + write back ONE dispatched turn; return the outcome.
 
@@ -1987,6 +2020,8 @@ def execute_agent_turn(
                     token=token,
                     now=now,
                     claim_ttl_s=claim_ttl_s,
+                    claim=dispatch_claim,
+                    context_endpoint_provider=context_endpoint_provider,
                 )
             except WorkItemLeaseLost:
                 raise
@@ -2001,11 +2036,18 @@ def execute_agent_turn(
                 # message anyway (CONCEPT:AU-OS.governance.verified-write-state-advance:
                 # the ack is the "advance", and it must never precede its
                 # write's confirmed result).
+                if envelope.kind == KIND_WORK_ITEM_TURN:
+                    # L5 has sole terminal write authority. A failed endpoint,
+                    # harness, or uncertain commit must leave the WorkItem
+                    # unacknowledged for fenced reconciliation.
+                    raise
                 logger.error(
                     "agent-dispatch turn execution error (%s)", type(e).__name__
                 )
                 outcome = "failed"
                 error_detail = f"{type(e).__name__}: {e}"[:500]
+            if envelope.kind == KIND_WORK_ITEM_TURN:
+                return outcome
             return _commit_agent_turn_result(
                 lease,
                 engine,
@@ -2381,6 +2423,7 @@ def _execute_dispatch_turn(
     lifecycle: DispatchWorkerLifecycle,
     active: list[str],
     heartbeat_interval_s: float,
+    context_endpoint_provider: ContextEndpointProvider | None = None,
 ) -> tuple[str, float]:
     """Run one claimed turn under the session guard.
 
@@ -2391,7 +2434,12 @@ def _execute_dispatch_turn(
     try:
         active[:] = [envelope.session_id]
         _heartbeat(queue, token, active)
-        outcome = execute_agent_turn(envelope, engine, token=token)
+        outcome = execute_agent_turn(
+            envelope,
+            engine,
+            token=token,
+            context_endpoint_provider=context_endpoint_provider,
+        )
     except SessionLockCapacityError:
         # The local coordination cap is a bounded admission signal, not a
         # terminal WorkItem outcome.  Leave the delivery for another
@@ -2535,6 +2583,7 @@ def run_dispatch_consumer_loop(
     idle_sleep_s: float = 0.5,
     heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
     lifecycle: DispatchWorkerLifecycle | None = None,
+    context_endpoint_provider: ContextEndpointProvider | None = None,
 ) -> None:
     """Drain ``agent_turns`` until ``stop_event``: claim → execute → ack.
 
@@ -2584,7 +2633,14 @@ def run_dispatch_consumer_loop(
             continue
 
         outcome, next_heartbeat = _execute_dispatch_turn(
-            queue, engine, envelope, token, lifecycle, active, heartbeat_interval_s
+            queue,
+            engine,
+            envelope,
+            token,
+            lifecycle,
+            active,
+            heartbeat_interval_s,
+            context_endpoint_provider,
         )
         # ``continue`` (not ``break``): the top-of-loop check now waits for
         # the drain to clear and calls ``reconnect`` itself, via
@@ -2615,6 +2671,7 @@ def start_dispatch_worker_pool(
     engine: Any = None,
     background_session: Any = None,
     lifecycle: DispatchWorkerLifecycle | None = None,
+    context_endpoint_provider: ContextEndpointProvider | None = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` dispatch consumer threads against ``queue``.
 
@@ -2654,6 +2711,7 @@ def start_dispatch_worker_pool(
                 engine,
                 worker_id=f"{worker_token()}:{idx}",
                 lifecycle=worker_lifecycle,
+                context_endpoint_provider=context_endpoint_provider,
             )
 
         t = _authorized_background_thread(
@@ -2706,7 +2764,7 @@ def main(argv: list[str] | None = None) -> int:
     # acquire_process_identity_token / mint_actor_from_token_sync /
     # mint_graph_session call anywhere — it dispatched (and every claim/commit
     # it made) without ever presenting an authenticated identity.
-    from agent_utilities.core.config import config
+    from agent_utilities.core.config import config, setting
     from agent_utilities.knowledge_graph.core.session import use_session
     from agent_utilities.security.brain_context import use_actor
     from agent_utilities.security.request_identity import (
@@ -2724,6 +2782,18 @@ def main(argv: list[str] | None = None) -> int:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_or_create()
+
+        from agent_utilities.layers.context_client import GraphOSContextClient
+
+        context_client = GraphOSContextClient(
+            base_url=str(setting("GRAPHOS_BASE_URL", "") or ""),
+            token_provider=lambda: acquire_process_identity_token(config),
+        )
+
+        async def _context_endpoint_for_run(_envelope: AgentTurnEnvelope) -> Any:
+            import asyncio
+
+            return await asyncio.to_thread(context_client.fetch)
 
         # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
         # that cannot reach the engine must fail loud, not claim turns and drop them.
@@ -2763,6 +2833,7 @@ def main(argv: list[str] | None = None) -> int:
             engine=engine,
             background_session=session,
             lifecycle=lifecycle,
+            context_endpoint_provider=_context_endpoint_for_run,
         )
         while any(t.is_alive() for t in threads) and not stop.is_set():
             time.sleep(1.0)

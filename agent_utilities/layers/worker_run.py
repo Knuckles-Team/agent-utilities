@@ -12,6 +12,7 @@ from agent_utilities.layers.contracts import McpEndpoint, RunBudget, RunSpec, Ru
 from agent_utilities.layers.execution import RunOutcome, run_to_completion
 from agent_utilities.layers.l5_writer import (
     DelegationBinding,
+    L5CommitRejected,
     L5Receipt,
     LeaseClaim,
     RunOutcomeWriter,
@@ -86,9 +87,13 @@ def build_worker_run(
         lease_epoch=int(claim["lease_epoch"]),
         fencing_token=int(claim["fencing_token"]),
     )
+    from agent_utilities.api.agent_control_adapters import DESCRIPTION_METADATA_KEY
+
     spec = RunSpec(
         run_id=run_id,
-        task=_required(row.get("description"), "description"),
+        task=_required(
+            metadata.get(DESCRIPTION_METADATA_KEY), "admitted task description"
+        ),
         agent_ref=agent_name,
         toolset=RunToolset(
             context_endpoint=context_endpoint,
@@ -122,4 +127,6 @@ async def run_worker_harness(
         outcome.result,
         outcome.trace,
     )
+    if receipt.status not in {"committed", "replayed"}:
+        raise L5CommitRejected(f"terminal WorkItem commit was {receipt.status}")
     return outcome, receipt
