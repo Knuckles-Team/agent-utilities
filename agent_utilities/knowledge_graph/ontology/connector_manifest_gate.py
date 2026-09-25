@@ -1501,13 +1501,15 @@ def _load_and_validate_manifest(path: Path, label: str) -> tuple[Any, Any, list[
 def _compiled_manifest_hash(
     manifest: Any, label: str
 ) -> tuple[tuple[str, int] | None, list[str]]:
-    """Compile the manifest and take its canonical digest from EG (EH-471)."""
+    """Compile through SDK→EG and take EG's canonical digest (EH-505)."""
+    from agent_connector_sdk.manifest.model import ConnectorManifest as SDKManifest
+    from agent_connector_sdk.manifest.ontology_pack import compile_manifest_ontology
+
     from . import ontology_integrity
-    from .manifest_compiler import compile_manifest, export_manifest_ttl
 
     try:
-        spec = compile_manifest(manifest)
-        ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
+        sdk_manifest = SDKManifest.model_validate(manifest.model_dump(mode="python"))
+        ttl = compile_manifest_ontology(sdk_manifest)
     except Exception as exc:
         logger.warning("connector manifest %s does not compile: %s", label, exc)
         return None, [
