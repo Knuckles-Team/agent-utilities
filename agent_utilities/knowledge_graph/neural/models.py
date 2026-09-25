@@ -4,7 +4,7 @@ from __future__ import annotations
 
 NGDB-shaped (Ren et al., arXiv 2303.14617) latent-store + calibrated-proposal
 contracts for ARBITRARY knowledge-graph nodes — the general-purpose sibling of
-:mod:`agent_utilities.knowledge_graph.ingestion.semantic_event_model`'s
+:mod:`epistemic_graph.ingestion.semantic_event_model`'s
 ``NeuralRepresentation``/``NeuralRelationPrediction``/``EntityResolutionProposal``,
 which are intentionally scoped to OCEL ``event``/``object``/``object_state``
 entities (that module is sibling-lane-owned; see its ``SemanticEntityKind``).

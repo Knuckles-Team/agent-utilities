@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from .semantic_event_model import (
+from epistemic_graph.ingestion.semantic_event_model import (
     EventObjectParticipation,
     ObjectCentricGraphSlice,
     ProcessEvent,

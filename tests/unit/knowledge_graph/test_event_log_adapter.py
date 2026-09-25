@@ -10,12 +10,12 @@ structural (TypeError/ValueError) impossibility, not a policy choice.
 from __future__ import annotations
 
 import pytest
+from epistemic_graph.ingestion.semantic_event_model import (
+    ProcessPerspective,
+)
 
 from agent_utilities.knowledge_graph.ingestion.event_log_adapter import (
     project_object_centric_events,
-)
-from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
-    ProcessPerspective,
 )
 
 

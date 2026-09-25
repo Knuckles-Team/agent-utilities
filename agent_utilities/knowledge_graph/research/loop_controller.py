@@ -1437,7 +1437,7 @@ class LoopController:
         self, predicted: list[dict[str, Any]], *, node_label: str, errors: list[str]
     ) -> dict[str, Any]:
         """Turn each ``graph_learn`` prediction into a real, typed
-        :class:`~agent_utilities.knowledge_graph.ingestion.semantic_event_model.
+        :class:`~epistemic_graph.ingestion.semantic_event_model.
         NeuralRelationPrediction` semantic event and commit it through the SAME
         governed ``ChangeEnvelope`` ingestion path every OCEL/tEKG producer uses
         (CONCEPT:AU-KG.ingest.semantic-event-contract) — closing the gap where
@@ -1528,7 +1528,7 @@ class LoopController:
         above_floor: list[dict[str, Any]], node_label: str
     ) -> tuple[Any, list[Any]]:
         """Build the one validated ``ObjectCentricGraphSlice`` for these predictions."""
-        from ..ingestion.semantic_event_model import (
+        from epistemic_graph.ingestion.semantic_event_model import (
             BusinessObject,
             NeuralRelationPrediction,
             ObjectCentricGraphSlice,
