@@ -72,13 +72,13 @@ engine_datascience_predict_estimator	pending			engine_datascience	predict_estima
 engine_datascience_sgd_step	pending			engine_datascience	sgd_step		await served parity and operator-reviewed disposition
 engine_datascience_softmax	pending			engine_datascience	softmax		await served parity and operator-reviewed disposition
 engine_datascience_train_test_split	pending			engine_datascience	train_test_split		await served parity and operator-reviewed disposition
-engine_edges_add	pending		graph.edges.add	engine_edges	add	eg:AddEdge	EG wire-callable and exact scope edge:write (user); served runtime and behavior parity pending
+engine_edges_add	pending		graph.edges.add	engine_edges	add	eg:AddEdge	EG method wire-callable, but legacy EdgeClient.add encodes JSON properties to properties_msgpack; direct raw AddEdge op requires adapter; served parity pending
 engine_edges_count	pending			engine_edges	count		await served parity and operator-reviewed disposition
 engine_edges_has	pending			engine_edges	has		await served parity and operator-reviewed disposition
 engine_edges_invalidate	pending			engine_edges	invalidate		await served parity and operator-reviewed disposition
 engine_edges_list	pending			engine_edges	list		await served parity and operator-reviewed disposition
 engine_edges_list_page	pending		graph.edges.list	engine_edges	list_page	eg:GetEdgesPage	EG wire-callable and exact scope edge:read (user); served runtime and behavior parity pending
-engine_edges_properties	pending		graph.edges.get	engine_edges	properties	eg:GetEdgeProperties	EG wire-callable and exact scope edge:read (user); served runtime and behavior parity pending
+engine_edges_properties	pending		graph.edges.get	engine_edges	properties	eg:GetEdgeProperties	EG method wire-callable, but legacy EdgeClient.properties decodes MessagePack to list[dict]; direct raw GetEdgeProperties result needs adapter proof; served parity pending
 engine_edges_properties_batch	pending			engine_edges	properties_batch		await served parity and operator-reviewed disposition
 engine_edges_remove	pending		graph.edges.remove	engine_edges	remove	eg:RemoveEdge	EG wire-callable and exact scope edge:write (user); served runtime and behavior parity pending
 engine_edges_supersede	pending			engine_edges	supersede		await served parity and operator-reviewed disposition
@@ -226,7 +226,7 @@ engine_modalities_query_video_window	pending			engine_modalities	query_video_win
 engine_modalities_restore	pending			engine_modalities	restore		await served parity and operator-reviewed disposition
 engine_modalities_search_documents	pending			engine_modalities	search_documents		await served parity and operator-reviewed disposition
 engine_modalities_stats	pending			engine_modalities	stats		await served parity and operator-reviewed disposition
-engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	eg:AddNode	EG wire-callable and exact scope node:write (user); served runtime and behavior parity pending
+engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	eg:AddNode	EG method wire-callable, but legacy NodeClient.add encodes JSON properties to properties_msgpack; direct raw AddNode op requires adapter; served parity pending
 engine_nodes_claim_next	pending			engine_nodes	claim_next		await served parity and operator-reviewed disposition
 engine_nodes_compare_and_set	pending			engine_nodes	compare_and_set		await served parity and operator-reviewed disposition
 engine_nodes_count	pending			engine_nodes	count		await served parity and operator-reviewed disposition
@@ -243,7 +243,7 @@ engine_nodes_neighbors_batch	pending			engine_nodes	neighbors_batch		await serve
 engine_nodes_neighbors_union	pending			engine_nodes	neighbors_union		await served parity and operator-reviewed disposition
 engine_nodes_out_degree	pending			engine_nodes	out_degree		await served parity and operator-reviewed disposition
 engine_nodes_predecessors	pending			engine_nodes	predecessors		await served parity and operator-reviewed disposition
-engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	eg:GetNodeProperties	EG wire-callable and exact scope node:read (user); served runtime and behavior parity pending
+engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	eg:GetNodeProperties	EG method wire-callable, but legacy NodeClient.properties decodes MessagePack to dict; direct raw GetNodeProperties result needs adapter proof; served parity pending
 engine_nodes_properties_batch	pending			engine_nodes	properties_batch		await served parity and operator-reviewed disposition
 engine_nodes_properties_union	pending			engine_nodes	properties_union		await served parity and operator-reviewed disposition
 engine_nodes_remove	pending		graph.nodes.remove	engine_nodes	remove	eg:RemoveNode	EG wire-callable and exact scope node:write (user); served runtime and behavior parity pending
