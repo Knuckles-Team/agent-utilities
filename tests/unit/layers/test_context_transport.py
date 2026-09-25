@@ -44,6 +44,23 @@ def test_bind_context_toolset_uses_exact_url_and_secret_ref(
     assert seen["auth"].reference == endpoint.bearer_ref
 
 
+def test_context_transport_accepts_openbao_reference_via_sdk(monkeypatch: Any) -> None:
+    from agent_connector_sdk.credentials import resolution
+
+    from agent_utilities.mcp import toolset_factory
+
+    monkeypatch.setattr(resolution, "resolve_secret_reference", lambda _ref: "token")
+    monkeypatch.setattr(
+        toolset_factory, "build_http_toolset", lambda *_a, **_k: object()
+    )
+    endpoint = McpEndpoint(
+        name="graphos",
+        url="https://graphos.example/mcp",
+        bearer_ref="openbao://apps/graphos#bearer",
+    )
+    assert bind_context_toolset(endpoint) is not None
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [
