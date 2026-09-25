@@ -267,7 +267,7 @@ class _BatchedBackend:
         # node at the one write chokepoint, so partition routing sends it to the right
         # named graph. A caller-set source_system still wins (stamp_source setdefaults).
         if self._source_system:
-            from .provenance import stamp_source
+            from epistemic_graph.source_provenance import stamp_source
 
             stamp_source(props, self._source_system)
         # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):

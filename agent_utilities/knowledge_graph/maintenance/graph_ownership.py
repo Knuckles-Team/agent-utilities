@@ -50,7 +50,7 @@ SIGNALS AND THEIR HONEST LIMITS
   zero extra round-trips (it comes free with ``ListGraphs``).
 * **Sampled node properties** — a bounded sample of each graph's nodes is read for
   ``_owner_id`` (:data:`...core.tenant_sharing.OWNER_KEY`), ``source_system``
-  (:func:`...enrichment.provenance.stamp_source`'s stamped key) and ``tenant_id``.
+  (:func:`...epistemic_graph.source_provenance.stamp_source`'s stamped key) and ``tenant_id``.
   A >=90% majority on one value is treated as decisive.
 * **Existing RBAC grants** (``rbac.list()``) — grants whose ``resource`` selector
   covers the graph (``"All"`` or an exact ``{"Graph": name}``; see
@@ -150,7 +150,7 @@ _MAJORITY_THRESHOLD = 0.9
 # Property keys sampled from each graph's nodes — reuses the EXISTING stamping
 # conventions rather than inventing new ones (never redefine, extend):
 #   tenant_sharing.OWNER_KEY == "_owner_id", tenant_sharing.TENANT_KEY == "tenant_id"
-#   enrichment.provenance.stamp_source's "source_system"
+#   epistemic_graph.source_provenance.stamp_source's "source_system"
 _SAMPLE_OWNER_KEY = "_owner_id"
 _SAMPLE_TENANT_KEY = "tenant_id"
 _SAMPLE_SOURCE_KEY = "source_system"

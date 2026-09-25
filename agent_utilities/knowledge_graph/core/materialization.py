@@ -224,7 +224,8 @@ def group_by_rel(
 
 def _stamp_entities(entities: list[dict[str, Any]], domain: str) -> None:
     """Validate and stamp the entity side of a materialization batch."""
-    from ..enrichment.provenance import stamp_source
+    from epistemic_graph.source_provenance import stamp_source
+
     from .tenant_sharing import stamp_classification, stamp_ownership
 
     # Defence-in-depth ACL registration (D-ACL-4, CONCEPT:AU-KG.backend.company-brain-write-guard):
@@ -252,7 +253,7 @@ def _stamp_entities(entities: list[dict[str, Any]], domain: str) -> None:
 
 def _stamp_relationships(relationships: list[dict[str, Any]], domain: str) -> None:
     """Validate and stamp the relationship side of a materialization batch."""
-    from ..enrichment.provenance import stamp_source
+    from epistemic_graph.source_provenance import stamp_source
 
     for index, row in enumerate(relationships):
         aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)

@@ -6,7 +6,7 @@
 ``ingest_external_batch`` an ad hoc ``{"id": ..., "type": ..., **props}`` dict
 (see :mod:`knowledge_graph.core.source_sync`'s ``_sync_leanix`` et al.) — each
 connector independently decides what "id"/"updated"/"acl" keys mean, provenance
-is stamped separately (:func:`knowledge_graph.enrichment.provenance.stamp_source`),
+is stamped separately (:func:`epistemic_graph.source_provenance.stamp_source`),
 watermarks are tracked separately (``_read_watermark``/``_write_watermark``),
 and ACL is a bespoke :class:`~agent_utilities.protocols.source_connectors.base.ExternalAccess`
 bolted on per-connector. None of that is one typed, self-describing unit a
