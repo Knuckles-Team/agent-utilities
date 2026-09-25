@@ -273,7 +273,9 @@ def test_mapping_partial_page_cannot_become_verified_empty() -> None:
 
         return ConnectorMapper(artifact=artifact, map_table=map_table)
 
-    preparer, _ = _preparer(_table(), mapper_factory=incomplete_mapper)
+    preparer, _ = _preparer(
+        _table(), disposition="quarantine", mapper_factory=incomplete_mapper
+    )
     page = preparer.prepare(
         _table(),
         checkpoint=ConnectorCheckpoint(cursor="partial"),
@@ -293,13 +295,18 @@ def test_mapper_cannot_override_deterministic_idempotency() -> None:
         artifact: ConnectorArtifact,
     ) -> ConnectorMapper:
         def map_table(table: pa.Table) -> list:
-            envelope = build_native_change_envelope(
-                table.to_pylist()[0],
-                contract=contract,
-                id_field="id",
-                version_field="updated_at",
-            )
-            return [replace(envelope, idempotency_key="caller-selected")]
+            return [
+                replace(
+                    build_native_change_envelope(
+                        row,
+                        contract=contract,
+                        id_field="id",
+                        version_field="updated_at",
+                    ),
+                    idempotency_key="caller-selected",
+                )
+                for row in table.to_pylist()
+            ]
 
         return ConnectorMapper(artifact=artifact, map_table=map_table)
 
