@@ -62,12 +62,11 @@ Market regime detection and forecasting using Markov Chains for financial time-s
 Raw returns feed `MarketRegimeDetector`, which classifies state labels.
 Those labels feed `MarkovTransitionModel`, which feeds `MarkovRegimeModel`.
 `MarkovRegimeModel` produces both a regime forecast (which feeds a
-trading signal / walk-forward backtest) and KG persistence (via
-`FinanceEngineMixin`).
+trading signal / walk-forward backtest) and KG persistence in
+epistemic-graph.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/core/markov_regime.py``
-- **Engine Integration**: ``agent_utilities/knowledge_graph/orchestration/engine_finance.py``
+- **Source Code**: epistemic-graph `FinanceDetectRegimes` and `FinanceMarkovTransitionMatrix`. The agent-utilities implementation (`markov_regime.py`, the `FinanceEngineMixin` and the `fit_markov_regime` domain operation) was removed with the rest of its finance math (EH-423 / AUD-30).
 - **Domain Models**: ``agent_utilities/models/domains/finance.py``
 - **Pillar**: KG + Finance Domain
 
@@ -114,7 +113,3 @@ All thresholds are configurable at instantiation.
 - `MarkovTransitionMatrix -[:DETECTED_REGIME]-> MarkovRegimeState`
 - `TradingStrategy -[:GENERATES_SIGNAL]-> RegimeSignal`
 
-## Service Registry
-Registered as discoverable services in the ``ServiceRegistry`` (CONCEPT:AU-ORCH.adapter.kg-graph-materialization):
-- `markov_regime_detection` (Layer: domain, Domain: finance)
-- `hmm_regime_detection` (Layer: domain, Domain: finance)

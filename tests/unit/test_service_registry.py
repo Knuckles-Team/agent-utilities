@@ -10,15 +10,22 @@ class TestServiceRegistry:
 
         registry = ServiceRegistry()
         count = registry.initialize()
-        assert count >= 50  # At least 50 services should be registered
+        # The finance math services left with AUD-30 (EH-423); 43 remain.
+        assert count >= 40
 
     def test_discover_by_domain(self):
         from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
-        finance = registry.discover(domain="finance")
-        assert len(finance) > 10  # All finance + general services
+        finance = {svc.capability for svc in registry.discover(domain="finance")}
+        # AU keeps only the finance agent roles; the math is epistemic-graph's
+        # (EH-423 / AUD-30).
+        assert {"trading_swarm", "flip_explainer", "research_autopilot"} <= finance
+        assert (
+            not {"alpha_factors", "risk_management", "markov_regime_detection"}
+            & finance
+        )
 
     def test_discover_by_layer(self):
         from agent_utilities.core.registry.service_adapter import ServiceRegistry
@@ -45,7 +52,7 @@ class TestServiceRegistry:
         caps = registry.list_capabilities()
         assert "team_composition" in caps
         assert "prompt_scanning" in caps
-        assert "alpha_factors" in caps
+        assert "flip_explainer" in caps
 
     def test_layer_summary(self):
         from agent_utilities.core.registry.service_adapter import ServiceRegistry
@@ -88,7 +95,7 @@ class TestServiceRegistry:
         registry.initialize()
         # No backend = register_with_kg will gracefully skip (backend=None)
         count = registry.register_with_kg(engine)
-        assert count >= 50  # Services registered (via NX fallback)
+        assert count >= 40  # Services registered (via NX fallback)
 
 
 class TestDomainRegistry:
@@ -104,10 +111,8 @@ class TestDomainRegistry:
         from agent_utilities.domains import get_domain_capabilities
 
         caps = get_domain_capabilities("finance")
-        assert "alpha_factors" in caps
-        assert "risk_management" in caps
-        assert "kronos_forecaster" in caps
-        assert len(caps) >= 13
+        assert {"kronos_forecaster", "trading_swarm", "flip_explainer"} <= set(caps)
+        assert "alpha_factors" not in caps
 
     def test_unknown_domain(self):
         from agent_utilities.domains import get_domain_capabilities

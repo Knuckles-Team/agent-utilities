@@ -45,7 +45,6 @@ from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
 from ..orchestration.engine_enterprise import EnterpriseEngineMixin
 from ..orchestration.engine_federation import FederationMixin
-from ..orchestration.engine_finance import FinanceEngineMixin
 from ..orchestration.engine_infra import InfrastructureEngineMixin
 from ..orchestration.engine_ml_rlm import MachineLearningEngineMixin
 from ..orchestration.engine_query import QueryMixin
@@ -90,7 +89,6 @@ class IntelligenceGraphEngine(
     # CONCEPT:AU-KG.domains.lazy-symbol-loading — domain methods are composed onto
     # the engine so current surfaces invoke one real engine capability directly.
     EnterpriseEngineMixin,
-    FinanceEngineMixin,
     MachineLearningEngineMixin,
 ):
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory).

@@ -9,7 +9,6 @@ Against the ACTUAL ephemeral engine from the mandatory
   points;
 * telemetry written through TokenUsageTracker.record is queryable via the native
   range/window path (the dead-layer → live wiring);
-* finance gap-fill via engine_series matches the pandas LOCF result within tolerance.
 """
 
 from __future__ import annotations
@@ -111,60 +110,3 @@ def test_telemetry_record_to_tsdb_live(engine_graph):
     )
     totals = sorted(p.metrics["total_tokens"] for p in out)
     assert totals == [15.0, 30.0]
-
-
-def test_finance_gap_fill_parity(engine_graph):
-    """engine gap-fill matches the pandas LOCF result within tolerance."""
-    pd = pytest.importorskip("pandas")
-    from agent_utilities.domains.finance.engine_series import gap_fill_series
-
-    # Irregular daily series with a GAP (missing 2026-01-03): LOCF must carry 20 forward.
-    idx = pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-04"], utc=True)
-    s = pd.Series([10.0, 20.0, 40.0], index=idx, name="close")
-
-    filled = gap_fill_series(s, "1D", client=engine_graph._client)
-    # Grid 01-01..01-04 → [10, 20, 20(carried), 40].
-    vals = list(filled.to_numpy())
-    assert vals[0] == pytest.approx(10.0)
-    assert vals[1] == pytest.approx(20.0)
-    assert vals[2] == pytest.approx(20.0)  # gap-filled (LOCF)
-    assert vals[3] == pytest.approx(40.0)
-
-    # Parity vs the pure-pandas LOCF reindex on the same grid.
-    grid = pd.date_range(idx.min(), idx.max(), freq="1D", tz="UTC")
-    pandas_locf = s.reindex(s.index.union(grid)).ffill().reindex(grid)
-    assert list(filled.to_numpy()) == pytest.approx(list(pandas_locf.to_numpy()))
-
-
-def test_finance_gap_fill_new_york_dst_engine_fallback_parity(
-    engine_graph, monkeypatch
-):
-    """The real engine and fallback use the same UTC instants across a DST fold."""
-    import warnings
-
-    pd = pytest.importorskip("pandas")
-    from agent_utilities.domains.finance import engine_series
-
-    local_index = pd.date_range(
-        "2026-11-01 00:00", periods=4, freq="h", tz="America/New_York"
-    )
-    series = pd.Series([10.0, 30.0, 40.0], index=local_index[[0, 2, 3]], name="close")
-    expected = pd.Series(
-        [10.0, 10.0, 30.0, 40.0],
-        index=pd.date_range("2026-11-01 04:00", periods=4, freq="h", tz="UTC"),
-        name="close",
-    )
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        accelerated = engine_series.gap_fill_series(
-            series, "1H", client=engine_graph._client
-        )
-
-    monkeypatch.setattr(engine_series, "_client", lambda: None)
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        fallback = engine_series.gap_fill_series(series, "1H")
-
-    pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
-    pd.testing.assert_series_equal(fallback, expected, check_freq=False)

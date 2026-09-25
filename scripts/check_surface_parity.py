@@ -188,7 +188,6 @@ EXCLUDE_SUBSTRINGS = (
 # the durable-queue orchestrator. Excluded from the capability scan by exact path.
 INFRA_MODULES = frozenset(
     {
-        "agent_utilities/domains/finance/quant_ontology.py",
         "agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py",
         "agent_utilities/knowledge_graph/orchestration/voi_budget_controller.py",
         "agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py",

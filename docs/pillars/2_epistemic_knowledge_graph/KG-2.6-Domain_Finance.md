@@ -32,9 +32,9 @@ Advanced quantitative logic for automated trading systems, now offloaded to the 
 - **StatisticalArbitrage**: Cointegration analysis and Ornstein-Uhlenbeck stochastic mean-reversion MLE parameter estimation.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/domains/finance/signal_fusion.py``, ``agent_utilities/domains/finance/portfolio_optimizer.py``, ``agent_utilities/domains/finance/microstructure.py``, ``agent_utilities/domains/finance/cross_market_arb.py``
+- **Source Code**: the math is epistemic-graph's (`FinanceMarket`, `FinanceSignalModels` and the `Finance*` kernels such as `FinanceAlphaCombinationEngine`, `FinanceEmpiricalKelly`, `FinanceOrderBookImbalance`, `FinanceOuCalibrate` and `FinanceBrierScore`). agent-utilities keeps only the finance agent roles in ``agent_utilities/domains/finance/`` (EH-423 / AUD-30).
 - **Pillar**: KG
-- **Architecture Note**: The Python layer acts as a lightweight orchestrator and thin proxy. Heavy numerical lifting (MVO, Risk Parity, Black-Litterman, HMM regime detection) can be delegated to the `epistemic-graph-server` via Unix Domain Socket (UDS) RPC when the native engine is available; the Python finance domain modules (`agent_utilities/domains/finance/`) still use `numpy`/`scipy` directly for local computation and as a fallback.
+- **Architecture Note**: agent-utilities computes no finance math. Agent roles call the epistemic-graph client; market data and order execution belong to the `emerald-exchange` and `market-data-mcp` connectors, and a live order exists only as a human-approved D18 change set.
 
 # Risk Scoring Ontology (CONCEPT:AU-KG.research.research-pipeline-runner)
 

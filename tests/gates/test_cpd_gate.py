@@ -253,7 +253,8 @@ def test_checked_in_catalog_includes_intent_and_optional_descriptors() -> None:
     data = json.loads(JSON_PATH.read_text(encoding="utf-8"))
     capability_ids = {item["id"] for item in data["capabilities"]}
     assert set(INTENT_VERBS) <= capability_ids
-    assert "quant" in capability_ids
+    # The finance ``quant`` family left agent-utilities (EH-423 / AUD-30).
+    assert "quant" not in capability_ids
 
 
 def test_action_inventory_comes_from_the_generated_manifest() -> None:
@@ -367,7 +368,6 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
         )
 
         assert {cpd.id for cpd in cpds} >= set(INTENT_VERBS)
-        assert "quant" in {cpd.id for cpd in cpds}
         for cpd in cpds:
             expected_verbs = (
                 [cpd.id] if cpd.id in INTENT_VERBS else list(TOOL_VERBS[cpd.id])

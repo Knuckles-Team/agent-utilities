@@ -110,7 +110,8 @@ self-improving one.
 ## 4. Implemented gaps — API + wiring
 
 ### a. Trade-journal bias auditor + shadow account — `CONCEPT:AU-KG.domains.trade-journal-bias-auditor`
-`agent_utilities/domains/finance/trade_journal.py`
+Removed from agent-utilities with the rest of its deterministic finance math
+(EH-423 / AUD-30); the section below records the design as it was built.
 
 ```python
 from agent_utilities.domains.finance import TradeJournalAuditor, Roundtrip
@@ -187,10 +188,10 @@ ev.citation()     # names the exact passing/failing rules
 
 | ID | Capability | Borrowed from | Module |
 |---|---|---|---|
-| `KG-2.26` | Trade-journal bias auditor + shadow account | Vibe-Trading | `domains/finance/trade_journal.py` |
+| `KG-2.26` | Trade-journal bias auditor + shadow account | Vibe-Trading | removed (EH-423 / AUD-30) |
 | `AU-KG.domains.agent-calibration-reputation-tracking` | Agent calibration / reputation tracking | (novel; gap vs Palantir/Fincept) | `domains/finance/calibration_tracker.py` |
 | `AU-KG.domains.persona-decision-heuristic-enrichment` | Persona decision-heuristic enrichment | FinceptTerminal | `domains/finance/persona_heuristics.py` |
 
-All three degrade cleanly offline (lazy engine + optional KG backend), export via
+The two that remain degrade cleanly offline (lazy engine + optional KG backend), export via
 `domains/finance/__init__.py`, and are covered by tests under
 `tests/unit/finance/`.

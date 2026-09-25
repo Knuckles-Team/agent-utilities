@@ -42,16 +42,15 @@ The framework registers several new `OntologySchema` types into the core KG engi
 
 ## Implementation Details
 - **Source Code**:
-  - `agent_utilities/domains/finance/quant_ontology.py`
-  - `agent_utilities/domains/finance/market_data.py`
   - `agent_utilities/domains/finance/debate_engine.py`
   - `agent_utilities/domains/finance/trading_swarm.py`
   - `agent_utilities/domains/finance/research_autopilot.py`
-  - `agent_utilities/domains/finance/strategy_engine.py`
-  - `agent_utilities/domains/finance/exchange_bridge.py`
-  - `agent_utilities/domains/finance/signal_fusion.py`
-  - `agent_utilities/domains/finance/regime_detector.py`
-  - `agent_utilities/domains/finance/quant_mcp_tools.py`
+  - `agent_utilities/domains/finance/flip_explainer.py`
+  - Signal fusion, regime detection and the market-data, exchange and `quant`
+    tool surfaces left agent-utilities (EH-423 / AUD-30): the math is
+    epistemic-graph's, data and execution are the `emerald-exchange` and
+    `market-data-mcp` connectors, and flip alerts and live-order proposals are
+    the graph-os `graph_finance` tool.
 - **Pillar**: KG (Pillar 2) & ECO (Pillar 4 MCP Tools)
 
 ## Related Concepts

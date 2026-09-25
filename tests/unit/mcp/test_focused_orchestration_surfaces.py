@@ -65,7 +65,6 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
         },
         "graph_domain_ops": {
             "allocate_budget",
-            "fit_markov_regime",
             "register_rlm_actor",
         },
         "graph_evolution": {
@@ -118,7 +117,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
     # both were added above. The `harvest_actions(...) == actions` assertion below
     # is what actually pins the surface against the real tools; this total is the
     # redundant ratchet that catches a silently added action.
-    assert sum(map(len, expected_actions.values())) == 37
+    assert sum(map(len, expected_actions.values())) == 36
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
