@@ -16,6 +16,7 @@ precedent.
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,11 +57,13 @@ def test_flag_reads_setting(monkeypatch):
     assert ert.codebase_delta_via_sdk_transport_enabled() is True
 
 
-def test_index_codebase_fails_closed_without_the_sdk(tmp_path):
-    """The real, current state of this environment: ``agent_connector_sdk.
-    repository`` fails to import (its own ``epistemic_graph.generated``
-    dependency is absent) -- not mocked, this is what actually happens today.
-    """
+def test_index_codebase_fails_closed_without_the_sdk(tmp_path, monkeypatch):
+    """An environment whose ``agent_connector_sdk.repository`` cannot be
+    imported (an SDK or ``epistemic_graph`` wheel that predates the
+    branch-aware transport) fails closed with the typed error."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "agent_connector_sdk.repository", None)
     manifest = _manifest(tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -148,8 +151,13 @@ def test_index_codebase_via_sdk_transport_end_to_end(tmp_path):
     )
 
     class _FakeGraph:
-        async def index_repository(self, payload, *, scope):
-            digests = {p: "sha256:" + "0" * 64 for p, _content in payload}
+        async def index_repository(self, payload, *, scope, graph=None):
+            committed_into.append(graph)
+            # The SDK checks each outcome against the blob's content digest.
+            digests = {
+                p: "sha256:" + hashlib.sha256(content).hexdigest()
+                for p, content in payload
+            }
             outcomes = [
                 {
                     "content_digest": digests[p],
@@ -160,10 +168,16 @@ def test_index_codebase_via_sdk_transport_end_to_end(tmp_path):
                 }
                 for p, _content in payload
             ]
-            return empty_result.model_copy(
-                update={"file_outcomes": outcomes, "files_parsed": len(payload)}
+            # model_copy(update=) skips validation; the SDK reads typed outcomes.
+            return type(empty_result).model_validate(
+                {
+                    **empty_result.model_dump(),
+                    "file_outcomes": outcomes,
+                    "files_parsed": len(payload),
+                }
             )
 
+    committed_into: list[str | None] = []
     fake_client = SimpleNamespace(graph=_FakeGraph())
 
     async def _run():
@@ -172,16 +186,20 @@ def test_index_codebase_via_sdk_transport_end_to_end(tmp_path):
             fake_client,
             graph_name="g1",
             source_path=str(repo_root),
-            repository_id="local-git:repo",
+            repository_id="repo",
         )
 
     import asyncio
 
     receipt = asyncio.run(_run())
     assert receipt.blobs_fetched == 1
-    assert receipt.manifest.repository_id == "local-git:repo"
+    # Every batch's projection commits into the ingest target graph.
+    assert committed_into and set(committed_into) == {"g1"}
+    assert (
+        receipt.manifest.repository_id == "local-git:repo"
+    )  # the SDK keys by provider name
 
     # The manifest is now persisted as the next run's prior.
-    reloaded = ert._load_prior_manifest(manifest, "g1", "local-git:repo")
+    reloaded = ert._load_prior_manifest(manifest, "g1", "repo")
     assert reloaded is not None
     assert reloaded.repository_id == "local-git:repo"

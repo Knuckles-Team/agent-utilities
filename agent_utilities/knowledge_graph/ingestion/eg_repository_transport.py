@@ -160,6 +160,8 @@ async def index_codebase_via_sdk_transport(
     provider = LocalGitRepositoryProvider(
         Path(source_path), repository_id=repository_id
     )
-    receipt = await index_repository(provider, async_client, prior=prior, limits=limits)
+    receipt = await index_repository(
+        provider, async_client, prior=prior, limits=limits, graph=graph_name
+    )
     _store_manifest(manifest, graph_name, repository_id, receipt.manifest)
     return receipt

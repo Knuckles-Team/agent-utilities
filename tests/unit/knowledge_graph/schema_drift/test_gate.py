@@ -23,6 +23,7 @@ from agent_utilities.knowledge_graph.schema_drift.repair import (
     resolve_renames,
 )
 from agent_utilities.knowledge_graph.schema_drift.shape import infer_shape
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
 from tests.unit.knowledge_graph.schema_drift.fakes import FakeEngine, FakePort
 
 SOURCE = "container-manager-mcp"
@@ -67,6 +68,13 @@ class Harness:
         return outcome
 
 
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Gap writes bind the verified session tenant (EG-typed Gap surface)."""
+    with verified_fleet_session(TENANT):
+        yield
+
+
 @pytest.fixture
 def harness() -> Harness:
     h = Harness()
@@ -104,7 +112,7 @@ def test_breaking_drift_is_quarantined_reported_gapped_and_proposed(
     assert [c["kind"] for c in detail["changes"]] == ["rename_candidate"]
     (report,) = harness.engine.labelled("SchemaDriftReport").values()
     assert report["epistemic_class"] == "observation"
-    assert detail["gap_id"] in harness.engine.labelled("Gap")
+    assert (TENANT, detail["gap_id"]) in harness.engine.market.gap_rows
     repair = detail["repair"]
     assert repair["renames"] == {"title": "name"}
     assert repair["shadow"]["validated"] and repair["shadow"]["ingested"] == 2

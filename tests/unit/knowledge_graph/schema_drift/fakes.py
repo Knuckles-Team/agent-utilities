@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from tests.unit.work_market_fakes import attach_market
+
 _MATCH = re.compile(r"MATCH \(n:(\w+) \{([^}]*)\}\)")
 
 
@@ -61,6 +63,8 @@ class FakeEngine:
         self.nodes: dict[str, dict[str, Any]] = {}
         self.backend = FakeBackend(self.nodes)
         self.fail_writes = False
+        # Gaps are EG-typed (work-market): the typed ``client.gaps`` surface.
+        self.market = attach_market(self)
 
     def add_node(self, node_id: str, node_type: str, properties: dict | None = None):
         if self.fail_writes:

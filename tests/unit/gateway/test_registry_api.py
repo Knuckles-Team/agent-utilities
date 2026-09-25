@@ -461,7 +461,7 @@ def test_authorized_page_tools_reads_fleet_catalog():
         fleet_catalog=_FakeFleetCatalog({"tools": [_row_entry(_tool_row(component))]})
     )
     rows, next_cursor, total = registry_api._authorized_page(
-        "tools", grant_digests=("g1",), query="", after=None, limit=10, engine=engine
+        "tools", grant_digests=("a" * 64,), query="", after=None, limit=10, engine=engine
     )
     assert rows[0]["id"] == "mcp:svc-a/tool/t1"
     assert total == 1

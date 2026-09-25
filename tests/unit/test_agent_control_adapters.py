@@ -343,14 +343,21 @@ def test_candidates_preserve_eg_order_and_drop_unmapped_kinds() -> None:
     assert {c.source for c in candidates} == {"eg_agent_component"}
 
 
-async def test_task_search_fails_closed_until_eg_serves_typed_task_search() -> None:
+async def test_task_search_sends_the_typed_task_iri_to_eg() -> None:
+    """EG serves typed task-capability search (AgentComponentSearchRequest.task):
+    the closed task IRI, never the free text, reaches the one search call."""
     client = _Client()
-    with pytest.raises(AgentControlPlaneUnavailable, match="task-capability"):
-        await EgCapabilitySearch(client).search(
-            CapabilitySearchRequest(task="review a PR", task_iri="eg:task/review"),
-            session=_session(),
-        )
-    assert client.sent == []
+    result = await EgCapabilitySearch(client).search(
+        CapabilitySearchRequest(task="review a PR", task_iri="eg:task/review"),
+        session=_session(),
+    )
+    assert result == ()
+    assert len(client.sent) == 1
+    method, params, _graph = client.sent[0]
+    assert method == "AgentComponent"
+    assert params["op"]["op"] == "search"
+    assert params["op"]["request"]["task"] == "eg:task/review"
+    assert "review a PR" not in repr(params)
 
 
 async def test_free_text_is_never_sent_to_eg_as_a_task() -> None:

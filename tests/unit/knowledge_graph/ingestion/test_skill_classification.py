@@ -97,7 +97,9 @@ class _FakeFleetCatalog:
 
         self.override_calls.append(request)
         assert request.component_id == self.component_id
-        self._skill_type = request.value["skill_type"]
+        # EG typed-convergence (EH-377): the override value is the generated
+        # FleetOverrideSkillType model, not a dict.
+        self._skill_type = request.value.skill_type.value
         return SimpleNamespace(disposition="written")
 
 
@@ -191,7 +193,7 @@ def test_writable_source_file_is_persisted_and_verified(tmp_path):
 
     # The override was set through the typed EG call.
     assert len(fc.override_calls) == 1
-    assert fc.override_calls[0].value == {
+    assert fc.override_calls[0].value.model_dump(mode="json") == {
         "field": "skill_type",
         "skill_type": "workflow",
     }
