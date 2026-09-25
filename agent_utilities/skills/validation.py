@@ -23,9 +23,6 @@ EXPERT_PROMPT = PACKAGE_ROOT / "prompts" / "agent-utilities-expert.json"
 EXPECTED_SKILLS = frozenset(BUNDLED_SKILLS)
 
 _REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {
-    "agent-utilities-deployment": frozenset(
-        {"migration", "persisted-format", "upgrade"}
-    ),
     "graph-engine-and-modalities": frozenset(
         {
             "sql",
@@ -1117,8 +1114,8 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
     errors: list[str] = []
-    if len(EXPECTED_SKILLS) != 13:
-        errors.append("canonical taxonomy must contain exactly 13 workflow skills")
+    if len(EXPECTED_SKILLS) != 12:
+        errors.append("canonical taxonomy must contain exactly 12 workflow skills")
     if actual != EXPECTED_SKILLS:
         errors.append(
             "skill inventory mismatch: "
@@ -1130,13 +1127,12 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
 
 def _validate_skill_tree(actual: set[str]) -> list[str]:
     errors: list[str] = []
-    # Scoped to the canonical 13-skill subtree only: a SKILL.md nested under one
-    # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
+    # Scoped to the canonical bundled-skill subtree only: a SKILL.md nested under
+    # one of EXPECTED_SKILLS would be a real violation (that skill must be a flat
     # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
     # hosts other, differently-shaped content outside this taxonomy — the
-    # agent-os-genesis workflow skill (skills/workflows/) and the agent-utilities
-    # skill-graph package (skills/skill_graphs/) — which this validator does not
-    # own and must not flag.
+    # agent-utilities skill-graph package (skills/skill_graphs/) — which this
+    # validator does not own and must not flag.
     nested = [
         path
         for path in SKILLS_ROOT.rglob("SKILL.md")

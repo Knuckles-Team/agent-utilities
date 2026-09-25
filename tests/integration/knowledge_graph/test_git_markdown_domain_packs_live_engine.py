@@ -96,9 +96,8 @@ _VERIFIED_PILLAR_FILES: tuple[str, ...] = (
 #: Same verification, for `agent_utilities/skills/*/SKILL.md` (real YAML
 #: frontmatter corpus). Restricted to the top-level ``*/SKILL.md`` glob depth —
 #: this fixture's `au-skills` domain pack therefore covers a verified subset of
-#: this repo's skills, not the nested `workflows/`/`skill_graphs/` ones.
+#: this repo's skills, not the nested `skill_graphs/` ones.
 _VERIFIED_SKILL_FILES: tuple[str, ...] = (
-    "agent-utilities-deployment/SKILL.md",
     "agent-utilities-development/SKILL.md",
     "agent-utilities-evolution/SKILL.md",
     "autonomous-contribution/SKILL.md",

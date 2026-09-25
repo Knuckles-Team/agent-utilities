@@ -22,7 +22,7 @@ automatically into agent context:
 - **Deploying this for an operator?** `AGENTS.md`'s
   [Zero-to-deployed (genesis)](https://github.com/Knuckles-Team/agent-utilities/blob/main/AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator)
   section is the router — it asks one question (homelab or enterprise?) and takes
-  it from there via the `agent-utilities-deployment` skill.
+  it from there via the `graphos-deployment` skill.
 - **Integrating an existing agent with the knowledge graph?** Start at
   [Consumption Models](guides/consumption-models.md) for the trade-offs between the
   Python library, the MCP server, and the shared HTTP gateway.

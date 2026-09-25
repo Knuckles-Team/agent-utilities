@@ -4,7 +4,7 @@
 Wraps :mod:`agent_utilities.deployment.config_generator` so a deployment (or Claude
 setting itself up) can produce a COMPLETE profile-seeded ``config.json``, validate a
 config's completeness/health, or dump the grouped option reference — matching the
-``graph_configure`` MCP actions and the ``agent-utilities-deployment`` skill.
+``graph_configure`` MCP actions and the ``graphos-deployment`` skill.
 """
 
 from __future__ import annotations

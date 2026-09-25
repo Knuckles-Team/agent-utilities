@@ -93,7 +93,7 @@ See [Consumption models](consumption-models.md) for surface selection.
 
 The generated fleet registry describes available `*-mcp` packages, but an external
 runtime profile selects which connectors are enabled and where they run. Use the
-`agent-utilities-deployment` workflow to validate tool schemas, workload identity,
+`graphos-deployment` workflow to validate tool schemas, workload identity,
 TLS profiles, and runtime secret references before registration.
 
 Do not commit the selected inventory, discovered endpoints, resolved certificates,
@@ -125,7 +125,7 @@ reference.
 
 ## Automated Day 0
 
-The `agent-utilities-deployment` workflow consumes an operator-owned profile, performs
+The `graphos-deployment` workflow consumes an operator-owned profile, performs
 discovery, writes reference-only XDG AgentConfig, deploys the selected surfaces and
 connectors, and certifies the live topology. It does not add a site profile to this
 repository.

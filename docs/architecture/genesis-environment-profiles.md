@@ -76,7 +76,7 @@ would go; it never falls back to a "closest" name.
 
 This module **defines, discovers, loads, and validates** the schema only. It does
 not render a profile into live Kubernetes objects — that remains
-`agent-os-genesis`'s Phase 4 (`references/kubernetes-and-helm.md` in the skill) and
+`graphos-genesis`'s Phase 4 (`references/kubernetes-and-helm.md` in the skill) and
 the existing `deploy/k8s/production-cell/` render pipeline
 (`scripts/release/render_production_cell.py`). A validated `EnvironmentProfile` is
 a typed **input** those phases can consume, not a second renderer.

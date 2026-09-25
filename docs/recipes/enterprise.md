@@ -9,7 +9,7 @@
 
 Multi-node **Kubernetes (RKE2)** with the full integration set and the complete
 `*-mcp` connector fleet. This is the "run the enterprise" tier. It is driven by
-the **`agent-os-genesis` (alias `day0`)** skill-workflow rather than by hand.
+the **`graphos-genesis` (alias `day0`)** skill-workflow rather than by hand.
 `docker-swarm` remains a selectable `orchestrator` for operators who haven't
 migrated; the reference homelab deployment itself has largely completed a
 Swarm→RKE2 cutover — see `inventory/k8s-migration/` (`ROADMAP.md`,
@@ -31,7 +31,7 @@ artifacts rather than duplicating them.
 
 ## Deploy (skill-workflow)
 
-The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
+The `graphos-genesis` (alias `day0`) workflow runs the ordered bootstrap:
 
 1. `ssh-bootstrap` → full-mesh SSH across inventory hosts.
 2. `network-topology-sweep` + `hardware-profile-sweep` → discovery.
@@ -149,8 +149,8 @@ count. This is the opposite end of the spectrum from [tiny](tiny.md)/
 default (one binary, nothing to scale independently). Full wiring — the Raft
 cluster build/bring-up, the headless-Service peering requirement, the current
 graph-os-replica limitation and its TLS follow-on, and the staged k8s reference
-manifests — is in the `agent-os-genesis` skill's
-[engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+manifests — is in the `graphos-genesis` skill's
+[engine topology + hyperscaling reference](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/runtime-topology.md).
 
 ## Operate
 

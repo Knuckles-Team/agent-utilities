@@ -107,8 +107,8 @@ _PRODUCTION_READINESS_EXPECTED: dict[str, bool] = {
 }
 
 # `genesis.yaml`'s per-profile `engine_topology` run-plan axis (unified-binary-program.md
-# W-E; full depth: agent_utilities/skills/workflows/agent-os-genesis/references/
-# engine-topology-and-hyperscaling.md), mirrored here so a generated config.json never
+# W-E; full depth: graph-os graph_os/skills/graphos-genesis/references/runtime-topology.md),
+# mirrored here so a generated config.json never
 # disagrees with genesis. DECLARED-DEFAULT/PASSTHROUGH ONLY: no AgentConfig field reads
 # ENGINE_TOPOLOGY yet (extra="ignore" makes this inert on load) and nothing selects the
 # in-process-vs-shared-engine transport based on it — that runtime switch is

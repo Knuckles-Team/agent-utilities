@@ -260,12 +260,12 @@ per-capability wrapper):
   reference gained a top-of-file note pointing at this doc.
 - `agent_utilities/skills/skill_graphs/agent-utilities/SKILL.md` — the one-line tool list now
   notes the `intent` profile alternative.
-- `agent_utilities/skills/workflows/agent-os-genesis/SKILL.md` — the env-var canon section
+- the graph-os `graphos-genesis` skill (`graph_os/skills/graphos-genesis/SKILL.md`) — the env-var canon section
   (`MCP_TOOL_MODE` enum) now lists `intent` as a 4th valid value with a one-line explanation, so
   a genesis-provisioned deployment's drift-guard/docs stay accurate. (No code change needed —
   `check_env_var_drift.py` only checks for the KEY's presence, not an enum of values.)
 
-**Verified NOT needed:** `agent-utilities-self-evolution`, `agent-utilities-deployment`,
+**Verified NOT needed:** `agent-utilities-self-evolution`, `graphos-deployment`,
 `agent-utilities-source-integration`, `autonomous-contribution` skills reference graph-os tool
 names only as illustrative examples of existing behavior (e.g. `graph_write` + `graph_query` in
 a smoke test) that remains equally true under any `MCP_TOOL_MODE` — nothing in them assumes a

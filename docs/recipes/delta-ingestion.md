@@ -177,10 +177,10 @@ Give a hot source its own cadence by adding a `schedules.yml` entry
 
 Hand Claude this recipe in a new environment. The guided path:
 
-- **tiny / single-node** → the **`agent-utilities-deployment`** skill: composes
+- **tiny / single-node** → the **`graphos-deployment`** skill: composes
   `setup-config` + `setup-databases` + the
   `database-environment-setup` skill, then verifies with `agent-utilities-doctor`.
-- **enterprise / multi-node** → the **`agent-utilities-deployment`** skill, driven by
+- **enterprise / multi-node** → the **`graphos-deployment`** skill, driven by
   the root **`genesis.yaml`** manifest.
   Its backend/config steps:
   - **A1 `agent-utilities-install`** — install; tiny uses the fixed engine authority.

@@ -13,8 +13,8 @@ description: >
   plus per-source ingest/backfeed tools. Use when the user says "connect a source to the KG",
   "ingest LeanIX/Camunda/ARIS/ServiceNow", "mirror our EA/process tools", "sync
   a source", or "backfeed to a source". Assumes a running graph-os. Do NOT use to deploy
-  the platform from scratch (use agent-utilities-deployment) or for bare-host bootstrap
-  (use agent-os-genesis).
+  the platform from scratch (use graphos-deployment) or for bare-host bootstrap
+  (use graphos-genesis).
 ---
 
 # Connect an External Source to the Knowledge Graph (standardized)
@@ -25,8 +25,8 @@ mechanism is uniform — the only per-source differences are credentials, which 
 ingests, and whether a metamodel/backfeed exists. Deep per-source runbooks live in
 agent-utilities docs (linked in the matrix); this skill is the standard driver.
 
-> **Why not fold this into `agent-os-genesis`?** Genesis provisions or attaches the
-> environment-neutral Day-0 substrate; `agent-utilities-deployment` installs the
+> **Why not fold this into `graphos-genesis`?** Genesis provisions or attaches the
+> environment-neutral Day-0 substrate; `graphos-deployment` installs the
 > application layer. Connecting data sources is a **post-platform** step, so both
 > delegate here after Graph-OS is healthy.
 

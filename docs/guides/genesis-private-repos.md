@@ -78,7 +78,7 @@ and registration tokens are read from the secret store at deploy time, never com
 
 ## How an operator gets these provisioned during genesis
 
-This is **Step 9b** of the `agent-utilities-deployment` workflow, driven entirely off
+This is **Step 9b** of the `graphos-deployment` workflow, driven entirely off
 `repo_templates.py` (the genesis skill executes the plan; `genesis.yaml → private_repos`
 is the generated, machine-readable mirror via `manifest_summary()`). The flow:
 
@@ -112,7 +112,7 @@ For each repo the plan marks `action="create"` (already-present repos are `"skip
    register runners per `runner_plan(profile)`.
 
 The plan is **idempotent** (`existing_repos` → `action="skip"`) so re-running genesis is
-safe. The operator entry point is the `agent-utilities-deployment` workflow skill.
+safe. The operator entry point is the `graphos-deployment` workflow skill.
 
 ## The guarantee
 

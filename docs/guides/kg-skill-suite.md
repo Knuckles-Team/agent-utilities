@@ -44,7 +44,6 @@ The prose and machine contracts are deliberately separate:
 | `graph-runtime-and-governance` | Configuration, health, incidents, audit, compliance, sessions, and traces | 12 |
 | `graph-engine-and-modalities` | Native SQL, SPARQL/RDF, reasoning, analytic, stream, ledger, cluster, tenancy, RBAC, and admin domains | 25 core + 1 `finance` |
 | `agent-utilities-development` | Isolated implementation, live wiring, tests, docs, and delivery gates | — |
-| `agent-utilities-deployment` | Profile-driven installation, rollout, migration, verification, upgrade, and recovery | — |
 | `agent-utilities-evolution` | Evidence assimilation, proposals, optimization, and regression hardening | — |
 
 The seven domain skills explicitly cover all 110 required Graph-OS ToolSpecs
@@ -129,9 +128,10 @@ pytest tests/unit/test_gateway_mcp_parity.py -q
 ```
 
 Run the skill-creator validator once for every retained directory after changing
-skill prose or interface metadata. The gate additionally checks the exact thirteen-skill
+skill prose or interface metadata. The gate additionally checks the exact twelve-skill
 taxonomy, standard frontmatter, both sidecars, the 500-line ceiling, sensitive-data
-patterns, and the 26-case forward matrix.
+patterns, and the 24-case forward matrix. Deployment skills (`graphos-genesis`,
+`graphos-deployment`) ship with graph-os, not in this suite.
 
 For an ad hoc diagnostic against an already deployed GraphOS endpoint, run direct
 or delegated mode without release evidence:

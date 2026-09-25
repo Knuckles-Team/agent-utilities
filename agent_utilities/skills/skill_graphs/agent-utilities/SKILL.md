@@ -32,7 +32,7 @@ for using, developing, and extending the framework.
 
 | Need | Skill |
 |------|-------|
-| **Deploy** agent-utilities (zero-infra default, MCP servers, gateway, prod) | → [deployment/SKILL.md](deployment/SKILL.md) |
+| **Deploy** the platform (Compose on one host, Kubernetes with Helm) | → graph-os skills `graphos-genesis` (substrate) and `graphos-deployment` (install, identity, verification); AU is a library and is not deployed on its own |
 | Understand how to **develop** for agent-utilities | → [development/SKILL.md](development/SKILL.md) |
 | Use agent-utilities **tools** (X search, KG, workflows) | → [tools/SKILL.md](tools/SKILL.md) |
 | Find where **ontologies** live (EG / connector packs) | → [ontology/SKILL.md](ontology/SKILL.md) |

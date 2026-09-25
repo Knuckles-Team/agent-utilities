@@ -136,4 +136,4 @@ Each command is also reachable over MCP/REST via the `graph_configure` tool
 - [Universal external graph connectors](../architecture/universal-external-graph-connectors.md)
 - Recipes: [tiny](../recipes/tiny.md) · [single-node-prod](../recipes/single-node-prod.md) ·
   [enterprise](../recipes/enterprise.md) · [databases](../recipes/databases.md)
-- [Day-0 multi-node bootstrap (`agent-utilities-deployment`)](day0.md)
+- [Day-0 multi-node bootstrap (`graphos-deployment`)](day0.md)

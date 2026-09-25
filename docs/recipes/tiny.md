@@ -22,8 +22,8 @@ credential reference or an approved local inference endpoint.
 > one process is landing; today this recipe's out-of-process child already delivers
 > the same "nothing separate to operate" contract. The scale-out alternative
 > (`out-of-process-shared`, [enterprise](enterprise.md)'s default) is documented in
-> the `agent-os-genesis` skill's
-> [engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+> the `graphos-genesis` skill's
+> [engine topology + hyperscaling reference](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/runtime-topology.md).
 
 ## What runs
 

@@ -49,8 +49,8 @@ dedicated signer, writing the engine-side ``EPISTEMIC_GRAPH_SIGNER_KEYS_JSON``
 entry and the matching ``engine-admission/provisioner`` secret this module
 reads, the restart this credential requires, and the exact observable that
 proves admission actually worked (not merely that this command exited 0) —
-see ``agent_utilities/skills/workflows/agent-os-genesis/references/
-engine-identity-admission.md``. That document also states the four design
+see the graph-os ``graphos-genesis`` skill,
+``references/engine-identity-admission.md``. That document also states the four design
 properties of this credential an operator should treat as known risks, not
 incidental detail (unconstrained role-granting authority per signer, a
 shared symmetric secret, bootstrap circularity against the default

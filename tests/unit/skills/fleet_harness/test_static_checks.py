@@ -202,8 +202,8 @@ class TestNameUniqueness:
         self, tmp_path: Path
     ):
         # A skill-graph page legitimately mirrors its parent topic's exact
-        # name (e.g. a "deployment" page inside the "agent-utilities"
-        # skill-graph is itself named `agent-utilities-deployment`, matching
+        # name (e.g. a "development" page inside the "agent-utilities"
+        # skill-graph is itself named `agent-utilities-development`, matching
         # the real atomic skill it documents) — this must NOT be flagged as
         # a fleet-wide collision the way two atomic skills sharing a name
         # would be.

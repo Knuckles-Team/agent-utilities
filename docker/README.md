@@ -66,7 +66,7 @@ docker compose -f docker/pg-age.compose.yml up -d
 docker compose -f docker/mcp.compose.yml up -d         # docs/recipes/single-node-prod.md
 
 # 3) Full platform — swarm + all tiers + the *-mcp fleet
-#    run the `agent-utilities-deployment` skill — it resolves an adaptive run plan
+#    run the `graphos-deployment` skill — it resolves an adaptive run plan
 #    (deploy / baremetal / use-existing / skip per component) and stands the whole thing up.
 #                                                       # docs/recipes/enterprise.md
 ```
@@ -128,4 +128,4 @@ GitLab UI/API), not a new hand-written Job manifest.
   `unified-scheduling`
 - **Per-service `*-mcp` stacks (the deployed fleet):** [`../../../services/`](../../../services/)
 - **Genesis / day-0 bring-up + connector provisioning:** the
-  `agent-utilities-deployment` pre-bundled workflow skill and `genesis.yaml`.
+  graph-os skills `graphos-genesis` and `graphos-deployment`, and `genesis.yaml`.

@@ -5,7 +5,7 @@ entry point: generate a complete, profile-seeded ``config.json`` covering every
 :class:`~agent_utilities.core.config.AgentConfig` option, validate a deployment's
 config completeness/health (``config_doctor``), and render a grouped reference of
 all options. Composed by the ``setup-config`` CLI, the ``graph_configure`` MCP
-actions, and the ``agent-utilities-deployment`` skill.
+actions, and the ``graphos-deployment`` skill.
 """
 
 from __future__ import annotations

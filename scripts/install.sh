@@ -14,7 +14,7 @@
 #   5. points you at the next step — telling your agent to "deploy agent-utilities"
 #
 # It deliberately does NOT fabricate the 50+ *-mcp fleet config or secrets — that
-# is the job of the agent-utilities-deployment skill, which reads
+# is the job of the graphos-deployment skill, which reads
 # genesis.yaml and your chosen profile. This script gets your agent to the doorstep.
 set -euo pipefail
 
@@ -206,7 +206,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 # 5. Hand off to the deployment skill.
-SKILL="agent-utilities-deployment"
+SKILL="graphos-deployment"
 cat <<EOF
 
 $(c_info "Done. Your agent now has the KG tools + the genesis skills.")

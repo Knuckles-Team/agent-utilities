@@ -247,7 +247,7 @@ def render_compose(
     frontend — see ``co_service_supervisor``'s module docstring). An explicit
     client deployment must pair this plan with a gateway or standalone
     ``graph-os-daemon`` host; it is never hidden inside the served process. This is the
-    lightweight single-node case (``agent-utilities-deployment`` tiny/single-node-
+    lightweight single-node case (``graphos-deployment`` tiny/single-node-
     prod profiles); a hardened multi-secret production Swarm profile already
     exists at ``deploy/swarm/graphos.stack.yml`` and should be extended, not
     duplicated, for that use case.

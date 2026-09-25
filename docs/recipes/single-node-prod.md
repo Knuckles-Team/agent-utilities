@@ -21,8 +21,8 @@ long-lived container that the gateway and connectors share.
 > self-contained `graph-os` image with no sidecar engine service to deploy or drift.
 > Graduating to a **shared/scaled** engine (`out-of-process-shared`, the
 > `enterprise` default) is a distinct axis from this page's compose walkthrough —
-> see the `agent-os-genesis` skill's
-> [engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+> see the `graphos-genesis` skill's
+> [engine topology + hyperscaling reference](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/runtime-topology.md).
 
 ## What runs
 
@@ -151,6 +151,6 @@ curl -s -X POST localhost:9000/api/graph/query \
 Add an orchestrator (Kubernetes/RKE2 by default; Swarm is also selectable),
 Keycloak SSO, the Kafka event backbone, LGTM observability, and the
 full connector fleet — see [Enterprise](enterprise.md), driven by the
-`agent-utilities-deployment` skill-workflow. The flag-level path is rungs
+`graphos-deployment` skill-workflow. The flag-level path is rungs
 (d) and (e) of the
 [deployment configurations ladder](../guides/deployment-configurations.md#rung-d-scaled-multi-host).

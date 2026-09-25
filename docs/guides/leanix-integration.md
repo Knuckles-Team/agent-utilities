@@ -6,7 +6,7 @@ and backfeed KG-derived knowledge back into LeanIX.
 
 This is the operator runbook. The end-to-end flow is also driven by the
 **`leanix-integration`** agent skill (which references this guide for
-troubleshooting). The enterprise `agent-utilities-deployment` workflow delegates the
+troubleshooting). The enterprise `graphos-deployment` workflow delegates the
 LeanIX data-source step here rather than
 duplicating it.
 

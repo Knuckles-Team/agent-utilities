@@ -28,7 +28,7 @@ GRAPH_DB_URI="$GRAPH_DB_URI" \
 
 ## Enterprise
 
-Use the `agent-utilities-deployment` skill-workflow (enterprise profile). It
+Use the `graphos-deployment` skill-workflow (enterprise profile). It
 provisions the swarm, core services, and binds every connector stack from the
 registry to Git for Portainer GitOps auto-sync. Backend composes
 (`pg-age`, `kafka-kraft`) are deployed as swarm stacks; integrations

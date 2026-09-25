@@ -133,7 +133,7 @@ agent-utilities doctor --only config auth secrets transport_security graph_conne
 - Use one of the ten pre-bundled workflows when the task maps directly to its domain,
   such as `graph-ingestion-and-integration`,
   `graph-orchestration-and-automation`, `agent-utilities-development`,
-  `agent-utilities-evolution`, or `agent-utilities-deployment`.
+  `agent-utilities-evolution`, or `graphos-deployment`.
 
 In both cases, review `RunTrace` and `ToolCall` provenance. A failure should become a
 governed optimization proposal through the shared trace/outcome loop, not an untracked

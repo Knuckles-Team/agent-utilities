@@ -10,7 +10,7 @@
   off to the guided deployment skill.
 
   It does NOT fabricate the *-mcp fleet config or secrets — that is the
-  agent-utilities-deployment skill's job (it reads genesis.yaml).
+  graphos-deployment skill's job (it reads genesis.yaml).
 
 .EXAMPLE
   # From a clone:
@@ -147,7 +147,7 @@ if (-not $NoMcp) {
 }
 
 # 5. Hand off to the deployment skill.
-$skill = 'agent-utilities-deployment'
+$skill = 'graphos-deployment'
 Write-Host ''
 Write-Step 'Done. Your agent now has the KG tools + the genesis skills.'
 Write-Host @"

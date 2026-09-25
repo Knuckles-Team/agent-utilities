@@ -46,7 +46,6 @@ _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = (
     "contribution",
-    "deployment",
     "development",
     "engine",
     "evolution",
@@ -108,8 +107,8 @@ _CURRENT_COMPONENT_VERSIONS = {
     "index-migrations": "1",
 }
 _CURRENT_CONNECTOR_ENTRIES = 72
-_CURRENT_PREBUNDLED_SKILL_ENTRIES = 13
-_CURRENT_PREBUNDLED_SKILL_CASES = 26
+_CURRENT_PREBUNDLED_SKILL_ENTRIES = 12
+_CURRENT_PREBUNDLED_SKILL_CASES = 24
 _CURRENT_RUNTIME_CONTRACT = {
     "pythonVersion": "3.12",
     "baseImage": (

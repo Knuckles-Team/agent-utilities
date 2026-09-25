@@ -7,8 +7,8 @@ doctor validates the deployment.
 
 It composes existing pieces rather than duplicating them — the `setup-config` and
 `setup-databases` commands, the `database-environment-setup` skill, and the
-`agent-utilities-deployment` workflow for the multi-node deployment profile. The guided version is the
-same **`agent-utilities-deployment`** skill.
+`graphos-deployment` workflow for the multi-node deployment profile. The guided version is the
+same **`graphos-deployment`** skill.
 
 ## Pick a profile
 
@@ -75,7 +75,7 @@ Configure exactly one `KG_AUTH_TOKEN_REF` or `KG_IDENTITY_OAUTH2`; the OAuth2 bl
 must reference its client secret. This applies to every network transport,
 non-tiny profile, explicit engine endpoint, and non-GraphOS-stdio entry point. An
 invalid configured source never falls back to local authority. The
-`agent-utilities-deployment` skill can prepare the selected secret backend and the
+`graphos-deployment` skill can prepare the selected secret backend and the
 doctor can validate resolution without printing the material:
 
 ```bash
@@ -118,10 +118,10 @@ disabled; trace export, content capture, and KG auto-ingestion remain explicit
 opt-ins. Auto-ingestion additionally requires an independent persistence HMAC-key
 reference.
 
-## 7. Multi-node → agent-utilities-deployment
+## 7. Multi-node → graphos-deployment
 
 For a full swarm (SSH mesh, hardware placement, overlay networks, ingress, GitOps,
-fleet deploy), hand off to the **`agent-utilities-deployment`** skill. This guide
+fleet deploy), hand off to the **`graphos-deployment`** skill. This guide
 generates and validates the config *around* that bootstrap; it doesn't reimplement it.
 
 ## 8. Verify

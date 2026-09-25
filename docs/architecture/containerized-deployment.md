@@ -202,7 +202,7 @@ agent-utilities doctor --only config auth secrets transport_security graph_conne
 
 ## Production deployment
 
-The `agent-utilities-deployment` workflow consumes the external profile and performs
+The `graphos-deployment` workflow consumes the external profile and performs
 an ordered rollout:
 
 1. verify image signatures/digests and dependency versions;

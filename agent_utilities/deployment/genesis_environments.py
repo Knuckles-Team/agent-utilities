@@ -31,7 +31,7 @@ record. Summary:
   :class:`RuntimePathBinding`.
 
 This module only defines, discovers, loads, and validates the schema. Rendering a
-profile into live Kubernetes objects remains ``agent-os-genesis``'s job (Phase 4,
+profile into live Kubernetes objects remains ``graphos-genesis``'s job (Phase 4,
 ``deploy/k8s/production-cell/`` + ``scripts/release/render_production_cell.py``) —
 see the design doc's "Scope note".
 """

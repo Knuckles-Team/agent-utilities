@@ -63,7 +63,7 @@ Durable AgentConfig contains references only:
 The referenced documents contain endpoints, database names, credentials, and TLS
 selection and are resolved only inside the process. Do not copy them into the
 repository, launcher configuration, logs, or reports. Use the
-**`agent-utilities-deployment`** skill to configure the chosen secret backend, then
+**`graphos-deployment`** skill to configure the chosen secret backend, then
 validate without revealing resolved material:
 
 ```bash

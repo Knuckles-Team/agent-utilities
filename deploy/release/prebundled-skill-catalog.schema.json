@@ -50,13 +50,12 @@
     "kind": {"const": "PrebundledSkillCatalog"},
     "catalogVersion": {"const": 1},
     "membershipDigest": {"$ref": "#/$defs/digest"},
-    "entryCount": {"const": 13},
+    "entryCount": {"const": 12},
     "entries": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 12,
+      "maxItems": 12,
       "prefixItems": [
-        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-deployment"}}}]},
         {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-development"}}}]},
         {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-evolution"}}}]},
         {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-self-evolution"}}}]},

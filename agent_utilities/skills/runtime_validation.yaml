@@ -201,22 +201,6 @@ cases:
     allowed_tools: [graph_code, graph_query, graph_search]
     read_only: true
     architecture_candidate: *development_architecture_candidate
-  - id: deployment-direct
-    skill: agent-utilities-deployment
-    mode: direct
-    model_class: economy
-    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to produce a review-only plan for a new synthetic single-node installation profile and list deployment verification gates.
-    expected_routes: [genesis_manifest, deployment_doctor]
-    allowed_tools: []
-    read_only: true
-  - id: deployment-delegated
-    skill: agent-utilities-deployment
-    mode: delegated
-    model_class: standard
-    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to decompose a synthetic multi-node rollout into preflight, canary, policy, observability, and recovery checks without applying it.
-    expected_routes: [graph_orchestrate, genesis_manifest, deployment_doctor]
-    allowed_tools: [graph_configure, graph_observe]
-    read_only: true
   - id: evolution-direct
     skill: agent-utilities-evolution
     mode: direct

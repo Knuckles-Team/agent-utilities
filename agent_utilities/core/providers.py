@@ -530,7 +530,7 @@ def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
 #: skills — the same topic legitimately recurs across many bundles/pages. A
 #: skill-graph page is allowed, by design, to reuse the exact ``name:`` of the
 #: atomic skill it documents (e.g. the graph's "deployment" page is itself
-#: named ``agent-utilities-deployment``, matching the real atomic skill), so
+#: named after the atomic skill it documents), so
 #: these directories must never enter the flat current-skill identity pool.
 #: This mirrors the repo's own authoritative scoping: ``_EXCLUDE_SEGMENTS`` in
 #: ``scripts/check_skill_name_collision.py`` and

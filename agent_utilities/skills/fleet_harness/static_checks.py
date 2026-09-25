@@ -57,7 +57,7 @@ def _looks_like_config_key_or_path(body: str, match: re.Match[str]) -> bool:
     ``object_*``) is also just... common English/technical vocabulary, so
     prose legitimately uses it for other things: a redb storage-volume name
     (``epistemic-graph-migrations``), a genesis run-plan YAML field
-    (``agent-os-genesis``'s ``engine_topology``/``ontology_host``). Rather than a
+    (``graphos-genesis``'s ``engine_topology``/``ontology_host``). Rather than a
     hardcoded ignore-list of those specific strings (which would silently
     stop covering the NEXT tool-shaped config key or path fragment some other
     skill introduces), this checks the syntax immediately around the match
@@ -564,9 +564,9 @@ def _exempt_from_uniqueness(report: SkillStaticReport) -> bool:
     (``scripts/check_skill_name_collision.py``): a skill-graph is a
     KG-ingestion reference manual, not an installable skill, so the same
     topic legitimately recurs across many bundles/pages (e.g. the
-    "deployment" page of a skill-graph documenting the atomic
-    ``agent-utilities-deployment`` skill is itself named
-    ``agent-utilities-deployment``). The ``skill_type`` check is kept as a
+    "development" page of a skill-graph documenting the atomic
+    ``agent-utilities-development`` skill is itself named
+    ``agent-utilities-development``). The ``skill_type`` check is kept as a
     belt-and-suspenders match for a graph node authored outside a
     ``skill_graphs`` directory.
     """

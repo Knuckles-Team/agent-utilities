@@ -7,7 +7,7 @@ description: >-
   traces, cache or secret operations, tool discovery and loading, intent routing,
   policy verification, coverage checks, or recovery within the deployed
   topology. For provisioning, profile changes, topology changes, connector
-  rollout, or upgrades, use agent-utilities-deployment.
+  rollout, or upgrades, use graphos-deployment.
 ---
 
 # Graph runtime and governance
@@ -16,7 +16,7 @@ Diagnose from observed state, preserve governance boundaries, and prove recovery
 with the same public path users depend on.
 
 Keep installation profile, manifest, topology, connector rollout, and upgrade
-work in `agent-utilities-deployment`.
+work in `graphos-deployment`.
 
 ## Action reference
 

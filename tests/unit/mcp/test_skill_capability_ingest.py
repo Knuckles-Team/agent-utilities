@@ -395,8 +395,8 @@ def test_ensure_bundled_skills_ready_reaches_full_readiness_on_first_boot(
     (``test_bundled_skill_readiness_is_idempotent`` above already covers the
     already-ingested case).
 
-    Regression test for the ``agent-utilities-deployment`` /
-    ``agent-utilities-development`` skill_graphs-reference-page collision
+    Regression test for the skill_graphs reference-page name collision
+    (the former deployment page and ``agent-utilities-development``)
     that left a first boot at "SERVING DEGRADED: 8/10 ready" (W0.20,
     HANDOFF-2026-07-22): fixed by ``is_skill_graph_reference_path`` excluding
     ``skill_graphs/`` pages from both ``_ingest_skill_capabilities`` and
@@ -577,9 +577,9 @@ def test_resolve_skill_provider_dirs_exempts_skill_graph_reference_pages(
 ):
     """A ``skill_type: graph`` reference page legitimately reuses the exact
     ``name:`` of the atomic skill it documents — e.g. the packaged
-    ``agent-utilities`` skill-graph's "deployment" page
-    (``skill_graphs/agent-utilities/deployment/SKILL.md``) is itself named
-    ``agent-utilities-deployment``, matching the real atomic skill it
+    ``agent-utilities`` skill-graph's "development" page
+    (``skill_graphs/agent-utilities/development/SKILL.md``) is itself named
+    ``agent-utilities-development``, matching the real atomic skill it
     documents. This must never be flagged as a fleet-wide identity collision
     (it is a KG-ingestion reference corpus, not an installable skill — the
     same scoping as ``scripts/check_skill_name_collision.py``'s
@@ -587,7 +587,7 @@ def test_resolve_skill_provider_dirs_exempts_skill_graph_reference_pages(
     ``_exempt_from_uniqueness``).
 
     Regression test for the ``DuplicateSkillIdentity`` bug that took
-    ``agent-utilities-deployment``/``agent-utilities-development`` down at
+    the bundled deployment and ``agent-utilities-development`` skills down at
     graph-os boot ("SERVING DEGRADED: 8/10 packaged skills ready").
     """
     xdg_root = tmp_path / "xdg"
