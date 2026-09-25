@@ -1,6 +1,6 @@
 """Freshness + determinism contract for the published OpenAPI reference.
 
-``scripts/generate_openapi.py`` projects the live Agent Web Dashboard app's
+``scripts/generate_openapi.py`` projects the live GraphOS WebUI app's
 own ``app.openapi()`` into two committed artifacts under ``docs/reference/``
 (``openapi.json`` + the rendered ``api.md`` catalog page). These tests prove:
 
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -42,7 +41,7 @@ _SPEC.loader.exec_module(gen)
 def test_openapi_spec_matches_the_served_app():
     """The generator's app is the real one: same title/paths graph-os-webui pins."""
     spec = gen.openapi_spec()
-    assert spec["info"]["title"] == "Agent Web Dashboard"
+    assert spec["info"]["title"] == "GraphOS"
     assert spec["openapi"].startswith("3.")
     assert spec["paths"], "expected a non-empty OpenAPI path set"
 
@@ -208,19 +207,14 @@ class TestFailClosedOnTruncatedSurface:
         assert "FAILED" in out
         assert "truncated" in out.lower() or "Refusing" in out
 
-    def test_generator_errors_when_the_canonical_kg_surface_fails_to_import(
+    def test_generator_propagates_a_host_factory_failure(
         self, monkeypatch
     ):
-        """End-to-end: the SAME failure condition Defect 1 forces (a broken
-        ``agent_utilities.gateway.graph_api`` import) must make the
-        generator error out rather than silently writing whatever spec the
-        (now headless) app happens to produce.
+        """A refused GraphOS WebUI host build cannot overwrite published docs."""
+        def refused_host():
+            raise RuntimeError("GraphOS WebUI host unavailable")
 
-        Post-fix, ``graph_os_webui.server.create_agent_web_app`` itself
-        refuses to build a headless app and raises ``RuntimeError`` --
-        this proves the generator does not swallow that failure either.
-        """
-        monkeypatch.setitem(sys.modules, "agent_utilities.gateway.graph_api", None)
+        monkeypatch.setattr(gen, "build_app", refused_host)
 
         original = gen.SPEC_PATH.read_text(encoding="utf-8")
         with pytest.raises(RuntimeError):

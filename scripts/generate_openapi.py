@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the published OpenAPI reference for the served Agent Web Dashboard.
+"""Generate the published OpenAPI reference for the served GraphOS WebUI.
 
 The app already serves a live OpenAPI 3.1 document at ``/openapi.json`` (with
 Swagger UI at ``/docs`` and ReDoc at ``/redoc``). None of that was previously
@@ -110,14 +110,23 @@ def build_app() -> Any:
     """
     from graph_os_webui.server import create_agent_web_app
     from pydantic_ai.models.test import TestModel
+    from starlette.responses import Response
 
     from agent_utilities.core.contextual_model import create_context_agent
+
+    def deny_requests(app: Any) -> None:
+        """Supply the host identity boundary without serving any request."""
+
+        @app.middleware("http")
+        async def deny(_request: Any, _call_next: Any) -> Response:
+            return Response(status_code=401)
 
     with patch("graph_os_webui.oidc_session.load_settings", return_value=None):
         return create_agent_web_app(
             create_context_agent(TestModel(), default_capabilities=False),
             {"get_path": lambda value: value},
             listener_host="127.0.0.1",
+            session_boundary=deny_requests,
         )
 
 
