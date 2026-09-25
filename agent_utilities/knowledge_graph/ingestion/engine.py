@@ -3695,7 +3695,7 @@ class IngestionEngine:
         Open-Graph / Twitter-Card values (CONCEPT:AU-KG.ingest.og-metadata-enrichment)
         come straight off the page's own <meta> tags — deterministic, zero-LLM.
         """
-        from ..enrichment.provenance import stamp_source
+        from epistemic_graph.source_provenance import stamp_source
 
         prov_props: dict[str, Any] = {}
         fetch_backend = manifest.metadata.get("fetch_backend")

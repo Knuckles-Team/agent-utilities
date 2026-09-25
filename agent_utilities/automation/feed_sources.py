@@ -24,7 +24,8 @@ import json
 import logging
 from typing import Any
 
-from agent_utilities.knowledge_graph.enrichment.provenance import stamp_source
+from epistemic_graph.source_provenance import stamp_source
+
 from agent_utilities.protocols.source_connectors.base import (
     ExternalAccess,
     SourceDocument,

@@ -1419,7 +1419,7 @@ def _auxiliary_node_rows(
     client: Any, envelope: ChangeEnvelope, auxiliary_value: Any, seen_ids: set[str]
 ) -> list[tuple[str, dict[str, Any]]]:
     """Hydrate and stamp the envelope's ``_nodes`` auxiliary rows."""
-    from ..enrichment.provenance import stamp_source
+    from epistemic_graph.source_provenance import stamp_source
 
     rows: list[tuple[str, dict[str, Any]]] = []
     if not isinstance(auxiliary_value, list):
@@ -1456,7 +1456,7 @@ def _upsert_node_rows(
     list[dict[str, Any]],
 ]:
     """Merged primary/auxiliary rows plus the envelope's sidecar material."""
-    from ..enrichment.provenance import stamp_source
+    from epistemic_graph.source_provenance import stamp_source
 
     row = _blob_backed_row(envelope, node_id) if row is None else dict(row)
     links = _pop_sidecar_list(row, "_links")

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from agent_utilities.knowledge_graph.enrichment.provenance import stamp_source
+from epistemic_graph.source_provenance import stamp_source
+
 from agent_utilities.knowledge_graph.etl.pipeline import run_etl
 
 

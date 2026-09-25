@@ -47,7 +47,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..graph_collapse import collapse_to_lifted_targets
+from epistemic_graph.graph_derivation import collapse_to_lifted_targets
+
 from ..models import EdgeRung, EnrichmentEdge, ExtractionBatch, GraphNode
 
 # EH-274: this connector mirrors ARIS's own declared model structure 1:1 --
