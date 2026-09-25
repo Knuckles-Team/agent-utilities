@@ -53,7 +53,8 @@ _CERTIFIED = frozenset({"optimal", "optimal_by_deterministic_search"})
 class TokenCounter(Protocol):
     """Exact token counts under one model's tokenizer."""
 
-    identity: str
+    @property
+    def identity(self) -> str: ...
 
     def count(self, texts: Sequence[str]) -> list[int]: ...
 

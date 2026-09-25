@@ -16,6 +16,12 @@ premise carrying its producer, so the record's evidence class is at most
 The record is always returned; it is made durable (``DecisionCommit``) only
 through a mutation-context provider, which the process that owns the
 policy gate (graph-os) binds -- AU never mints a mutation context itself.
+
+EH-394 (topology -> skill): the skills EG PROVED for the requested task
+classes -- the ``skill_ref`` of their judged-successful retrieval paths
+(``decision_proven_paths``) -- are pinned into the request at their current
+Agent Library revision, so the assembled agent carries the skill its proven
+retrieval topology ran under.
 """
 
 from __future__ import annotations
@@ -30,6 +36,13 @@ logger = logging.getLogger(__name__)
 
 #: The Agent Library kinds an assembly draws from.
 ASSEMBLY_KINDS = ("model_profile", "skill", "system_prompt", "tool")
+
+#: The most proven skills one assembly pins.
+MAX_PROVEN_SKILL_PINS = 4
+_PROVEN_SKILLS_SQL = (
+    "SELECT skill_ref, successes, failures FROM decision_proven_paths "
+    "WHERE task_class = {task} ORDER BY successes DESC, template_digest"
+)
 
 #: goal text -> native task IRIs (a model's proposal, recorded as a claim).
 TaskMapper = Callable[[str], Sequence[str]]
@@ -65,6 +78,7 @@ def assembly_request(
     mapped: Sequence[str] = (),
     producer: str = "au-task-mapper",
     budget: AssemblyBudget | None = None,
+    pins: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """An ``AssemblyRequest`` -- the ONE builder every AU/graph-os assembly uses.
 
@@ -93,6 +107,7 @@ def assembly_request(
             "task_mappings": mappings,
             "unmapped_task_digests": [] if typed or digest is None else [digest],
             "constraints": shape.constraints(),
+            "pins": [dict(pin) for pin in pins],
         },
         "candidates": {"kinds": list(shape.kinds)},
         "templates": [dict(t) for t in shape.templates],
@@ -104,6 +119,36 @@ def _outcome(result: Mapping[str, Any]) -> Mapping[str, Any]:
     record = result.get("record") or {}
     outcome = record.get("outcome") if isinstance(record, Mapping) else None
     return outcome if isinstance(outcome, Mapping) else {}
+
+
+def _proven(row: Mapping[str, Any]) -> bool:
+    wins, losses = int(row.get("successes") or 0), int(row.get("failures") or 0)
+    return bool(row.get("skill_ref")) and wins > losses
+
+
+async def proven_skills(task_iris: Sequence[str]) -> list[str]:
+    """The skills EG proved for ``task_iris``: the ``skill_ref`` of their
+    proven paths that won more judged runs than they lost."""
+    from agent_utilities.decide.learning.ops import literal
+    from agent_utilities.decide.learning.session import current_session
+
+    session = current_session()
+    if session is None:
+        return []
+    refs: list[str] = []
+    for task in sorted(set(task_iris)):
+        rows = await session.aquery(_PROVEN_SKILLS_SQL.format(task=literal(task)))
+        refs.extend(str(row["skill_ref"]) for row in rows if _proven(row))
+    return list(dict.fromkeys(refs))[:MAX_PROVEN_SKILL_PINS]
+
+
+def _dependency(entry: Any) -> dict[str, Any]:
+    kind = getattr(entry.kind, "value", entry.kind)
+    return {
+        "component_id": str(entry.component_id),
+        "kind": str(kind),
+        "definition_digest": str(entry.definition_digest),
+    }
 
 
 def solved(result: Mapping[str, Any]) -> bool:
@@ -139,6 +184,37 @@ class Assembler:
     graphs: Any
     tenant: str
     commit_context: CommitContext | None = None
+    #: The L1 component client pins resolve through; ``None``: the one bound to
+    #: ``graphs``' client and session.
+    components: Any = None
+
+    async def skill_pins(self, task_iris: Sequence[str]) -> list[dict[str, Any]]:
+        """The proven skills of ``task_iris`` at their current Agent Library
+        revision (a skill not in the library is not pinned). Unreadable ->
+        no pins (logged): assembly runs as it would without them."""
+        try:
+            refs = await proven_skills(task_iris)
+            return [pin for ref in refs if (pin := await self._current(ref))]
+        except Exception as exc:
+            logger.warning("proven skill pins unavailable: %s", exc)
+            return []
+
+    async def _current(self, component_id: str) -> dict[str, Any] | None:
+        from agent_utilities.layers.clients import ComponentClient
+
+        components = self.components or ComponentClient(
+            self.graphs.client, self.graphs.session
+        )
+        op = {"op": "current", "component_id": component_id, "tenant_id": self.tenant}
+        entry = await components.current(op)
+        return None if entry is None else _dependency(entry)
+
+    async def assemble_mapped(self, goal: str, mapped: Sequence[str]) -> Assembled:
+        """Assemble for ``goal``'s claimed task mapping, pinning the skills EG
+        proved for those tasks (EH-394)."""
+        pins = await self.skill_pins(mapped)
+        request = assembly_request(self.tenant, goal=goal, mapped=mapped, pins=pins)
+        return await self.assemble(request, lambda reasons: None)
 
     async def _commit(self, result: Mapping[str, Any]) -> Mapping[str, Any] | None:
         if self.commit_context is None:
@@ -260,9 +336,8 @@ def assemble_goal(goal: str, mapper: TaskMapper) -> Assembled | None:
     mapped = list(mapper(goal))
     if not mapped:
         return Assembled(None, None, "unmapped: the goal names no native task")
-    request = assembly_request(assembler.tenant, goal=goal, mapped=mapped)
     try:
-        return run(assembler.assemble(request, lambda reasons: None))
+        return run(assembler.assemble_mapped(goal, mapped))
     except Exception as exc:  # noqa: BLE001 — no loop / timeout costs only the fallback; cause kept in reason
         logger.warning("assembly transport unavailable: %s", exc)
         return Assembled(None, None, f"unavailable: {exc}")
@@ -296,8 +371,10 @@ __all__ = [
     "Assembler",
     "CommitContext",
     "TaskMapper",
+    "MAX_PROVEN_SKILL_PINS",
     "abstain_reasons",
     "assembly_request",
+    "proven_skills",
     "solved",
     "spec_fields",
     "text_digest",

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import OrderedDict
+import time
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,10 @@ from agent_utilities.decide.learning.ops import (
     q16,
     space_identity,
 )
+from agent_utilities.decide.learning.run_scope import (
+    current_skill_ref,
+    note_retrieval,
+)
 from agent_utilities.decide.learning.session import current_session
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,13 @@ logger = logging.getLogger(__name__)
 MAX_PENDING_RUNS = 256
 #: The attribute a retriever keeps its pending runs under.
 _LEDGER_ATTR = "_retrieval_run_ledger"
+#: The native task a retriever serves unless it declares its own
+#: ``task_class`` (memory-first retrieval answers research questions).
+DEFAULT_TASK_CLASS = "eg:task/research"
+#: How long a graph's composed schema identity is reused before it is re-read.
+SCHEMA_TTL_S = 60.0
+#: The version of the plan policy a seeded template records.
+PLAN_POLICY_VERSION = "au.retrieval.plan/1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +66,12 @@ class PendingRun:
     path: Mapping[str, Any] | None = None
     returned: list[tuple[str, str | None]] = field(default_factory=list)
     query: dict[str, Any] | None = None
+    #: What the run's proven paths were keyed by (a seeded template's key).
+    scope: PathScope | None = None
+    #: Each returned unit's schema class (its ``type``/``label``).
+    classes: dict[str, str] = field(default_factory=dict)
+    #: The skill the run executed under (topology -> skill, EH-394).
+    skill_ref: str | None = None
 
 
 class RunLedger:
@@ -116,16 +134,59 @@ def proven_paths(scope: PathScope | None) -> list[Mapping[str, Any]]:
         return []
 
 
+#: graph name -> (composed schema digest, when it was read).
+_SCHEMA_DIGESTS: dict[str, tuple[str, float]] = {}
+
+
+def composed_digest_of(
+    graph: Any, *, now: Callable[[], float] = time.monotonic
+) -> str | None:
+    """The graph's committed composed GraphSchema identity (EG
+    ``GraphSchemaList``), read at most once per :data:`SCHEMA_TTL_S`."""
+    name = str(getattr(graph, "graph_name", "") or "")
+    cached = _SCHEMA_DIGESTS.get(name)
+    if cached is not None and now() - cached[1] < SCHEMA_TTL_S:
+        return cached[0]
+    try:
+        digest = str(graph.graph_schema_list().composed_digest or "")
+    except Exception as exc:
+        logger.warning("composed schema of %s unreadable: %s", name, exc)
+        return None
+    _SCHEMA_DIGESTS[name] = (digest, now())
+    return digest or None
+
+
+def path_scope_of(retriever: Any) -> PathScope | None:
+    """What the retriever's proven paths are keyed by: its declared
+    ``path_scope``, else its task class (``task_class`` or
+    :data:`DEFAULT_TASK_CLASS`) under its graph's composed schema. ``None``
+    with no session (nothing is asked) or no readable schema."""
+    declared = getattr(retriever, "path_scope", None)
+    if isinstance(declared, PathScope):
+        return declared
+    graph = getattr(getattr(retriever, "engine", None), "graph", None)
+    if current_session() is None or graph is None:
+        return None
+    digest = composed_digest_of(graph)
+    task = str(getattr(retriever, "task_class", None) or DEFAULT_TASK_CLASS)
+    return None if digest is None else PathScope(task, digest)
+
+
 def plan_retrieval(retriever: Any, query: str, mode: str) -> str:
     """The HyDE mode to run for ``query``; a chosen proven path is kept on the
     pending run (and runs first, see :func:`first_pass`)."""
-    paths = proven_paths(getattr(retriever, "path_scope", None))
+    scope = path_scope_of(retriever)
+    paths = proven_paths(scope)
     choice = choose_retrieval(query, mode, paths)
     by_id = {PATH_PREFIX + str(p["template_digest"]): p for p in paths}
     chosen = by_id.get(choice.option_id) if choice.decided else None
     if choice.decided and choice.logged and choice.record_id:
         template = None if chosen is None else chosen.get("template")
-        ledger_of(retriever).put(query, PendingRun(choice.record_id, template))
+        run = PendingRun(
+            choice.record_id, template, scope=scope, skill_ref=current_skill_ref()
+        )
+        ledger_of(retriever).put(query, run)
+        note_retrieval(retriever, query)
     return "standard" if chosen is not None else choice.option_id
 
 
@@ -262,10 +323,40 @@ def note_returned(
     run = ledger_of(retriever).get(query)
     if run is None:
         return
-    run.returned = [
-        (str(n["id"]), content_class_of(n)) for n in nodes if n.get("id") is not None
-    ]
+    kept = [n for n in nodes if n.get("id") is not None]
+    run.returned = [(str(n["id"]), content_class_of(n)) for n in kept]
+    run.classes = {str(n["id"]): cls for n in kept if (cls := _schema_class(n))}
     run.query = _query_vector(retriever, query)
+
+
+def _schema_class(node: Mapping[str, Any]) -> str | None:
+    value = node.get("type") or node.get("label")
+    return str(value) if value else None
+
+
+def seeded_template(run: PendingRun, cited: Sequence[str]) -> dict[str, Any] | None:
+    """The typed plan template a template-planned run executed, so a judged
+    success can become a proven path (EH-394): anchored on the schema class
+    most of its CITED units share (else its returned units'), ranked the way
+    the hybrid retriever ranks (vector + text fused when it had a vector), under
+    the run's task class and composed schema, with the skill it ran under."""
+    classes = [run.classes[i] for i in cited if i in run.classes] or list(
+        run.classes.values()
+    )
+    if run.scope is None or not classes:
+        return None
+    anchor = sorted(Counter(classes).items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+    vector = run.query is not None
+    return {
+        "task_class": run.scope.task_class,
+        "composed_digest": run.scope.composed_digest,
+        "policy_version": PLAN_POLICY_VERSION,
+        "anchor_class": anchor,
+        "edges": [],
+        "rank": "fuse_rrf" if vector else "text",
+        "slots": ["query_text", "query_vector"] if vector else ["query_text"],
+        "skill_ref": run.skill_ref,
+    }
 
 
 def attest_citations(retriever: Any, query: str, used_ids: Sequence[str]) -> bool:
@@ -281,7 +372,7 @@ def attest_citations(retriever: Any, query: str, used_ids: Sequence[str]) -> boo
         run.returned,
         used_ids,
         query=run.query,
-        path=run.path,
+        path=run.path or seeded_template(run, [str(i) for i in used_ids]),
     )
     try:
         session.send(op)
@@ -291,18 +382,42 @@ def attest_citations(retriever: Any, query: str, used_ids: Sequence[str]) -> boo
     return True
 
 
+def _named(unit_id: str, text: str) -> bool:
+    return len(unit_id) >= 3 and unit_id in text
+
+
+def attest_answer(retrievals: Sequence[tuple[Any, str]], answer: Any) -> int:
+    """Attest each pending retrieval of a finished run: the answer cites the
+    returned units it names (by id). Returns how many were attested."""
+    text = answer if isinstance(answer, str) else json.dumps(answer, default=str)
+    attested = 0
+    for retriever, query in dict.fromkeys(retrievals):
+        run = ledger_of(retriever).get(query)
+        if run is None:
+            continue
+        cited = [unit for unit, _ in run.returned if _named(unit, text)]
+        retriever.record_answer_usage(cited, query=query)
+        attested += 1
+    return attested
+
+
 __all__ = [
+    "DEFAULT_TASK_CLASS",
     "MAX_PENDING_RUNS",
     "PathScope",
     "PendingRun",
     "RunLedger",
+    "attest_answer",
     "attest_citations",
+    "composed_digest_of",
     "content_class_of",
     "first_pass",
     "ledger_of",
     "note_returned",
     "path_plan",
+    "path_scope_of",
     "plan_retrieval",
     "proven_paths",
     "run_path",
+    "seeded_template",
 ]
