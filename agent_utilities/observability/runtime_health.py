@@ -65,7 +65,6 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutureTimeoutError
 from typing import Any, TypedDict, cast
-from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +94,7 @@ _COLLECTOR_EXECUTOR = ThreadPoolExecutor(
 # check always gets its own thread and none queue behind another.
 _EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="au-health-probe")
 
-# Transport-level connect timeout per probe attempt (engine/kafka/stardog).
+# Transport-level connect timeout per probe attempt (engine/kafka).
 _PROBE_TIMEOUT_S = 0.75
 # Hard wall-clock ceiling per check, enforced from OUTSIDE the check function
 # itself — this is what makes "/health must never hang" true even if a check's
@@ -621,30 +620,9 @@ def _check_kafka_bus(cfg: Any) -> dict[str, Any]:
     return _unhealthy("kafka_bus", "kafka bootstrap broker unreachable", detail=detail)
 
 
-def _check_stardog_mirror(cfg: Any) -> dict[str, Any]:
-    """Continuous Stardog mirror — only checked when ``CONTINUOUS_STARDOG_MIRROR``
-    is on. A bounded raw TCP connect to the configured Stardog endpoint (no
-    authenticated call — credentials are never exercised by a health probe).
-    """
-    if not bool(getattr(cfg, "continuous_stardog_mirror", False)):
-        return _not_configured("stardog_mirror", "CONTINUOUS_STARDOG_MIRROR is off")
-
-    from agent_utilities.core.config import setting
-
-    endpoint = str(setting("STARDOG_ENDPOINT", "http://localhost:5820") or "")
-    parts = urlsplit(endpoint if "://" in endpoint else f"//{endpoint}")
-    host = parts.hostname
-    port = parts.port or 5820
-    if not host:
-        return _unhealthy("stardog_mirror", "STARDOG_ENDPOINT is not a valid URL")
-    if _tcp_reachable(host, port, _PROBE_TIMEOUT_S):
-        return _ok("stardog_mirror")
-    return _unhealthy("stardog_mirror", "stardog mirror endpoint unreachable")
-
-
 def _check_kg_mirrors(cfg: Any) -> dict[str, Any]:
     """Optional read-only ``kg_connections`` mirrors (neo4j/falkordb/ladybug/
-    pg-age/stardog, CONCEPT:AU-KG.backend.mirror-health-repair) — interop/BI/DR
+    pg-age, CONCEPT:AU-KG.backend.mirror-health-repair) — interop/BI/DR
     projections the epistemic-graph engine authority is completely independent
     of by construction. Read-only snapshot of the last real fan-out build
     attempt (``knowledge_graph/backends/__init__.py``'s ``_build_mirror_set``,
@@ -859,7 +837,6 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("state_store", _check_state_store),
     ("fleet_supervision", _check_fleet_supervision),
     ("kafka_bus", _check_kafka_bus),
-    ("stardog_mirror", _check_stardog_mirror),
     ("bundled_skills", _check_bundled_skills),
     ("kg_mirrors", _check_kg_mirrors),
     ("embedding_endpoint", _check_embedding_endpoint),

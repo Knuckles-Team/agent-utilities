@@ -350,30 +350,8 @@ def test_kafka_bus_configured_and_reachable_is_ok(monkeypatch):
     assert result["status"] == "ok"
 
 
-def test_stardog_mirror_not_configured_by_default():
-    result = rh._check_stardog_mirror(AgentConfig())
-    assert result["status"] == "not_configured"
-
-
-def test_stardog_mirror_configured_but_unreachable_is_unhealthy(monkeypatch):
-    monkeypatch.setenv("CONTINUOUS_STARDOG_MIRROR", "true")
-    monkeypatch.setenv("STARDOG_ENDPOINT", "http://127.0.0.1:1")
-
-    result = rh._check_stardog_mirror(AgentConfig())
-
-    assert result["status"] == "unhealthy"
-
-
-def test_stardog_mirror_configured_and_reachable_is_ok(monkeypatch):
-    server = _TCPServer()
-    try:
-        monkeypatch.setenv("CONTINUOUS_STARDOG_MIRROR", "true")
-        monkeypatch.setenv("STARDOG_ENDPOINT", f"http://{server.host}:{server.port}")
-        result = rh._check_stardog_mirror(AgentConfig())
-    finally:
-        server.close()
-
-    assert result["status"] == "ok"
+def test_retired_stardog_mirror_has_no_health_probe():
+    assert "stardog_mirror" not in dict(rh._CHECKS)
 
 
 # --------------------------------------------------------------------------- #
