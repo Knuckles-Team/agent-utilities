@@ -229,10 +229,10 @@ environment-derived error text. Passing `--verify-signature` invokes the separat
 configured verifier before accepting the component declaration.
 
 The `epistemic-operations-protocol` catalog artifact is the canonical
-`agent_utilities/protocols/epistemic_operations/schemas/v1/catalog.json` generated
-and cross-repository-verified by
-`scripts/check_epistemic_operations_protocol.py --write`; release tooling must use
-those exact bytes rather than an operator-authored substitute.
+`epistemic_graph/epistemic_operations/schemas/v1/catalog.json` in
+`epistemic-graph`. Its protocol generator and contract gate own the exact
+schema and model projections; release tooling must use those bytes rather
+than an operator-authored substitute.
 
 After all eight declarations exist, `scripts/release/generate_release_assembly.py`
 requires the exact component set from the compatibility matrix, the canonical

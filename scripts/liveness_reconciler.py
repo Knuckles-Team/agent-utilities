@@ -200,7 +200,7 @@ def _is_generated(path: Path | None) -> bool:
     into its OUTPUT, e.g. ``tools/codebase_map_tools.py`` writing "Do not edit
     manually — regenerate with ..." into the markdown file it produces, is not
     itself generated) carries the marker. Matches the confirmed convention
-    (``protocols/epistemic_operations/_generated.py``: "Generated ... Regenerate
+    (``epistemic_graph/epistemic_operations/_generated.py``: "Generated ... Regenerate
     with the protocol gate; do not edit.")."""
     if path is None or not path.exists():
         return False

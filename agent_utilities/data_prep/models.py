@@ -21,7 +21,7 @@ from pydantic import (
     model_validator,
 )
 
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 
 SchemaVersion: TypeAlias = Literal["1"]
 InvalidRowDisposition: TypeAlias = Literal["fail", "quarantine"]

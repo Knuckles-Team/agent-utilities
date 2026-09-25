@@ -49,7 +49,7 @@ from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.mcp import kg_server
 from agent_utilities.models.company_brain import DataClassification
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 
 logger = logging.getLogger(__name__)

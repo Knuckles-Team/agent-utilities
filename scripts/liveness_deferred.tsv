@@ -15,19 +15,11 @@
 #   <category>\t<pattern>\t# owner=<@handle> PERMANENT reason=<text>
 # category is one of: orphan_modules | dead_definitions | excluded_generated
 # (excluded_generated = a finding removed from the ratchet target entirely,
-# not merely deferred — see the PERMANENT entry below).
+# not merely deferred).
 # A NEW entry with neither owner+review-by nor owner+PERMANENT+reason fails
 # `check_liveness.py` immediately (test_liveness_deferred.py proves this). An
 # entry past its review-by date ALSO fails the gate, forcing an active
 # renew-or-resolve decision instead of silent rot.
-
-# Generated protocol-completeness surface (DEAD-CODE-INTENT-RECOVERY.md
-# Section 3.7): the file's own header states "Regenerate with the protocol
-# gate; do not edit" — reconciler mechanism `excluded_generated`, not a
-# disposition to act on. Individual DevelopmentLane*Request/Result symbols go
-# live as AU adopts each operation; deleting them is undone by the next
-# regenerate.
-excluded_generated	agent_utilities/protocols/epistemic_operations/_generated.py	# owner=@genius PERMANENT reason=generated-from-authoritative-json-schema-do-not-edit-see-DEAD-CODE-INTENT-RECOVERY-3.7
 
 # The two entries formerly here (formal_reasoning_core.py dead_definitions,
 # models/knowledge_graph.py dead_definitions; review-by=2026-10-01) were
