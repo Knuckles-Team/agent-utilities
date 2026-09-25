@@ -1,4 +1,4 @@
-"""Git change-coupling → FILE_CHANGES_WITH edges (CONCEPT:AU-KG.ingest.mine-git-history-files).
+"""Adapt EG git change derivations to source graph edges.
 
 Two files that keep changing in the same commits are *coupled* even when nothing
 in the AST connects them — a hidden dependency the call graph can't see. We mine
@@ -10,15 +10,10 @@ blast radius of a change (the files that historically move together).
 from __future__ import annotations
 
 import subprocess
-from itertools import combinations
+
+from epistemic_graph.git_derivation import DEFAULT_MIN_SUPPORT, derive_change_coupling
 
 from .models import EdgeRung, EnrichmentEdge
-
-# A pair co-changing in fewer than this many commits is noise, not coupling.
-DEFAULT_MIN_SUPPORT = 3
-# Skip commits touching more than this many files (bulk reformats / vendoring)
-# — they'd couple everything to everything.
-_MAX_FILES_PER_COMMIT = 50
 
 
 def parse_change_coupling(
@@ -29,14 +24,6 @@ def parse_change_coupling(
     Emits one symmetric ``FILE_CHANGES_WITH`` edge per file pair co-changed in
     ≥ ``min_support`` commits, with a ``support`` (count) property. Endpoints are
     ``file:<path>`` ids, matching the engine's file nodes (CONCEPT:AU-KG.ingest.mine-git-history-files)."""
-    pair_support: dict[tuple[str, str], int] = {}
-    for files in commits:
-        uniq = sorted(set(f for f in files if f))
-        if len(uniq) < 2 or len(uniq) > _MAX_FILES_PER_COMMIT:
-            continue
-        for a, b in combinations(uniq, 2):
-            pair_support[(a, b)] = pair_support.get((a, b), 0) + 1
-
     return [
         EnrichmentEdge(
             source=f"file:{a}",
@@ -48,8 +35,7 @@ def parse_change_coupling(
             rung=EdgeRung.DERIVED,
             props={"support": str(support)},
         )
-        for (a, b), support in pair_support.items()
-        if support >= min_support
+        for a, b, support in derive_change_coupling(commits, min_support)
     ]
 
 
