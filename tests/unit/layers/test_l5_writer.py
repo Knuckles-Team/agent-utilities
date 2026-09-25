@@ -10,6 +10,7 @@ engine applies before committing, with the engine-filled ``outbox_id`` /
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 from typing import Any
 
 import msgpack
@@ -257,3 +258,18 @@ def test_admission_metadata_carries_the_bindings_eg_checks() -> None:
         "agent_id": "expert",
         "capability_digest": DIGEST,
     }
+
+
+async def test_engine_writer_uses_one_paired_work_item_transport() -> None:
+    work_items = _WorkItems()
+    engine = SimpleNamespace(
+        client=SimpleNamespace(work_items=work_items),
+        async_client=SimpleNamespace(work_items=work_items),
+    )
+    receipt = await RunOutcomeWriter.from_engine(engine).commit(
+        CLAIM, BINDING, _result(), TRACE
+    )
+    assert receipt.status == "committed"
+    assert len(work_items.calls) == 1
+    with pytest.raises(L5WriterUnavailable):
+        RunOutcomeWriter.from_engine(SimpleNamespace(client=engine.client))

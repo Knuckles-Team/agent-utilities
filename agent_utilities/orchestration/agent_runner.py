@@ -2592,7 +2592,9 @@ async def _emit_checkpoint_event(
     ``trace_recorded`` so this checkpoint never tells the caller a trace exists
     when it may not (write-then-mark-seen).
     """
-    if progress_sink is not None:
+    from agent_utilities.layers.trace_ownership import l5_terminal_owns_trace
+
+    if progress_sink is not None and not l5_terminal_owns_trace():
         from agent_utilities.observability.trace_ontology import (
             trace_id as _trace_id_ck,
         )
@@ -2680,6 +2682,10 @@ async def _emit_terminal_events(
     reported outcome (the SAME fix as the "checkpoint" stage, D-DST-6) so the
     terminal event a caller is most likely to act on tells the truth.
     """
+    from agent_utilities.layers.trace_ownership import l5_terminal_owns_trace
+
+    if l5_terminal_owns_trace():
+        return
     _reported_degraded = degraded or not trace_recorded
     if progress_sink is not None:
         from agent_utilities.observability.trace_ontology import (
@@ -5465,6 +5471,10 @@ async def _record_execution_trace_ordered(
     also keeps an already-started trace write from being orphaned if a caller
     cancels again while it is in flight.
     """
+    from agent_utilities.layers.trace_ownership import l5_terminal_owns_trace
+
+    if l5_terminal_owns_trace():
+        return True
     return await run_blocking_ordered(
         _record_execution_trace,
         engine,

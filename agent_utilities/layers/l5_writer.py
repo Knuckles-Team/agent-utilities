@@ -365,6 +365,18 @@ class RunOutcomeWriter:
             raise L5WriterUnavailable("an EG work_items namespace is required")
         self._work_items = work_items
 
+    @classmethod
+    def from_engine(cls, engine: Any) -> RunOutcomeWriter:
+        """Use one process EG transport with sync receipt bytes and async RPCs."""
+
+        sync_client = getattr(engine, "client", None)
+        async_client = getattr(engine, "async_client", None)
+        sync_items = getattr(sync_client, "work_items", None)
+        async_items = getattr(async_client, "work_items", None)
+        if sync_items is None or async_items is None:
+            raise L5WriterUnavailable("engine lacks a paired WorkItem client")
+        return cls(_EngineWorkItems(sync_items, async_items))
+
     def _encoder(self) -> Any:
         encoder = getattr(self._work_items, "receipt_properties", None)
         if not callable(encoder):
@@ -417,6 +429,26 @@ class RunOutcomeWriter:
         if landed is not None and landed.get("outcome_ref") == plan.outcome_ref:
             return _receipt_for(plan, "committed", reconciled=True)
         return _receipt_for(plan, "uncertain", reconciled=True)
+
+
+class _EngineWorkItems:
+    """Keep EG's receipt encoder synchronous without a second connection."""
+
+    def __init__(self, sync_items: Any, async_items: Any) -> None:
+        self._sync = sync_items
+        self._async = async_items
+
+    def receipt_properties(self, properties: dict[str, Any]) -> bytes:
+        encoder = getattr(self._sync, "receipt_properties", None)
+        if not callable(encoder):
+            raise L5WriterUnavailable("EG receipt encoder is unavailable")
+        return encoder(properties)
+
+    async def commit_result(self, **kwargs: Any) -> Any:
+        return await self._async.commit_result(**kwargs)
+
+    async def get_outcome(self, **kwargs: Any) -> Any:
+        return await self._async.get_outcome(**kwargs)
 
 
 def _status_of(answer: Any) -> L5Status:
