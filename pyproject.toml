@@ -740,24 +740,6 @@ agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # Provision the database environment (Stardog + pg-age) from credentials; also
 # `python -m agent_utilities.knowledge_graph.setup.cli`.
 setup-databases = "agent_utilities.knowledge_graph.setup.cli:main"
-# Generate/validate/document the FULL deployment config (all AgentConfig options);
-# also `python -m agent_utilities.deployment.cli`.
-setup-config = "agent_utilities.deployment.cli:main"
-# Holistic deployment health sweep (brew/flutter-doctor style); also
-# `python -m agent_utilities.deployment.doctor`.
-agent-utilities-doctor = "agent_utilities.deployment.doctor:main"
-# The ONLY sanctioned way to sync/upgrade the shared uv-workspace venv; also
-# `python -m agent_utilities.deployment.venv_sync` (stdlib-only, so it still
-# works when the venv it manages is broken).
-agent-utilities-venv = "agent_utilities.deployment.venv_sync:main"
-graph-os-release-canary = "agent_utilities.deployment.release_canary:main"
-agent-utilities-validate-skills = "agent_utilities.skills.runtime_validation:main"
-agent-utilities-validate-skill-fleet = "agent_utilities.skills.fleet_harness.cli:main"
-graph-os-certify-skills = "agent_utilities.deployment.skill_validation:main"
-graph-os-generate-skill-runtime-profile = "agent_utilities.deployment.skill_validation_assets:profile_main"
-graph-os-generate-skill-certification = "agent_utilities.deployment.skill_validation_assets:generator_main"
-graph-os-skill-readiness = "agent_utilities.deployment.skill_validation_assets:readiness_main"
-graph-os-verify-skill-certification = "agent_utilities.deployment.skill_validation_assets:verifier_main"
 # CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
 # KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
 kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
@@ -769,7 +751,6 @@ agent-activation-worker = "agent_utilities.orchestration.agent_activation:main"
 # also `python -m agent_utilities.orchestration.agent_dispatch_worker`.
 agent-dispatch-worker = "agent_utilities.orchestration.agent_dispatch_worker:main"
 graph-os-analytics-worker = "agent_utilities.knowledge_graph.analytics_worker:main"
-graph-os-production-ops = "agent_utilities.deployment.production_ops:main"
 graph-os-certify-connector = "agent_utilities.knowledge_graph.integrations.connector_certification_cli:main"
 assemble-exact-local-release = "scripts.release.assemble_exact_local_release:main"
 assemble-graphos-release = "scripts.release.assemble_manifest:main"
