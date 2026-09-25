@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1175
+total_concepts: 1171
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -47,16 +47,14 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
   doc: merge entities
 - id: AU-AHE.assimilation.microstructure-signal-fusion
-  name: closes the priors→weights loop
+  name: the priors
   pillar: AU-AHE
   status: live
   code_paths:
-  - agent_utilities/domains/finance/signal_fusion.py
-  - agent_utilities/knowledge_graph/orchestration/engine_finance.py
   - agent_utilities/models/domains/finance.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_packs/finance.py
-  doc: closes the priors→weights loop
+  doc: the priors
 - id: AU-AHE.assimilation.research-auto-merge
   name: consider promoting the team
   pillar: AU-AHE
@@ -1890,12 +1888,10 @@ concepts:
   - agent_utilities/core/paths.py
   - agent_utilities/core/registry/package_adapter.py
   - agent_utilities/core/registry/plugin_adapter.py
-  - agent_utilities/domains/finance/quant_mcp_tools.py
   - agent_utilities/ecosystem/hook_installer.py
   - agent_utilities/graph/tool_resolver.py
   - agent_utilities/knowledge_graph/adaptation/skill_evolver.py
   - agent_utilities/knowledge_graph/memory/cli.py
-  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/toolset_factory.py
   - agent_utilities/messaging/__init__.py
   - agent_utilities/messaging/backends/__init__.py
@@ -3238,20 +3234,6 @@ concepts:
   code_paths:
   - agent_utilities/models/company.py
   doc: Company Operations Domain
-- id: AU-KG.domains.dividend-sustainability-credit-fixed
-  name: Dividend Sustainability & Credit/Fixed-Income Quality
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/domains/finance/credit_quality.py
-  doc: Dividend Sustainability & Credit/Fixed-Income Quality
-- id: AU-KG.domains.geopolitical-risk-scoring
-  name: Geopolitical Risk Scoring
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/domains/finance/geopolitical_risk.py
-  doc: Geopolitical Risk Scoring
 - id: AU-KG.domains.hr-workforce-management
   name: HR/Workforce Management
   pillar: AU-KG
@@ -3260,13 +3242,13 @@ concepts:
   - agent_utilities/domains/hr/__init__.py
   doc: HR/Workforce Management
 - id: AU-KG.domains.lazy-symbol-loading
-  name: Lazy symbol loading. The finance domain pulls heavy optional
+  name: domain methods are composed onto
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/domains/finance/__init__.py
   - agent_utilities/knowledge_graph/core/engine.py
-  doc: Lazy symbol loading. The finance domain pulls heavy optional
+  doc: domain methods are composed onto
 - id: AU-KG.domains.multi-domain-architecture
   name: Multi-Domain Architecture
   pillar: AU-KG
@@ -3274,22 +3256,13 @@ concepts:
   code_paths:
   - agent_utilities/domains/__init__.py
   doc: Multi-Domain Architecture
-- id: AU-KG.domains.multi-market-composite-backtester
-  name: Multi-Market Composite Backtester
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/domains/finance/composite_backtest.py
-  doc: Multi-Market Composite Backtester
 - id: AU-KG.domains.ohlcv-gap-fill
-  name: when True, gappy/irregular raw OHLCV is gap-filled onto a
+  name: wired this from dead-on-arrival to in-flow
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/domains/finance/engine_series.py
-  - agent_utilities/domains/finance/features.py
   - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
-  doc: when True, gappy/irregular raw OHLCV is gap-filled onto a
+  doc: wired this from dead-on-arrival to in-flow
 - id: AU-KG.domains.persona-decision-heuristic-enrichment
   name: Persona Decision-Heuristic Enrichment
   pillar: AU-KG
@@ -3297,19 +3270,11 @@ concepts:
   code_paths:
   - agent_utilities/domains/finance/persona_heuristics.py
   doc: Persona Decision-Heuristic Enrichment
-- id: AU-KG.domains.sentiment-fusion-signals
-  name: Sentiment Fusion Signals
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/domains/finance/sentiment_fusion.py
-  doc: Sentiment Fusion Signals
 - id: AU-KG.domains.trade-journal-bias-auditor
   name: the Palantir *many-to-many link backed by an object type*
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/domains/finance/trade_journal.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/links.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -6047,39 +6012,13 @@ concepts:
   - agent_utilities/automation/__init__.py
   - agent_utilities/automation/research_pipeline.py
   - agent_utilities/core/checkpoint/manager.py
-  - agent_utilities/domains/finance/alpha_factors.py
-  - agent_utilities/domains/finance/banking.py
-  - agent_utilities/domains/finance/banking_models.py
-  - agent_utilities/domains/finance/copy_trade.py
-  - agent_utilities/domains/finance/credit_quality.py
-  - agent_utilities/domains/finance/cross_market_arb.py
-  - agent_utilities/domains/finance/crypto_connector.py
   - agent_utilities/domains/finance/debate_engine.py
-  - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
-  - agent_utilities/domains/finance/insider_equilibrium.py
   - agent_utilities/domains/finance/investor_debate.py
   - agent_utilities/domains/finance/kronos_forecaster.py
-  - agent_utilities/domains/finance/market_data.py
-  - agent_utilities/domains/finance/market_feeds.py
-  - agent_utilities/domains/finance/microstructure.py
-  - agent_utilities/domains/finance/pattern_classifier.py
-  - agent_utilities/domains/finance/payments.py
-  - agent_utilities/domains/finance/portfolio_optimizer.py
-  - agent_utilities/domains/finance/profit_attribution.py
-  - agent_utilities/domains/finance/quant_ontology.py
-  - agent_utilities/domains/finance/regime_detector.py
   - agent_utilities/domains/finance/research_autopilot.py
-  - agent_utilities/domains/finance/risk_manager.py
-  - agent_utilities/domains/finance/signal_fusion.py
-  - agent_utilities/domains/finance/strategy_engine.py
-  - agent_utilities/domains/finance/strategy_export.py
-  - agent_utilities/domains/finance/strategy_sharing.py
-  - agent_utilities/domains/finance/streaming.py
   - agent_utilities/domains/finance/trading_swarm.py
-  - agent_utilities/domains/finance/versioned_orders.py
-  - agent_utilities/domains/finance/visual_ta.py
   - agent_utilities/domains/hr/models.py
   - agent_utilities/domains/hr/workforce_manager.py
   - agent_utilities/domains/law/__init__.py
@@ -6091,13 +6030,11 @@ concepts:
   - agent_utilities/knowledge_graph/core/archimate_layer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/formal_reasoning_core.py
-  - agent_utilities/knowledge_graph/core/markov_regime.py
   - agent_utilities/knowledge_graph/core/ontological_team_sharing.py
   - agent_utilities/knowledge_graph/core/optimal_execution.py
   - agent_utilities/knowledge_graph/core/source_resolver.py
   - agent_utilities/knowledge_graph/enrichment/ops_causal_graph.py
   - agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
-  - agent_utilities/knowledge_graph/orchestration/engine_finance.py
   - agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py
   - agent_utilities/knowledge_graph/orchestration/research_subagent.py
   - agent_utilities/knowledge_graph/research/research_intelligence_engine.py
@@ -6396,7 +6333,6 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/domains/finance/engine_series.py
   - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
   - agent_utilities/knowledge_graph/retrieval/code_metrics.py
   - agent_utilities/mcp/kg_server.py

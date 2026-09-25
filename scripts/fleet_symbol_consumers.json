@@ -1,6 +1,6 @@
 {
   "_comment": "Fleet consumer index for check_removed_symbol_consumers.py. Maps a fully-qualified agent_utilities dotted target (module path + symbol name, OR a bare module path for a whole-module import) to every agents/*  and skills/* repo+file+line that imports it. Regenerate with `python3 scripts/gen_fleet_symbol_consumers.py --update` after any fleet-wide checkout refresh; the gate FAILS closed if this file is missing or older than its staleness threshold \u2014 see that script's docstring.",
-  "generated_at": "2026-09-25T02:24:48+00:00",
+  "generated_at": "2026-09-25T02:43:39+00:00",
   "workspace_manifest_sha256": "c67110abf391c50425fb52242f5db4e98c82ab1e098f9a039cae8f6486bf5328",
   "workspace_root": "/var/tmp/l9/wave-b-rest/ws-view",
   "repos_scanned": {

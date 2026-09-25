@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 376 runtime-only call-site inputs.
+574 typed fields · 371 runtime-only call-site inputs.
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Generation and drift-gate flow</p>
@@ -765,9 +765,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AU_SEMANTIC_CACHE` | 1 |
 | `BACKSTAGE_FILE` | 1 |
 | `BAO_URL` | 1 |
-| `BINANCE_API_KEY` | 1 |
-| `BINANCE_SECRET` | 1 |
-| `BINANCE_SECRET_KEY` | 1 |
 | `BPMN_FILE` | 1 |
 | `BPM_PROVIDER` | 1 |
 | `BPM_TOKEN` | 1 |
@@ -783,7 +780,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `COMPUTER_USE_TOOLS` | 1 |
 | `DATA_RESIDENCY_REGION` | 1 |
 | `DB_TOOLS` | 2 |
-| `DERIVATIVES_API_KEY` | 1 |
 | `DEVELOPER_TOOLS` | 1 |
 | `DISPLAY` | 1 |
 | `DOCKERHUB_NAMESPACE` | 1 |
@@ -816,7 +812,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ESCALATION_REWARD_FLOOR` | 1 |
 | `ESSENTIAL_EA_TOKEN` | 1 |
 | `ESSENTIAL_EA_URL` | 1 |
-| `ETHERSCAN_API_KEY` | 1 |
 | `EVENT_BACKEND` | 1 |
 | `FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY` | 1 |
 | `FLEET_REPLICA_COST_USD_PER_HOUR` | 1 |

@@ -8,7 +8,7 @@
 - **`AU-AHE.assimilation.decision-distillation`** — the expert agent writes one per decision; a nightly distill (`agent_utilities/models/domains/finance.py`)
 - **`AU-AHE.assimilation.empirical-parity-evidence-assimilation`** — empirical parity evidence for the assimilation program (`agent_utilities/harness/__init__.py`)
 - **`AU-AHE.assimilation.merge-entities`** — merge entities (`agent_utilities/knowledge_graph/assimilation/dedup.py`)
-- **`AU-AHE.assimilation.microstructure-signal-fusion`** — closes the priors→weights loop (`agent_utilities/domains/finance/signal_fusion.py`)
+- **`AU-AHE.assimilation.microstructure-signal-fusion`** — the priors (`agent_utilities/models/domains/finance.py`)
 - **`AU-AHE.assimilation.research-auto-merge`** — consider promoting the team (`agent_utilities/knowledge_graph/research/auto_merge.py`)
 - **`AU-AHE.assimilation.research-pipeline`** — microstructure, trading, pricing (`agent_utilities/automation/research_pipeline.py`)
 - **`AU-AHE.assimilation.research-source-grading`** (`agent_utilities/knowledge_graph/research/fleet_relevance.py`)

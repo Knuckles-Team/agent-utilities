@@ -6,7 +6,7 @@ per pillar, listing every concept it owns.
 
 - [`AU-AHE`](au-ahe.md) (118 concepts)
 - [`AU-ECO`](au-eco.md) (138 concepts)
-- [`AU-KG`](au-kg.md) (497 concepts)
+- [`AU-KG`](au-kg.md) (493 concepts)
 - [`AU-ORCH`](au-orch.md) (217 concepts)
 - [`AU-OS`](au-os.md) (168 concepts)
 - [`EG-AHE`](eg-ahe.md) (1 concept)
