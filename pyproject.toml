@@ -591,7 +591,7 @@ serving = [
     # without it here, every configured dashboard tile logs
     # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
     # refresh in production.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,gateway-widgets]",
+    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,vault,gateway-widgets]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -638,27 +638,6 @@ trino = [
     "sqlalchemy>=2.0.51",
     "trino>=0.339.0",
     "sqlalchemy-trino>=0.5.0"
-]
-# Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
-messaging-discord = ["discord.py>=2.7.1"]
-messaging-slack = ["slack-bolt>=1.30.0"]
-messaging-telegram = ["python-telegram-bot>=22.8"]
-messaging-whatsapp = ["neonize>=0.4.3.post0", "httpx>=0.28.1"]
-messaging-teams = ["botbuilder-core>=4.17.1"]
-messaging-googlechat = ["google-api-python-client>=2.198.0", "google-auth>=2.56.1"]
-messaging-googlemeet = ["google-api-python-client>=2.198.0", "google-auth>=2.56.1"]
-messaging-mattermost = ["mattermostdriver>=7.3.2"]
-messaging-matrix = ["matrix-nio>=0.25.2"]
-messaging-irc = ["irc>=20.5.0"]
-messaging-signal = []
-messaging-imessage = []  # macOS-only, AppleScript bridge
-messaging-line = ["line-bot-sdk>=3.25.0"]
-messaging-twitch = ["twitchio>=3.2.2"]
-messaging-synology = ["httpx>=0.28.1"]
-messaging-voicecall = ["twilio>=9.10.9"]
-messaging-nextcloud = ["httpx>=0.28.1"]
-messaging = [
-    "agent-utilities[messaging-discord,messaging-slack,messaging-telegram,messaging-whatsapp,messaging-teams,messaging-googlechat,messaging-googlemeet,messaging-mattermost,messaging-matrix,messaging-irc,messaging-signal,messaging-line,messaging-twitch,messaging-synology,messaging-voicecall,messaging-nextcloud]"
 ]
 test = [
     "pytest-xdist>=3.8.0",
@@ -728,7 +707,7 @@ test-backends = [
 # `all` no longer needs to name `graphos` — an existing `pip install
 # agent-utilities[all]` still gets the engine unchanged, now via base.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
@@ -789,25 +768,6 @@ graphos-certification-fault = "scripts.certification.fault_hook:main"
 graphos-certification-load = "scripts.scale.loadgen:main"
 graphos-certification-metrics = "scripts.certification.collect_metrics:main"
 graphos-operational-evidence = "scripts.certification.evidence:main"
-
-[project.entry-points."agent_utilities.messaging"]
-discord = "agent_utilities.messaging.backends.discord:DiscordBackend"
-slack = "agent_utilities.messaging.backends.slack:SlackBackend"
-telegram = "agent_utilities.messaging.backends.telegram:TelegramBackend"
-whatsapp = "agent_utilities.messaging.backends.whatsapp:WhatsAppBackend"
-teams = "agent_utilities.messaging.backends.teams:TeamsBackend"
-googlechat = "agent_utilities.messaging.backends.googlechat:GoogleChatBackend"
-googlemeet = "agent_utilities.messaging.backends.googlemeet:GoogleMeetBackend"
-mattermost = "agent_utilities.messaging.backends.mattermost:MattermostBackend"
-matrix = "agent_utilities.messaging.backends.matrix:MatrixBackend"
-irc = "agent_utilities.messaging.backends.irc:IRCBackend"
-signal = "agent_utilities.messaging.backends.signal:SignalBackend"
-imessage = "agent_utilities.messaging.backends.imessage:IMessageBackend"
-line = "agent_utilities.messaging.backends.line:LINEBackend"
-twitch = "agent_utilities.messaging.backends.twitch:TwitchBackend"
-synology = "agent_utilities.messaging.backends.synology:SynologyChatBackend"
-voicecall = "agent_utilities.messaging.backends.voicecall:VoiceCallBackend"
-nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 
 # CONCEPT:OS-5.52 — agent-utilities ships its OWN ten domain workflow skills and contributes
 # them like any other agent-package, so `agent-utilities install` drops them into the
