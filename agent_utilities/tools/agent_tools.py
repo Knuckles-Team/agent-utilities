@@ -126,9 +126,9 @@ async def reach_user(
     Returns:
         The user's reply (if ``wait_for_reply``), else a short send-status string.
     """
-    from agent_utilities.messaging.service import MessagingService
+    from agent_utilities.messaging.reach_port import reach_service_port
 
-    service = MessagingService.instance()
+    service = reach_service_port()
     if wait_for_reply:
         reply = await service.reach_user_and_wait(
             message, source="agent", reason="agent asked the user"
