@@ -165,4 +165,3 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.
 - `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_rdf()` — the engine-native RDF surface (CONCEPT:AU-KG.compute.native-sparql-owl-shacl): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetRdf`.
 - `epistemic-graph` `crates/eg-rdf` (`rdf`/`sparql`/`owl` features, pure-Rust oxrdf/oxttl/spargebra) — the native RDF/SPARQL/OWL substrate (`client.rdf.*`).
-- `core/ontology_publisher.py` — bundled-ontology collection + optional Fuseki push.

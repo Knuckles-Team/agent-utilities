@@ -10,15 +10,12 @@ composes existing capabilities:
   (``pggraph_available`` / ``pgvector_available`` / ``paradedb_available``).
 - **Projection setup** — persists the runtime connection-profile reference,
   native AGE mode, and the external mirror declaration.
-- **Ontology distribution (KG-2.6)** — :class:`OntologyPublisher` push to Stardog
-  (prod) or Jena Fuseki (dev), with the built-in ``/api/sparql`` endpoint already
-  serving the dev case with zero infra.
 - **Durable backfill (KG-2.7)** — authority-to-mirror reconciliation.
 
 Two environment shapes are supported:
 
-- ``profile="prod"`` — push the ontology to **Stardog** and consume via Stardog's
-  SPARQL endpoint.
+- ``profile="prod"`` — register **Stardog** as a data mirror and consume via its
+  SPARQL endpoint. Ontology packs are attached through EG GraphSchema separately.
 - ``profile="dev"`` — host SPARQL **locally** (built-in ``/api/sparql`` by default,
   optional Jena Fuseki) with no Stardog.
 
@@ -246,9 +243,6 @@ def configure_backend(
     }
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# Step 3 — publish the ontology to the chosen SPARQL host
-# ──────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────
 # Step 3b — register Stardog as a live DATA mirror (instance data, not just TBox)
 # ──────────────────────────────────────────────────────────────────────────

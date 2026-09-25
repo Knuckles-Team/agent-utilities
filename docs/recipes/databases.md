@@ -25,8 +25,7 @@ agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
    reconcile (KG-2.7) ──▶ Postgres / Apache AGE  (durable graph + pgvector + BM25)
 ```
 
-- **Push / host / consume** the ontology → `OntologyPublisher` +
-  the gateway SPARQL endpoint.
+- **Attach / query** ontology packs → EG GraphSchema + the gateway SPARQL endpoint.
 - **Backfill relationships into pg-age** → the fanout backend's explicit
   `reconcile()` operation.
 
@@ -131,12 +130,11 @@ setup-databases --profile prod --postgres-mode managed_image \
 
 This (1) verifies Postgres, (2) wires `GRAPH_DB_CONNECTION_PROFILE_REF` +
 `GRAPH_PG_AGE=1` + `GRAPH_MIRROR_TARGETS` so the engine authority fans writes
-out into the AGE projection,
-(3) **pushes the bundled ontology to Stardog**
-(`OntologyPublisher.push_to_stardog`), (3b) **registers Stardog as a live data
-mirror** so instance data replicates continuously (see Step 2b), (4) reconciles the
+out into the AGE projection, (3) **registers Stardog as a live data mirror** so
+instance data replicates continuously (see Step 2b), (4) reconciles the
 working graph into AGE *and* backfills the Stardog mirror, and (5) smoke-tests a
-SPARQL `SELECT` against Stardog.
+SPARQL `SELECT` against Stardog. Ontology sources are attached through EG
+GraphSchema as connector packs before reasoning is enabled.
 
 **Consume it** from your system against Stardog's SPARQL endpoint
 through the configured Stardog connection profile — reasoning included, since the
