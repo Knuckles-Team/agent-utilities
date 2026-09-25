@@ -1,5 +1,14 @@
 # Intent Surface — Seam 8, Phases 2-5 (complete)
 
+> **Historical AU-host design.** This document describes the legacy
+> `agent_utilities.mcp` intent host. The approved GraphOS cutover is specified in
+> `plans/refactor/architecture/GRAPHOS-MCP-INTENT-SURFACE-DESIGN.md` (MCPI-29/31).
+> GraphOS will own the six intent verbs and governed operation registry. Its
+> public MCP surface does not use `MCP_TOOL_MODE`; that setting remains for
+> standalone connector and fleet-child servers. The AU host and this document
+> retire only after every legacy AU action has an exact operation mapping or
+> an explicit, reviewed drop in the MCPI-29 parity audit.
+
 > **Status:** kickoff slice (Phases 2-3) shipped on `feat/au-intent-surface`; the CPD (Phase 1,
 > `feat/au-cpd`) and this doc's §7 remaining work (Phases 4-5 — CPD-backed ranking, the
 > calibrated-outcomes learning loop, resolution caching, the intent-surface skill content
