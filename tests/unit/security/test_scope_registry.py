@@ -86,3 +86,10 @@ def test_the_generator_refuses_an_unknown_scope_class():
     bad = json.dumps({"scopes": [{"scope": "x:y", "class": "superuser"}]}).encode()
     with pytest.raises(ValueError, match="unknown scope classes"):
         _generator().render(bad)
+
+
+def test_the_broker_and_self_service_identity_scopes_reach_the_session():
+    """graph-os runs admin and self-service identity ops under the caller's own
+    session and its broker under identity:authenticate: none may be filtered."""
+    scopes = "identity:authenticate identity:admin identity:self identity:read identity:provision"
+    assert _mint(scopes).scopes == frozenset(scopes.split())
