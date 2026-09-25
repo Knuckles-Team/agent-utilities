@@ -311,6 +311,16 @@ def test_run_scheduled_job_unknown_maint() -> None:
     assert res["status"] == "skipped"
 
 
+def test_retired_fuseki_publish_cannot_dispatch() -> None:
+    class _Host:
+        def _tick_fuseki_publish(self):
+            raise AssertionError("retired publisher must not run")
+
+    res = se.run_scheduled_job(_Host(), {"kind": "maint", "ref": "fuseki_publish"})
+    assert res["status"] == "skipped"
+    assert res["reason"] == "maintenance_not_allowed"
+
+
 def test_run_scheduled_job_cannot_dispatch_unregistered_private_tick() -> None:
     class _Host:
         def _tick_secret(self):

@@ -79,7 +79,6 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "fleet_autoscale_reactive",
         "fleet_autoscaler",
         "fleet_reconciler",
-        "fuseki_publish",
         "goal_sla",
         "hygiene",
         "kg_analysis",
