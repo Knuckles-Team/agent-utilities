@@ -15,9 +15,6 @@ from agent_utilities.api.catalog import (
     WorkflowCatalogRecord,
     catalog_read_ports,
 )
-from agent_utilities.control_plane.catalogs import (
-    catalog_read_ports as control_plane_catalog_read_ports,
-)
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
     ScopeError,
@@ -176,7 +173,6 @@ def test_factory_exposes_one_authority_with_typed_async_and_sync_ports() -> None
     assert all(call_session is session for _, call_session in engine.calls)
     assert any("MATCH (a:Agent)" in query for query, _ in engine.calls)
     assert any("MATCH (w:WorkflowDefinition)" in query for query, _ in engine.calls)
-    assert control_plane_catalog_read_ports is catalog_read_ports
 
 
 def test_reads_require_verified_ambient_session_and_never_fallback_to_empty() -> None:
