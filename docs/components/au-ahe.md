@@ -87,7 +87,7 @@
 - **`AU-AHE.harness.swebench-instance-corpus`** — SWE-bench instance corpus (`agent_utilities/harness/swebench_corpus.py`)
 - **`AU-AHE.harness.unified-artifact-lineage`** — skill (`agent_utilities/knowledge_graph/research/evolution_state.py`)
 - **`AU-AHE.harness.unified-promotion-gate`** — the SDD/develop vector (`agent_utilities/harness/evolve_agent.py`)
-- **`AU-AHE.harness.variant-pool`** — a mixed edit fixes one cluster but (`agent_utilities/harness/aegis_loop.py`)
+- **`AU-AHE.harness.variant-pool`** (`agent_utilities/harness/aegis_loop.py`)
 - **`AU-AHE.harness.when-outcome-names-agent`** — when the outcome names the agent that produced it (`agent_utilities/harness/memorydata/bakeoff.py`)
 - **`AU-AHE.harness.when-task-is-scope`** — when a task is in scope, run a short (`agent_utilities/harness/__init__.py`)
 - **`AU-AHE.harness.width-diverse-best-k`** — width of the *diverse* best-of-k fan-out — harder (`agent_utilities/graph/test_time_diversity.py`)

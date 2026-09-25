@@ -168,7 +168,7 @@
 - **`AU-OS.state.durable-schedule-outbox`** (`agent_utilities/core/schedule_engine.py`)
 - **`AU-OS.state.fleet-supervisory-plane-at`** — Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and desired-state pause and kill reconciliation across hosts (`agent_utilities/gateway/fleet.py`)
 - **`AU-OS.state.homeostatic-model-downgrade`** — Homeostatic Model Downgrade (`agent_utilities/graph/executor.py`)
-- **`AU-OS.state.stale-tick-collapse`** — which keeps the backlog itself small (`agent_utilities/core/schedule_engine.py`)
+- **`AU-OS.state.stale-tick-collapse`** (`agent_utilities/core/schedule_engine.py`)
 - **`AU-OS.state.topological-session-persistence`** — Topological Session Persistence (`agent_utilities/graph/state.py`)
 - **`AU-OS.state.unified-durable-state-externalization`** — Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store over the per-host SQLite default (`agent_utilities/core/config.py`)
 - **`AU-OS.state.unified-scheduling-one-intelligent`** — Unified scheduling engine, one intelligent scheduler for all recurring work (`agent_utilities/core/schedule_engine.py`)
