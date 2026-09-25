@@ -226,7 +226,12 @@ class _Search:
     async def search(self, request, *, session):
         return [
             CapabilityCandidate(
-                kind="agent", name="expert", component_id="c", score=1.0, source="t"
+                kind="agent",
+                name="expert",
+                component_id="c",
+                score=1.0,
+                source="t",
+                content_digest="a" * 64,
             )
         ]
 
