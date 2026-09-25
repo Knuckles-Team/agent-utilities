@@ -2310,14 +2310,6 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/mcp_apps.py
   doc: the MCP Apps entry-point tool + its
-- id: AU-ECO.ui.normalized-enterprise-read-models
-  name: AU-ECO.ui.normalized-enterprise-read-models
-  pillar: AU-ECO
-  status: live
-  code_paths:
-  - agent_utilities/protocols/enterprise/__init__.py
-  - agent_utilities/protocols/enterprise/read_models.py
-  doc: AU-ECO.ui.normalized-enterprise-read-models
 - id: AU-KG.audit.durable-error-detail
   name: AU-KG.audit.durable-error-detail
   pillar: AU-KG
