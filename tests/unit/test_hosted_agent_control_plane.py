@@ -422,7 +422,8 @@ def test_runtime_views_and_drain() -> None:
         start_task_workers=lambda count: events.append(("workers", count)),
     )
     runtime = AgentRuntime(engine, "host")
-    assert runtime.graph_client("g1") == "client:g1"
+    with use_session(_session()):
+        assert runtime.graph_client("tenant-test") == "client:tenant-test"
     runtime.start_background_daemons()
     runtime.start_task_workers(2)
     result = runtime.drain_and_close(5.0)

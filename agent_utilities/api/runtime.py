@@ -46,10 +46,14 @@ class AgentRuntime:
         return self._engine
 
     def graph_client(self, graph: str) -> Any:
-        """The awaitable, session-routed EG client view for ``graph``.
+        """The awaitable EG client view for the verified session's graph.
 
-        No new connection is opened; calls run on the process transport.
+        The process transport is reused. A caller cannot construct a view for
+        a graph outside its task-local authority, even before its first RPC.
         """
+        from agent_utilities.api.session import resolve_session
+
+        resolve_session(graph=graph)
         compute = getattr(self._engine, "graph_compute", None)
         if compute is None:
             raise RuntimeError("the AU runtime has no graph transport")
