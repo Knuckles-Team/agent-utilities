@@ -7,12 +7,15 @@ nothing.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from agent_utilities import decide
 from agent_utilities.decide.learning.ops import learn_op, recorded, rows_of
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +44,15 @@ class LearningSession:
     def send(self, op: Mapping[str, Any]) -> Any:
         """Drive :meth:`asend` from a sync call site on the engine loop."""
         return self.transport.run(self.asend(op))
+
+    def drive(self, call: Coroutine[Any, Any, T]) -> T:
+        """Drive a LONG learning job (a generation swap) on the transport's
+        engine loop from a background thread, without the sync call-site
+        timeout; a transport with no loop of its own drives it itself."""
+        loop = getattr(self.transport, "loop", None)
+        if loop is None:
+            return cast(T, self.transport.run(call))
+        return asyncio.run_coroutine_threadsafe(call, loop).result()
 
 
 def current_session() -> LearningSession | None:

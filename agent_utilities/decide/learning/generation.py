@@ -22,6 +22,7 @@ next query sees.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -179,8 +180,11 @@ class GenerationSwap:
         self, plan: GenerationPlan, base_model: str, shadow_model: str
     ) -> Mapping[str, Any]:
         queries = await judged_queries(self.session, plan.question_id)
-        items = eval_items(
-            queries, self.embedder_for(base_model), self.embedder_for(shadow_model)
+        items = await asyncio.to_thread(
+            eval_items,
+            queries,
+            self.embedder_for(base_model),
+            self.embedder_for(shadow_model),
         )
         return await self.session.learn(
             "evaluate_generation", "generation", request=eval_request(plan, items)

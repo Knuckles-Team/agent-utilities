@@ -1292,7 +1292,13 @@ class HybridRetriever:
             )
             raise _EmbeddingCircuitOpenError()
 
-        query_emb = self.embed_model.get_text_embedding(query)
+        from agent_utilities.decide.learning.generation_cycle import (
+            generation_embedder,
+        )
+
+        # EH-397: the query is embedded in the space of the generation the
+        # vector arm probes (the active one), not only the configured model's.
+        query_emb = generation_embedder(self).get_text_embedding(query)
         if embed_breaker is not None:
             embed_breaker.record(ok=True)
 
