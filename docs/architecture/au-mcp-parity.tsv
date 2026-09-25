@@ -1,12 +1,12 @@
 name	disposition	target	candidate_op	legacy_tool	legacy_action	declaration_binding	reason
-act	pending			act			await served parity and operator-reviewed disposition
-ask	pending			ask			await served parity and operator-reviewed disposition
+act	pending			act			Legacy AU act registrar is a broad resolver; MCPI-31 GraphOS act verb must be served with EH-615 authority parity before retiring this implementation
+ask	pending			ask			Legacy AU ask registrar is a broad resolver; MCPI-31 GraphOS ask verb must be served with EH-615 authority parity before retiring this implementation
 ask_data	pending			ask_data			await served parity and operator-reviewed disposition
 document_process	pending			document_process			await served parity and operator-reviewed disposition
 engine_admin_audit_prove_inclusion	pending			engine_admin	audit_prove_inclusion		await served parity and operator-reviewed disposition
-engine_admin_audit_verify	pending		security.audit.verify	engine_admin	audit_verify	eg:AuditVerify	await served parity and operator-reviewed disposition
-engine_admin_backup	pending		ops.backup	engine_admin	backup	eg:Backup	await served parity and operator-reviewed disposition
-engine_admin_restore	pending		ops.restore	engine_admin	restore	eg:Restore	await served parity and operator-reviewed disposition
+engine_admin_audit_verify	pending		security.audit.verify	engine_admin	audit_verify	eg:AuditVerify	Declared candidate security.audit.verify; await pinned EG contract, served binding proof and argument/authority parity before classifying
+engine_admin_backup	pending		ops.backup	engine_admin	backup	eg:Backup	Declared candidate ops.backup; await pinned EG contract, served binding proof and argument/authority parity before classifying
+engine_admin_restore	pending		ops.restore	engine_admin	restore	eg:Restore	Declared candidate ops.restore; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_analytics_betweenness_centrality	pending			engine_analytics	betweenness_centrality		await served parity and operator-reviewed disposition
 engine_analytics_degree_centrality	pending			engine_analytics	degree_centrality		await served parity and operator-reviewed disposition
 engine_analytics_degree_centrality_all	pending			engine_analytics	degree_centrality_all		await served parity and operator-reviewed disposition
@@ -72,15 +72,15 @@ engine_datascience_predict_estimator	pending			engine_datascience	predict_estima
 engine_datascience_sgd_step	pending			engine_datascience	sgd_step		await served parity and operator-reviewed disposition
 engine_datascience_softmax	pending			engine_datascience	softmax		await served parity and operator-reviewed disposition
 engine_datascience_train_test_split	pending			engine_datascience	train_test_split		await served parity and operator-reviewed disposition
-engine_edges_add	pending		graph.edges.add	engine_edges	add	eg:AddEdge	await served parity and operator-reviewed disposition
+engine_edges_add	pending		graph.edges.add	engine_edges	add	eg:AddEdge	Declared candidate graph.edges.add; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_edges_count	pending			engine_edges	count		await served parity and operator-reviewed disposition
 engine_edges_has	pending			engine_edges	has		await served parity and operator-reviewed disposition
 engine_edges_invalidate	pending			engine_edges	invalidate		await served parity and operator-reviewed disposition
 engine_edges_list	pending			engine_edges	list		await served parity and operator-reviewed disposition
-engine_edges_list_page	pending		graph.edges.list	engine_edges	list_page	eg:GetEdgesPage	await served parity and operator-reviewed disposition
-engine_edges_properties	pending		graph.edges.get	engine_edges	properties	eg:GetEdgeProperties	await served parity and operator-reviewed disposition
+engine_edges_list_page	pending		graph.edges.list	engine_edges	list_page	eg:GetEdgesPage	Declared candidate graph.edges.list; await pinned EG contract, served binding proof and argument/authority parity before classifying
+engine_edges_properties	pending		graph.edges.get	engine_edges	properties	eg:GetEdgeProperties	Declared candidate graph.edges.get; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_edges_properties_batch	pending			engine_edges	properties_batch		await served parity and operator-reviewed disposition
-engine_edges_remove	pending		graph.edges.remove	engine_edges	remove	eg:RemoveEdge	await served parity and operator-reviewed disposition
+engine_edges_remove	pending		graph.edges.remove	engine_edges	remove	eg:RemoveEdge	Declared candidate graph.edges.remove; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_edges_supersede	pending			engine_edges	supersede		await served parity and operator-reviewed disposition
 engine_finance_adf_test	pending			engine_finance	adf_test		await served parity and operator-reviewed disposition
 engine_finance_alpha_combination_engine	pending			engine_finance	alpha_combination_engine		await served parity and operator-reviewed disposition
@@ -186,7 +186,7 @@ engine_lifecycle_batch_update	pending			engine_lifecycle	batch_update		await ser
 engine_lifecycle_decay_sweep	pending			engine_lifecycle	decay_sweep		await served parity and operator-reviewed disposition
 engine_lifecycle_evict_lru	pending			engine_lifecycle	evict_lru		await served parity and operator-reviewed disposition
 engine_lifecycle_from_msgpack	pending			engine_lifecycle	from_msgpack		await served parity and operator-reviewed disposition
-engine_lifecycle_get_context_view	pending		context.view	engine_lifecycle	get_context_view	eg:GetContextView	await served parity and operator-reviewed disposition
+engine_lifecycle_get_context_view	pending		context.view	engine_lifecycle	get_context_view	eg:GetContextView	Declared candidate context.view; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_lifecycle_metrics	pending			engine_lifecycle	metrics		await served parity and operator-reviewed disposition
 engine_lifecycle_multi_graph_batch_update	pending			engine_lifecycle	multi_graph_batch_update		await served parity and operator-reviewed disposition
 engine_lifecycle_prune	pending			engine_lifecycle	prune		await served parity and operator-reviewed disposition
@@ -226,7 +226,7 @@ engine_modalities_query_video_window	pending			engine_modalities	query_video_win
 engine_modalities_restore	pending			engine_modalities	restore		await served parity and operator-reviewed disposition
 engine_modalities_search_documents	pending			engine_modalities	search_documents		await served parity and operator-reviewed disposition
 engine_modalities_stats	pending			engine_modalities	stats		await served parity and operator-reviewed disposition
-engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	eg:AddNode	await served parity and operator-reviewed disposition
+engine_nodes_add	pending		graph.nodes.add	engine_nodes	add	eg:AddNode	Declared candidate graph.nodes.add; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_nodes_claim_next	pending			engine_nodes	claim_next		await served parity and operator-reviewed disposition
 engine_nodes_compare_and_set	pending			engine_nodes	compare_and_set		await served parity and operator-reviewed disposition
 engine_nodes_count	pending			engine_nodes	count		await served parity and operator-reviewed disposition
@@ -236,17 +236,17 @@ engine_nodes_has_batch	pending			engine_nodes	has_batch		await served parity and
 engine_nodes_ids	pending			engine_nodes	ids		await served parity and operator-reviewed disposition
 engine_nodes_in_degree	pending			engine_nodes	in_degree		await served parity and operator-reviewed disposition
 engine_nodes_list	pending			engine_nodes	list		await served parity and operator-reviewed disposition
-engine_nodes_list_by_label	pending		graph.nodes.list	engine_nodes	list_by_label	eg:GetNodesByLabel	await served parity and operator-reviewed disposition
+engine_nodes_list_by_label	pending		graph.nodes.list	engine_nodes	list_by_label	eg:GetNodesByLabel	Declared candidate graph.nodes.list; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_nodes_list_by_label_union	pending			engine_nodes	list_by_label_union		await served parity and operator-reviewed disposition
 engine_nodes_neighbors	pending			engine_nodes	neighbors		await served parity and operator-reviewed disposition
 engine_nodes_neighbors_batch	pending			engine_nodes	neighbors_batch		await served parity and operator-reviewed disposition
 engine_nodes_neighbors_union	pending			engine_nodes	neighbors_union		await served parity and operator-reviewed disposition
 engine_nodes_out_degree	pending			engine_nodes	out_degree		await served parity and operator-reviewed disposition
 engine_nodes_predecessors	pending			engine_nodes	predecessors		await served parity and operator-reviewed disposition
-engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	eg:GetNodeProperties	await served parity and operator-reviewed disposition
+engine_nodes_properties	pending		graph.nodes.get	engine_nodes	properties	eg:GetNodeProperties	Declared candidate graph.nodes.get; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_nodes_properties_batch	pending			engine_nodes	properties_batch		await served parity and operator-reviewed disposition
 engine_nodes_properties_union	pending			engine_nodes	properties_union		await served parity and operator-reviewed disposition
-engine_nodes_remove	pending		graph.nodes.remove	engine_nodes	remove	eg:RemoveNode	await served parity and operator-reviewed disposition
+engine_nodes_remove	pending		graph.nodes.remove	engine_nodes	remove	eg:RemoveNode	Declared candidate graph.nodes.remove; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_nodes_successors	pending			engine_nodes	successors		await served parity and operator-reviewed disposition
 engine_placement_abort_move	pending			engine_placement	abort_move		await served parity and operator-reviewed disposition
 engine_placement_assign	pending			engine_placement	assign		await served parity and operator-reviewed disposition
@@ -270,13 +270,13 @@ engine_query_materialization_status	pending			engine_query	materialization_statu
 engine_query_nl_query	pending			engine_query	nl_query		await served parity and operator-reviewed disposition
 engine_query_rank_by_provenance	pending			engine_query	rank_by_provenance		await served parity and operator-reviewed disposition
 engine_query_recompute_materialization	pending			engine_query	recompute_materialization		await served parity and operator-reviewed disposition
-engine_query_register_foreign_source	pending		federation.sources.register	engine_query	register_foreign_source	eg:RegisterForeignSource	await served parity and operator-reviewed disposition
+engine_query_register_foreign_source	pending		federation.sources.register	engine_query	register_foreign_source	eg:RegisterForeignSource	Declared candidate federation.sources.register; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_query_resolve_conflict	pending			engine_query	resolve_conflict		await served parity and operator-reviewed disposition
-engine_query_sql	pending		query.sql	engine_query	sql	eg:Sql	await served parity and operator-reviewed disposition
+engine_query_sql	pending		query.sql	engine_query	sql	eg:Sql	Declared candidate query.sql; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_query_sql_source_batch	pending			engine_query	sql_source_batch		await served parity and operator-reviewed disposition
 engine_query_stale_materializations	pending			engine_query	stale_materializations		await served parity and operator-reviewed disposition
 engine_query_unified	pending			engine_query	unified		await served parity and operator-reviewed disposition
-engine_query_uql	pending		query.uql	engine_query	uql	eg:Uql	await served parity and operator-reviewed disposition
+engine_query_uql	pending		query.uql	engine_query	uql	eg:Uql	Declared candidate query.uql; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_query_what_changed	pending			engine_query	what_changed		await served parity and operator-reviewed disposition
 engine_rbac_add_grant	pending			engine_rbac	add_grant		await served parity and operator-reviewed disposition
 engine_rbac_add_role	pending			engine_rbac	add_role		await served parity and operator-reviewed disposition
@@ -291,20 +291,20 @@ engine_rdf_icv_configure	pending			engine_rdf	icv_configure		await served parity
 engine_rdf_owl_reason	pending			engine_rdf	owl_reason		await served parity and operator-reviewed disposition
 engine_rdf_owl_reason_distributed	pending			engine_rdf	owl_reason_distributed		await served parity and operator-reviewed disposition
 engine_rdf_remove_triples	pending			engine_rdf	remove_triples		await served parity and operator-reviewed disposition
-engine_rdf_sparql	pending		query.sparql	engine_rdf	sparql	eg:Sparql	await served parity and operator-reviewed disposition
+engine_rdf_sparql	pending		query.sparql	engine_rdf	sparql	eg:Sparql	Declared candidate query.sparql; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_rdf_sparql_virtual	pending			engine_rdf	sparql_virtual		await served parity and operator-reviewed disposition
-engine_rdf_validate_shacl	pending		ontology.validate	engine_rdf	validate_shacl	eg:ShaclValidate	await served parity and operator-reviewed disposition
+engine_rdf_validate_shacl	pending		ontology.validate	engine_rdf	validate_shacl	eg:ShaclValidate	Declared candidate ontology.validate; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_reasoning_reason	pending			engine_reasoning	reason		await served parity and operator-reviewed disposition
 engine_resharding_catalog_assign	pending			engine_resharding	catalog_assign		await served parity and operator-reviewed disposition
 engine_resharding_catalog_list	pending			engine_resharding	catalog_list		await served parity and operator-reviewed disposition
 engine_resharding_catalog_reassign	pending			engine_resharding	catalog_reassign		await served parity and operator-reviewed disposition
 engine_resharding_catalog_remove	pending			engine_resharding	catalog_remove		await served parity and operator-reviewed disposition
-engine_resharding_rebalance_execute	pending		ops.shards.execute	engine_resharding	rebalance_execute	eg:RebalanceExecute	await served parity and operator-reviewed disposition
-engine_resharding_rebalance_plan	pending		ops.shards.plan	engine_resharding	rebalance_plan	eg:RebalancePlan	await served parity and operator-reviewed disposition
-engine_resharding_reshard	pending		ops.shards.reshard	engine_resharding	reshard	eg:Reshard	await served parity and operator-reviewed disposition
+engine_resharding_rebalance_execute	pending		ops.shards.execute	engine_resharding	rebalance_execute	eg:RebalanceExecute	Declared candidate ops.shards.execute; await pinned EG contract, served binding proof and argument/authority parity before classifying
+engine_resharding_rebalance_plan	pending		ops.shards.plan	engine_resharding	rebalance_plan	eg:RebalancePlan	Declared candidate ops.shards.plan; await pinned EG contract, served binding proof and argument/authority parity before classifying
+engine_resharding_reshard	pending		ops.shards.reshard	engine_resharding	reshard	eg:Reshard	Declared candidate ops.shards.reshard; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_streaming_cdc_read	pending			engine_streaming	cdc_read		await served parity and operator-reviewed disposition
 engine_streaming_cdc_read_with_watermark	pending			engine_streaming	cdc_read_with_watermark		await served parity and operator-reviewed disposition
-engine_streaming_cep_poll	pending		telemetry.cep.poll	engine_streaming	cep_poll	eg:CepPoll	await served parity and operator-reviewed disposition
+engine_streaming_cep_poll	pending		telemetry.cep.poll	engine_streaming	cep_poll	eg:CepPoll	Declared candidate telemetry.cep.poll; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_streaming_cep_subscribe	pending			engine_streaming	cep_subscribe		await served parity and operator-reviewed disposition
 engine_streaming_cep_unsubscribe	pending			engine_streaming	cep_unsubscribe		await served parity and operator-reviewed disposition
 engine_streaming_drop_continuous_query	pending			engine_streaming	drop_continuous_query		await served parity and operator-reviewed disposition
@@ -320,12 +320,12 @@ engine_tenants_delete	pending			engine_tenants	delete		await served parity and o
 engine_tenants_list	pending			engine_tenants	list		await served parity and operator-reviewed disposition
 engine_timeseries_append	pending			engine_timeseries	append		await served parity and operator-reviewed disposition
 engine_timeseries_asof_join	pending			engine_timeseries	asof_join		await served parity and operator-reviewed disposition
-engine_timeseries_delete_series	pending		analytics.series.drop	engine_timeseries	delete_series	eg:TsDeleteSeries	await served parity and operator-reviewed disposition
+engine_timeseries_delete_series	pending		analytics.series.drop	engine_timeseries	delete_series	eg:TsDeleteSeries	Declared candidate analytics.series.drop; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_timeseries_evict_before	pending			engine_timeseries	evict_before		await served parity and operator-reviewed disposition
 engine_timeseries_gap_fill	pending			engine_timeseries	gap_fill		await served parity and operator-reviewed disposition
-engine_timeseries_list_series	pending		analytics.series.list	engine_timeseries	list_series	eg:TsListSeries	await served parity and operator-reviewed disposition
+engine_timeseries_list_series	pending		analytics.series.list	engine_timeseries	list_series	eg:TsListSeries	Declared candidate analytics.series.list; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_timeseries_range	pending			engine_timeseries	range		await served parity and operator-reviewed disposition
-engine_timeseries_register_series	pending		analytics.series.define	engine_timeseries	register_series	eg:TsDefineSeries	await served parity and operator-reviewed disposition
+engine_timeseries_register_series	pending		analytics.series.define	engine_timeseries	register_series	eg:TsDefineSeries	Declared candidate analytics.series.define; await pinned EG contract, served binding proof and argument/authority parity before classifying
 engine_timeseries_window	pending			engine_timeseries	window		await served parity and operator-reviewed disposition
 engine_txn_add_edge	pending			engine_txn	add_edge		await served parity and operator-reviewed disposition
 engine_txn_add_embedding	pending			engine_txn	add_embedding		await served parity and operator-reviewed disposition
@@ -347,7 +347,7 @@ engine_txn_unified_query	pending			engine_txn	unified_query		await served parity
 engine_txn_unified_query_plan	pending			engine_txn	unified_query_plan		await served parity and operator-reviewed disposition
 engine_viz_capability_matrix	pending			engine_viz	capability_matrix		await served parity and operator-reviewed disposition
 engine_viz_render	pending			engine_viz	render		await served parity and operator-reviewed disposition
-find	pending			find			await served parity and operator-reviewed disposition
+find	pending			find			Legacy AU find registrar is a broad resolver; MCPI-31 GraphOS find verb must be served with EH-615 authority parity before retiring this implementation
 graph_agents_computer_use	pending			graph_agents	computer_use		await served parity and operator-reviewed disposition
 graph_agents_reason	pending			graph_agents	reason		await served parity and operator-reviewed disposition
 graph_agents_run_org	pending			graph_agents	run_org		await served parity and operator-reviewed disposition
@@ -553,8 +553,8 @@ graph_ingest_import_pack	pending			graph_ingest	import_pack		await served parity
 graph_ingest_ingest	pending			graph_ingest	ingest		await served parity and operator-reviewed disposition
 graph_ingest_ingest_knowledge_pack	pending			graph_ingest	ingest_knowledge_pack		await served parity and operator-reviewed disposition
 graph_ingest_ingest_url	pending			graph_ingest	ingest_url		await served parity and operator-reviewed disposition
-graph_ingest_job_status	pending		ingest.jobs.status	graph_ingest	job_status	composite:graph_os.ingest.service.execute	await served parity and operator-reviewed disposition
-graph_ingest_jobs	pending		ingest.jobs.list	graph_ingest	jobs	composite:graph_os.ingest.service.execute	await served parity and operator-reviewed disposition
+graph_ingest_job_status	pending		ingest.jobs.status	graph_ingest	job_status	composite:graph_os.ingest.service.execute	Declared candidate ingest.jobs.status; await pinned EG contract, served binding proof and argument/authority parity before classifying
+graph_ingest_jobs	pending		ingest.jobs.list	graph_ingest	jobs	composite:graph_os.ingest.service.execute	Declared candidate ingest.jobs.list; await pinned EG contract, served binding proof and argument/authority parity before classifying
 graph_ingest_materialize	pending			graph_ingest	materialize		await served parity and operator-reviewed disposition
 graph_ingest_materialize_source	pending			graph_ingest	materialize_source		await served parity and operator-reviewed disposition
 graph_ingest_observe	pending			graph_ingest	observe		await served parity and operator-reviewed disposition
@@ -598,9 +598,9 @@ graph_loops_list	pending			graph_loops	list		await served parity and operator-re
 graph_loops_placement_control	pending			graph_loops	placement_control		await served parity and operator-reviewed disposition
 graph_loops_prioritize	pending			graph_loops	prioritize		await served parity and operator-reviewed disposition
 graph_loops_review	pending			graph_loops	review		await served parity and operator-reviewed disposition
-graph_loops_run	pending		evolution.loops.run	graph_loops	run	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
+graph_loops_run	pending		evolution.loops.run	graph_loops	run	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.loops.run; await pinned EG contract, served binding proof and argument/authority parity before classifying
 graph_loops_specs	pending			graph_loops	specs		await served parity and operator-reviewed disposition
-graph_loops_state	pending		evolution.loops.status	graph_loops	state	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
+graph_loops_state	pending		evolution.loops.status	graph_loops	state	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.loops.status; await pinned EG contract, served binding proof and argument/authority parity before classifying
 graph_loops_submit	pending			graph_loops	submit		await served parity and operator-reviewed disposition
 graph_loops_submit_gap	pending			graph_loops	submit_gap		await served parity and operator-reviewed disposition
 graph_media_sidecar_ingest_audio	pending			graph_media_sidecar	ingest_audio		await served parity and operator-reviewed disposition
@@ -649,11 +649,11 @@ graph_runvcs_twin_replay	pending			graph_runvcs	twin_replay		await served parity
 graph_sandbox_reap	pending			graph_sandbox	reap		await served parity and operator-reviewed disposition
 graph_sandbox_status	pending			graph_sandbox	status		await served parity and operator-reviewed disposition
 graph_sandbox_warm	pending			graph_sandbox	warm		await served parity and operator-reviewed disposition
-graph_schedules_disable	pending		evolution.schedules.disable	graph_schedules	disable	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
-graph_schedules_enable	pending		evolution.schedules.enable	graph_schedules	enable	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
-graph_schedules_list	pending		evolution.schedules.list	graph_schedules	list	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
+graph_schedules_disable	pending		evolution.schedules.disable	graph_schedules	disable	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.schedules.disable; await pinned EG contract, served binding proof and argument/authority parity before classifying
+graph_schedules_enable	pending		evolution.schedules.enable	graph_schedules	enable	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.schedules.enable; await pinned EG contract, served binding proof and argument/authority parity before classifying
+graph_schedules_list	pending		evolution.schedules.list	graph_schedules	list	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.schedules.list; await pinned EG contract, served binding proof and argument/authority parity before classifying
 graph_schedules_prioritize	pending			graph_schedules	prioritize		await served parity and operator-reviewed disposition
-graph_schedules_run_now	pending		evolution.schedules.run_now	graph_schedules	run_now	composite:graph_os.api.ops.evolution.evolution_handler	await served parity and operator-reviewed disposition
+graph_schedules_run_now	pending		evolution.schedules.run_now	graph_schedules	run_now	composite:graph_os.api.ops.evolution.evolution_handler	Declared candidate evolution.schedules.run_now; await pinned EG contract, served binding proof and argument/authority parity before classifying
 graph_schedules_set_interval	pending			graph_schedules	set_interval		await served parity and operator-reviewed disposition
 graph_search	pending			graph_search			await served parity and operator-reviewed disposition
 graph_search_synthesis_diagnose	pending			graph_search_synthesis	diagnose		await served parity and operator-reviewed disposition
@@ -715,7 +715,7 @@ graph_writeback	pending			graph_writeback			await served parity and operator-rev
 ingest_sessions_collect	pending			ingest_sessions	collect		await served parity and operator-reviewed disposition
 ingest_sessions_paths	pending			ingest_sessions	paths		await served parity and operator-reviewed disposition
 ingest_sessions_upload	pending			ingest_sessions	upload		await served parity and operator-reviewed disposition
-manage	pending			manage			await served parity and operator-reviewed disposition
+manage	pending			manage			Legacy AU manage registrar is a broad resolver; MCPI-31 GraphOS manage verb must be served with EH-615 authority parity before retiring this implementation
 nl_query	pending			nl_query			await served parity and operator-reviewed disposition
 object_edits_as_of	pending			object_edits	as_of		await served parity and operator-reviewed disposition
 object_edits_history	pending			object_edits	history		await served parity and operator-reviewed disposition
@@ -807,5 +807,5 @@ usage_query_summary	pending			usage_query	summary		await served parity and opera
 usage_query_tools	pending			usage_query	tools		await served parity and operator-reviewed disposition
 usage_query_top_sessions	pending			usage_query	top_sessions		await served parity and operator-reviewed disposition
 usage_query_traces	pending			usage_query	traces		await served parity and operator-reviewed disposition
-why	pending			why			await served parity and operator-reviewed disposition
-write	pending			write			await served parity and operator-reviewed disposition
+why	pending			why			Legacy AU why registrar is a broad resolver; MCPI-31 GraphOS why verb must be served with EH-615 authority parity before retiring this implementation
+write	pending			write			Legacy AU write registrar is a broad resolver; MCPI-31 GraphOS write verb must be served with EH-615 authority parity before retiring this implementation
