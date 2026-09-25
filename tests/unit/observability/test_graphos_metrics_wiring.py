@@ -85,7 +85,6 @@ async def _asgi_get(app, path: str, headers: list[tuple[bytes, bytes]] | None = 
 #: authenticated, behind a TLS-terminating ingress restricted to known peers.
 #: Without these the factory refuses to build at all, so a metrics test that
 #: skipped them would not be exercising a realistic remote server.
-_STATIC_TOKENS_ENV = "WIRING_TEST_STATIC_TOKENS"
 _NETWORK_ARGV = [
     "test-mcp",
     "--transport",
@@ -93,9 +92,13 @@ _NETWORK_ARGV = [
     "--host",
     "0.0.0.0",
     "--auth-type",
-    "static",
-    "--static-tokens-ref",
-    f"env://{_STATIC_TOKENS_ENV}",
+    "jwt",
+    "--token-jwks-uri",
+    "https://idp.test/.well-known/jwks.json",
+    "--token-issuer",
+    "https://idp.test/",
+    "--token-audience",
+    "wiring-test",
     "--tls-terminated",
     "--trusted-proxy-cidrs",
     "127.0.0.0/8",
@@ -104,14 +107,9 @@ _NETWORK_ARGV = [
 
 def _build_server(monkeypatch, argv: list[str], *, metrics_ref: str = ""):
     """Build a REAL factory server (no mocks) with a controlled CLI/env."""
-    import json
 
     from agent_utilities.mcp import server_factory
 
-    monkeypatch.setenv(
-        _STATIC_TOKENS_ENV,
-        json.dumps({"c" * 40: {"client_id": "wiring-test", "scopes": []}}),
-    )
     monkeypatch.setenv("MCP_ALLOWED_HOSTS", "graph-os.test,127.0.0.1")
     monkeypatch.setattr("sys.argv", argv)
     real_setting = server_factory.setting

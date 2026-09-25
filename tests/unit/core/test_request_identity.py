@@ -137,6 +137,23 @@ class TestActorFromClaims:
         assert actor.tenant_id == "tenant-a"
         assert actor.authenticated is True
 
+    @pytest.mark.parametrize(
+        ("claims", "expected"),
+        [
+            ({"principal_kind": "human"}, "human"),
+            ({"principal_kind": "service", "email": "svc@example.test"}, "service"),
+            ({"email": "alice@example.test"}, "human"),
+            ({}, "service"),
+            ({"principal_kind": "robot"}, "service"),
+        ],
+    )
+    def test_local_issuer_principal_kind_sets_the_actor_type(self, claims, expected):
+        from agent_utilities.security.brain_context import ActorType
+
+        kinds = {"human": ActorType.HUMAN, "service": ActorType.AUTOMATED_SERVICE}
+        actor = actor_from_claims({"sub": "usr:1", "tenant_id": "t", **claims})
+        assert actor.actor_type is kinds[expected]
+
     def test_validated_claim_expiry_is_retained_for_runtime_enforcement(self):
         expiry = int(time.time()) + 300
         actor = actor_from_claims(

@@ -31,7 +31,7 @@ branch anywhere in between. A dedicated test proves this:
 | Invocation | `graph-os --transport stdio` | `graph-os --transport streamable-http --host 0.0.0.0 --port 8004` |
 | Engine locality | **Local** iff `GRAPH_SERVICE_ENDPOINTS` is unset (same rule as the other column) | **Local** iff `GRAPH_SERVICE_ENDPOINTS` is unset (same rule as the other column) |
 | Process identity | May use the zero-config in-memory bootstrap (`DEPLOYMENT_PROFILE=tiny`, no endpoints, no external identity source) | **Always** an external source: `KG_AUTH_TOKEN_REF` or `KG_IDENTITY_OAUTH2` (the tiny bootstrap is stdio-only) |
-| Inbound MCP auth | N/A (no separate clients; stdio has no request-level Authorization header) | `--auth-type`/`AUTH_TYPE` must resolve to a real scheme (`static` is the simplest self-contained choice — no external IdP) |
+| Inbound MCP auth | N/A (no separate clients; stdio has no request-level Authorization header) | `--auth-type`/`AUTH_TYPE` must resolve to a real scheme (`jwt` against the Graph OS local issuer is the self-contained choice — no external IdP) |
 | Typical shape | One agent tool (Claude Code, opencode, IDE) spawns its own instance | One pod behind a Service/Ingress; scale by adding more self-contained pods (see [Scaling caveat](#scaling-caveat-each-pod-is-independent)) |
 
 ## Exact config for the unified/self-contained path
@@ -104,7 +104,8 @@ silently.
 
 ```bash
 graph-os --transport streamable-http --host 0.0.0.0 --port 8004 \
-  --auth-type static --static-tokens-ref env://GRAPHOS_STATIC_TOKENS
+  --auth-type jwt --token-jwks-uri https://graph-os.example/.well-known/jwks.json \
+  --token-issuer https://graph-os.example --token-audience graph-os-local
 ```
 
 `streamable-http` is a `SERVED_TRANSPORT` (`security/request_identity.py`), so TWO
@@ -120,10 +121,10 @@ local**:
    choice is a self-issued static token stored in your secret backend and
    referenced by `KG_AUTH_TOKEN_REF` — no Keycloak/OIDC required.
 2. **Inbound per-request identity** — `apply_served_security_profile()` refuses to
-   start unless `--auth-type`/`AUTH_TYPE` resolves to a real scheme (`static` is the
-   simplest self-contained option: `--static-tokens-ref` names a secret holding a
-   `{token: {client_id, scopes}}` JSON map; `jwt`/`oidc-proxy`/`oauth-proxy`/
-   `remote-oauth` are for an external IdP). `AUTH_JWT_AUDIENCE` (or
+   start unless `--auth-type`/`AUTH_TYPE` resolves to a real scheme (`jwt` against
+   the Graph OS local issuer is the self-contained option: clients present an API
+   key's short-lived token, exchanged at the issuer's `/oauth/token`;
+   `oidc-proxy`/`oauth-proxy`/`remote-oauth` are for an external IdP). `AUTH_JWT_AUDIENCE` (or
    `MCP_JWT_AUDIENCE`) and `KG_POLICY_VERSION` must also be set. Full detail:
    [Secured single node (rung b)](../guides/deployment-configurations.md#rung-b-secured-single-node),
    [identity-jwt example](../examples/identity-jwt.md).
@@ -198,7 +199,8 @@ agent-utilities-doctor --preflight --profile tiny
 graph-os --transport stdio &
 # streamable-http, ad hoc:
 graph-os --transport streamable-http --host 127.0.0.1 --port 8004 \
-  --auth-type static --static-tokens-ref env://GRAPHOS_STATIC_TOKENS &
+  --auth-type jwt --token-jwks-uri http://127.0.0.1:8080/.well-known/jwks.json \
+  --token-issuer http://127.0.0.1:8080 --token-audience graph-os-local &
 curl -s localhost:8004/health   # liveness always 200; body reports real engine reachability
 curl -s localhost:8004/health/ready   # 200/503 mapped onto the SAME report
 ```

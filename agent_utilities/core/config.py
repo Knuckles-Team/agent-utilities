@@ -3556,14 +3556,8 @@ class AgentConfig(BaseSettings):
         default_factory=list, alias="MCP_HTTP_ALLOWED_PRIVATE_HOSTS"
     )
     """Exact private hostnames permitted for DNS-pinned remote MCP children."""
-    mcp_static_tokens_ref: str | None = Field(
-        default=None, alias="FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF"
-    )
-    """Secret reference containing the JSON token map for FastMCP ``static``
-    authentication. Token values are never accepted inline in configuration."""
-
     mcp_auth_type: Literal[
-        "none", "static", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"
+        "none", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"
     ] = Field(default="none", alias="AUTH_TYPE")
     mcp_jwt_jwks_uri: str | None = Field(
         default=None, alias="FASTMCP_SERVER_AUTH_JWT_JWKS_URI"
@@ -5093,7 +5087,6 @@ class AgentConfig(BaseSettings):
         "mcp_basic_auth_password_ref",
         "mcp_metrics_token_ref",
         "messaging_alert_intake_token_ref",
-        "mcp_static_tokens_ref",
         "fleet_events_token_ref",
         "graph_db_connection_profile_ref",
         "graph_fuseki_password_ref",

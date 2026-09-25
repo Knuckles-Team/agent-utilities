@@ -602,6 +602,14 @@ def apply_served_security_profile(
     )
 
 
+#: The Graph OS local issuer's ``principal_kind`` claim (the identity store's
+#: ``users.kind``) → the actor type it projects to.
+_PRINCIPAL_KIND_ACTOR_TYPES: dict[str, ActorType] = {
+    "human": ActorType.HUMAN,
+    "service": ActorType.AUTOMATED_SERVICE,
+}
+
+
 def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     """Mint an ``authenticated`` :class:`ActorContext` from validated JWT claims.
 
@@ -620,8 +628,10 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
       per-consumer change.
     * ``groups`` ← the raw normalized group set (retained for k8s impersonation).
     * ``tenant_id`` ← ``tenant_id`` | ``tenant`` | ``org_id`` | ``tid`` | ``org``
-    * ``actor_type`` ← HUMAN when an ``email`` claim is present, else
-      AUTOMATED_SERVICE (provenance only — not used for access decisions).
+    * ``actor_type`` ← the ``principal_kind`` claim the Graph OS local issuer
+      stamps (``human`` / ``service``, from the identity store); for any other
+      issuer HUMAN when an ``email`` claim is present, else AUTOMATED_SERVICE
+      (provenance only — not used for access decisions).
     """
     from agent_utilities.core.config import config
 
@@ -630,7 +640,10 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     identity = normalize_identity(claims)
     group_map = getattr(config, "identity_group_capability_map", None)
 
-    actor_type = ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
+    actor_type = _PRINCIPAL_KIND_ACTOR_TYPES.get(
+        str(claims.get("principal_kind") or ""),
+        ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE,
+    )
     credential_expires_at = _claim_expiry(claims)
     return ActorContext(
         actor_id=identity.subject,

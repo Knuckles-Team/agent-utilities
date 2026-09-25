@@ -813,13 +813,8 @@ def create_mcp_parser(
     parser.add_argument(
         "--auth-type",
         default=setting("AUTH_TYPE", "none"),
-        choices=["none", "static", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"],
-        help="Authentication type for MCP server: 'none' (disabled), 'static' (internal), 'jwt' (external token verification), 'oauth-proxy', 'oidc-proxy', 'remote-oauth' (external) (default: none)",
-    )
-    parser.add_argument(
-        "--static-tokens-ref",
-        default=setting("FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF"),
-        help="Secret reference containing the JSON map used by static authentication",
+        choices=["none", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"],
+        help="Authentication type for MCP server: 'none' (disabled), 'jwt' (token verification, e.g. against the Graph OS local issuer's JWKS; API-key clients exchange their key at its /oauth/token), 'oauth-proxy', 'oidc-proxy', 'remote-oauth' (external) (default: none)",
     )
     parser.add_argument(
         "--token-jwks-uri",
@@ -1112,140 +1107,6 @@ def _validate_allowed_redirect_uris(args: argparse.Namespace) -> list[str] | Non
         sys.exit(1)
 
 
-def _resolve_static_tokens_ref(reference: str) -> Any:
-    if reference.startswith("env://"):
-        return setting(reference[len("env://") :])
-    from agent_utilities.security.secrets_client import create_secrets_client
-
-    return create_secrets_client().resolve_ref(reference)
-
-
-def _validate_static_token_string(token: Any) -> None:
-    if not isinstance(token, str) or len(token) < 32 or len(token) > 4096:
-        raise ValueError("invalid token")
-
-
-def _validate_static_claims_shape(claims: Any) -> tuple[str, list]:
-    if not isinstance(claims, dict):
-        raise ValueError("invalid claims")
-    client_id = claims.get("client_id")
-    scopes = claims.get("scopes", [])
-    if not isinstance(client_id, str) or not 1 <= len(client_id) <= 256:
-        raise ValueError("invalid client id")
-    if not isinstance(scopes, list) or not all(
-        isinstance(scope, str) and 1 <= len(scope) <= 256 for scope in scopes
-    ):
-        raise ValueError("invalid scopes")
-    return client_id, scopes
-
-
-def _validate_static_expiry(claims: dict) -> Any:
-    expires_at = claims.get("expires_at")
-    if expires_at is None:
-        return None
-    import math
-
-    if (
-        isinstance(expires_at, bool)
-        or not isinstance(expires_at, int | float)
-        or not math.isfinite(float(expires_at))
-    ):
-        raise ValueError("invalid expiry")
-    return expires_at
-
-
-def _validate_one_static_token_entry(token: Any, claims: Any) -> tuple[str, dict]:
-    _validate_static_token_string(token)
-    client_id, scopes = _validate_static_claims_shape(claims)
-    expires_at = _validate_static_expiry(claims)
-    entry: dict[str, Any] = {"client_id": client_id, "scopes": scopes}
-    if expires_at is not None:
-        entry["expires_at"] = expires_at
-    return token, entry
-
-
-def _validate_static_token_map(token_map: Any) -> dict[str, dict[str, Any]]:
-    if not isinstance(token_map, dict) or not token_map:
-        raise ValueError("empty token map")
-    validated: dict[str, dict[str, Any]] = {}
-    for token, claims in token_map.items():
-        key, entry = _validate_one_static_token_entry(token, claims)
-        validated[key] = entry
-    return validated
-
-
-def _configure_static_auth(args: argparse.Namespace) -> Any:
-    reference = str(getattr(args, "static_tokens_ref", "") or "").strip()
-    if not reference:
-        logger.error(
-            "Error: static auth requires --static-tokens-ref; inline and "
-            "built-in tokens are not permitted"
-        )
-        sys.exit(1)
-    try:
-        import json as _json
-
-        raw_tokens = _resolve_static_tokens_ref(reference)
-        token_map = _json.loads(str(raw_tokens or ""))
-        validated = _validate_static_token_map(token_map)
-    except Exception as exc:
-        logger.error(
-            "Error: static authentication token reference is unavailable or invalid (%s)",
-            type(exc).__name__,
-        )
-        sys.exit(1)
-
-    import hashlib as _hashlib
-    import hmac as _hmac
-    import secrets as _secrets
-    import time as _time
-
-    from fastmcp.server.auth import AccessToken, TokenVerifier
-
-    class _ConstantTimeStaticVerifier(TokenVerifier):
-        def __init__(self, tokens: dict[str, dict[str, Any]]) -> None:
-            super().__init__()
-            self._key = _secrets.token_bytes(32)
-            self._entries = [
-                (
-                    _hmac.new(
-                        self._key,
-                        token.encode("utf-8"),
-                        _hashlib.sha256,
-                    ).digest(),
-                    dict(claims),
-                )
-                for token, claims in tokens.items()
-            ]
-
-        async def verify_token(self, token: str) -> Any:
-            if not isinstance(token, str) or len(token) > 4_096:
-                return None
-            candidate = _hmac.new(
-                self._key,
-                token.encode("utf-8"),
-                _hashlib.sha256,
-            ).digest()
-            matched: dict[str, Any] | None = None
-            for expected, claims in self._entries:
-                if _secrets.compare_digest(candidate, expected):
-                    matched = claims
-            if matched is None:
-                return None
-            expires_at = matched.get("expires_at")
-            if expires_at is not None and float(expires_at) < _time.time():
-                return None
-            return AccessToken(
-                token=token,
-                client_id=matched["client_id"],
-                scopes=list(matched.get("scopes", [])),
-                expires_at=int(expires_at) if expires_at is not None else None,
-                claims=matched,
-            )
-
-    return _ConstantTimeStaticVerifier(validated)
-
-
 def _configure_oauth_proxy_auth(
     args: argparse.Namespace, allowed_uris: list[str] | None
 ) -> Any:
@@ -1397,8 +1258,6 @@ def _configure_auth(args: argparse.Namespace) -> Any:
 
     if args.auth_type == "none":
         return None
-    if args.auth_type == "static":
-        return _configure_static_auth(args)
     if args.auth_type == "jwt":
         return _configure_jwt_auth(args)
     if args.auth_type == "oauth-proxy":
@@ -1412,7 +1271,7 @@ def _configure_auth(args: argparse.Namespace) -> Any:
     )
     raise UnsupportedAuthTypeError(
         f"unsupported auth type {args.auth_type!r}; expected one of "
-        "none, static, jwt, oauth-proxy, oidc-proxy, remote-oauth"
+        "none, jwt, oauth-proxy, oidc-proxy, remote-oauth"
     )
 
 

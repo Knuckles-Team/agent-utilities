@@ -228,8 +228,7 @@ class MyServiceAPI:
 | Auth Type | Flag | Use Case |
 |---|---|---|
 | `none` | `--auth-type none` | No authentication (default, local dev) |
-| `static` | `--auth-type static --static-tokens-ref env://MCP_STATIC_TOKENS` | Secret-reference JSON token map (internal use) |
-| `jwt` | `--auth-type jwt --token-jwks-uri ... --token-issuer ... --token-audience ...` | JWT verification via JWKS |
+| `jwt` | `--auth-type jwt --token-jwks-uri ... --token-issuer ... --token-audience ...` | JWT verification via JWKS — e.g. the Graph OS local issuer (`/.well-known/jwks.json`); API-key clients exchange their `gok_…` key for a short-lived token at its `/oauth/token` (RFC 8693). Static token maps are gone (IDM-11). |
 | `oauth-proxy` | `--auth-type oauth-proxy` | OAuth 2.0 proxy (upstream IdP) |
 | `oidc-proxy` | `--auth-type oidc-proxy` | OIDC proxy with token delegation |
 | `remote-oauth` | `--auth-type remote-oauth` | Remote OAuth with authorization servers |
