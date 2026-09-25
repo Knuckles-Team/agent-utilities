@@ -345,9 +345,9 @@ def _bridge_elicitation_to_messaging(
     whichever surface answers first wins.
     """
     try:
-        from agent_utilities.messaging.service import MessagingService
+        from agent_utilities.messaging.reach_port import reach_service_port
 
-        service = MessagingService.instance()
+        service = reach_service_port()
         if not service.configured_platforms():
             return
         prompt = (
