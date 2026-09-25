@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agent_utilities.protocols.epistemic_operations import (
+from epistemic_graph.epistemic_operations import (
     CATALOG_SHA256,
     ClaimWorkItemResult,
     EvidenceBundle,

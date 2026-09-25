@@ -30,7 +30,7 @@ from pydantic import (
     model_validator,
 )
 
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 
 SCHEMA_VERSION: Literal["1"] = "1"
 MAX_REF_LENGTH = 256

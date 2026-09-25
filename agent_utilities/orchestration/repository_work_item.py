@@ -60,7 +60,7 @@ from agent_utilities.orchestration.operation_payload import (
     operation_payload_from_mapping,
     payload_digest,
 )
-from agent_utilities.protocols.epistemic_operations._generated import (
+from epistemic_graph.epistemic_operations._generated import (
     DevelopmentLaneCleanupIntent,
     DevelopmentLaneIntent,
 )

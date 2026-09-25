@@ -14,7 +14,7 @@ from typing import Annotated, Literal, TypeAlias
 from pydantic import AfterValidator, Field, model_validator
 
 from agent_utilities.models.company_brain import DataClassification
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 
 CertificationBackend: TypeAlias = Literal["great_expectations", "pandera"]
 CertificationState: TypeAlias = Literal[

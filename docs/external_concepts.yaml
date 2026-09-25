@@ -16,6 +16,11 @@
 # source_repo (where the marker actually lives), code_paths (repo-relative,
 # prefixed with "<source_repo>/" to make the cross-repo boundary unambiguous).
 concepts:
+  - id: AU-KG.compute.epistemic-operations-protocol
+    doc: "One current-only Epistemic Operations contract owned by epistemic-graph"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/epistemic_graph/epistemic_operations/__init__.py
   - id: AU-KG.backend.backend-modes
     doc: "redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default)"
     source_repo: epistemic-graph

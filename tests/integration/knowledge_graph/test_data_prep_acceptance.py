@@ -810,7 +810,7 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
         from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
             ingest_envelope,
         )
-        from agent_utilities.protocols.epistemic_operations import ProtocolModel
+        from epistemic_graph.epistemic_operations import ProtocolModel
         from agent_utilities.protocols.source_connectors.base import ExternalAccess
     except AcceptanceUnavailable as exc:
         pytest.skip(str(exc))

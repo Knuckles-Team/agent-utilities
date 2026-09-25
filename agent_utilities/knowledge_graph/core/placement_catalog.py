@@ -48,7 +48,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from agent_utilities.protocols.epistemic_operations import PlacementRoute
+from epistemic_graph.epistemic_operations import PlacementRoute
 
 from .cluster_discovery import (
     ClusterDiscoveryError,
@@ -292,7 +292,7 @@ def _validate_answer(
     ``PlacementRoute`` plus its ADR-1 ``endpoints`` extension.
 
     ``endpoints`` (a retired ADR-1 compatibility extension) is deliberately
-    NOT part of ``agent_utilities.protocols.epistemic_operations.PlacementRoute``:
+    NOT part of ``epistemic_graph.epistemic_operations.PlacementRoute``:
     that schema-generated model is ``extra="forbid"`` (it is digest-pinned
     against the authoritative catalog, shared verbatim with the engine's
     cross-repo-locked DTO, which the engine itself documents as carrying "no

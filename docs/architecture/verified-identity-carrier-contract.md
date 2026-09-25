@@ -29,10 +29,10 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
    build against it. What DOES exist, and IS the real identity carrier, is
    documented below.
 2. **The JSON-Schema `RequestContext` model is dead code, not the carrier.**
-   `agent_utilities/protocols/epistemic_operations/schemas/v1/request-context.schema.json`
+   `epistemic_graph/epistemic_operations/schemas/v1/request-context.schema.json`
    (`$id: urn:epistemic-operations:v2:request-context`, `schema_version` const
    `"2"`) generates a pydantic `RequestContext` class
-   (`agent_utilities/protocols/epistemic_operations/_generated.py`). It has
+   (`epistemic_graph/epistemic_operations/_generated.py`). It has
    **zero live callers** anywhere in `agent-utilities` outside its own
    `tests/unit/protocols/test_epistemic_operations.py` — grep confirms no
    production code ever constructs or `model_validate`s a `RequestContext`.

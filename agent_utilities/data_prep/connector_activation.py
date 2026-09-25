@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 
 from .models import Digest, OpaqueReference
 

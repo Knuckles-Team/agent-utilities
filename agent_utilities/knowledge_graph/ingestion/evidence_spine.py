@@ -10,7 +10,7 @@ payload, bitemporal change events, provenance) and
 :func:`~..ingestion.envelope_ingest.ingest_graph_slice` already commits a
 multi-node slice atomically.  The engine's wire protocol even declares an
 ``Artifact`` projection
-(:class:`agent_utilities.protocols.epistemic_operations.Artifact`: ``digest``,
+(:class:`epistemic_graph.epistemic_operations.Artifact`: ``digest``,
 ``content_ref``, ``segment_ids``, ``loci``) — but **nothing in Python ever
 constructed one**, and ``segment_ids`` had no Python type behind it at all.  And
 ``ontology/document_processing.py`` already chunks a document into ``Chunk``
@@ -379,7 +379,7 @@ class Fragment:
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
 
-        Matches ``agent_utilities.protocols.epistemic_operations.ArtifactLocus``
+        Matches ``epistemic_graph.epistemic_operations.ArtifactLocus``
         (``kind`` / ``start`` / ``end`` / ``selector``) so a candidate claim can
         cite this fragment as engine-native evidence without a second mapping.
         """

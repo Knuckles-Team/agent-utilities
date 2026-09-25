@@ -17,7 +17,7 @@ from collections import OrderedDict
 from types import MappingProxyType
 from typing import Any
 
-from agent_utilities.protocols.epistemic_operations import (
+from epistemic_graph.epistemic_operations import (
     OperationError,
     OperationResult,
 )

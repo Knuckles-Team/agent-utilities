@@ -21,7 +21,7 @@ surface `KgAuditSink`/`RunTrace` use).
 Mirroring `eg-statechart::MachineInstance` / `eg-jobs::AnalyticsJob` /
 `eg-mutation-store::SagaBegin` has no writer in this module: those rows
 are authoritative Rust state with no equivalent Python-callable read/write path
-today (the generated wire protocol, `protocols/epistemic_operations/_generated.py`,
+today (the generated wire protocol, `epistemic_graph/epistemic_operations/_generated.py`,
 carries `AnalyticsJob` as a DTO but no live query/mutate method for it, and no DTO
 at all yet for a statechart instance or a saga). Wiring those three requires
 either a new engine wire-protocol surface or Rust-side dispatch-handler wiring

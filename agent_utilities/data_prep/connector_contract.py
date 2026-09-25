@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeAlias
 
 from pydantic import Field, model_validator
 
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from epistemic_graph.epistemic_operations import ProtocolModel
 from agent_utilities.protocols.source_connectors.checkpoint import ConnectorCheckpoint
 
 from .kernel import (
