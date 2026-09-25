@@ -1886,6 +1886,24 @@ def test_commit_result_forwards_optional_outcome_extension(engine: NativeEngine)
     assert captured[0]["outcome_extension"] == extension
 
 
+def test_work_item_read_includes_pinned_admission_digests(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    engine.nodes[item_id].update(
+        policy_digest="a" * 64,
+        catalog_digest="b" * 64,
+        model_digest="c" * 64,
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item is not None
+    assert (item["policy_digest"], item["catalog_digest"], item["model_digest"]) == (
+        "a" * 64,
+        "b" * 64,
+        "c" * 64,
+    )
+
+
 def test_commit_result_success_is_idempotent_noop_on_redelivery(
     cas_engine: CasEngine,
 ) -> None:

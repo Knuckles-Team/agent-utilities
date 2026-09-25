@@ -151,6 +151,28 @@ def _submission(**overrides: Any) -> WorkItemSubmission:
     return WorkItemSubmission(**values)
 
 
+async def test_delegation_binding_uses_verified_identity_and_rejects_caller_keys() -> None:
+    from agent_utilities.api import WorkItemDelegationBinding
+
+    client = _Client()
+    binding = WorkItemDelegationBinding(
+        delegation_id="job:1",
+        run_id="job:1",
+        agent_id="component:expert",
+        agent_name="expert",
+        capability_digest="a" * 64,
+    )
+    await _store(client).submit(_submission(delegation_binding=binding), session=_session())
+    (sent,) = client.work_items.submitted
+    assert sent["metadata"]["delegator_id"] == "agent:adapter-test"
+    assert sent["metadata"]["agent_id"] == "component:expert"
+    assert sent["metadata"]["capability_digest"] == "a" * 64
+    with pytest.raises(ValueError, match="delegation metadata"):
+        await _store(client).submit(
+            _submission(metadata={"agent_id": "caller:fake"}), session=_session()
+        )
+
+
 # --- WorkItem store --------------------------------------------------------
 
 
@@ -322,6 +344,7 @@ def test_request_context_never_widens_the_carrier() -> None:
 def _entry(component_id: str, kind: str, name: str | None = None) -> Any:
     return SimpleNamespace(
         component_id=component_id,
+        content_digest="a" * 64,
         kind=SimpleNamespace(value=kind),
         attributes={"name": name} if name else None,
     )
@@ -341,6 +364,7 @@ def test_candidates_preserve_eg_order_and_drop_unmapped_kinds() -> None:
     ]
     assert candidates[0].score > candidates[1].score
     assert {c.source for c in candidates} == {"eg_agent_component"}
+    assert candidates[0].content_digest == "a" * 64
 
 
 async def test_task_search_sends_the_typed_task_iri_to_eg() -> None:

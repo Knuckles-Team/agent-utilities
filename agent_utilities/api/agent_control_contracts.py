@@ -71,6 +71,7 @@ class CapabilityCandidate(_StrictModel):
     kind: CapabilityKind
     name: str = Field(min_length=1, max_length=512)
     component_id: str = Field(min_length=1, max_length=512)
+    content_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     source: str = Field(min_length=1, max_length=128)
 
@@ -110,6 +111,7 @@ class CapabilityResolution(_StrictModel):
     kind: CapabilityKind
     name: str = Field(min_length=1, max_length=512)
     component_id: str = ""
+    content_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     source: Literal["caller", "eg_search", "default"]
     alternatives: tuple[CapabilityCandidate, ...] = Field(max_length=3)
@@ -179,6 +181,16 @@ class AgentExecutionPort(Protocol):
     ) -> AgentExecutionResult: ...
 
 
+class WorkItemDelegationBinding(_StrictModel):
+    """AU-selected, EG-pinned agent identity for a signed worker dispatch."""
+
+    delegation_id: str = Field(min_length=1, max_length=512)
+    run_id: str = Field(min_length=1, max_length=512)
+    agent_id: str = Field(min_length=1, max_length=512)
+    agent_name: str = Field(min_length=1, max_length=512)
+    capability_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class WorkItemSubmission(_StrictModel):
     """AU application intent to admit one task into the durable WorkItem store."""
 
@@ -190,6 +202,7 @@ class WorkItemSubmission(_StrictModel):
     deadline_unix: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     max_attempts: int = Field(default=3, ge=1, le=4096)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    delegation_binding: WorkItemDelegationBinding | None = None
 
 
 class WorkItemSnapshot(_StrictModel):

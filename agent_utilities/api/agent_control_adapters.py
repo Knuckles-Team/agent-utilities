@@ -66,6 +66,9 @@ AuthenticationMethod = Literal[
 DESCRIPTION_METADATA_KEY = "au:description"
 PAYLOAD_DIGEST_METADATA_KEY = "au:payload_digest"
 _RESERVED_METADATA_PREFIX = "au:"
+_DELEGATION_METADATA_KEYS = frozenset(
+    {"delegation_id", "run_id", "agent_id", "agent_name", "capability_digest", "delegator_id"}
+)
 
 #: EG's native metadata bound (``MAX_SUBMIT_METADATA_BYTES``); checked here so
 #: an oversize body fails with a typed AU error before any engine round trip.
@@ -129,6 +132,8 @@ def sanitize_work_item_payload(
 def _reject_reserved_metadata(metadata: Mapping[str, Any]) -> None:
     if any(str(key).startswith(_RESERVED_METADATA_PREFIX) for key in metadata):
         raise ValueError("WorkItem metadata keys may not use the reserved 'au:' prefix")
+    if _DELEGATION_METADATA_KEYS.intersection(metadata):
+        raise ValueError("WorkItem delegation metadata is reserved for AU admission")
 
 
 def _key_sorted(value: Any) -> Any:
@@ -294,6 +299,13 @@ class EgWorkItemStore:
         description, metadata = sanitize_work_item_payload(
             request.description, request.metadata
         )
+        if request.delegation_binding is not None:
+            binding = request.delegation_binding.model_dump()
+            binding["delegator_id"] = session.actor.actor_id
+            _, clean_binding = sanitize_work_item_payload(description, binding)
+            if clean_binding != binding:
+                raise ValueError("verified delegation binding contains sensitive data")
+            metadata = {**metadata, **binding}
         payload_digest = _canonical_digest(
             {"kind": request.kind, "description": description, "metadata": metadata}
         )
@@ -470,6 +482,7 @@ def candidates_from_entries(entries: Sequence[Any]) -> tuple[CapabilityCandidate
             ],
             name=_candidate_name(entry),
             component_id=entry.component_id,
+            content_digest=getattr(entry, "content_digest", None),
             score=(total - rank) / total,
             source="eg_agent_component",
         )

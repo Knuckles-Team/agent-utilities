@@ -78,6 +78,7 @@ class _CapabilitySearch:
                 kind="agent",
                 name="agent-utilities-expert",
                 component_id="component:agent-utilities-expert",
+                content_digest="a" * 64,
                 score=0.9,
                 source="eg_hybrid",
             ),
@@ -160,6 +161,10 @@ async def test_task_admission_screens_redacts_searches_and_signed_dispatches():
         )
 
     persisted = store.submissions[0]
+    assert persisted.delegation_binding is not None
+    assert persisted.delegation_binding.delegation_id == "job:task-1"
+    assert persisted.delegation_binding.agent_id == "component:agent-utilities-expert"
+    assert persisted.delegation_binding.capability_digest == "a" * 64
     assert "bob@example.com" not in persisted.description
     assert "[REDACTED_EMAIL]" in persisted.description
     assert search.calls[0][0].task == persisted.description
@@ -243,6 +248,83 @@ async def test_missing_ports_and_nonambient_session_fail_closed():
             await control.get_work_item(WorkItemGetRequest(work_item_id="wi:1"))
     with suspend_session(), pytest.raises(PermissionError):
         await control.resolve_capability(CapabilitySearchRequest(task="a task"))
+
+
+@pytest.mark.asyncio
+async def test_agent_task_admission_requires_eg_content_digest(monkeypatch):
+    from agent_utilities.orchestration import task_guard
+
+    monkeypatch.setattr(task_guard, "screen_and_redact_agent_task", lambda task: task)
+
+    class UndigestedSearch:
+        async def search(self, request, *, session):
+            return [
+                CapabilityCandidate(
+                    kind="agent",
+                    name="expert",
+                    component_id="component:expert",
+                    score=1.0,
+                    source="eg_agent_component",
+                )
+            ]
+
+    store = _WorkItemStore()
+    session = _session()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(),
+        session,
+        capability_search=UndigestedSearch(),
+        work_item_store=store,
+        signed_dispatch=_SignedDispatch(),
+    )
+    with use_session(session):
+        with pytest.raises(AgentControlPlaneUnavailable, match="pinned content digest"):
+            await control.submit_agent_task(
+                AgentTaskDispatchRequest(
+                    work_item_id="wi:1",
+                    idempotency_key="idem:1",
+                    job_id="job:1",
+                    session_ref="conversation:1",
+                    task="review task",
+                    agent_name="expert",
+                )
+            )
+    assert store.submissions == []
+
+
+@pytest.mark.asyncio
+async def test_agent_task_admission_pins_selected_eg_revision(monkeypatch):
+    from agent_utilities.orchestration import task_guard
+
+    monkeypatch.setattr(task_guard, "screen_and_redact_agent_task", lambda task: task)
+    session = _session()
+    store = _WorkItemStore()
+    control = compose_agent_control_plane(
+        _EpistemicGraphClient(),
+        session,
+        capability_search=_CapabilitySearch(),
+        work_item_store=store,
+        signed_dispatch=_SignedDispatch(),
+    )
+    with use_session(session):
+        await control.submit_agent_task(
+            AgentTaskDispatchRequest(
+                work_item_id="wi:task-1",
+                idempotency_key="idem:1",
+                job_id="job:1",
+                session_ref="conversation:1",
+                task="review task",
+            )
+        )
+    binding = store.submissions[0].delegation_binding
+    assert binding is not None
+    assert binding.model_dump() == {
+        "delegation_id": "job:1",
+        "run_id": "job:1",
+        "agent_id": "component:agent-utilities-expert",
+        "agent_name": "agent-utilities-expert",
+        "capability_digest": "a" * 64,
+    }
 
 
 @pytest.mark.asyncio

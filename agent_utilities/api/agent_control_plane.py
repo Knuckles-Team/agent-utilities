@@ -34,6 +34,7 @@ from agent_utilities.api.agent_control_contracts import (
     TaskClassificationClaim,
     TaskIri,
     WorkItemCancelRequest,
+    WorkItemDelegationBinding,
     WorkItemGetRequest,
     WorkItemListRequest,
     WorkItemPage,
@@ -372,6 +373,7 @@ class AgentControlPlane:
             kind=selected.kind,
             name=selected.name,
             component_id=selected.component_id,
+            content_digest=selected.content_digest,
             score=selected.score,
             source="caller" if request.agent_name is not None else "eg_search",
             alternatives=tuple(ranked[1:4]),
@@ -429,12 +431,24 @@ class AgentControlPlane:
             request.task, request.agent_name, request.task_iri
         )
 
+        if not capability.component_id or not capability.content_digest:
+            raise AgentControlPlaneUnavailable(
+                "the selected EG capability has no pinned content digest"
+            )
+
         submission = WorkItemSubmission(
             work_item_id=request.work_item_id,
             idempotency_key=request.idempotency_key,
             kind="orchestrator_task",
             description=sanitized_task,
             metadata=dict(request.metadata),
+            delegation_binding=WorkItemDelegationBinding(
+                delegation_id=request.job_id,
+                run_id=request.job_id,
+                agent_id=capability.component_id,
+                agent_name=capability.name,
+                capability_digest=capability.content_digest,
+            ),
         )
         with self._verified_client_context(session):
             admission = await store.submit(submission, session=session)
@@ -557,15 +571,21 @@ class AgentControlPlane:
         authority_names = {
             "actor",
             "actor_id",
+            "agent_id",
+            "agent_name",
             "audience",
             "auth",
             "authorization",
+            "capability_digest",
+            "delegation_id",
+            "delegator_id",
             "graph",
             "owner",
             "owner_id",
             "policy",
             "policy_version",
             "principal",
+            "run_id",
             "scope",
             "scopes",
             "tenant",
