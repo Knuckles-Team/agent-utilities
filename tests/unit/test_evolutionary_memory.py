@@ -66,6 +66,25 @@ def test_detect_communities():
         assert c2 == {1, 2, 3}
 
 
+def test_detect_communities_uses_eg_group_contract():
+    """EG CommunityDetection returns groups of IDs, not node/label pairs."""
+
+    class NativeGraph:
+        def community_detection(self):
+            return [["a", "b"], ["c", "d", "e"], ["isolated"]]
+
+    assert detect_communities(NativeGraph()) == [{"a", "b"}, {"c", "d", "e"}]
+
+
+def test_detect_communities_does_not_hide_native_failure():
+    class FailedNativeGraph:
+        def community_detection(self):
+            raise RuntimeError("EG unavailable")
+
+    with pytest.raises(RuntimeError, match="EG unavailable"):
+        detect_communities(FailedNativeGraph())
+
+
 @pytest.mark.concept(
     "AU-KG.compute.spectral-cluster-navigator",
     "CONCEPT:AU-KG.compute.spectral-cluster-navigator",

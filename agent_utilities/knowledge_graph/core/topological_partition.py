@@ -19,18 +19,18 @@ logger = logging.getLogger(__name__)
 
 
 def _native_communities(graph: Any) -> list[set[Any]] | None:
-    """Return native communities, or ``None`` when fallback is required."""
+    """Return EG communities; only graphs without the native API use the fallback.
+
+    ``CommunityDetection`` returns groups of node IDs, not ``(node, label)``
+    pairs. A native failure must remain visible instead of switching to a
+    second, different community algorithm over a possibly partial graph.
+    """
     if not hasattr(graph, "community_detection"):
         return None
 
-    try:
-        clusters: dict[int, set[Any]] = {}
-        for node_id, label in graph.community_detection():
-            clusters.setdefault(label, set()).add(node_id)
-        return [community for community in clusters.values() if len(community) > 1]
-    except Exception as exc:
-        logger.warning(f"GCE community detection failed: {exc}")
-        return None
+    return [
+        set(node_ids) for node_ids in graph.community_detection() if len(node_ids) > 1
+    ]
 
 
 def _build_graph(graph: Any, rx: Any) -> Any:
