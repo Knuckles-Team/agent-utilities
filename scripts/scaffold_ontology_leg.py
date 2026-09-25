@@ -11,8 +11,9 @@ ontology leg or the in-repo connector preset. This scaffolder emits both, idempo
   2. ``<module>/connectors/mcp_source_presets.json`` — a Tier-1 ``mcp_tool`` source-preset stub
      (declarative: server + tool + field map) so the package syncs into the KG with no
      agent-utilities code (AU-KG.ingest.mcp-tool-connector). Hand-fill the tool/field map.
-  3. ``pyproject.toml`` entry-points (``agent_utilities.ontology_providers`` /
-     ``agent_utilities.source_connector_providers``) + ``ontology/**``,``connectors/**`` package-data.
+  3. ``pyproject.toml`` package-data for ``ontology/**`` and ``connectors/**``.
+     The connector's MCP server must register the files through the SDK's
+     ``ConnectorContent``; no agent-utilities provider entry point is created.
 
 Run per-repo in a worktree; safe to re-run. Does NOT register the new IRI in the hub's
 ``REGISTERED_FEDERATED_IRIS`` — that is the serial Phase-2 integrator step.
@@ -30,6 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from epistemic_graph.ontology_pack import compile_ontology_pack
 from retrofit_fleet_contribution import _display, _pkg_module, _write  # noqa: E402
 
 BASE_IRI = "http://knuckles.team/kg"
@@ -59,50 +61,38 @@ def _ontology_init(display: str, domain: str) -> str:
     return (
         f'"""{display} ontology contribution (CONCEPT:AU-KG.ontology.federation-provider-leg).\n\n'
         f"Data-only subpackage: it carries ``{domain}.ttl`` (the ``owl:Ontology``\n"
-        f"``{BASE_IRI}/{domain}`` module) which the agent-utilities hub federates in via\n"
-        "the ``agent_utilities.ontology_providers`` entry-point. It holds no business logic\n"
-        "and no heavy imports so the hub can resolve it cheaply.\n"
+        f"``{BASE_IRI}/{domain}`` module) published by the connector SDK as content.\n"
+        "It holds no business logic and no heavy imports.\n"
         '"""\n'
     )
 
 
 def _ttl_stub(display: str, domain: str) -> str:
-    imports = ENTERPRISE_IRI if domain in _ENTERPRISE_DOMAINS else BASE_IRI
-    cap = "".join(w.capitalize() for w in domain.replace("-", " ").split())
-    return f"""@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
-@prefix dc: <http://purl.org/dc/terms/> .
-@prefix : <{BASE_IRI}#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-
-# TODO: replace this stub with the real domain model. All classes/properties live in
-# the SHARED ``:`` (kg#) namespace; only the owl:Ontology node below gets a per-package IRI.
-# Classes -> owl:Class; links -> owl:ObjectProperty (+rdfs:range); fields -> owl:DatatypeProperty.
-
-:{cap}Resource a owl:Class ;
-    rdfs:label "{display} Resource" ;
-    rdfs:comment "A primary object managed by the {display} system (STUB — rename/expand)." .
-
-:managedBy a owl:ObjectProperty ;
-    rdfs:label "managed by" ;
-    rdfs:comment "Links a {display} resource to the Person/Agent responsible (STUB)." ;
-    rdfs:domain :{cap}Resource ;
-    rdfs:range :Person .
-
-:{domain.replace("-", "")}Id a owl:DatatypeProperty ;
-    rdfs:label "{domain} id" ;
-    rdfs:comment "External identifier of the {display} resource (STUB)." ;
-    rdfs:domain :{cap}Resource ;
-    rdfs:range xsd:string .
-
-<{BASE_IRI}/{domain}> a owl:Ontology ;
-    rdfs:label "{display} Ontology" ;
-    rdfs:comment \"\"\"{display} domain extensions federated into the agent-utilities
-    knowledge-graph hub. STUB — replace with the real class/link/field model.\"\"\" ;
-    owl:imports <{imports}> .
-"""
+    """Ask EG to compile a typed review stub for an SDK connector pack."""
+    base_import = ENTERPRISE_IRI if domain in _ENTERPRISE_DOMAINS else BASE_IRI
+    cap = "".join(word.capitalize() for word in domain.replace("-", " ").split())
+    resource = f"{cap}Resource"
+    return compile_ontology_pack(
+        source=domain,
+        base_import=base_import,
+        classes=[{"local": resource, "label": f"{display} Resource", "parent": None}],
+        object_properties=[
+            {
+                "local": "managedBy",
+                "label": "managed by",
+                "domain": resource,
+                "range": "Person",
+            }
+        ],
+        datatype_properties=[
+            {
+                "local": f"{domain.replace('-', '')}Id",
+                "label": f"{domain} id",
+                "domain": resource,
+                "range": "xsd:string",
+            }
+        ],
+    )
 
 
 def _preset_stub(repo_name: str, domain: str) -> str:
@@ -132,34 +122,9 @@ def _preset_stub(repo_name: str, domain: str) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def _patch_pyproject(
-    text: str, repo_name: str, module: str, preset: bool
-) -> tuple[str, list[str]]:
+def _patch_pyproject(text: str, module: str, preset: bool) -> tuple[str, list[str]]:
     changes: list[str] = []
     out = text
-
-    if "agent_utilities.ontology_providers" not in out:
-        block = (
-            f'[project.entry-points."agent_utilities.ontology_providers"]\n'
-            f'{repo_name} = "{module}.ontology"\n\n'
-        )
-        if preset and "agent_utilities.source_connector_providers" not in out:
-            block += (
-                f'[project.entry-points."agent_utilities.source_connector_providers"]\n'
-                f'{repo_name} = "{module}.connectors"\n\n'
-            )
-        for anchor in (
-            '[project.entry-points."agent_utilities.prompt_providers"]',
-            "[tool.setuptools]",
-            "[tool.setuptools.packages.find]",
-            "[build-system]",
-        ):
-            if anchor in out:
-                out = out.replace(anchor, block + anchor, 1)
-                changes.append("added ontology/source entry-points")
-                break
-        else:
-            return text, ["ERROR: no anchor section for entry-points"]
 
     # package-data globs
     import re
@@ -217,7 +182,7 @@ def scaffold(repo: Path, domain: str | None, preset: bool, check: bool) -> int:
     pp = repo / "pyproject.toml"
     if pp.exists():
         new_text, pp_changes = _patch_pyproject(
-            pp.read_text(encoding="utf-8"), repo_name, module, preset
+            pp.read_text(encoding="utf-8"), module, preset
         )
         if any(c.startswith("ERROR") for c in pp_changes):
             print(f"FAIL {repo_name}: {pp_changes}", file=sys.stderr)
