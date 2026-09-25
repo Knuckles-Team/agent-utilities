@@ -712,9 +712,6 @@ jobs:
 
   publish-docker:
     needs: docker-publish-approval
-    # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
-    # external reusable workflow pinned to a full commit SHA, never a floating branch
-    # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
     # First-party pipelines workflows track main under the operator governance ruling.
     uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@main
     permissions:

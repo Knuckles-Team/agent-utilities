@@ -91,6 +91,30 @@ def test_vcs_revision_contract_accepts_only_full_commit() -> None:
     )
 
 
+def test_workflow_pin_contract_allows_only_first_party_pipelines_main() -> None:
+    path = PurePosixPath(".github/workflows/release.yml")
+    sanctioned = POLICY._workflow_findings(
+        "repo",
+        path,
+        "permissions: read-all\n"
+        "jobs:\n  publish:\n    uses: "
+        "Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@main\n",
+    )
+    assert not any(f.rule == "SC-GHA-001" for f in sanctioned)
+
+    for reference in (
+        "Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@dev",
+        "Other-Org/pipelines/.github/workflows/container_pipeline.yml@main",
+        "actions/checkout@main",
+    ):
+        findings = POLICY._workflow_findings(
+            "repo",
+            path,
+            f"permissions: read-all\njobs:\n  publish:\n    uses: {reference}\n",
+        )
+        assert any(f.rule == "SC-GHA-001" for f in findings), reference
+
+
 def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

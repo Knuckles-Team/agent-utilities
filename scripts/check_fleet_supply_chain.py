@@ -67,6 +67,9 @@ SKIP_DIRECTORIES = frozenset(
 _SNAPSHOT_WORKSPACE_SIBLINGS_DIRECTORY = ".uv-workspace-siblings"
 
 ACTION_SHA_RE = re.compile(r"^[^/@\s]+/[^@\s]+@[0-9a-fA-F]{40}$")
+FIRST_PARTY_PIPELINES_WORKFLOW_RE = re.compile(
+    r"^Knuckles-Team/pipelines/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@main$"
+)
 CONTAINER_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}(?:$|\s)")
 EXTERNAL_USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
 NETWORK_TO_SHELL_RE = re.compile(
@@ -549,7 +552,10 @@ def _workflow_findings(
                 CONTAINER_DIGEST_RE.search(reference.removeprefix("docker://") + " ")
             )
         elif not valid:
-            valid = bool(ACTION_SHA_RE.fullmatch(reference))
+            valid = bool(
+                ACTION_SHA_RE.fullmatch(reference)
+                or FIRST_PARTY_PIPELINES_WORKFLOW_RE.fullmatch(reference)
+            )
         if not valid:
             findings.append(
                 Finding(
@@ -557,7 +563,8 @@ def _workflow_findings(
                     display,
                     _line_number(text, match.start()),
                     "SC-GHA-001",
-                    "external action or reusable workflow is not pinned to a full commit SHA",
+                    "external action or reusable workflow needs a full commit SHA, "
+                    "except first-party pipelines workflows at main",
                 )
             )
 
