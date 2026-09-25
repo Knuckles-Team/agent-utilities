@@ -17,17 +17,31 @@ class ContextEndpointUnavailable(RuntimeError):
     """The mandatory EG MCP connection could not be bound securely."""
 
 
+def _resolve_bearer(reference: str) -> str:
+    if reference.startswith("openbao://"):
+        from agent_connector_sdk.credentials.resolution import resolve_secret_reference
+
+        return resolve_secret_reference(reference)
+    return resolve_runtime_secret_reference(reference)
+
+
 class _ReferenceBearerAuth(httpx.Auth):
     """Resolve the secret reference for each request, including long runs."""
 
     def __init__(self, reference: str) -> None:
-        self.reference = validate_runtime_secret_reference(reference)
-        resolve_runtime_secret_reference(self.reference)
+        if reference.startswith("openbao://"):
+            from agent_connector_sdk.credentials.references import (
+                parse_secret_reference,
+            )
+
+            parse_secret_reference(reference)
+            self.reference = reference
+        else:
+            self.reference = validate_runtime_secret_reference(reference)
+        _resolve_bearer(self.reference)
 
     def auth_flow(self, request: httpx.Request):  # type: ignore[no-untyped-def]
-        request.headers["Authorization"] = (
-            f"Bearer {resolve_runtime_secret_reference(self.reference)}"
-        )
+        request.headers["Authorization"] = f"Bearer {_resolve_bearer(self.reference)}"
         yield request
 
 
