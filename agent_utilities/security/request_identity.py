@@ -97,12 +97,24 @@ UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 # the served profile is enforced for these transports (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 
-# The only graph authorization scopes a served identity may project into a
-# GraphSession. They come from validated JWT capabilities (``ActorContext.roles``),
-# never from request JSON/headers. Only the explicit ``kg:admin`` capability —
-# supplied directly or through the configured identity mapping — grants graph
-# administration; a generic application role named ``admin`` is not equivalent.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
+# Only these exact, verified actor capabilities may enter a GraphSession.
+# Connector scopes are independent of the KG hierarchy: kg:write does not grant
+# pack import, catalog attestation, or source ingest. Engine-side RBAC still
+# decides whether an admin:connector-pack operation is authorized.
+_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
+    {
+        "kg:read",
+        "kg:write",
+        "kg:admin",
+        "agent:pack-control",
+        "agent:pack-read",
+        "blob:read",
+        "blob:write",
+        "source:ingest",
+        "connector:catalog-attest",
+        "admin:connector-pack",
+    }
+)
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
@@ -396,10 +408,11 @@ def _assert_actor_authenticated(actor: ActorContext) -> None:
 
 
 def _resolve_authenticated_scopes(actor: ActorContext) -> frozenset[str]:
-    """Coarse KG scopes are hierarchical. A writer necessarily performs
-    authorization-safe precondition reads, while an administrator may do
-    both. Expand the hierarchy once at the trusted claims boundary so the
-    facade and the engine receive the same capability set."""
+    """Project exact verified capabilities; expand only the coarse KG hierarchy.
+
+    A KG writer needs authorization-safe precondition reads. Connector and
+    source capabilities never inherit from a KG role or from one another.
+    """
     scopes = frozenset(str(role) for role in actor.roles) & _GRAPH_AUTH_SCOPES
     if "kg:admin" in scopes:
         return scopes | frozenset({"kg:read", "kg:write"})

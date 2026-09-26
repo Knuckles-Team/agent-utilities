@@ -16,6 +16,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
+    ScopeError,
     suspend_session,
     use_session,
 )
@@ -232,6 +233,65 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
+    def test_connector_sync_principal_retains_exact_verified_capabilities(self):
+        granted = {
+            "agent:pack-control",
+            "agent:pack-read",
+            "blob:read",
+            "blob:write",
+        }
+        actor = actor_from_claims(
+            {
+                "sub": "service:connector-sync",
+                "scope": " ".join(sorted(granted | {"unrelated:claim"})),
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        session = _mint(actor)
+        assert session.scopes == frozenset(granted)
+        assert session.engine_verified_context()["scopes"] == sorted(granted)
+        session.require_scope("agent:pack-control")
+        with pytest.raises(ScopeError, match="required scope"):
+            session.require_scope("admin:connector-pack")
+
+    @pytest.mark.parametrize(
+        "capability",
+        ["source:ingest", "connector:catalog-attest", "admin:connector-pack"],
+    )
+    def test_exact_service_capability_survives_session_projection(self, capability):
+        actor = actor_from_claims(
+            {
+                "sub": "service:operator",
+                "roles": [capability],
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        session = _mint(actor)
+        assert session.scopes == frozenset({capability})
+        session.require_scope(capability)
+
+    def test_kg_write_and_similar_roles_do_not_grant_connector_control(self):
+        actor = actor_from_claims(
+            {
+                "sub": "service:writer",
+                "roles": ["kg:write", "agent:pack-*", "admin", "source:ingest-extra"],
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        session = _mint(actor)
+        assert session.scopes == frozenset({"kg:read", "kg:write"})
+        for capability in (
+            "agent:pack-control",
+            "source:ingest",
+            "connector:catalog-attest",
+            "admin:connector-pack",
+        ):
+            with pytest.raises(ScopeError, match="required scope"):
+                session.require_scope(capability)
+
     def test_generic_admin_role_does_not_grant_graph_administration(self):
         actor = actor_from_claims(
             {
@@ -373,6 +433,36 @@ class TestActorFromClaims:
 
 
 class TestActorIdentityMiddleware:
+    @pytest.mark.asyncio
+    async def test_verified_bearer_projects_connector_scopes_to_ambient_session(self):
+        token, jwks = _make_token_and_jwks(
+            scope="agent:pack-control agent:pack-read blob:read blob:write",
+            tenant_id="tenant-a",
+        )
+        cfg = _make_config(auth_jwt_jwks_uri="https://idp/jwks")
+        captured: dict = {}
+
+        async def fake_jwks(_uri):
+            return jwks
+
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
+        ):
+            sent = await _call(
+                ActorIdentityMiddleware(_make_inner_app(captured)),
+                headers=[(b"authorization", f"Bearer {token}".encode())],
+            )
+
+        assert _status(sent) == 200
+        session = captured["session"]
+        assert session.actor.actor_id == "principal:verified"
+        assert session.tenant == "tenant-a"
+        assert session.scopes == frozenset(
+            {"agent:pack-control", "agent:pack-read", "blob:read", "blob:write"}
+        )
+        assert session.engine_verified_context()["scopes"] == sorted(session.scopes)
+
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
     async def test_valid_token_mints_authenticated_actor(self):
