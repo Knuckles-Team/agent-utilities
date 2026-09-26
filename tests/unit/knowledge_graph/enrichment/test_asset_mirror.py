@@ -154,6 +154,23 @@ def test_asset_mirror_cli_composes_process_authority(monkeypatch, capsys):
     assert '"status": "completed"' in capsys.readouterr().out
 
 
+def test_asset_mirror_cli_uses_public_client_runtime(monkeypatch):
+    from types import SimpleNamespace
+
+    engine = object()
+    seen = {}
+
+    def _open_process_runtime(*, role, defer_background_start):
+        seen.update(role=role, defer_background_start=defer_background_start)
+        return SimpleNamespace(engine=engine)
+
+    monkeypatch.setattr(
+        "agent_utilities.api.runtime.open_process_runtime", _open_process_runtime
+    )
+    assert asset_mirror_cli._process_engine_authority() is engine
+    assert seen == {"role": "client", "defer_background_start": True}
+
+
 def test_asset_mirror_lower_module_has_no_mcp_reverse_import():
     tree = ast.parse(inspect.getsource(app))
     imports = {

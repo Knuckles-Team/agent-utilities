@@ -9,10 +9,10 @@ from agent_utilities.knowledge_graph.enrichment.writeback.asset_mirror import ru
 
 
 def _process_engine_authority():
-    """Resolve the graph authority owned by the Graph-OS composition root."""
-    from agent_utilities.mcp.kg_server import _get_engine
+    """Resolve the process client runtime through AU's public lifecycle port."""
+    from agent_utilities.api.runtime import open_process_runtime
 
-    return _get_engine()
+    return open_process_runtime(role="client", defer_background_start=True).engine
 
 
 def main(argv: list[str] | None = None) -> int:
