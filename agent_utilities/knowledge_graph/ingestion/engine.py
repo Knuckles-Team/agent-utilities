@@ -41,6 +41,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from epistemic_graph.ingestion.document_chunk_derivation import verbatim_chunk_slice
 from epistemic_graph.ingestion.graph_slice import GraphSliceCapture
 from pydantic import BaseModel, Field
 
@@ -317,7 +318,6 @@ class _EnrichContext:
     windows: list[str]
     write_slice: GraphSliceCapture
     sem: Any
-
 
 
 def _now() -> str:
@@ -3653,29 +3653,9 @@ class IngestionEngine:
         """
         from ..distillation.distillation_engine import chunk_text
 
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-        for i, chunk in enumerate(chunk_text(text)):
-            block_id = f"{document_id}:chunk:{i}"
-            entities.append(
-                {
-                    "id": block_id,
-                    "node_type": "idea_block",
-                    "name": f"{doc.title} §{i + 1}",
-                    "description": chunk[:200],
-                    "trusted_answer": chunk,
-                    "source_document_id": document_id,
-                    "source": source_kind,
-                }
-            )
-            relationships.append(
-                {
-                    "source": block_id,
-                    "target": document_id,
-                    "relationship": "PART_OF",
-                }
-            )
-        return entities, relationships
+        return verbatim_chunk_slice(
+            document_id, doc.title, chunk_text(text), source_kind
+        )
 
     @staticmethod
     def _chunk_object_slice(
