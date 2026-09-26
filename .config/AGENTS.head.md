@@ -62,7 +62,7 @@ policy.
 | `agent_utilities/mcp/`, `agent_utilities/gateway/` | Package integration adapters consumed by the GraphOS composition layer |
 | `agent_utilities/skills/` | Bundled development, deployment, graph, and evolution workflows |
 | `deploy/` | Deployment inputs consumed by GraphOS and platform automation |
-| `docs/` | GitHub Pages source and prose reference material |
+| `pages/` | GitHub Pages source and prose reference material |
 | `registry/` | Generated concept registry and per-lane reservation authority |
 | `tests/` | Unit, wiring, contract, integration, security, and live-path evidence |
 | `scripts/` | Deterministic generators, quality gates, and release checks |

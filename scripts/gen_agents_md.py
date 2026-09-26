@@ -3,7 +3,7 @@
 
 The concise contributor contract lives in ``.config/AGENTS.head.md`` and is copied to
 ``AGENTS.md`` without an appended inventory. A pruned tracked-file tree is
-generated separately at ``docs/project_structure.md`` so repository growth does
+generated separately at ``pages/project_structure.md`` so repository growth does
 not inflate the instruction surface every agent loads.
 
 Run:  python scripts/gen_agents_md.py
