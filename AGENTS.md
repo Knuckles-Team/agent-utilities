@@ -62,7 +62,8 @@ policy.
 | `agent_utilities/mcp/`, `agent_utilities/gateway/` | Package integration adapters consumed by the GraphOS composition layer |
 | `agent_utilities/skills/` | Bundled development, deployment, graph, and evolution workflows |
 | `deploy/` | Deployment inputs consumed by GraphOS and platform automation |
-| `docs/` | GitHub Pages source and generated reference material |
+| `docs/` | GitHub Pages source and prose reference material |
+| `registry/` | Generated concept registry and per-lane reservation authority |
 | `tests/` | Unit, wiring, contract, integration, security, and live-path evidence |
 | `scripts/` | Deterministic generators, quality gates, and release checks |
 
@@ -190,7 +191,7 @@ agent-connector-sdk, and the served runtime to graph-os.
 `README.md` is the concise public entry page. The
 [Pages site](https://knuckles-team.github.io/agent-utilities) owns detailed
 architecture, configuration, deployment, operations, and generated references.
-`docs/status.md` is the release-aware capability registry, and `llms.txt` is the
+`status/status.md` is the release-aware capability registry, and `llms.txt` is the
 machine-oriented documentation index.
 
 This file is the contributor and automation contract. Edit `.config/AGENTS.head.md`,

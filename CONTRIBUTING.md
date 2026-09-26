@@ -53,7 +53,7 @@ unrelated egeria/py3.12 dependency pin — validate with the system
 `--all-files` stashes every unstaged change before running hooks and restores it
 after; a file-rewriting hook (`ruff-format`, `turtle-format`, …) touching the same
 path can make that restore silently drop the unstaged edit — and
-`docs/concept_reservations.yaml` is a shared, cross-session ledger deliberately
+`registry/concept_reservations.yaml` is a shared, cross-session ledger deliberately
 left unstaged, so a careless run can destroy another session's reservations.
 `scripts/safe_precommit_all_files.py` backs up your unstaged diff first and
 verifies it's still there afterward. See `AGENTS.md`'s *Quality Bar* section for
@@ -91,6 +91,6 @@ the package imports clean in the lean env.
   provenance goes in the docstring/CHANGELOG.
 - **Wire-First** — a feature isn't done until a live path invokes it; ship
   primitives with a real consumer and a live-path test.
-- New `CONCEPT:` ids go in `docs/concepts.yaml` (run `scripts/check_concepts.py`).
+- New `CONCEPT:` ids go in `registry/concepts.yaml` (run `scripts/check_concepts.py`).
 
 See [AGENTS.md](AGENTS.md) for the full architecture reference and guardrails.

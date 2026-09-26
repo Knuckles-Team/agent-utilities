@@ -150,7 +150,7 @@ def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport
     These are the "already-built" side the golden-loop gap matcher compares
     research against: :func:`gap_analysis.auto_satisfy` matches each research
     ``Article`` / ``sdd_feature`` against ``Concept`` nodes, so **without** them
-    every paper looks like an open gap. Source = ``docs/concepts.yaml`` registries
+    every paper looks like an open gap. Source = ``registry/concepts.yaml`` registries
     + ``CONCEPT:<ID>`` code markers, keyed by canonical concept id (``KG-2.7``).
     Idempotent via ``content_hash``; embeddings are filled by the daemon's
     embed-backfill (so the embedding-fallback match works once backfilled, while

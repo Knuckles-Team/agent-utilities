@@ -1,7 +1,7 @@
 # Components
 
 agent-utilities' major components: the 9 concept pillars in
-`docs/concepts.yaml`, each generated from that registry, one page
+`registry/concepts.yaml`, each generated from that registry, one page
 per pillar, listing every concept it owns.
 
 - [`AU-AHE`](au-ahe.md) (118 concepts)

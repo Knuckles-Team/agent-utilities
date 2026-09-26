@@ -383,7 +383,7 @@ jobs:
         run: |
           echo "Scanning for new CONCEPT: tags in this PR..."
           pip install pyyaml >/dev/null 2>&1 || true
-          VALID=$(python -c "import yaml; d=yaml.safe_load(open('docs/concepts.yaml')) or {}; print(' '.join(sorted({p.split('-')[0] for p in d.get('pillars', [])})))")
+          VALID=$(python -c "import yaml; d=yaml.safe_load(open('registry/concepts.yaml')) or {}; print(' '.join(sorted({p.split('-')[0] for p in d.get('pillars', [])})))")
           if [ -z "$VALID" ]; then
             VALID="ORCH KG AHE ECO OS SAFE EE ML"
           fi

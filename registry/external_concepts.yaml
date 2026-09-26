@@ -6,7 +6,7 @@
 # from AU during a cross-repo ownership refactor. They remain in the canonical
 # registry so the concept ID keeps its source evidence.
 #
-# scripts/build_concepts_yaml.py merges this file into docs/concepts.yaml on
+# scripts/build_concepts_yaml.py merges this file into registry/concepts.yaml on
 # every regeneration, so entries here survive a regen (non-drifting) without
 # requiring the generator to recursively scan another repo's entire source tree
 # (which would pull in that repo's full concept surface, not just the ones

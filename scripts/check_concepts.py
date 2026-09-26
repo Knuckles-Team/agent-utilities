@@ -3,7 +3,7 @@
 
 Ensures that *every* ``CONCEPT:<ID>`` marker present in the codebase
 (``agent_utilities/**/*.py`` and ``*.rs``) is registered in the single source
-of truth ``docs/concepts.yaml``. Exits non-zero if any marker is missing from
+of truth ``registry/concepts.yaml``. Exits non-zero if any marker is missing from
 the registry, which keeps the docs honest with the code.
 
 Run:  python scripts/check_concepts.py
@@ -18,7 +18,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
-CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
+CONCEPTS_PATH = ROOT / "registry" / "concepts.yaml"
 
 # Single source of the marker grammar — shared with build_concepts_yaml.py and
 # the allocator so the three scanners can never drift.

@@ -152,7 +152,7 @@ terminal failure at the Dispatcher also ends the run.
 > `agent_utilities/rlm/` (`RLMEnvironment` in `rlm/repl.py`, `rlm/specialist.py`,
 > `rlm/predict_rlm.py`). Note also that the concept ID `ORCH-1.22` is now
 > assigned to *Workflow Persistence & Replay Relationships* in
-> `docs/concepts.yaml`; this section is retained as forward-looking design.
+> `registry/concepts.yaml`; this section is retained as forward-looking design.
 
 **RecursiveMAS** (Recursive Multi-Agent System) is a research-backed design that redefines multi-agent collaboration by passing **continuous representations in latent space** rather than raw text sequences.
 

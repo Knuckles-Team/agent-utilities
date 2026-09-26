@@ -69,6 +69,6 @@ python scripts/build_concepts_yaml.py
 python scripts/check_concepts.py
 python scripts/check_domain_vocab.py
 python scripts/build_concept_rdf.py \
-  --registry docs/concepts.yaml \
+  --registry registry/concepts.yaml \
   --out agent_utilities/knowledge_graph/ontology_concepts.ttl
 ```

@@ -2,7 +2,7 @@
 """Regenerate the honesty-first status page (the "Codex") at status/status.md.
 
 This is the fix for the concept-count drift bug: README.md, AGENTS.md, and
-docs/concepts.yaml's own header used to each report a different total (1216 /
+registry/concepts.yaml's own header used to each report a different total (1216 /
 1203 / 1196) because two generator scripts independently recomputed it. This
 page joins ``scripts/gen_docs.py`` / ``scripts/gen_agents_md.py`` in deriving
 the total the same, deliberately simple way (``len(concepts.yaml's
@@ -12,11 +12,11 @@ a reader, so nothing downstream needs to hand-state a number again.
 
 Sources (never hand-typed):
 
-* ``docs/concepts.yaml`` — the canonical concept registry. Every entry in it
+* ``registry/concepts.yaml`` — the canonical concept registry. Every entry in it
   already has code (its own docstring: reserved/retired concepts are removed
   from the registry outright, not carried with a status flag), so every row
   here counts as ``LIVE``.
-* ``docs/concept_reservations.yaml`` — the concept-ID reservation ledger.
+* ``registry/concept_reservations.yaml`` — the concept-ID reservation ledger.
   Entries with ``status: reserved`` are IDs allocated ahead of code and count
   as ``RESERVED``; ``landed``/``expired`` entries are historical and are not
   counted (a landed reservation's concept is already counted via
@@ -43,8 +43,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
-RESERVATIONS_PATH = ROOT / "docs" / "concept_reservations.yaml"
+CONCEPTS_PATH = ROOT / "registry" / "concepts.yaml"
+RESERVATIONS_PATH = ROOT / "registry" / "concept_reservations.yaml"
 STATUS_PATH = ROOT / "status" / "status.md"
 
 # Structural pillar -> owning doc subtree -> primary enforcing CI/pre-commit
@@ -85,8 +85,8 @@ PILLAR_GATE = {
 
 HONESTY_FRAMING = (
     "**Honesty first.** This page reflects the repository's actual current "
-    "state — every number below is computed from `docs/concepts.yaml` and "
-    "`docs/concept_reservations.yaml` at generation time, never hand-typed. "
+    "state — every number below is computed from `registry/concepts.yaml` and "
+    "`registry/concept_reservations.yaml` at generation time, never hand-typed. "
     "If a claim elsewhere in this repo's docs disagrees with a number here, "
     "this page is generated more recently and is the one to trust."
 )
@@ -148,8 +148,8 @@ def render() -> str:
     lines.append("")
     lines.append(
         "> **Generated — do not edit by hand.** Produced by "
-        "`scripts/build_status_page.py` from `docs/concepts.yaml` and "
-        "`docs/concept_reservations.yaml`. See "
+        "`scripts/build_status_page.py` from `registry/concepts.yaml` and "
+        "`registry/concept_reservations.yaml`. See "
         '"How this page stays honest" at the bottom.'
     )
     lines.append("")
@@ -159,10 +159,10 @@ def render() -> str:
     lines.append("## Concepts by pillar × status")
     lines.append("")
     lines.append(
-        f"**{total_live} LIVE** concepts (every entry in `docs/concepts.yaml` — "
+        f"**{total_live} LIVE** concepts (every entry in `registry/concepts.yaml` — "
         "the registry only carries concepts with shipped code) and "
         f"**{total_reserved} RESERVED** concept IDs (open, unexpired entries "
-        "in `docs/concept_reservations.yaml`) across "
+        "in `registry/concept_reservations.yaml`) across "
         f"**{len(pillars)} pillars**."
     )
     lines.append("")
@@ -177,7 +177,7 @@ def render() -> str:
     lines.append("")
     lines.append(
         "> `BUILDING`/`ROADMAP`/`RETIRED` are always 0 here: "
-        "`docs/concepts.yaml`'s registry model does not carry a per-concept "
+        "`registry/concepts.yaml`'s registry model does not carry a per-concept "
         "partial-build state (its own generator strips reserved/retired IDs "
         "out entirely rather than flagging them) — a concept is either "
         "`RESERVED` or fully `LIVE`. The three statuses are still defined "
@@ -234,7 +234,7 @@ def render() -> str:
     lines.append("")
     lines.append(
         "This page is produced by `scripts/build_status_page.py` from "
-        "`docs/concepts.yaml` and `docs/concept_reservations.yaml` — never "
+        "`registry/concepts.yaml` and `registry/concept_reservations.yaml` — never "
         "hand-typed. Regenerate it with:"
     )
     lines.append("")
@@ -247,7 +247,7 @@ def render() -> str:
         "advisory.yml` (report-only, `continue-on-error: true`, matching "
         "this repo's existing approved-vs-enforced convention) and fails "
         "loudly — without blocking a release — the moment this file drifts "
-        "from `docs/concepts.yaml` / `docs/concept_reservations.yaml`. Run it "
+        "from `registry/concepts.yaml` / `registry/concept_reservations.yaml`. Run it "
         "locally with:"
     )
     lines.append("")
@@ -284,8 +284,8 @@ def main() -> int:
     current = STATUS_PATH.read_text(encoding="utf-8")
     if current != rendered:
         print(
-            "status/status.md is stale relative to docs/concepts.yaml / "
-            "docs/concept_reservations.yaml. Run: "
+            "status/status.md is stale relative to registry/concepts.yaml / "
+            "registry/concept_reservations.yaml. Run: "
             "python scripts/build_status_page.py --write",
             file=sys.stderr,
         )

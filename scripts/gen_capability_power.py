@@ -214,7 +214,7 @@ _QUOTED_TOKEN_RE = re.compile(r"'([a-z][a-z0-9_]*)'")
 # sentence — strip it so `one_line` starts with the actual power statement,
 # not the id. (Deliberately not spelled out as one real-shaped example here:
 # check_domain_vocab.py scans every .py/.rs/.md file for exactly that shape,
-# and an illustrative id is not a declaration — see docs/concepts.yaml for
+# and an illustrative id is not a declaration — see registry/concepts.yaml for
 # real ones, e.g. AU-KG.retrieval.capability-power-descriptor above.)
 _CONCEPT_PREFIX_RE = re.compile(r"^CONCEPT:[\w.\-]+\s*[—-]\s*")
 

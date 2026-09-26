@@ -1,12 +1,12 @@
 # Status — the Codex
 
-> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `docs/concepts.yaml` and `docs/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
+> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `registry/concepts.yaml` and `registry/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
 
-**Honesty first.** This page reflects the repository's actual current state — every number below is computed from `docs/concepts.yaml` and `docs/concept_reservations.yaml` at generation time, never hand-typed. If a claim elsewhere in this repo's docs disagrees with a number here, this page is generated more recently and is the one to trust.
+**Honesty first.** This page reflects the repository's actual current state — every number below is computed from `registry/concepts.yaml` and `registry/concept_reservations.yaml` at generation time, never hand-typed. If a claim elsewhere in this repo's docs disagrees with a number here, this page is generated more recently and is the one to trust.
 
 ## Concepts by pillar × status
 
-**1169 LIVE** concepts (every entry in `docs/concepts.yaml` — the registry only carries concepts with shipped code) and **0 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**.
+**1169 LIVE** concepts (every entry in `registry/concepts.yaml` — the registry only carries concepts with shipped code) and **0 RESERVED** concept IDs (open, unexpired entries in `registry/concept_reservations.yaml`) across **9 pillars**.
 
 | Pillar | LIVE ✅ | RESERVED | BUILDING 🔶 | ROADMAP 🗺 | RETIRED |
 |:------|---:|---:|---:|---:|---:|
@@ -21,7 +21,7 @@
 | **EG-OS** — epistemic-graph: deployment concepts | 1 | 0 | 0 | 0 | 0 |
 | **Total** | 1169 | 0 | 0 | 0 | 0 |
 
-> `BUILDING`/`ROADMAP`/`RETIRED` are always 0 here: `docs/concepts.yaml`'s registry model does not carry a per-concept partial-build state (its own generator strips reserved/retired IDs out entirely rather than flagging them) — a concept is either `RESERVED` or fully `LIVE`. The three statuses are still defined below because they are part of the one vocabulary this page and epistemic-graph's status page share.
+> `BUILDING`/`ROADMAP`/`RETIRED` are always 0 here: `registry/concepts.yaml`'s registry model does not carry a per-concept partial-build state (its own generator strips reserved/retired IDs out entirely rather than flagging them) — a concept is either `RESERVED` or fully `LIVE`. The three statuses are still defined below because they are part of the one vocabulary this page and epistemic-graph's status page share.
 
 ## Status vocabulary
 
@@ -57,13 +57,13 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 
 ## How this page stays honest
 
-This page is produced by `scripts/build_status_page.py` from `docs/concepts.yaml` and `docs/concept_reservations.yaml` — never hand-typed. Regenerate it with:
+This page is produced by `scripts/build_status_page.py` from `registry/concepts.yaml` and `registry/concept_reservations.yaml` — never hand-typed. Regenerate it with:
 
 ```bash
 python scripts/build_status_page.py --write
 ```
 
-`scripts/check_status_page.py` is wired into `.github/workflows/advisory.yml` (report-only, `continue-on-error: true`, matching this repo's existing approved-vs-enforced convention) and fails loudly — without blocking a release — the moment this file drifts from `docs/concepts.yaml` / `docs/concept_reservations.yaml`. Run it locally with:
+`scripts/check_status_page.py` is wired into `.github/workflows/advisory.yml` (report-only, `continue-on-error: true`, matching this repo's existing approved-vs-enforced convention) and fails loudly — without blocking a release — the moment this file drifts from `registry/concepts.yaml` / `registry/concept_reservations.yaml`. Run it locally with:
 
 ```bash
 python scripts/check_status_page.py

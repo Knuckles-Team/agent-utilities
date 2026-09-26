@@ -103,7 +103,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--registry",
-        default="docs/concepts.yaml",
+        default="registry/concepts.yaml",
         help="generated canonical concepts.yaml path",
     )
     ap.add_argument("--out", required=True, help="output ontology_concepts.ttl path")

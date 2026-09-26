@@ -10,7 +10,7 @@ hook (``ruff-format``, ``turtle-format``, ``guardrail-docs-contract --write``,
 DROP those edits instead of merging them — this repo hit it for real during
 the fastmcp-4 migration, eating a full round of regenerated docs.
 
-It is especially dangerous here because ``docs/concept_reservations.yaml`` is
+It is especially dangerous here because ``registry/concept_reservations.yaml`` is
 a shared, cross-session coordination ledger that is DELIBERATELY left
 unstaged by concurrent sessions (see AGENTS.md's concept-reservation
 workflow) — one careless ``--all-files`` run can destroy another session's
@@ -20,7 +20,7 @@ This wrapper is the mechanical guard (a guard beats a paragraph):
 
 1. Backs up the FULL unstaged diff before the run, so a drop is recoverable
    even in the worst case.
-2. Prints an explicit, named warning when ``docs/concept_reservations.yaml``
+2. Prints an explicit, named warning when ``registry/concept_reservations.yaml``
    (or another tracked file matching a known shared-ledger pattern) is
    unstaged, since that is the highest-risk case this exists to catch.
 3. Runs ``pre-commit run --config .config/pre-commit.yaml --all-files`` (forwarding any extra CLI args).
@@ -42,7 +42,7 @@ from pathlib import Path
 # Tracked files known to be a shared, cross-session coordination ledger that
 # is deliberately left unstaged — named here (not just concept_reservations.yaml)
 # so a future addition to this class only needs one line, not a rewrite.
-_SHARED_UNSTAGED_LEDGERS = ("docs/concept_reservations.yaml",)
+_SHARED_UNSTAGED_LEDGERS = ("registry/concept_reservations.yaml",)
 
 
 def _repo_root(cwd: Path | None = None) -> Path:

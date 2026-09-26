@@ -31,8 +31,8 @@ def _repo(tmp_path: Path) -> Path:
     _git(root, "init", "-q")
     _git(root, "config", "user.email", "test@example.com")
     _git(root, "config", "user.name", "Test")
-    (root / "docs").mkdir()
-    (root / "docs" / "concept_reservations.yaml").write_text(
+    (root / "registry").mkdir()
+    (root / "registry" / "concept_reservations.yaml").write_text(
         "# ledger\n", encoding="utf-8"
     )
     (root / "tracked.txt").write_text("original\n", encoding="utf-8")
@@ -77,14 +77,14 @@ def test_dirty_concept_reservations_triggers_the_named_warning(
 ) -> None:
     module = _module()
     root = _repo(tmp_path)
-    (root / "docs" / "concept_reservations.yaml").write_text(
+    (root / "registry" / "concept_reservations.yaml").write_text(
         "# ledger\n- {id: X}\n", encoding="utf-8"
     )
 
     module._run_precommit = lambda root, argv: 0  # noqa: SLF001
     module.main([], cwd=root)
     out = capsys.readouterr().out
-    assert "docs/concept_reservations.yaml" in out
+    assert "registry/concept_reservations.yaml" in out
     assert "D-OB-12" in out
 
 

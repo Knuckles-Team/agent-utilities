@@ -16,7 +16,7 @@ The native contract and migration boundary are documented in
 [`architecture/concept-reservation-authority.md`](architecture/concept-reservation-authority.md).
 
 Parallel sessions coordinate semantic concept IDs through the committed,
-line-oriented `docs/concept_reservations.yaml` ledger.
+line-oriented `registry/concept_reservations.yaml` ledger.
 
 Reserve an exact canonical ID:
 
@@ -28,7 +28,7 @@ repository-manager-governance concept reserve \
 ```
 
 The compatibility allocator validates the OKF-CIS grammar and closed domain
-vocabulary, then checks source markers, `docs/concepts.yaml`, and live ledger
+vocabulary, then checks source markers, `registry/concepts.yaml`, and live ledger
 claims while holding the per-repository lock. Duplicate claims fail atomically
 within the same host/repository arbitration scope. Session and design values
 are persisted only as non-reversible references. It must not be used when

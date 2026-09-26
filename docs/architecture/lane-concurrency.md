@@ -162,7 +162,7 @@ before running hooks and restores it after. When a **file-rewriting** hook
 that also had unstaged edits, the restore can **silently drop those edits instead of
 merging them** — this repo lost a full round of regenerated docs to exactly this during
 the fastmcp-4 migration. It is acutely dangerous here because
-`docs/concept_reservations.yaml` is a shared cross-session coordination ledger
+`registry/concept_reservations.yaml` is a shared cross-session coordination ledger
 **deliberately left unstaged** (concurrent sessions append to it without staging), so one
 careless `--all-files` run can destroy another session's in-flight reservations.
 

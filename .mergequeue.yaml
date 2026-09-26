@@ -82,10 +82,10 @@ gates:
 # ALREADY-MERGED source of truth is the correct resolution; `checkout --theirs`
 # silently drops whichever side lost.
 #
-# Order matters: gen_docs.py reads docs/concepts.yaml (must be fresh first), and
+# Order matters: gen_docs.py reads registry/concepts.yaml (must be fresh first), and
 # gen_agents_md.py writes both AGENTS.md and docs/project_structure.md last.
 generated_files:
-  - docs/concepts.yaml
+  - registry/concepts.yaml
   - README.md
   - AGENTS.md
   - docs/project_structure.md
