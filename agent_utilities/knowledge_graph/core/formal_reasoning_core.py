@@ -293,7 +293,12 @@ def _euler_dfs_fallback(graph: rx.PyGraph) -> list[Any]:
     return visited_order if visited_order else [graph[start]]
 
 
-def chromatic_schedule(conflict_graph: rx.PyGraph) -> dict[str, int]:
+def chromatic_schedule(
+    conflict_graph: rx.PyGraph,
+    *,
+    native_coloring: Callable[[list[str], list[tuple[str, str]]], list[Any]]
+    | None = None,
+) -> dict[str, int]:
     """Assign colors (execution slots) via greedy graph coloring. CONCEPT:AU-KG.research.research-pipeline-runner (MCS §12.6).
 
     Args:
@@ -304,15 +309,49 @@ def chromatic_schedule(conflict_graph: rx.PyGraph) -> dict[str, int]:
     """
     if conflict_graph.num_nodes() == 0:
         return {}
+    if native_coloring is not None and conflict_graph.num_nodes() <= 4096:
+        node_ids = [
+            str(conflict_graph[index]) for index in conflict_graph.node_indices()
+        ]
+        edges = [
+            (str(conflict_graph[source]), str(conflict_graph[target]))
+            for source, target, _ in conflict_graph.weighted_edge_list()
+        ]
+        if len(edges) <= 65_536 and len(set(node_ids)) == len(node_ids):
+            rows = native_coloring(node_ids, edges)
+            if not isinstance(rows, list) or len(rows) != len(node_ids):
+                raise ValueError("EG inline coloring returned the wrong node count")
+            coloring: dict[str, int] = {}
+            for row in rows:
+                if (
+                    not isinstance(row, (list, tuple))
+                    or len(row) != 2
+                    or not isinstance(row[0], str)
+                    or type(row[1]) is not int
+                    or row[1] < 0
+                    or row[0] in coloring
+                ):
+                    raise ValueError("EG inline coloring returned an invalid row")
+                coloring[row[0]] = row[1]
+            if set(coloring) != set(node_ids) or any(
+                coloring[source] == coloring[target] for source, target in edges
+            ):
+                raise ValueError("EG inline coloring violates the conflict graph")
+            return coloring
     coloring = rx.graph_greedy_color(conflict_graph)
     return {str(conflict_graph[idx]): color for idx, color in coloring.items()}
 
 
-def chromatic_number_upper_bound(conflict_graph: rx.PyGraph) -> int:
+def chromatic_number_upper_bound(
+    conflict_graph: rx.PyGraph,
+    *,
+    native_coloring: Callable[[list[str], list[tuple[str, str]]], list[Any]]
+    | None = None,
+) -> int:
     """Upper bound on χ(G) via greedy coloring. Satisfies χ(G) ≤ Δ(G) + 1."""
     if conflict_graph.num_nodes() == 0:
         return 0
-    coloring = chromatic_schedule(conflict_graph)
+    coloring = chromatic_schedule(conflict_graph, native_coloring=native_coloring)
     return max(coloring.values()) + 1 if coloring else 0
 
 

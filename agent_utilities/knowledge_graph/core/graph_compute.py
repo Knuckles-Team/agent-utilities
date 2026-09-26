@@ -5315,6 +5315,12 @@ class GraphComputeEngine:
         """Greedy graph coloring — assigns colors so no adjacent nodes share a color."""
         return self._client.graph.graph_coloring()
 
+    def graph_color_ephemeral(
+        self, node_ids: list[str], edges: list[tuple[str, str]]
+    ) -> list[list[Any]]:
+        """Color an inline conflict graph through EG without persisting it."""
+        return self._client.graph.graph_color_ephemeral(node_ids, edges)
+
     def compute_similarity_edges(
         self, threshold: float = 0.8
     ) -> list[tuple[str, str, float]]:
