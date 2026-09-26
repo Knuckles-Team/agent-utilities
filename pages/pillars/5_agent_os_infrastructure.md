@@ -323,7 +323,7 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
    * *Source Code*: [tool_guard.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/tool_guard.py)
 
 For a complete architectural analysis, refer to the detailed guide:
-👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
+👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](https://github.com/Knuckles-Team/agent-utilities/blob/main/pages/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
 
 ---
 
