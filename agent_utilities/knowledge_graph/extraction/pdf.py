@@ -261,7 +261,7 @@ def read_pdf_pages(
     single joined string cannot: two adjacent ``"\\n"`` characters inside one
     page's own extracted text are indistinguishable from a page boundary once
     joined. This is what
-    :func:`~..ingestion.evidence_spine.fragment_pdf` fragments.
+    :func:`~epistemic_graph.ingestion.evidence_fragmentation.fragment_pdf` fragments.
     """
     raw = _extract_pdf_raw(
         source,

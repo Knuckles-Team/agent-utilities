@@ -3643,9 +3643,9 @@ def register_query_tools(mcp):
         engine: Any, action: str, text: str, artifact_id: str, document_id: str
     ) -> tuple[Sequence[Any], str, str | None]:
         from epistemic_graph.ingestion.evidence_address import artifact_id_for
+        from epistemic_graph.ingestion.evidence_fragmentation import fragment_markdown
 
         from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-            fragment_markdown,
             load_fragments,
         )
 

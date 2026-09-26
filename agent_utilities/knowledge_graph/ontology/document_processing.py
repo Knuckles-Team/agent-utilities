@@ -764,8 +764,7 @@ class DocumentProcessor:
         spans = chunk_text(verbatim, self.chunking)
 
         from epistemic_graph.ingestion.evidence_address import artifact_id_for
-
-        from ..ingestion.evidence_spine import fragment_markdown
+        from epistemic_graph.ingestion.evidence_fragmentation import fragment_markdown
 
         # The artifact is the SOURCE OBJECT, so it is keyed to the source label
         # (the path/URL), NOT to ``doc_id`` — which is derived from the content

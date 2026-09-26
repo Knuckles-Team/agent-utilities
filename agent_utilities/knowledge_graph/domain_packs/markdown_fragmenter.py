@@ -7,7 +7,7 @@ AU-KG.ingest.evidence-spine-artifact / AU-KG.ingest.stable-fragment-address,
 D-GP2-2): YAML frontmatter keys, GFM pipe tables (as ``table_row`` fragments,
 one per row), ATX headings (as ``heading`` fragments), and inline links.
 
-**Why this module still exists alongside ``evidence_spine.fragment_markdown``.**
+**Why this module still exists alongside ``epistemic_graph.ingestion.evidence_fragmentation.fragment_markdown``.**
 That function already fragments the GENERIC markdown structure (headings,
 paragraphs, tables, lists, quotes, code blocks) into the canonical spine. It
 does not extract YAML frontmatter or inline links as their own citable units —
@@ -30,7 +30,7 @@ charter names as the ultimate proof track (track 10,
 ``reports/program/universal-ingestion.md``) — that connector
 (``protocols/source_connectors/connectors/git_markdown.py``) additionally owns
 repo discovery/watermarking/registration into ``source_sync`` and already
-calls ``evidence_spine.fragment_markdown`` directly for the generic structure.
+calls ``epistemic_graph.ingestion.evidence_fragmentation.fragment_markdown`` directly for the generic structure.
 Whichever connector reads a markdown corpus should produce fragments in
 exactly this shape so any mapping DSL rule (frontmatter/table/heading/link)
 can be written once against it.
