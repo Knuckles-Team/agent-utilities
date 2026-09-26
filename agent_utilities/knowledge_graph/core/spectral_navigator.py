@@ -20,7 +20,9 @@ for OWL-transitive hierarchies.
 import logging
 import math
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from agent_utilities.models.knowledge_graph import (
     SpectralClusterNode,
@@ -70,15 +72,22 @@ class SpectralClusterNavigator:
             print(f"Cluster {c.label}: {len(c.indices)} members")
     """
 
-    def __init__(self, min_cluster_size: int = 2, max_depth: int = 3):
+    def __init__(
+        self,
+        min_cluster_size: int = 2,
+        max_depth: int = 3,
+        native_cluster: Callable[[list[list[float]], int], dict[str, Any]] | None = None,
+    ):
         """Initialize the spectral cluster navigator.
 
         Args:
             min_cluster_size: Minimum members to form a cluster.
             max_depth: Maximum hierarchy depth for recursive clustering.
+            native_cluster: EG MineCluster adapter for admitted small matrices.
         """
         self._min_cluster_size = min_cluster_size
         self._max_depth = max_depth
+        self._native_cluster = native_cluster
 
     @staticmethod
     def _cosine_similarity_matrix(vectors: list[list[float]]) -> list[list[float]]:
@@ -212,6 +221,9 @@ class SpectralClusterNavigator:
                 )
             ]
 
+        if self._native_cluster is not None and n <= 64:
+            return self._cluster_native(arr, max_k, domain)
+
         # 1. Build affinity matrix
         affinity = self._cosine_similarity_matrix(arr)
 
@@ -277,6 +289,68 @@ class SpectralClusterNavigator:
 
         # Sort by size descending
         results.sort(key=lambda c: len(c.indices), reverse=True)
+        return results
+
+    def _cluster_native(
+        self, vectors: list[list[float]], max_k: int, domain: str
+    ) -> list[ClusterResult]:
+        """Shape the admitted EG MineCluster result into this public AU DTO."""
+        assert self._native_cluster is not None
+        response = self._native_cluster(vectors, max_k)
+        if not isinstance(response, dict):
+            raise ValueError("EG spectral result must be a mapping")
+        rows = response.get("clusters")
+        labels = response.get("labels")
+        if (
+            response.get("n_rows") != len(vectors)
+            or not isinstance(rows, list)
+            or not isinstance(labels, list)
+            or len(labels) != len(vectors)
+        ):
+            raise ValueError("EG spectral result has an invalid row count or clusters")
+        results: list[ClusterResult] = []
+        seen: set[int] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("EG spectral result has an invalid cluster row")
+            cluster_id = row.get("cluster_id")
+            indices = row.get("members")
+            centroid = row.get("centroid")
+            coherence = row.get("coherence")
+            if (
+                not isinstance(cluster_id, int)
+                or isinstance(cluster_id, bool)
+                or cluster_id < 0
+                or not isinstance(indices, list)
+                or not all(type(index) is int and 0 <= index < len(vectors) for index in indices)
+                or not isinstance(centroid, list)
+                or len(centroid) != len(vectors[0])
+                or not all(
+                    type(value) in (int, float) and math.isfinite(float(value))
+                    for value in centroid
+                )
+                or type(coherence) not in (int, float)
+                or not math.isfinite(float(coherence))
+                or any(labels[index] != cluster_id for index in indices)
+            ):
+                raise ValueError("EG spectral result has an invalid cluster row")
+            if len(set(indices)) != len(indices) or seen.intersection(indices):
+                raise ValueError("EG spectral result assigns a row twice")
+            seen.update(indices)
+            if len(indices) < self._min_cluster_size:
+                continue
+            results.append(
+                ClusterResult(
+                    cluster_id=f"sc_{uuid.uuid4().hex}",
+                    label=f"{domain}_cluster_{cluster_id}",
+                    indices=indices,
+                    centroid=[float(value) for value in centroid],
+                    coherence=float(coherence),
+                )
+            )
+        if seen != set(range(len(vectors))):
+            raise ValueError("EG spectral result omits an input row")
+        results.sort(key=lambda cluster: len(cluster.indices), reverse=True)
         return results
 
     @staticmethod

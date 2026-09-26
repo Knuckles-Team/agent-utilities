@@ -4375,6 +4375,20 @@ class GraphComputeEngine:
             raise ValueError("native blast radius changed during depth projection")
         return [{"id": nid, "type": "Node", "depth": depths[nid]} for nid in nodes]
 
+    def spectral_cluster(
+        self, vectors: list[list[float]], max_k: int = 10
+    ) -> dict[str, Any]:
+        """Run bounded, read-only EG spectral clustering over explicit vectors."""
+        return dict(
+            self._client.mining.cluster(
+                features=vectors,
+                algorithm="spectral",
+                k=max_k,
+                seed=42,
+                writeback=False,
+            )
+        )
+
     def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
         """Parse one source file's AST natively via the Rust engine.
 
