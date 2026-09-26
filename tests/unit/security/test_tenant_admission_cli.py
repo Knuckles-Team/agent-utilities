@@ -113,6 +113,9 @@ def test_the_signer_sent_to_the_engine_is_the_calling_principal(
     seen: dict[str, object] = {}
 
     class _CapturingClient:
+        def get_identity(self, _agent_id: str):
+            return None
+
         def register_identity(self, **kwargs: object) -> str:
             seen.update(kwargs)
             return "ok"
@@ -139,7 +142,7 @@ def test_apply_is_idempotent_across_two_runs_with_the_same_client(
         cli.run_tenant_admission(
             "homelab", _principal_manifest(), apply=True, client=client
         )
-        calls_after_first = len(client.calls)
+        calls_after_first = sum(c == "register_identity" for c, _ in client.calls)
 
         already_admitted = [
             tra.TenantPrincipal(
@@ -151,9 +154,9 @@ def test_apply_is_idempotent_across_two_runs_with_the_same_client(
         )
 
     assert second.outcomes[0].already_held is True
-    assert len(client.calls) == calls_after_first, (
-        "a re-run for an already-admitted principal must not re-register it"
-    )
+    assert (
+        sum(c == "register_identity" for c, _ in client.calls) == calls_after_first
+    ), "a re-run for an already-admitted principal must not re-register it"
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +240,16 @@ def test_a_tenant_admission_error_is_never_swallowed(
     # `TenantAdmissionError` — see `tenant_rbac_admission.py`), so this proves
     # the CLI bridge's own re-raise-as-`TenantAdmissionCliError` wrapping.
     class FailingClient:
+        def get_identity(self, _agent_id: str):
+            return None
+
         def register_identity(self, **kwargs: object) -> str:
             raise tra.TenantAdmissionError("engine unreachable")
 
     with _verified_principal(monkeypatch):
-        with pytest.raises(cli.TenantAdmissionCliError, match="tenant admission failed"):
+        with pytest.raises(
+            cli.TenantAdmissionCliError, match="tenant admission failed"
+        ):
             cli.run_tenant_admission(
                 "homelab",
                 _principal_manifest(),

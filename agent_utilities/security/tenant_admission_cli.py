@@ -129,6 +129,16 @@ def run_tenant_admission(
         from .tenant_rbac_admission import FixtureEngineIdentityClient
 
         preview_client = FixtureEngineIdentityClient()
+        # A preview has no EG read. Seed only the caller's declared shape in
+        # the fixture so the preview can show its proposed merge; apply always
+        # reads the real EG identity and refuses a stale declaration.
+        for principal in principals:
+            if principal.existing_roles:
+                preview_client.identities[principal.agent_id] = {
+                    "role": principal.role,
+                    "teams": list(principal.teams),
+                    "roles": list(principal.existing_roles),
+                }
         dry_run_authority = AdmissionAuthority(
             agent_id="dry-run:provisioner",
             signer_id="dry-run:provisioner",

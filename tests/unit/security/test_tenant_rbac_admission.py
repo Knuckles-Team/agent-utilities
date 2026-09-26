@@ -1,34 +1,8 @@
-"""Tests for the tenant-graph Read/Write RBAC admission bridge (P0 root-cause fix:
-agent-webui `/graph` showed 0 nodes/0 edges because `tenant__homelab____commons__`
-had never had a Read/Write grant for any principal but the one-off `System`
-identity that created it by hand — see the module docstring for the full
-root-cause chain and `plans/au-eg-program/HANDOFF-2026-07-22.md` §7-8).
+"""Tenant RBAC admission through EG's complete identity read-back.
 
-Covers:
-- The pre-fix defect reproduced structurally: a tenant with no admitted
-  principals cannot pass a would-be RBAC check for the tenant role.
-- Admitting a fresh (never-registered) principal grants exactly the tenant role,
-  the CALLER-supplied ``role``/``teams`` shape, and nothing else.
-- Admitting an already-registered principal MERGES the tenant role into its
-  existing roles without dropping any pre-existing role/team — RegisterIdentity
-  replaces the whole identity, so a naive re-registration would silently strip
-  unrelated grants; this is the regression this module exists to prevent.
-- The pass is idempotent: running it twice for the same principal never
-  duplicates a `register_identity` call once the role is already held.
-- Multiple distinct principals sharing one tenant are all admitted — the exact
-  "N webui end-users, one tenant" shape the live incident hit.
-- `System` is refused as a `TenantPrincipal.role` — this module must never be
-  used to grant blanket RBAC bypass.
-- A failed admission RPC is never swallowed.
-- A principal whose `existing_roles` is unknown (`None`, the default) is
-  refused outright, and nothing is written — the actual root cause of the
-  live incident (a caller omitting `existing_roles`, not a bug in the merge
-  math itself).
-- A principal admitting ITSELF (`agent_id == admin_authority.signer_id`,
-  `agent-webui`'s `ensure_tenant_admission` shape) is skipped outright, even
-  with `existing_roles` unset -- proven against the exact live incident data
-  (a principal already holding `control:system` and `tenant:homelab` keeps
-  both after a self-admission pass).
+The fixtures cover fresh registration, preservation of EG-held roles and
+manager shape, stale manifest rejection, denied/malformed reads, idempotence,
+and the still-unprovisioning self-admission no-write path.
 """
 
 from __future__ import annotations
@@ -89,6 +63,11 @@ def test_admitting_an_already_registered_principal_preserves_its_other_roles() -
     an existing, unrelated role (e.g. a code-ingestion reader role)."""
 
     client = tra.FixtureEngineIdentityClient()
+    client.identities["webui-user-1"] = {
+        "role": "Agent",
+        "teams": ["support"],
+        "roles": ["code-reader"],
+    }
     principal = tra.TenantPrincipal(
         agent_id="webui-user-1",
         role="Agent",
@@ -139,7 +118,7 @@ def test_admission_is_idempotent_and_skips_a_redundant_register_call() -> None:
     tra.provision_tenant_access(
         client, "homelab", [principal], admin_authority=authority
     )
-    register_calls_after_first = len(client.calls)
+    register_calls_after_first = sum(c == "register_identity" for c, _ in client.calls)
 
     # Re-run with the principal now correctly reporting it already holds the
     # role (mirrors a re-run of a deploy-time provisioning pass).
@@ -151,37 +130,89 @@ def test_admission_is_idempotent_and_skips_a_redundant_register_call() -> None:
     )
 
     assert result.outcomes[0].already_held is True
-    assert len(client.calls) == register_calls_after_first, (
-        "an already-held tenant role must not trigger a second register_identity call"
-    )
+    assert (
+        sum(c == "register_identity" for c, _ in client.calls)
+        == register_calls_after_first
+    ), "an already-held tenant role must not trigger a second register_identity call"
 
 
-def test_admitting_a_principal_with_unknown_existing_roles_fails_loudly() -> None:
-    """The regression this module's ``existing_roles`` field ALREADY protected
-    against on paper but not in practice: a caller (e.g. ``agent-webui``'s
-    ``ensure_tenant_admission``) that omits ``existing_roles`` entirely used
-    to fall through to an empty-tuple default and silently register only the
-    tenant role — dropping whatever else the principal held (this is the
-    live incident: it dropped ``control:system`` off graph-os's own
-    principal). It must now fail loudly and write nothing instead."""
+def test_admitting_a_principal_with_unknown_manifest_roles_uses_eg_readback() -> None:
+    """Omitted manifest roles must never erase roles held in EG."""
 
     client = tra.FixtureEngineIdentityClient()
+    client.identities["webui-user-1"] = {
+        "role": "Agent",
+        "teams": ["support"],
+        "roles": ["control:system"],
+    }
     principal = tra.TenantPrincipal(agent_id="webui-user-1")  # existing_roles unset
 
     assert principal.existing_roles is None
+    tra.provision_tenant_access(
+        client, "homelab", [principal], admin_authority=_authority("provisioner:deploy")
+    )
+    assert client.identities["webui-user-1"] == {
+        "role": "Agent",
+        "teams": ["support"],
+        "roles": ["control:system", "tenant:homelab"],
+    }
 
-    with pytest.raises(tra.TenantAdmissionError, match="existing_roles is unknown"):
+
+def test_tenant_admission_refuses_stale_manifest_and_does_not_write() -> None:
+    client = tra.FixtureEngineIdentityClient()
+    client.identities["webui-user-1"] = {
+        "role": "Agent",
+        "teams": [],
+        "roles": ["control:system"],
+    }
+    with pytest.raises(tra.TenantAdmissionError, match="manifest roles disagree"):
         tra.provision_tenant_access(
             client,
             "homelab",
-            [principal],
+            [tra.TenantPrincipal(agent_id="webui-user-1", existing_roles=())],
             admin_authority=_authority("provisioner:deploy"),
         )
+    assert not any(c == "register_identity" for c, _ in client.calls)
 
-    assert client.calls == [], (
-        "an unknown prior role set must never reach register_identity — "
-        "fail closed, never write a possibly-reduced set"
+
+def test_tenant_admission_refuses_denied_or_malformed_eg_read() -> None:
+    class DeniedClient(tra.FixtureEngineIdentityClient):
+        def get_identity(self, _agent_id: str):
+            raise PermissionError("ACCESS_DENIED")
+
+    class MalformedClient(tra.FixtureEngineIdentityClient):
+        def get_identity(self, _agent_id: str):
+            return {"agent_id": "webui-user-1", "roles": []}
+
+    for client in (DeniedClient(), MalformedClient()):
+        with pytest.raises(tra.TenantAdmissionError, match="GetIdentity"):
+            tra.provision_tenant_access(
+                client,
+                "homelab",
+                [tra.TenantPrincipal(agent_id="webui-user-1")],
+                admin_authority=_authority("provisioner:deploy"),
+            )
+        assert not any(c == "register_identity" for c, _ in client.calls)
+
+
+def test_tenant_admission_preserves_eg_manager_identity() -> None:
+    client = tra.FixtureEngineIdentityClient()
+    client.identities["webui-user-1"] = {
+        "role": {"Manager": {"subordinates": ["worker-1"]}},
+        "teams": ["support"],
+        "roles": ["code-reader"],
+    }
+    tra.provision_tenant_access(
+        client,
+        "homelab",
+        [tra.TenantPrincipal(agent_id="webui-user-1")],
+        admin_authority=_authority("provisioner:deploy"),
     )
+    assert client.identities["webui-user-1"] == {
+        "role": {"Manager": {"subordinates": ["worker-1"]}},
+        "teams": ["support"],
+        "roles": ["code-reader", "tenant:homelab"],
+    }
 
 
 def test_self_admission_is_skipped_and_never_drops_the_admitting_principals_own_roles() -> (
@@ -252,6 +283,9 @@ def test_provision_tenant_access_requires_at_least_one_principal() -> None:
 
 def test_a_failed_admission_rpc_is_never_swallowed() -> None:
     class FailingClient:
+        def get_identity(self, _agent_id: str):
+            return None
+
         def register_identity(self, **kwargs: object) -> str:
             raise RuntimeError("engine unreachable")
 
