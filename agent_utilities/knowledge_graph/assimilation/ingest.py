@@ -20,10 +20,14 @@ members instead of re-processing the whole batch (per-paper skip).
 Concept: ingest-adapters
 """
 
-import hashlib
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from epistemic_graph.assimilation_source import (
+    canonical_source_id,
+    content_fingerprint,
+)
 
 from ...models.knowledge_graph import RegistryNodeType
 from .dedup import iter_typed_nodes
@@ -36,9 +40,6 @@ _CONCEPT_ID_GATE = re.compile(
     r"^[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
 )  # OKF-CIS (OS-5.77)
 
-_ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d+\.\d+)(?:v\d+)?", re.IGNORECASE)
-_DOI = re.compile(r"(?:doi\.org/|doi:)\s*(10\.\S+)", re.IGNORECASE)
-_WS = re.compile(r"\s+")
 # Concept ids referenced in a doc (KG-2.7 / AHE-3.12 / ORCH-1.3b) — the exact
 # signal the gap matcher (auto_satisfy) uses to recognize already-built features.
 _CONCEPT_REF = re.compile(r"\b([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)\b")
@@ -50,34 +51,6 @@ class IngestReport:
     updated: int = 0  # existing node, changed content
     skipped: int = 0  # unchanged (idempotent no-op)
     node_ids: list[str] = field(default_factory=list)
-
-
-def canonical_source_id(uri: str) -> str:
-    """Canonicalize a source URI so equivalent references collapse to one id.
-
-    arxiv abs/pdf/versioned → ``arxiv:<id>``; DOI variants → ``doi:<id>``; other
-    URLs → ``url:<host/path>`` (trailing slash + scheme stripped); file paths →
-    ``file:<normalized path>``.
-    """
-    u = (uri or "").strip()
-    if not u:
-        return ""
-    m = _ARXIV.search(u)
-    if m:
-        return f"arxiv:{m.group(1)}"
-    m = _DOI.search(u)
-    if m:
-        return f"doi:{m.group(1).rstrip('/')}"
-    if u.startswith(("http://", "https://")):
-        rest = u.split("://", 1)[1].rstrip("/").lower()
-        return f"url:{rest}"
-    return f"file:{u.rstrip('/')}"
-
-
-def content_fingerprint(text: str) -> str:
-    """Stable per-item content hash (whitespace-normalized SHA-256, 16 hex)."""
-    norm = _WS.sub(" ", (text or "").strip()).lower()
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
 
 
 def _get_node(engine: Any, node_id: str) -> dict[str, Any] | None:

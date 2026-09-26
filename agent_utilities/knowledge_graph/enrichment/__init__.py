@@ -8,6 +8,8 @@ ships the Code/Test vertical slice: the epistemic-graph Rust engine computes AST
 Strategy: ``.specify/design/kg-2.8-enrichment-interlinking/strategy.md``.
 """
 
+from epistemic_graph.entity_text_derivation import derive_entity_text
+
 from .cards import CapabilityCard, generate_symbol_cards, make_llm_fn
 from .classify import TestThresholds, classify_test, test_needs_work
 from .distill import (
@@ -70,7 +72,6 @@ from .registry import (
     write_batch,
 )
 from .semantic import (
-    derive_entity_text,
     embed_and_store,
     find_related,
     link_concepts_to_code,

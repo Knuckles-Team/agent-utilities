@@ -2635,10 +2635,11 @@ def _stage_embedding_change(
     supplied by the caller, while ``None`` with a non-empty text means "generate
     one" and ``None`` with an empty text means "nothing to embed".
     """
+    from epistemic_graph.entity_text_derivation import derive_entity_text
+
     from ..enrichment.semantic import (
         EMBEDDING_BACKFILL_STATE_FIELD,
         EMBEDDING_INDEX_READY_FIELD,
-        derive_entity_text,
     )
 
     payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
@@ -2876,10 +2877,11 @@ def _commit_one_embedded_vector(
     CAS and applies NEITHER side; a failed commit leaves the durable vector null
     (the source write itself stays valid).
     """
+    from epistemic_graph.entity_text_derivation import derive_entity_text_snapshot
+
     from ..enrichment.semantic import (
         EMBEDDING_BACKFILL_STATE_FIELD,
         EMBEDDING_INDEX_READY_FIELD,
-        derive_entity_text_snapshot,
     )
 
     text, text_conditions = derive_entity_text_snapshot(current)

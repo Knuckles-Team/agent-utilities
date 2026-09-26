@@ -27,6 +27,12 @@ Concept: lifecycle-ledger
 from dataclasses import dataclass
 from typing import Any
 
+from epistemic_graph.assimilation_lifecycle_derivation import (
+    assimilation_edge_properties,
+    feature_ledger_row,
+    feature_properties,
+)
+
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
 from .gap_analysis import _FEATURE_TYPES, is_closed
 
@@ -66,14 +72,14 @@ def record_feature(
     codebase: str = "",
 ) -> str:
     """Upsert an ``SDDFeature`` lifecycle node. Idempotent by ``feature_id``."""
-    props = {
-        "name": name,
-        "concept_ids": list(concept_ids),
-        "research_sources": list(research_sources),
-        "status": status,
-        "sdd_path": sdd_path,
-        "codebase": codebase,
-    }
+    props = feature_properties(
+        name=name,
+        concept_ids=concept_ids,
+        research_sources=research_sources,
+        status=status,
+        sdd_path=sdd_path,
+        codebase=codebase,
+    )
     engine.add_node(feature_id, _SDD, properties=props)
     return feature_id
 
@@ -107,13 +113,7 @@ def close_out(
     data = _get_node(engine, feature_id) or {}
     sources = list(data.get("research_sources", []) or [])
     cb = codebase if codebase is not None else str(data.get("codebase", "") or "")
-    assim_props: dict[str, Any] = {
-        "_rel": "ASSIMILATED_INTO",
-        "status": status,
-        "concept": "AU-KG.query.vendor-agnostic-traversal",
-    }
-    if assimilation_date:
-        assim_props["assimilation_date"] = assimilation_date
+    assim_props = assimilation_edge_properties(status, assimilation_date)
     for src in sources:
         engine.link_nodes(
             feature_id,
@@ -138,21 +138,10 @@ def promote_feature_ledger(engine: Any, rows: list[dict[str, Any]]) -> int:
     """Lift YAML feature-ledger rows into ``SDDFeature`` nodes. Returns count."""
     written = 0
     for row in rows:
-        fid = str(row.get("id") or "").strip()
-        if not fid:
+        projected = feature_ledger_row(row)
+        if projected is None:
             continue
-        concept = str(row.get("concept", "") or "")
-        concept_ids = [concept] if concept and concept != "UNKNOWN" else []
-        source = str(row.get("source", "") or "")
-        record_feature(
-            engine,
-            feature_id=fid,
-            name=str(row.get("name", fid)),
-            concept_ids=concept_ids,
-            research_sources=[source] if source else [],
-            status=str(row.get("status", "open") or "open"),
-            sdd_path=str(row.get("target", "") or ""),
-        )
+        record_feature(engine, **projected)
         written += 1
     return written
 

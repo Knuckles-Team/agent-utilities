@@ -4017,7 +4017,7 @@ def _dockerhub_namespaces(ids: list[str] | None) -> list[str]:
 
 def _dockerhub_image_entity(doc: Any, ns: str, repo_node: str) -> dict[str, Any] | None:
     """One DockerHub repo record as a :ContainerImage the namespace ``contains``."""
-    from ..etl.transforms import coalesce
+    from epistemic_graph.etl_transforms import coalesce
 
     rec = _record_of(doc)
     name = coalesce(rec, "name") or getattr(doc, "id", None)
@@ -4051,7 +4051,7 @@ def _dockerhub_namespace_slice(
     engine: Any, ns: str, mode: str
 ) -> tuple[int, int, str | None]:
     """Drain + ingest one namespace, as ``(images_seen, failed, since)``."""
-    from ..etl.transforms import stable_id
+    from epistemic_graph.etl_transforms import stable_id
 
     since = (
         None
@@ -4091,8 +4091,8 @@ def _sync_dockerhub(
     ``contains`` the namespace's :Repository. Delta = the ``last_updated`` watermark.
 
     Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
-    :func:`~..etl.transforms.coalesce` for the image-name fallback and
-    :func:`~..etl.transforms.stable_id` for the ``dockerhub:<ns>[/<name>]`` node ids
+    :func:`epistemic_graph.etl_transforms.coalesce` for the image-name fallback and
+    :func:`epistemic_graph.etl_transforms.stable_id` for the ``dockerhub:<ns>[/<name>]`` node ids
     — as the first migrated handler proving the pattern.
 
     AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
@@ -5077,14 +5077,14 @@ def _sync_audiobookshelf(
 
 def _firefly_attrs(doc: Any) -> dict[str, Any]:
     """A Firefly III JSON:API record's ``attributes`` block (the real fields)."""
-    from ..etl.transforms import dig
+    from epistemic_graph.etl_transforms import dig
 
     return dig(_record_of(doc), "attributes", default={})
 
 
 def _firefly_account_entity(doc: Any) -> dict[str, Any] | None:
     """One Firefly III account record as an :Account entity."""
-    from ..etl.transforms import coalesce, stable_id
+    from epistemic_graph.etl_transforms import coalesce, stable_id
 
     aid = getattr(doc, "id", None)
     if not aid:
@@ -5107,7 +5107,7 @@ def _firefly_account_entity(doc: Any) -> dict[str, Any] | None:
 
 def _firefly_budget_entity(doc: Any) -> dict[str, Any] | None:
     """One Firefly III budget record as a :Budget entity."""
-    from ..etl.transforms import coalesce, stable_id
+    from epistemic_graph.etl_transforms import coalesce, stable_id
 
     bid = getattr(doc, "id", None)
     if not bid:
@@ -5136,7 +5136,7 @@ def _firefly_transaction_links(
     first: dict[str, Any], node_id: str
 ) -> list[dict[str, Any]]:
     """A transaction's ``part_of`` source account and ``member_of`` budget edges."""
-    from ..etl.transforms import stable_id
+    from epistemic_graph.etl_transforms import stable_id
 
     tx_links: list[dict[str, Any]] = []
     if src_acct := first.get("source_id"):
@@ -5162,7 +5162,7 @@ def _firefly_transaction_links(
 
 def _firefly_transaction_entity(doc: Any) -> dict[str, Any] | None:
     """One Firefly III transaction record as a :Transaction entity."""
-    from ..etl.transforms import coalesce, stable_id
+    from epistemic_graph.etl_transforms import coalesce, stable_id
 
     tid = getattr(doc, "id", None)
     if not tid:
@@ -5200,9 +5200,9 @@ def _sync_firefly_iii(
     Delta = the ``updated_at`` watermark across the three object types.
 
     Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
-    :func:`~..etl.transforms.dig` for the JSON:API ``attributes`` envelope unwrap
-    (replacing the handler-local ``_attrs`` helper), :func:`~..etl.transforms.coalesce`
-    for name fallbacks, and :func:`~..etl.transforms.stable_id` for node ids.
+    :func:`epistemic_graph.etl_transforms.dig` for the JSON:API ``attributes`` envelope unwrap
+    (replacing the handler-local ``_attrs`` helper), :func:`epistemic_graph.etl_transforms.coalesce`
+    for name fallbacks, and :func:`epistemic_graph.etl_transforms.stable_id` for node ids.
 
     AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
     account/budget/transaction is one ``ChangeEnvelope`` via
@@ -6245,7 +6245,7 @@ def _connector_manifest_gate(norm_source: str, mode: str) -> dict[str, Any] | No
     a precheck exception all refuse BEFORE dispatch — there is no unowned runtime
     connector pass-through (CONCEPT:AU-KG.ontology.connector-manifest-gate, D17).
     """
-    from ..etl.result import EtlResult
+    from epistemic_graph.etl_result import EtlResult
 
     try:
         from ..ontology.connector_manifest_gate import precheck_source
@@ -6282,7 +6282,7 @@ def _connector_manifest_gate(norm_source: str, mode: str) -> dict[str, Any] | No
 
 def _etl_split_fields(res: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split a raw connector result into canonical ``EtlResult`` fields + details."""
-    from ..etl.result import EtlResult
+    from epistemic_graph.etl_result import EtlResult
 
     canonical_fields = set(EtlResult.model_fields)
     payload = {key: value for key, value in res.items() if key in canonical_fields}
@@ -6296,7 +6296,7 @@ def _etl_result_payload(res: Any, norm_source: str, mode: str) -> dict[str, Any]
     Connector-specific diagnostics are namespaced under ``details`` and are never
     interpreted as canonical counts (CONCEPT:AU-KG.etl.result-contract).
     """
-    from ..etl.result import EtlResult
+    from epistemic_graph.etl_result import EtlResult
 
     if isinstance(res, EtlResult):
         return res.model_dump()
@@ -6329,7 +6329,7 @@ def sync_source(
     full hydrate via the capability registry.
 
     Every dispatch path is projected onto the strict
-    :class:`..etl.result.EtlResult` wire schema
+    :class:`epistemic_graph.etl_result.EtlResult` wire schema
     (CONCEPT:AU-KG.etl.result-contract). Connector-specific diagnostics are
     namespaced under ``details`` and are not interpreted as canonical counts.
 

@@ -21,6 +21,7 @@ import unicodedata
 from collections.abc import AsyncGenerator, Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
+from epistemic_graph.identity_candidate_derivation import aggregate_confidence
 from pydantic import BaseModel, Field
 
 from agent_utilities.numeric import xp
@@ -577,19 +578,6 @@ def _coerce_fact(raw: dict[str, Any], source_file: str) -> ExtractedFact | None:
 # --------------------------------------------------------------------------- #
 # Persistence + export
 # --------------------------------------------------------------------------- #
-
-
-def aggregate_confidence(confidences: Iterable[float]) -> float:
-    """Product-complement confidence ``1 − ∏(1 − cᵢ)`` over members (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot).
-
-    Each ``cᵢ`` is a 0..1 confidence. Independent weak mentions *reinforce*: two
-    0.5 mentions combine to 0.75, three to 0.875 — corroboration raises the edge's
-    confidence rather than averaging it down (sift-kg ``knowledge_graph.py:362``).
-    """
-    comp = 1.0
-    for c in confidences:
-        comp *= 1.0 - max(0.0, min(1.0, c))
-    return 1.0 - comp
 
 
 def persist_facts(store: Any, facts: Iterable[ExtractedFact]) -> dict[str, int]:

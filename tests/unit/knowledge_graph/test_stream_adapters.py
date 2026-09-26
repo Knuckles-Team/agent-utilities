@@ -10,6 +10,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from agent_utilities.knowledge_graph.streams import make_stream_adapter
 from agent_utilities.knowledge_graph.streams.kafka_adapter import KafkaStreamAdapter
 from agent_utilities.knowledge_graph.streams.nats_adapter import NatsStreamAdapter
@@ -103,3 +105,13 @@ def test_decode_tolerates_non_json():
     )
     batch = asyncio.run(adapter.consume_batch())
     assert batch.events[0]["payload"] == {"raw": "not json"}
+
+
+def test_nats_rejects_non_object_json_without_ack():
+    message = FakeNatsMsg(b"[]")
+    adapter = NatsStreamAdapter(
+        _cfg(source_type="nats"), subscription=FakeNatsSub([message])
+    )
+    with pytest.raises(ValueError, match="must be an object"):
+        asyncio.run(adapter.consume_batch())
+    assert not message.acked

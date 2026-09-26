@@ -9,9 +9,11 @@ blast radius of a change (the files that historically move together).
 
 from __future__ import annotations
 
-import subprocess
-
-from epistemic_graph.git_derivation import DEFAULT_MIN_SUPPORT, derive_change_coupling
+from epistemic_graph.git_derivation import (
+    DEFAULT_MIN_SUPPORT,
+    derive_change_coupling,
+    git_file_changes,
+)
 
 from .models import EdgeRung, EnrichmentEdge
 
@@ -39,41 +41,8 @@ def parse_change_coupling(
     ]
 
 
-def git_log_file_changes(repo_path: str, max_commits: int = 500) -> list[list[str]]:
-    """Per-commit changed-file lists from ``git log`` (newest first). Returns an
-    empty list when ``repo_path`` is not a git work-tree or git is unavailable."""
-    try:
-        out = subprocess.run(
-            [
-                "git",
-                "-C",
-                repo_path,
-                "log",
-                f"-n{max_commits}",
-                "--name-only",
-                "--pretty=format:%x01",  # SOH record separator between commits
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if out.returncode != 0:
-        return []
-    commits: list[list[str]] = []
-    for block in out.stdout.split("\x01"):
-        files = [ln.strip() for ln in block.splitlines() if ln.strip()]
-        if files:
-            commits.append(files)
-    return commits
-
-
 def change_coupling_for_repo(
     repo_path: str, min_support: int = DEFAULT_MIN_SUPPORT, max_commits: int = 500
 ) -> list[EnrichmentEdge]:
     """Mine ``FILE_CHANGES_WITH`` edges from a repo's git history end-to-end."""
-    return parse_change_coupling(
-        git_log_file_changes(repo_path, max_commits), min_support
-    )
+    return parse_change_coupling(git_file_changes(repo_path, max_commits), min_support)

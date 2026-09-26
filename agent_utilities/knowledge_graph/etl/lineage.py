@@ -76,7 +76,6 @@ _RUN_KIND = "etl_run"
 _CONNECTOR_SYNC_KIND = "connector_sync"
 _CONNECTOR_SYNC_CLAIM_TYPE = "observation"
 _SYSTEM_KIND = "system"
-_OPENLINEAGE_ACTIVITY_KIND = "openlineage_run"
 _DATASET_MARKER_KIND = "dataset"
 
 
@@ -488,10 +487,9 @@ def record_openlineage_run_event(engine: Any, event: dict[str, Any]) -> str | No
     naturally advances the SAME node's ``status`` rather than needing a
     separate dedupe table.
 
-    Validation/classification is :func:`~.openlineage_consumer.map_openlineage_event`'s
-    job (imported locally to avoid a module-load cycle with
-    ``openlineage_consumer``, which itself calls this function). A
-    :class:`~.openlineage_consumer.QuarantinedLineageEvent` result is logged
+    Validation/classification and activity identity live in EG's
+    ``openlineage_derivation`` module. A
+    ``QuarantinedLineageEvent`` result is logged
     and this returns ``None`` — no ``prov:Entity``/``prov:Activity`` is ever
     fabricated for an event that failed to map (DEC-CA-05's Authority
     section). Otherwise best-effort and engine-guarded, exactly like
@@ -504,7 +502,12 @@ def record_openlineage_run_event(engine: Any, event: dict[str, Any]) -> str | No
     if not callable(add_node):
         return None
 
-    from .openlineage_consumer import QuarantinedLineageEvent, map_openlineage_event
+    from epistemic_graph.openlineage_derivation import (
+        QuarantinedLineageEvent,
+        map_openlineage_event,
+        openlineage_activity_id,
+        openlineage_activity_properties,
+    )
 
     mapped = map_openlineage_event(event)
     if isinstance(mapped, QuarantinedLineageEvent):
@@ -516,20 +519,12 @@ def record_openlineage_run_event(engine: Any, event: dict[str, Any]) -> str | No
         )
         return None
 
-    digest = hashlib.sha256(mapped.run_id.encode()).hexdigest()
-    activity_id = f"activity:{_OPENLINEAGE_ACTIVITY_KIND}:{digest}"
+    activity_id = openlineage_activity_id(mapped.run_id)
     try:
         add_node(
             activity_id,
             RegistryNodeType.PROVENANCE_ACTIVITY,
-            {
-                "kind": _OPENLINEAGE_ACTIVITY_KIND,
-                "job": mapped.job_name,
-                "jobNamespace": mapped.job_namespace,
-                "eventType": mapped.event_type,
-                "status": mapped.activity_status,
-                "at": time.time(),
-            },
+            openlineage_activity_properties(mapped, at=time.time()),
         )
         for dataset_id in mapped.input_dataset_ids:
             marker = _dataset_marker(engine, dataset_id)

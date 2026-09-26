@@ -9,11 +9,15 @@ each Kafka record into a normalized event dict consumed by
 ``EventStreamIngester``.
 """
 
-import json
 import logging
 import re
 import time
 from typing import Any
+
+from agent_connector_sdk.transports.stream_payload import (
+    decode_json_value_or_none,
+    decode_stream_payload,
+)
 
 from ..core.company_brain import BaseStreamAdapter, StreamBatch
 
@@ -93,20 +97,6 @@ class KafkaStreamAdapter(BaseStreamAdapter):
                 logger.debug("Kafka stop failed: %s", exc)
         self._connected = False
 
-    @staticmethod
-    def _decode(value: Any) -> dict[str, Any]:
-        if isinstance(value, bytes):
-            try:
-                value = value.decode("utf-8")
-            except Exception:  # pragma: no cover
-                return {"raw": repr(value)}
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except (ValueError, json.JSONDecodeError):
-                return {"raw": value}
-        return value if isinstance(value, dict) else {"raw": str(value)}
-
     async def consume_batch(self, batch_size: int = 100) -> StreamBatch:
         if not self._connected or self._consumer is None:
             raise RuntimeError("Kafka adapter not connected")
@@ -126,7 +116,7 @@ class KafkaStreamAdapter(BaseStreamAdapter):
         src_type: Any = getattr(self.config, "source_type", "kafka")
         events: list[dict[str, Any]] = []
         for rec in records[:batch_size]:
-            payload = self._decode(getattr(rec, "value", rec))
+            payload = decode_stream_payload(getattr(rec, "value", rec))
             events.append(
                 {
                     "event_id": payload.get("event_id")
@@ -230,22 +220,6 @@ class DebeziumKafkaConsumer(KafkaStreamAdapter):
             self._topic_pattern.pattern,
         )
 
-    @staticmethod
-    def _decode_json(value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, bytes):
-            try:
-                value = value.decode("utf-8")
-            except Exception:  # noqa: BLE001 — undecodable bytes fail closed (below), never raise mid-batch
-                return None
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except (ValueError, json.JSONDecodeError):
-                return None
-        return value
-
     async def drain_once(
         self,
         engine: Any,
@@ -278,8 +252,8 @@ class DebeziumKafkaConsumer(KafkaStreamAdapter):
         for topic_partition, records in partitions.items():
             commit_offset: int | None = None
             for rec in records:
-                key = self._decode_json(getattr(rec, "key", None))
-                value = self._decode_json(getattr(rec, "value", rec))
+                key = decode_json_value_or_none(getattr(rec, "key", None))
+                value = decode_json_value_or_none(getattr(rec, "value", rec))
                 if value is None:
                     # Malformed payload — rejected, not silently skipped
                     # (W06's negative test): stop here, do not commit past it.

@@ -131,12 +131,14 @@ def test_git_modified_source_files_filters(monkeypatch):
     import subprocess as _sp
 
     porcelain = (
-        " M agent_utilities/core/foo.py\n"
-        "?? newmodule.py\n"
-        " D removed.py\n"
-        " M README.md\n"
-        " M .venv/lib/site.py\n"
-        "R  old.py -> agent_utilities/renamed.py\n"
+        " M agent_utilities/core/foo.py\0"
+        "?? newmodule.py\0"
+        " D removed.py\0"
+        " M README.md\0"
+        " M .venv/lib/site.py\0"
+        "R  agent_utilities/renamed.py\0old.py\0"
+        "?? agent_utilities/space name.py\0"
+        "?? agent_utilities/newline\nname.py\0"
     )
 
     class _CP:
@@ -148,7 +150,13 @@ def test_git_modified_source_files_filters(monkeypatch):
     monkeypatch.setattr(bi.Path, "is_file", lambda self: True)
     out = bi._git_modified_source_files("/anyrepo")
     names = {p.rsplit("/", 1)[-1] for p in out}
-    assert "foo.py" in names and "newmodule.py" in names and "renamed.py" in names
+    assert {
+        "foo.py",
+        "newmodule.py",
+        "renamed.py",
+        "space name.py",
+        "newline\nname.py",
+    } <= names
     assert "removed.py" not in names  # deletion dropped
     assert "README.md" not in names  # non-source dropped
     assert "site.py" not in names  # vendored (.venv) dropped

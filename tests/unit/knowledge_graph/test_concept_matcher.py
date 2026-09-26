@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
-    ConceptMatcher,
-    Match,
-    _decide,
-    _parse_judge,
-    _top_k_cosine,
-)
+from epistemic_graph.concept_match_derivation import Match, decide_feature, parse_judge
+
+from agent_utilities.knowledge_graph.assimilation.concept_matcher import ConceptMatcher
 
 
 class _Graph:
@@ -55,19 +51,12 @@ def _emb(vec):
 
 # --- parsing / retrieval / fusion units ------------------------------------ #
 def test_parse_judge_handles_json_and_garbage():
-    assert _parse_judge('{"verdict":"covered","confidence":0.9,"why":"x"}')[:2] == (
+    assert parse_judge('{"verdict":"covered","confidence":0.9,"why":"x"}')[:2] == (
         "covered",
         0.9,
     )
-    assert _parse_judge("noise covered noise")[0] == "covered"
-    assert _parse_judge("")[0] == "unrelated"
-
-
-def test_top_k_cosine_orders_and_thresholds():
-    cvecs = [("a", [1.0, 0.0]), ("b", [0.0, 1.0]), ("c", [1.0, 1.0])]
-    out = _top_k_cosine([1.0, 0.0], cvecs, k=2, threshold=0.5)
-    assert out[0][0] == "a"  # exact match ranks first
-    assert "b" not in [c for c, _ in out]  # orthogonal pruned by threshold
+    assert parse_judge("noise covered noise")[0] == "covered"
+    assert parse_judge("")[0] == "unrelated"
 
 
 def test_decide_prefers_covered_over_related():
@@ -77,7 +66,7 @@ def test_decide_prefers_covered_over_related():
         ),
         Match("AU-KG.ingest.engineering-rules", 0.8, "covered", 0.9, 0.86, "llm_judge"),
     ]
-    fm = _decide("f", ms, judge_accept=0.6)
+    fm = decide_feature("f", ms, judge_accept=0.6)
     assert (
         fm.decision == "covered"
         and fm.best.concept_id == "AU-KG.ingest.engineering-rules"

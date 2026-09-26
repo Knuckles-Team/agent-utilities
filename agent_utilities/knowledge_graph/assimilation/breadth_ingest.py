@@ -405,10 +405,18 @@ def _is_self_repo(path: str | Path) -> bool:
 
 
 def _run_git_status(root: Path) -> subprocess.CompletedProcess[str] | None:
-    """Run ``git status --porcelain`` bounded, returning None on any failure."""
+    """Run NUL-delimited porcelain status, bounded, returning None on failure."""
     try:
         return subprocess.run(  # nosec B607 B603
-            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+            [
+                "git",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
             capture_output=True,
             text=True,
             timeout=15,
@@ -418,16 +426,15 @@ def _run_git_status(root: Path) -> subprocess.CompletedProcess[str] | None:
 
 
 def _source_file_from_status_line(
-    line: str, root: Path, source_extensions: frozenset[str]
+    entry: str, root: Path, source_extensions: frozenset[str]
 ) -> str | None:
-    """Resolve one ``git status --porcelain`` line to an absolute source path."""
-    if not line or len(line) < 4:
+    """Resolve one NUL-delimited porcelain-v1 entry to an absolute source path."""
+    if len(entry) < 4 or entry[2] != " ":
         return None
-    status, rest = line[:2], line[3:]
-    if "D" in status:  # a pure deletion — nothing to (re)parse
+    status, rel = entry[:2], entry[3:]
+    if "D" in status:  # a deletion — nothing to (re)parse
         return None
-    rel = rest.split(" -> ", 1)[1] if " -> " in rest else rest  # rename → new
-    rel = rel.strip().strip('"')
+    # -z emits the literal pathname: no C-quoting or ``old -> new`` parsing.
     fp = (root / rel).resolve()
     if fp.suffix.lower() not in source_extensions:
         return None
@@ -452,10 +459,16 @@ def _git_modified_source_files(path: str | Path) -> list[str]:
     if r is None or r.returncode != 0:
         return []
     out: list[str] = []
-    for line in r.stdout.splitlines():
-        found = _source_file_from_status_line(line, root, SOURCE_EXTENSIONS)
+    entries = iter(r.stdout.split("\0"))
+    for entry in entries:
+        if not entry:
+            continue
+        found = _source_file_from_status_line(entry, root, SOURCE_EXTENSIONS)
         if found is not None:
             out.append(found)
+        # Porcelain v1 -z places a rename/copy's old path in the next field.
+        if "R" in entry[:2] or "C" in entry[:2]:
+            next(entries, None)
     return out
 
 

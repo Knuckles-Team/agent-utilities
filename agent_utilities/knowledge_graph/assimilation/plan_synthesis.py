@@ -29,29 +29,20 @@ Concept: plan-synthesis
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any
+
+from epistemic_graph.assimilation_derivation import pillar_of
+from epistemic_graph.assimilation_plan import PlanProposal, default_synth
 
 from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryEdgeType
 from .ledger import _get_node, set_status
-from .synergy import _pillar_of, rank_features
+from .synergy import rank_features
 
 SynthFn = Callable[[dict[str, Any]], dict[str, str]]
 # Features already in-flight are not re-proposed.
 _INFLIGHT_STATUS = {"proposed", "in_progress"}
-
-
-@dataclass
-class PlanProposal:
-    feature_id: str
-    plan_id: str
-    title: str
-    body: str
-    sources: list[str] = field(default_factory=list)
-    synergies: list[str] = field(default_factory=list)
-    status: str = "proposed"
 
 
 def _neighbors_by_rel(engine: Any, fid: str, rel: str) -> list[str]:
@@ -84,30 +75,11 @@ def hydrate_feature(engine: Any, feature_id: str) -> dict[str, Any]:
         "feature_id": feature_id,
         "name": str(node.get("name", feature_id)),
         "concept_ids": list(node.get("concept_ids", []) or []),
-        "pillar": _pillar_of(node),
+        "pillar": pillar_of(node),
         "sources": sources,
         "synergies": _neighbors_by_rel(engine, feature_id, "HAS_SYNERGY_WITH"),
         "status": str(node.get("status", "open")),
     }
-
-
-def _default_synth(neighborhood: dict[str, Any]) -> dict[str, str]:
-    """Deterministic grounded SDD plan (no LLM) from the hydrated neighborhood."""
-    n = neighborhood
-    syn = f" Synergizes with: {', '.join(n['synergies'])}." if n["synergies"] else ""
-    src = ", ".join(n["sources"]) or "(no linked sources)"
-    title = f"Assimilate: {n['name']}"
-    body = (
-        f"# SDD Plan: {n['name']}\n\n"
-        f"> Pillar: {n['pillar'] or 'n/a'} · Concepts: {', '.join(n['concept_ids']) or 'n/a'}\n\n"
-        f"## Overview\nAssimilate the **{n['name']}** capability into the "
-        f"agent-utilities ecosystem.{syn}\n\n"
-        f"## Evidence / Sources\n{src}\n\n"
-        f"## Implementation\nWire the mechanism on a live path with a concept-tagged "
-        f"test; on completion, close out the source(s) via the assimilation ledger "
-        f"(`ASSIMILATED_INTO`).\n"
-    )
-    return {"title": title, "body": body}
 
 
 def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
@@ -165,7 +137,7 @@ def synthesize_plan_for_feature(
     if synth_fn is not None:
         plan = synth_fn(nb)
     if plan is None:
-        plan = _llm_synth(nb) or _default_synth(nb)
+        plan = _llm_synth(nb) or default_synth(nb)
     proposal = PlanProposal(
         feature_id=feature_id,
         plan_id=f"plan:{feature_id}",

@@ -23,12 +23,16 @@ the existing set — O(new·N) instead of O(N²).
 Concept: feature-dedup
 """
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from epistemic_graph.assimilation_derivation import (
+    cosine_similarity,
+    duplicate_clusters,
+)
+from epistemic_graph.name_resolution import resolve_entities
+
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
-from .entity_resolution import resolve_entities
 
 _DEFAULT_TYPES: tuple[str, ...] = (
     RegistryNodeType.SDD_FEATURE.value,
@@ -53,15 +57,6 @@ class DedupReport:
     variants_linked: int = 0
     # proposals applied from the engine ResolveCandidates escalation
     engine_proposals: int = 0
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=False))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return dot / (na * nb)
 
 
 def iter_all_edges(graph: Any) -> list[tuple[str, str, dict]] | None:
@@ -189,7 +184,7 @@ def _local_pairs(nodes: dict[str, dict[str, Any]], threshold: float):
         ai, av = items[i]
         for j in range(i + 1, len(items)):
             bj, bv = items[j]
-            s = _cosine(av["vec"], bv["vec"])
+            s = cosine_similarity(av["vec"], bv["vec"])
             if s >= threshold:
                 pairs.append((ai, bj, s))
     return pairs
@@ -349,27 +344,6 @@ def _supersede_cluster(
     return survivor, superseded
 
 
-def _clusters(ids: list[str], dup_pairs) -> list[list[str]]:
-    """Union-find connected components over the duplicate pairs (size ≥ 2)."""
-    parent = {n: n for n in ids}
-
-    def find(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for a, b, _ in dup_pairs:
-        if a in parent and b in parent:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-    groups: dict[str, list[str]] = {}
-    for n in ids:
-        groups.setdefault(find(n), []).append(n)
-    return [g for g in groups.values() if len(g) > 1]
-
-
 def dedup_features(
     engine: Any,
     *,
@@ -435,7 +409,7 @@ def dedup_features(
     dup_pairs = [pair for pair in pairs if pair[2] >= dup_threshold]
     dup_pairs.extend(name_dup_pairs)
     dup_pairs.extend(engine_pairs)
-    clusters = _clusters(list(ids), dup_pairs)
+    clusters = duplicate_clusters(list(ids), dup_pairs)
     report.clusters = len(clusters)
     for cluster in clusters:
         survivor, superseded = _supersede_cluster(engine, cluster, nodes, write)

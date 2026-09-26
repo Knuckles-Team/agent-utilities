@@ -32,6 +32,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from epistemic_graph.materialize_derivation import project_extraction_batch
+
 from .models import ExtractionBatch
 from .registry import discover_extractors, get_source
 
@@ -71,33 +73,17 @@ def materialize_source(
     if engine is None:
         return (0, 0)
 
-    entities = [
-        {
-            "id": node.id,
-            "node_type": node.type,
-            **{key: value for key, value in node.props.items() if value is not None},
-        }
-        for node in batch.nodes
-    ]
-    relationships = [
-        {
-            "source": edge.source,
-            "target": edge.target,
-            "relationship": edge.rel_type,
-            **{key: value for key, value in edge.props.items() if value is not None},
-        }
-        for edge in batch.edges
-    ]
+    graph_slice = project_extraction_batch(batch.nodes, batch.edges)
     from ..ingestion.envelope_ingest import ingest_graph_slice
 
     ingest_graph_slice(
         engine,
         category,
-        entities,
-        relationships,
+        graph_slice.entities,
+        graph_slice.relationships,
         source_instance=category,
     )
-    n, e = len(entities), len(relationships)
+    n, e = len(graph_slice.entities), len(graph_slice.relationships)
     logger.info("materialized source %s: %d nodes, %d edges", category, n, e)
     return n, e
 

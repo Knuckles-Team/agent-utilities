@@ -11,10 +11,10 @@ node.
 Survey first (the standing rule for this program) — most of the machinery
 already exists and is reused, not rebuilt:
 
-* :mod:`.entity_resolution` — the entropy-gated exact + MinHash/LSH
+* :mod:`epistemic_graph.name_resolution` — the entropy-gated exact + MinHash/LSH
   normalized-string-similarity ladder (Graphiti-derived), reused directly for
   the "weak on its own" name tier.
-* :func:`~agent_utilities.knowledge_graph.extraction.fact_extractor.aggregate_confidence`
+* :func:`epistemic_graph.identity_candidate_derivation.aggregate_confidence`
   — the product-complement "corroboration reinforces" combiner, reused to
   combine independent evidence kinds rather than reinventing the math.
 * :mod:`.dedup` — the existing ``SIMILAR_TO``/``SUPERSEDES`` auto-merge pass
@@ -77,21 +77,30 @@ inspectable and undoable, exactly as the track's charter requires.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field, replace
-from enum import StrEnum
+from dataclasses import dataclass, replace
 from typing import Any
 
-from agent_utilities.knowledge_graph.extraction.fact_extractor import (
-    aggregate_confidence,
+# EG's generic identifier set includes `wikidata_id` for the EH-362 world
+# reference alignment stream; active pack rules still take precedence.
+from epistemic_graph.identity_candidate_derivation import (
+    GENERIC_IDENTIFIER_FIELDS,
+    EntityRecord,
+    EntityResolutionCandidate,
+    IdentityEvidence,
+    IdentityEvidenceKind,
+    applicable_rules,
+    derive_candidate,
+    exact_identifier_evidence,
+    name_evidence,
+    structural_evidence,
 )
+from epistemic_graph.name_resolution import resolve_entities
+
 from agent_utilities.models.knowledge_graph import RegistryEdgeType
 from agent_utilities.models.schema_pack import IdentityRule
-
-from .entity_resolution import resolve_entities
 
 __all__ = [
     "EntityRecord",
@@ -106,74 +115,9 @@ __all__ = [
     "revert_merge",
 ]
 
-#: The ONE generic fallback identifier-field set used when no active pack
-#: declares an `IdentityRule` for a record's `kind` — a last resort, not a
-#: per-corpus rule (Configuration discipline: one correct default).
-#: ``wikidata_id`` is the QID world-reference-mcp's alignment stream attaches
-#: (EH-362): a shared Wikidata item is exact-identifier evidence.
-GENERIC_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
-    {"cmdb_id", "external_id", "id", "wikidata_id"}
-)
-
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-@dataclass(frozen=True)
-class EntityRecord:
-    """One record to entity-resolve.
-
-    ``identifiers`` carries whatever strong-identifier fields the source
-    system exposes (e.g. ``{"cmdb_id": "CI00012345"}``); ``kind`` scopes which
-    :class:`~agent_utilities.models.schema_pack.IdentityRule`\\ s apply.
-    """
-
-    id: str
-    name: str
-    kind: str = ""
-    identifiers: dict[str, str] = field(default_factory=dict)
-
-
-class IdentityEvidenceKind(StrEnum):
-    """The typed evidence kinds this module can produce — never fabricated,
-    never expanded beyond what a real signal actually computed."""
-
-    EXACT_IDENTIFIER = "exact_identifier"
-    NORMALIZED_NAME = "normalized_name"
-    FUZZY_NAME = "fuzzy_name"
-    STRUCTURAL_CONTEXT = "structural_context"
-
-
-@dataclass(frozen=True)
-class IdentityEvidence:
-    """One piece of evidence toward (or against) two records being the same entity."""
-
-    kind: IdentityEvidenceKind
-    detail: str
-    score: float
-
-    def as_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind.value, "detail": self.detail, "score": self.score}
-
-
-@dataclass
-class EntityResolutionCandidate:
-    """A proposed identity pair — a CANDIDATE, never a merge.
-
-    ``status`` starts and stays ``"candidate"`` for the lifetime of anything
-    :func:`resolve_identity_candidates` returns; only :func:`confirm_merge`
-    (an explicit, separate, human/governance-driven call) ever produces a
-    real identity assertion, and even then the assertion is reversible.
-    """
-
-    id: str
-    entity_a: str
-    entity_b: str
-    evidence: list[IdentityEvidence]
-    confidence: float
-    status: str = "candidate"
-    created_at: str = ""
 
 
 @dataclass
@@ -213,40 +157,6 @@ class MergeDecision:
         }
 
 
-def _pair_id(a: str, b: str) -> str:
-    """Content-addressed, order-independent id for the unordered pair ``{a, b}``."""
-    lo, hi = sorted((a, b))
-    digest = hashlib.sha256(f"{lo}:{hi}".encode()).hexdigest()[:32]
-    return f"identity_candidate:{digest}"
-
-
-def _identifier_fields(rules: Sequence[IdentityRule]) -> tuple[set[str], float]:
-    fields: set[str] = set()
-    score = 0.98
-    for rule in rules:
-        if rule.identifier_fields:
-            fields.update(rule.identifier_fields)
-            score = max(score, rule.exact_identifier_score)
-    if not fields:
-        fields = set(GENERIC_IDENTIFIER_FIELDS)
-    return fields, score
-
-
-def _exact_identifier_evidence(
-    a: EntityRecord, b: EntityRecord, rules: Sequence[IdentityRule]
-) -> IdentityEvidence | None:
-    fields, score = _identifier_fields(rules)
-    for f in sorted(fields):
-        va, vb = a.identifiers.get(f), b.identifiers.get(f)
-        if va and vb and va == vb:
-            return IdentityEvidence(
-                kind=IdentityEvidenceKind.EXACT_IDENTIFIER,
-                detail=f"{f}={va}",
-                score=score,
-            )
-    return None
-
-
 def _name_evidence(a: EntityRecord, b: EntityRecord) -> IdentityEvidence | None:
     """Normalized-string-similarity evidence via the existing entropy-gated ladder.
 
@@ -259,14 +169,7 @@ def _name_evidence(a: EntityRecord, b: EntityRecord) -> IdentityEvidence | None:
     if not result.merge_pairs:
         return None
     _survivor, _dup, score, tier = result.merge_pairs[0]
-    kind = (
-        IdentityEvidenceKind.NORMALIZED_NAME
-        if tier == "exact"
-        else IdentityEvidenceKind.FUZZY_NAME
-    )
-    return IdentityEvidence(
-        kind=kind, detail=f"{a.name!r} ~ {b.name!r} ({tier})", score=float(score)
-    )
+    return name_evidence(a, b, score, tier)
 
 
 def _structural_evidence(
@@ -280,19 +183,7 @@ def _structural_evidence(
     """
     if neighbor_fn is None:
         return None
-    na, nb = neighbor_fn(a_id), neighbor_fn(b_id)
-    if not na or not nb:
-        return None
-    inter = len(na & nb)
-    union = len(na | nb)
-    if union == 0 or inter == 0:
-        return None
-    score = inter / union
-    return IdentityEvidence(
-        kind=IdentityEvidenceKind.STRUCTURAL_CONTEXT,
-        detail=f"{inter}/{union} shared neighbors",
-        score=score,
-    )
+    return structural_evidence(neighbor_fn(a_id), neighbor_fn(b_id))
 
 
 def _active_pack_rules_for(a_kind: str, b_kind: str) -> list[IdentityRule]:
@@ -330,7 +221,8 @@ def resolve_identity_candidates(
 ) -> list[EntityResolutionCandidate]:
     """Compare every pair in ``records``; return ambiguity-preserving candidates.
 
-    Pure function — no engine, no store, no write anywhere in this call.
+    No engine or store write occurs in this call; the default rule path reads
+    the process-active domain pack.
     Every returned :class:`EntityResolutionCandidate` has ``status ==
     "candidate"``; nothing here ever merges.
 
@@ -365,9 +257,9 @@ def resolve_identity_candidates(
                 if identity_rules is None
                 else identity_rules
             )
-            rules = [r for r in pair_rules if r.applies(a.kind) or r.applies(b.kind)]
+            rules = applicable_rules(a.kind, b.kind, pair_rules)
             evidence: list[IdentityEvidence] = []
-            exact = _exact_identifier_evidence(a, b, rules)
+            exact = exact_identifier_evidence(a, b, rules)
             if exact is not None:
                 evidence.append(exact)
             name_ev = _name_evidence(a, b)
@@ -376,29 +268,9 @@ def resolve_identity_candidates(
             structural = _structural_evidence(a.id, b.id, neighbor_fn)
             if structural is not None:
                 evidence.append(structural)
-            if not evidence:
-                continue
-
-            confidence = aggregate_confidence(e.score for e in evidence)
-            scoped_thresholds = [
-                r.min_confidence_to_flag
-                for r in rules
-                if r.identifier_fields or r.name_fields
-            ]
-            threshold = min(scoped_thresholds) if scoped_thresholds else min_confidence
-            if confidence < threshold:
-                continue
-
-            candidates.append(
-                EntityResolutionCandidate(
-                    id=_pair_id(a.id, b.id),
-                    entity_a=a.id,
-                    entity_b=b.id,
-                    evidence=evidence,
-                    confidence=confidence,
-                    created_at=now,
-                )
-            )
+            candidate = derive_candidate(a, b, evidence, rules, min_confidence, now)
+            if candidate is not None:
+                candidates.append(candidate)
     return candidates
 
 

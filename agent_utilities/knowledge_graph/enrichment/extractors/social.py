@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from ...etl.transforms import coalesce, dig
+from epistemic_graph.etl_transforms import coalesce, dig
 
 __all__ = [
     "KNOWN_TOOL_DOMAINS",
@@ -184,7 +184,7 @@ def extract_structured_entities(
     ``legacy.entities.*``, tolerating field-name drift within each (``tag`` vs
     ``text`` for hashtags, ``screen_name`` vs ``username`` for mentions,
     ``expanded_url`` vs ``url`` for links) via the shared dotted-path digger
-    (:func:`agent_utilities.knowledge_graph.etl.transforms.dig`) rather than a
+    (:func:`epistemic_graph.etl_transforms.dig`) rather than a
     bespoke per-connector traversal. Never raises — an absent/malformed
     ``entities`` block yields an empty :class:`StructuredEntities`.
 

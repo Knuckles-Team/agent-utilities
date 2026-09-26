@@ -7,8 +7,6 @@ CONCEPT:AU-KG.query.vendor-agnostic-traversal
 import pytest
 
 from agent_utilities.knowledge_graph.assimilation import (
-    canonical_source_id,
-    content_fingerprint,
     ingest_conversations,
     ingest_documents,
 )
@@ -32,23 +30,6 @@ class _Engine:
     def add_node(self, node_id, node_type, properties=None, ephemeral=False):
         self.add_calls += 1
         self.graph._n[node_id] = {**(properties or {}), "type": node_type}
-
-
-# --- canonicalization -------------------------------------------------------
-def test_canonical_arxiv_collapses_abs_pdf_version():
-    a = canonical_source_id("https://arxiv.org/abs/2605.07069")
-    b = canonical_source_id("https://arxiv.org/pdf/2605.07069v3")
-    assert a == b == "arxiv:2605.07069"
-
-
-def test_canonical_doi_and_file():
-    assert canonical_source_id("https://doi.org/10.1234/xyz") == "doi:10.1234/xyz"
-    assert canonical_source_id("/papers/foo.pdf") == "file:/papers/foo.pdf"
-
-
-def test_fingerprint_ignores_whitespace_and_case():
-    assert content_fingerprint("Hello  World") == content_fingerprint("hello world")
-    assert content_fingerprint("a") != content_fingerprint("b")
 
 
 # --- idempotency ------------------------------------------------------------

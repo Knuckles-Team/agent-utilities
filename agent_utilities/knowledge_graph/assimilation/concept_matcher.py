@@ -39,28 +39,30 @@ model is loaded and no env flag is added (config discipline).
 Concept: concept-matcher
 """
 
-import json
 import logging
-import math
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
+
+from epistemic_graph.assimilation_source import content_fingerprint
+from epistemic_graph.concept_match_derivation import (
+    FeatureMatch,
+    Match,
+    Verdict,
+    candidate_match,
+    concept_key,
+    cosine_verdict,
+    decide_feature,
+    explicit_id_match,
+    parse_judge,
+    top_k_cosine,
+)
 
 from ...models.knowledge_graph import RegistryEdgeType
 from .dedup import iter_all_edges
-from .gap_analysis import (
-    GapReport,
-    _collect_rich,
-    _concept_key,
-    _feature_refs,
-    _rel_of,
-)
-from .ingest import content_fingerprint
+from .gap_analysis import GapReport, _collect_rich, _rel_of
 
 logger = logging.getLogger(__name__)
-
-Verdict = Literal["covered", "related", "unrelated"]
 
 # --- calibrated thresholds (module constants — config discipline, no env knobs) --
 #: cosine ≥ this makes a concept a *candidate* the judge will adjudicate (recall).
@@ -69,9 +71,6 @@ RETRIEVAL_THRESHOLD = 0.45
 TOP_K = 6
 #: LLM "covered" verdict needs at least this confidence to close a feature.
 JUDGE_ACCEPT = 0.6
-#: deterministic fallback (no LLM): cosine ≥ this → covered; ≥ related → related.
-COVERED_COSINE = 0.82
-RELATED_COSINE = 0.6
 
 # texts -> embeddings (batched); matches enrichment.semantic.EmbedFn
 EmbedFn = Callable[[list[str]], list[list[float]]]
@@ -79,30 +78,6 @@ EmbedFn = Callable[[list[str]], list[list[float]]]
 LLMFn = Callable[[str], str]
 
 _RELATES_TO = "RELATES_TO"  # raw label (enrichment convention; NOT a closing edge)
-
-
-@dataclass
-class Match:
-    """One adjudicated (feature → concept) candidate."""
-
-    concept_id: str
-    cosine: float
-    verdict: Verdict
-    confidence: float
-    score: float  # fused decision strength in [0, 1]
-    method: str  # "id" | "llm_judge" | "cosine"
-    rationale: str = ""
-
-
-@dataclass
-class FeatureMatch:
-    """The matcher's decision for one feature."""
-
-    feature_id: str
-    decision: Verdict
-    best: Match | None
-    novelty_score: float  # 1 − best match strength (1.0 = fully novel)
-    matches: list[Match] = field(default_factory=list)
 
 
 @dataclass
@@ -138,28 +113,6 @@ def _judge_prompt(feature_text: str, concept_text: str) -> str:
         f"EXISTING CAPABILITY:\n{concept_text[:1200]}\n\n"
         f"RESEARCH ITEM:\n{feature_text[:2000]}\n\nJSON:"
     )
-
-
-def _parse_judge(text: str) -> tuple[Verdict, float, str]:
-    """Lenient parse of the judge's JSON; degrades safely to ``unrelated``."""
-    if not text:
-        return "unrelated", 0.0, ""
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    raw = m.group(0) if m else text
-    try:
-        d = json.loads(raw)
-        v = str(d.get("verdict", "")).strip().lower()
-        if v not in ("covered", "related", "unrelated"):
-            v = "unrelated"
-        conf = float(d.get("confidence", 0.0))
-        conf = max(0.0, min(1.0, conf))
-        return v, conf, str(d.get("why", ""))[:240]  # type: ignore[return-value]
-    except (json.JSONDecodeError, ValueError, TypeError):
-        low = text.lower()
-        for v in ("covered", "related", "unrelated"):
-            if v in low:
-                return v, 0.5, ""  # type: ignore[return-value]
-        return "unrelated", 0.0, ""
 
 
 def _feature_text(data: dict[str, Any]) -> str:
@@ -283,7 +236,7 @@ class ConceptMatcher:
             from ..enrichment.cards import make_lite_llm_fn
 
             self._llm_fn = make_lite_llm_fn()
-        out = _parse_judge(self._llm_fn(_judge_prompt(feature_text, ctext)))
+        out = parse_judge(self._llm_fn(_judge_prompt(feature_text, ctext)))
         self._judge_cache[key] = out
         return out
 
@@ -318,7 +271,7 @@ class ConceptMatcher:
         if recall_fn is not None:
             return recall_fn(feature_vec)
         if concept_vecs:
-            return _top_k_cosine(
+            return top_k_cosine(
                 feature_vec, concept_vecs, self.top_k, self.retrieval_threshold
             )
         return []
@@ -341,10 +294,9 @@ class ConceptMatcher:
                 )
                 method = "llm_judge"
             else:
-                verdict, conf, why = _cosine_verdict(cos)
+                verdict, conf, why = cosine_verdict(cos)
                 method = "cosine"
-            score = round(0.4 * cos + 0.6 * conf, 6) if verdict != "unrelated" else 0.0
-            matches.append(Match(cid, round(cos, 6), verdict, conf, score, method, why))
+            matches.append(candidate_match(cid, cos, verdict, conf, method, why))
         return matches
 
     # -- core decision for one feature ------------------------------------- #
@@ -360,7 +312,7 @@ class ConceptMatcher:
         recall_fn: Callable[[list[float]], list[tuple[str, float]]] | None = None,
     ) -> FeatureMatch:
         # Stage 0 — explicit id (highest precision)
-        explicit = _explicit_id_match(fid, fdata, concept_by_key)
+        explicit = explicit_id_match(fid, fdata, concept_by_key)
         if explicit is not None:
             return explicit
 
@@ -373,7 +325,7 @@ class ConceptMatcher:
         ftext = _feature_text(fdata)
         fhash = content_fingerprint(ftext)
         matches = self._adjudicate_candidates(ftext, fhash, concept_text, candidates)
-        return _decide(fid, matches, self.judge_accept)
+        return decide_feature(fid, matches, self.judge_accept)
 
     def _match_all_features(
         self,
@@ -509,7 +461,7 @@ def _build_concept_index(
     concept_vecs: list[tuple[str, list[float]]] = []
     concept_text: dict[str, str] = {}
     for cid, cdata in concepts.items():
-        key = _concept_key(cid, cdata)
+        key = concept_key(cid, cdata)
         if key and key not in concept_by_key:
             concept_by_key[key] = cid
         emb = cdata.get("embedding")
@@ -517,92 +469,6 @@ def _build_concept_index(
             concept_vecs.append((cid, list(emb)))
         concept_text[cid] = _concept_text(cdata)
     return concept_by_key, concept_vecs, concept_text
-
-
-def _normalized_or_none(fvec: list[float]) -> list[float] | None:
-    """L2-normalize ``fvec``, or ``None`` when it has zero magnitude."""
-    fnorm = math.sqrt(sum(value * value for value in fvec))
-    if not fnorm:
-        return None
-    return [value / fnorm for value in fvec]
-
-
-def _cosine_scores(
-    normalized: list[float], concept_vecs: list[tuple[str, list[float]]]
-) -> list[tuple[str, float]]:
-    """Cosine of each concept vector against an already-normalized ``normalized``."""
-    from agent_utilities.numeric import xp
-
-    ids = [cid for cid, _ in concept_vecs]
-    vectors = [list(vector) for _, vector in concept_vecs]
-    # Rank the complete bounded concept batch with one native matmul.  The
-    # previous loop crossed the numeric boundary once per concept vector.
-    dots = xp.matmul(vectors, [[value] for value in normalized])
-    norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors]
-    return [
-        (cid, float(row[0]) / norm)
-        for cid, row, norm in zip(ids, dots, norms, strict=True)
-        if norm
-    ]
-
-
-def _top_k_cosine(
-    fvec: list[float],
-    concept_vecs: list[tuple[str, list[float]]],
-    k: int,
-    threshold: float,
-) -> list[tuple[str, float]]:
-    """Top-k concepts by cosine ≥ threshold over the native list boundary."""
-    if not concept_vecs:
-        return []
-    normalized = _normalized_or_none(fvec)
-    if normalized is None:
-        return []
-    scored = _cosine_scores(normalized, concept_vecs)
-    scored.sort(key=lambda t: (-t[1], t[0]))
-    return [
-        (concept_id, score) for concept_id, score in scored[:k] if score >= threshold
-    ]
-
-
-def _explicit_id_match(
-    fid: str, fdata: dict[str, Any], concept_by_key: dict[str, str]
-) -> FeatureMatch | None:
-    """Stage 0 — highest-precision match: the feature declares a concept id
-    that exists in the registry. ``None`` when no declared ref resolves."""
-    for ref in _feature_refs(fid, fdata):
-        cid = concept_by_key.get(ref)
-        if cid:
-            m = Match(cid, 1.0, "covered", 1.0, 1.0, "id", "declared concept id")
-            return FeatureMatch(fid, "covered", m, 0.0, [m])
-    return None
-
-
-def _cosine_verdict(cos: float) -> tuple[Verdict, float, str]:
-    """Deterministic verdict from cosine alone (no-LLM degradation)."""
-    if cos >= COVERED_COSINE:
-        return "covered", cos, "high embedding similarity"
-    if cos >= RELATED_COSINE:
-        return "related", cos, "moderate embedding similarity"
-    return "unrelated", 0.0, ""
-
-
-def _decide(fid: str, matches: list[Match], judge_accept: float) -> FeatureMatch:
-    """Fuse per-candidate verdicts into a single feature decision."""
-    covered = [
-        m for m in matches if m.verdict == "covered" and m.confidence >= judge_accept
-    ]
-    related = [m for m in matches if m.verdict == "related"]
-    if covered:
-        best = max(covered, key=lambda m: m.score)
-        return FeatureMatch(fid, "covered", best, round(1.0 - best.score, 6), matches)
-    if related:
-        best = max(related, key=lambda m: m.score)
-        # novel-but-relevant: novelty is high (related, not covered)
-        return FeatureMatch(
-            fid, "related", best, round(1.0 - 0.5 * best.score, 6), matches
-        )
-    return FeatureMatch(fid, "unrelated", None, 1.0, matches)
 
 
 def _auto_edges_from_iter(

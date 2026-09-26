@@ -5,13 +5,13 @@ CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
 import pytest
+from epistemic_graph.assimilation_plan import default_synth
 
 from agent_utilities.knowledge_graph.assimilation import (
     hydrate_feature,
     synthesize_plan_for_feature,
     synthesize_plans,
 )
-from agent_utilities.knowledge_graph.assimilation.plan_synthesis import _default_synth
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
@@ -86,7 +86,7 @@ def test_hydrate_feature_pulls_neighborhood():
 def test_default_template_is_grounded():
     # The deterministic fallback (no LLM) is grounded in the feature's neighborhood.
     engine = _Engine(_nodes())
-    plan = _default_synth(hydrate_feature(engine, "f1"))
+    plan = default_synth(hydrate_feature(engine, "f1"))
     assert "exec-rag planner" in plan["title"]
     assert "arxiv:pyrag" in plan["body"]  # grounded in the source
     assert "AU-KG.retrieval.memory-first-retrieval" in plan["body"]

@@ -13,6 +13,10 @@ from agent_utilities.knowledge_graph.enrichment.materialize import (
     materialize_source,
     resolve_source_client,
 )
+from agent_utilities.knowledge_graph.enrichment.models import (
+    ExtractionBatch,
+    GraphNode,
+)
 from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 
 
@@ -55,6 +59,29 @@ def test_materialize_submits_extractor_batch_to_native_boundary(monkeypatch):
 def test_none_backend_is_noop_but_runs():
     # No engine → (0, 0) but the extractor still ran without error.
     assert materialize_source(None, "camunda", FakeCamundaClient()) == (0, 0)
+
+
+def test_materialize_rejects_extractor_identity_override_before_write(monkeypatch):
+    batch = ExtractionBatch(
+        category="camunda",
+        nodes=[
+            GraphNode(id="process:real", type="BusinessProcess", props={"id": "forged"})
+        ],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.materialize.extract_source_batch",
+        lambda *_args, **_kwargs: batch,
+    )
+
+    def unexpected_write(*_args, **_kwargs):
+        raise AssertionError("graph write started before projection validation")
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        unexpected_write,
+    )
+    with pytest.raises(ValueError, match="reserved identity"):
+        materialize_source(object(), "camunda", FakeCamundaClient())
 
 
 def test_unknown_category_raises():

@@ -37,13 +37,19 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import functools
-import hashlib
 import inspect
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, cast
+
+from epistemic_graph.timeseries_derivation import (
+    cypher_string,
+    from_nanoseconds,
+    series_id,
+    to_nanoseconds,
+)
 
 from .base import TimeSeriesBackend, TimeSeriesDataPoint
 
@@ -51,41 +57,6 @@ logger = logging.getLogger(__name__)
 
 
 _DurabilityCall = Callable[[], object]
-
-
-def _cypher_string(value: str) -> str:
-    """Render one bounded time-series symbol as a native Cypher string."""
-    if (
-        not isinstance(value, str)
-        or not 1 <= len(value) <= 256
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
-    ):
-        raise ValueError("Time-series symbol is not safely representable")
-    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{escaped}'"
-
-
-def _to_ns(dt: datetime) -> int:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return int(dt.timestamp() * 1_000_000_000)
-
-
-def _from_ns(ns: int) -> datetime:
-    return datetime.fromtimestamp(ns / 1_000_000_000, tz=UTC)
-
-
-def _series_id(symbol: str, tags: dict[str, str] | None) -> str:
-    """Stable series id for a ``(symbol, tags)`` pair.
-
-    Tags are folded into the id (sorted, hashed) so distinct tag-sets get distinct
-    engine series while the same tag-set always resolves to the same id.
-    """
-    if not tags:
-        return f"ts:{symbol}"
-    canon = json.dumps(tags, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(canon.encode("utf-8")).hexdigest()[:32]
-    return f"ts:{symbol}:{digest}"
 
 
 class EngineTimeSeriesBackend(TimeSeriesBackend):
@@ -398,7 +369,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         # strict engine append rejects as one failed durability batch (D-CDX-67).
         grouped: dict[str, list[TimeSeriesDataPoint]] = {}
         for point in points:
-            grouped.setdefault(_series_id(point.symbol, point.tags), []).append(point)
+            grouped.setdefault(series_id(point.symbol, point.tags), []).append(point)
 
         by_series: dict[str, list[tuple[int, list[float]]]] = {}
         meta: dict[str, tuple[str, list[str], dict[str, str] | None]] = {}
@@ -415,7 +386,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
             meta[sid] = (first.symbol, fields, first.tags)
             by_series[sid] = [
                 (
-                    _to_ns(point.timestamp),
+                    to_nanoseconds(point.timestamp),
                     [float(point.metrics.get(field, 0.0)) for field in fields],
                 )
                 for point in series_points
@@ -448,9 +419,9 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         tags: dict[str, str] | None = None,
     ) -> list[TimeSeriesDataPoint]:
         client = self._ensure_client()
-        from_ns, to_ns = _to_ns(start_time), _to_ns(end_time) + 1
+        from_ns, to_ns = to_nanoseconds(start_time), to_nanoseconds(end_time) + 1
         if tags:
-            series_ids = [_series_id(symbol, tags)]
+            series_ids = [series_id(symbol, tags)]
         else:
             series_ids = self._series_for_symbol(symbol)
         out: list[TimeSeriesDataPoint] = []
@@ -465,7 +436,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
                 out.append(
                     TimeSeriesDataPoint(
                         symbol=symbol,
-                        timestamp=_from_ns(ts),
+                        timestamp=from_nanoseconds(ts),
                         metrics=metrics,
                         tags=sid_tags,
                     )
@@ -478,7 +449,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         client = self._ensure_client()
         try:
             rows = client.query.cypher_read(
-                f"MATCH (s:Series) WHERE s.symbol = {_cypher_string(symbol)} "
+                f"MATCH (s:Series) WHERE s.symbol = {cypher_string(symbol)} "
                 "RETURN s.series_id AS series_id"
             )
             ids = [r["series_id"] for r in rows if r.get("series_id")]
@@ -489,7 +460,7 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
                 "series-for-symbol query failed: error_type=%s", type(exc).__name__
             )
         local = [sid for sid in self._fields if sid.startswith(f"ts:{symbol}")]
-        return local or [_series_id(symbol, None)]
+        return local or [series_id(symbol, None)]
 
     def _tags_for(self, series_id: str) -> dict[str, str] | None:
         client = self._ensure_client()

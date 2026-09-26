@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+
 from agent_utilities.knowledge_graph.enrichment.git_coupling import (
+    change_coupling_for_repo,
     parse_change_coupling,
 )
 from agent_utilities.knowledge_graph.enrichment.iac import (
@@ -62,3 +65,25 @@ def test_parse_change_coupling_counts_cochanges():
     assert all(e.rel_type == "FILE_CHANGES_WITH" for e in edges)
     # Below-threshold pairs are dropped.
     assert ("file:a.py", "file:d.py") not in pairs
+
+
+def test_git_coupling_entrypoint_preserves_newlines_in_paths(tmp_path):
+    def git(*args):
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args], check=True, capture_output=True
+        )
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    path = "line\nbreak.py"
+    (tmp_path / path).write_text("test")
+    (tmp_path / "peer.py").write_text("test")
+    git("add", path)
+    git("add", "peer.py")
+    git("commit", "-qm", "test")
+
+    edges = change_coupling_for_repo(str(tmp_path), min_support=1, max_commits=1)
+    assert [(edge.source, edge.target) for edge in edges] == [
+        (f"file:{path}", "file:peer.py")
+    ]

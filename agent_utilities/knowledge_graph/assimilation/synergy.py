@@ -26,6 +26,15 @@ Concept: synergy-ranking
 from dataclasses import dataclass, field
 from typing import Any
 
+from epistemic_graph.assimilation_derivation import (
+    RankedFeature,
+    SynergyBundle,
+    bundle_pillars,
+    connected_components,
+    degree_centrality,
+    rank_feature_rows,
+)
+
 from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryEdgeType
@@ -36,39 +45,10 @@ _EXCLUDED_RELS = {"SUPERSEDES", "SATISFIED_BY"}
 
 
 @dataclass
-class SynergyBundle:
-    members: list[str]
-    pillars: list[str]
-
-
-@dataclass
 class SynergyReport:
     communities: int = 0
     bundles: list[SynergyBundle] = field(default_factory=list)
     edges_written: int = 0
-
-
-@dataclass
-class RankedFeature:
-    feature_id: str
-    score: float
-    source_count: int
-    centrality: float
-
-
-def _pillar_of(data: dict[str, Any]) -> str:
-    """Derive a pillar tag (ORCH/KG/AHE/ECO/OS) from a node's concept ids."""
-    if data.get("pillar"):
-        return str(data["pillar"])
-    for cid in data.get("concept_ids", []) or []:
-        namespace = str(cid).split(".", 1)[0].upper()
-        parts = namespace.split("-")
-        # Semantic ids are namespaced as AU-KG.*, AU-ORCH.*, EG-KG.*, etc.
-        # The platform prefix is not the architectural pillar.
-        head = parts[1] if len(parts) > 1 and parts[0] in {"AU", "EG"} else parts[0]
-        if head:
-            return head
-    return ""
 
 
 def _feature_nodes_full_scan_fallback(
@@ -168,25 +148,6 @@ def _adjacency(engine: Any, ids: set[str]) -> dict[str, set[str]]:
     return adj
 
 
-def _connected_components(ids: set[str], adj: dict[str, set[str]]) -> list[list[str]]:
-    seen: set[str] = set()
-    comps: list[list[str]] = []
-    for start in ids:
-        if start in seen:
-            continue
-        stack, comp = [start], []
-        seen.add(start)
-        while stack:
-            n = stack.pop()
-            comp.append(n)
-            for m in adj.get(n, ()):
-                if m not in seen:
-                    seen.add(m)
-                    stack.append(m)
-        comps.append(comp)
-    return comps
-
-
 def _engine_communities(engine: Any, ids: set[str]) -> list[list[str]] | None:
     """Engine Louvain community_detection, filtered+scoped to ``ids``.
 
@@ -209,17 +170,7 @@ def _communities(
     engine: Any, ids: set[str], adj: dict[str, set[str]]
 ) -> list[list[str]]:
     """Engine Louvain (filtered to features) if available, else components."""
-    return _engine_communities(engine, ids) or _connected_components(ids, adj)
-
-
-def _bundle_pillars(
-    nodes: dict[str, dict], comm: list[str], min_pillars: int
-) -> list[str] | None:
-    """Sorted pillar set for one community, or None if below ``min_pillars``."""
-    pillars = sorted({p for p in (_pillar_of(nodes[n]) for n in comm) if p})
-    if len(pillars) < min_pillars:
-        return None
-    return pillars
+    return _engine_communities(engine, ids) or connected_components(ids, adj)
 
 
 def _write_synergy_edges(engine: Any, ordered: list[str]) -> int:
@@ -266,7 +217,7 @@ def synergy_bundles(
     for comm in comms:
         if len(comm) < 2:
             continue
-        pillars = _bundle_pillars(nodes, comm, min_pillars)
+        pillars = bundle_pillars(nodes, comm, min_pillars)
         if pillars is None:
             continue
         report.bundles.append(SynergyBundle(members=sorted(comm), pillars=pillars))
@@ -310,8 +261,7 @@ def _centrality(
     scores = _engine_pagerank_centrality(engine, ids)
     if scores is not None:
         return scores
-    denom = float(max(1, len(ids) - 1))
-    return {i: len(adj.get(i, ())) / denom for i in ids}
+    return degree_centrality(ids, adj)
 
 
 def rank_features(
@@ -337,21 +287,7 @@ def rank_features(
         return []
     adj = _adjacency(engine, ids)
     cent = _centrality(engine, ids, adj)
-    ranked: list[RankedFeature] = []
-    for fid in ids:
-        srcs = nodes[fid].get("research_sources") or []
-        source_count = max(1, len(srcs))
-        c = float(cent.get(fid, 0.0))
-        ranked.append(
-            RankedFeature(
-                feature_id=fid,
-                score=round(source_count * (1.0 + c), 6),
-                source_count=source_count,
-                centrality=round(c, 6),
-            )
-        )
-    ranked.sort(key=lambda r: (r.score, r.feature_id), reverse=True)
-    return ranked
+    return rank_feature_rows(ids, nodes, cent)
 
 
 __all__ = [

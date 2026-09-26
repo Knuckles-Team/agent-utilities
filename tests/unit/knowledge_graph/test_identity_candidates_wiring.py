@@ -97,6 +97,21 @@ def test_exact_cmdb_identifier_is_strong_evidence_but_still_a_candidate() -> Non
     assert IdentityEvidenceKind.EXACT_IDENTIFIER in kinds
 
 
+def test_generic_wikidata_identifier_survives_eg_derivation_cut() -> None:
+    records = [
+        EntityRecord("entity:a", "Alpha", identifiers={"wikidata_id": "Q42"}),
+        EntityRecord("entity:b", "Beta", identifiers={"wikidata_id": "Q42"}),
+    ]
+    candidates = resolve_identity_candidates(records, identity_rules=())
+    assert len(candidates) == 1
+    assert candidates[0].status == "candidate"
+    assert any(
+        evidence.kind == IdentityEvidenceKind.EXACT_IDENTIFIER
+        and evidence.detail == "wikidata_id=Q42"
+        for evidence in candidates[0].evidence
+    )
+
+
 def test_structural_context_evidence_is_optional_and_never_fabricated() -> None:
     """No neighbor_fn supplied -> no structural evidence is even attempted."""
     records = [

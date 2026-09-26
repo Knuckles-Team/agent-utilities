@@ -6,14 +6,12 @@ import pytest
 
 
 def test_timeseries_cypher_literal_cannot_close_string() -> None:
-    from agent_utilities.knowledge_graph.memory.timeseries.engine_backend import (
-        _cypher_string,
-    )
+    from epistemic_graph.timeseries_derivation import cypher_string
 
-    rendered = _cypher_string("x' RETURN s //")
+    rendered = cypher_string("x' RETURN s //")
     assert rendered == "'x\\' RETURN s //'"
     with pytest.raises(ValueError):
-        _cypher_string("x\nMATCH (n)")
+        cypher_string("x\nMATCH (n)")
 
 
 def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:

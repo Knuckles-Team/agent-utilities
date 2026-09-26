@@ -319,11 +319,11 @@ def ingest_connector_to_table(
     Builds ``source`` from the connector registry, drains its ``load()`` documents
     (capped at ``limit``), flattens each into a row, then ``CREATE TABLE`` +
     bulk ``INSERT`` into ``table`` (defaults to ``conn_<source>``). Returns a
-    strict :class:`~..etl.result.EtlResult` manifest
+    strict :class:`epistemic_graph.etl_result.EtlResult` manifest
     (CONCEPT:AU-KG.etl.result-contract). Table diagnostics are namespaced under
     ``details`` and the row count is explicit.
     """
-    from agent_utilities.knowledge_graph.etl.result import EtlResult
+    from epistemic_graph.etl_result import EtlResult
 
     def _result(payload: dict[str, Any]) -> dict[str, Any]:
         canonical: dict[str, Any] = {

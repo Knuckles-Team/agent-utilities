@@ -808,7 +808,10 @@ class ConnectorSkillDistiller:
         self, candidates: list[SkillCandidate], existing: dict[str, str]
     ) -> None:
         """Embed candidates + existing skills; mark covered when cosine is high."""
-        from ..assimilation.concept_matcher import COVERED_COSINE, _top_k_cosine
+        from epistemic_graph.concept_match_derivation import (
+            COVERED_COSINE,
+            top_k_cosine,
+        )
 
         if self._embed_fn is None:
             from ..enrichment.semantic import make_embed_fn
@@ -819,7 +822,7 @@ class ConnectorSkillDistiller:
         concept_vecs = list(zip(existing_ids, ex_vecs, strict=False))
         cand_vecs = self._embed_fn([f"{c.name} — {c.description}" for c in candidates])
         for c, vec in zip(candidates, cand_vecs, strict=False):
-            top = _top_k_cosine(list(vec), concept_vecs, 1, COVERED_COSINE)
+            top = top_k_cosine(list(vec), concept_vecs, 1, COVERED_COSINE)
             if top:
                 c.novelty = "covered"
                 c.rationale = (

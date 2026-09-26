@@ -24,7 +24,7 @@ normalization in the KG) → LeanIX; ``source="leanix", sink="stardog"`` mirrors
 into Stardog; either side may be omitted for a one-directional run. ``run_etl`` stays
 pure (no MCP/registry import) — the caller resolves ``sink_backend``.
 
-The returned manifest is the serialized :class:`.result.EtlResult`
+The returned manifest is the serialized :class:`epistemic_graph.etl_result.EtlResult`
 (CONCEPT:AU-KG.etl.result-contract). Connector-specific output is isolated under
 ``details``; no field-name guessing is used to manufacture counts.
 """
@@ -32,29 +32,15 @@ The returned manifest is the serialized :class:`.result.EtlResult`
 import logging
 from typing import Any
 
-from .result import EtlResult
+from epistemic_graph.etl_derivation import (
+    aggregate_counts,
+    lineage_direction,
+    step_result,
+)
+from epistemic_graph.etl_result import EtlResult
 
 logger = logging.getLogger(__name__)
 
-
-def _step_result(
-    data: EtlResult | dict[str, Any],
-    *,
-    source: str | None = None,
-    sink: str | None = None,
-    mode: str | None = None,
-) -> EtlResult:
-    """Project one current internal step result onto the strict ETL wire schema."""
-    if isinstance(data, EtlResult):
-        return data
-    fields = set(EtlResult.model_fields)
-    payload = {key: value for key, value in data.items() if key in fields}
-    details = {key: value for key, value in data.items() if key not in fields}
-    payload.setdefault("source", source)
-    payload.setdefault("sink", sink)
-    payload.setdefault("mode", mode)
-    payload["details"] = {**dict(payload.get("details") or {}), **details}
-    return EtlResult.model_validate(payload)
 
 
 def _run_inbound(
@@ -73,7 +59,7 @@ def _run_inbound(
 
     try:
         return (
-            _step_result(
+            step_result(
                 sync_source(engine, source, mode=mode, ids=ids or None),
                 source=source,
                 mode=mode,
@@ -96,7 +82,7 @@ def _run_table_outbound(
 
     options = ops or {}
     try:
-        outbound = _step_result(
+        outbound = step_result(
             ingest_connector_to_table(
                 engine,
                 source or options.get("source", ""),
@@ -128,7 +114,7 @@ def _run_sink_outbound(
         return None, False
 
     try:
-        outbound = _step_result(
+        outbound = step_result(
             _run_outbound(
                 engine,
                 sink=sink,
@@ -144,27 +130,6 @@ def _run_sink_outbound(
     return outbound, outbound.status in ("error", "refused")
 
 
-def _aggregate_counts(
-    *steps: EtlResult | None,
-) -> dict[str, int]:
-    """Combine count fields from completed ETL steps in execution order."""
-    counts: dict[str, int] = {}
-    for step in steps:
-        if step is None:
-            continue
-        for name, value in step.counts.items():
-            counts[name] = counts.get(name, 0) + value
-    return counts
-
-
-def _lineage_direction(source: str | None, sink: str | None) -> str:
-    """Name the direction represented by the requested ETL endpoints."""
-    if source and sink:
-        return "through"
-    if source:
-        return "inbound"
-    return "outbound"
-
 
 def _record_lineage(
     record_etl_run: Any,
@@ -179,7 +144,7 @@ def _record_lineage(
     """Record lineage when requested and return its response fragment."""
     if not record_lineage or not (source or sink):
         return None
-    direction = _lineage_direction(source, sink)
+    direction = lineage_direction(source, sink)
     run_id = record_etl_run(
         engine,
         source=source,
@@ -245,7 +210,7 @@ def run_etl(
         )
 
     status = "partial" if inbound_partial or outbound_partial else "ok"
-    counts = _aggregate_counts(inbound, outbound)
+    counts = aggregate_counts(inbound, outbound)
     lineage = _record_lineage(
         record_etl_run,
         engine,

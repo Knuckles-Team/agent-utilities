@@ -4,7 +4,7 @@ from __future__ import annotations
 
 **The hard ordering rule this module exists to enforce:** every candidate pair
 first passes through the embedding-free entropy + MinHash/LSH blocking ladder
-(:func:`agent_utilities.knowledge_graph.assimilation.entity_resolution.resolve_entities`
+(:func:`epistemic_graph.name_resolution.resolve_entities`
 — exact normalized-name match, then a Shannon-entropy gate, then MinHash/LSH
 Jaccard≥0.9). ANN similarity search (the engine's native HNSW,
 ``semantic_search``) is invoked ONLY for the ladder's ``residual_ids`` — never
@@ -19,7 +19,7 @@ import hashlib
 import logging
 from typing import Any
 
-from agent_utilities.knowledge_graph.assimilation.entity_resolution import (
+from epistemic_graph.name_resolution import (
     resolve_entities,
 )
 

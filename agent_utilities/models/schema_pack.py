@@ -138,7 +138,7 @@ class IdentityRule(BaseModel):
             "external_id"]`` — a shared CMDB id).
         name_fields: Record property keys carrying a human display name,
             compared via the normalized-string-similarity tier
-            (``knowledge_graph.assimilation.entity_resolution.normalize_name``)
+            (``epistemic_graph.name_resolution.normalize_name``)
             rather than an exact match.
         exact_identifier_score: Evidence strength contributed by one matching
             ``identifier_fields`` hit. Defaults near-certain — a shared CMDB

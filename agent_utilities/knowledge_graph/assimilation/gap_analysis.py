@@ -18,24 +18,17 @@ properties, not the relationship label), plus the node's own ``status`` field.
 Concept: gap-analysis
 """
 
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from epistemic_graph.assimilation_lifecycle_derivation import (
+    closed_feature_ids,
+    relation_closes,
+    status_is_closed,
+)
+
 from ...models.knowledge_graph import RegistryNodeType
 from .dedup import iter_all_edges
-
-# Canonical semantic ids (AU-KG.*, AU-ORCH.*, EG-KG.*, ...) plus read
-# compatibility for durable historical numeric ids.
-_SEMANTIC_CONCEPT_ID = (
-    r"[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
-    r"[A-Z0-9](?:[A-Z0-9._-]*[A-Z0-9_-])?"
-)
-_LEGACY_CONCEPT_ID = r"[A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?"
-_CONCEPT_ID_RE = re.compile(
-    rf"\b(({_SEMANTIC_CONCEPT_ID})|({_LEGACY_CONCEPT_ID}))\b",
-    re.IGNORECASE,
-)
 
 _FEATURE_TYPES: tuple[str, ...] = (
     RegistryNodeType.SDD_FEATURE.value,
@@ -43,11 +36,6 @@ _FEATURE_TYPES: tuple[str, ...] = (
     RegistryNodeType.ARTICLE.value,
 )
 _CONCEPT_TYPES: tuple[str, ...] = (RegistryNodeType.CONCEPT.value,)
-# A feature is "closed" (excluded from the cycle) by any of these statuses…
-_CLOSED_STATUS = {"satisfied", "implemented", "rejected", "superseded", "done"}
-# …or by these incident closing edges (matched on the `_rel` property marker).
-_CLOSING_OUT = {"SATISFIED_BY", "DERIVED_FROM_RESEARCH"}
-_CLOSING_IN = {"SUPERSEDES"}
 
 
 @dataclass
@@ -56,63 +44,6 @@ class GapReport:
     concepts: int = 0
     satisfied: int = 0  # candidate SATISFIED_BY edges written
     candidates: list[tuple[str, str, float]] = field(default_factory=list)
-
-
-def _canonical_id(raw: str) -> str:
-    """Normalize a semantic or durable historical concept-id token."""
-    s = str(raw).strip()
-    if re.fullmatch(_SEMANTIC_CONCEPT_ID, s, re.IGNORECASE):
-        return s.upper()
-    m = re.match(r"^([A-Za-z]{2,6})-(\d+)[.\-](\d+[a-z]?)$", s)
-    if m:
-        return f"{m.group(1).upper()}-{m.group(2)}.{m.group(3)}"
-    m2 = re.match(r"^([A-Za-z]{2,6})-(\d+[a-z]?)$", s)  # bare major, e.g. OS-5
-    return f"{m2.group(1).upper()}-{m2.group(2)}" if m2 else s.upper()
-
-
-def _is_concept_id(value: str) -> bool:
-    return bool(
-        re.fullmatch(_SEMANTIC_CONCEPT_ID, value, re.IGNORECASE)
-        or re.fullmatch(_LEGACY_CONCEPT_ID, value, re.IGNORECASE)
-    )
-
-
-def _concept_key(nid: str, data: dict[str, Any]) -> str | None:
-    """The canonical concept id a *concept node* represents (id field or its key)."""
-    for cand in (data.get("concept_id"), data.get("id"), nid, data.get("name", "")):
-        if cand:
-            key = _canonical_id(str(cand))
-            if _is_concept_id(key):
-                return key
-    return None
-
-
-def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
-    """Canonical concept ids a feature **declares as its own identity**, ordered.
-
-    Sourced — in priority order — from the curated ``concept_ids`` property, then
-    the feature's own id, then its name/title. **Body/abstract prose is NOT
-    scanned**: a research plan that *cites* ``ORCH-1.0`` as related work is not the
-    same capability as ORCH-1.0, so scraping body text mis-marks new research as
-    already-built. Matching on declared identity keeps precision high.
-    """
-    refs: list[str] = []
-
-    def _add(s: Any) -> None:
-        for m in _CONCEPT_ID_RE.findall(str(s).upper()):
-            token = m[0] if isinstance(m, tuple) else m
-            c = _canonical_id(token)
-            if _is_concept_id(c) and c not in refs:
-                refs.append(c)
-
-    cids = data.get("concept_ids")
-    if isinstance(cids, list | tuple):
-        for c in cids:
-            _add(c)
-    _add(nid)
-    _add(data.get("name", ""))
-    _add(data.get("title", ""))
-    return refs
 
 
 def _node_data_by_id(graph: Any, nid: str) -> dict[str, Any] | None:
@@ -252,16 +183,16 @@ def is_closed(engine: Any, feature_id: str, status: str = "") -> bool:
                         break
             except TypeError:  # noqa: BLE001 — non-standard local graph has no data view
                 pass
-    if (status or "").lower() in _CLOSED_STATUS:
+    if status_is_closed(status):
         return True
     if graph is None:
         return False
     try:
         for _s, _t, props in graph.out_edges(feature_id, data=True):
-            if _rel_of(props) in _CLOSING_OUT:
+            if relation_closes(_rel_of(props), incoming=False):
                 return True
         for _s, _t, props in graph.in_edges(feature_id, data=True):
-            if _rel_of(props) in _CLOSING_IN:
+            if relation_closes(_rel_of(props), incoming=True):
                 return True
     except (TypeError, AttributeError):  # pragma: no cover - non-standard graph
         return False
@@ -287,18 +218,11 @@ def _closed_feature_index(
     if graph is None:
         return closed, {}
     feats = _collect_rich(engine, feature_types)
-    for nid, data in feats.items():
-        if str(data.get("status", "")).lower() in _CLOSED_STATUS:
-            closed.add(nid)
-
     edges = iter_all_edges(graph)
     if edges is not None:  # bulk path — one traversal
-        for src, dst, props in edges:
-            rel = _rel_of(props)
-            if rel in _CLOSING_OUT and src in feats:
-                closed.add(src)
-            elif rel in _CLOSING_IN and dst in feats:
-                closed.add(dst)
+        closed = closed_feature_ids(
+            feats, ((src, dst, _rel_of(props)) for src, dst, props in edges)
+        )
     else:  # per-node fallback (no bulk edge view)
         for fid, data in feats.items():
             if fid not in closed and is_closed(

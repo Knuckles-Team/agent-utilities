@@ -7,10 +7,11 @@ Implements ``BaseStreamAdapter`` over ``nats-py`` (optional dependency). A
 subscription may be injected for tests so the adapter is exercisable offline.
 """
 
-import json
 import logging
 import time
 from typing import Any
+
+from agent_connector_sdk.transports.stream_payload import decode_stream_payload
 
 from ..core.company_brain import BaseStreamAdapter, StreamBatch
 
@@ -65,20 +66,6 @@ class NatsStreamAdapter(BaseStreamAdapter):
                 logger.debug("NATS close failed: %s", exc)
         self._connected = False
 
-    @staticmethod
-    def _decode(data: Any) -> dict[str, Any]:
-        if isinstance(data, bytes):
-            try:
-                data = data.decode("utf-8")
-            except Exception:  # pragma: no cover
-                return {"raw": repr(data)}
-        if isinstance(data, str):
-            try:
-                return json.loads(data)
-            except (ValueError, json.JSONDecodeError):
-                return {"raw": data}
-        return data if isinstance(data, dict) else {"raw": str(data)}
-
     async def consume_batch(self, batch_size: int = 100) -> StreamBatch:
         if not self._connected or self._sub is None:
             raise RuntimeError("NATS adapter not connected")
@@ -91,7 +78,7 @@ class NatsStreamAdapter(BaseStreamAdapter):
         src_type: Any = getattr(self.config, "source_type", "nats")
         events: list[dict[str, Any]] = []
         for msg in msgs:
-            payload = self._decode(getattr(msg, "data", msg))
+            payload = decode_stream_payload(getattr(msg, "data", msg))
             events.append(
                 {
                     "event_id": payload.get("event_id")

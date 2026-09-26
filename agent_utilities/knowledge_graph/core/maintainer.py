@@ -476,7 +476,7 @@ class GraphMaintainer:
         and ``deferred`` (no text — gets a no-text marker CAS instead),
         recording ``skipped_no_text`` into ``result`` as it goes.
         """
-        from ..enrichment.semantic import derive_entity_text_snapshot
+        from epistemic_graph.entity_text_derivation import derive_entity_text_snapshot
 
         items: list[tuple[str, str, dict[str, Any]]] = []
         deferred: list[tuple[str, dict[str, Any]]] = []

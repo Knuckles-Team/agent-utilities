@@ -10,6 +10,11 @@ corpus with an LLM. See `.specify/specs/ecosystem-evolution/`.
 Concept: assimilation
 """
 
+from epistemic_graph.assimilation_source import (
+    canonical_source_id,
+    content_fingerprint,
+)
+
 from .breadth_ingest import (
     BreadthReport,
     ProjectManifest,
@@ -21,12 +26,6 @@ from .breadth_ingest import (
 )
 from .concept_matcher import ConceptMatcher, FeatureMatch, Match, MatchReport
 from .dedup import DedupReport, dedup_features
-from .entity_resolution import (
-    ResolutionResult,
-    has_high_entropy,
-    normalize_name,
-    resolve_entities,
-)
 from .feature_matrix import (
     FeatureMatrix,
     FeatureMatrixRow,
@@ -50,8 +49,6 @@ from .identity_candidates import (
 )
 from .ingest import (
     IngestReport,
-    canonical_source_id,
-    content_fingerprint,
     enrich_concepts,
     ingest_concepts,
     ingest_conversations,
@@ -88,10 +85,6 @@ __all__ = [
     "materialize_feature_matrix",
     "DedupReport",
     "dedup_features",
-    "ResolutionResult",
-    "resolve_entities",
-    "normalize_name",
-    "has_high_entropy",
     "GapReport",
     "open_features",
     "is_closed",
