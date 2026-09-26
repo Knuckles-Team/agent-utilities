@@ -80,6 +80,16 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from epistemic_graph.ingestion.workflow_derivation import (
+    workflow_content_hash as _content_hash,
+)
+from epistemic_graph.ingestion.workflow_derivation import (
+    workflow_properties as _workflow_properties,
+)
+from epistemic_graph.ingestion.workflow_derivation import (
+    workflow_step_properties as _step_properties,
+)
+
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph._engine_protocol import _EngineProtocol
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -472,31 +482,6 @@ def discover_workflow_skill_files(root: str | None = None) -> list[Path]:
     return files
 
 
-def _content_hash(parsed: dict[str, Any]) -> str:
-    """Stable hash over the parsed semantics → idempotent re-ingest no-op."""
-    payload = {
-        "name": parsed["name"],
-        "description": parsed["description"],
-        "domain": parsed["domain"],
-        "tags": parsed["tags"],
-        "steps": [
-            {
-                "step": s["step"],
-                "component": s["component"],
-                "skill_name": s["skill_name"],
-                "depends_on": s["depends_on"],
-                "tools": s["tools"],
-                "kind": s.get("kind", "task"),
-                "condition": s.get("condition", "on_success"),
-                "on_reject": s.get("on_reject"),
-            }
-            for s in parsed["steps"]
-        ],
-    }
-    raw = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
-
-
 # Flipped on the first chunk/embed side-write failure so a systemic backend issue
 # (observed live: near-100% of files hit an OCC "STALE_GRAPH_VERSION" retry-budget
 # exhaustion, ~30-40s wall clock per file across 8 doomed retries) doesn't silently
@@ -609,44 +594,6 @@ def _workflow_content_is_current(
     )
 
 
-def _workflow_properties(
-    parsed: dict[str, Any],
-    governance: dict[str, Any],
-    *,
-    content_hash: str,
-    timestamp: str,
-) -> dict[str, Any]:
-    """Build the persisted WorkflowDefinition properties."""
-    steps = parsed["steps"]
-    nl_lines = [
-        f"Step {s['step']}: {s['component']}"
-        + (f" [depends_on: {', '.join(s['depends_on'])}]" if s["depends_on"] else "")
-        for s in steps
-    ]
-    props: dict[str, Any] = {
-        **governance,
-        "name": parsed["name"],
-        "description": parsed["description"],
-        "domain": parsed["domain"],
-        "source": "universal-skills",
-        "tags_json": json.dumps(parsed["tags"], default=str),
-        "specialist_ids_json": json.dumps(parsed["specialist_ids"], default=str),
-        "nl_spec": parsed["description"] + "\n\nSteps:\n" + "\n".join(nl_lines),
-        "step_count": len(steps),
-        "content_hash": content_hash,
-        "source_ref": parsed["source_ref"],
-        "last_used": timestamp,
-        "use_count": 0,
-        "version": 1,
-        # Skill-type-unique marker so the skill family (atomic|graph|workflow) is
-        # queryable as one set while each keeps its own structure (here: the step DAG).
-        "skill_type": "workflow",
-    }
-    if parsed.get("concept"):
-        props["concept"] = str(parsed["concept"])
-    return props
-
-
 def _resolved_step_ids(
     step: dict[str, Any],
     comp_to_num: dict[str, int],
@@ -660,43 +607,6 @@ def _resolved_step_ids(
             if (n := _resolve_dep(dep, comp_to_num)) is not None and n in num_to_stepid
         }
     )
-
-
-def _step_properties(
-    step: dict[str, Any],
-    step_id: str,
-    governance: dict[str, Any],
-    resolved_deps: list[str],
-    on_reject_id: str | None,
-) -> dict[str, Any]:
-    """Build the persisted WorkflowStep properties."""
-    step_props: dict[str, Any] = {
-        **governance,
-        # NOTE: no "node_id" property here — step_id is already the node's own
-        # identity (the positional arg below becomes its `id` property via
-        # engine.add_node()). A literal "node_id" key in `properties` collides
-        # with the backend's own `add_node(node_id, **properties)` parameter
-        # name, raising "got multiple values for argument 'node_id'" for every
-        # step of every workflow (KG-2.97 ingestion report §5b).
-        "step_id": step_id,
-        "step_order": step["step"],
-        "component": step["component"],
-        "skill_name": step["skill_name"],
-        "is_parallel": not resolved_deps,
-        "timeout": 120.0,
-        "status": "pending",
-        "depends_on_json": json.dumps(resolved_deps),
-        # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — §7.1 gate step kind.
-        "kind": step.get("kind") or "task",
-        "condition": step.get("condition") or "on_success",
-    }
-    if step.get("tools"):
-        step_props["tools_json"] = json.dumps(step["tools"], default=str)
-    if step.get("description"):
-        step_props["refined_subtask"] = step["description"]
-    if on_reject_id:
-        step_props["on_reject"] = on_reject_id
-    return step_props
 
 
 def _link_dependency_edges(
