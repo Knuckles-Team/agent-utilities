@@ -4340,13 +4340,40 @@ class GraphComputeEngine:
     def get_blast_radius(self, node_id: str, max_depth: int) -> list[dict[str, Any]]:
         """Compute the blast radius dependencies from a starting node.
 
-        Returns a list of dicts: [{'id': str, 'type': str, 'depth': int}]
+        Returns a list of dicts: [{'id': str, 'type': str, 'depth': int}].
+        The native radius returns IDs only; derive exact shortest-path depths
+        from its induced subgraph instead of treating result order as a depth.
         """
         nodes = self._client.graph.blast_radius(node_id, max_depth)
-        res = []
-        for i, nid in enumerate(nodes, start=1):
-            res.append({"id": nid, "type": "Node", "depth": min(i, max_depth)})
-        return res
+        if not nodes:
+            return []
+        subgraph = self._client.graph.get_subgraph([node_id, *nodes])
+        edges = subgraph.get("edges")
+        if not isinstance(edges, list):
+            raise ValueError("native blast radius subgraph has no edge list")
+        reachable = set(nodes)
+        adjacency: dict[str, list[str]] = {}
+        for edge in edges:
+            if not isinstance(edge, dict):
+                raise ValueError("native blast radius subgraph has a malformed edge")
+            source, target = edge.get("source"), edge.get("target")
+            if not isinstance(source, str) or not isinstance(target, str):
+                raise ValueError("native blast radius subgraph has a malformed edge")
+            adjacency.setdefault(source, []).append(target)
+
+        depths = {node_id: 0}
+        queue = deque([node_id])
+        while queue:
+            current = queue.popleft()
+            if depths[current] >= max_depth:
+                continue
+            for neighbor in adjacency.get(current, []):
+                if neighbor in reachable and neighbor not in depths:
+                    depths[neighbor] = depths[current] + 1
+                    queue.append(neighbor)
+        if reachable.difference(depths):
+            raise ValueError("native blast radius changed during depth projection")
+        return [{"id": nid, "type": "Node", "depth": depths[nid]} for nid in nodes]
 
     def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
         """Parse one source file's AST natively via the Rust engine.

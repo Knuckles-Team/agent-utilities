@@ -28,9 +28,18 @@ def _native_communities(graph: Any) -> list[set[Any]] | None:
     if not hasattr(graph, "community_detection"):
         return None
 
-    return [
-        set(node_ids) for node_ids in graph.community_detection() if len(node_ids) > 1
-    ]
+    groups = graph.community_detection()
+    if not isinstance(groups, list):
+        raise TypeError("EG CommunityDetection must return a list of node groups")
+    communities: list[set[str]] = []
+    for node_ids in groups:
+        if not isinstance(node_ids, list) or not all(
+            isinstance(node_id, str) for node_id in node_ids
+        ):
+            raise TypeError("EG CommunityDetection group must be a list of node IDs")
+        if len(node_ids) > 1:
+            communities.append(set(node_ids))
+    return communities
 
 
 def _build_graph(graph: Any, rx: Any) -> Any:
