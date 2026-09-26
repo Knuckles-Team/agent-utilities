@@ -85,6 +85,23 @@ def test_detect_communities_does_not_hide_native_failure():
         detect_communities(FailedNativeGraph())
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        [("a", 0), ("b", 0)],  # retired node/label response
+        [["a", 1]],  # IDs are strings on the EG wire
+        ("a", "b"),  # the response itself is a list of groups
+    ],
+)
+def test_detect_communities_rejects_wrong_native_shape(malformed):
+    class MalformedNativeGraph:
+        def community_detection(self):
+            return malformed
+
+    with pytest.raises(TypeError, match="EG CommunityDetection"):
+        detect_communities(MalformedNativeGraph())
+
+
 @pytest.mark.concept(
     "AU-KG.compute.spectral-cluster-navigator",
     "CONCEPT:AU-KG.compute.spectral-cluster-navigator",
