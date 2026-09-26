@@ -55,6 +55,14 @@ A typical developer loop is concrete and reviewable: admit a goal with scoped co
 
 Start at the [Agent Utilities documentation](https://knuckles-team.github.io/agent-utilities/). It includes the [quick start](https://knuckles-team.github.io/agent-utilities/guides/quick-start/), [architecture](https://knuckles-team.github.io/agent-utilities/architecture/), and release-aware [capability status](https://knuckles-team.github.io/agent-utilities/status/).
 
+<!-- BEGIN GENERATED: concepts -->
+
+Synthesized from concept markers in the codebase into **1229 canonical concepts** across **9 pillars**.
+
+> Generated from [`docs/concepts.yaml`](docs/concepts.yaml); see [`status/status.md`](status/status.md) for the release-aware breakdown and [`docs/pillars/`](docs/pillars/) for the architecture map.
+
+<!-- END GENERATED: concepts -->
+
 ## Architecture
 
 GraphOS owns public MCP, REST, and A2A composition. Agent Utilities owns agent and workflow behavior. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
