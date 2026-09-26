@@ -56,15 +56,10 @@ def cycle_productive(report: dict[str, Any]) -> bool:
 
 
 def _acquire_engine() -> Any:
-    """The live engine, via the same singleton the MCP/daemon paths use."""
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    """The live engine through AU's public process client runtime."""
+    from agent_utilities.api.runtime import open_process_runtime
 
-    engine = IntelligenceGraphEngine.get_active()
-    if engine is not None:
-        return engine
-    from agent_utilities.mcp import kg_server
-
-    return kg_server._get_engine()
+    return open_process_runtime(role="client", defer_background_start=True).engine
 
 
 def _git_commit(workspace: Path, message: str) -> dict[str, Any]:

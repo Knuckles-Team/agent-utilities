@@ -8,8 +8,24 @@ CONCEPT:AU-OS.scaling.unattended-session-stop-ask — Unattended-session stop-on
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent_utilities.claude_harness import overnight_runner as ovr
+
+
+def test_engine_acquisition_uses_public_client_runtime(monkeypatch):
+    engine = object()
+    seen = {}
+
+    def _open_process_runtime(*, role, defer_background_start):
+        seen.update(role=role, defer_background_start=defer_background_start)
+        return SimpleNamespace(engine=engine)
+
+    monkeypatch.setattr(
+        "agent_utilities.api.runtime.open_process_runtime", _open_process_runtime
+    )
+    assert ovr._acquire_engine() is engine
+    assert seen == {"role": "client", "defer_background_start": True}
 
 
 class _FakeController:
