@@ -73,7 +73,7 @@
 - **`AU-ECO.mcp.tool-mode-standardization`** — MCP tool-mode standardization (`agent_utilities/mcp/_graphos_action_manifest.py`)
 - **`AU-ECO.mcp.two-surfaces-mcp-rest`** — the generic (`agent_utilities/mcp/tools/intent_tools.py`)
 - **`AU-ECO.mcp.unified-mcp-skill-a2a-ingest`** — Unified MCP/Skill/A2A ingestion pipeline with live (`agent_utilities/knowledge_graph/core/engine_ingestion.py`)
-- **`AU-ECO.mcp.usage-cost-observability-surface`** — usage/cost/ (`agent_utilities/gateway/usage_api.py`)
+- **`AU-ECO.mcp.usage-cost-observability-surface`** — token (`agent_utilities/gateway/usage_api.py`)
 - **`AU-ECO.mcp.verbose-auto-wire`** — verbose auto-wire enumerates dynamic (`agent_utilities/mcp/verbose_tools.py`)
 - **`AU-ECO.mcp.webui-governed-mcp-delegation`** (`agent_utilities/server/app.py`)
 - **`AU-ECO.mcp.webui-voice-transcription-delegation`** (`agent_utilities/server/app.py`)

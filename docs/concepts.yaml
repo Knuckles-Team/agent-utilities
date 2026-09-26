@@ -1647,15 +1647,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_ingestion.py
   doc: Unified MCP/Skill/A2A ingestion pipeline with live
 - id: AU-ECO.mcp.usage-cost-observability-surface
-  name: usage/cost/
+  name: token
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/gateway/usage_api.py
   - agent_utilities/gateway_client/client.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  - agent_utilities/server/app.py
-  doc: usage/cost/
+  doc: token
 - id: AU-ECO.mcp.verbose-auto-wire
   name: verbose auto-wire enumerates dynamic
   pillar: AU-ECO
@@ -4745,7 +4744,6 @@ concepts:
   - agent_utilities/knowledge_graph/live_artifacts/kg_source.py
   - agent_utilities/knowledge_graph/live_artifacts/models.py
   - agent_utilities/knowledge_graph/live_artifacts/store.py
-  - agent_utilities/server/app.py
   doc: Live Refreshable Artifact models + bounded-JSON + safe interpolation
 - id: AU-KG.memory.mementified-context
   name: the live block-compress-evict sawtooth
@@ -9584,13 +9582,13 @@ concepts:
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/config.py
   - agent_utilities/gateway/graph_api.py
-  - agent_utilities/gateway/rate_limit.py
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/middlewares.py
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/observability/runtime_health.py
+  - agent_utilities/security/http_rate_limit.py
   - agent_utilities/server/__init__.py
   doc: No-op without the metrics extra
 - id: AU-OS.observability.otlp-metrics-exporter-gated
