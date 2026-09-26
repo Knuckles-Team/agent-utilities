@@ -294,7 +294,11 @@ def persist_stable_communities(engine: Any, *, native_batch: bool = False) -> in
                 "native community batch requires governed typed mutations"
             )
         mutations, persisted_count = _native_community_mutations(graph, communities)
-        if mutations and batch(mutations, upsert=True) is not True:
+        if (
+            mutations
+            and batch(mutations, upsert=True, edge_upsert_scope="relationship")
+            is not True
+        ):
             raise RuntimeError("native community batch was not accepted")
         logger.info(f"Persisted {persisted_count} emergent communities.")
         return persisted_count

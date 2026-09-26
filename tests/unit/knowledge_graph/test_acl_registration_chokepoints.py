@@ -602,6 +602,39 @@ def test_batch_typed_mutations_edge_branch_stamps_governance():
     assert props["classification"] == "confidential"
 
 
+def test_batch_typed_mutations_relationship_scope_preserves_governance():
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+    actor = _actor()
+    session = GraphSession(
+        actor=actor, tenant=actor.tenant_id, scopes=frozenset({"kg:write"})
+    )
+
+    with use_session(session):
+        assert engine.batch_typed_mutations(
+            [
+                {
+                    "kind": "edge",
+                    "source": "a",
+                    "target": "b",
+                    "rel_type": "part_of_community",
+                    "properties": {"weight": 0.5},
+                }
+            ],
+            edge_upsert_scope="relationship",
+        )
+    (operations,), _ = backend.apply_typed_batch.call_args
+    assert operations[0]["op"] == "upsert_edge_relationship"
+    props = operations[0]["properties"]
+    assert props["relationship"] == "PART_OF_COMMUNITY"
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"
+
+
 def test_batch_typed_mutations_edge_branch_fails_closed_with_no_bound_session():
     """No ambient ``GraphSession`` at all (this method's own ``resolve_session``
     gate, independent of the stamp added here) must still raise, and the

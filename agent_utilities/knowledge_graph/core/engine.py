@@ -1256,6 +1256,7 @@ class IntelligenceGraphEngine(
         *,
         session: GraphSession | None = None,
         upsert: bool = True,
+        edge_upsert_scope: Literal["pair", "relationship"] = "pair",
     ) -> bool:
         """Apply prepared typed node/edge mutations through one native batch.
 
@@ -1281,7 +1282,14 @@ class IntelligenceGraphEngine(
         ``add_node``/``add_edge`` (INSERT semantics — an edge with the same
         source/target is added as an additional parallel edge rather than
         replacing the prior one; see the engine's own operation docs).
+        ``edge_upsert_scope="relationship"`` uses EG's relationship-scoped
+        upsert for edges, preserving parallel edges of other types. It requires
+        ``upsert=True`` and a current EG server supporting that batch operation.
         """
+        if edge_upsert_scope not in ("pair", "relationship") or (
+            edge_upsert_scope == "relationship" and not upsert
+        ):
+            raise ValueError("relationship-scoped edge upsert requires upsert=True")
         if not mutations:
             return True
         if not self.backend:
@@ -1303,7 +1311,9 @@ class IntelligenceGraphEngine(
         session = resolve_session(session, required_scope="kg:write")
         with use_actor(session.actor):
             operations = [
-                self._prepare_typed_mutation_op(mutation, upsert=upsert)
+                self._prepare_typed_mutation_op(
+                    mutation, upsert=upsert, edge_upsert_scope=edge_upsert_scope
+                )
                 for mutation in mutations
             ]
             apply(operations)
@@ -1351,6 +1361,7 @@ class IntelligenceGraphEngine(
         raw_properties: dict[str, Any],
         *,
         upsert: bool,
+        edge_upsert_scope: Literal["pair", "relationship"] = "pair",
     ) -> dict[str, Any]:
         from .bitemporal import stamp_bitemporal
         from .tenant_sharing import stamp_classification, stamp_ownership
@@ -1377,14 +1388,24 @@ class IntelligenceGraphEngine(
         stamp_ownership(props)
         stamp_classification(props, rel_type)
         return {
-            "op": "upsert_edge" if upsert else "add_edge",
+            "op": (
+                "upsert_edge_relationship"
+                if upsert and edge_upsert_scope == "relationship"
+                else "upsert_edge"
+                if upsert
+                else "add_edge"
+            ),
             "source": source_id,
             "target": target_id,
             "properties": {**props, "relationship": rel_type},
         }
 
     def _prepare_typed_mutation_op(
-        self, mutation: Any, *, upsert: bool
+        self,
+        mutation: Any,
+        *,
+        upsert: bool,
+        edge_upsert_scope: Literal["pair", "relationship"] = "pair",
     ) -> dict[str, Any]:
         if not isinstance(mutation, dict):
             raise ValueError("typed batch mutations must be mappings")
@@ -1398,7 +1419,10 @@ class IntelligenceGraphEngine(
             )
         if kind == "edge":
             return self._prepare_typed_edge_mutation(
-                mutation, raw_properties, upsert=upsert
+                mutation,
+                raw_properties,
+                upsert=upsert,
+                edge_upsert_scope=edge_upsert_scope,
             )
         raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
 
