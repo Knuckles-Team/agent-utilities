@@ -73,7 +73,9 @@ class TopologicalAnalysisEngine:
 
         return detect_communities(self._graph)
 
-    def persist_stable_communities(self, engine: Any) -> int:
+    def persist_stable_communities(
+        self, engine: Any, *, native_batch: bool = False
+    ) -> int:
         """Detect and persist stable communities into the Cypher backend.
 
         Args:
@@ -84,7 +86,7 @@ class TopologicalAnalysisEngine:
         """
         from .topological_partition import persist_stable_communities
 
-        return persist_stable_communities(engine)
+        return persist_stable_communities(engine, native_batch=native_batch)
 
     def hierarchical_retrieve(
         self,

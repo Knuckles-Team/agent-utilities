@@ -198,16 +198,8 @@ def _persist_community(
     if len(community) < 3:
         return False
 
-    community_id = f"community_cluster_{index}"
-    coherence = _community_coherence(graph, community)
-    community_node = CommunityNode(
-        id=community_id,
-        name=f"Emergent Cluster {index}",
-        description=f"Auto-detected topological community with {len(community)} members.",
-        coherence_score=coherence,
-        member_count=len(community),
-        is_permanent=True,
-    )
+    community_node = _community_node(graph, index, community)
+    coherence = community_node.coherence_score
 
     try:
         engine.upsert_node(community_node)
@@ -215,18 +207,64 @@ def _persist_community(
             engine.upsert_edge(
                 RegistryEdge(
                     source=str(node_id),
-                    target=community_id,
+                    target=community_node.id,
                     type=RegistryEdgeType.PART_OF_COMMUNITY,
                     weight=coherence,
                 )
             )
     except Exception as exc:
-        logger.error(f"Failed to persist community {community_id}: {exc}")
+        logger.error(f"Failed to persist community {community_node.id}: {exc}")
         return False
     return True
 
 
-def persist_stable_communities(engine: Any) -> int:
+def _community_node(graph: Any, index: int, community: set[Any]) -> CommunityNode:
+    """Construct the legacy community identity and its observed property shape."""
+    return CommunityNode(
+        id=f"community_cluster_{index}",
+        name=f"Emergent Cluster {index}",
+        description=f"Auto-detected topological community with {len(community)} members.",
+        coherence_score=_community_coherence(graph, community),
+        member_count=len(community),
+        is_permanent=True,
+    )
+
+
+def _native_community_mutations(
+    graph: Any, communities: list[set[Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Build one governed native batch with the legacy node IDs and edge direction."""
+    mutations: list[dict[str, Any]] = []
+    count = 0
+    for index, community in enumerate(communities):
+        if len(community) < 3:
+            continue
+        node = _community_node(graph, index, community)
+        mutations.append(
+            {
+                "kind": "node",
+                "id": node.id,
+                "node_type": node.type.value,
+                "properties": node.model_dump(
+                    mode="json", exclude={"id", "type"}, exclude_none=True
+                ),
+            }
+        )
+        for member_id in sorted(str(member) for member in community):
+            mutations.append(
+                {
+                    "kind": "edge",
+                    "source": member_id,
+                    "target": node.id,
+                    "rel_type": RegistryEdgeType.PART_OF_COMMUNITY.value,
+                    "properties": {"weight": node.coherence_score, "metadata": {}},
+                }
+            )
+        count += 1
+    return mutations, count
+
+
+def persist_stable_communities(engine: Any, *, native_batch: bool = False) -> int:
     """Detect and persist stable communities into the Cypher backend.
 
     CONCEPT:AU-KG.compute.topological-mincut-partitioning
@@ -249,6 +287,17 @@ def persist_stable_communities(engine: Any) -> int:
 
     graph = engine.graph
     communities = detect_communities(graph)
+    if native_batch:
+        batch = getattr(engine, "batch_typed_mutations", None)
+        if not callable(batch):
+            raise RuntimeError(
+                "native community batch requires governed typed mutations"
+            )
+        mutations, persisted_count = _native_community_mutations(graph, communities)
+        if mutations and batch(mutations, upsert=True) is not True:
+            raise RuntimeError("native community batch was not accepted")
+        logger.info(f"Persisted {persisted_count} emergent communities.")
+        return persisted_count
     persisted_count = sum(
         _persist_community(engine, graph, index, community)
         for index, community in enumerate(communities)
