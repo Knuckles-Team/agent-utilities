@@ -105,13 +105,27 @@ def test_group_endpoint_map_is_typed_and_fails_closed(monkeypatch):
 def test_tenant_graph_name_single_tenant_unchanged():
     assert tenant_graph_name(None, "__commons__") == "__commons__"
     assert tenant_graph_name("", "__commons__") == "__commons__"
-    assert tenant_graph_name("   ", "__commons__") == "__commons__"
+    with pytest.raises(ValueError, match="whitespace-only"):
+        tenant_graph_name("   ", "__commons__")
 
 
-def test_tenant_graph_name_sanitizes_and_is_deterministic():
+def test_tenant_graph_name_is_injective_and_deterministic():
     assert tenant_graph_name("acme", "__commons__") == "tenant__acme____commons__"
-    assert tenant_graph_name("Acme Corp/EU", "kg") == "tenant__acme_corp_eu__kg"
+    assert tenant_graph_name("Acme Corp/EU", "kg") == (
+        "tenant__t0_41636d6520436f72702f4555__kg"
+    )
     assert tenant_graph_name("acme", "kg") == tenant_graph_name("acme", "kg")
+    raw_ids = [
+        "Team:East",
+        "Team_East",
+        "team_east",
+        "t0_5465616d3a45617374",  # reserved encoded namespace
+        "team__east",  # cannot obscure the slug/base delimiter
+        "team.east",
+        "team/east",
+        "équipe",
+    ]
+    assert len({tenant_graph_name(raw, "kg") for raw in raw_ids}) == len(raw_ids)
 
 
 def test_facade_and_package_expose_tenant_naming():
