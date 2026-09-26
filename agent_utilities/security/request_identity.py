@@ -546,39 +546,31 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     """Mint an ``authenticated`` :class:`ActorContext` from validated JWT claims.
 
     Delegates claim parsing to the one IdP-agnostic normalizer
-    (:func:`agent_utilities.security.identity.normalize_identity`) so **Okta
-    groups and Keycloak roles are first-class and interchangeable**
-    (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance):
+    (:func:`agent_utilities.security.identity.normalize_identity`):
 
     * ``actor_id`` ← ``sub`` | ``client_id`` | ``azp``
-    * ``roles`` ← the *base capability set* = role claims (``roles`` /
-      Keycloak ``realm_access.roles`` / ``resource_access.*.roles``) ∪
-      ``scope``/``scp`` ∪ group-derived capabilities (Okta ``groups`` /
-      Keycloak group mapper, via the optional ``IDENTITY_GROUP_CAPABILITY_MAP``
-      config; a group defaults to a same-named capability). This is what ACL
-      checks read, so a group membership natively grants access with no
-      per-consumer change.
+    * ``roles`` ← verified ``scope``/``scp`` grants only. Role IDs and groups
+      are identity facts, never implicit capability grants.
+    * ``identity_roles`` ← normalized role IDs retained for engine RBAC and
+      provenance, without adding them to the scope ceiling.
     * ``groups`` ← the raw normalized group set (retained for k8s impersonation).
     * ``tenant_id`` ← ``tenant_id`` | ``tenant`` | ``org_id`` | ``tid`` | ``org``
     * ``actor_type`` ← HUMAN when an ``email`` claim is present, else
       AUTOMATED_SERVICE (provenance only — not used for access decisions).
     """
-    from agent_utilities.core.config import config
-
-    from .identity import base_capabilities, normalize_identity
+    from .identity import normalize_identity
 
     identity = normalize_identity(claims)
-    group_map = getattr(config, "identity_group_capability_map", None)
-
     actor_type = ActorType.HUMAN if identity.email else ActorType.AUTOMATED_SERVICE
     credential_expires_at = _claim_expiry(claims)
     return ActorContext(
         actor_id=identity.subject,
         actor_type=actor_type,
-        roles=base_capabilities(identity, group_map),
+        roles=identity.scopes,
         tenant_id=identity.tenant,
         authenticated=True,
         groups=identity.groups,
+        identity_roles=identity.roles,
         credential_expires_at=credential_expires_at,
     )
 

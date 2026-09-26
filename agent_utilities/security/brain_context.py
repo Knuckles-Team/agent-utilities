@@ -68,12 +68,15 @@ class ActorContext:
     tenant_id: str = ""
     authenticated: bool = False
     # Raw IdP group memberships (Okta ``groups`` / Keycloak group mapper),
-    # provider-normalized. ``roles`` is the effective *capability* set (roles ∪
-    # scopes ∪ group-derived capabilities) that ACL checks read; ``groups`` is
-    # retained distinctly for identity propagation that needs the group names
-    # themselves — notably k8s ``Impersonate-Group``
+    # provider-normalized. ``roles`` is the effective capability set that ACL
+    # checks read; ``groups`` is retained for k8s ``Impersonate-Group``.
     # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance).
     groups: tuple[str, ...] = field(default_factory=tuple)
+    # The verified JWT's role identifiers, distinct from its scope grants.
+    # None marks legacy actors that did not carry separate role provenance;
+    # an empty tuple marks a JWT with no roles and must remain empty on the
+    # engine carrier rather than falling back to capabilities.
+    identity_roles: tuple[str, ...] | None = None
     # Absolute UNIX expiry from an already-validated bearer credential. It is
     # runtime-only authority state so a short-lived JWT cannot become an
     # indefinite process session. Non-token/bootstrap actors leave it unset.

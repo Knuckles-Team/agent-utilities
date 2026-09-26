@@ -864,21 +864,14 @@ class WorkItemTasksExtension(ServerExtension):
         return set()
 
     @staticmethod
-    def _delegator_capabilities(token: Any, identity: Any, config: Any) -> set[str]:
-        from agent_utilities.security.identity import base_capabilities
-
+    def _delegator_capabilities(token: Any, identity: Any) -> set[str]:
         capabilities = {
             str(scope).strip()
             for scope in (getattr(token, "scopes", None) or ())
             if str(scope).strip()
         }
         capabilities.update(
-            str(scope).strip()
-            for scope in base_capabilities(
-                identity,
-                getattr(config, "identity_group_capability_map", None),
-            )
-            if str(scope).strip()
+            str(scope).strip() for scope in identity.scopes if str(scope).strip()
         )
         return capabilities
 
@@ -891,7 +884,6 @@ class WorkItemTasksExtension(ServerExtension):
         stable protocol error as every other failure mode on this path if
         resolution itself fails."""
         try:
-            from agent_utilities.core.config import config
             from agent_utilities.security.identity import normalize_identity
 
             identity = normalize_identity(claims)
@@ -906,7 +898,7 @@ class WorkItemTasksExtension(ServerExtension):
                 or ""
             ).strip()
             capabilities = WorkItemTasksExtension._delegator_capabilities(
-                token, identity, config
+                token, identity
             )
         except Exception:
             raise mcp_protocol_exception(

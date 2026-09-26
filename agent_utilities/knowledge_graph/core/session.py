@@ -283,7 +283,11 @@ class GraphSession:
             "roles": sorted(
                 {
                     rendered
-                    for role in getattr(self.actor, "roles", ())
+                    for role in (
+                        self.actor.identity_roles
+                        if self.actor.identity_roles is not None
+                        else self.actor.roles
+                    )
                     if (rendered := str(role).strip())
                 }
             ),

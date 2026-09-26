@@ -1411,18 +1411,9 @@ def _request_capabilities() -> frozenset[str] | None:
     claims = getattr(token, "claims", None)
     if isinstance(claims, dict):
         try:
-            from agent_utilities.core.config import config
-            from agent_utilities.security.identity import (
-                base_capabilities,
-                normalize_identity,
-            )
+            from agent_utilities.security.identity import normalize_identity
 
-            capabilities.update(
-                base_capabilities(
-                    normalize_identity(claims),
-                    config.identity_group_capability_map,
-                )
-            )
+            capabilities.update(normalize_identity(claims).scopes)
         except Exception:
             raise ToolError("Verified capability mapping unavailable") from None
     return frozenset(capabilities)

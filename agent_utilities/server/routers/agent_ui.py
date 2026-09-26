@@ -37,17 +37,9 @@ async def _require_agent_invoke(request: Request) -> None:
     if not claims or claims.get("auth_type") == "api_key":
         return
     try:
-        from agent_utilities.core.config import config
-        from agent_utilities.security.identity import (
-            base_capabilities,
-            normalize_identity,
-        )
+        from agent_utilities.security.identity import normalize_identity
 
-        capabilities = set(
-            base_capabilities(
-                normalize_identity(claims), config.identity_group_capability_map
-            )
-        )
+        capabilities = set(normalize_identity(claims).scopes)
     except Exception:
         raise HTTPException(
             status_code=403, detail="agent invocation capability required"

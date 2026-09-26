@@ -41,6 +41,28 @@ def _mode(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     monkeypatch.setenv("ENABLE_DELEGATED_IDENTITY", value)
 
 
+def test_verified_role_id_does_not_expand_delegation_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.mcp import delegated_auth
+
+    monkeypatch.setattr(
+        delegated_auth,
+        "get_user_claims",
+        lambda: {
+            "sub": "user:alice",
+            "tenant_id": "tenant-a",
+            "roles": ["kg:admin"],
+            "scope": "kg:read",
+        },
+    )
+
+    principal = deleg.resolve_principal_identity()
+
+    assert principal.principal == "user:alice"
+    assert principal.ceiling == ("kg:read",)
+
+
 # ---------------------------------------------------------------------------
 # Rollout mode resolution — default warn, unrecognized degrades to warn
 # ---------------------------------------------------------------------------

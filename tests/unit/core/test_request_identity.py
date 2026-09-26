@@ -133,7 +133,8 @@ class TestActorFromClaims:
             }
         )
         assert actor.actor_id == "principal:verified"
-        assert actor.roles == ("hr", "analyst")
+        assert actor.roles == ()
+        assert actor.identity_roles == ("hr", "analyst")
         assert actor.tenant_id == "tenant-a"
         assert actor.authenticated is True
 
@@ -189,13 +190,34 @@ class TestActorFromClaims:
         actor = actor_from_claims(
             {"sub": "svc:x", "realm_access": {"roles": ["kg-reader"]}, "tid": "t1"}
         )
-        assert actor.roles == ("kg-reader",)
+        assert actor.roles == ()
+        assert actor.identity_roles == ("kg-reader",)
         assert actor.tenant_id == "t1"
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_scope_string_split(self):
         actor = actor_from_claims({"sub": "svc:y", "scope": "kg:read kg:write"})
         assert actor.roles == ("kg:read", "kg:write")
+        assert actor.identity_roles == ()
+
+    def test_role_id_matching_admin_scope_does_not_escalate(self):
+        actor = actor_from_claims(
+            {
+                "sub": "principal:verified",
+                "roles": ["kg:admin"],
+                "realm_access": {"roles": ["reports-reader"]},
+                "scope": "kg:read",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        session = _mint(actor)
+        carrier = session.engine_verified_context()
+        assert actor.roles == ("kg:read",)
+        assert actor.identity_roles == ("kg:admin", "reports-reader")
+        assert session.scopes == frozenset({"kg:read"})
+        assert carrier["roles"] == ["kg:admin", "reports-reader"]
+        assert carrier["scopes"] == ["kg:read"]
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     def test_human_when_email_claim_present(self):
@@ -244,7 +266,7 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset()
 
-    def test_configured_identity_mapping_can_grant_explicit_kg_admin(self):
+    def test_configured_group_mapping_cannot_expand_verified_jwt_scopes(self):
         cfg = _make_config(
             identity_group_capability_map={"platform-operators": ["kg:admin"]}
         )
@@ -258,7 +280,9 @@ class TestActorFromClaims:
                 }
             )
         session = _mint(actor)
-        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        assert actor.groups == ("platform-operators",)
+        assert session.scopes == frozenset()
+        assert session.engine_verified_context()["scopes"] == []
 
     def test_authenticated_actor_without_tenant_cannot_mint_session(self):
         actor = actor_from_claims(
@@ -396,7 +420,8 @@ class TestActorIdentityMiddleware:
         actor = captured["actor"]
         assert actor.authenticated is True
         assert actor.actor_id == "principal:verified"
-        assert actor.roles == ("hr",)
+        assert actor.roles == ()
+        assert actor.identity_roles == ("hr",)
         assert actor.tenant_id == "tenant-a"
         session = captured["session"]
         assert session is not None

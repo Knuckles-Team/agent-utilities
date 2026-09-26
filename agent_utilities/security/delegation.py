@@ -396,10 +396,9 @@ class PrincipalIdentity:
 
 
 def resolve_principal_identity() -> PrincipalIdentity:
-    """Resolve the ambient caller principal + :func:`base_capabilities` ceiling (best-effort).
+    """Resolve the ambient caller principal and verified scope ceiling (best-effort).
 
-    Prefers a validated OIDC token's claims (normalized across Okta/Keycloak/… then reduced to
-    the base capability set); falls back to the bound :class:`ActorContext` whose ``roles`` are
+    Prefers a validated OIDC token's scope claims; falls back to the bound :class:`ActorContext` whose ``roles`` are
     already the effective capability set. Returns an empty identity when nothing is bound (a
     tiny/local process) — the caller then treats the ceiling as unresolved (no narrowing).
     """
@@ -412,16 +411,13 @@ def resolve_principal_identity() -> PrincipalIdentity:
         claims = None
     if claims:
         try:
-            from agent_utilities.security.identity import (
-                base_capabilities,
-                normalize_identity,
-            )
+            from agent_utilities.security.identity import normalize_identity
 
             ident = normalize_identity(claims)
             return PrincipalIdentity(
                 principal=ident.subject,
                 tenant=ident.tenant,
-                ceiling=tuple(base_capabilities(ident)),
+                ceiling=ident.scopes,
             )
         except Exception as exc:  # noqa: BLE001 — malformed claims fall through to the actor
             logger.debug("delegation: claim-derived ceiling skipped: %s", exc)

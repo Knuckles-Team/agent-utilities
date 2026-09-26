@@ -300,6 +300,23 @@ def test_catalog_route_refuses_a_caller_with_no_discover_scope(monkeypatch):
     assert response.status_code == 403
 
 
+def test_role_named_admin_does_not_grant_mcp_manage_scope(monkeypatch):
+    _install_stub(monkeypatch, _StubMultiplexer())
+    client = _client(
+        {
+            "auth_type": "jwt",
+            "sub": "mcp-catalog-role-only",
+            "roles": ["mcp:admin"],
+            "realm_access": {"roles": ["kg:admin"]},
+            "scope": "mcp:discover",
+        }
+    )
+
+    response = client.post("/api/mcp/catalog/refresh", json=_REFRESH_REQUEST)
+
+    assert response.status_code == 403
+
+
 def test_status_route_refuses_a_caller_with_no_discover_scope(monkeypatch):
     _install_stub(monkeypatch, _StubMultiplexer())
     client = _client(_NO_SCOPE_CLAIMS)
