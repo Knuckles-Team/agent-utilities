@@ -2,8 +2,9 @@
 # tree (e.g. epistemic-graph's Rust crates), which scripts/build_concepts_yaml.py
 # cannot see because it scans agent_utilities/**/*.py,*.rs exclusively. Each entry
 # below documents a real CONCEPT:<id> marker that lives outside this repo but is
-# cited from agent-utilities' own architecture docs (AGENTS.md) and therefore
-# belongs in the canonical registry for completeness.
+# cited from agent-utilities' own architecture docs (AGENTS.md) or migrated
+# from AU during a cross-repo ownership refactor. They remain in the canonical
+# registry so the concept ID keeps its source evidence.
 #
 # scripts/build_concepts_yaml.py merges this file into docs/concepts.yaml on
 # every regeneration, so entries here survive a regen (non-drifting) without
