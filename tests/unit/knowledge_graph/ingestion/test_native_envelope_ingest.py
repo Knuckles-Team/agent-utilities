@@ -10,6 +10,7 @@ from typing import Any
 
 import msgpack
 import pytest
+from epistemic_graph.ingestion.source_positions import cursor_partition
 
 import agent_utilities.knowledge_graph.ingestion.envelope_ingest as module
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (
@@ -548,7 +549,7 @@ def test_privacy_gate_still_rejects_a_real_iban_shaped_identifier(
 
 def test_native_cursor_read_uses_the_same_hashed_source_partition() -> None:
     compute = _Compute("graph-cursor")
-    partition = module._cursor_partition("instance-a")
+    partition = cursor_partition("instance-a")
     compute.client.changes.cursors[("fixture-connector", partition)] = {
         "source": "fixture-connector",
         "partition": partition,
