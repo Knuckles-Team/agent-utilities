@@ -18,6 +18,7 @@ from epistemic_graph.ingestion.evidence_address import (
     content_digest,
     fragment_id_for,
 )
+from epistemic_graph.ingestion.evidence_fragmentation import fragment_markdown
 from epistemic_graph.ingestion.evidence_model import (
     ARTIFACT_NODE_TYPE,
     FRAGMENT_NODE_TYPE,
@@ -30,10 +31,7 @@ from epistemic_graph.ingestion.evidence_model import (
 )
 
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-    fragment_markdown,
-    load_fragments,
-)
+from agent_utilities.knowledge_graph.ingestion.evidence_spine import load_fragments
 
 DOC = """# Payments Platform
 
