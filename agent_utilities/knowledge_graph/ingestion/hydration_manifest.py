@@ -57,7 +57,7 @@ For every registered source class it fuses, per :class:`SourceClassCoverage`:
   ``agent_utilities.mcp.kg_server._run_boot_hydration_plan``, never replaces
   it) or the ``DeltaManifest`` watermark for classes it tracks.
 * **completeness verdict** — ``complete`` / ``partial`` / ``not_started`` /
-  ``blocked`` with a human-readable reason (:func:`_fuse_verdict`).
+  ``blocked`` with a human-readable reason (:func:`epistemic_graph.ingestion.hydration_verdict.fuse_hydration_verdict`).
 
 SIGNING
 -------
@@ -78,6 +78,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from epistemic_graph.ingestion.hydration_verdict import (
+    HydrationVerdict,
+    fuse_hydration_verdict,
+)
+
 from agent_utilities.security.identifiers import validate_identifier
 
 logger = logging.getLogger(__name__)
@@ -96,7 +101,6 @@ __all__ = [
     "persist_hydration_manifest",
 ]
 
-Verdict = Literal["complete", "partial", "not_started", "blocked"]
 QueryFn = Callable[[str], Any]
 
 
@@ -231,7 +235,7 @@ def resolve_service_authority_reader() -> GraphReader | None:
       independent confirmation would be a lie.
 
     When this returns ``None`` the manifest honestly records
-    ``service_authority_attempted=False`` and :func:`_fuse_verdict` degrades to
+    ``service_authority_attempted=False`` and :func:`epistemic_graph.ingestion.hydration_verdict.fuse_hydration_verdict` degrades to
     "an RLS visibility gap cannot be ruled out" instead of claiming a
     divergence check that never happened.
     """
@@ -377,7 +381,7 @@ def _actual_code_coverage(
     ``(counts, errors)`` rather than folding a failure into ``0``). When any
     repo's query fails under a reader, that reader's rollup is honestly
     reported as ``None`` with a ``*_error`` message — never as a lower-than-
-    real count — so :func:`_fuse_verdict` correctly classifies it ``blocked``
+    real count — so :func:`epistemic_graph.ingestion.hydration_verdict.fuse_hydration_verdict` correctly classifies it ``blocked``
     ("the serving-principal read failed; completeness cannot be assessed")
     instead of silently under-reporting it as ``not_started``.
     """
@@ -543,7 +547,7 @@ class SourceClassCoverage:
     staleness_days: float | None
     freshness_basis: str | None
     errors: dict[str, str]
-    verdict: Verdict
+    verdict: HydrationVerdict
     reason: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -562,86 +566,6 @@ class SourceClassCoverage:
             "verdict": self.verdict,
             "reason": self.reason,
         }
-
-
-def _fuse_verdict(
-    expected: int | None,
-    actual_serving: int | None,
-    actual_service: int | None,
-    service_attempted: bool,
-) -> tuple[Verdict, str]:
-    """The absent-vs-hidden decision rule (CONCEPT:AU-KG.audit.hydration-absent-vs-hidden).
-
-    A divergence — 0 under the serving principal, >0 under service authority
-    — is ALWAYS ``blocked`` (an RLS visibility issue), never ``not_started``,
-    regardless of whether ``expected`` is known.
-    """
-    if actual_serving is None:
-        return (
-            "blocked",
-            "the serving-principal read failed; completeness cannot be assessed",
-        )
-
-    if (
-        service_attempted
-        and actual_service is not None
-        and actual_serving == 0
-        and actual_service > 0
-    ):
-        return (
-            "blocked",
-            f"0 under the serving principal but {actual_service} under service "
-            "authority — an RLS visibility gap, not a hydration failure",
-        )
-
-    if expected is None:
-        if actual_serving > 0:
-            return (
-                "complete",
-                "no declared-universe count is available for this class; nodes "
-                "are present under the serving principal",
-            )
-        if service_attempted and actual_service == 0:
-            return (
-                "not_started",
-                "0 under both the serving principal and service authority; "
-                "genuinely never ingested",
-            )
-        return (
-            "not_started",
-            "0 under the serving principal; no declared universe exists to size "
-            "an expected count, and service-authority confirmation was "
-            + ("unavailable" if not service_attempted else "inconclusive"),
-        )
-
-    if expected == 0:
-        return "complete", "the declared universe for this class is empty"
-
-    if actual_serving >= expected:
-        return (
-            "complete",
-            f"{actual_serving}/{expected} present under the serving principal",
-        )
-
-    if actual_serving == 0:
-        if service_attempted and actual_service == 0:
-            return (
-                "not_started",
-                f"expected {expected}, 0 under both the serving principal and "
-                "service authority; never ingested",
-            )
-        return (
-            "blocked",
-            f"expected {expected}, 0 under the serving principal; "
-            + (
-                "service-authority read failed too"
-                if service_attempted
-                else "no service-authority read was available"
-            )
-            + " — an RLS visibility gap cannot be ruled out",
-        )
-
-    return "partial", f"{actual_serving}/{expected} present under the serving principal"
 
 
 def _build_class_coverage(
@@ -675,7 +599,7 @@ def _build_class_coverage(
         spec.name, serving
     )
 
-    verdict, reason = _fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected_result.count, actual_serving, actual_service, service is not None
     )
 
