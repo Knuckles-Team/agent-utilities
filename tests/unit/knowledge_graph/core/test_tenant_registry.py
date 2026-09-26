@@ -289,6 +289,28 @@ def test_unreachable_registry_degrades_to_flat_tenancy(monkeypatch):
     tr.invalidate_cache()
 
 
+def test_hierarchy_write_refuses_unreadable_authority(monkeypatch):
+    """A failed read cannot prove that a new edge preserves the tree bounds."""
+
+    class UnreadableControlGraph:
+        def __init__(self) -> None:
+            self.writes = 0
+
+        def nodes_by_label(self, _label: str):
+            raise ConnectionError("registry unavailable")
+
+        def add_node(self, *_args, **_kwargs):
+            self.writes += 1
+
+    backend = UnreadableControlGraph()
+    monkeypatch.setattr(tr, "_control_backend", lambda: backend)
+    tr.invalidate_cache()
+    with pytest.raises(RuntimeError, match="authoritative registry read"):
+        tr.set_parent("eng", "acme", actor=_admin())
+    assert backend.writes == 0
+    tr.invalidate_cache()
+
+
 # --- read cost --------------------------------------------------------------
 
 

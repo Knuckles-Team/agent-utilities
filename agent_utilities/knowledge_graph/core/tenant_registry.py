@@ -350,7 +350,16 @@ def set_parent(
     if tenant == parent:
         raise ValueError(f"tenant {tenant!r} cannot be its own parent")
 
-    mapping = dict(_hierarchy_snapshot(refresh=True))
+    # A failed read may safely narrow ordinary reads to flat tenancy, but it
+    # cannot establish that a hierarchy mutation is cycle- or depth-safe.
+    # Read the authoritative snapshot here rather than the read-side cache,
+    # whose outage behavior deliberately substitutes an empty mapping.
+    try:
+        mapping = _load_snapshot()
+    except Exception as exc:
+        raise RuntimeError(
+            "tenant hierarchy mutation requires an authoritative registry read"
+        ) from exc
     # Cycle: is `tenant` already an ancestor of `parent`?
     probe = parent
     seen = {parent}
