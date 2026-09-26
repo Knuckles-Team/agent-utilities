@@ -120,6 +120,11 @@ class _PromotionEngine(_Compute):
                 for n in self._nodes.values()
                 if n.get("_label") == "ClaimLifecycleEvent"
             ]
+            rows.extend(
+                n
+                for n in self.client.nodes.values.values()
+                if n.get("node_type") == "ClaimLifecycleEvent"
+            )
             cid = params.get("id")
             if cid is not None:
                 rows = [r for r in rows if r.get("claim_id") == cid]
@@ -393,13 +398,85 @@ def test_retract_and_supersede_retires_a_materialized_claims_fact() -> None:
     )
 
     assert outcome["transition"]["to_state"] == ClaimLifecycleState.RETRACTED.value
+    assert outcome["status"] == "success"
     assert outcome["superseded_fact"]["tombstone"]["status"] == "success"
+    assert outcome["superseded_fact"]["lifecycle_event_committed"] is True
     assert engine.client.nodes.values["svc-1"]["archived"] is True
-    # The claim's own lifecycle audit trail is untouched history, not deleted.
+    # The lifecycle event, fact tombstone and evidence edge share one mutation.
     operations = engine.client.changes.applied[-1]["mutation"]["operations"]
+    assert [op["method"]["method"] for op in operations] == [
+        "AddNode",
+        "AddNode",
+        "AddEdge",
+    ]
+    event_params = operations[1]["method"]["params"]
+    event = msgpack.unpackb(event_params["properties_msgpack"], raw=False)
+    assert event["node_type"] == "ClaimLifecycleEvent"
+    assert event["claim_id"] == claim.claim_id
+    assert event["to_state"] == ClaimLifecycleState.RETRACTED.value
+    assert event["tenant_id"] == "fixture-tenant"
     edge = operations[-1]["method"]["params"]
     assert edge["source_id"] == claim.claim_id
     assert edge["target_id"] == "svc-1"
+    assert promotion.ClaimFlywheel(engine).is_retracted(claim.claim_id)
+
+
+def test_materialized_retraction_failure_keeps_prior_claim_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    engine = _PromotionEngine()
+    claim = _claim()
+    promotion.evaluate_and_advance(engine, claim)
+    promotion.materialize_on_claim_accepted(engine, claim.claim_id)
+    prior_state = promotion.ClaimFlywheel(engine).current_state(claim.claim_id)
+    before_events = len(
+        [n for n in engine._nodes.values() if n.get("_label") == "ClaimLifecycleEvent"]
+    )
+    monkeypatch.setattr(
+        envelope_ingest,
+        "ingest_envelope",
+        lambda _engine, _envelope: {"status": "failed", "error": "native unavailable"},
+    )
+
+    outcome = promotion.retract_and_supersede(
+        engine, claim.claim_id, reason="found to be wrong"
+    )
+
+    assert outcome["status"] == "failed"
+    assert outcome["transition"] is None
+    assert outcome["superseded_fact"]["lifecycle_event_committed"] is False
+    assert engine.client.nodes.values["svc-1"].get("archived") is not True
+    assert promotion.ClaimFlywheel(engine).current_state(claim.claim_id) == prior_state
+    assert len(
+        [n for n in engine._nodes.values() if n.get("_label") == "ClaimLifecycleEvent"]
+    ) == before_events
+
+
+def test_retraction_fails_closed_when_materialization_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _PromotionEngine()
+    claim = _claim()
+    promotion.evaluate_and_advance(engine, claim)
+    promotion.materialize_on_claim_accepted(engine, claim.claim_id)
+    before_applied = len(engine.client.changes.applied)
+    prior_state = promotion.ClaimFlywheel(engine).current_state(claim.claim_id)
+    query = engine.query_cypher
+
+    def unavailable(cypher: str, params: dict[str, Any] | None = None):
+        if "MATCH (c:Claim {id:" in cypher:
+            raise OSError("claim lookup unavailable")
+        return query(cypher, params)
+
+    monkeypatch.setattr(engine, "query_cypher", unavailable)
+
+    with pytest.raises(RuntimeError, match="materialization lookup is unavailable"):
+        promotion.retract_and_supersede(engine, claim.claim_id, reason="incorrect")
+
+    assert len(engine.client.changes.applied) == before_applied
+    assert promotion.ClaimFlywheel(engine).current_state(claim.claim_id) == prior_state
 
 
 # ---------------------------------------------------------------------------

@@ -184,24 +184,32 @@ class ClaimFlywheel:
     def is_retracted(self, claim_id: str) -> bool:
         return self.current_state(claim_id) == ClaimLifecycleState.RETRACTED
 
-    def history(self, claim_id: str) -> list[dict[str, Any]]:
+    def history(
+        self, claim_id: str, *, strict: bool = False
+    ) -> list[dict[str, Any]]:
         """The claim's full, chronological transition history (queryable audit trail)."""
         try:
-            rows = (
-                self.engine.query_cypher(
-                    "MATCH (e:ClaimLifecycleEvent) WHERE e.claim_id = $id RETURN "
-                    "e.id AS id, e.from_state AS from_state, e.to_state AS to_state, "
-                    "e.reason AS reason, e.actor AS actor, "
-                    "e.governance_valid AS governance_valid, "
-                    "e.action_decision AS action_decision, "
-                    "e.timestamp AS timestamp ORDER BY e.timestamp",
-                    {"id": claim_id},
-                )
-                or []
+            rows = self.engine.query_cypher(
+                "MATCH (e:ClaimLifecycleEvent) WHERE e.claim_id = $id RETURN "
+                "e.id AS id, e.from_state AS from_state, e.to_state AS to_state, "
+                "e.reason AS reason, e.actor AS actor, "
+                "e.governance_valid AS governance_valid, "
+                "e.action_decision AS action_decision, "
+                "e.timestamp AS timestamp ORDER BY e.timestamp",
+                {"id": claim_id},
             )
-        except Exception as e:  # noqa: BLE001 — history is best-effort introspection
+            if strict and rows is None:
+                raise RuntimeError("claim lifecycle history is unavailable")
+            rows = rows or []
+        except Exception as e:  # noqa: BLE001 — default history is best-effort introspection
+            if strict:
+                raise RuntimeError("claim lifecycle history is unavailable") from e
             logger.debug("[X3] flywheel history query failed for %s: %s", claim_id, e)
             rows = []
+        if strict and any(
+            not isinstance(row, dict) or not row.get("to_state") for row in rows
+        ):
+            raise RuntimeError("claim lifecycle history is malformed")
         events = [
             dict(row) for row in rows if isinstance(row, dict) and row.get("to_state")
         ]
@@ -306,6 +314,35 @@ class ClaimFlywheel:
         """Retract an ACCEPTED or DEPRECATED claim outright (skips the
         deprecation waypoint for a claim discovered to be flatly wrong)."""
         return self._transition(claim_id, ClaimLifecycleState.RETRACTED, reason=reason)
+
+    def plan_retract(
+        self, claim_id: str, *, reason: str = "retracted"
+    ) -> LifecycleTransition:
+        """Validate a retraction without writing or advancing the local cache.
+
+        Materialized fact retirement carries this event in the same native
+        transaction as its tombstone; a failed history read must fail closed.
+        """
+        events = self.history(claim_id, strict=True)
+        try:
+            current = (
+                ClaimLifecycleState(str(events[-1]["to_state"]))
+                if events
+                else ClaimLifecycleState.PROPOSED
+            )
+        except ValueError as exc:
+            raise RuntimeError("claim lifecycle state is invalid") from exc
+        if ClaimLifecycleState.RETRACTED not in _ALLOWED[current]:
+            raise IllegalTransition(
+                f"{claim_id}: {current.value} -> retracted is not a "
+                "legal flywheel transition"
+            )
+        return LifecycleTransition(
+            claim_id=claim_id,
+            from_state=current.value,
+            to_state=ClaimLifecycleState.RETRACTED.value,
+            reason=reason,
+        )
 
     def record_hold(self, claim_id: str, *, reason: str) -> LifecycleTransition:
         """Record a held (no state change) validation/action attempt — audit-visible,

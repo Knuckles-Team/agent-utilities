@@ -1341,18 +1341,28 @@ def _prepare_node_rows(
 
     if envelope.operation == "delete":
         tombstone, evidence = _tombstone_row(client, envelope, node_id)
+        node_rows = [(node_id, tombstone)]
         links: list[dict[str, Any]] = []
         if envelope.typed_payload is not None:
             sidecar = envelope.typed_payload
             if (
                 not isinstance(sidecar, dict)
-                or set(sidecar) != {"_links"}
-                or not isinstance(sidecar["_links"], list)
-                or not all(isinstance(link, dict) for link in sidecar["_links"])
+                or not sidecar
+                or set(sidecar) - {"_links", "_nodes"}
+                or any(
+                    not isinstance(value, list)
+                    or not all(isinstance(item, dict) for item in value)
+                    for value in sidecar.values()
+                )
             ):
-                raise ValueError("delete payload must contain only a _links list")
-            links = list(sidecar["_links"])
-        return node_id, [(node_id, tombstone)], links, [], evidence
+                raise ValueError("delete payload must contain only _links/_nodes lists")
+            links = list(sidecar.get("_links", []))
+            node_rows.extend(
+                _auxiliary_node_rows(
+                    client, envelope, sidecar.get("_nodes", []), {node_id}
+                )
+            )
+        return node_id, node_rows, links, [], evidence
 
     node_rows, links, features, evidence = _upsert_node_rows(
         client, envelope, node_id, row

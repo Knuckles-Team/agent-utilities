@@ -303,9 +303,8 @@ def register_claim_tools(mcp):
                 else:  # retract
                     # Retraction ALSO supersedes an already-materialized fact
                     # (Track B tie-in) rather than deleting it — one call into
-                    # promotion.retract_and_supersede so the two never drift
-                    # out of sync (it internally calls the SAME
-                    # ``flywheel.retract`` this branch used to call directly).
+                    # promotion.retract_and_supersede so a materialized claim's
+                    # lifecycle event and fact tombstone share the native write.
                     from agent_utilities.knowledge_graph.ingestion.promotion import (
                         retract_and_supersede,
                     )
@@ -313,6 +312,16 @@ def register_claim_tools(mcp):
                     retract_result = retract_and_supersede(
                         engine, claim_id, reason=reason or "retracted"
                     )
+                    if retract_result.get("status") != "success":
+                        return json.dumps(
+                            {
+                                "action": action,
+                                "claim_id": claim_id,
+                                "error": "retraction_commit_failed",
+                                "superseded_fact": retract_result.get("superseded_fact"),
+                            },
+                            default=str,
+                        )
                     transition_dict = retract_result["transition"]
                     superseded_fact = retract_result["superseded_fact"]
             except IllegalTransition as e:
@@ -321,6 +330,18 @@ def register_claim_tools(mcp):
                         "action": action,
                         "claim_id": claim_id,
                         "error": "illegal_transition",
+                        "detail": type(e).__name__,
+                        "policy": policy,
+                    }
+                )
+            except RuntimeError as e:
+                if action != "retract":
+                    raise
+                return json.dumps(
+                    {
+                        "action": action,
+                        "claim_id": claim_id,
+                        "error": "retraction_read_unavailable",
                         "detail": type(e).__name__,
                         "policy": policy,
                     }

@@ -44,6 +44,7 @@ def retire_fact(
     superseded_by_id: str | None = None,
     retracted_by_claim: str | None = None,
     tenant: str = "",
+    lifecycle_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Retire ``entity_id`` through the native tombstone and edge transaction.
 
@@ -53,7 +54,9 @@ def retire_fact(
     from .envelope_ingest import ingest_envelope
 
     evidence_id = superseded_by_id or retracted_by_claim
-    source_version, sidecar = supersession_material(entity_id, evidence_id, reason)
+    source_version, sidecar = supersession_material(
+        entity_id, evidence_id, reason, lifecycle_event=lifecycle_event
+    )
     tombstone = ChangeEnvelope(
         connector=connector,
         operation="delete",
@@ -74,5 +77,7 @@ def retire_fact(
         "entity_id": entity_id,
         "tombstone": result,
         "evidence_linked": bool(evidence_id)
+        and result.get("status") in {"success", "skipped"},
+        "lifecycle_event_committed": lifecycle_event is not None
         and result.get("status") in {"success", "skipped"},
     }

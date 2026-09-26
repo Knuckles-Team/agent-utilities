@@ -576,21 +576,38 @@ def supersede_materialized_claim(
     wrote (Track B tie-in — see :mod:`.supersession`); ``None`` when the
     claim was never materialized (nothing to retire).
 
-    Deliberately does NOT touch the claim's own lifecycle state — callers
-    that also need to retract the claim (e.g. :func:`retract_and_supersede`,
-    or the ``graph_claims`` MCP/REST tool's own ``retract`` action, which
-    already calls ``ClaimFlywheel.retract`` itself) call that separately;
-    this function is safe to call standalone, any number of times, on a
-    claim that is not otherwise being retracted.
+    Deliberately does NOT touch the claim's own lifecycle state. The
+    :func:`retract_and_supersede` path carries a prepared lifecycle event in
+    the native fact transaction instead. This standalone helper is safe to
+    call any number of times on a claim not otherwise being retracted.
     """
     from .supersession import retire_fact
 
+    source = _materialized_claim_source(engine, claim_id)
+    if source is None:
+        return None
+    entity_id, connector = source
+    return retire_fact(
+        engine,
+        entity_id=entity_id,
+        connector=connector,
+        reason=reason,
+        retracted_by_claim=claim_id,
+    )
+
+
+def _materialized_claim_source(
+    engine: Any, claim_id: str, *, strict: bool = False
+) -> tuple[str, str] | None:
+    """Resolve a materialized fact; strict reads gate terminal retraction."""
     try:
         rows = engine.query_cypher(
             "MATCH (c:Claim {id: $id}) RETURN c.metadata AS metadata",
             {"id": claim_id},
         )
     except Exception as exc:  # noqa: BLE001 — best-effort lookup
+        if strict:
+            raise RuntimeError("claim materialization lookup is unavailable") from exc
         logger.debug(
             "promotion: supersede lookup failed for %s: %s",
             claim_id,
@@ -598,21 +615,26 @@ def supersede_materialized_claim(
             exc_info=True,
         )
         rows = []
+    if strict and rows is None:
+        raise RuntimeError("claim materialization record is unavailable")
+    if strict and rows and not isinstance(rows[0], dict):
+        raise RuntimeError("claim materialization record is invalid")
     metadata = rows[0].get("metadata") if rows and isinstance(rows[0], dict) else {}
+    metadata = metadata or {}
+    if strict and not isinstance(metadata, dict):
+        raise RuntimeError("claim materialization metadata is invalid")
     if not isinstance(metadata, dict) or not metadata.get("materialized"):
         return None
     envelope_data = metadata.get("proposed_envelope") or {}
+    if strict and not isinstance(envelope_data, dict):
+        raise RuntimeError("claim materialization envelope is invalid")
     entity_id = envelope_data.get("source_object_id")
     if not entity_id:
+        if strict:
+            raise RuntimeError("materialized claim has no source object id")
         return None
     connector = envelope_data.get("connector") or "governed_promotion"
-    return retire_fact(
-        engine,
-        entity_id=str(entity_id),
-        connector=str(connector),
-        reason=reason,
-        retracted_by_claim=claim_id,
-    )
+    return str(entity_id), str(connector)
 
 
 def retract_and_supersede(engine: Any, claim_id: str, *, reason: str) -> dict[str, Any]:
@@ -621,15 +643,36 @@ def retract_and_supersede(engine: Any, claim_id: str, *, reason: str) -> dict[st
 
     Retracting a claim that was never materialized only records the
     (terminal, sticky) ``ClaimLifecycleEvent`` — nothing else exists to
-    retire. Retracting a MATERIALIZED claim additionally tombstones the
-    written fact through the same fail-closed ``ingest_envelope`` boundary
-    (never a direct delete) so the retired fact stays inspectable.
+    retire. Retracting a MATERIALIZED claim commits its lifecycle event, fact
+    tombstone and evidence edge through one native ``ingest_envelope``
+    transaction, leaving the retired fact inspectable.
     """
     flywheel = ClaimFlywheel(engine)
-    transition = flywheel.retract(claim_id, reason=reason)
-    superseded = supersede_materialized_claim(engine, claim_id, reason=reason)
+    source = _materialized_claim_source(engine, claim_id, strict=True)
+    if source is None:
+        transition = flywheel.retract(claim_id, reason=reason)
+        return {
+            "status": "success",
+            "claim_id": claim_id,
+            "transition": transition.to_dict(),
+            "superseded_fact": None,
+        }
+    from .supersession import retire_fact
+
+    transition = flywheel.plan_retract(claim_id, reason=reason)
+    entity_id, connector = source
+    superseded = retire_fact(
+        engine,
+        entity_id=entity_id,
+        connector=connector,
+        reason=reason,
+        retracted_by_claim=claim_id,
+        lifecycle_event=transition.to_dict(),
+    )
+    committed = superseded["lifecycle_event_committed"]
     return {
+        "status": "success" if committed else "failed",
         "claim_id": claim_id,
-        "transition": transition.to_dict() if transition else None,
+        "transition": transition.to_dict() if committed else None,
         "superseded_fact": superseded,
     }

@@ -164,6 +164,33 @@ async def test_full_lifecycle_through_the_shared_action_core(
 
 
 @pytest.mark.asyncio
+async def test_retract_surfaces_native_commit_failure(
+    registered, stub_engine, allow_policy, monkeypatch
+):
+    from agent_utilities.knowledge_graph.ingestion import promotion
+
+    monkeypatch.setattr(
+        promotion,
+        "retract_and_supersede",
+        lambda _engine, claim_id, *, reason: {
+            "status": "failed",
+            "claim_id": claim_id,
+            "transition": None,
+            "superseded_fact": {"tombstone": {"status": "failed"}},
+        },
+    )
+
+    result = json.loads(
+        await kg_server._execute_tool(
+            "graph_claims", action="retract", claim_id="claim:mcp-failed"
+        )
+    )
+
+    assert result["error"] == "retraction_commit_failed"
+    assert result["superseded_fact"]["tombstone"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_validate_false_holds_without_advancing(
     registered, stub_engine, allow_policy
 ):

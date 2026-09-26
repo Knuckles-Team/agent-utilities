@@ -125,6 +125,32 @@ def test_full_lifecycle_advances_in_order():
     ]
 
 
+def test_plan_retract_checks_transition_without_persisting_event():
+    eng = _FlywheelStubEngine()
+    fw = ClaimFlywheel(eng)
+    fw.propose("claim:1")
+    fw.validate("claim:1", True)
+    before = len(eng.by_type("ClaimLifecycleEvent"))
+
+    transition = fw.plan_retract("claim:1", reason="incorrect")
+
+    assert transition.from_state == ClaimLifecycleState.VALIDATED.value
+    assert transition.to_state == ClaimLifecycleState.RETRACTED.value
+    assert len(eng.by_type("ClaimLifecycleEvent")) == before
+    assert fw.current_state("claim:1") == ClaimLifecycleState.VALIDATED
+
+
+def test_plan_retract_fails_closed_when_history_is_unavailable():
+    class _UnavailableHistory(_FlywheelStubEngine):
+        def query_cypher(self, query, params=None):
+            raise OSError("history unavailable")
+
+    eng = _UnavailableHistory()
+    with pytest.raises(RuntimeError, match="history is unavailable"):
+        ClaimFlywheel(eng).plan_retract("claim:1", reason="incorrect")
+    assert eng.nodes == {}
+
+
 def test_illegal_transition_raises_and_never_silently_skips():
     eng = _FlywheelStubEngine()
     fw = ClaimFlywheel(eng)
