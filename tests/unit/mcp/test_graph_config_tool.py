@@ -16,11 +16,52 @@ concrete way it would otherwise be unsafe:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from agent_utilities.core import config_admin
+
+
+def test_config_admin_uses_public_client_runtime_for_gate_and_provenance(monkeypatch):
+    from agent_utilities.orchestration import action_policy
+
+    added = []
+    engine = SimpleNamespace(add_node=lambda *args: added.append(args))
+    opened = []
+
+    def _open_process_runtime(*, role, defer_background_start):
+        opened.append((role, defer_background_start))
+        return SimpleNamespace(engine=engine)
+
+    monkeypatch.setattr(
+        "agent_utilities.api.runtime.open_process_runtime", _open_process_runtime
+    )
+    monkeypatch.setattr(
+        action_policy,
+        "get_action_policy",
+        lambda candidate: SimpleNamespace(
+            decide=lambda request: SimpleNamespace(
+                allowed=True,
+                decision="allow",
+                tier="auto",
+                reason="test",
+                approval_id=None,
+            )
+        ),
+    )
+
+    allowed, info = config_admin._gate("MCP_ALWAYS_LOAD", "test")
+    node_id = config_admin._record_provenance(
+        "MCP_ALWAYS_LOAD", redacted=False, reason="test", decision="allow"
+    )
+
+    assert allowed is True
+    assert info["decision"] == "allow"
+    assert node_id and node_id.startswith("configchange:MCP_ALWAYS_LOAD:")
+    assert added[0][0] == node_id
+    assert opened == [("client", True), ("client", True)]
 
 
 @pytest.fixture(autouse=True)

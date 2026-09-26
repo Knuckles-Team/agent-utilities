@@ -359,9 +359,11 @@ def _record_provenance(
     """
     node_id = f"configchange:{env_key}:{int(time.time() * 1000)}"
     try:
-        from agent_utilities.mcp import kg_server
+        from agent_utilities.api.runtime import open_process_runtime
 
-        kg_server._get_engine().add_node(
+        open_process_runtime(
+            role="client", defer_background_start=True
+        ).engine.add_node(
             node_id,
             {
                 "node_type": "ConfigChange",
@@ -392,13 +394,14 @@ def _gate(env_key: str, reason: str) -> tuple[bool, dict[str, Any]]:
     an unavailable policy engine must never read as permission.
     """
     try:
-        from agent_utilities.mcp import kg_server
+        from agent_utilities.api.runtime import open_process_runtime
         from agent_utilities.orchestration.action_policy import (
             ActionRequest,
             get_action_policy,
         )
 
-        decision = get_action_policy(kg_server._get_engine()).decide(
+        engine = open_process_runtime(role="client", defer_background_start=True).engine
+        decision = get_action_policy(engine).decide(
             ActionRequest(
                 kind="config.set",
                 target=env_key,
