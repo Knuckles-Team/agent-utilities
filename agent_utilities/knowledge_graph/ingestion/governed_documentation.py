@@ -17,8 +17,6 @@ for paths removed from an authoritative snapshot; an incomplete or failed
 fetch cannot.
 """
 
-import hashlib
-import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -27,6 +25,14 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, ClassVar
 
+from epistemic_graph.ingestion.documentation_derivation import (
+    documentation_content_digest,
+    documentation_snapshot_digest,
+    removed_documentation_paths,
+)
+from epistemic_graph.ingestion.documentation_derivation import (
+    stable_documentation_id as _stable_id,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent_utilities.models.company_brain import DataClassification
@@ -176,12 +182,7 @@ def _validate_revision(value: str) -> str:
 def _digest_content(content: str) -> str:
     if not isinstance(content, str):
         raise DocumentationProjectionError("Markdown content must be text")
-    return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
-
-
-def _stable_id(prefix: str, *parts: str, length: int = 40) -> str:
-    material = "\x1f".join(str(part) for part in parts).encode("utf-8")
-    return f"{prefix}:{hashlib.sha256(material).hexdigest()[:length]}"
+    return documentation_content_digest(content)
 
 
 def _parse_frontmatter(markdown: str) -> dict[str, str]:
@@ -836,22 +837,20 @@ def _rebuild_removed_keys(
     prior_keys: set[tuple[str, str]],
     snapshot_verified: bool,
 ) -> list[tuple[str, str]]:
-    current_key_set = set(current_keys)
     superseded_keys = {
         (projection.repository_id, path)
         for projection in projections
         for path in projection.supersedes_paths
     }
-    if superseded_keys & current_key_set:
-        raise DocumentationProjectionError(
-            "a superseded documentation path is still present as current"
+    try:
+        return removed_documentation_paths(
+            current_keys,
+            prior_keys,
+            superseded_keys,
+            snapshot_verified=snapshot_verified,
         )
-    removed_keys = sorted((prior_keys | superseded_keys) - current_key_set)
-    if removed_keys and not snapshot_verified:
-        raise DocumentationProjectionError(
-            "verified snapshot is required before emitting documentation tombstones"
-        )
-    return removed_keys
+    except ValueError as exc:
+        raise DocumentationProjectionError(str(exc)) from exc
 
 
 def _rebuild_snapshot_digest(
@@ -869,16 +868,9 @@ def _rebuild_snapshot_digest(
         }
         for projection in projections
     ]
-    snapshot_payload = json.dumps(
-        {
-            "revision": snapshot_revision or "",
-            "records": snapshot_material,
-            "removed": removed_keys,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(snapshot_payload).hexdigest()}"
+    return documentation_snapshot_digest(
+        snapshot_revision, snapshot_material, removed_keys
+    )
 
 
 def _rebuild_tombstones(
