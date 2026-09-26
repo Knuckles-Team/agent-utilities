@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from graph_os.messaging.inbox import _inbox_id, record_inbound
 
 from agent_utilities.messaging.backfill import (
     NOT_YET_IMPLEMENTED_RECOVERABLE_PLATFORMS,
@@ -19,7 +20,17 @@ from agent_utilities.messaging.backfill import (
     PlatformNotRecoverableError,
     backfill_platform_history,
 )
-from agent_utilities.messaging.inbox import _inbox_id, record_inbound
+
+
+@pytest.fixture(autouse=True)
+def _inbox_host(monkeypatch):
+    from agent_utilities.messaging import backfill
+
+    class Host:
+        def persist_inbound(self, engine, **kwargs):
+            return record_inbound(engine, **kwargs)
+
+    monkeypatch.setattr(backfill, "reach_service_port", lambda engine: Host())
 
 
 class _FakeEngine:

@@ -378,6 +378,12 @@ class _PlannerReach:
     def configured_platforms(self) -> list[str]:
         return []
 
+    def identity_digest(self, platform: str) -> str:
+        return platform
+
+    def backend_status(self) -> dict[str, list[str]]:
+        return {"configured": [], "connected": []}
+
     async def reach_user(self, *_args: Any, **_kwargs: Any) -> None:
         return None
 
@@ -403,6 +409,16 @@ class _PlannerReach:
         add_node = getattr(self.engine, "add_node", None)
         if callable(add_node):
             add_node("channel-pref", "ChannelPref", {"platform": str(event.platform)})
+
+    def persist_inbound(self, engine: Any, **kwargs: Any) -> str | None:
+        from graph_os.messaging.inbox import record_inbound
+
+        return record_inbound(engine, **kwargs)
+
+    def mark_inbound_answered(self, engine: Any, inbox_id: str | None) -> None:
+        from graph_os.messaging.inbox import mark_answered
+
+        mark_answered(engine, inbox_id)
 
     def status(self) -> dict[str, Any]:
         return {}
@@ -574,6 +590,54 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     assert len(sessions) == 2, sessions
     # Both turns of the SAME channel share one stable session → continuity via the core.
     assert sessions[0] == sessions[1] == "messaging:telegram:42"
+
+
+@pytest.mark.asyncio
+async def test_failed_provider_send_keeps_inbound_pending(monkeypatch) -> None:
+    """A refused provider result must remain eligible for the GraphOS inbox reaper."""
+    from agent_utilities.messaging import router
+
+    async def _reply(*_args: Any, **_kwargs: Any) -> str:
+        return "answer"
+
+    class FailedBackend(_FakeBackend):
+        async def send_message(
+            self, channel_id: str, text: str, **_kwargs: Any
+        ) -> SendResult:
+            return SendResult(
+                success=False, platform=self.id, channel_id=channel_id, error="offline"
+            )
+
+    class InboxEngine(_Eng):
+        def add_node(
+            self, node_id: str, node_type: str, properties: dict[str, Any]
+        ) -> None:
+            self.nodes.setdefault(node_id, {}).update(properties)
+
+    monkeypatch.setattr(router, "_graph_agent_reply", _reply)
+
+    async def _no_persist(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(router, "_persist_and_enrich", _no_persist)
+    monkeypatch.setenv("MESSAGING_BURST_WINDOW_S", "0.05")
+    monkeypatch.setenv("MESSAGING_BURST_MAX_S", "0.2")
+    engine = InboxEngine()
+    handler = await router.create_planner_handler(knowledge_engine=engine)
+    await handler(
+        InboundEvent(
+            event_type=EventType.MESSAGE,
+            platform="telegram",
+            channel_id="42",
+            user_id="u1",
+            content="question",
+        ),
+        FailedBackend("telegram"),
+    )
+    await asyncio.sleep(0.3)
+    inbound = [row for key, row in engine.nodes.items() if key.startswith("inbound:")]
+    assert len(inbound) == 1
+    assert inbound[0]["status"] == "pending"
 
 
 @pytest.mark.asyncio

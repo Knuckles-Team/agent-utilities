@@ -250,9 +250,7 @@ async def create_planner_handler(
         # CONCEPT:AU-ECO.messaging.durable-inbound-pending — record the inbound turn DURABLY as pending BEFORE we attempt the
         # reply, so a turn that fails mid-flight (engine down, crash before _send) is found +
         # retried by the reaper instead of being silently lost ("I saved your message" → real).
-        from agent_utilities.messaging.inbox import mark_answered, record_inbound
-
-        _inbox_id = record_inbound(
+        _inbox_id = svc.persist_inbound(
             engine,
             platform=str(event.platform),
             channel_id=event.channel_id,
@@ -270,17 +268,21 @@ async def create_planner_handler(
         # edit a message in place. When off, the reply path is byte-for-byte the existing one.
         _progress_on = _progress_streaming_enabled() and _backend_supports_edit(backend)
 
-        async def _send(text: str, *, threaded: bool) -> None:
+        async def _send(text: str, *, threaded: bool) -> bool:
             try:
                 if threaded and event.message and event.message.id:
-                    await backend.reply_to(event.channel_id, event.message.id, text)
+                    result = await backend.reply_to(
+                        event.channel_id, event.message.id, text
+                    )
                 else:
-                    await backend.send_message(event.channel_id, text)
+                    result = await backend.send_message(event.channel_id, text)
+                return bool(getattr(result, "success", False))
             except Exception as e:  # noqa: BLE001
                 logger.error(
                     "[CONCEPT:AU-ECO.messaging.sending-reply-failed] Sending reply failed: %s",
                     e,
                 )
+                return False
 
         async def _run_and_deliver(*, deferred: bool) -> None:
             # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — render the core
@@ -306,20 +308,18 @@ async def create_planner_handler(
             if not delivered:
                 # An interactive turn threads its reply to the user's message; a deferred turn
                 # already acked there, so its result lands as a fresh follow-up message.
-                await _send(reply, threaded=not deferred)
+                delivered = await _send(reply, threaded=not deferred)
             # CONCEPT:AU-ECO.messaging.durable-inbound-pending — the real reply was delivered → close the durable inbox entry.
             # If _run_and_deliver crashed BEFORE this (engine down), it stays pending → retried.
-            mark_answered(engine, _inbox_id)
-            # Persist + enrich AFTER the reply is sent (CONCEPT:AU-ECO.messaging.debounce-timer-cancel). EVERY KG write and
-            # local-model encode (last-active, message ingest, episodic memory, and the
-            # per-session conversation memento that gives the NEXT turn its continuity) runs
-            # here — NEVER concurrently with reply generation, which otherwise contends with it
-            # on the GIL-bound local embedding model and stalls the answer.
-            _spawn_bg(
-                _persist_and_enrich(
-                    svc, engine, items, combined, reply, session=session
+            if delivered:
+                svc.mark_inbound_answered(engine, _inbox_id)
+                # Persist + enrich only after delivery. A failed send remains
+                # pending for GraphOS retry and cannot enter answered memory.
+                _spawn_bg(
+                    _persist_and_enrich(
+                        svc, engine, items, combined, reply, session=session
+                    )
                 )
-            )
 
         if shape.is_interactive:
             await _run_and_deliver(deferred=False)

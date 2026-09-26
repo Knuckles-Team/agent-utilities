@@ -43,6 +43,21 @@ class ReachServicePort(Protocol):
 
     def record_inbound(self, event: Any) -> None: ...
 
+    def persist_inbound(
+        self,
+        engine: Any,
+        *,
+        platform: Any,
+        channel_id: Any,
+        message_id: Any,
+        text: str,
+        session: str,
+        status: str = "pending",
+        received_at: str | None = None,
+    ) -> str | None: ...
+
+    def mark_inbound_answered(self, engine: Any, inbox_id: str | None) -> None: ...
+
     def status(self) -> dict[str, Any]: ...
 
 
@@ -85,6 +100,8 @@ def reach_service_port(engine: Any = None) -> ReachServicePort:
             "resolve_channel",
             "deliver_reply",
             "record_inbound",
+            "persist_inbound",
+            "mark_inbound_answered",
             "status",
         )
     ):

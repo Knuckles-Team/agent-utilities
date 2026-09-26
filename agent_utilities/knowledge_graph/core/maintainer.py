@@ -43,7 +43,7 @@ _MAX_CONSECUTIVE_CONTENTION_ABORT = 3
 #: Conversational node types confirmed to have NO reingest/backfill path once deleted
 #: (CONCEPT:AU-ECO.messaging.conversational-retention-guard, BUG-041 investigation):
 #: ``InboundMessage``/``Thread`` are written once at live intake
-#: (``messaging/inbox.py``, ``messaging/router.py``, ``messaging/enrichment.py``) with no
+#: (GraphOS messaging inbox, AU messaging planner and enrichment) with no
 #: export/history-fetch connector; ``Memory`` retains no raw transcript; ``Memento`` raw-
 #: block retention is opt-in and off by default. A subset of messaging platforms (Discord,
 #: Slack, Mattermost, Matrix, Google Chat, Nextcloud Talk, Twilio/voicecall) DO expose a

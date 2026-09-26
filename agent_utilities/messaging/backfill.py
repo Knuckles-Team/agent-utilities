@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Messaging conversation-history backfill (CONCEPT:AU-ECO.messaging.conversational-history-backfill, BUG-041).
 
-**The problem this closes.** ``InboundMessage``/``Thread`` KG nodes (``messaging/inbox.py``,
+**The problem this closes.** ``InboundMessage``/``Thread`` KG nodes (``graph_os.messaging.inbox``,
 ``messaging/router.py``, ``messaging/enrichment.py``) are written ONCE at live intake. Before
 this module there was no reingest path for ANY of the 17 messaging backends, and the
 existing prose ("Telegram's ``getUpdates`` means acknowledged updates are gone upstream")
@@ -59,9 +59,9 @@ googlemeet   NO            In-call text chat is not a retrievable REST resource.
 (``protocols/source_connectors/connectors/rest.py``) for pagination, dotted-field
 extraction, and the fail-closed SSRF/egress boundary (``http_safety.py``) instead of
 reimplementing any of that — "one reuse path" (AGENTS.md). Recovered messages are written
-back through :func:`agent_utilities.messaging.inbox.record_inbound` with
+back through the GraphOS reach port's ``persist_inbound`` with
 ``status="backfilled"`` and the ORIGINAL platform timestamp, using the exact same
-content-addressed id scheme (:func:`agent_utilities.messaging.inbox._inbox_id`) live intake
+content-addressed id scheme in ``graph_os.messaging.inbox`` live intake
 uses — so backfilling a message that was never deleted is a no-op (idempotent upsert), and
 backfilling one that WAS deleted reconstructs the identical node.
 """
@@ -73,7 +73,7 @@ from typing import Any, TypedDict
 from urllib.parse import quote
 
 from agent_utilities.core.config import setting
-from agent_utilities.messaging.inbox import record_inbound
+from agent_utilities.messaging.reach_port import reach_service_port
 from agent_utilities.protocols.source_connectors.connectors.rest import (
     RestJsonConnector,
 )
@@ -425,11 +425,12 @@ def backfill_platform_history(
         allowed_private_hosts=allowed_private_hosts,
     )
 
+    reach = reach_service_port(engine)
     recovered = 0
     errors = 0
     for doc in connector.load():
         try:
-            iid = record_inbound(
+            iid = reach.persist_inbound(
                 engine,
                 platform=platform,
                 channel_id=channel_id,
