@@ -3755,6 +3755,11 @@ class IngestionEngine:
         if dry_result is not None:
             return dry_result
 
+        if manifest.metadata.get("connector_manifest") is not None:
+            return await self._ingest_declared_document_source(
+                manifest, connector, source_type, connector_id
+            )
+
         # ``read_change_cursor`` stays INLINE: the native ChangeEnvelope boundary
         # gate asserts by AST that the generic connector itself resumes from the
         # engine-owned typed cursor. There is deliberately no legacy fallback —
@@ -3905,6 +3910,149 @@ class IngestionEngine:
             config,
             connector_id,
             bool(manifest.metadata.get("contextual", True)),
+        )
+
+    async def _ingest_declared_document_source(
+        self,
+        manifest: IngestionManifest,
+        connector: Any,
+        source_type: str,
+        connector_id: str,
+    ) -> IngestionResult:
+        """Commit each declared provider page through EG's SourceIngest authority."""
+        from agent_connector_sdk.ingest.transport import EpistemicGraphIngestTransport
+        from agent_connector_sdk.manifest.model import ConnectorManifest
+        from agent_connector_sdk.ports.errors import SourceContractError
+        from agent_connector_sdk.runner.document_source import (
+            DocumentObservation,
+            DocumentPollAdapter,
+            DocumentProviderPage,
+            sync_document_source,
+        )
+
+        from ...protocols.source_connectors import PollConnector
+        from ...protocols.source_connectors.checkpoint import ConnectorCheckpoint
+        from ..core.session import current_session, resolve_session
+        from .envelope_ingest import _resolve_native_authority
+
+        try:
+            if not isinstance(connector, PollConnector):
+                raise SourceContractError("declared document source must support poll")
+            declared = ConnectorManifest.model_validate(
+                manifest.metadata["connector_manifest"]
+            )
+            if declared.connector != source_type:
+                raise SourceContractError("manifest connector does not match source")
+            mapping_key = str(manifest.metadata.get("document_mapping_key") or "")
+            provider_pin = str(manifest.metadata.get("provider_contract_sha256") or "")
+            server = str(manifest.metadata.get("provider_server") or "")
+            tool = str(manifest.metadata.get("provider_tool") or "")
+            if not mapping_key or not server or not tool:
+                raise SourceContractError(
+                    "document mapping and provider provenance are required"
+                )
+
+            ambient = current_session()
+            if ambient is None:
+                raise SourceContractError("source ingest requires a GraphSession")
+            session = resolve_session(ambient, required_scope="kg:write")
+            if not session.graph or not session.tenant:
+                raise SourceContractError("verified GraphSession lacks graph or tenant")
+            compute = _resolve_native_authority(self.kg).compute
+            view_factory = getattr(compute, "for_graph", None)
+            if callable(view_factory):
+                compute = view_factory(session.graph)
+            client = getattr(compute, "client", None)
+            if client is None or not bool(client.supports("SourceIngest")):
+                raise SourceContractError("engine does not advertise SourceIngest")
+
+            async def poll_page(previous: Any) -> DocumentProviderPage:
+                checkpoint = (
+                    ConnectorCheckpoint.model_validate(previous.position)
+                    if previous is not None
+                    else None
+                )
+                # PollConnector is synchronous; preserve the existing adaptor's
+                # inline call while committing each returned page separately.
+                batch = connector.poll(checkpoint)
+                if getattr(connector, "last_envelopes", None):
+                    raise SourceContractError(
+                        "governed envelopes require a declared source mapping"
+                    )
+                if any(
+                    doc.text.strip()
+                    and (
+                        doc.external_access is None
+                        or not doc.external_access.is_public
+                        or bool(doc.external_access.user_emails)
+                        or bool(doc.external_access.group_ids)
+                        or bool(doc.external_access.read_roles)
+                        or bool(doc.external_access.markings)
+                    )
+                    for doc in batch.documents
+                ):
+                    raise SourceContractError(
+                        "SourceIngest ACL enforcement for private documents is unverified"
+                    )
+                documents = tuple(
+                    DocumentObservation(
+                        id=doc.id,
+                        text=doc.text,
+                        title=doc.title,
+                        doc_type=doc.doc_type,
+                        metadata=doc.metadata,
+                        external_access=(
+                            doc.external_access.model_dump(mode="json")
+                            if doc.external_access is not None
+                            else None
+                        ),
+                        updated_at=doc.updated_at,
+                    )
+                    for doc in batch.documents
+                    if doc.text.strip()
+                )
+                return DocumentProviderPage(
+                    documents=documents,
+                    position=batch.checkpoint.model_dump(mode="json"),
+                    exhausted=not batch.checkpoint.has_more,
+                    watermark=batch.checkpoint.watermark,
+                )
+
+            adapter = DocumentPollAdapter(
+                declared,
+                stream=str(connector_id),
+                mapping_key=mapping_key,
+                poll=poll_page,
+                provider_contract_sha256=provider_pin,
+                server=server,
+                tool=tool,
+            )
+            outcome = await sync_document_source(
+                adapter,
+                EpistemicGraphIngestTransport(client),
+                max_pages=int(manifest.metadata.get("max_pages", 1000)),
+            )
+        except Exception as exc:  # noqa: BLE001 — source failure must not advance the cursor
+            logger.warning(
+                "declared document source ingest failed (%s)", type(exc).__name__
+            )
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"native source ingest failed ({type(exc).__name__})",
+            )
+        return IngestionResult(
+            manifest=manifest,
+            status="success" if outcome.exhausted else "partial",
+            nodes_created=outcome.accepted,
+            details={
+                "connector": source_type,
+                "connector_id": connector_id,
+                "documents": outcome.records,
+                "pages": outcome.pages,
+                "checkpoint_advanced": outcome.pages > 0,
+                "source_ingest": True,
+            },
         )
 
     @staticmethod
