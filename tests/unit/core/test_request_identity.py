@@ -232,6 +232,20 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
+    def test_verified_tenant_admission_scope_is_explicit_and_not_implied(self):
+        actor = actor_from_claims(
+            {
+                "sub": "svc:admission",
+                "scope": "kg:write security:tenant-admit unrelated:claim",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        session = _mint(actor)
+        assert session.scopes == frozenset(
+            {"kg:read", "kg:write", "security:tenant-admit"}
+        )
+
     def test_broker_process_scope_projects_only_from_exact_verified_claim(self):
         broker = actor_from_claims(
             {
