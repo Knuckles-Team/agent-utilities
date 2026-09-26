@@ -63,6 +63,12 @@ from typing import Any, TypedDict
 from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
 from agent_utilities.security.identifiers import validate_identifier
+from agent_utilities.skills.readiness import (
+    bundled_skill_readiness as bundled_skill_readiness,
+)
+from agent_utilities.skills.readiness import (
+    set_bundled_skill_readiness as _set_bundled_skill_readiness,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4875,7 +4881,6 @@ def _join_process_authority_thread(thread: threading.Thread | None) -> bool:
     return thread is None or not thread.is_alive()
 
 
-_BUNDLED_SKILL_READINESS: dict[str, Any] = {}
 # A 9–10 GiB four-shard graph can legitimately need just over five minutes to
 # rebuild its lazy-open indexes on slower storage. Keep this within the
 # deployment's ten-minute startup probe while avoiding a pointless restart at
@@ -4887,23 +4892,6 @@ _ENGINE_MATERIALIZATION_TIMEOUT_SECONDS = 540.0
 # poll per second keeps readiness latency bounded while leaving the engine's
 # foreground read lane available for the materializer and health probes.
 _ENGINE_MATERIALIZATION_POLL_SECONDS = 1.0
-
-
-def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
-    """Publish packaged-skill readiness so /health can report it.
-
-    Readiness no longer gates boot, so it MUST be observable at runtime —
-    otherwise "serving degraded" is indistinguishable from "fully ready" to
-    anything outside the process, which is the silent-failure pattern this
-    codebase keeps getting bitten by.
-    """
-    _BUNDLED_SKILL_READINESS.clear()
-    _BUNDLED_SKILL_READINESS.update(report)
-
-
-def bundled_skill_readiness() -> dict[str, Any]:
-    """The last packaged-skill readiness report (empty before bootstrap runs)."""
-    return dict(_BUNDLED_SKILL_READINESS)
 
 
 def _resolve_materialization_handles(engine: Any) -> tuple[Any, Any, str]:

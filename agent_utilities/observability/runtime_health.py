@@ -67,6 +67,8 @@ from concurrent.futures import TimeoutError as _FutureTimeoutError
 from typing import Any, TypedDict, cast
 from urllib.parse import urlsplit
 
+from agent_utilities.skills.readiness import bundled_skill_readiness
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -798,10 +800,6 @@ def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
     names the skills — "serving degraded" has to be distinguishable from "fully
     ready" from outside the process.
     """
-    try:
-        from agent_utilities.mcp.kg_server import bundled_skill_readiness
-    except Exception:  # noqa: BLE001 - the MCP surface may not be importable
-        return {"status": "not_configured", "reason": "graph-os MCP surface not loaded"}
     report = bundled_skill_readiness()
     if not report:
         return {"status": "not_configured", "reason": "skill bootstrap has not run"}

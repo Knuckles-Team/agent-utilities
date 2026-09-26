@@ -35,6 +35,24 @@ from agent_utilities.core.config import AgentConfig
 from agent_utilities.knowledge_graph.core import engine_resolver as er
 from agent_utilities.knowledge_graph.core import shard_topology as st
 from agent_utilities.observability import runtime_health as rh
+from agent_utilities.skills.readiness import (
+    bundled_skill_readiness,
+    set_bundled_skill_readiness,
+)
+
+
+def test_bundled_skill_health_reads_au_skill_report_without_mcp_host() -> None:
+    previous = bundled_skill_readiness()
+    try:
+        set_bundled_skill_readiness(
+            {"required": 2, "ready": 1, "not_ready": ["example-skill"]}
+        )
+        report = rh._check_bundled_skills(None)
+        assert report["detail"]["not_ready"] == ["example-skill"]
+        assert report["detail"]["ready"] == 1
+        assert bundled_skill_readiness()["required"] == 2
+    finally:
+        set_bundled_skill_readiness(previous)
 
 
 # --------------------------------------------------------------------------- #
