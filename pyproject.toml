@@ -385,13 +385,15 @@ computer-use = [
 # exclude it, and it was the sole remaining source once D2 removed AU's own
 # llama-index use.
 #
-# `portainer-agent` IS declared below, but its newest PUBLISHED version (1.1.0) imports
-# `agent_utilities.http`, a module this package renamed to `agent_utilities.httpsupport`;
-# the local sibling checkout (2.1.0) already carries the fix but is unpublished. The
-# widget degrades safely through `BaseWidget._safe_fetch` meanwhile, and the floor
-# (`>=1.1.0`) picks the fix up automatically once 2.1.0 reaches PyPI. Asserted in
-# `tests/unit/gateway/test_gateway_widgets_extra.py::KNOWN_BROKEN` so the note cannot
-# outlive the defect.
+# Some published connector wheels at the floors below still import retired AU
+# modules: documentdb-mcp 1.0.1 (mcp_utilities), github-agent 1.4.2,
+# microsoft-agent 1.0.1 and postiz-agent 1.0.1 (exceptions), portainer-agent
+# 1.1.0 (http), and servicenow-api 2.0.1 (decorators). Their sibling source
+# checkouts removed those imports, but this extra must describe installable
+# published releases. Widgets return a dependency-unavailable result until a
+# fixed wheel is installed. The exact failures are pinned in KNOWN_BROKEN in
+# tests/unit/gateway/test_gateway_widgets_extra.py; remove each entry when its
+# import succeeds and then raise that package's floor to the published fix.
 gateway-widgets = [
     "ansible-tower-mcp>=2.0.1",
     "arr-mcp>=2.1.0",

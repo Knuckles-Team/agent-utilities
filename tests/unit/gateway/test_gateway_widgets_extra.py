@@ -66,17 +66,17 @@ WIDGET_CONNECTOR_IMPORTS: dict[str, tuple[str, str]] = {
     "wger": ("wger_agent.api_client", "WgerApi"),
 }
 
-# Widgets whose import is declared correctly above but is KNOWN to still fail
-# for a reason a pyproject.toml dependency declaration cannot fix. See the
-# `gateway-widgets` extra's comment in pyproject.toml for the full write-up.
+# Widgets whose published connector imports a removed AU module. Map each
+# connector to the exact missing module, so a fixed publication makes this
+# test fail until the entry is removed and normal import coverage resumes.
+# The local sibling connector checkouts have already removed these imports.
 KNOWN_BROKEN: dict[str, str] = {
-    # PyPI's portainer-agent (currently 1.1.0, the newest published) imports
-    # `agent_utilities.http`, which no longer exists (renamed to
-    # `agent_utilities.httpsupport`). The local sibling checkout
-    # (agent-packages/agents/portainer-agent, 2.1.0) already carries the fix,
-    # but that version is not yet published, and PyPI has nothing newer.
-    "portainer": "portainer-agent 1.1.0 (PyPI) imports the removed "
-    "agent_utilities.http module; fixed in the unpublished 2.1.0",
+    "documentdb": "agent_utilities.mcp_utilities",
+    "github": "agent_utilities.exceptions",
+    "microsoft": "agent_utilities.exceptions",
+    "portainer": "agent_utilities.http",
+    "postiz": "agent_utilities.exceptions",
+    "servicenow": "agent_utilities.decorators",
 }
 
 # Widgets whose connector package has no `api_client` (or equivalent) module
@@ -127,8 +127,9 @@ def test_widget_connector_import_resolves(widget_name: str) -> None:
         # breakage instead, so this test fails loudly -- prompting removal of
         # this KNOWN_BROKEN entry -- the moment the fixed connector is
         # published, rather than staying quietly "expected to fail" forever.
-        with pytest.raises(ModuleNotFoundError):
+        with pytest.raises(ModuleNotFoundError) as error:
             importlib.import_module(module_name)
+        assert error.value.name == KNOWN_BROKEN[widget_name]
         return
 
     module = importlib.import_module(module_name)
