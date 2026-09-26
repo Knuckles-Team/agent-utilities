@@ -97,12 +97,15 @@ UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 # the served profile is enforced for these transports (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 
-# The only graph authorization scopes a served identity may project into a
+# The only engine authorization scopes a served identity may project into a
 # GraphSession. They come from validated JWT capabilities (``ActorContext.roles``),
 # never from request JSON/headers. Only the explicit ``kg:admin`` capability —
 # supplied directly or through the configured identity mapping — grants graph
 # administration; a generic application role named ``admin`` is not equivalent.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
+# Tenant admission is a separate narrow control action, not implied by kg:write.
+_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
+    {"kg:read", "kg:write", "kg:admin", "security:tenant-admit"}
+)
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
