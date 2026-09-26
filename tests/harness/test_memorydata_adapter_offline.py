@@ -8,6 +8,9 @@ suite passes with the live engine down and no extra dependencies. Runnable eithe
 pytest or as a plain script (``python3 test_adapter_offline.py``) via the ``__main__`` block.
 """
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from agent_utilities.harness.memorydata import (
     RETRIEVAL_CONFIGS,
     BakeoffResult,
@@ -206,6 +209,26 @@ def test_build_client_supports_engine_transport() -> None:
     except ValueError:
         raised = True
     assert raised
+
+
+def test_engine_transport_uses_public_client_runtime() -> None:
+    from agent_utilities.harness.memorydata.client import EngineBackendClient
+
+    engine = object()
+    opened = []
+
+    def _open_process_runtime(*, role, defer_background_start):
+        opened.append((role, defer_background_start))
+        return SimpleNamespace(engine=engine)
+
+    with patch(
+        "agent_utilities.api.runtime.open_process_runtime", _open_process_runtime
+    ):
+        client = EngineBackendClient(namespace="unit")
+        assert client._get_engine() is engine
+        assert client._get_engine() is engine
+
+    assert opened == [("client", True)]
 
 
 def _run_all() -> None:

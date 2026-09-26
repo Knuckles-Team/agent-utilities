@@ -306,7 +306,7 @@ class EngineBackendClient(MemoryBackendClient):
 
     Unlike :class:`GraphOSRestClient` (which assumes a ``/graph/*`` REST gateway), this
     transport talks to the engine the same way the MCP tools do — via
-    ``agent_utilities.mcp.kg_server._get_engine()``, which connects to the running
+    ``agent_utilities.api.runtime.open_process_runtime()``, which connects to the running
     ``epistemic-graph`` daemon over its UDS socket as a *client* (role != host, so it never
     contends for the host write lock). This is the path that actually exercises the deployed
     memory stack:
@@ -331,14 +331,13 @@ class EngineBackendClient(MemoryBackendClient):
     def _get_engine(self) -> Any:
         if self._engine is not None:
             return self._engine
-        import os
-
         # Connect as a read/write client of the running daemon, never as the host.
-        os.environ.setdefault("KG_DAEMON_ROLE", "client")
         try:
-            from agent_utilities.mcp import kg_server
+            from agent_utilities.api.runtime import open_process_runtime
 
-            engine = kg_server._get_engine()
+            engine = open_process_runtime(
+                role="client", defer_background_start=True
+            ).engine
         except Exception as exc:  # noqa: BLE001 - any import/connect failure → unavailable
             raise BackendUnavailable(f"graph-os engine unavailable: {exc}") from exc
         if engine is None:
