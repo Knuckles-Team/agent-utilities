@@ -30,9 +30,10 @@ a successful production write.
 
 Remaining gate: a served integration test must compare stored node properties
 and edge rows against the old authority on the same graph and verified actor.
-EG `upsert_edge` replaces all parallel edges for an ordered endpoint pair, so a
-graph carrying other relationship types on the same member/community pair
-needs a relationship-scoped upsert contract before enabling this migration by
-default. Repeated `community_cluster_{index}` IDs also depend on detector
+EG `upsert_edge` replaces all parallel edges for an ordered endpoint pair. The
+EG isolated branch now has a candidate `upsert_edge_relationship` BatchUpdate
+mode, and AU's `batch_typed_mutations` selects it for the opt-in community
+path. Root's Rust, durable replay, and served storage gates must pass before
+default cutover. Repeated `community_cluster_{index}` IDs also depend on detector
 ordering; a membership-hash identity would require an alias migration for
 existing readers. This slice keeps the IDs produced by the legacy call.

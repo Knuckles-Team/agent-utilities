@@ -25,8 +25,8 @@ class _Engine:
         self.batches = []
         self.legacy_writes = []
 
-    def batch_typed_mutations(self, mutations, *, upsert):
-        self.batches.append((mutations, upsert))
+    def batch_typed_mutations(self, mutations, *, upsert, edge_upsert_scope):
+        self.batches.append((mutations, upsert, edge_upsert_scope))
         return self.accepted
 
     def upsert_node(self, node):
@@ -41,8 +41,9 @@ def test_native_batch_preserves_ids_properties_and_member_direction():
     assert persist_stable_communities(engine, native_batch=True) == 2
     assert engine.legacy_writes == []
     assert len(engine.batches) == 1
-    operations, upsert = engine.batches[0]
+    operations, upsert, scope = engine.batches[0]
     assert upsert is True
+    assert scope == "relationship"
     nodes = [row for row in operations if row["kind"] == "node"]
     edges = [row for row in operations if row["kind"] == "edge"]
     assert [row["id"] for row in nodes] == [
