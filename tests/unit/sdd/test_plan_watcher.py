@@ -327,6 +327,16 @@ def test_process_kg_ingest_location(tmp_path):
     )
 
 
+def test_mcp_transport_config_is_not_promoted_as_graph_content(tmp_path):
+    mock_engine = MagicMock()
+    config_file = tmp_path / "mcp_config.json"
+    config_file.write_text('{"mcpServers": {"example": {}}}')
+
+    process_kg_ingest_location(mock_engine, config_file)
+
+    mock_engine.submit_task.assert_not_called()
+
+
 def test_watcher_paused_flag():
     """Test that setting _WATCHER_PAUSED = True skips scans during the watcher loop."""
     from pathlib import Path

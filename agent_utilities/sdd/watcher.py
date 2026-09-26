@@ -852,19 +852,6 @@ def _read_kg_ingest_content(file_path: Path) -> str | None:
         return None
 
 
-def _reingest_mcp_config(engine: Any) -> None:
-    try:
-        from agent_utilities.mcp.kg_server import _ingest_capabilities
-
-        _ingest_capabilities(engine)
-    except Exception as e:
-        # D-SWG-2: loud, not debug — the content hash below is recorded
-        # unconditionally regardless of this try's outcome, so a failed
-        # re-ingest is never retried on a later scan; a buried DEBUG line
-        # would make a stale capability inventory permanently invisible.
-        logger.error(f"Failed to re-ingest capabilities: {e}")
-
-
 def _reingest_generic_kg_location(engine: Any, file_path: Path) -> None:
     try:
         if hasattr(engine, "submit_task"):
@@ -880,6 +867,11 @@ def _reingest_generic_kg_location(engine: Any, file_path: Path) -> None:
 
 def process_kg_ingest_location(engine: Any, file_path: Path):
     """Processes a Knowledge Graph ingestion location, re-triggering ingestion on changes."""
+    # IDE MCP transport wiring is not a graph source. GraphOS serves the
+    # verified EG fleet catalog; AU must not resurrect its legacy MCP host to
+    # promote a local mcp_config.json into that catalog.
+    if file_path.name == "mcp_config.json":
+        return
     if not file_path.exists() or not file_path.is_file():
         return
 
@@ -897,10 +889,7 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
 
     logger.info("Knowledge Graph ingestion location modified; re-ingesting")
 
-    if file_path.name == "mcp_config.json":
-        _reingest_mcp_config(engine)
-    else:
-        _reingest_generic_kg_location(engine, file_path)
+    _reingest_generic_kg_location(engine, file_path)
 
     _SEEN_HASHES[file_key].add(content_hash)
 
