@@ -16,6 +16,27 @@
 # source_repo (where the marker actually lives), code_paths (repo-relative,
 # prefixed with "<source_repo>/" to make the cross-repo boundary unambiguous).
 concepts:
+  - id: AU-ECO.messaging.alert-intake
+    doc: "GraphOS serves messaging alert intake through the verified host runtime"
+    source_repo: graph-os
+    code_paths:
+      - graph-os/graph_os/messaging/alert_intake.py
+      - graph-os/graph_os/messaging/polling.py
+  - id: AU-ECO.messaging.inbound-messaging-router-runs
+    doc: "GraphOS owns the served inbound messaging poll loop"
+    source_repo: graph-os
+    code_paths:
+      - graph-os/graph_os/messaging/polling.py
+  - id: AU-ECO.messaging.mattermost-backend
+    doc: "Mattermost is a first-class bidirectional messaging platform"
+    source_repo: graph-os
+    code_paths:
+      - graph-os/graph_os/messaging/backends/mattermost.py
+  - id: AU-ECO.ui.agent-manager-dashboard
+    doc: "GraphOS serves the Agent Manager dashboard"
+    source_repo: graph-os
+    code_paths:
+      - graph-os/graph_os/gateway/agent_manager_dashboard.py
   - id: AU-KG.backend.backend-modes
     doc: "redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default)"
     source_repo: epistemic-graph
