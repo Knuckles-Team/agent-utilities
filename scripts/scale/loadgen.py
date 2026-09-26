@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.knowledge_graph.core import work_durability as wi
-from agent_utilities.messaging.bus import AgentBus
+from agent_utilities.orchestration.agent_bus import AgentBus
 from scripts.scale.fake_engine import FakeScaleEngine, LatencyModel, WallClock
 from scripts.scale.live_contract import (
     LiveRuntimeContract,

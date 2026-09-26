@@ -143,7 +143,7 @@ async def reach_user(
 # ── AgentBus native tools (CONCEPT:AU-ECO.bus.agent-bus-awareness) ─────────────────────────────────
 # Universal, in-process tools so EVERY agent (orchestrator + every spawned swarm
 # sub-agent) can coordinate over the AgentBus without needing the graph-os MCP bound.
-# Thin wrappers over agent_utilities.messaging.bus.AgentBus (the one core).
+# Thin wrappers over agent_utilities.orchestration.agent_bus.AgentBus (the one core).
 
 
 def _bus_self_id(ctx: RunContext[Any], override: str = "") -> str:
@@ -166,7 +166,7 @@ async def bus_join(
     CONCEPT:AU-ECO.bus.agent-bus-awareness — call this once before sending/receiving. ``capabilities`` is a
     comma-separated list of what you can do (helps peers route work to you).
     """
-    from agent_utilities.messaging.bus import AgentBus
+    from agent_utilities.orchestration.agent_bus import AgentBus
 
     me = _bus_self_id(ctx, agent_id)
     provider = getattr(getattr(ctx, "deps", None), "provider", None) or ""
@@ -177,9 +177,9 @@ async def bus_join(
 
 async def bus_peers(ctx: RunContext[Any], capability: str = "") -> str:
     """List other agents on the bus and their presence (optionally filtered by capability)."""
-    from agent_utilities.messaging.bus import AgentBus
     from agent_utilities.messaging.bus_log import current_bus_tenant
     from agent_utilities.messaging.bus_privacy import bus_reference
+    from agent_utilities.orchestration.agent_bus import AgentBus
 
     roster = AgentBus.instance().roster(capability=capability)
     me = _bus_self_id(ctx)
@@ -207,7 +207,7 @@ async def bus_send(
 
     CONCEPT:AU-ECO.bus.agent-bus-awareness — agent-to-agent messaging. Governed by the ActionPolicy ``bus.send`` gate.
     """
-    from agent_utilities.messaging.bus import AgentBus
+    from agent_utilities.orchestration.agent_bus import AgentBus
 
     me = _bus_self_id(ctx, agent_id)
     bus = AgentBus.instance()
@@ -224,7 +224,7 @@ async def bus_send(
 
 async def bus_check(ctx: RunContext[Any], since: int = 0, agent_id: str = "") -> str:
     """Read your AgentBus inbox. Pass back the returned cursor next time for only-new messages."""
-    from agent_utilities.messaging.bus import AgentBus
+    from agent_utilities.orchestration.agent_bus import AgentBus
 
     me = _bus_self_id(ctx, agent_id)
     out = AgentBus.instance().receive(me, since=since)

@@ -121,10 +121,10 @@ emitted on the `send`/`dispatch` path. Labels are small enums, so cardinality st
 
 | Name | Type | Labels | Meaning | Emitted by (module) | Since (concept id) |
 |---|---|---|---|---|---|
-| `agent_utilities_bus_participants` | Gauge | `status` | Registered participants by computed presence (`online` \| `offline`) | `messaging/bus.py` | AU-ECO.bus.operator-view-agentbus |
-| `agent_utilities_bus_messages_total` | Counter | `kind`, `outcome` | Bus messages by kind (`direct` \| `topic`) and outcome (`delivered` \| `denied` \| `no_recipient`) | `messaging/bus.py` | AU-ECO.bus.operator-view-agentbus |
-| `agent_utilities_bus_send_seconds` | Histogram | — | Server-side latency of one `AgentBus.send` (gate + per-recipient durable write) | `messaging/bus.py` | AU-ECO.bus.operator-view-agentbus |
-| `agent_utilities_bus_dispatch_total` | Counter | `outcome` | Message→fleet-work dispatches (`submitted` \| `denied` \| `failed`) | `messaging/bus.py` | AU-ECO.bus.operator-view-agentbus |
+| `agent_utilities_bus_participants` | Gauge | `status` | Registered participants by computed presence (`online` \| `offline`) | `orchestration/agent_bus.py` | AU-ECO.bus.operator-view-agentbus |
+| `agent_utilities_bus_messages_total` | Counter | `kind`, `outcome` | Bus messages by kind (`direct` \| `topic`) and outcome (`delivered` \| `denied` \| `no_recipient`) | `orchestration/agent_bus.py` | AU-ECO.bus.operator-view-agentbus |
+| `agent_utilities_bus_send_seconds` | Histogram | — | Server-side latency of one `AgentBus.send` (gate + per-recipient durable write) | `orchestration/agent_bus.py` | AU-ECO.bus.operator-view-agentbus |
+| `agent_utilities_bus_dispatch_total` | Counter | `outcome` | Message→fleet-work dispatches (`submitted` \| `denied` \| `failed`) | `orchestration/agent_bus.py` | AU-ECO.bus.operator-view-agentbus |
 
 Load-test these with `scripts/bench_bus.py` against a live hub; the modeled expectation
 (participants/hub, msgs/s/connection) is in `docs/scaling/capacity_model.py`

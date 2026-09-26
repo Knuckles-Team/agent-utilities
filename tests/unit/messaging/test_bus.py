@@ -10,8 +10,8 @@ from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
 from agent_utilities.messaging import bus_inbox
-from agent_utilities.messaging.bus import AgentBus
 from agent_utilities.messaging.bus_privacy import bus_reference
+from agent_utilities.orchestration.agent_bus import AgentBus
 
 
 class _FakeBusBroker:

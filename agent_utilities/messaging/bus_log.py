@@ -8,12 +8,57 @@ AU has committed every recipient's inbox and WorkItem.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Protocol
 
 from agent_utilities.messaging.bus_privacy import bus_reference, sanitize_bus_content
 
 BUS_LOG_BACKENDS = ("engine",)
 _MATERIALIZER_GROUP = "agent-bus-inbox-v1"
+
+
+class BusDeliveryPort(Protocol):
+    """The EG stream capabilities consumed by AU's agent controller."""
+
+    name: str
+
+    def publish_direct(
+        self,
+        *,
+        tenant: str,
+        group: str,
+        sender: str,
+        to: str,
+        payload: str,
+        meta_json: str,
+        created: float,
+    ) -> bool: ...
+
+    def publish_topic(
+        self,
+        *,
+        tenant: str,
+        group: str,
+        sender: str,
+        topic: str,
+        payload: str,
+        meta_json: str,
+        created: float,
+    ) -> bool: ...
+
+    def receive(
+        self,
+        *,
+        tenant: str,
+        agent_id: str,
+        topics: list[str],
+        max_messages: int = 200,
+    ) -> list[dict[str, Any]]: ...
+
+    def ack(self, message: dict[str, Any]) -> bool: ...
+
+    def nack(self, message: dict[str, Any], *, requeue: bool = True) -> bool: ...
+
+    def stats(self) -> dict[str, Any]: ...
 
 
 class BusLogUnavailable(RuntimeError):

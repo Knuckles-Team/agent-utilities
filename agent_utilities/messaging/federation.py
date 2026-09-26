@@ -59,7 +59,7 @@ class BusFederationRelay:
         return cls._instance
 
     def _bus(self) -> Any:
-        from agent_utilities.messaging.bus import AgentBus
+        from agent_utilities.orchestration.agent_bus import AgentBus
 
         # Bind to this relay's own engine (one engine per hub) rather than the global
         # singleton, so a process hosting more than one hub keeps them isolated.

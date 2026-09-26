@@ -125,7 +125,7 @@ read-only projection. A raw `WorkItem` row is queryable like any other node via
 
 ### 2.2 Partitioned-log `AgentBus` delivery plane
 
-**What it is.** `AgentBus` (`messaging/bus.py`) kept its semantic registry
+**What it is.** `AgentBus` (`orchestration/agent_bus.py`) kept its semantic registry
 (`:Agent`/`:Topic`/`:BusSubscription` presence and membership — small, low-churn) as
 KG nodes, which is correct — but it *also* wrote one `:BusMessage` graph node **per
 recipient** on every `send()` and read the mailbox via a property-scoped `MATCH` scan
@@ -135,8 +135,8 @@ partitioned log carrying message bodies — real offsets/consumer cursors, a DLQ
 backpressure via queue depth — while the KG keeps only the registry.
 
 **Code anchor.** `messaging/bus_log.py::EngineStreamBusLog`,
-`AgentBus.send`/`_send_via_log`/`receive` (`messaging/bus.py`), and
-`epistemic_graph.partitioned_stream.SyncPartitionedStreamLog` in EG.
+`AgentBus.send`/`_send_via_log`/`receive` (`orchestration/agent_bus.py`), and
+`epistemic_graph.partitioned_stream.SyncMessageDeliveryLog` in EG.
 
 **Delivery authority.** EG native streams are the sole AgentBus writer. A fixed
 number of tenant-qualified partitions retain events by offset. AU commits each
@@ -146,6 +146,15 @@ inbox transaction leaves the cursor unchanged and replays the event; determinist
 inbox IDs make replay idempotent. Poison records move to a digest-only DLQ
 stream before their cursor advances. There is no Kafka, AMQP, or graph-message
 fallback writer. Missing verified tenant or EG stream authority fails closed.
+
+**Proposed AUD-13 clarification.** The original file-level destination of
+`messaging/bus.py` is too broad: its agent presence, subscription, ActionPolicy,
+fleet-dispatch, and inbox/outbox coordination are AU control-plane behavior.
+EH-492 places that controller at `orchestration/agent_bus.py` behind the typed
+`BusDeliveryPort`. EG owns stream placement, append/read, cursor, DLQ, and
+depth normalization; `messaging/bus_log.py` remains the AU tenant and sanitized
+envelope adapter. The GraphOS host owns served messaging intake, leases, and
+human-channel inbox retry. This keeps one writer for each durable stream.
 
 **Two surfaces.** MCP tool `graph_bus` (`mcp/tools/bus_tools.py::register_bus_tools`)
 ↔ REST `/graph/bus` (`kg_server.py` `ACTION_TOOL_ROUTES["graph_bus"]`). Note this is

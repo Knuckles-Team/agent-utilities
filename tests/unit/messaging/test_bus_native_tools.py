@@ -10,7 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_utilities.messaging.bus import AgentBus, bus_capability_prompt, swarm_topic
+from agent_utilities.orchestration.agent_bus import (
+    AgentBus,
+    bus_capability_prompt,
+    swarm_topic,
+)
 from agent_utilities.tools import agent_tools as at
 from tests.unit.messaging.test_bus import _FakeGraph
 

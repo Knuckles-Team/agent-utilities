@@ -308,8 +308,8 @@ async def _run_swarm(
     from agent_utilities.core.model_factory import create_model
     from agent_utilities.graph.parallel_engine import ParallelEngine
     from agent_utilities.graph.planning import Planner
-    from agent_utilities.messaging.bus import swarm_topic
     from agent_utilities.models.execution_manifest import ExecutionManifest
+    from agent_utilities.orchestration.agent_bus import swarm_topic
 
     try:
         model = create_model(

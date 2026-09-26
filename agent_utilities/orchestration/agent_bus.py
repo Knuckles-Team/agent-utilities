@@ -57,7 +57,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agent_utilities.messaging.bus_privacy import (
     bus_reference,
@@ -67,6 +67,8 @@ from agent_utilities.observability import gateway_metrics as _metrics
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from agent_utilities.messaging.bus_log import BusDeliveryPort
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class AgentBus:
         # EG stream unavailability raises here and fails the operation closed.
         self._log_backend_cache: Any = _UNRESOLVED
 
-    def _log_backend(self) -> Any:
+    def _log_backend(self) -> BusDeliveryPort:
         """Resolve and return the required durable bus-log backend."""
         if self._log_backend_cache is _UNRESOLVED:
             from agent_utilities.messaging.bus_log import resolve_bus_log_backend
@@ -144,7 +146,7 @@ class AgentBus:
                 "[AU-P1-2] AgentBus delivery/wakeup plane: %s (partitioned log)",
                 self._log_backend_cache.name,
             )
-        return self._log_backend_cache
+        return cast("BusDeliveryPort", self._log_backend_cache)
 
     @staticmethod
     def _depth_from_stats(value: Any) -> int:

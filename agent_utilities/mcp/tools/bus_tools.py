@@ -1,6 +1,6 @@
 """graph_bus MCP tool — the agent-to-agent communication bus surface (CONCEPT:AU-ECO.bus.agent-to-agent-bus).
 
-Thin wrapper over :class:`agent_utilities.messaging.bus.AgentBus` (the one core). This is the
+Thin wrapper over :class:`agent_utilities.orchestration.agent_bus.AgentBus` (the one core). This is the
 surface any session — a Claude Code session, another LLM, a session from any provider, on any
 host — uses to register on the shared hub, discover peers, exchange messages, and hand work to
 the fleet. The REST twin is ``/graph/bus`` (``gateway/graph_api.py`` via the generic adapter);
@@ -328,7 +328,7 @@ def register_bus_tools(mcp):
         ),
         ctx: Context | None = None,
     ) -> str:
-        from agent_utilities.messaging.bus import AgentBus
+        from agent_utilities.orchestration.agent_bus import AgentBus
 
         engine = kg_server._get_engine()
         bus = AgentBus.instance(engine)

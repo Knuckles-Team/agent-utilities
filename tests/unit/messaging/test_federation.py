@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.messaging.bus import AgentBus
 from agent_utilities.messaging.federation import BusFederationRelay
+from agent_utilities.orchestration.agent_bus import AgentBus
 from tests.unit.messaging.test_bus import _FakeGraph
 
 

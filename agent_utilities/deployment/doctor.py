@@ -4570,7 +4570,7 @@ def _check_bus() -> dict[str, Any]:
     try:
         from agent_utilities.core.config import config
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-        from agent_utilities.messaging.bus import AgentBus
+        from agent_utilities.orchestration.agent_bus import AgentBus
 
         engine = IntelligenceGraphEngine.get_active()
         if engine is None:

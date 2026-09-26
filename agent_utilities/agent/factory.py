@@ -851,7 +851,7 @@ def create_agent(
         # can coordinate with peers (the bus_* tools are registered just below when universal
         # tools are on). Native-by-default: not a separate persona, just how agents work together.
         if enable_universal_tools:
-            from agent_utilities.messaging.bus import bus_capability_prompt
+            from agent_utilities.orchestration.agent_bus import bus_capability_prompt
 
             if "AgentBus" not in system_prompt_str:
                 system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"

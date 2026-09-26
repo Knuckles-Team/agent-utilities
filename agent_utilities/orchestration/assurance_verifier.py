@@ -82,7 +82,7 @@ class KindInvariant:
 # (a) Role → allowed action-kind set. Built from a full-repo survey of every
 # ``ActionRequest(..., source=...)`` call site (fleet_reconciler.py,
 # remediation_playbooks.py, deploy_watch.py, self_deploy.py, secret_tools.py,
-# spec_proposals.py, change_publisher.py, messaging/bus.py) — every currently
+# spec_proposals.py, change_publisher.py, orchestration/agent_bus.py) — every currently
 # real ``source`` value's actual kinds are included, so enabling this check by
 # default never denies existing traffic. "manual" is the dataclass default
 # (unset ``source``) and stays unrestricted — a human operator / ungoverned
