@@ -166,8 +166,11 @@ def _control_backend() -> Any:
     return EpistemicGraphBackend().for_graph(CONTROL_GRAPH_NAME)
 
 
-def _load_snapshot() -> dict[str, str]:
+def _load_snapshot(*, strict: bool = False) -> dict[str, str]:
     """One label-indexed read of every registry record → ``{tenant: parent}``.
+
+    ``strict`` is for hierarchy writes: a missing or malformed reply cannot
+    establish that a new parent remains acyclic and within the depth bound.
 
     ``_control_backend()`` is a *graph-scoped view* pinned to ``__control__``.
     The ambient session a caller runs under is bound to whatever graph it
@@ -182,15 +185,40 @@ def _load_snapshot() -> dict[str, str]:
 
     backend = _control_backend()
     with control_session_scope(backend):
-        rows = backend.nodes_by_label(TENANT_HIERARCHY_LABEL) or []
+        rows = backend.nodes_by_label(TENANT_HIERARCHY_LABEL)
+    if strict and not isinstance(rows, (list, tuple)):
+        raise RuntimeError("tenant hierarchy registry returned no authoritative rows")
+    rows = rows or []
     mapping: dict[str, str] = {}
-    for node_id, props in rows:
+    observed: dict[str, str] = {}
+    for row in rows:
+        if strict and (not isinstance(row, (list, tuple)) or len(row) != 2):
+            raise RuntimeError("tenant hierarchy registry returned a malformed row")
+        node_id, props = row
+        if strict and not isinstance(props, dict):
+            raise RuntimeError("tenant hierarchy registry returned malformed properties")
         props = props if isinstance(props, dict) else {}
+        if strict and (
+            not isinstance(props.get("tenant_id"), str)
+            or not isinstance(props.get("parent_tenant_id"), str)
+        ):
+            raise RuntimeError("tenant hierarchy registry returned incomplete properties")
         tenant = str(props.get("tenant_id") or "").strip()
         if not tenant:
             # Fall back to the id convention when the property is missing.
             tenant = str(node_id or "").removeprefix("tenant-hierarchy:").strip()
         parent = str(props.get("parent_tenant_id") or "").strip()
+        if strict:
+            if registry_node_id(tenant) != node_id:
+                raise RuntimeError("tenant hierarchy registry row id does not match tenant")
+            _valid(tenant)
+            if parent:
+                _valid(parent)
+                if parent == tenant:
+                    raise RuntimeError("tenant hierarchy registry contains a self-cycle")
+            if tenant in observed and observed[tenant] != parent:
+                raise RuntimeError("tenant hierarchy registry has conflicting parents")
+            observed[tenant] = parent
         if tenant and parent and tenant != parent:
             mapping[tenant] = parent
     return mapping
@@ -355,7 +383,7 @@ def set_parent(
     # Read the authoritative snapshot here rather than the read-side cache,
     # whose outage behavior deliberately substitutes an empty mapping.
     try:
-        mapping = _load_snapshot()
+        mapping = _load_snapshot(strict=True)
     except Exception as exc:
         raise RuntimeError(
             "tenant hierarchy mutation requires an authoritative registry read"

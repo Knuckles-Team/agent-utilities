@@ -311,6 +311,39 @@ def test_hierarchy_write_refuses_unreadable_authority(monkeypatch):
     tr.invalidate_cache()
 
 
+@pytest.mark.parametrize(
+    "rows",
+    [
+        None,
+        [("tenant-hierarchy:eng", None)],
+        [("tenant-hierarchy:eng", {"tenant_id": "eng"})],
+        [("tenant-hierarchy:eng", {"tenant_id": "other", "parent_tenant_id": "acme"})],
+        [
+            ("tenant-hierarchy:eng", {"tenant_id": "eng", "parent_tenant_id": "acme"}),
+            ("tenant-hierarchy:eng", {"tenant_id": "eng", "parent_tenant_id": "other"}),
+        ],
+    ],
+)
+def test_hierarchy_write_refuses_incomplete_or_malformed_snapshot(monkeypatch, rows):
+    class MalformedControlGraph:
+        def __init__(self) -> None:
+            self.writes = 0
+
+        def nodes_by_label(self, _label: str):
+            return rows
+
+        def add_node(self, *_args, **_kwargs):
+            self.writes += 1
+
+    backend = MalformedControlGraph()
+    monkeypatch.setattr(tr, "_control_backend", lambda: backend)
+    tr.invalidate_cache()
+    with pytest.raises(RuntimeError, match="authoritative registry read"):
+        tr.set_parent("eng", "acme", actor=_admin())
+    assert backend.writes == 0
+    tr.invalidate_cache()
+
+
 # --- read cost --------------------------------------------------------------
 
 
