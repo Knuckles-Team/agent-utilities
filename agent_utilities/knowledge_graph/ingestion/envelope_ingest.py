@@ -57,6 +57,13 @@ from epistemic_graph.ingestion.graph_slice import (
     graph_slice_primary,
     validate_graph_slice,
 )
+from epistemic_graph.ingestion.source_positions import (
+    checkpoint_from_position,
+    content_position,
+    cursor_partition,
+    position_advances,
+    typed_position,
+)
 
 from .change_envelope import ChangeEnvelope
 
@@ -892,149 +899,6 @@ def _observed_at_ms(value: str) -> int:
         return int(_digest(str(value))[:12], 16)
 
 
-def _typed_position(value: str | None, *, content: bool) -> dict[str, Any]:
-    raw = str(value or "")
-    if raw.isdecimal():
-        return {"kind": "sequence", "value": int(raw)}
-    try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        return {"kind": "timestamp_millis", "value": int(parsed.timestamp() * 1000)}
-    except (TypeError, ValueError, OverflowError):
-        discriminator = "version_type" if content else "cursor_type"
-        return {
-            "kind": "opaque",
-            "value": {discriminator: "connector_opaque_v1", "value": raw},
-        }
-
-
-def _numeric_position_advances(left: Any, right: Any) -> bool:
-    """Strictly-greater comparison for a sequence/timestamp position."""
-    if left is None or right is None:
-        return False
-    try:
-        return int(left) > int(right)
-    except (TypeError, ValueError):
-        return False
-
-
-def _opaque_position_advances(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """A connector-opaque position advances only within the same cursor type."""
-    left_type = left.get("cursor_type", left.get("version_type"))
-    right_type = right.get("cursor_type", right.get("version_type"))
-    return left_type == right_type and bool(left.get("value")) and left != right
-
-
-def _position_advances(next_value: dict[str, Any], prior: dict[str, Any]) -> bool:
-    if next_value.get("kind") != prior.get("kind"):
-        return False
-    kind = next_value.get("kind")
-    left = next_value.get("value")
-    right = prior.get("value")
-    if kind in {"sequence", "timestamp_millis"}:
-        return _numeric_position_advances(left, right)
-    if kind == "opaque" and isinstance(left, dict) and isinstance(right, dict):
-        return _opaque_position_advances(left, right)
-    return False
-
-
-def _cursor_partition(source_instance: str) -> str:
-    return (
-        hashlib.sha256(source_instance.encode("utf-8")).hexdigest()[:32]
-        if source_instance
-        else ""
-    )
-
-
-def _checkpoint_from_sequence(value: Any) -> str | None:
-    if value is None:
-        return None
-    try:
-        return str(int(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _checkpoint_from_timestamp_millis(value: Any) -> str | None:
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromtimestamp(int(value) / 1000, tz=UTC)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return parsed.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def _checkpoint_from_opaque(value: Any) -> str | None:
-    if not isinstance(value, dict):
-        return None
-    raw = value.get("value")
-    return str(raw) if raw not in (None, "") else None
-
-
-#: Typed-position ``kind`` -> reader. A kind with no reader (or a reader that
-#: cannot decode its value) yields ``None``, exactly as the previous if-chain's
-#: terminal ``return None`` did: an undecodable position is never a checkpoint.
-_CHECKPOINT_READERS: dict[str, Callable[[Any], str | None]] = {
-    "sequence": _checkpoint_from_sequence,
-    "timestamp_millis": _checkpoint_from_timestamp_millis,
-    "opaque": _checkpoint_from_opaque,
-}
-
-
-def _checkpoint_from_position(position: Any) -> str | None:
-    if not isinstance(position, dict):
-        return None
-    reader = _CHECKPOINT_READERS.get(str(position.get("kind") or ""))
-    return reader(position.get("value")) if reader is not None else None
-
-
-def _advanced_content_position(
-    prior: dict[str, Any], material_digest: str
-) -> dict[str, Any] | None:
-    """Advance a prior typed content position, or ``None`` if it cannot be read.
-
-    ``None`` means "no advancing position derivable from the prior value" and
-    the caller falls back to the digest-derived position — the SAME outcome the
-    previous inline chain reached by falling through its ``except``/``if`` arms.
-    """
-    kind = prior.get("kind")
-    value = prior.get("value")
-    if kind in {"sequence", "timestamp_millis"} and value is not None:
-        try:
-            return {"kind": kind, "value": int(value) + 1}
-        except (TypeError, ValueError):
-            return None
-    if kind == "opaque" and isinstance(value, dict):
-        version_type = str(value.get("version_type") or "connector_opaque_v1")
-        return {
-            "kind": "opaque",
-            "value": {"version_type": version_type, "value": material_digest},
-        }
-    return None
-
-
-def _content_position(
-    explicit: str | None,
-    current: dict[str, Any] | None,
-    material_digest: str,
-) -> dict[str, Any]:
-    """Choose an advancing content version without inventing wall-clock state."""
-    if explicit:
-        return _typed_position(explicit, content=True)
-    prior = (
-        current.get("source_version")
-        if isinstance(current, dict) and isinstance(current.get("source_version"), dict)
-        else None
-    )
-    if isinstance(prior, dict):
-        advanced = _advanced_content_position(prior, material_digest)
-        if advanced is not None:
-            return advanced
-    return _typed_position(material_digest, content=True)
-
-
 def _node_properties(client: Any, node_id: str) -> dict[str, Any]:
     value = client.nodes.properties(node_id)
     if isinstance(value, dict):
@@ -1681,7 +1545,7 @@ def _native_content_state(
     """``(material_digest, content_digest, source_position, previous_digest)``."""
     material_digest = _digest(material)
     current_version = client.changes.content_version(node_id)
-    source_position = _content_position(
+    source_position = content_position(
         envelope.source_version or envelope.checkpoint,
         current_version,
         material_digest,
@@ -1712,8 +1576,8 @@ def _native_cursor(
     """
     if not envelope.checkpoint:
         return None, False
-    partition = _cursor_partition(envelope.source_instance)
-    next_position = _typed_position(envelope.checkpoint, content=False)
+    partition = cursor_partition(envelope.source_instance)
+    next_position = typed_position(envelope.checkpoint, content=False)
     if chained_cursor_position is _CURSOR_READ_LIVE:
         current_cursor = client.changes.cursor(envelope.connector, partition)
         current_position = (
@@ -1724,7 +1588,7 @@ def _native_cursor(
         )
     else:
         current_position = chained_cursor_position
-    if current_position is not None and not _position_advances(
+    if current_position is not None and not position_advances(
         next_position, current_position
     ):
         return None, False
@@ -2531,7 +2395,7 @@ def _page_cursor_position(client: Any, envelope: ChangeEnvelope) -> Any:
     a live per-record read would STALE the 2nd+ envelope inside the shared
     transaction.
     """
-    partition = _cursor_partition(envelope.source_instance)
+    partition = cursor_partition(envelope.source_instance)
     page_cursor = client.changes.cursor(envelope.connector, partition)
     return (
         page_cursor.get("position")
@@ -2565,7 +2429,7 @@ def _batch_native_material(
         material.cursor_advanced.append(cursor_advanced)
         material.governed.append(governed_ids)
         if cursor_advanced and envelope.checkpoint:
-            chained = _typed_position(envelope.checkpoint, content=False)
+            chained = typed_position(envelope.checkpoint, content=False)
     return material
 
 
@@ -3325,10 +3189,10 @@ def read_change_cursor(
     from ..core.session import use_session
 
     with use_session(session):
-        cursor = client.changes.cursor(connector, _cursor_partition(source_instance))
+        cursor = client.changes.cursor(connector, cursor_partition(source_instance))
     if not isinstance(cursor, dict):
         return None
-    return _checkpoint_from_position(cursor.get("position"))
+    return checkpoint_from_position(cursor.get("position"))
 
 
 def ingest_graph_slice(
