@@ -57,9 +57,9 @@ than in a research pack), so :class:`~agent_utilities.models.schema_pack.
 IdentityRule` is declared on the active :class:`~agent_utilities.models.
 schema_pack.SchemaPack` (``identity_rules``/``identity_rules_for`` —
 CONCEPT:AU-KG.ontology.pack-identity-rules) and threaded in here as plain
-data. This module hardcodes exactly ONE generic fallback (``cmdb_id``/
-``external_id``/``id``) for when no pack rule applies to a given kind — never
-a per-corpus rule.
+data. EG declares exactly ONE generic fallback (``cmdb_id``/
+``external_id``/``id``/``wikidata_id``) for when no pack rule applies to a
+given kind — never a per-corpus rule.
 
 Reversibility
 -------------
