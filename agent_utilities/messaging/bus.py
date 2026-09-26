@@ -28,6 +28,14 @@ delivery path, with real
 offsets/consumer cursors instead of a graph ``MATCH``, a DLQ for poison messages, and
 backpressure via queue depth. A missing log or native inbox transaction fails closed.
 
+**Ownership after EH-492.** EG owns partition placement, log append/read,
+consumer cursors, poison DLQ, and transport depth normalization. This AU
+module retains agent identity/presence, ActionPolicy, subscription decisions,
+transactional WorkItem inbox/outbox calls, and fleet dispatch: those are agent
+control-plane decisions, not an alternate stream or broker writer. The AU
+``bus_log`` facade verifies the GraphSession tenant and sanitizes envelopes
+before calling EG's sole stream adapter.
+
 CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent — AgentBus federated agent-to-agent communication bus over the KG
 CONCEPT:AU-KG.compute.user-override-prompt-library — semantic presence/subscription registry
 CONCEPT:AU-ECO.bus.store-and-forward-log — durable topic log materialized to tenant inboxes
@@ -139,40 +147,11 @@ class AgentBus:
         return self._log_backend_cache
 
     @staticmethod
-    def _depth_from_dict(value: dict) -> int:
-        """The dict-shaped branch of ``_depth_from_stats`` (split out to shed nesting)."""
-        queues = value.get("queues")
-        if isinstance(queues, dict):
-            return sum(AgentBus._sum_numeric(item) for item in queues.values())
-        values = [
-            AgentBus._depth_from_stats(item)
-            for key, item in value.items()
-            if key.lower() in {"depth", "queue_depth", "ready", "messages", "lag"}
-            or isinstance(item, dict | list | tuple)
-        ]
-        return max(values, default=0)
-
-    @staticmethod
     def _depth_from_stats(value: Any) -> int:
-        if isinstance(value, dict):
-            return AgentBus._depth_from_dict(value)
-        if isinstance(value, list | tuple):
-            return max((AgentBus._depth_from_stats(item) for item in value), default=0)
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return 0
+        """Read EG's normalized stream depth for AU backpressure and doctor."""
+        from epistemic_graph.partitioned_stream import delivery_depth_from_stats
 
-    @staticmethod
-    def _sum_numeric(value: Any) -> int:
-        if isinstance(value, dict):
-            return sum(AgentBus._sum_numeric(item) for item in value.values())
-        if isinstance(value, list | tuple):
-            return sum(AgentBus._sum_numeric(item) for item in value)
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return 0
+        return delivery_depth_from_stats(value)
 
     def _log_has_capacity(self, backend: Any) -> bool:
         from agent_utilities.core.config import config
