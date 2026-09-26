@@ -837,6 +837,42 @@ def test_graph_slice_helper_commits_edge_only_batches_with_governed_marker() -> 
     assert marker["relationship_count"] == 1
 
 
+def test_derived_slice_uses_verified_authority_atomic_receipt_and_policies() -> None:
+    compute = _Compute("graph-derived-governed")
+    result = module.ingest_graph_slice(
+        compute,
+        "derived-evidence",
+        [
+            {"id": "document-1", "node_type": "Document", "tenant_id": "source-spoof"},
+            {"id": "fragment-1", "node_type": "Fragment", "text": "proof"},
+        ],
+        [
+            {
+                "source": "document-1",
+                "target": "fragment-1",
+                "relationship": "HAS_FRAGMENT",
+            }
+        ],
+    )
+
+    assert result["status"] == "success"
+    assert result["native_atomic"] is True
+    assert result["write_result"]["receipt"]["batch_id"]
+    native = compute.client.changes.applied[0]
+    assert native["mutation"]["tenant"] == "fixture-tenant"
+    assert native["mutation"]["graph"] == "fixture-graph"
+    assert {row["object_id"] for row in native["policies"]} == {
+        "document-1",
+        "fragment-1",
+    }
+    assert {row["tenant"] for row in native["policies"]} == {"fixture-tenant"}
+    assert {row["classification"] for row in native["policies"]} == {"internal"}
+    assert {
+        compute.client.nodes.values[key]["tenant_id"]
+        for key in ("document-1", "fragment-1")
+    } == {"fixture-tenant"}
+
+
 def test_graph_slice_helper_honors_a_caller_supplied_idempotency_key() -> None:
     """B-11 — a non-empty ``idempotency_key`` is used EXACTLY as given, not the
     whole-slice content digest ``ingest_graph_slice`` derives by default."""
