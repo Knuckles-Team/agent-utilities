@@ -51,6 +51,13 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
+from epistemic_graph.ingestion.graph_slice import (
+    edge_only_marker_entity,
+    graph_slice_digest,
+    graph_slice_primary,
+    validate_graph_slice,
+)
+
 from .change_envelope import ChangeEnvelope
 
 logger = logging.getLogger(__name__)
@@ -3324,72 +3331,6 @@ def read_change_cursor(
     return _checkpoint_from_position(cursor.get("position"))
 
 
-def _validate_graph_slice(
-    entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
-) -> None:
-    """Enforce the graph slice's canonical-key contract, fail closed on aliases."""
-    for entity in entities:
-        if "type" in entity or not str(entity.get("node_type") or "").strip():
-            raise ValueError(
-                "graph-slice nodes require canonical node_type and may not use type"
-            )
-    for relationship in relationships:
-        if (
-            any(
-                key in relationship
-                for key in ("type", "rel_type", "relationship_type", "relation")
-            )
-            or not str(relationship.get("relationship") or "").strip()
-        ):
-            raise ValueError(
-                "graph-slice edges require canonical relationship and no aliases"
-            )
-
-
-def _slice_digest(payload: dict[str, Any]) -> str:
-    """Deterministic sha256 over a canonical JSON rendering of ``payload``."""
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
-            "utf-8"
-        )
-    ).hexdigest()
-
-
-def _edge_only_marker_entity(
-    connector: str, source_instance: str, relationships: list[dict[str, Any]]
-) -> dict[str, Any]:
-    """Governed primary object for an edge-only derived/extractor batch.
-
-    The deterministic marker owns delivery identity without inventing a source
-    cursor or leaking endpoint material into its id.
-    """
-    marker_digest = _slice_digest(
-        {
-            "connector": connector,
-            "source_instance": source_instance,
-            "relationships": relationships,
-        }
-    )
-    return {
-        "id": f"source-materialization:{marker_digest}",
-        "node_type": "SourceMaterialization",
-        "source_system": connector,
-        "relationship_count": len(relationships),
-    }
-
-
-def _graph_slice_primary(
-    entities: list[dict[str, Any]], relationships: list[dict[str, Any]]
-) -> dict[str, Any]:
-    """The slice's primary row, carrying the rest as governed auxiliary material."""
-    primary = dict(entities[0])
-    if len(entities) > 1:
-        primary["_nodes"] = [dict(item) for item in entities[1:]]
-    if relationships:
-        primary["_links"] = [dict(item) for item in relationships]
-    return primary
-
-
 def ingest_graph_slice(
     engine: Any,
     connector: str,
@@ -3438,15 +3379,15 @@ def ingest_graph_slice(
     relationships = relationships or []
     if not entities and not relationships:
         return {"status": "skipped", "reason": "empty graph slice"}
-    _validate_graph_slice(entities, relationships)
+    validate_graph_slice(entities, relationships)
     if isinstance(engine, NativeChangeEnvelopeEngineProxy):
         engine = engine.authority
 
     if not entities:
-        entities = [_edge_only_marker_entity(connector, source_instance, relationships)]
+        entities = [edge_only_marker_entity(connector, source_instance, relationships)]
 
-    primary = _graph_slice_primary(entities, relationships)
-    material_version = _slice_digest(
+    primary = graph_slice_primary(entities, relationships)
+    material_version = graph_slice_digest(
         {"entities": entities, "relationships": relationships}
     )
     overrides: dict[str, Any] = {}

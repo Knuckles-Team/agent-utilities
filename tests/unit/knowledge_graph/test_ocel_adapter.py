@@ -10,6 +10,7 @@ from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
     export_ocel_json,
     import_ocel_json,
     predict_object_co_occurrence_relations,
+    to_change_envelope,
 )
 
 
@@ -210,9 +211,10 @@ def test_type_declarations_and_instances_materialize_as_tekg_nodes() -> None:
 
 def test_tenant_and_provenance_remain_governed_transport_metadata() -> None:
     source, provenance = _import(_ocel())
-    first = source.to_change_envelope(tenant="tenant-a", provenance=provenance)
-    replay = source.to_change_envelope(tenant="tenant-a", provenance=provenance)
-    other_tenant = source.to_change_envelope(
+    first = to_change_envelope(source, tenant="tenant-a", provenance=provenance)
+    replay = to_change_envelope(source, tenant="tenant-a", provenance=provenance)
+    other_tenant = to_change_envelope(
+        source,
         tenant="tenant-b",
         provenance=provenance,
     )

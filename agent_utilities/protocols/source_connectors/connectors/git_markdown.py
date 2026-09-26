@@ -93,7 +93,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 if TYPE_CHECKING:
-    from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
+    from epistemic_graph.ingestion.evidence_model import Fragment
 
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.models.company_brain import DataClassification
@@ -318,7 +318,7 @@ def fragment_markdown(artifact_id: str, text: str) -> list[Fragment]:
     byte-identical. A fuller fragmenter is the evidence-spine lane's own
     follow-on wiring (not pinned here — see this module's docstring).
     """
-    from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
+    from epistemic_graph.ingestion.evidence_model import Fragment
 
     fragments: list[Any] = []
     heading_stack: list[tuple[int, tuple[str, ...], str]] = []
@@ -872,10 +872,8 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         revision. Re-building the SAME file at a LATER commit therefore updates
         the same artifact rather than forking a new one.
         """
-        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-            Artifact,
-            artifact_id_for,
-        )
+        from epistemic_graph.ingestion.evidence_address import artifact_id_for
+        from epistemic_graph.ingestion.evidence_model import Artifact
 
         text = _show(self.repo_root, sha, relpath)
         if text is None or not text.strip():

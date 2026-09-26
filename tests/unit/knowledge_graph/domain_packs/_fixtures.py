@@ -12,6 +12,7 @@ import dataclasses
 from pathlib import Path
 
 import yaml
+from epistemic_graph.ingestion.evidence_model import Fragment
 
 from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     ColumnMapping,
@@ -23,7 +24,6 @@ from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     TableMapping,
 )
 from agent_utilities.knowledge_graph.domain_packs.pack_loader import pack_integrity_hash
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,
     IntegrityInfo,

@@ -18,7 +18,7 @@ fragment, the artifact, the envelope, and the pack version that produced it."
 readers verbatim:
 
 * :func:`~..ingestion.evidence_spine.load_fragments` — the fragment reader.
-* :func:`~..ingestion.evidence_spine.citation_status` — the four-outcome
+* :func:`epistemic_graph.ingestion.citation.citation_status` — the four-outcome
   citation-drift check (current/moved/stale/lost).
 * The stored :class:`~..ingestion.evidence_spine.Artifact` node's OWN
   properties — ``envelope_id``, ``source_version``, ``schema_version``,
@@ -43,7 +43,7 @@ __all__ = ["LineageNotFoundError", "LineageRecord", "resolve_lineage"]
 class LineageNotFoundError(LookupError):
     """No resolvable evidence trail exists for the given fragment citation.
 
-    Raised when :func:`~..ingestion.evidence_spine.citation_status` reports
+    Raised when :func:`epistemic_graph.ingestion.citation.citation_status` reports
     ``lost`` (or the fragment id resolves to no artifact/fragment set at all)
     — never silently collapsed to an empty/default lineage record, so a
     caller can distinguish "there genuinely is no trail" from a legitimate
@@ -83,7 +83,7 @@ def _artifact_id_from_fragment(engine: Any, fragment_id: str) -> str:
     (:func:`~..ingestion.evidence_spine.fragment_id_for`) — it cannot be
     reverse-derived, so this is a direct lookup of the stored property.
     """
-    from ..ingestion.evidence_spine import FRAGMENT_NODE_TYPE
+    from epistemic_graph.ingestion.evidence_model import FRAGMENT_NODE_TYPE
 
     rows = _query_cypher_rows(
         engine,
@@ -98,7 +98,7 @@ def _artifact_id_from_fragment(engine: Any, fragment_id: str) -> str:
 
 def _load_artifact_row(engine: Any, artifact_id: str) -> dict[str, Any]:
     """Best-effort read of one stored :class:`Artifact` node's properties."""
-    from ..ingestion.evidence_spine import ARTIFACT_NODE_TYPE
+    from epistemic_graph.ingestion.evidence_model import ARTIFACT_NODE_TYPE
 
     if not artifact_id:
         return {}
@@ -171,7 +171,9 @@ def resolve_lineage(
     if not fragment_id:
         raise ValueError("resolve_lineage requires a fragment_id")
 
-    from ..ingestion.evidence_spine import citation_status, load_fragments
+    from epistemic_graph.ingestion.citation import citation_status
+
+    from ..ingestion.evidence_spine import load_fragments
 
     artifact_id = _artifact_id_from_fragment(engine, fragment_id)
     fragments = load_fragments(engine, artifact_id=artifact_id) if artifact_id else ()

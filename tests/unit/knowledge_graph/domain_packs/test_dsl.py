@@ -8,13 +8,13 @@ by :func:`evaluate_mapping` alone, with no engine, no pack loader, no I/O.
 from __future__ import annotations
 
 import _fixtures
+from epistemic_graph.ingestion.evidence_model import Artifact, Fragment
 
 from agent_utilities.knowledge_graph.domain_packs.domain_pack import HeadingMapping
 from agent_utilities.knowledge_graph.domain_packs.dsl import (
     MappingError,
     evaluate_mapping,
 )
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import Artifact, Fragment
 
 
 def _case_artifact_and_fragments():

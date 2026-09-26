@@ -22,7 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ..ingestion.evidence_spine import Artifact, Fragment
+from epistemic_graph.ingestion.evidence_model import Artifact, Fragment
+
 from .domain_pack import DomainPackManifest
 from .dsl import MappingResult, evaluate_mapping
 

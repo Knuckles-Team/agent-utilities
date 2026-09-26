@@ -12,9 +12,13 @@ test names the specific edit class it defends.
 from __future__ import annotations
 
 import pytest
-
-from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+from epistemic_graph.ingestion.citation import citation_status, resolve_fragment
+from epistemic_graph.ingestion.evidence_address import (
+    artifact_id_for,
+    content_digest,
+    fragment_id_for,
+)
+from epistemic_graph.ingestion.evidence_model import (
     ARTIFACT_NODE_TYPE,
     FRAGMENT_NODE_TYPE,
     HAS_ARTIFACT_EDGE,
@@ -23,13 +27,12 @@ from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
     PARENT_FRAGMENT_EDGE,
     Artifact,
     Fragment,
-    artifact_id_for,
-    citation_status,
-    content_digest,
-    fragment_id_for,
+)
+
+from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
     fragment_markdown,
     load_fragments,
-    resolve_fragment,
 )
 
 DOC = """# Payments Platform

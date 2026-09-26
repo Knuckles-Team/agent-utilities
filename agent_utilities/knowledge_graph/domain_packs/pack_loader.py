@@ -58,8 +58,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from epistemic_graph.ingestion.evidence_model import Artifact, Fragment
 
-from ..ingestion.evidence_spine import Artifact, Fragment
 from ..ontology import ontology_integrity
 from ..ontology.connector_manifest import OntologySpec
 from ..ontology.manifest_compiler import compile_manifest

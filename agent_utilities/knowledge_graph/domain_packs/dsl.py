@@ -25,7 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..ingestion.evidence_spine import Artifact, Fragment
+from epistemic_graph.ingestion.evidence_model import Artifact, Fragment
+
 from .domain_pack import (
     DomainPackManifest,
     FrontmatterMapping,

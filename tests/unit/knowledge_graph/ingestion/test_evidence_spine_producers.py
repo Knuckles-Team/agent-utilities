@@ -11,10 +11,10 @@ primary key).
 
 from __future__ import annotations
 
+from epistemic_graph.ingestion.evidence_address import artifact_id_for, fragment_id_for
+from epistemic_graph.ingestion.evidence_model import Fragment
+
 from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-    Fragment,
-    artifact_id_for,
-    fragment_id_for,
     fragment_pdf,
     fragment_record,
     fragment_rowset,

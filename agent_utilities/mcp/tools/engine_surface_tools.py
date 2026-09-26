@@ -2210,7 +2210,12 @@ def _ocel_mine(
     # the existing writer built for exactly this multi-node shape (first entity
     # primary, the rest as governed ``_nodes``/``_links`` auxiliaries) — the
     # same one ``IngestionEngine`` already uses for its concepts/facts passes.
-    envelope = committed_slice.to_change_envelope(
+    from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
+        to_change_envelope,
+    )
+
+    envelope = to_change_envelope(
+        committed_slice,
         tenant=tenant,
         provenance=provenance,
     )
@@ -2303,6 +2308,7 @@ def _ocel_import_and_dispatch(
     )
     from agent_utilities.knowledge_graph.ingestion.ocel_adapter import (
         export_ocel_json,
+        to_change_envelope,
     )
 
     tenant, slice_, provenance, ocel_mode = _ocel_import_slice(params)
@@ -2311,13 +2317,14 @@ def _ocel_import_and_dispatch(
     # best-effort observability snapshot never blocks the import; each mode
     # branch still computes its OWN envelope for the actual commit (the
     # ``mine`` branch's includes the perspective).
-    envelope = slice_.to_change_envelope(tenant=tenant, provenance=provenance)
+    envelope = to_change_envelope(slice_, tenant=tenant, provenance=provenance)
     evidence = _ocel_evidence(tenant, slice_, envelope)
     _record_process_signal_evidence(evidence)
     if ocel_mode == "derive":
         return _ocel_derive_response(action, slice_, tenant, evidence)
     if ocel_mode == "validate":
-        envelope = slice_.to_change_envelope(
+        envelope = to_change_envelope(
+            slice_,
             tenant=tenant,
             provenance=provenance,
         )
