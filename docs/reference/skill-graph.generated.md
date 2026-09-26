@@ -9,23 +9,23 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## AU-AHE
 
-_No components._
+120 concepts in the generated [`AU-AHE` component page](../components/au-ahe.md).
 
 ## AU-ECO
 
-_No components._
+141 concepts in the generated [`AU-ECO` component page](../components/au-eco.md).
 
 ## AU-KG
 
-_No components._
+526 concepts in the generated [`AU-KG` component page](../components/au-kg.md).
 
 ## AU-ORCH
 
-_No components._
+218 concepts in the generated [`AU-ORCH` component page](../components/au-orch.md).
 
 ## AU-OS
 
-_No components._
+187 concepts in the generated [`AU-OS` component page](../components/au-os.md).
 
 ## Architecture
 
@@ -59,19 +59,19 @@ _No components._
 
 ## EG-AHE
 
-_No components._
+1 concept in the generated [`EG-AHE` component page](../components/eg-ahe.md).
 
 ## EG-KG
 
-_No components._
+34 concepts in the generated [`EG-KG` component page](../components/eg-kg.md).
 
 ## EG-ORCH
 
-_No components._
+1 concept in the generated [`EG-ORCH` component page](../components/eg-orch.md).
 
 ## EG-OS
 
-_No components._
+1 concept in the generated [`EG-OS` component page](../components/eg-os.md).
 
 ## For AI agents
 
