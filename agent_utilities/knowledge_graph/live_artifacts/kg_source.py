@@ -1,8 +1,8 @@
 """CONCEPT:AU-KG.memory.live-refreshable-artifact-models — KG-backed Live Artifact refresh resolver.
 
 Re-derives an artifact's data by running its bound ``source_query`` against the epistemic KG
-(:meth:`KnowledgeGraph.query`). This is the production source registered with the gateway via
-:func:`register_artifact_source`, so ``POST /api/artifacts/{id}/refresh`` re-derives from the live KG.
+(:meth:`KnowledgeGraph.query`). The legacy AU artifact gateway is retired; this
+resolver remains available to callers of the in-process refresh service.
 
 Defensive by design: any failure (KG unavailable, bad query, empty store) raises, and the refresh
 service then **preserves the prior render** (bi-temporal valid-time, KG-2.11) — exactly the desired
@@ -11,12 +11,9 @@ service then **preserves the prior render** (bi-temporal valid-time, KG-2.11) �
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from .models import LiveArtifact
-
-logger = logging.getLogger(__name__)
 
 
 def kg_source_resolver(artifact: LiveArtifact) -> dict[str, Any]:
@@ -47,22 +44,3 @@ def kg_source_resolver(artifact: LiveArtifact) -> dict[str, Any]:
         "first": rows[0] if rows else {},
         "source_query": query,
     }
-
-
-def install_kg_artifact_source() -> bool:
-    """Register :func:`kg_source_resolver` as the gateway's artifact refresh source.
-
-    Returns True on success. Safe to call at server startup; failures are logged and non-fatal so the
-    route still works with the default (preserve-prior) resolver.
-    """
-    try:
-        from agent_utilities.gateway.artifacts_api import register_artifact_source
-
-        register_artifact_source(kg_source_resolver)
-        logger.info("Live Artifact refresh wired to the KG source resolver (KG-2.24).")
-        return True
-    except (
-        Exception
-    ):  # pragma: no cover - defensive: never break startup over an optional wire
-        logger.warning("could not install KG artifact source resolver", exc_info=True)
-        return False

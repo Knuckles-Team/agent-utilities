@@ -12,13 +12,13 @@ import json
 
 import pytest
 
-from agent_utilities.gateway.rate_limit import (
+from agent_utilities.security.actor_identity import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
+from agent_utilities.security.http_rate_limit import (
     EXEMPT_PATHS,
     GatewayRateLimitMiddleware,
     _TokenBucket,
 )
-from agent_utilities.security.actor_identity import ActorType
-from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # ---------------------------------------------------------------------------
 # ASGI plumbing helpers
@@ -189,7 +189,7 @@ class TestRateLimitMiddleware:
         assert called.get("yes")
 
     async def test_rate_limited_metric_incremented(self, monkeypatch):
-        from agent_utilities.gateway import rate_limit as rl_mod
+        from agent_utilities.security import http_rate_limit as rl_mod
 
         calls: list[dict] = []
 

@@ -1,10 +1,8 @@
-"""Per-tenant token-bucket rate limiting for the API gateway.
+"""Per-tenant token-bucket rate limiting for AU's HTTP host.
 
 CONCEPT:AU-OS.observability.no-op-without-metrics — Gateway Middle-Tier Hardening.
 
-Pure-ASGI middleware mounted by
-:func:`agent_utilities.gateway.graph_api.register_graph_routes` INSIDE the
-OS-5.14 :class:`~agent_utilities.security.request_identity.ActorIdentityMiddleware`
+Pure-ASGI middleware mounted inside the verified identity middleware
 so the server-minted :class:`~agent_utilities.security.brain_context.ActorContext`
 is already in scope. Bucket key precedence:
 
@@ -39,7 +37,7 @@ import time
 from typing import Any
 
 from agent_utilities.observability.gateway_metrics import GATEWAY_RATE_LIMITED
-from agent_utilities.security.brain_context import current_actor
+from agent_utilities.security.brain_context import IdentityRequiredError, current_actor
 from agent_utilities.security.request_identity import HEALTH_PATHS
 
 logger = logging.getLogger(__name__)
@@ -103,10 +101,13 @@ class GatewayRateLimitMiddleware:
 
     # ------------------------------------------------------------------
     def _bucket_key(self) -> str:
-        actor = current_actor()
-        if actor.tenant_id:
+        try:
+            actor = current_actor()
+        except IdentityRequiredError:
+            actor = None
+        if actor is not None and actor.tenant_id:
             raw = f"tenant:{actor.tenant_id}"
-        elif actor.authenticated and actor.actor_id:
+        elif actor is not None and actor.authenticated and actor.actor_id:
             raw = f"actor:{actor.actor_id}"
         else:
             raw = "anonymous"

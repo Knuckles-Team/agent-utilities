@@ -245,7 +245,7 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     from agent_utilities.core.config import config
 
     if config.gateway_rate_limit > 0:
-        from agent_utilities.gateway.rate_limit import GatewayRateLimitMiddleware
+        from agent_utilities.security.http_rate_limit import GatewayRateLimitMiddleware
 
         app.add_middleware(GatewayRateLimitMiddleware)
 

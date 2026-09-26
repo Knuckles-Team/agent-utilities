@@ -48,7 +48,6 @@ from agent_utilities.core.config import (
 )
 from agent_utilities.core.scheduler import background_processor
 from agent_utilities.core.workspace import get_skills_path
-from agent_utilities.gateway.rate_limit import GatewayRateLimitMiddleware
 from agent_utilities.observability.custom_observability import setup_otel
 from agent_utilities.prompting.builder import load_identity
 from agent_utilities.security.http_boundary import (
@@ -56,6 +55,7 @@ from agent_utilities.security.http_boundary import (
     BoundedRequestBodyMiddleware,
     OriginPolicyMiddleware,
 )
+from agent_utilities.security.http_rate_limit import GatewayRateLimitMiddleware
 from agent_utilities.tools.tool_filtering import load_skills_from_directory
 
 from ..base_utilities import __version__, to_boolean
@@ -676,7 +676,7 @@ def _configure_app_state(
 
 
 def _include_gateway_routers(app: FastAPI) -> None:
-    """Mount the core, protocol, gateway, and benchmark router surfaces."""
+    """Mount AU control-plane routes; GraphOS owns public graph/gateway routes."""
     app.include_router(core.router)
     app.include_router(agent_ui.router)
     app.include_router(interop.router)
@@ -692,16 +692,6 @@ def _include_gateway_routers(app: FastAPI) -> None:
     # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK provider-normalizing
     # proxy (/api/proxy/{provider}/stream).
     app.include_router(proxy.router)
-
-    # CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable
-    # Artifacts (/api/artifacts...).
-    from agent_utilities.gateway.artifacts_api import artifacts_router
-    from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
-        install_kg_artifact_source,
-    )
-
-    app.include_router(artifacts_router)
-    install_kg_artifact_source()
 
     # CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S
     # validation harness (Quarq HTTP runner compatible).
@@ -722,25 +712,6 @@ def _include_gateway_routers(app: FastAPI) -> None:
     from .routers import git_webhooks as git_router
 
     app.include_router(git_router.router)
-    try:
-        from agent_utilities.gateway.api import dashboard_router
-        from agent_utilities.gateway.graph_api import register_graph_routes
-        from agent_utilities.gateway.usage_api import usage_router
-
-        app.include_router(dashboard_router, prefix="/api/dashboard")
-        register_graph_routes(app, prefix="/api")
-        # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/
-        # observability surface for all 3 UIs.
-        app.include_router(usage_router, prefix="/api/observability")
-        logger.info(
-            "Mounted centralized Gateway API "
-            "(Dashboard + Knowledge Graph + Observability)"
-        )
-    except ImportError as exc:
-        logger.error(
-            "Failed to load Gateway APIs (exception_type=%s)",
-            type(exc).__name__,
-        )
 
 
 def _mount_web_ui(

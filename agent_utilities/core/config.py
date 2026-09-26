@@ -18,7 +18,13 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 from urllib.parse import urlsplit
 
 import platformdirs
-from agent_connector_sdk.config import normalize_http_host_allowlist
+from agent_connector_sdk.config import (
+    normalize_http_host_allowlist,
+    validate_discovery_limit,
+    validate_http_base_url,
+    validate_ingest_budget,
+    validate_ingest_limit,
+)
 from pydantic import Field, StrictBool, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -1765,20 +1771,6 @@ _MCP_FLEET_SECRET_ALIAS_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _NEUTRAL_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 
 
-def _rendered_runtime_http_url(value: Any) -> str | None:
-    """The trimmed URL text, or None when unset. Rejects unbounded/whitespace."""
-    if value in (None, ""):
-        return None
-    rendered = str(value).strip()
-    if not rendered:
-        return None
-    if len(rendered) > 2_048 or any(char.isspace() for char in rendered):
-        raise ValueError(
-            "runtime HTTP endpoints must be bounded URLs without whitespace"
-        )
-    return rendered
-
-
 def _validate_server_placeholder_template(rendered: str) -> None:
     """``FLEET_MCP_URL_TEMPLATE`` may carry only the ``{server}`` placeholder."""
     placeholders = re.findall(r"\{([^{}]+)\}", rendered)
@@ -1791,61 +1783,24 @@ def _validate_server_placeholder_template(rendered: str) -> None:
         raise ValueError("FLEET_MCP_URL_TEMPLATE placeholders are malformed")
 
 
-def _validate_runtime_url_placeholders(
-    rendered: str, require_server_placeholder: bool
-) -> None:
-    """Placeholder policy: only the fleet template may carry ``{server}``."""
-    if require_server_placeholder:
-        _validate_server_placeholder_template(rendered)
-    elif "{" in rendered or "}" in rendered:
-        raise ValueError("runtime HTTP endpoints cannot contain placeholders")
-    if rendered.count("{") != rendered.count("}"):
-        raise ValueError("runtime HTTP endpoint placeholders are malformed")
-
-
-def _split_runtime_http_url(rendered: str) -> tuple[Any, str, Any, Any]:
-    """Split the URL, mapping any parse failure to one bounded error."""
-    from urllib.parse import urlsplit
-
-    try:
-        parsed = urlsplit(rendered)
-        return parsed, parsed.scheme.lower(), parsed.hostname, parsed.port
-    except ValueError as exc:
-        raise ValueError("runtime HTTP endpoint is malformed") from exc
-
-
-def _assert_runtime_http_authority(parsed: Any, scheme: str, hostname: Any) -> None:
-    """Scheme and authority policy: http/https, a real host, no inline creds."""
-    if scheme not in {"http", "https"} or not parsed.netloc or not hostname:
-        raise ValueError("runtime HTTP endpoints must use http:// or https://")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("runtime HTTP endpoints cannot contain inline credentials")
-
-
-def _assert_runtime_http_locator(parsed: Any, port: Any) -> None:
-    """A base URL carries no query/fragment and an in-range port."""
-    if parsed.query or parsed.fragment:
-        raise ValueError(
-            "runtime HTTP base URLs cannot contain query strings or fragments"
-        )
-    if port is not None and not 1 <= port <= 65_535:
-        raise ValueError("runtime HTTP endpoint port is out of range")
-
-
 def _validated_runtime_http_url(
     value: Any,
     *,
     require_server_placeholder: bool = False,
 ) -> str | None:
-    """Normalize one runtime-only HTTP base URL without resolving or fetching it."""
-    rendered = _rendered_runtime_http_url(value)
-    if rendered is None:
+    """Validate the AU fleet placeholder, then use the SDK transport rule."""
+    if not require_server_placeholder:
+        return validate_http_base_url(value)
+    if value in (None, ""):
         return None
-    _validate_runtime_url_placeholders(rendered, require_server_placeholder)
-    parsed, scheme, hostname, port = _split_runtime_http_url(rendered)
-    _assert_runtime_http_authority(parsed, scheme, hostname)
-    _assert_runtime_http_locator(parsed, port)
-    return f"{scheme}{rendered[len(parsed.scheme) :]}".rstrip("/")
+    rendered = str(value).strip()
+    if not rendered:
+        return None
+    _validate_server_placeholder_template(rendered)
+    probe = validate_http_base_url(rendered.replace("{server}", "server"))
+    if probe is None:
+        raise ValueError("FLEET_MCP_URL_TEMPLATE must be an HTTP URL")
+    return f"{probe.split(':', 1)[0]}{rendered[rendered.index(':') :]}".rstrip("/")
 
 
 def _validated_runtime_path(value: Any, owner_label: str) -> str | None:
@@ -1959,38 +1914,22 @@ class ExternalGraphConnectorConfig(BaseModel):
     @field_validator("discovery_max_types")
     @classmethod
     def _bound_discovery_types(cls, value: int) -> int:
-        parsed = int(value)
-        if not 1 <= parsed <= 500:
-            raise ValueError("discovery_max_types must be between 1 and 500")
-        return parsed
+        return validate_discovery_limit("discovery_max_types", value)
 
     @field_validator("discovery_max_depth")
     @classmethod
     def _bound_discovery_depth(cls, value: int) -> int:
-        parsed = int(value)
-        if not 1 <= parsed <= 12:
-            raise ValueError("discovery_max_depth must be between 1 and 12")
-        return parsed
+        return validate_discovery_limit("discovery_max_depth", value)
 
     @field_validator("ingest_max_records", mode="before")
     @classmethod
     def _bound_ingest_records(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("ingest_max_records must be an integer")
-        parsed = int(value)
-        if not 1 <= parsed <= 10_000:
-            raise ValueError("ingest_max_records must be between 1 and 10000")
-        return parsed
+        return validate_ingest_limit("ingest_max_records", value)
 
     @field_validator("ingest_page_size", "ingest_max_pages", mode="before")
     @classmethod
     def _bound_property_graph_pages(cls, value: int, info: Any) -> int:
-        if isinstance(value, bool):
-            raise ValueError(f"{info.field_name} must be an integer")
-        parsed = int(value)
-        if not 1 <= parsed <= 1_000:
-            raise ValueError(f"{info.field_name} must be between 1 and 1000")
-        return parsed
+        return validate_ingest_limit(info.field_name, value)
 
     @field_validator("reconcile_deletions", "allow_empty_snapshot", mode="before")
     @classmethod
@@ -2002,42 +1941,22 @@ class ExternalGraphConnectorConfig(BaseModel):
     @field_validator("ingest_max_row_bytes", mode="before")
     @classmethod
     def _bound_ingest_row_bytes(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("ingest_max_row_bytes must be an integer")
-        parsed = int(value)
-        if not 256 <= parsed <= 8_388_608:
-            raise ValueError("ingest_max_row_bytes must be between 256 and 8388608")
-        return parsed
+        return validate_ingest_limit("ingest_max_row_bytes", value)
 
     @field_validator("ingest_max_total_bytes", mode="before")
     @classmethod
     def _bound_ingest_total_bytes(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("ingest_max_total_bytes must be an integer")
-        parsed = int(value)
-        if not 256 <= parsed <= 67_108_864:
-            raise ValueError("ingest_max_total_bytes must be between 256 and 67108864")
-        return parsed
+        return validate_ingest_limit("ingest_max_total_bytes", value)
 
     @field_validator("ingest_max_nesting_depth", mode="before")
     @classmethod
     def _bound_ingest_nesting_depth(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("ingest_max_nesting_depth must be an integer")
-        parsed = int(value)
-        if not 1 <= parsed <= 64:
-            raise ValueError("ingest_max_nesting_depth must be between 1 and 64")
-        return parsed
+        return validate_ingest_limit("ingest_max_nesting_depth", value)
 
     @field_validator("ingest_max_collection_items", mode="before")
     @classmethod
     def _bound_ingest_collection_items(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("ingest_max_collection_items must be an integer")
-        parsed = int(value)
-        if not 1 <= parsed <= 100_000:
-            raise ValueError("ingest_max_collection_items must be between 1 and 100000")
-        return parsed
+        return validate_ingest_limit("ingest_max_collection_items", value)
 
     @field_validator("ingest_operation")
     @classmethod
@@ -2051,8 +1970,7 @@ class ExternalGraphConnectorConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_graphql_bootstrap(self) -> "ExternalGraphConnectorConfig":
-        if self.ingest_max_total_bytes < self.ingest_max_row_bytes:
-            raise ValueError("ingest_max_total_bytes must cover one bounded row")
+        validate_ingest_budget(self.ingest_max_row_bytes, self.ingest_max_total_bytes)
         if self.backend == "graphql" and self.semantic_mapping:
             raise ValueError(
                 "semantic_mapping is available only for property graph sources"

@@ -277,8 +277,8 @@ async def trigger_hydration(source: str, request: Request) -> dict[str, Any]:
     _require_dashboard_write(request)
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", source):
         raise HTTPException(status_code=422, detail="invalid hydration source")
+    from agent_utilities.api.hydration import hydrate_source
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
@@ -286,7 +286,7 @@ async def trigger_hydration(source: str, request: Request) -> dict[str, Any]:
             status_code=500, detail="Active Knowledge Graph engine not available"
         )
     try:
-        res = HydrationManager().hydrate_source(engine, source)
+        res = hydrate_source(engine, source)
         return res
     except ValueError as exc:
         raise HTTPException(
@@ -301,10 +301,10 @@ async def trigger_hydration(source: str, request: Request) -> dict[str, Any]:
 
 @dashboard_router.post("/hydrate")
 async def trigger_all_hydration(request: Request) -> dict[str, Any]:
-    """Manually trigger hydration for all configured/active sources sequentially."""
+    """Start a manifest-gated sweep of configured sources."""
     _require_dashboard_write(request)
+    from agent_utilities.api.hydration import hydrate_all
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
@@ -312,7 +312,7 @@ async def trigger_all_hydration(request: Request) -> dict[str, Any]:
             status_code=500, detail="Active Knowledge Graph engine not available"
         )
     try:
-        res = HydrationManager().hydrate_all(engine)
+        res = hydrate_all(engine)
         return res
     except Exception as exc:
         raise HTTPException(
@@ -323,6 +323,6 @@ async def trigger_all_hydration(request: Request) -> dict[str, Any]:
 @dashboard_router.get("/hydration-status")
 async def get_hydration_status() -> dict[str, Any]:
     """Retrieve configuration status of all hydration sources."""
-    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+    from agent_utilities.api.hydration import hydration_status
 
-    return HydrationManager().get_status()
+    return hydration_status()
