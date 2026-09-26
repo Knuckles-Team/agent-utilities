@@ -207,7 +207,7 @@ def test_pages_job_builds_static_docs_without_runtime_dependencies():
     by_name = {step["name"]: step for step in steps}
 
     theme = by_name["Checkout shared documentation theme"]
-    assert theme["with"]["ref"] == "fe4d11323d0b94c044c38f5257a15576c076500e"
+    assert theme["with"]["ref"] == "8eea314b89764a8dc5e2c66b50bc16b8709826c7"
 
     install = by_name["Install static documentation tooling"]
     assert install["id"] == "docs_tooling"
