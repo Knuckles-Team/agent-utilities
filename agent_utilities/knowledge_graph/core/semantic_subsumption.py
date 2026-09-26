@@ -78,6 +78,8 @@ class SemanticSubsumptionEngine:
             [float(value) for value in node.embedding],
             [
                 [float(value) for value in self.owl_classes[owl_class]]
+                if self.owl_classes[owl_class]
+                else []
                 for owl_class in classes
             ],
         )

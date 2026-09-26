@@ -93,7 +93,7 @@ def test_align_node_to_ontology_zero_and_empty_prototypes():
     )
     assert SemanticSubsumptionEngine({}).align_node_to_ontology(node) is None
     engine = SemanticSubsumptionEngine(
-        {"Empty": [], "Zero": [0.0], "Valid": [1.0, 0.0]}
+        {"Empty": [], "Missing": None, "Zero": [0.0], "Valid": [1.0, 0.0]}
     )
 
     alignment = engine.align_node_to_ontology(node)
