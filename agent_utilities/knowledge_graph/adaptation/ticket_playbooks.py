@@ -49,10 +49,10 @@ def _run_async(coro: Any) -> Any:
 def _notify(engine: Any, text: str) -> None:
     """Best-effort Telegram/last-channel notification (never raises into triage)."""
     try:
-        from ...messaging.service import MessagingService
+        from ...messaging.reach_port import reach_service_port
 
         _run_async(
-            MessagingService(engine=engine).reach_user(
+            reach_service_port(engine).reach_user(
                 text, source="ticket_playbook", reason="ticket workflow"
             )
         )

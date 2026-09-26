@@ -12,7 +12,6 @@ from agent_utilities.knowledge_graph.core.session import (
     use_session,
 )
 from agent_utilities.knowledge_graph.core.work_durability import NativeWorkItemRequired
-from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging import intake_lease
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
@@ -97,85 +96,6 @@ def test_two_contenders_cannot_both_enter_intake(monkeypatch):
     assert len(claim_calls) == 2
     assert len(submit_calls) == 2
     assert all("token" not in call["metadata"] for call in submit_calls)
-
-
-def test_two_entrypoints_cannot_both_start_the_same_poller(monkeypatch):
-    """The public standalone/embedded boundary admits one native owner."""
-    monkeypatch.setattr(intake_lease, "_identity_digest", lambda platform: "identity")
-    rows: dict[str, dict[str, object]] = {}
-    owner: str | None = None
-    lock = threading.Lock()
-
-    def _submit(engine, **kwargs):
-        item_id = str(kwargs["work_item_id"])
-        rows.setdefault(
-            item_id,
-            {
-                "kind": kwargs["kind"],
-                "queue": kwargs["queue"],
-                "tenant": kwargs["tenant"],
-                "metadata": kwargs["metadata"],
-            },
-        )
-        return item_id, True
-
-    def _get_work_item(engine, item_id):
-        return rows.get(item_id)
-
-    def _claim(engine, item_id, *, token, lease_ttl_s):
-        nonlocal owner
-        with lock:
-            if owner is not None:
-                return None
-            owner = token
-            return {
-                "_native": True,
-                "tenant": "test-tenant",
-                "lease_owner": token,
-                "lease_epoch": 1,
-                "fencing_token": 1,
-            }
-
-    monkeypatch.setattr(intake_lease, "submit_work_item_atomic", _submit)
-    monkeypatch.setattr(intake_lease, "get_work_item", _get_work_item)
-    monkeypatch.setattr(intake_lease, "claim_specific", _claim)
-    monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
-
-    started = threading.Event()
-    first_stop = threading.Event()
-    polling_entries: list[tuple[str, ...]] = []
-
-    def _poll(engine, platforms, stop_event, platform_stop_events):
-        polling_entries.append(tuple(platforms))
-        started.set()
-        stop_event.wait(timeout=2.0)
-
-    monkeypatch.setattr(messaging_daemon, "_run_poll_loop", _poll)
-    session = _verified_session()
-    first = threading.Thread(
-        target=messaging_daemon.run_forever,
-        args=(object(), ["telegram"], first_stop),
-        kwargs={"session": session, "intake_intent": True},
-    )
-    first.start()
-    assert started.wait(timeout=2.0)
-
-    second_stop = threading.Event()
-    second = threading.Thread(
-        target=messaging_daemon.run_forever,
-        args=(object(), ["telegram"], second_stop),
-        kwargs={"session": session, "intake_intent": True},
-    )
-    second.start()
-    second.join(timeout=2.0)
-
-    assert not second.is_alive()
-    assert second_stop.is_set()
-    assert polling_entries == [("telegram",)]
-
-    first_stop.set()
-    first.join(timeout=2.0)
-    assert not first.is_alive()
 
 
 def test_missing_native_lease_capability_fails_closed(monkeypatch):
@@ -280,7 +200,7 @@ def test_one_platform_lease_loss_leaves_other_platform_serving(monkeypatch):
     """Bug 3: one platform's lease loss must drop ONLY that platform.
 
     Previously ANY lease's renewal failure set the single shared
-    ``stop_event`` unconditionally, and daemon.py cancelled ONE asyncio task
+    ``stop_event`` unconditionally, and the old poller cancelled ONE asyncio task
     that owned EVERY backend's listener off that one event — so mattermost
     losing its lease silently killed telegram's inbound polling too.
 
@@ -288,10 +208,7 @@ def test_one_platform_lease_loss_leaves_other_platform_serving(monkeypatch):
     per-platform ``threading.Event`` map: mattermost's lease loss must set
     ONLY ``platform_stop_events["mattermost"]``, leaving
     ``platform_stop_events["telegram"]`` (and the shared ``stop_event``)
-    untouched — daemon.py's ``_run_poll_loop`` relies on exactly this
-    contract to cancel just the one platform's listener task (see
-    ``tests/unit/messaging/test_daemon_platform_isolation.py`` for the
-    daemon-level proof that it actually does).
+    untouched. GraphOS polling owns the listener cancellation proof.
     """
     mattermost = intake_lease.IntakeLease(
         platform="mattermost",
@@ -348,45 +265,3 @@ def test_one_platform_lease_loss_leaves_other_platform_serving(monkeypatch):
     )
 
     assert serve_call["platforms"] == ["mattermost", "telegram"]
-
-
-def test_lost_renewal_stops_the_actual_public_poll_loop(monkeypatch):
-    """A lease fence loss reaches and stops the shared polling entrypoint."""
-    lease = intake_lease.IntakeLease(
-        platform="telegram",
-        item_id="workitem:messaging-intake:test",
-        claim={
-            "_native": True,
-            "tenant": "test-tenant",
-            "lease_owner": "owner",
-            "lease_epoch": 1,
-            "fencing_token": 1,
-        },
-        lease_ttl_s=0.03,
-    )
-    started = threading.Event()
-    stopped = threading.Event()
-    monkeypatch.setattr(
-        intake_lease,
-        "acquire_intake_leases",
-        lambda engine, platforms, session, **kwargs: (lease,),
-    )
-    monkeypatch.setattr(intake_lease, "heartbeat", lambda *args, **kwargs: False)
-    monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
-
-    def _poll(engine, platforms, stop_event, platform_stop_events):
-        started.set()
-        assert stop_event.wait(timeout=2.0)
-        stopped.set()
-
-    monkeypatch.setattr(messaging_daemon, "_run_poll_loop", _poll)
-    messaging_daemon.run_forever(
-        object(),
-        ["telegram"],
-        threading.Event(),
-        session=_verified_session(),
-        intake_intent=True,
-    )
-
-    assert started.is_set()
-    assert stopped.is_set()

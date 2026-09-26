@@ -13,27 +13,18 @@ profiles, and image digests through an external deployment profile.
 | GraphOS host | `graph-os-daemon` | maintenance scheduler, background workers, embedding backfill, and governed mirror fan-out | none |
 | GraphOS MCP | `graph-os` | authenticated MCP, fleet discovery, delegation, graph tools, **and the bundled messaging co-service** | stdio or streamable HTTP |
 | REST/API gateway | `python -m agent_utilities` | application and UI API surface | authenticated HTTP |
-| Messaging (optional isolated scale-out) | `agent-utilities-messaging` | the same inbound-router body, run in its own process only when a deployment wants to move chat load off the GraphOS MCP process | provider-specific inbound transport |
 | Connector fleet | selected `*-mcp` packages | native connection point to one external system per package | registry-declared MCP transport |
 
 The engine is the single source of truth. Optional Neo4j, PostgreSQL/AGE,
 LadybugDB, and other stores are governed mirrors or external ingest sources; they do
 not silently become graph authority.
 
-Messaging is **not a separately deployed service by default.** GraphOS MCP
-self-composes its configured co-services in one process
-(`agent_utilities.mcp.co_service_supervisor`, wired into `kg_server.mcp_server()`):
-whenever a real channel credential (e.g. `TELEGRAM_BOT_TOKEN`) is present in the
-SAME `AgentConfig` GraphOS MCP already reads, the inbound router starts as a
-supervised co-service thread sharing that process's already-verified
-`GraphSession`/identity — no separate `mint_graph_session` call, no second secret
-surface, no manually-run second daemon. The standalone `agent-utilities-messaging`
-process (`Messaging` row above) still exists and reuses the identical serving body
-(`messaging/daemon.run_forever`) for a deployment that deliberately wants to isolate
-chat load onto its own host/pod; it is opt-in scale-out, not the default topology,
-and it must resolve its OWN process identity the same way GraphOS MCP does (a
-correctly configured `AUTH_JWT_AUDIENCE`/`MCP_JWT_AUDIENCE` and
-`KG_POLICY_VERSION`) if it is deployed at all.
+Messaging intake is a GraphOS co-service. Configured channel credentials make
+outbound sends available; a verified session and explicit intake intent are
+required before GraphOS claims the engine-native per-channel lease and starts
+an inbound poller. The GraphOS process supplies the channel adapters and router;
+Agent Utilities supplies the agent command handler. There is no standalone
+Agent Utilities messaging console script.
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">One TLS ingress, two gateways, one authority</p>
@@ -45,9 +36,7 @@ also fans out to GraphOS MCP and to the REST/API gateway. GraphOS MCP
 additionally reaches the approved MCP connector fleet. Both GraphOS MCP and
 the REST gateway reach the Epistemic graph authority and a shared durable
 state/queue, as does the GraphOS host directly; the GraphOS host alone also
-reaches optional governed mirrors. The optional, isolated
-`agent-utilities-messaging` scale-out service reaches the epistemic graph
-authority independently of the rest of this topology.
+reaches optional governed mirrors.
 </div>
 
 ## Deployment invariants

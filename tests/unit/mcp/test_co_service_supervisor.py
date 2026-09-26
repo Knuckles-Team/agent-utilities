@@ -21,26 +21,19 @@ Covers the entrypoint's composition and supervision contracts:
    entrypoint behaves this way end to end lives in
    ``tests/integration/mcp/test_stdio_fd_ownership.py``.
 
-Plus a LIVE-PATH test (:func:`test_start_co_services_live_path_starts_messaging`)
-that drives the real ``start_co_services`` entry point end to end and asserts
-messaging actually started serving — not merely that a helper exists.
+GraphOS now owns messaging intake; this suite covers only AU supervision.
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import threading
 import time
 from types import SimpleNamespace
 
-import pytest
-
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.mcp import co_service_supervisor as cosvc
-from agent_utilities.messaging import daemon as messaging_daemon
-from agent_utilities.messaging.service import MessagingService
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
@@ -62,13 +55,6 @@ def _verified_session(actor_id: str = "co-service-test") -> GraphSession:
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_messaging_singleton():
-    MessagingService._instance = None
-    yield
-    MessagingService._instance = None
-
-
 # ── Detection ─────────────────────────────────────────────────────────────
 
 
@@ -80,7 +66,8 @@ def test_detect_composition_reads_existing_config_only(monkeypatch):
 
     monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
     monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: ["telegram"]
+        "agent_utilities.messaging.reach_port.reach_service_port",
+        lambda engine=None: SimpleNamespace(configured_platforms=lambda: ["telegram"]),
     )
 
     plan = cosvc.detect_composition(messaging_intake_enabled=True)
@@ -97,70 +84,11 @@ def test_detect_composition_nothing_configured(monkeypatch):
 
     monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
     monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: []
+        "agent_utilities.messaging.reach_port.reach_service_port",
+        lambda engine=None: SimpleNamespace(configured_platforms=lambda: []),
     )
     plan = cosvc.detect_composition(messaging_intake_enabled=False)
     assert plan.co_service_names() == ()
-
-
-def test_token_only_client_does_not_poll_but_remains_send_capable(monkeypatch):
-    """A credential may authorize governed outbound sends, never polling by itself."""
-    monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: ["fake"]
-    )
-
-    class _Cfg:
-        enable_web_ui = False
-
-    monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
-    reached_get_backend = threading.Event()
-
-    class _FakeBackend:
-        id = "fake"
-        is_connected = True
-
-        async def send_message(
-            self, channel_id, text, *, thread_id="", reply_to_id="", metadata=None
-        ):
-            from agent_utilities.messaging.models import SendResult
-
-            return SendResult(
-                success=True,
-                platform="fake",
-                channel_id=channel_id,
-            )
-
-    async def _fake_get_backend(self, platform):
-        reached_get_backend.set()
-        return _FakeBackend()
-
-    async def _no_ingest(self, *args):
-        return None
-
-    monkeypatch.setattr(MessagingService, "get_backend", _fake_get_backend)
-    # ``_gate`` returning ``None`` means "policy unavailable" and the send is
-    # refused (fail closed); stub an allowing decision instead (EH-380).
-    monkeypatch.setattr(
-        MessagingService,
-        "_gate",
-        lambda *args, **kwargs: SimpleNamespace(
-            allowed=True, decision="allow", reason="test"
-        ),
-    )
-    monkeypatch.setattr(MessagingService, "_ingest_outbound", _no_ingest)
-
-    session = _verified_session()
-    service = MessagingService.instance(object())
-    supervisor = cosvc.start_co_services(
-        session,
-        object(),
-        messaging_intake_enabled=False,
-    )
-    assert supervisor.running() == ()
-
-    result = asyncio.run(service.send("fake", "channel", "hello", reason="test"))
-    assert result.success is True
-    assert reached_get_backend.is_set()
 
 
 # ── Supervision: bounded restart + clean shutdown ──────────────────────────
@@ -233,53 +161,6 @@ def test_supervisor_retains_live_handle_after_bounded_stop():
 
     release.set()
     assert supervisor.stop_all(timeout=5.0) is True
-    assert supervisor.running() == ()
-
-
-def test_start_co_services_rolls_back_a_partial_composition(monkeypatch):
-    """A later co-service failure cannot orphan an earlier started thread."""
-    monkeypatch.setattr(
-        cosvc,
-        "detect_composition",
-        lambda *args, **kwargs: cosvc.CompositionPlan(
-            messaging_platforms=("fake",),
-            web_ui_enabled=True,
-            messaging_intake_enabled=True,
-        ),
-    )
-
-    started = threading.Event()
-
-    def _fake_run(_engine, _platforms, stop_event: threading.Event, **_kwargs) -> None:
-        started.set()
-        stop_event.wait()
-
-    monkeypatch.setattr(messaging_daemon, "run_forever", _fake_run)
-    monkeypatch.setitem(
-        sys.modules,
-        "agent_utilities.server.webui_co_service",
-        type("_WebUI", (), {"run_web_ui": lambda _stop_event: None})(),
-    )
-    original_start = cosvc.CoServiceSupervisor.start_service
-
-    def _fail_webui(self, name, run, session):
-        if name == "agent-webui":
-            assert started.wait(timeout=5.0)
-            raise RuntimeError("web UI failed during startup")
-        return original_start(self, name, run, session)
-
-    monkeypatch.setattr(cosvc.CoServiceSupervisor, "start_service", _fail_webui)
-    supervisor = cosvc.CoServiceSupervisor()
-
-    with pytest.raises(RuntimeError, match="web UI failed"):
-        cosvc.start_co_services(
-            _verified_session(),
-            object(),
-            messaging_intake_enabled=True,
-            supervisor=supervisor,
-        )
-
-    # The rollback waits for the real messaging thread and leaves no orphan.
     assert supervisor.running() == ()
 
 
@@ -410,99 +291,3 @@ def test_no_process_wide_monkeypatch_remains_and_identity_is_untouched():
 
     assert builtins.print is before_print
     assert sys.stdout is before_stdout
-
-
-# ── LIVE-PATH: starting the real entrypoint actually starts messaging ──────
-
-
-def test_start_co_services_live_path_starts_messaging(monkeypatch):
-    """Drive the REAL ``start_co_services`` (what ``kg_server.mcp_server()``
-    calls) with a messaging-configured detection and assert the messaging
-    co-service actually reaches the backend-connect step and keeps running —
-    not merely that ``start_co_services``/``run_forever`` exist."""
-    monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: ["fake"]
-    )
-
-    class _Cfg:
-        enable_web_ui = False
-
-    monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
-
-    reached_get_backend = threading.Event()
-
-    class _FakeBackend:
-        id = "fake"
-        is_connected = True
-
-        async def register_commands(self, specs):
-            return None
-
-        async def listen(self):
-            while True:  # pragma: no branch — cancelled on shutdown
-                await asyncio.sleep(3600)
-                yield {}
-
-    async def _fake_get_backend(self, platform):
-        reached_get_backend.set()
-        return _FakeBackend()
-
-    async def _fake_planner_handler(engine):
-        async def _handler(event):
-            return None
-
-        return _handler
-
-    monkeypatch.setattr(MessagingService, "get_backend", _fake_get_backend)
-    monkeypatch.setattr(
-        "agent_utilities.messaging.router.create_planner_handler",
-        _fake_planner_handler,
-    )
-    from agent_utilities.messaging import intake_lease
-
-    fake_lease = intake_lease.IntakeLease(
-        platform="fake",
-        item_id="workitem:messaging-intake:test",
-        claim={
-            "_native": True,
-            "tenant": "test-tenant",
-            "lease_owner": "test-owner",
-            "lease_epoch": 1,
-            "fencing_token": 1,
-        },
-        lease_ttl_s=90.0,
-    )
-    monkeypatch.setattr(
-        intake_lease,
-        "acquire_intake_leases",
-        lambda engine, platforms, session, **kwargs: (fake_lease,),
-    )
-
-    def _serve_without_renewal(engine, leases, stop_event, serve):
-        # ``serve`` takes the per-platform stop-event map as its third argument
-        # (``intake_lease.run_with_intake_leases``' contract).
-        serve(
-            [item.platform for item in leases],
-            stop_event,
-            {item.platform: threading.Event() for item in leases},
-        )
-
-    monkeypatch.setattr(intake_lease, "run_with_intake_leases", _serve_without_renewal)
-
-    session = _verified_session()
-    engine = object()  # lease seams are replaced above for this live-path test
-
-    supervisor = cosvc.start_co_services(
-        session,
-        engine,
-        messaging_intake_enabled=True,
-    )
-    try:
-        assert reached_get_backend.wait(timeout=10.0), (
-            "start_co_services() did not actually start messaging serving "
-            "(get_backend was never reached)"
-        )
-        assert "messaging" in supervisor.running()
-    finally:
-        supervisor.stop_all(timeout=10.0)
-    assert supervisor.running() == ()

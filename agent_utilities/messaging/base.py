@@ -354,8 +354,8 @@ class MessagingBackend(ABC):
 
         This is the core of bidirectional messaging — it yields
         ``InboundEvent`` objects as they arrive from the platform.
-        The ``InboundRouter`` (``messaging/router.py``) consumes
-        this stream and routes events to the planner graph agent.
+        The GraphOS ``InboundRouter`` consumes this stream and routes events
+        to the AU planner graph agent.
 
         Yields:
             ``InboundEvent`` for each platform event (message,

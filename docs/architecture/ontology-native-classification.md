@@ -339,7 +339,7 @@ follow-up (ack-now/deliver-later, ORCH-1.72), and (b) render Markdown as formatt
 (ECO-4.0) — the latter only once the Telegram fix is merged+deployed.
 
 **How to run:** send each via Telegram to the bot and watch
-`docker logs -f $(docker ps -q -f name=agent-utilities-messaging)`. For the routing half without
+`docker logs -f $(docker ps -q -f name=graph-os)`. For the routing half without
 Telegram, the harness `scratch/disp_e2e.py` / `scratch/disp_seq.py` drives `execute_agent` for the
 messaging-assistant and prints the node sequence (use `execution_profile="task"` to force the full
 graph, `"chat"` to test classification).

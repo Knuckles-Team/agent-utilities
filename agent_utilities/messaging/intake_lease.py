@@ -66,22 +66,9 @@ def _session_tenant(session: Any) -> str:
 
 def _identity_digest(platform: str) -> str:
     """Return a stable, non-secret identity reference for one backend config."""
-    from agent_utilities.messaging.registry import MessagingRegistry
+    from agent_utilities.messaging.reach_port import reach_service_port
 
-    config = MessagingRegistry.instance()._auto_config(platform)
-    token = str(getattr(config, "token", "") or "").strip()
-    app_id = str(getattr(config, "app_id", "") or "").strip()
-    webhook_url = str(getattr(config, "webhook_url", "") or "").strip()
-
-    # Telegram's bot id is the stable identity before the colon; hashing it
-    # keeps even that identifier out of the durable WorkItem metadata.  Other
-    # platforms use the configured app id or a hash of the bot token.  A
-    # platform-only fallback is useful for webhook/test backends with no token.
-    if platform == "telegram" and token:
-        material = token.split(":", 1)[0]
-    else:
-        material = app_id or token or webhook_url or platform
-    return hashlib.sha256(f"{platform}:{material}".encode()).hexdigest()
+    return reach_service_port().identity_digest(platform)
 
 
 def _work_item_id(platform: str, identity_digest: str) -> str:
@@ -253,7 +240,7 @@ def run_with_intake_leases(
     ``serve`` is called exactly once, up front, with every leased platform AND
     a per-platform ``threading.Event`` map (``platform_stop_events``). When one
     platform's lease is lost, this function sets ONLY that platform's event —
-    ``serve``'s implementation (:func:`agent_utilities.messaging.daemon._run_poll_loop`)
+    ``serve``'s implementation (`graph_os.messaging.polling.run_poll_loop`)
     is responsible for tearing down just that one platform's listener without
     touching the others. The shared ``stop_event`` is reserved for a genuine
     full stop: an external shutdown request (already set by the caller, e.g.

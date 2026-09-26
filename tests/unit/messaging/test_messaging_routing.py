@@ -22,7 +22,6 @@ from agent_utilities.messaging.router import (
     _plain_chat_reply,
     _select_responder,
 )
-from agent_utilities.messaging.service import MessagingService
 
 
 class _EmptyEvidenceEngine:
@@ -367,60 +366,55 @@ class _Eng:
         return "m"
 
 
-@pytest.fixture()
-def multi(monkeypatch: pytest.MonkeyPatch) -> MessagingService:
-    MessagingService._instance = None
-    svc = MessagingService.instance(_Eng())
-    backends = {"telegram": _FakeBackend("telegram"), "slack": _FakeBackend("slack")}
-    for b in backends.values():
-        svc.register_connected(b)
+class _PlannerReach:
+    """Minimal host port for AU planner tests; channel service behavior lives in GraphOS."""
 
-    async def _get_backend(platform: str):
-        return backends.get(platform)
+    def __init__(self, engine: Any = None) -> None:
+        self.engine = engine
 
-    monkeypatch.setattr(svc, "get_backend", _get_backend)
+    def _resolve_engine(self) -> Any:
+        return self.engine
+
+    def configured_platforms(self) -> list[str]:
+        return []
+
+    async def reach_user(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def reach_user_and_wait(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def send(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def list_channels(self, *_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
+    async def react(self, *_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    def resolve_channel(self, _user_id: str | None = None) -> tuple[str, str]:
+        return "", ""
+
+    def deliver_reply(self, *_args: Any) -> bool:
+        return False
+
+    def record_inbound(self, event: InboundEvent) -> None:
+        add_node = getattr(self.engine, "add_node", None)
+        if callable(add_node):
+            add_node("channel-pref", "ChannelPref", {"platform": str(event.platform)})
+
+    def status(self) -> dict[str, Any]:
+        return {}
+
+
+@pytest.fixture(autouse=True)
+def _planner_reach_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent_utilities.messaging import reach_port
+
     monkeypatch.setattr(
-        svc, "_gate", lambda *a, **k: type("D", (), {"allowed": True})()
+        reach_port, "_load_port", lambda name: lambda engine=None: _PlannerReach(engine)
     )
-    return svc
-
-
-@pytest.mark.asyncio
-async def test_send_targets_the_right_service(multi: MessagingService) -> None:
-    await multi.send("telegram", "100", "to tg")
-    await multi.send("slack", "C200", "to slack")
-    tg = await multi.get_backend("telegram")
-    sl = await multi.get_backend("slack")
-    assert tg.sent == [("100", "to tg")]
-    assert sl.sent == [("C200", "to slack")]
-
-
-@pytest.mark.asyncio
-async def test_reach_user_follows_last_active_service(multi: MessagingService) -> None:
-    # User talks on telegram, then on slack — reach_user must follow to slack.
-    for plat, chan in (("telegram", "100"), ("slack", "C200")):
-        multi.record_inbound(
-            InboundEvent(
-                event_type=EventType.MESSAGE,
-                platform=plat,
-                channel_id=chan,
-                user_id="u1",
-            )
-        )
-    assert multi.resolve_channel("u1") == ("slack", "C200")
-    await multi.reach_user("hi", user_id="u1")
-    assert (await multi.get_backend("slack")).sent[-1] == ("C200", "hi")
-
-    # They reply on telegram again — routing follows back.
-    multi.record_inbound(
-        InboundEvent(
-            event_type=EventType.MESSAGE,
-            platform="telegram",
-            channel_id="100",
-            user_id="u1",
-        )
-    )
-    assert multi.resolve_channel("u1") == ("telegram", "100")
 
 
 # ── Reply path must not block on slow KG writes (ECO-4.72/4.74) ───────
@@ -437,8 +431,6 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     import time
 
     from agent_utilities.messaging.router import create_planner_handler
-
-    MessagingService._instance = None
 
     class _SlowEng:
         def add_node(self, *a: Any, **k: Any) -> None:
@@ -486,8 +478,6 @@ async def test_untranscribable_voice_attachment_gets_explicit_failure_notice(
     from agent_utilities.messaging.models import MediaAttachment, MediaType, Message
     from agent_utilities.messaging.router import create_planner_handler
 
-    MessagingService._instance = None
-
     async def _fails(
         url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
     ) -> str:
@@ -522,7 +512,6 @@ async def test_no_attachment_and_no_text_is_a_silent_noop() -> None:
     regress into sending a spurious failure notice for every non-text event."""
     from agent_utilities.messaging.router import create_planner_handler
 
-    MessagingService._instance = None
     handler = await create_planner_handler(knowledge_engine=_Eng())
     backend = _FakeBackend("telegram")
     ev = InboundEvent(
@@ -547,8 +536,6 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     from agent_utilities.messaging import router
     from agent_utilities.messaging.router import create_planner_handler
 
-    MessagingService._instance = None
-
     sessions: list[str] = []
 
     async def _fake_reply(
@@ -558,6 +545,11 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
         return "ok"
 
     monkeypatch.setattr(router, "_graph_agent_reply", _fake_reply)
+
+    async def _no_persist(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(router, "_persist_and_enrich", _no_persist)
     # Tight burst window so the coalescer flushes promptly in-test.
     monkeypatch.setenv("MESSAGING_BURST_WINDOW_S", "0.2")
     monkeypatch.setenv("MESSAGING_BURST_MAX_S", "1")
@@ -582,62 +574,6 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     assert len(sessions) == 2, sessions
     # Both turns of the SAME channel share one stable session → continuity via the core.
     assert sessions[0] == sessions[1] == "messaging:telegram:42"
-
-
-def test_validate_fleet_auth_consumes_xdg_config_contract(monkeypatch) -> None:
-    import agent_utilities.core.config as config_module
-    import agent_utilities.mcp.client_credentials as client_credentials
-    from agent_utilities.messaging import daemon
-
-    calls: list[str] = []
-    monkeypatch.setattr(config_module, "load_config", lambda: calls.append("load"))
-    monkeypatch.setattr(
-        client_credentials,
-        "outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": True,
-            "missing": (),
-            "invalid": (),
-            "redacted": True,
-        },
-    )
-    monkeypatch.setattr(
-        client_credentials,
-        "validate_outbound_auth_configuration",
-        lambda: calls.append("validate"),
-    )
-
-    daemon._validate_fleet_auth()
-
-    assert calls == ["load", "validate"]
-
-
-def test_validate_fleet_auth_fails_closed_when_configuration_is_incomplete(
-    monkeypatch,
-) -> None:
-    import agent_utilities.mcp.client_credentials as client_credentials
-    from agent_utilities.messaging import daemon
-
-    monkeypatch.setattr(
-        client_credentials,
-        "outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": False,
-            "missing": ("OIDC_AUDIENCE",),
-            "invalid": (),
-            "redacted": True,
-        },
-    )
-    monkeypatch.setattr(
-        client_credentials,
-        "validate_outbound_auth_configuration",
-        lambda: (_ for _ in ()).throw(RuntimeError("incomplete")),
-    )
-
-    with pytest.raises(RuntimeError, match="incomplete"):
-        daemon._validate_fleet_auth()
 
 
 @pytest.mark.asyncio

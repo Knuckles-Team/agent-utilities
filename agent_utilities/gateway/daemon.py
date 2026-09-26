@@ -305,10 +305,8 @@ def start_host_daemon(*, defer_background_start: bool = False) -> Any:
                 exc.args[0] if exc.args else type(exc).__name__,
             )
         logger.info("Gateway host daemon started")
-    # CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs — the inbound messaging router runs in its OWN process
-    # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so
-    # the host's CPU-bound maintenance (codebase ingestion / relevance sweeps) can never
-    # starve the inbound reply loop. It connects to this same shared engine as a client.
+    # Messaging intake runs under the GraphOS serving composition, separate
+    # from this maintenance daemon's CPU-bound work.
     return _engine
 
 

@@ -1,6 +1,6 @@
 """graph_reach MCP tool — outbound messaging + last-active channel routing (CONCEPT:AU-ECO.mcp.graph-reach-mcp-tool).
 
-Thin wrapper over :class:`agent_utilities.messaging.service.MessagingService` (the one core).
+Thin wrapper over the GraphOS-owned messaging reach service port.
 This is the surface Claude (and any MCP client) uses to message the operator over Telegram
 (or any configured backend) and to inspect routing state. The REST twin is ``/graph/reach``
 (``gateway/graph_api.py``); both dispatch into the same service so they never drift.
@@ -56,10 +56,10 @@ def register_reach_tools(mcp):
             default="", description="Why this message is being sent (audit trail)."
         ),
     ) -> str:
-        from agent_utilities.messaging.service import MessagingService
+        from agent_utilities.messaging.reach_port import reach_service_port
 
         engine = kg_server._get_engine()
-        svc = MessagingService.instance(engine)
+        svc = reach_service_port(engine)
 
         if action == "reach_user":
             result = await svc.reach_user(

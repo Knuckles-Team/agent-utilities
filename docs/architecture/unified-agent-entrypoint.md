@@ -110,7 +110,7 @@ over graph-os as a delegated MCP run.
 - Seam: `agent_utilities/orchestration/agent_runner.py::run_agent`
 - Executor + the one graph: `agent_utilities/orchestration/engine.py`, `agent_utilities/graph/builder.py`
 - MCP path: `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/orchestration/manager.py`
-- Messaging path: `agent_utilities/messaging/router.py`, `agent_utilities/messaging/daemon.py`
+- Messaging path: `graph_os/messaging/polling.py`, `graph_os/messaging/router.py`, `agent_utilities/messaging/router.py`
 - Streaming surface: `agent_utilities/server/routers/agent_ui.py`, `agent_utilities/graph/protocol_agnostic_execution.py`
 - **ORCH-1.104 wiring:** `agent_utilities/orchestration/session_continuity.py`
 - Test: `tests/test_orch_1_104_unified_entrypoint_continuity.py`

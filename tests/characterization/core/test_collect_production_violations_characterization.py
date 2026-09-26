@@ -191,9 +191,7 @@ def test_fully_toy_config_violation_list_exact_order_and_content():
         "loopback transport in production.",
         "a2a_broker must be 'epistemic_graph'; the native durable broker is "
         "the sole current FastA2A delivery plane.",
-        "agent_bus_log_backend must be 'engine' in production; the Kafka "
-        "AgentBus Kafka topology creates a consumer group per "
-        "recipient, and graph fallback is not a scalable delivery plane.",
+        "agent_bus_log_backend must be 'engine' for the EG stream authority.",
         "a2a_storage must be 'epistemic_graph'; native CAS-fenced records are "
         "the sole current FastA2A state plane.",
         "kafka_bootstrap_servers is unset; the reactive event ledger falls "

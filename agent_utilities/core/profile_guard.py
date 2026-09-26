@@ -373,21 +373,14 @@ def _check_a2a_broker(config: AgentConfig) -> list[str]:
 
 
 def _check_agent_bus(config: AgentConfig) -> list[str]:
-    # The Kafka AgentBus topology creates one consumer group per
-    # recipient/subscription. That topology is useful at modest scale but is not
-    # the million-agent production plane: it causes every subscriber to scan
-    # shared-topic traffic. Production therefore uses the engine broker's
-    # tenant-qualified durable inbox queues; Kafka remains available for the
-    # bounded WorkItem executor pool.
+    # EG native streams are the only AgentBus delivery writer.
     offending: list[str] = []
     bus_backend = (
         str(getattr(config, "agent_bus_log_backend", "") or "").strip().lower()
     )
     if bus_backend != "engine":
         offending.append(
-            "agent_bus_log_backend must be 'engine' in production; the Kafka "
-            "AgentBus Kafka topology creates a consumer group per "
-            "recipient, and graph fallback is not a scalable delivery plane."
+            "agent_bus_log_backend must be 'engine' for the EG stream authority."
         )
     return offending
 

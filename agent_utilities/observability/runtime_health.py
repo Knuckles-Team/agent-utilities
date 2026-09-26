@@ -277,24 +277,25 @@ def _check_messaging(cfg: Any) -> dict[str, Any]:
     platform has credentials in the environment; healthy iff every configured
     platform has a connected backend instance IN THIS PROCESS.
 
-    This intentionally reflects only this process's view, matching the
-    self-composing entrypoint (graph-os starting messaging in-process when
-    configured): each process's own health is authoritative for itself. Never
-    instantiates a backend or performs network I/O — read-only registry scan.
+    This reflects the GraphOS messaging host's view in this process. The host
+    reports its configured and connected backends without network I/O.
     """
-    from agent_utilities.messaging.registry import MessagingRegistry
+    from agent_utilities.messaging.reach_port import reach_service_port
 
-    registry = MessagingRegistry.instance()
-    configured = registry.configured_backend_ids()
+    try:
+        backend_status = reach_service_port().backend_status()
+    except (ImportError, LookupError, TypeError) as exc:
+        return _unhealthy(
+            "messaging",
+            f"GraphOS messaging host unavailable: {type(exc).__name__}",
+        )
+    configured = backend_status["configured"]
     if not configured:
         return _not_configured(
             "messaging", "no messaging platform credentials configured"
         )
-    down = [
-        backend_id
-        for backend_id in configured
-        if not bool(getattr(registry.get_backend(backend_id), "is_connected", False))
-    ]
+    connected = set(backend_status["connected"])
+    down = [backend_id for backend_id in configured if backend_id not in connected]
     detail = {"configured": configured, "down": down}
     if down:
         return _unhealthy(
@@ -591,16 +592,12 @@ def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - unif
 
 
 def _check_kafka_bus(cfg: Any) -> dict[str, Any]:
-    """Kafka bus/queue backend — only checked when either
-    ``AGENT_BUS_LOG_BACKEND`` or ``TASK_QUEUE_BACKEND`` selects kafka. A bounded
-    raw TCP connect to the first configured bootstrap broker.
-    """
-    bus_backend = str(getattr(cfg, "agent_bus_log_backend", "") or "").strip().lower()
+    """Kafka task-queue backend reachability via a bounded raw TCP connect."""
     queue_backend = str(getattr(cfg, "task_queue_backend", "") or "").strip().lower()
-    if bus_backend != "kafka" and queue_backend != "kafka":
+    if queue_backend != "kafka":
         return _not_configured(
             "kafka_bus",
-            "AGENT_BUS_LOG_BACKEND/TASK_QUEUE_BACKEND is not kafka",
+            "TASK_QUEUE_BACKEND is not kafka",
         )
     servers = str(getattr(cfg, "kafka_bootstrap_servers", "") or "").strip()
     if not servers:

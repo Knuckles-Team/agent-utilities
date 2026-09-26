@@ -712,7 +712,6 @@ all = [
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
 graph-os-daemon = "agent_utilities.gateway.daemon:main"
-agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
 agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"

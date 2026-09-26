@@ -13,17 +13,11 @@ autonomous loops.
 
 Detection signals
 -----------------
-* **messaging credentials** — configured iff
-  :func:`agent_utilities.messaging.daemon.configured_platforms` returns at least
+* **messaging credentials** — configured iff the GraphOS reach service reports at least
   one platform (a real token/app id is present). This controls send capability
   and composition reporting; it does not authorize a listener.
-* **messaging intake** — enabled only when the caller supplies the explicit
-  ``messaging_intake_enabled=True`` deployment intent.  The in-process
-  supervisor then enters ``run_forever`` with its verified session; that shared
-  entrypoint claims one deterministic WorkItem lease per platform/bot identity
-  before calling the low-level serving body.  The standalone
-  ``agent-utilities-messaging`` entrypoint uses the same boundary with its
-  minted verified session.
+* **messaging intake** — GraphOS alone owns the inbound poller and its native
+  lease. AU's supervisor refuses intake intent so a second writer cannot start.
 * **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
   ``ENABLE_WEB_UI`` field), and started IN-PROCESS via
   :func:`agent_utilities.server.webui_co_service.run_web_ui`. It ships a FastAPI
@@ -126,7 +120,7 @@ def detect_composition(
     exists (used by the deployment planners as well as this supervisor).
     """
     from agent_utilities.core.config import config
-    from agent_utilities.messaging.daemon import configured_platforms
+    from agent_utilities.messaging.reach_port import reach_service_port
 
     if messaging_intake_enabled is None:
         # This is deployment intent, not a credential-derived default.  Keep
@@ -134,7 +128,7 @@ def detect_composition(
         messaging_intake_enabled = False
 
     return CompositionPlan(
-        messaging_platforms=tuple(configured_platforms(engine)),
+        messaging_platforms=tuple(reach_service_port(engine).configured_platforms()),
         web_ui_enabled=bool(getattr(config, "enable_web_ui", False)),
         messaging_intake_enabled=messaging_intake_enabled,
     )
@@ -144,8 +138,7 @@ class CoServiceSupervisor:
     """Owns every co-service thread this ``graph-os`` process composed.
 
     One instance per served process. Each co-service is a blocking
-    ``run(stop_event)`` callable (e.g. :func:`agent_utilities.messaging.daemon.run_forever`
-    partially applied over its engine/platforms) driven on its own
+    ``run(stop_event)`` callable driven on its own
     ``_authorized_background_thread`` — the SAME verified-session-carrying thread
     helper the KG host daemon uses for its own background threads, so every
     co-service inherits the process's verified actor/session for its whole
@@ -301,13 +294,14 @@ def start_co_services(
     """Bring up every remaining configured co-service for THIS ``graph-os`` process.
 
     Called once from ``kg_server.mcp_server()`` after ``_start_engine_bootstrap``
-    so a real ``engine`` is available. Messaging is started here as a supervised
-    co-service thread using that engine + the process's verified session.
+    so a real ``engine`` is available. GraphOS owns messaging intake.
     """
     plan = detect_composition(
         engine,
         messaging_intake_enabled=messaging_intake_enabled,
     )
+    if plan.messaging_intake_configured:
+        raise PermissionError("messaging intake must start through GraphOS composition")
     supervisor = supervisor or CoServiceSupervisor()
 
     # Resolve optional code before starting any service.  If a real startup
@@ -316,7 +310,6 @@ def start_co_services(
     web_ui_runner = _resolve_web_ui_runner(plan)
 
     try:
-        _start_messaging_service(plan, session, engine, supervisor)
         _start_web_ui_service(web_ui_runner, session, supervisor)
     except BaseException:
         _rollback_co_service_startup(supervisor)
@@ -342,41 +335,6 @@ def _resolve_web_ui_runner(
         )
         return None
     return run_web_ui
-
-
-def _start_messaging_service(
-    plan: CompositionPlan,
-    session: Any,
-    engine: Any,
-    supervisor: CoServiceSupervisor,
-) -> None:
-    """Start messaging only when the composition explicitly owns intake."""
-    if plan.messaging_intake_configured:
-        from agent_utilities.messaging.daemon import run_forever
-
-        platforms = list(plan.messaging_platforms)
-
-        def _run_messaging(stop_event: threading.Event) -> None:
-            run_forever(
-                engine,
-                platforms,
-                stop_event,
-                session=session,
-                intake_intent=True,
-            )
-
-        supervisor.start_service("messaging", _run_messaging, session)
-    elif plan.messaging_configured:
-        logger.info(
-            "messaging credentials are present but inbound intake is disabled; "
-            "outbound sends remain available (pass "
-            "messaging_intake_enabled=True only for the deployment that owns "
-            "polling)"
-        )
-    else:
-        logger.debug(
-            "messaging co-service not configured — no platform tokens present."
-        )
 
 
 def _start_web_ui_service(

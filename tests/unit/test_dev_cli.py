@@ -142,10 +142,12 @@ def test_main_deploy_plan_live_path(monkeypatch, capsys):
     """LIVE-PATH: ``agent-utilities deploy-plan`` drives the real
     ``agent_utilities.deployment.backends`` planner end to end (not a mock) and
     emits its plan as the standard JSON envelope."""
-    from agent_utilities.messaging import daemon as messaging_daemon
 
     monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: []
+        "agent_utilities.messaging.reach_port.reach_service_port",
+        lambda engine=None: type(
+            "_Port", (), {"configured_platforms": lambda self: []}
+        )(),
     )
 
     class _Cfg:

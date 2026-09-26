@@ -1,6 +1,6 @@
 """Unit tests for MessagingBackend ABC and core models (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
 
-Tests the base protocol, Pydantic models, capability matrix, and registry
+Tests the base protocol, Pydantic models, and capability matrix
 without requiring any platform dependencies.
 """
 
@@ -31,7 +31,6 @@ from agent_utilities.messaging.models import (
     SendResult,
     Thread,
 )
-from agent_utilities.messaging.registry import MessagingRegistry
 
 # ── Concrete Test Backend ────────────────────────────────────────────
 
@@ -259,39 +258,6 @@ class TestCapabilities:
     def test_get_capabilities_unknown(self) -> None:
         with pytest.raises(KeyError):
             get_capabilities("nonexistent")
-
-
-# ── Test: Registry ───────────────────────────────────────────────────
-
-
-class TestRegistry:
-    """CONCEPT:AU-ECO.messaging.native-backend-abstraction — MessagingRegistry discovery."""
-
-    def test_singleton(self) -> None:
-        r1 = MessagingRegistry.instance()
-        r2 = MessagingRegistry.instance()
-        assert r1 is r2
-
-    def test_list_backends_returns_list(self) -> None:
-        registry = MessagingRegistry()
-        result = registry.list_backends()
-        assert isinstance(result, list)
-
-    def test_create_backend_unknown_raises(self) -> None:
-        registry = MessagingRegistry()
-        with pytest.raises(ValueError, match="not installed"):
-            registry.create_backend("nonexistent_platform_xyz")
-
-    def test_is_installed(self) -> None:
-        registry = MessagingRegistry()
-        # Will be False unless the backend is actually installed
-        assert isinstance(registry.is_installed("discord"), bool)
-
-    def test_auto_config_empty(self) -> None:
-        registry = MessagingRegistry()
-        config = registry._auto_config("discord")
-        assert config.platform == "discord"
-        assert isinstance(config, MessagingConfig)
 
 
 # ── Test: AgentConfig Integration ────────────────────────────────────

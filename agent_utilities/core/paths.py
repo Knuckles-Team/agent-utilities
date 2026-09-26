@@ -270,7 +270,7 @@ def messaging_config_path() -> Path:
     See Also:
         The ``messaging_*`` keys in config.json are loaded by
         ``_load_xdg_json_config()`` in ``core/config.py`` and become
-        environment variables that the ``MessagingRegistry`` reads.
+        environment variables that the GraphOS messaging registry reads.
     """
     return config_dir() / "config.json"
 

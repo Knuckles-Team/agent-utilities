@@ -134,31 +134,18 @@ queue. `messaging/bus_log.py` replaces the delivery/wakeup plane with a durable
 partitioned log carrying message bodies — real offsets/consumer cursors, a DLQ, and
 backpressure via queue depth — while the KG keeps only the registry.
 
-**Code anchor.** `messaging/bus_log.py::resolve_bus_log_backend` (the 3-tier
-resolver), `AgentBus.send`/`_send_via_log`/`receive` (`messaging/bus.py`).
+**Code anchor.** `messaging/bus_log.py::EngineStreamBusLog`,
+`AgentBus.send`/`_send_via_log`/`receive` (`messaging/bus.py`), and
+`epistemic_graph.partitioned_stream.SyncPartitionedStreamLog` in EG.
 
-**Backend preference order** (`BUS_LOG_BACKENDS = ("engine", "kafka", "graph")`):
-
-1. **engine** — the epistemic-graph engine's native AMQP-style broker (the exact
-   surface `graph_broker`/`engine_broker` expose: `declare_exchange`/`declare_queue`/
-   `bind`/`publish`/`consume`), a direct exchange + one durable queue per recipient,
-   broker owns fan-out — no per-recipient application writes.
-2. **kafka** — two keyed topics (`agent_bus_direct`/`agent_bus_topic`), tenant-
-   qualified partition keys, one consumer per subscriber with its own committed
-   offset. One stated trade-off: a Kafka subscriber's consumer reads the whole keyed
-   topic and filters client-side to its own recipient/topic (bounded by traffic
-   volume, not by registered-agent count — so it is *not* the O(agents) fan-out this
-   workstream removes, just a different bound).
-3. **graph** (`None` from the resolver) — the *original* `:BusMessage` graph-node
-   model, unchanged, as the zero-infra dev fallback.
-
-Store-and-forward topic replay (a late subscriber gets the backlog via a
-per-`(agent,topic)` cursor) and federation relay are unaffected — they sit on top of
-whichever delivery backend is active.
-
-**Default posture.** Backend resolution is automatic/best-available — no env flag
-required to opt in; `graph` is what you get with nothing configured (byte-identical
-to pre-AU-P1-2 behavior).
+**Delivery authority.** EG native streams are the sole AgentBus writer. A fixed
+number of tenant-qualified partitions retain events by offset. AU commits each
+recipient's `BusInbox`, `WorkItem`, outcome, and mutation outbox in the native
+EG transaction before it advances that partition's consumer cursor. A failed
+inbox transaction leaves the cursor unchanged and replays the event; deterministic
+inbox IDs make replay idempotent. Poison records move to a digest-only DLQ
+stream before their cursor advances. There is no Kafka, AMQP, or graph-message
+fallback writer. Missing verified tenant or EG stream authority fails closed.
 
 **Two surfaces.** MCP tool `graph_bus` (`mcp/tools/bus_tools.py::register_bus_tools`)
 ↔ REST `/graph/bus` (`kg_server.py` `ACTION_TOOL_ROUTES["graph_bus"]`). Note this is

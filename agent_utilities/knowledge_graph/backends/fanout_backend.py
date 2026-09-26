@@ -375,7 +375,7 @@ class FanOutBackend(GraphBackend):
             # process's own verified system identity ONCE (same helper the
             # BUG-033 fix introduced for the other unbound-actor write paths —
             # ``messaging/enrichment.py``, ``conversation_ingestion.py`` — and
-            # the same convention ``messaging/daemon.py::mint_process_identity``
+            # the same convention GraphOS messaging polling uses
             # / ``kg_server.py``'s own bootstrap already use for process
             # authority), then thread it through each drainer via
             # ``_authorized_background_thread`` — the SAME session-carrying

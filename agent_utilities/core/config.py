@@ -4189,22 +4189,16 @@ class AgentConfig(BaseSettings):
     # AgentBus delivery/wakeup plane (CONCEPT:AU-ECO.bus.partitioned-log-delivery, AU-P1-2): which durable
     # partitioned log carries high-volume bus message BODIES (the semantic
     # roster/subscription registry always stays in the KG). The selected
-    # backend is required and fails closed when unavailable. Values: engine | kafka.
+    # backend is required and fails closed when unavailable. EG streams are the sole writer.
     agent_bus_log_backend: str = Field(default="engine", alias="AGENT_BUS_LOG_BACKEND")
-    # Partitions ensured on the Kafka bus topics (``agent_bus_direct`` /
-    # ``agent_bus_topic``) when the Kafka bus-log backend is selected. Grow-only.
+    # EG stream partition count is part of the durable namespace layout and must
+    # remain fixed until an explicit migration drains the old partitions.
     agent_bus_partitions: int = Field(
-        default=6, ge=1, le=1024, alias="AGENT_BUS_PARTITIONS"
-    )
-    agent_bus_max_consumers: int = Field(
-        default=32, ge=2, le=4096, alias="AGENT_BUS_MAX_CONSUMERS"
+        default=6, ge=1, le=256, alias="AGENT_BUS_PARTITIONS"
     )
     agent_bus_max_depth: int = Field(default=100_000, ge=1, alias="AGENT_BUS_MAX_DEPTH")
     agent_bus_max_topic_subscribers: int = Field(
         default=1024, ge=1, alias="AGENT_BUS_MAX_TOPIC_SUBSCRIBERS"
-    )
-    agent_bus_delivery_lease_seconds: int = Field(
-        default=300, ge=30, le=3600, alias="AGENT_BUS_DELIVERY_LEASE_SECONDS"
     )
     # Durable-state externalization (CONCEPT:AU-OS.state.unified-durable-state-externalization): ONE flag selects where
     # session/turn/fleet metadata and queue delivery state live. Unset keeps the
@@ -4717,11 +4711,11 @@ class AgentConfig(BaseSettings):
     kafka_bootstrap_servers: str = Field(default="", alias="KAFKA_BOOTSTRAP_SERVERS")
     """Runtime-injected Kafka broker list (service DNS + raw TCP port). Every
     Kafka-consuming code path resolves through this field (``kafka_queue_backend.py``,
-    ``bus_log.KafkaBusLog``, ``agent_dispatch.py``, ``ingest_worker.py``) rather than
+    ``agent_dispatch.py``, ``ingest_worker.py``) rather than
     a hardcoded deployment hostname. HTTP ingress cannot proxy Kafka's raw
     TCP protocol, so it must never be used here. Selecting Kafka as an ACTIVE
     transport still requires an explicit selection elsewhere
-    (``TASK_QUEUE_BACKEND=kafka`` or ``AGENT_BUS_LOG_BACKEND=kafka``); selected
+    (``TASK_QUEUE_BACKEND=kafka``); selected
     transports fail loudly when unreachable. No deployment hostname is embedded."""
     graph_compute_backend: str = Field(default="rust", alias="GRAPH_COMPUTE_BACKEND")
     graph_service_endpoints: list[str] | None = Field(

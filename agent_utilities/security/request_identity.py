@@ -898,7 +898,7 @@ def system_write_session(config: Any = None) -> GraphSession:
        with no configured external identity, else
        :func:`acquire_process_identity_token` ->
        :func:`mint_actor_from_token_sync` -> :func:`mint_graph_session` for a
-       configured external identity -- see :func:`messaging.daemon.
+       configured external identity -- see :func:`graph_os.messaging.intake.
        mint_process_identity` and ``kg_server.py``'s own bootstrap, which run
        this identical sequence). This is a REAL, validated, authenticated
        actor -- never a synthesized or unauthenticated one -- so it is never
@@ -1071,7 +1071,7 @@ def mint_actor_from_token_sync(token: str) -> ActorContext:
     lands here — so every Keycloak sign-in raised, surfacing to the user as
     `{"detail": "Internal request failed", "error_id": ...}` with the real
     cause only visible in the pod log. The daemon callers
-    (`gateway/daemon.py`, `messaging/daemon.py`, `mcp/kg_server.py`) run with
+    (`gateway/daemon.py`, GraphOS messaging polling, `mcp/kg_server.py`) run with
     no loop and never saw it.
 
     When a loop is already running, the coroutine is driven to completion on

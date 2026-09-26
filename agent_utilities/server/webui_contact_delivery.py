@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.core.work_durability import (
     get_work_item,
     submit_work_item_atomic,
 )
-from agent_utilities.messaging.service import MessagingService
+from agent_utilities.messaging.reach_port import ReachServicePort, reach_service_port
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.server.webui_contact_governance import (
     ContactDeliveryContext,
@@ -79,7 +79,7 @@ class WebUIContactDelivery:
         *,
         fixed_destination: str,
         sync_runner: SyncRunner,
-        messaging_service: MessagingService | None = None,
+        messaging_service: ReachServicePort | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         if not callable(sync_runner):
@@ -190,7 +190,7 @@ class WebUIContactDelivery:
             f"Name: {submission.name}\nEmail: {submission.email}\n"
             f"Subject: {submission.subject}\n\n{submission.message}"
         )
-        service = self._messaging_service or MessagingService.instance(engine=engine)
+        service = self._messaging_service or reach_service_port(engine)
         send_result = await service.send(
             *context.destination,
             text,

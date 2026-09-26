@@ -4,18 +4,18 @@ The **reach** capability lets MCP callers and pydantic-ai graph agents
 proactively message the operator on whatever channel they last used — Telegram, Slack,
 Discord, and 14 other backends — and route the user's replies back into the graph. It
 finishes the wiring of the pre-existing `CONCEPT:AU-ECO.messaging.native-backend-abstraction` messaging framework
-(`agent_utilities/messaging/`), which shipped 17 backends, a registry, an inbound router,
+(GraphOS messaging transport and Agent Utilities planner behavior), which shipped 17 backends, a registry, an inbound router,
 and KG auto-ingest but had **no live caller**.
 
 ## What was added
 
 | Concept | What | Where |
 |---|---|---|
-| AU-ECO.messaging.messaging-reach-service-governed | `MessagingService` — one core: connected backends, governed sends, routing | `messaging/service.py` |
-| AU-ECO.messaging.last-active-channel-routing | Last-active channel state (durable `UserChannelPreference` node) | `messaging/service.py`, `messaging/router.py` |
+| AU-ECO.messaging.messaging-reach-service-governed | `MessagingService` — one core: connected backends, governed sends, routing | `graph_os/messaging/service.py` |
+| AU-ECO.messaging.last-active-channel-routing | Last-active channel state (durable `UserChannelPreference` node) | `graph_os/messaging/service.py`, `graph_os/messaging/router.py` |
 | AU-ECO.mcp.graph-reach-mcp-tool | `graph_reach` MCP tool + `/graph/reach` REST twin | `mcp/tools/reach_tools.py` |
-| AU-ECO.messaging.sending-reply-failed | Inbound router in the host daemon + real graph-agent reply (replaced the stub) | `gateway/daemon.py`, `messaging/router.py` |
-| ECO-4.52 | Elicitation bridge — a blocked loop/agent question reaches the user and resumes on reply | `observability/approval_manager.py`, `messaging/service.py` |
+| AU-ECO.messaging.sending-reply-failed | Inbound router in GraphOS polling + AU graph-agent reply | `graph_os/messaging/polling.py`, `agent_utilities/messaging/router.py` |
+| ECO-4.52 | Elicitation bridge — a blocked loop/agent question reaches the user and resumes on reply | `observability/approval_manager.py`, `graph_os/messaging/service.py` |
 | AU-ECO.messaging.universal-agent-reach-user | Universal `reach_user` agent tool | `tools/agent_tools.py`, `tools/tool_registry.py` |
 | AU-ECO.messaging.messaging-ontology-shape-so | `MessagingChannel` ontology interface (owl:Class) | `knowledge_graph/ontology/interfaces.py` |
 
@@ -53,8 +53,7 @@ background, after the reply, the router also updates
 
 `graph-os` (the GraphOS MCP entrypoint) keeps configured backends available for governed
 outbound sends, but a token alone never starts the `InboundRouter`. Embedded intake is
-opt-in via the explicit `messaging_intake_enabled=True` supervisor API argument, and
-the supervisor must first claim the durable
+opt-in through GraphOS composition, which first claims the durable
 engine-native WorkItem lease for each `(platform, bot identity)`. A generic interactive
 client therefore defaults to send-only; a non-owner cannot poll. The owner shares that
 process's already-verified `GraphSession`/identity instead of minting a second one.
@@ -160,42 +159,24 @@ not a public provider-specific command. Add a command once and it appears everyw
 
 The router runs **every configured backend concurrently** — set tokens for any of
 Telegram, Slack, Teams, Mattermost, Discord, … and the composed serving body
-(`messaging/daemon.py`'s `_serve`, driven by `run_forever`) connects and listens on all of
+(`graph_os/messaging/polling.py`'s `_serve`, driven by `run_forever`) connects and listens on all of
 them. Last-active routing stores `platform + channel` per user, so `reach_user` follows the
 user to whichever service they last used; `graph_reach action=send` targets a specific
 service explicitly.
 
 ## Deployment
 
-Messaging ships as **one fenced serving implementation** (`messaging/daemon.run_forever` +
-`_serve`) reused by two explicit intake callers:
+GraphOS owns the packaged messaging intake entrypoint. Its composition starts
+polling only when the deployment supplies `messaging_intake_enabled=True` and a
+verified session. Credential detection controls outbound send capability but
+does not grant inbound ownership. The intake path claims a deterministic
+engine-native WorkItem per platform/bot identity; `RenewWorkItemLease` fences
+the long poll, and an expired lease can be reclaimed. Only leased channels are
+passed to the GraphOS router. Agent Utilities remains the agent command handler.
+There is no standalone Agent Utilities messaging console script. Generic GraphOS
+MCP clients use `messaging_intake_enabled=False`.
 
-1. **Bundled (explicit owner only).** `graph-os` self-composes messaging only when
-   its caller supplies `messaging_intake_enabled=True` explicitly. Credential
-   detection (`co_service_supervisor.detect_composition` →
-   `messaging.daemon.configured_platforms`) still controls send capability, but never
-   grants inbound ownership. The shared `run_forever` entrypoint submits the
-   deterministic WorkItem identity and claims it with the engine-native
-   `ClaimWorkItem`; `RenewWorkItemLease` fences a healthy long poll, and an expired lease
-   is reclaimable by another contender. Thus exactly one active owner is admitted per
-   platform/bot identity without a second lifecycle store. The co-service thread runs
-   under the process's already-verified `GraphSession`/actor
-   (`knowledge_graph.core.engine_tasks._authorized_background_thread`), so it inherits
-   GraphOS MCP's working identity contract instead of independently minting one.
-2. **Standalone (`agent-utilities-messaging`).** The dedicated console script is an
-   explicit intake deployment for a host/pod that isolates chat load. After minting its
-   verified process session (`agent_utilities/messaging/daemon.py`'s
-   `mint_process_identity`), it calls the same `run_forever` boundary as the embedded
-   path. It therefore claims the same deterministic native WorkItem and can safely
-   participate in failover/scale-out; token presence and process startup alone never
-   open a listener.
-
-A deployment that runs messaging as its own Deployment/service may scale explicitly
-owned replicas for failover, while generic GraphOS MCP clients remain on the default
-`messaging_intake_enabled=False`. Every candidate, including the standalone entrypoint,
-must pass the same native claim/renew fence before polling.
-The
-step-by-step (not auto-applied) cutover plan is held by the operator outside this public
+The step-by-step (not auto-applied) cutover plan is held by the operator outside this public
 repository — it narrates a real homelab topology (live hostnames, a real Keycloak
 realm/client-id) that should not ship on GitHub — see the rendered
 `deploy/k8s/production-cell/` assets / `deploy/swarm/graphos.stack.yml` for where channel

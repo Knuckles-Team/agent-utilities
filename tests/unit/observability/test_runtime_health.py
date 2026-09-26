@@ -262,28 +262,47 @@ def test_kg_host_daemon_configured_and_up_is_ok(monkeypatch):
     assert result["status"] == "ok"
 
 
+class _ReachStatus:
+    def __init__(self, configured: list[str], connected: list[str]) -> None:
+        self.configured = configured
+        self.connected = connected
+
+    def backend_status(self) -> dict[str, list[str]]:
+        return {"configured": self.configured, "connected": self.connected}
+
+
 def test_messaging_not_configured_is_healthy_informational(monkeypatch):
     """No platform credentials anywhere → not_configured, never unhealthy."""
-    from agent_utilities.messaging.registry import MessagingRegistry
+    from agent_utilities.messaging import reach_port
 
-    monkeypatch.setattr(
-        MessagingRegistry.instance(), "configured_backend_ids", lambda: []
-    )
+    monkeypatch.setattr(reach_port, "reach_service_port", lambda: _ReachStatus([], []))
 
     result = rh._check_messaging(AgentConfig())
 
     assert result["status"] == "not_configured"
 
 
+def test_messaging_missing_host_reports_unhealthy(monkeypatch):
+    from agent_utilities.messaging import reach_port
+
+    def _missing():
+        raise LookupError("no provider")
+
+    monkeypatch.setattr(reach_port, "reach_service_port", _missing)
+    result = rh._check_messaging(AgentConfig())
+    assert result["status"] == "unhealthy"
+    assert "GraphOS messaging host unavailable" in result["reason"]
+
+
 def test_messaging_configured_but_not_connected_is_unhealthy(monkeypatch):
     """Credentials present, but no connected backend instance in this process
     → unhealthy (the exact "configured but DOWN" semantic the task requires).
     """
-    from agent_utilities.messaging.registry import MessagingRegistry
+    from agent_utilities.messaging import reach_port
 
-    registry = MessagingRegistry.instance()
-    monkeypatch.setattr(registry, "configured_backend_ids", lambda: ["telegram"])
-    monkeypatch.setattr(registry, "get_backend", lambda _id: None)
+    monkeypatch.setattr(
+        reach_port, "reach_service_port", lambda: _ReachStatus(["telegram"], [])
+    )
 
     result = rh._check_messaging(AgentConfig())
 
@@ -292,14 +311,13 @@ def test_messaging_configured_but_not_connected_is_unhealthy(monkeypatch):
 
 
 def test_messaging_configured_and_connected_is_ok(monkeypatch):
-    from agent_utilities.messaging.registry import MessagingRegistry
+    from agent_utilities.messaging import reach_port
 
-    class _Connected:
-        is_connected = True
-
-    registry = MessagingRegistry.instance()
-    monkeypatch.setattr(registry, "configured_backend_ids", lambda: ["telegram"])
-    monkeypatch.setattr(registry, "get_backend", lambda _id: _Connected())
+    monkeypatch.setattr(
+        reach_port,
+        "reach_service_port",
+        lambda: _ReachStatus(["telegram"], ["telegram"]),
+    )
 
     result = rh._check_messaging(AgentConfig())
 
@@ -341,7 +359,7 @@ def test_kafka_bus_configured_but_unreachable_is_unhealthy(monkeypatch):
 def test_kafka_bus_configured_and_reachable_is_ok(monkeypatch):
     server = _TCPServer()
     try:
-        monkeypatch.setenv("AGENT_BUS_LOG_BACKEND", "kafka")
+        monkeypatch.setenv("TASK_QUEUE_BACKEND", "kafka")
         monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", f"{server.host}:{server.port}")
         result = rh._check_kafka_bus(AgentConfig())
     finally:

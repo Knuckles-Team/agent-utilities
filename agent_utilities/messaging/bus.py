@@ -23,8 +23,8 @@ Loop, so one agent can hand work to the fleet, not just chat.
 **Delivery/wakeup plane (AU-P1-2, CONCEPT:AU-ECO.bus.partitioned-log-delivery).** The registry above —
 presence, topic membership, subscriptions — stays exactly as described: small, low-churn KG
 nodes. What does NOT stay on the graph is the high-volume message BODIES: ``send``/``receive``
-resolve a durable **partitioned log** (:mod:`messaging.bus_log`) — the engine's native
-AMQP-style broker, or Kafka, in that preference order — as the hot delivery path, with real
+resolve EG-owned **partitioned streams** (:mod:`messaging.bus_log`) as the hot
+delivery path, with real
 offsets/consumer cursors instead of a graph ``MATCH``, a DLQ for poison messages, and
 backpressure via queue depth. A missing log or native inbox transaction fails closed.
 
@@ -33,10 +33,10 @@ CONCEPT:AU-KG.compute.user-override-prompt-library — semantic presence/subscri
 CONCEPT:AU-ECO.bus.store-and-forward-log — durable topic log materialized to tenant inboxes
 CONCEPT:AU-ECO.bus.auto-register-online-presence — auto-register + online presence on any bus touch (no explicit register)
 CONCEPT:AU-ECO.bus.bus-register-under-served — bus register under the served auth profile: run as the request's authenticated identity + surface a denied write (never a silent ok:false)
-CONCEPT:AU-ECO.bus.partitioned-log-delivery — durable partitioned log (engine broker / Kafka) as the delivery/wakeup plane; the KG keeps only the semantic registry
+CONCEPT:AU-ECO.bus.partitioned-log-delivery — durable EG partitioned streams as the delivery/wakeup plane; the KG keeps only the semantic registry
 
 See Also:
-    - ``messaging/service.py`` (ECO-4.48) — the sibling *human*-reach core this mirrors.
+    - ``graph_os.messaging.reach`` (ECO-4.48) — the sibling *human*-reach core this mirrors.
     - ``messaging/federation.py`` (ECO-4.86) — cross-hub relay built on top of this.
     - ``messaging/bus_log.py`` (AU-P1-2) — the partitioned-log delivery/wakeup plane.
     - ``docs/architecture/agent_bus.md`` — end-to-end flow + diagram.
@@ -121,8 +121,7 @@ class AgentBus:
         self._last_write_error: str = ""
         # Required delivery/wakeup backend, resolved lazily and cached.
         # Resolved once per process (an explicit misconfiguration — e.g.
-        # ``AGENT_BUS_LOG_BACKEND=kafka`` unreachable — raises here, a hard
-        # contract like the rest of this codebase's selectable backends).
+        # EG stream unavailability raises here and fails the operation closed.
         self._log_backend_cache: Any = _UNRESOLVED
 
     def _log_backend(self) -> Any:
@@ -201,11 +200,7 @@ class AgentBus:
             )
             return False
         durable_depth = int(rows[0].get("n", 0)) if rows else 0
-        # No log backend configured (``resolve_bus_log_backend()``'s documented
-        # "valid degraded state, not an error" — see D-OTD-1) — the durable
-        # BusOutbox depth is the only signal available; there is no live queue
-        # to call ``.stats()`` on.
-        backend_depth = self._depth_from_stats(backend.stats()) if backend else 0
+        backend_depth = self._depth_from_stats(backend.stats())
         return max(backend_depth, durable_depth) < limit
 
     @classmethod
@@ -567,41 +562,6 @@ class AgentBus:
             },
         )
 
-    def _bind_log_subscriber(
-        self, agent_id: str, topic: str, *, from_ts: float | None
-    ) -> None:
-        """Bind this subscriber's queue/consumer on the log backend, if one is configured.
-
-        Best-effort: a bind failure never blocks ``subscribe`` (``receive`` re-attempts the bind
-        lazily too — see ``EngineBrokerBusLog.receive`` / ``KafkaBusLog.receive``).
-        """
-        backend = self._log_backend()
-        if backend is None:
-            return
-        from agent_utilities.messaging.bus_log import current_bus_tenant
-
-        try:
-            backend.bind_subscriber(
-                tenant=current_bus_tenant(),
-                agent_id=agent_id,
-                topic=topic,
-                from_ts=from_ts,
-            )
-        except Exception as exc:  # noqa: BLE001 — bind is best-effort, never blocks subscribe
-            from agent_utilities.security.persistence_privacy import (
-                persistence_reference,
-            )
-
-            bound_agent_reference = persistence_reference(
-                "agent", agent_id, namespace="messaging-bus-subscriber"
-            )
-            logger.warning(
-                "[AU-P1-2] log backend bind_subscriber(%s, %s) failed: %s",
-                bound_agent_reference,
-                topic,
-                exc,
-            )
-
     def unsubscribe(self, agent_id: str, topic: str) -> bool:
         """Mark a subscription inactive (upsert on the same node id — survives no edge-delete)."""
         if not (agent_id and topic):
@@ -770,20 +730,10 @@ class AgentBus:
     ) -> dict[str, Any]:
         """Hot delivery path (CONCEPT:AU-ECO.bus.partitioned-log-delivery): ONE ``publish`` call, no per-recipient write.
 
-        The fixed engine partitions or keyed Kafka topic carry one event. The
+        The fixed EG stream partitions carry one event. The
         materializer resolves the authoritative subscription registry at commit time;
         ``_subscribers(topic)`` here is only a reporting read.
         """
-        if backend is None:
-            # No log backend configured -- ``resolve_bus_log_backend()``'s
-            # documented "valid degraded state, not an error" (D-OTD-1). The
-            # caller (``send()``) already committed a durable ``BusOutbox``
-            # entry before calling here; report "not yet published" so it
-            # stays queued for replay (``_replay_pending_outbox``) once a
-            # backend becomes available, instead of crashing on
-            # ``backend.publish_*`` against ``None``.
-            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="failed").inc()
-            return {"ok": False, "msg_group": group, "delivered": []}
         from agent_utilities.messaging.bus_log import current_bus_tenant
 
         tenant = current_bus_tenant()
@@ -829,16 +779,9 @@ class AgentBus:
         tenant = current_bus_tenant()
         agent_id = bus_reference("agent", agent_id, tenant=tenant)
         backend = self._log_backend()
-        if backend is None:
-            # No log backend configured -- ``resolve_bus_log_backend()``'s
-            # documented "valid degraded state, not an error" (D-OTD-1).
-            # There is no live queue to replay/poll; fall back to whatever
-            # was already durably committed to this agent's inbox (e.g. by a
-            # backend that WAS configured earlier, or direct graph writes).
-            return self._read_committed_inbox(agent_id, since=since)
         self._replay_pending_outbox(backend, tenant=tenant)
         pending = backend.receive(
-            tenant=bus_reference("tenant", tenant),
+            tenant=tenant,
             agent_id=agent_id,
             topics=[],
             max_messages=BUS_LOG_MAX_MESSAGES_PER_RECEIVE,
@@ -1078,7 +1021,7 @@ class AgentBus:
         """Commit every delivery target before acknowledging its log receipt.
 
         Processing is deliberately sequential.  It preserves broker order and
-        prevents a later Kafka offset from being committed ahead of an earlier
+        prevents a later EG stream offset from being committed ahead of an earlier
         failed delivery.  A failed commit is nacked/requeued and omitted from
         the caller-visible result; no success is fabricated.
         """
@@ -1160,36 +1103,6 @@ class AgentBus:
     def group_exists(self, group: str) -> bool:
         """Has this hub already seen ``group`` (cross-hub delivery dedup)?"""
         return bool(self.group_messages(group))
-
-    def _commit_federated_outbox_only(
-        self,
-        wire_message: dict[str, Any],
-        recipients: list[str],
-        topic: str,
-        tenant: str,
-        now: float,
-    ) -> None:
-        """No log backend configured: still commit durable outbox entries for later replay.
-
-        ``resolve_bus_log_backend()``'s documented "valid degraded state, not an error"
-        (D-OTD-1) — don't crash calling ``backend.publish_*`` against ``None``.
-        """
-        from agent_utilities.messaging.bus_inbox import commit_message_outbox
-
-        if topic:
-            commit_message_outbox(
-                self._resolve_engine(), wire_message, tenant=tenant, now=now
-            )
-            return
-        for recipient in recipients:
-            if not recipient:
-                continue
-            commit_message_outbox(
-                self._resolve_engine(),
-                {**wire_message, "recipient": recipient},
-                tenant=tenant,
-                now=now,
-            )
 
     def _deliver_federated_topic(
         self,
@@ -1308,11 +1221,6 @@ class AgentBus:
         )
 
         backend = self._log_backend()
-        if backend is None:
-            self._commit_federated_outbox_only(
-                wire_message, recipients, topic, tenant, now
-            )
-            return []
         if topic:
             return self._deliver_federated_topic(
                 backend, wire_message, ctx, topic=topic
@@ -1432,10 +1340,7 @@ class AgentBus:
             "agents": len(roster),
             "online": online,
             "topics": sorted({t.get("name") for t in topics if t.get("name")}),
-            # No log backend configured is a valid degraded state, not an
-            # error (D-OTD-1) -- report it as such rather than crashing on
-            # ``None.name``.
-            "log_backend": backend.name if backend is not None else None,
+            "log_backend": backend.name,
         }
 
 
