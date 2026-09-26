@@ -21,7 +21,7 @@ CLOSURE_SCHEMA = (
 )
 RELEASE_SCHEMA = ROOT / "deploy" / "release" / "release-manifest.schema.json"
 SOURCE_FREEZE = ROOT / "deploy" / "release" / "source-freeze-gates.json"
-DOCUMENTATION = ROOT / "docs" / "release" / "exact-artifact-closure.md"
+DOCUMENTATION = ROOT / "pages" / "release" / "exact-artifact-closure.md"
 NAVIGATION = ROOT / "mkdocs.yml"
 PROJECT = ROOT / "pyproject.toml"
 

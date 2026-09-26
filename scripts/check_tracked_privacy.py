@@ -597,7 +597,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
 
 def _is_deployment_doc(path: Path) -> bool:
     value = path.as_posix().casefold()
-    return value.startswith("docs/recipes/") or any(
+    return value.startswith("pages/recipes/") or any(
         marker in value
         for marker in (
             "deploy",
@@ -697,7 +697,7 @@ def classify_runtime_source_line(
 # every tracked-but-previously-excluded text tree that can carry a fixture
 # (tests/), a design/spec artifact (.specify/), or a runnable example
 # (examples/) -- not just the two trees someone happened to think of first.
-_PUBLIC_TEXT_TREES = frozenset({"docs", ".github", "tests", ".specify", "examples"})
+_PUBLIC_TEXT_TREES = frozenset({"pages", ".github", "tests", ".specify", "examples"})
 
 
 def _is_public_artifact(name: str) -> bool:

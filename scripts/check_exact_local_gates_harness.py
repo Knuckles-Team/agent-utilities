@@ -10,7 +10,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 HARNESS = ROOT / "scripts" / "certification" / "exact_local_gates.py"
-DOCUMENTATION = ROOT / "docs" / "release" / "exact-local-gates.md"
+DOCUMENTATION = ROOT / "pages" / "release" / "exact-local-gates.md"
 NAVIGATION = ROOT / "mkdocs.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "advisory.yml"
 A2A_TEST = ROOT / "tests" / "integration" / "protocols" / "test_a2a_epistemic_live.py"

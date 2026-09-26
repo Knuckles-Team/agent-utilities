@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_MODEL_PATH = _REPO_ROOT / "docs" / "scaling" / "capacity_model.py"
+_MODEL_PATH = _REPO_ROOT / "pages" / "scaling" / "capacity_model.py"
 
 
 def _load_model():

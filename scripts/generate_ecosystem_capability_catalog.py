@@ -19,7 +19,7 @@ DEFAULT_AGENTS_ROOT = ROOT.parent / "agents"
 DEFAULT_WORKSPACE = (
     DEFAULT_AGENTS_ROOT / "repository-manager" / "repository_manager" / "workspace.yml"
 )
-DEFAULT_OUTPUT = ROOT / "docs" / "ecosystem-capability-fleet.md"
+DEFAULT_OUTPUT = ROOT / "pages" / "ecosystem-capability-fleet.md"
 
 
 def _agent_entries(workspace: Path) -> list[dict]:

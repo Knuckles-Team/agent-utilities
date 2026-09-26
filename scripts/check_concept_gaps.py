@@ -10,7 +10,7 @@ def main():
     files = sys.argv[1:]
 
     # If no files are provided, default to docs/concept_map.md
-    concept_map_file = "docs/concept_map.md"
+    concept_map_file = "pages/concept_map.md"
 
     if files:
         for f in files:

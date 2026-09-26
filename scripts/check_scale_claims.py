@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_REGISTER = Path("docs/scaling/scale_claims.md")
+DEFAULT_REGISTER = Path("pages/scaling/scale_claims.md")
 STATUSES = frozenset(
     {"DESIGNED", "IMPLEMENTED", "UNIT-PROVEN", "LAB-PROVEN", "LIVE", "1M-CERTIFIED"}
 )

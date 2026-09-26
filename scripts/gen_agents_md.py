@@ -19,7 +19,7 @@ HEAD_PATH = ROOT / ".config" / "AGENTS.head.md"
 OUT_PATH = ROOT / "AGENTS.md"
 
 # Keep the generated inventory separate from the concise contributor contract.
-PROJECT_STRUCTURE_PATH = ROOT / "docs" / "project_structure.md"
+PROJECT_STRUCTURE_PATH = ROOT / "pages" / "project_structure.md"
 
 # Directories that must never appear in the generated tree.
 EXCLUDE_DIRS = {

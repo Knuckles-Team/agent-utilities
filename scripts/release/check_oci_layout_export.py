@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPORTER = ROOT / "scripts" / "release" / "export_oci_layout.py"
-DOCUMENTATION = ROOT / "docs" / "release" / "oci-layout-export.md"
+DOCUMENTATION = ROOT / "pages" / "release" / "oci-layout-export.md"
 TESTS = ROOT / "tests" / "unit" / "release" / "test_export_oci_layout.py"
 
 _REQUIRED_FUNCTIONS = {

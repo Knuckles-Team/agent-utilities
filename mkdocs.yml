@@ -1,4 +1,5 @@
 INHERIT: .pipeline-theme/templates/mkdocs-theme/base.mkdocs.yml
+docs_dir: pages
 
 site_name: Agent Utilities
 site_url: https://knuckles-team.github.io/agent-utilities/

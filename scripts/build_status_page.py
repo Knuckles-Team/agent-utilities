@@ -61,15 +61,15 @@ PILLAR_LABEL = {
     "EG-OS": "epistemic-graph: deployment concepts",
 }
 PILLAR_SUBTREE = {
-    "AU-AHE": "docs/pillars/3_agentic_harness_engineering.md",
-    "AU-ECO": "docs/pillars/4_ecosystem_peripherals.md",
-    "AU-KG": "docs/pillars/2_epistemic_knowledge_graph/",
-    "AU-ORCH": "docs/pillars/1_graph_orchestration.md",
-    "AU-OS": "docs/pillars/5_agent_os_infrastructure.md",
-    "EG-AHE": "docs/architecture/ (epistemic-graph engine integration)",
-    "EG-KG": "docs/architecture/ (epistemic-graph engine integration)",
-    "EG-ORCH": "docs/architecture/ (epistemic-graph engine integration)",
-    "EG-OS": "docs/architecture/ (epistemic-graph engine integration)",
+    "AU-AHE": "pages/pillars/3_agentic_harness_engineering.md",
+    "AU-ECO": "pages/pillars/4_ecosystem_peripherals.md",
+    "AU-KG": "pages/pillars/2_epistemic_knowledge_graph/",
+    "AU-ORCH": "pages/pillars/1_graph_orchestration.md",
+    "AU-OS": "pages/pillars/5_agent_os_infrastructure.md",
+    "EG-AHE": "pages/architecture/ (epistemic-graph engine integration)",
+    "EG-KG": "pages/architecture/ (epistemic-graph engine integration)",
+    "EG-ORCH": "pages/architecture/ (epistemic-graph engine integration)",
+    "EG-OS": "pages/architecture/ (epistemic-graph engine integration)",
 }
 PILLAR_GATE = {
     "AU-AHE": "`scripts/check_concepts.py` + `scripts/check_eval_corpus.py`",

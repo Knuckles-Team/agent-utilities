@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
 
-DOCS = ROOT / "docs"
+DOCS = ROOT / "pages"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"
 CONFIG_CATALOG = DOCS / "reference" / "runtime-configuration.md"

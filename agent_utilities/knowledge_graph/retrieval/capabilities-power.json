@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-25T02:41:05Z",
-  "count": 126,
+  "generated_at": "2026-09-26T15:24:55Z",
+  "count": 128,
   "capabilities": [
     {
       "id": "act",
@@ -113,9 +113,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -229,9 +229,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -367,9 +367,183 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
+      }
+    },
+    {
+      "id": "concept_registry",
+      "title": "concept registry",
+      "one_line": "Coordinate canonical OKF-CIS concept ids for linked worktrees on one host (CONCEPT:AU-OS.governance.atomic-concept-id-reservation).",
+      "intent_verbs": [
+        "find",
+        "ask"
+      ],
+      "does": [
+        {
+          "action": "concept_registry",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/concept/registry",
+        "tags": [
+          "concept",
+          "gated",
+          "governance",
+          "granular",
+          "graph-os",
+          "ontology"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "list",
+            "description": "'reserve', 'list', 'release', or 'reconcile'."
+          },
+          {
+            "name": "session_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional claiming session value; only a digest is persisted."
+          },
+          {
+            "name": "design_doc",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional design reference; only a digest is persisted."
+          },
+          {
+            "name": "concept_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Canonical ID for reserve or release."
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "For 'list': filter by status (reserved/materialized/landed/released/expired/tombstoned)."
+          },
+          {
+            "name": "ttl_seconds",
+            "type": "integer",
+            "required": false,
+            "default": 86400,
+            "description": "Reservation TTL before it is reclaimable."
+          },
+          {
+            "name": "repo",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Repo root whose ledger to use (defaults to agent-utilities)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "list",
+              "description": "'reserve', 'list', 'release', or 'reconcile'.",
+              "type": "string"
+            },
+            "session_id": {
+              "default": "",
+              "description": "Optional claiming session value; only a digest is persisted.",
+              "type": "string"
+            },
+            "design_doc": {
+              "default": "",
+              "description": "Optional design reference; only a digest is persisted.",
+              "type": "string"
+            },
+            "concept_id": {
+              "default": "",
+              "description": "Canonical ID for reserve or release.",
+              "type": "string"
+            },
+            "status": {
+              "default": "",
+              "description": "For 'list': filter by status (reserved/materialized/landed/released/expired/tombstoned).",
+              "type": "string"
+            },
+            "ttl_seconds": {
+              "default": 86400,
+              "description": "Reservation TTL before it is reclaimable.",
+              "type": "integer"
+            },
+            "repo": {
+              "default": "",
+              "description": "Repo root whose ledger to use (defaults to agent-utilities).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 0,
+        "unmatched_action_count": 1,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [],
+        "txn_participation_values_seen": [],
+        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+      },
+      "scopes": [],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "concept_registry: Coordinate canonical OKF-CIS concept ids for linked worktrees on one host",
+        "concept_registry action=concept_registry"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "concept",
+          "gated",
+          "governance",
+          "granular",
+          "graph-os",
+          "ontology"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -525,9 +699,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -720,9 +894,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -904,9 +1078,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -1074,11 +1248,11 @@
           "mutates": "true",
           "durability": "BlobRedb",
           "authz_action": "blob:write",
-          "idempotent": "false",
+          "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Atomic",
-          "eg_note": "durable via blob.redb"
+          "eg_note": "X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb."
         }
       ],
       "typed_io": {
@@ -1198,9 +1372,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -1693,9 +1867,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -1958,9 +2132,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -1994,23 +2168,6 @@
           "eg_method": "GetIdentity",
           "match_confidence": 0.5,
           "matched_tokens": [
-            "identity"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "security:admin",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot",
-          "eg_note": "identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege"
-        },
-        {
-          "action": "get_identity",
-          "eg_method": "GetIdentity",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "get",
             "identity"
           ],
           "mutates": "false",
@@ -2097,7 +2254,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 4,
+        "matched_action_count": 3,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -2136,7 +2293,7 @@
         "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust",
         "engine_consensus action=apply_multisig_mutation",
         "engine_consensus action=bootstrap_system_identity",
-        "engine_consensus action=get_identity"
+        "engine_consensus action=register_identity"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -2158,9 +2315,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -2353,9 +2510,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -2632,9 +2789,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -3217,22 +3374,6 @@
             "finance",
             "logit",
             "quotes"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:finance",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "None"
-        },
-        {
-          "action": "market",
-          "eg_method": "FinanceMarketImpact",
-          "match_confidence": 0.667,
-          "matched_tokens": [
-            "finance",
-            "market"
           ],
           "mutates": "false",
           "durability": "None",
@@ -3864,7 +4005,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 68,
+        "matched_action_count": 67,
         "unmatched_action_count": 0,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
@@ -3920,9 +4061,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -3987,60 +4128,6 @@
           "audited": "true",
           "emits_cdc": "true",
           "txn_participation": "Atomic"
-        },
-        {
-          "action": "cluster_hierarchy_clusters",
-          "eg_method": "ClusterHierarchyClusters",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "cluster",
-            "clusters",
-            "hierarchy"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:graph-algo",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot",
-          "eg_note": "VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy"
-        },
-        {
-          "action": "cluster_hierarchy_expand",
-          "eg_method": "ClusterHierarchyExpand",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "cluster",
-            "expand",
-            "hierarchy"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:graph-algo",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot",
-          "eg_note": "VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph"
-        },
-        {
-          "action": "cluster_hierarchy_refresh",
-          "eg_method": "ClusterHierarchyRefresh",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "cluster",
-            "hierarchy",
-            "refresh"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:graph-algo",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot",
-          "eg_note": "VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand"
         },
         {
           "action": "community_detect_ephemeral",
@@ -4412,7 +4499,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 25,
+        "matched_action_count": 22,
         "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -4477,9 +4564,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -4639,9 +4726,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -4836,9 +4923,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -5136,9 +5223,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -5579,9 +5666,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -5797,9 +5884,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -6274,9 +6361,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -6435,9 +6522,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -6791,22 +6878,6 @@
           "eg_note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"
         },
         {
-          "action": "sql_source_batch",
-          "eg_method": "Sql",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "sql"
-          ],
-          "mutates": "~true",
-          "durability": "GraphRedb",
-          "authz_action": "query:sql",
-          "idempotent": "false",
-          "audited": "true",
-          "emits_cdc": "false",
-          "txn_participation": "Atomic",
-          "eg_note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"
-        },
-        {
           "action": "stale_materializations",
           "eg_method": "StaleMaterializations",
           "match_confidence": 1.0,
@@ -6918,7 +6989,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 24,
+        "matched_action_count": 23,
         "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -6986,9 +7057,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -7133,9 +7204,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -7282,36 +7353,6 @@
           "txn_participation": "Snapshot"
         },
         {
-          "action": "sparql_explain",
-          "eg_method": "Sparql",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "sparql"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "sparql:read",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot"
-        },
-        {
-          "action": "sparql_result",
-          "eg_method": "Sparql",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "sparql"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "sparql:read",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Snapshot"
-        },
-        {
           "action": "sparql_virtual",
           "eg_method": "Sparql",
           "match_confidence": 1.0,
@@ -7399,7 +7440,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 12,
+        "matched_action_count": 10,
         "unmatched_action_count": 1,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -7462,9 +7503,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -7585,9 +7626,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -7832,9 +7873,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -8181,9 +8222,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -8230,8 +8271,20 @@
         },
         {
           "action": "list",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "GraphSchemaList",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "graph",
+            "list"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "security:admin",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan"
         }
       ],
       "typed_io": {
@@ -8291,20 +8344,23 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 2,
-        "unmatched_action_count": 1,
+        "matched_action_count": 3,
+        "unmatched_action_count": 0,
         "any_action_mutates": true,
-        "all_matched_actions_mutate": true,
+        "all_matched_actions_mutate": false,
         "durability_values_seen": [
-          "GraphRedb"
+          "GraphRedb",
+          "None"
         ],
         "txn_participation_values_seen": [
-          "Atomic"
+          "Atomic",
+          "Snapshot"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
-        "graph:admin"
+        "graph:admin",
+        "security:admin"
       ],
       "policy": {
         "approval_class": "human_approval_required",
@@ -8348,9 +8404,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -8373,22 +8429,7 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
-          "action": "delete_series",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
-          "action": "evict_before",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
           "action": "gap_fill",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
-          "action": "list_series",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -8465,7 +8506,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 9,
+        "unmatched_action_count": 6,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -8493,7 +8534,7 @@
         "engine_timeseries: Low-level epistemic-graph engine surface for the 'timeseries' domain (native",
         "engine_timeseries action=append",
         "engine_timeseries action=asof_join",
-        "engine_timeseries action=delete_series"
+        "engine_timeseries action=gap_fill"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -8514,9 +8555,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -8638,11 +8679,11 @@
           "mutates": "true",
           "durability": "BlobRedb",
           "authz_action": "blob:write",
-          "idempotent": "false",
+          "idempotent": "true",
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Atomic",
-          "eg_note": "refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb"
+          "eg_note": "X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb."
         },
         {
           "action": "cas",
@@ -8795,7 +8836,7 @@
           "eg_note": "encrypted Raft-native transaction staging removal"
         },
         {
-          "action": "unified_query_plan",
+          "action": "unified_query",
           "eg_method": "TxnUnifiedQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
@@ -8812,9 +8853,21 @@
           "txn_participation": "Saga"
         },
         {
-          "action": "uql",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "action": "unified_query_plan",
+          "eg_method": "TxnUnifiedQuery",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "query",
+            "txn",
+            "unified"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "txn:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Saga"
         }
       ],
       "typed_io": {
@@ -8873,8 +8926,8 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 17,
-        "unmatched_action_count": 1,
+        "matched_action_count": 18,
+        "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -8946,9 +8999,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -9076,9 +9129,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -9196,9 +9249,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "FindCycle",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -9485,9 +9538,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -9682,9 +9735,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -9914,9 +9967,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -10062,9 +10115,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -10241,9 +10294,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -10444,9 +10497,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "BrokerAck",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -10773,9 +10826,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -10981,9 +11034,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -11168,9 +11221,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -11417,9 +11470,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -11658,9 +11711,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -11843,9 +11896,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -12013,9 +12066,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -12190,9 +12243,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -12553,9 +12606,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -12748,9 +12801,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -12904,9 +12957,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -13193,9 +13246,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -13212,6 +13265,11 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "fit_markov_regime",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "register_rlm_actor",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
@@ -13223,6 +13281,7 @@
           "domain",
           "domain_ops",
           "enterprise",
+          "finance",
           "gated",
           "granular",
           "graph-os",
@@ -13234,14 +13293,14 @@
             "type": "string",
             "required": false,
             "default": "allocate_budget",
-            "description": "allocate_budget | register_rlm_actor"
+            "description": "allocate_budget | fit_markov_regime | register_rlm_actor"
           },
           {
             "name": "target_id",
             "type": "string",
             "required": false,
             "default": "",
-            "description": "Business-unit or actor name/id."
+            "description": "Business-unit, strategy, or actor name/id."
           },
           {
             "name": "amount",
@@ -13256,6 +13315,48 @@
             "required": false,
             "default": "USD",
             "description": "Budget currency."
+          },
+          {
+            "name": "returns_json",
+            "type": "string",
+            "required": false,
+            "default": "[]",
+            "description": "JSON list of returns for fit_markov_regime."
+          },
+          {
+            "name": "asset_class",
+            "type": "string",
+            "required": false,
+            "default": "equities",
+            "description": "Regime asset class."
+          },
+          {
+            "name": "bull_threshold",
+            "type": "any",
+            "required": false,
+            "default": null,
+            "description": ""
+          },
+          {
+            "name": "bear_threshold",
+            "type": "any",
+            "required": false,
+            "default": null,
+            "description": ""
+          },
+          {
+            "name": "window",
+            "type": "any",
+            "required": false,
+            "default": null,
+            "description": ""
+          },
+          {
+            "name": "method",
+            "type": "string",
+            "required": false,
+            "default": "rolling_sum",
+            "description": ""
           },
           {
             "name": "learning_rate",
@@ -13277,12 +13378,12 @@
           "properties": {
             "action": {
               "default": "allocate_budget",
-              "description": "allocate_budget | register_rlm_actor",
+              "description": "allocate_budget | fit_markov_regime | register_rlm_actor",
               "type": "string"
             },
             "target_id": {
               "default": "",
-              "description": "Business-unit or actor name/id.",
+              "description": "Business-unit, strategy, or actor name/id.",
               "type": "string"
             },
             "amount": {
@@ -13293,6 +13394,53 @@
             "currency": {
               "default": "USD",
               "description": "Budget currency.",
+              "type": "string"
+            },
+            "returns_json": {
+              "default": "[]",
+              "description": "JSON list of returns for fit_markov_regime.",
+              "type": "string"
+            },
+            "asset_class": {
+              "default": "equities",
+              "description": "Regime asset class.",
+              "type": "string"
+            },
+            "bull_threshold": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "bear_threshold": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "window": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "method": {
+              "default": "rolling_sum",
               "type": "string"
             },
             "learning_rate": {
@@ -13310,7 +13458,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 2,
+        "unmatched_action_count": 3,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -13337,6 +13485,7 @@
       "examples": [
         "graph_domain_ops: Run graph-native domain mutations.",
         "graph_domain_ops action=allocate_budget",
+        "graph_domain_ops action=fit_markov_regime",
         "graph_domain_ops action=register_rlm_actor"
       ],
       "eligibility_predicates": {
@@ -13348,6 +13497,7 @@
           "domain",
           "domain_ops",
           "enterprise",
+          "finance",
           "gated",
           "granular",
           "graph-os",
@@ -13360,9 +13510,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -13590,9 +13740,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -13842,9 +13992,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -14093,9 +14243,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -14296,9 +14446,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -14326,6 +14476,11 @@
         },
         {
           "action": "evaluate",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "evaluate_alpha",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -14370,6 +14525,36 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "quant_crypto",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "quant_exchange",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "quant_insider",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "quant_microstructure",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "quant_regime",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "quant_strategy",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "specialize",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
@@ -14395,7 +14580,7 @@
             "type": "string",
             "required": false,
             "default": "evaluate",
-            "description": "evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant"
+            "description": "evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider"
           },
           {
             "name": "query",
@@ -14438,9 +14623,10 @@
           "properties": {
             "action": {
               "default": "evaluate",
-              "description": "evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant",
+              "description": "evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
               "enum": [
                 "evaluate",
+                "evaluate_alpha",
                 "evaluate_harness",
                 "guard_corpus",
                 "harness_gate",
@@ -14453,7 +14639,13 @@
                 "evolve_code",
                 "forecast",
                 "causal",
-                "invariant"
+                "invariant",
+                "quant_crypto",
+                "quant_exchange",
+                "quant_microstructure",
+                "quant_strategy",
+                "quant_regime",
+                "quant_insider"
               ],
               "type": "string"
             },
@@ -14489,7 +14681,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 14,
+        "unmatched_action_count": 21,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -14538,9 +14730,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -14765,9 +14957,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -14963,9 +15155,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15115,9 +15307,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15290,9 +15482,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15443,9 +15635,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15636,9 +15828,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "Fork",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15763,9 +15955,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -15917,9 +16109,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -16207,9 +16399,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -16437,9 +16629,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -16498,8 +16690,20 @@
         },
         {
           "action": "cohort_status",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngestStatus",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "ingest",
+            "status"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority"
         },
         {
           "action": "corpus",
@@ -16543,8 +16747,20 @@
         },
         {
           "action": "extract_status",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngestStatus",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "ingest",
+            "status"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority"
         },
         {
           "action": "extract_submit",
@@ -16578,23 +16794,68 @@
         },
         {
           "action": "ingest",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngest",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "ingest"
+          ],
+          "mutates": "true",
+          "durability": "GraphRedb",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "true",
+          "emits_cdc": "true",
+          "txn_participation": "Saga",
+          "eg_note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe"
         },
         {
           "action": "ingest_knowledge_pack",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngest",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "ingest"
+          ],
+          "mutates": "true",
+          "durability": "GraphRedb",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "true",
+          "emits_cdc": "true",
+          "txn_participation": "Saga",
+          "eg_note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe"
         },
         {
           "action": "ingest_url",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngest",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "ingest"
+          ],
+          "mutates": "true",
+          "durability": "GraphRedb",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "true",
+          "emits_cdc": "true",
+          "txn_participation": "Saga",
+          "eg_note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe"
         },
         {
           "action": "job_status",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngestStatus",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "ingest",
+            "status"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority"
         },
         {
           "action": "jobs",
@@ -16608,8 +16869,20 @@
         },
         {
           "action": "materialize_source",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngest",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "ingest",
+            "source"
+          ],
+          "mutates": "true",
+          "durability": "GraphRedb",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "true",
+          "emits_cdc": "true",
+          "txn_participation": "Saga",
+          "eg_note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe"
         },
         {
           "action": "observe",
@@ -16648,8 +16921,20 @@
         },
         {
           "action": "skill_graph_status",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngestStatus",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "ingest",
+            "status"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority"
         },
         {
           "action": "skill_workflows",
@@ -16658,8 +16943,20 @@
         },
         {
           "action": "status",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "SourceIngestStatus",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "ingest",
+            "status"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "source:ingest",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority"
         },
         {
           "action": "sync",
@@ -16838,15 +17135,23 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 0,
-        "unmatched_action_count": 44,
-        "any_action_mutates": false,
+        "matched_action_count": 9,
+        "unmatched_action_count": 35,
+        "any_action_mutates": true,
         "all_matched_actions_mutate": false,
-        "durability_values_seen": [],
-        "txn_participation_values_seen": [],
-        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+        "durability_values_seen": [
+          "GraphRedb",
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "Saga",
+          "Snapshot"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
-      "scopes": [],
+      "scopes": [
+        "source:ingest"
+      ],
       "policy": {
         "approval_class": "auto",
         "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
@@ -16888,9 +17193,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -17113,9 +17418,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -17561,9 +17866,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -17708,9 +18013,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -17878,9 +18183,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -18065,9 +18370,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -18427,9 +18732,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -18596,9 +18901,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -18738,9 +19043,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -18963,9 +19268,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -19106,9 +19411,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -19277,9 +19582,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -19602,9 +19907,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -19734,9 +20039,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -19834,9 +20139,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -20029,9 +20334,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -20228,9 +20533,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "CypherQuery",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -20450,9 +20755,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -20842,9 +21147,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -20967,9 +21272,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -21132,9 +21437,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -21332,9 +21637,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "SemanticSearch",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -21525,9 +21830,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -21697,9 +22002,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -21907,9 +22212,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -22087,9 +22392,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -22312,9 +22617,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -22512,9 +22817,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -22851,9 +23156,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -23142,9 +23447,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -23575,9 +23880,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -23806,9 +24111,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -23955,9 +24260,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -24071,9 +24376,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -24236,9 +24541,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "NlQuery",
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -24458,9 +24763,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -24580,9 +24885,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -24749,9 +25054,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -25038,9 +25343,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -25394,9 +25699,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -25577,9 +25882,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -25729,9 +26034,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -25948,9 +26253,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26044,9 +26349,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26189,9 +26494,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26316,9 +26621,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26455,9 +26760,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26667,9 +26972,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26840,9 +27145,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -26979,9 +27284,321 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
+      }
+    },
+    {
+      "id": "quant",
+      "title": "quant",
+      "one_line": "The Ultimate Quant System Tool.",
+      "intent_verbs": [
+        "ask",
+        "act"
+      ],
+      "does": [
+        {
+          "action": "analyze",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "balances",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "cancel_order",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "debate",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "ensemble_predict",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "fundamentals",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "historical",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "optimize",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "order_book",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "positions",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "regime",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "risk_metrics",
+          "eg_method": "Metrics",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "metrics"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "service:control",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "None"
+        },
+        {
+          "action": "status",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "submit_order",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/quant",
+        "tags": [
+          "gated",
+          "granular",
+          "ontology"
+        ],
+        "input_params": [
+          {
+            "name": "domain",
+            "type": "string",
+            "required": true,
+            "default": null,
+            "description": ""
+          },
+          {
+            "name": "action",
+            "type": "string",
+            "required": true,
+            "default": null,
+            "description": ""
+          },
+          {
+            "name": "ticker",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": ""
+          },
+          {
+            "name": "asset_class",
+            "type": "string",
+            "required": false,
+            "default": "equity",
+            "description": ""
+          },
+          {
+            "name": "period",
+            "type": "string",
+            "required": false,
+            "default": "1y",
+            "description": ""
+          },
+          {
+            "name": "interval",
+            "type": "string",
+            "required": false,
+            "default": "1d",
+            "description": ""
+          },
+          {
+            "name": "side",
+            "type": "string",
+            "required": false,
+            "default": "buy",
+            "description": ""
+          },
+          {
+            "name": "quantity",
+            "type": "number",
+            "required": false,
+            "default": 0.0,
+            "description": ""
+          },
+          {
+            "name": "order_type",
+            "type": "string",
+            "required": false,
+            "default": "market",
+            "description": ""
+          },
+          {
+            "name": "price",
+            "type": "number",
+            "required": false,
+            "default": 0.0,
+            "description": ""
+          },
+          {
+            "name": "mode",
+            "type": "string",
+            "required": false,
+            "default": "paper",
+            "description": ""
+          },
+          {
+            "name": "portfolio_id",
+            "type": "string",
+            "required": false,
+            "default": "default",
+            "description": ""
+          },
+          {
+            "name": "rounds",
+            "type": "integer",
+            "required": false,
+            "default": 3,
+            "description": ""
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "domain": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "ticker": {
+              "default": "",
+              "type": "string"
+            },
+            "asset_class": {
+              "default": "equity",
+              "type": "string"
+            },
+            "period": {
+              "default": "1y",
+              "type": "string"
+            },
+            "interval": {
+              "default": "1d",
+              "type": "string"
+            },
+            "side": {
+              "default": "buy",
+              "type": "string"
+            },
+            "quantity": {
+              "default": 0.0,
+              "type": "number"
+            },
+            "order_type": {
+              "default": "market",
+              "type": "string"
+            },
+            "price": {
+              "default": 0.0,
+              "type": "number"
+            },
+            "mode": {
+              "default": "paper",
+              "type": "string"
+            },
+            "portfolio_id": {
+              "default": "default",
+              "type": "string"
+            },
+            "rounds": {
+              "default": 3,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "domain",
+            "action"
+          ],
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 1,
+        "unmatched_action_count": 13,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "None"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
+      },
+      "scopes": [
+        "service:control"
+      ],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "quant: The Ultimate Quant System Tool.",
+        "quant action=analyze",
+        "quant action=balances",
+        "quant action=cancel_order"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "gated",
+          "granular",
+          "ontology"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27213,9 +27830,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27327,9 +27944,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27495,9 +28112,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27606,9 +28223,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27752,9 +28369,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -27962,9 +28579,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -28062,9 +28679,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -28340,9 +28957,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -28456,9 +29073,9 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     },
     {
@@ -28471,8 +29088,19 @@
       "does": [
         {
           "action": "write",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+          "eg_method": "WriteBack",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "write"
+          ],
+          "mutates": "~true",
+          "durability": "ControlRedb",
+          "authz_action": "connector:write-back",
+          "idempotent": "true",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs"
         }
       ],
       "typed_io": {
@@ -28529,15 +29157,21 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 0,
-        "unmatched_action_count": 1,
-        "any_action_mutates": false,
-        "all_matched_actions_mutate": false,
-        "durability_values_seen": [],
-        "txn_participation_values_seen": [],
-        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+        "matched_action_count": 1,
+        "unmatched_action_count": 0,
+        "any_action_mutates": true,
+        "all_matched_actions_mutate": true,
+        "durability_values_seen": [
+          "ControlRedb"
+        ],
+        "txn_participation_values_seen": [
+          "Atomic"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
-      "scopes": [],
+      "scopes": [
+        "connector:write-back"
+      ],
       "policy": {
         "approval_class": "auto",
         "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
@@ -28571,10 +29205,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": null,
-        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "source_method_eg": "WriteBack",
+        "eg_ledger_path": "repo://epistemic-graph/contract/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-25T02:41:05Z"
+        "generated_at": "2026-09-26T15:24:55Z"
       }
     }
   ]
