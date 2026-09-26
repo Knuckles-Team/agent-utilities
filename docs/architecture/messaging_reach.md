@@ -14,7 +14,7 @@ and KG auto-ingest but had **no live caller**.
 | AU-ECO.messaging.messaging-reach-service-governed | `MessagingService` — one core: connected backends, governed sends, routing | `graph_os/messaging/service.py` |
 | AU-ECO.messaging.last-active-channel-routing | Last-active channel state (durable `UserChannelPreference` node) | `graph_os/messaging/service.py`, `graph_os/messaging/router.py` |
 | AU-ECO.mcp.graph-reach-mcp-tool | `graph_reach` MCP tool + `/graph/reach` REST twin | `mcp/tools/reach_tools.py` |
-| AU-ECO.messaging.sending-reply-failed | Inbound router in GraphOS polling + AU graph-agent reply | `graph_os/messaging/polling.py`, `agent_utilities/messaging/router.py` |
+| AU-ECO.messaging.sending-reply-failed | Inbound router in GraphOS polling + AU graph-agent reply | `graph_os/messaging/polling.py`, `agent_utilities/orchestration/messaging_handler.py` |
 | ECO-4.52 | Elicitation bridge — a blocked loop/agent question reaches the user and resumes on reply | `observability/approval_manager.py`, `graph_os/messaging/service.py` |
 | AU-ECO.messaging.universal-agent-reach-user | Universal `reach_user` agent tool | `tools/agent_tools.py`, `tools/tool_registry.py` |
 | AU-ECO.messaging.messaging-ontology-shape-so | `MessagingChannel` ontology interface (owl:Class) | `knowledge_graph/ontology/interfaces.py` |

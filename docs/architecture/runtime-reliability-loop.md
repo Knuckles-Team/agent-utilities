@@ -35,7 +35,7 @@ The **detection** signals for all four now exist (added this session) as WARN lo
 metrics — they were just never wired into the improvement loop:
 
 - `knowledge_graph/core/engine_breaker.py` — `ENGINE_REQUEST_LATENCY` + the "slow engine call" WARN.
-- `messaging/router.py` — the self-healing listener supervisor (`_supervise_backend`).
+- `graph_os/messaging/router.py` — the self-healing listener supervisor (`_supervise_backend`).
 - `core/contextual_model.py` — the bounded-compile retrieval-degradation WARN.
 - `orchestration/agent_runner.py` — the `run_summary` + the wall-clock budget.
 

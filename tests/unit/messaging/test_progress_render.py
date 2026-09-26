@@ -16,7 +16,7 @@ import pytest
 
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.models import SendResult
-from agent_utilities.messaging.router import (
+from agent_utilities.orchestration.messaging_handler import (
     _backend_supports_edit,
     _progress_streaming_enabled,
     _ProgressChecklist,

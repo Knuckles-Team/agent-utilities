@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.messaging import router, voice
+from agent_utilities.messaging import voice
 from agent_utilities.messaging.models import (
     EventType,
     InboundEvent,
@@ -12,6 +12,7 @@ from agent_utilities.messaging.models import (
     MediaType,
     Message,
 )
+from agent_utilities.orchestration import messaging_handler as router
 
 
 @pytest.mark.asyncio
@@ -168,7 +169,7 @@ def test_get_backend_requires_operator_model_selection(
 
 def test_sniff_image_media_type() -> None:
     """CONCEPT:AU-ECO.messaging.image-attachment-fallback — magic-byte sniff for generic/absent content-types (Telegram)."""
-    from agent_utilities.messaging.router import _sniff_image_media_type
+    from agent_utilities.orchestration.messaging_handler import _sniff_image_media_type
 
     assert _sniff_image_media_type(b"\xff\xd8\xff\xe0junk") == "image/jpeg"
     assert _sniff_image_media_type(b"\x89PNG\r\n\x1a\nrest") == "image/png"

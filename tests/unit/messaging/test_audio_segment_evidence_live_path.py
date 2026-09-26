@@ -25,7 +25,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from agent_utilities.messaging import router, voice
+from agent_utilities.messaging import voice
 from agent_utilities.messaging.models import (
     EventType,
     InboundEvent,
@@ -33,6 +33,7 @@ from agent_utilities.messaging.models import (
     MediaType,
     Message,
 )
+from agent_utilities.orchestration import messaging_handler as router
 
 
 class _FakeResp:

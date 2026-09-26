@@ -155,6 +155,11 @@ EH-492 places that controller at `orchestration/agent_bus.py` behind the typed
 depth normalization; `messaging/bus_log.py` remains the AU tenant and sanitized
 envelope adapter. The GraphOS host owns served messaging intake, leases, and
 human-channel inbox retry. This keeps one writer for each durable stream.
+The former AU `messaging/router.py` planner and reply behavior lives at
+`orchestration/messaging_handler.py`; GraphOS calls its two public entry points
+through `agent_utilities.api.messaging`. GraphOS owns `messaging/router.py`
+for backend listening, dispatch, and inbox reaping. This is the control-plane
+exception to a literal file-level move of the old AU router.
 
 **Two surfaces.** MCP tool `graph_bus` (`mcp/tools/bus_tools.py::register_bus_tools`)
 ↔ REST `/graph/bus` (`kg_server.py` `ACTION_TOOL_ROUTES["graph_bus"]`). Note this is

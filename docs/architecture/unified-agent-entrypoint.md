@@ -48,7 +48,7 @@ pydantic-ai graph agents, which read/write the Knowledge Graph.
 |---|---|---|---|---|
 | **graph-os MCP** | `graph_orchestrate(...)` | `mcp/tools/analysis_tools.py` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full (prime + RunTrace + ToolCall) |
 | **graph-os MCP (workflow)** | `graph_workflows(action='execute')` | `mcp/tools/workflow_tools.py` → `Orchestrator.execute_workflow` → `workflows/runner.py::WorkflowRunner` → `run_agent` per step | ✅ per step | ✅ full per step |
-| **messaging** (Telegram live; Mattermost, Discord, Slack, Signal, Teams, Matrix, IRC, … 18 backends) | `Backend.listen()` → `InboundRouter._dispatch` (`messaging/router.py:273`) → planner default handler (`daemon.py:47`) | `messaging/router.py:880` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full + `_persist_and_enrich` writes the per-channel memento (`router.py:447/596`) |
+| **messaging** (Telegram live; Mattermost, Discord, Slack, Signal, Teams, Matrix, IRC, … 18 backends) | `Backend.listen()` → GraphOS `InboundRouter._dispatch` → AU planner handler via `agent_utilities.api.messaging` | AU `orchestration/messaging_handler.py` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full + `_persist_and_enrich` writes the per-channel memento |
 | **agent-webui / agent-terminal-ui** (separate repos) | `POST /ag-ui`, `POST /stream` on the gateway | `server/routers/agent_ui.py` → `execute_graph_iter` → `AgentOrchestrationEngine.iter_graph` (the **same** graph) | ⚠️ **No** (streaming) — but now joins the same continuity seam via **`session_continuity`** (ORCH-1.104) | ✅ after ORCH-1.104: `prime_session_context` (recall) + `persist_session_turn` (RunTrace + memento) |
 | **dedicated `agent_server.py`** | `server/__init__.py::create_agent_server` / `_run_agent_server` | This **is** the gateway that hosts `/ag-ui` + the MCP — it does **not** duplicate orchestration; it serves the routers above | — | inherits the surfaces' wiring |
 | **geniusbot (desktop)** | separate repo | reaches the platform through the graph-os MCP / the gateway REST — no own agent-kickoff | via MCP/REST | inherits the surface it calls |
@@ -66,7 +66,7 @@ hot-path `session_memento_cache`. The **`source` key is the join**: any two surf
 | Surface | Recall on turn start | Persist on turn end | `source` key |
 |---|---|---|---|
 | MCP / workflow | `run_agent::_prime_recent_mementos` | `run_agent` post-run (`compress_to_memento`) | `memento_source` or agent name |
-| messaging | `run_agent` priming | `messaging/router.py::_persist_and_enrich` (`compress_to_memento` + cache refresh) | the channel session id |
+| messaging | `run_agent` priming | `orchestration/messaging_handler.py::_persist_and_enrich` (`compress_to_memento` + cache refresh) | the channel session id |
 | **agent-webui / agent-terminal-ui** | **`session_continuity.prime_session_context`** (injected as `invoker_context`) | **`session_continuity.persist_session_turn`** (RunTrace + `compress_to_memento` + cache refresh) | the request `session_id` (== `run_id`) |
 
 **Cross-surface recall** therefore works whenever the surfaces are keyed to the **same** stable,
@@ -110,7 +110,7 @@ over graph-os as a delegated MCP run.
 - Seam: `agent_utilities/orchestration/agent_runner.py::run_agent`
 - Executor + the one graph: `agent_utilities/orchestration/engine.py`, `agent_utilities/graph/builder.py`
 - MCP path: `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/orchestration/manager.py`
-- Messaging path: `graph_os/messaging/polling.py`, `graph_os/messaging/router.py`, `agent_utilities/messaging/router.py`
+- Messaging path: `graph_os/messaging/polling.py`, `graph_os/messaging/router.py`, `agent_utilities/api/messaging.py`, `agent_utilities/orchestration/messaging_handler.py`
 - Streaming surface: `agent_utilities/server/routers/agent_ui.py`, `agent_utilities/graph/protocol_agnostic_execution.py`
 - **ORCH-1.104 wiring:** `agent_utilities/orchestration/session_continuity.py`
 - Test: `tests/test_orch_1_104_unified_entrypoint_continuity.py`

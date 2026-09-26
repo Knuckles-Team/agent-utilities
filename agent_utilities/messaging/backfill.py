@@ -3,7 +3,7 @@ from __future__ import annotations
 """Messaging conversation-history backfill (CONCEPT:AU-ECO.messaging.conversational-history-backfill, BUG-041).
 
 **The problem this closes.** ``InboundMessage``/``Thread`` KG nodes (``graph_os.messaging.inbox``,
-``messaging/router.py``, ``messaging/enrichment.py``) are written ONCE at live intake. Before
+``orchestration/messaging_handler.py``, ``messaging/enrichment.py``) are written ONCE at live intake. Before
 this module there was no reingest path for ANY of the 17 messaging backends, and the
 existing prose ("Telegram's ``getUpdates`` means acknowledged updates are gone upstream")
 was written as if it applied to every platform — it does not. Some platform APIs genuinely

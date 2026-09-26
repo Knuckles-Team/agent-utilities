@@ -47,7 +47,7 @@ def enrich_conversation(
     the whole enrichment pass so the ``Thread``/``Concept``/``Goal``/``Spec``
     nodes it writes are never left unowned because nothing happened to be
     ambient in this particular thread/task. ``asyncio.to_thread`` (the
-    caller, ``messaging/router.py``) copies the calling task's context, so
+    caller, ``orchestration/messaging_handler.py``) copies the calling task's context, so
     when that context already carries a verified session (the messaging
     daemon/co-service bound one at startup) it is reused as-is; otherwise
     this mints the process's own system identity once.

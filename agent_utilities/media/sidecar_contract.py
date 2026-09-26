@@ -216,7 +216,7 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
         produces=frozenset({"AudioSegment"}),
         description=(
             "Whisper transcript segments with start_ms/end_ms timing -> "
-            "AudioSegment loci, mirroring messaging/router.py's existing "
+            "AudioSegment loci, mirroring orchestration/messaging_handler.py's existing "
             "local-transcription AudioSegment producer but via the fleet "
             "sidecar instead of the in-process faster-whisper reader. "
             "GOC-07/BUG-271: adapter wired in audio_sidecar.py. The fleet tool "

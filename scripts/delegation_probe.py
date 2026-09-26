@@ -2,7 +2,7 @@
 """Exercise the graph-os delegation CORE directly, in-process — no MCP, no pod restart.
 
 Every entrypoint (graph-os MCP `graph_orchestrate`, agent-webui/REST, Telegram/Mattermost
-via `messaging/router.py`) converges on ONE function:
+via `orchestration/messaging_handler.py`) converges on ONE function:
 
     agent_utilities.orchestration.manager.Orchestrator.execute_agent()   # manager.py:424
 

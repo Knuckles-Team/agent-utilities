@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from agent_utilities.messaging.models import EventType, InboundEvent, SendResult
-from agent_utilities.messaging.router import (
+from agent_utilities.orchestration.messaging_handler import (
     _channel_session,
     _graph_agent_reply,
     _plain_chat_reply,
@@ -243,8 +243,8 @@ async def test_reply_timeout_does_not_double_call_the_backend(
     now surface a graceful message and do NOT call ``_plain_chat_reply`` (no double-LLM tax)."""
     import time
 
-    from agent_utilities.messaging import router as router_mod
     from agent_utilities.orchestration import manager as mgr
+    from agent_utilities.orchestration import messaging_handler as router_mod
 
     class _SlowOrch:
         def __init__(self, _engine: Any) -> None:
@@ -325,7 +325,7 @@ async def test_plain_chat_reply_tags_responder(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_agent_input_plain_vs_multimodal() -> None:
-    from agent_utilities.messaging.router import _agent_input
+    from agent_utilities.orchestration.messaging_handler import _agent_input
 
     assert _agent_input("hi", None) == "hi"
     assert _agent_input("hi", []) == "hi"
@@ -446,7 +446,7 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     """
     import time
 
-    from agent_utilities.messaging.router import create_planner_handler
+    from agent_utilities.orchestration.messaging_handler import create_planner_handler
 
     class _SlowEng:
         def add_node(self, *a: Any, **k: Any) -> None:
@@ -492,7 +492,7 @@ async def test_untranscribable_voice_attachment_gets_explicit_failure_notice(
     """
     from agent_utilities.messaging import voice
     from agent_utilities.messaging.models import MediaAttachment, MediaType, Message
-    from agent_utilities.messaging.router import create_planner_handler
+    from agent_utilities.orchestration.messaging_handler import create_planner_handler
 
     async def _fails(
         url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
@@ -526,7 +526,7 @@ async def test_no_attachment_and_no_text_is_a_silent_noop() -> None:
     """A message with neither text nor an audio attachment (e.g. a bare reaction/sticker
     the model layer doesn't carry as an attachment) is correctly a no-op — this must NOT
     regress into sending a spurious failure notice for every non-text event."""
-    from agent_utilities.messaging.router import create_planner_handler
+    from agent_utilities.orchestration.messaging_handler import create_planner_handler
 
     handler = await create_planner_handler(knowledge_engine=_Eng())
     backend = _FakeBackend("telegram")
@@ -549,8 +549,8 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     — WITHOUT any messaging-specific recall query. We capture the session passed to the
     universal path on each turn to prove it is stable and channel-scoped.
     """
-    from agent_utilities.messaging import router
-    from agent_utilities.messaging.router import create_planner_handler
+    from agent_utilities.orchestration import messaging_handler as router
+    from agent_utilities.orchestration.messaging_handler import create_planner_handler
 
     sessions: list[str] = []
 
@@ -595,7 +595,7 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_failed_provider_send_keeps_inbound_pending(monkeypatch) -> None:
     """A refused provider result must remain eligible for the GraphOS inbox reaper."""
-    from agent_utilities.messaging import router
+    from agent_utilities.orchestration import messaging_handler as router
 
     async def _reply(*_args: Any, **_kwargs: Any) -> str:
         return "answer"
@@ -646,8 +646,8 @@ async def test_image_turn_routes_to_vision_responder(
 ) -> None:
     """CONCEPT:AU-ECO.messaging.image-attachment-fallback — a turn with image attachments goes straight to the vision-capable
     responder, NOT the universal graph (which drops images and would answer text-only)."""
-    from agent_utilities.messaging import router as rt
     from agent_utilities.orchestration import manager as mgr
+    from agent_utilities.orchestration import messaging_handler as rt
 
     called = {"execute": 0, "vision": 0}
 
@@ -683,7 +683,7 @@ async def test_varied_ack_lite_llm_with_static_fallback(
     from types import SimpleNamespace
 
     from agent_utilities.knowledge_graph.enrichment import cards
-    from agent_utilities.messaging import router as rt
+    from agent_utilities.orchestration import messaging_handler as rt
 
     shape = SimpleNamespace(tool_servers=("github-mcp",))
     # lite model available → its varied line is used
@@ -725,7 +725,7 @@ def _degraded_summary(**overrides: Any) -> dict[str, Any]:
 
 class TestTransparencyFooter:
     def test_ok_outcome_produces_no_footer(self) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         summary = {
             "outcome": "ok",
@@ -736,14 +736,14 @@ class TestTransparencyFooter:
         assert _transparency_footer(summary) == ""
 
     def test_none_or_non_dict_summary_produces_no_footer(self) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         assert _transparency_footer(None) == ""
         assert _transparency_footer("not a dict") == ""  # type: ignore[arg-type]
         assert _transparency_footer(123) == ""  # type: ignore[arg-type]
 
     def test_degraded_outcome_renders_translated_hint_and_trace_ref(self) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         footer = _transparency_footer(_degraded_summary())
         assert "⚠️" in footer
@@ -752,7 +752,7 @@ class TestTransparencyFooter:
         assert "trace:pref_run_deadbeef" in footer
 
     def test_failed_and_timeout_outcomes_also_render(self) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         for outcome in ("failed", "timeout"):
             footer = _transparency_footer(_degraded_summary(outcome=outcome))
@@ -761,7 +761,7 @@ class TestTransparencyFooter:
     def test_missing_failure_detail_still_names_stage_and_outcome(self) -> None:
         """A degraded/failed run_summary with NO failure sub-dict (e.g. a bare empty
         output, no captured cause) must still say SOMETHING — never a silent no-op."""
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         summary = {
             "outcome": "degraded",
@@ -777,13 +777,13 @@ class TestTransparencyFooter:
     def test_footer_respects_the_off_setting(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         monkeypatch.setenv("MESSAGING_TRANSPARENCY_FOOTER", "false")
         assert _transparency_footer(_degraded_summary()) == ""
 
     def test_footer_never_raises_on_malformed_summary(self) -> None:
-        from agent_utilities.messaging.router import _transparency_footer
+        from agent_utilities.orchestration.messaging_handler import _transparency_footer
 
         for junk in (
             {"outcome": "degraded", "failure": "not a dict"},
@@ -792,7 +792,7 @@ class TestTransparencyFooter:
             assert isinstance(_transparency_footer(junk), str)  # never raises
 
     def test_with_transparency_appends_only_when_non_empty(self) -> None:
-        from agent_utilities.messaging.router import _with_transparency
+        from agent_utilities.orchestration.messaging_handler import _with_transparency
 
         assert _with_transparency("hello", None) == "hello"
         assert _with_transparency("hello", {"outcome": "ok"}) == "hello"
@@ -807,7 +807,7 @@ class TestSyntheticRunSummaries:
     def test_timeout_run_summary_uses_the_planned_route_when_known(self) -> None:
         from types import SimpleNamespace
 
-        from agent_utilities.messaging.router import _timeout_run_summary
+        from agent_utilities.orchestration.messaging_handler import _timeout_run_summary
 
         shape = SimpleNamespace(tool_servers=("github-mcp", "portainer-mcp"))
         summary = _timeout_run_summary("run:" + "a" * 32, shape, 45.0)
@@ -818,7 +818,7 @@ class TestSyntheticRunSummaries:
         assert summary["trace_ref"].startswith("trace:")
 
     def test_timeout_run_summary_falls_back_generically_with_no_shape(self) -> None:
-        from agent_utilities.messaging.router import _timeout_run_summary
+        from agent_utilities.orchestration.messaging_handler import _timeout_run_summary
 
         summary = _timeout_run_summary("run:" + "b" * 32, None, 45.0)
         assert summary["outcome"] == "timeout"
@@ -827,7 +827,9 @@ class TestSyntheticRunSummaries:
         assert summary["failure"]["category"] == "reply_budget_timeout"
 
     def test_exception_run_summary_translates_the_real_exception(self) -> None:
-        from agent_utilities.messaging.router import _exception_run_summary
+        from agent_utilities.orchestration.messaging_handler import (
+            _exception_run_summary,
+        )
 
         summary = _exception_run_summary(
             "run:" + "c" * 32, RuntimeError("delegation exploded")

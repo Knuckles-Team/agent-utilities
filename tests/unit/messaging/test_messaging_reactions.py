@@ -6,7 +6,10 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.messaging.router import _decide_reaction, _react_in_background
+from agent_utilities.orchestration.messaging_handler import (
+    _decide_reaction,
+    _react_in_background,
+)
 from agent_utilities.orchestration.reactions import AgentReaction, EmoteRegistry
 
 

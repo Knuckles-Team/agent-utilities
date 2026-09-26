@@ -224,8 +224,8 @@ async def test_timeout_does_not_double_call_backend(
     second full LLM call (CONCEPT:AU-ORCH.execution.chat-profile-timeouts — removes the measured double-LLM tax)."""
     import asyncio
 
-    from agent_utilities.messaging import router as router_mod
     from agent_utilities.orchestration import manager as mgr
+    from agent_utilities.orchestration import messaging_handler as router_mod
 
     seen_profile: dict[str, Any] = {}
 
@@ -257,7 +257,7 @@ async def test_timeout_does_not_double_call_backend(
 
 
 def test_is_backend_timeout_classifier() -> None:
-    from agent_utilities.messaging.router import _is_backend_timeout
+    from agent_utilities.orchestration.messaging_handler import _is_backend_timeout
 
     assert _is_backend_timeout("Agent execution failed: router round timed out")
     assert _is_backend_timeout("Agent execution failed: CancelledError")

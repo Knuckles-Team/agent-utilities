@@ -166,7 +166,7 @@ _FIX_SITES: dict[str, tuple[tuple[str, str], ...]] = {
         ("agent_utilities/knowledge_graph/core/engine_breaker.py", "_observe_latency"),
     ),
     runtime_signals.KIND_LISTENER_RESTART: (
-        ("agent_utilities/messaging/router.py", "_supervise_backend"),
+        ("graph_os/messaging/router.py", "_supervise_backend"),
     ),
     runtime_signals.KIND_RETRIEVAL_DEGRADED: (
         (

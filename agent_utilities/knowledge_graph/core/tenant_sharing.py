@@ -1054,7 +1054,7 @@ _SHARE_VERB_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
 #: ``RuntimeSignal`` writer functions are actor-agnostic and are reached from
 #: live MCP tool entrypoints under real tenant-bound sessions
 #: (``mcp/tasks_extension.py:377``, ``mcp/tools/job_tools.py:147``,
-#: ``orchestration/agent_runner.py:467``, ``messaging/router.py:334``) — an
+#: ``orchestration/agent_runner.py:467``, ``orchestration/messaging_handler.py:334``) — an
 #: allowlist-on-write would have refused those already-working, user-
 #: authenticated writes. Operational/provenance/ontology data is NOT refused
 #: on write; it is restricted on READ instead (see below). ``Memory`` is

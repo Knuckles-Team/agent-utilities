@@ -298,7 +298,7 @@ def test_reconciler_standalone_reads_and_disposes():
 
 _EMISSION_SITES = {
     "agent_utilities/knowledge_graph/core/engine_breaker.py": "KIND_ENGINE_LATENCY",
-    "agent_utilities/messaging/router.py": "KIND_LISTENER_RESTART",
+    "graph_os/messaging/router.py": "KIND_LISTENER_RESTART",
     "agent_utilities/core/contextual_model.py": "KIND_RETRIEVAL_DEGRADED",
     "agent_utilities/orchestration/agent_runner.py": "KIND_DELEGATION_OVER_BUDGET",
 }
@@ -306,7 +306,16 @@ _EMISSION_SITES = {
 
 @pytest.mark.parametrize("rel_path,kind_const", _EMISSION_SITES.items())
 def test_emission_site_is_wired(rel_path: str, kind_const: str):
-    src = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    if rel_path.startswith("graph_os/"):
+        import importlib.util
+
+        spec = importlib.util.find_spec("graph_os.messaging.router")
+        if spec is None or spec.origin is None:
+            pytest.skip("GraphOS source is not installed in this AU-only environment")
+        source_path = Path(spec.origin)
+    else:
+        source_path = _REPO_ROOT / rel_path
+    src = source_path.read_text(encoding="utf-8")
     assert "record_runtime_signal" in src, f"{rel_path} does not emit a runtime signal"
     assert kind_const in src, f"{rel_path} does not reference {kind_const}"
 

@@ -6,9 +6,9 @@ orchestration pipeline (``Orchestrator.execute_agent`` → ``run_agent``), sessi
 channel (CONCEPT:AU-ECO.messaging.universal-graph-agent). That single path natively provides what the router used to hand-
 roll — conversation CONTINUITY (the core memory primes each run with the recent compressed
 mementos for the channel's session and persists this turn back as one) and DYNAMIC CAPABILITY
-selection (specialists / skills / A2A / swarms / fleet tools, ActionPolicy-governed). The
-router stays a transport: receive → run the universal agent → send its text back, with a
-hard reply-timeout plain-chat fallback so a slow/hung graph run still answers.
+selection (specialists / skills / A2A / swarms / fleet tools, ActionPolicy-governed).
+GraphOS owns the transport router: receive → run the universal agent → send its text
+back, with a hard reply-timeout plain-chat fallback so a slow/hung graph run still answers.
 
 Architecture::
 
