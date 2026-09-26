@@ -78,6 +78,27 @@ def test_native_calls_only_convert_boundary_values() -> None:
     assert xp.sum(_ArrowVector()) == 6.0
 
 
+def test_prototype_ranking_is_one_allowlisted_native_call() -> None:
+    kernel = _FakeKernel()
+    calls = []
+
+    def rank(query, prototypes):
+        calls.append((query, prototypes))
+        return (1, 0.9)
+
+    kernel.best_cosine_prototype = rank
+    xp = numeric._XP(kernel)
+    assert xp.best_cosine_prototype((1, 0), ((0, 1), (1, 0))) == (1, 0.9)
+    assert calls == [((1, 0), ((0, 1), (1, 0)))]
+
+    del kernel.best_cosine_prototype
+    with pytest.raises(
+        numeric.UnsupportedNumericOperationError,
+        match=r"best_cosine_prototype",
+    ):
+        xp.best_cosine_prototype([1, 0], [[1, 0]])
+
+
 def test_mapping_is_not_treated_as_a_numeric_container() -> None:
     xp = numeric._XP(_FakeKernel())
 
