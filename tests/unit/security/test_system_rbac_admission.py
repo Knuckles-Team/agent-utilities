@@ -10,7 +10,7 @@ reads/writes (NE-009).
 Covers (Definition of Done):
 - The grant is built against `Graph("__control__")`, never a tenant
   pattern — this is the regression that cost a session (NE-009).
-- Admission is idempotent across repeated calls (process-local cache).
+- Admission is idempotent across repeated calls and rechecks EG after success.
 - A missing provisioner credential (NE-021) degrades honestly: no crash, no
   claimed success, an actionable message naming exactly what is missing.
 - A failed admission backs off rather than hammering the engine.
@@ -337,7 +337,7 @@ def _hold_signer_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ensure_system_principal_access: idempotent cache + honest degrade + backoff
+# ensure_system_principal_access: revalidation + honest degrade + backoff
 # ---------------------------------------------------------------------------
 
 
@@ -359,9 +359,38 @@ def test_ensure_admission_is_idempotent_across_repeated_calls(
     second = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
     assert second.already_held is True
 
-    # The second call must be a cache hit: no additional register_identity.
+    # The second call rechecks EG, but does not replace an already-held identity.
+    assert [c for c, _a in client.calls if c == "get_identity"] == [
+        "get_identity",
+        "get_identity",
+    ]
     register_calls = [c for c, _a in client.calls if c == "register_identity"]
     assert len(register_calls) == 1
+
+
+def test_prior_success_does_not_hide_later_identity_read_denial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
+    client = sra.FixtureSystemAdmissionClient()
+    client.identities["graph-os-scheduler"] = {
+        "role": "Agent",
+        "teams": [],
+        "roles": [],
+    }
+
+    sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+    client.identity_read_authorized = False
+
+    with pytest.raises(sra.SystemAdmissionError, match="ACCESS_DENIED"):
+        sra.ensure_system_principal_access("graph-os-scheduler", client=client)
+    assert [c for c, _a in client.calls if c == "get_identity"] == [
+        "get_identity",
+        "get_identity",
+    ]
+    assert [c for c, _a in client.calls if c == "register_identity"] == [
+        "register_identity"
+    ]
 
 
 def test_under_admitted_agent_is_denied_before_every_write(

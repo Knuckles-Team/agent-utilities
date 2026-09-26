@@ -103,13 +103,11 @@ Design mirrors three already-reviewed precedents exactly
   (never bare ``System``) and granting it directly, rather than only
   enrolling into a role the engine happens to create as a side effect.
 * ``agent-webui``'s ``agent_webui.graph_admission.ensure_tenant_admission``
-  (BUG-286) — the runtime shape for a **process-local, cache-after,
-  backoff-on-failure** admission call:  a positive outcome is cached
-  forever for this process's lifetime; a negative one is cached for
-  :data:`_FAILURE_BACKOFF_SECONDS` so a still-broken precondition (e.g. the
-  missing signer credential — see NE-021 below) is not re-attempted on
-  every single call; concurrent callers for the same key collapse onto one
-  attempt via a per-key lock.
+  (BUG-286) — the runtime shape for backoff-on-failure and per-key
+  synchronization. A successful result is checked against EG again on the
+  next call: process-local positive caching cannot prove that an identity or
+  grant has not subsequently been revoked. Failures are cached for
+  :data:`_FAILURE_BACKOFF_SECONDS` to avoid hammering a broken dependency.
 
 Mirror-image defect (fixed alongside ``tenant_rbac_admission``'s own incident)
 -------------------------------------------------------------------------------
@@ -782,8 +780,7 @@ def provision_system_principal_access(
     return SystemAccessResult(role=role, outcomes=tuple(outcomes))
 
 
-# ── Process-local cache + backoff (mirrors agent_webui.graph_admission) ─────
-_ADMITTED: dict[tuple[str, str], float] = {}
+# ── Process-local failure backoff and per-key serialization ────────────────
 _FAILURES: dict[tuple[str, str], tuple[float, SystemAdmissionError]] = {}
 _STATE_LOCK = threading.Lock()
 _KEY_LOCKS: dict[tuple[str, str], threading.Lock] = {}
@@ -799,15 +796,9 @@ def _lock_for(key: tuple[str, str]) -> threading.Lock:
 
 
 def _reset_admission_cache_for_tests() -> None:
-    """Test-only reset of the process-local admission cache. The engine
-    exposes no equivalent reset RPC — this exists purely so
-    ``tests/unit/security/test_system_rbac_admission.py`` cases do not leak
-    cache state into one another (module-level state, by design — see
-    :func:`ensure_system_principal_access`'s own docstring for why it is
-    process-lifetime, not per-call)."""
+    """Reset process-local failure backoff and key locks between tests."""
 
     with _STATE_LOCK:
-        _ADMITTED.clear()
         _FAILURES.clear()
         _KEY_LOCKS.clear()
 
@@ -867,9 +858,8 @@ def ensure_system_principal_access(
     principal ``agent_id`` into the control-graph role idempotently (see the
     module docstring, "Boot verification and operator-authorized remediation").
 
-    * **Positive outcome** — cached in-process, forever (this process's
-      lifetime). A returning call for the same ``(role, agent_id)`` is a
-      dict lookup, never a round trip.
+    * **Positive outcome** — checked against EG again on the next call. An
+      earlier success cannot attest that a role or identity still exists.
     * **Negative outcome** (missing provisioner credential — NE-021 today
       — an engine RPC/read-back failure, or a malformed identity shape)
       — cached for :data:`_FAILURE_BACKOFF_SECONDS`, so a still-broken
@@ -898,25 +888,9 @@ def ensure_system_principal_access(
     """
 
     agent_id, key = _validated_admission_key(agent_id, role)
-    with _STATE_LOCK:
-        if key in _ADMITTED:
-            return SystemAccessOutcome(
-                agent_id=agent_id,
-                role=role,
-                already_held=True,
-                detail=f"{agent_id!r} already admitted into {role!r} (cached)",
-            )
-
     lock = _lock_for(key)
     with lock:
         with _STATE_LOCK:
-            if key in _ADMITTED:
-                return SystemAccessOutcome(
-                    agent_id=agent_id,
-                    role=role,
-                    already_held=True,
-                    detail=f"{agent_id!r} already admitted into {role!r} (cached)",
-                )
             failure = _FAILURES.get(key)
         if failure is not None:
             attempted_at, cached_exc = failure
@@ -941,7 +915,6 @@ def ensure_system_principal_access(
             raise wrapped from exc
 
         with _STATE_LOCK:
-            _ADMITTED[key] = time.monotonic()
             _FAILURES.pop(key, None)
 
         from .persistence_privacy import persistence_reference
