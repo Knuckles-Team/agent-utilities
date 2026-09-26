@@ -92,9 +92,14 @@ def _platform_default_endpoint() -> str:
 #: that reference it; the resolver also re-derives it lazily where config is None.
 DEFAULT_LOCAL_ENDPOINT = _platform_default_endpoint()
 
-# Tenant ids come from JWT claims (org_id/tid/...) and may contain arbitrary
-# characters; graph names should stay shell/file/metric friendly.
-_TENANT_SLUG_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+# Tenant ids come from verified claims and may contain arbitrary Unicode. A
+# lossy normalization made distinct ids (for example Team:East/Team_East)
+# share a graph and RBAC role. Keep existing names for canonical ids, but
+# reserve a namespace for byte-exact encoding of every other id. Canonical
+# ids beginning with that prefix must themselves be encoded, so the two
+# branches cannot collide. The engine uses the same rule at admission.
+_TENANT_SAFE_RE = re.compile(r"[a-z0-9_.-]+\Z")
+_TENANT_ENCODED_PREFIX = "t0_"
 
 
 def _config(config: Any = None) -> Any:
@@ -207,10 +212,23 @@ def is_local_endpoint(endpoint: str) -> bool:
 
 
 def tenant_graph_slug(tenant: str | None) -> str:
-    """Return the canonical slug used in tenant graph and RBAC role names."""
+    """Return an injective slug for the exact verified tenant id.
+
+    Existing lowercase canonical ids keep their graph names. IDs that need
+    encoding no longer reach their old, ambiguous normalized graph; migrating
+    those legacy graphs requires an explicit owner inventory.
+    """
     if not tenant:
         return ""
-    return _TENANT_SLUG_RE.sub("_", tenant.strip()).strip("_").lower()
+    if not tenant.strip():
+        raise ValueError("tenant id must not be whitespace-only")
+    if (
+        _TENANT_SAFE_RE.fullmatch(tenant)
+        and "__" not in tenant
+        and not tenant.startswith(_TENANT_ENCODED_PREFIX)
+    ):
+        return tenant
+    return _TENANT_ENCODED_PREFIX + tenant.encode("utf-8").hex()
 
 
 def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
