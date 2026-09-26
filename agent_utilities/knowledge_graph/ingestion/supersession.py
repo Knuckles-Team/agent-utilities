@@ -77,7 +77,9 @@ def retire_fact(
 
     linked = False
     evidence_id = superseded_by_id or retracted_by_claim
-    if evidence_id:
+    # A failed native tombstone must not leave an edge claiming that the fact
+    # was retired. A genuine replay may still repair a missing evidence edge.
+    if evidence_id and result.get("status") in {"success", "skipped"}:
         try:
             engine.link_nodes(
                 evidence_id,
