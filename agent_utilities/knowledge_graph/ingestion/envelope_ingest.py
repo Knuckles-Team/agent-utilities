@@ -2787,14 +2787,14 @@ def _prepare_embedding_envelopes(
     already nulled it — identical to the pre-existing "auto-embed disabled"
     outcome, never a durability failure.
     """
-    from epistemic_graph.ingestion.embedding_admission import sql_free_text_fields
-
-    from ..core.ingest_profile import stage as _ingest_stage
-    from ..enrichment.semantic import (
+    from epistemic_graph.entity_text_derivation import (
         _ENTITY_NAME_FIELDS,
         _ENTITY_SUMMARY_FIELDS,
         _ENTITY_TEXT_SKIP_KEYS,
     )
+    from epistemic_graph.ingestion.embedding_admission import sql_free_text_fields
+
+    from ..core.ingest_profile import stage as _ingest_stage
 
     protected_fields = (
         frozenset({"id", "type", "node_type"})
