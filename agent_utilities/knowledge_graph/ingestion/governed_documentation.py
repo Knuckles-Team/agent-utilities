@@ -27,6 +27,8 @@ from typing import Any, ClassVar
 
 from epistemic_graph.ingestion.documentation_derivation import (
     documentation_content_digest,
+    documentation_primary_payload,
+    documentation_revision_nodes,
     documentation_snapshot_digest,
     removed_documentation_paths,
 )
@@ -441,88 +443,17 @@ class GovernedDocumentationProjection(BaseModel):
         return self
 
     def _primary_payload(self) -> dict[str, Any]:
-        status = self.lifecycle.value
-        # Existing retrieval code excludes status=ARCHIVED by default.  Keep
-        # the richer lifecycle state while ensuring a superseded/archived page
-        # cannot be ranked as current by a legacy status filter.
-        retrieval_status = status if self.current else "archived"
-        payload: dict[str, Any] = {
-            "id": self.document_id,
-            "node_type": "DocumentationPage",
-            "repository_id": self.repository_id,
-            "source_path": self.source_path,
-            "source_kind": "markdown",
-            "corpus": self.source_instance or self.repository_id,
-            "relpath": self.source_path,
-            "source_ref": self.source_ref,
-            "source_revision": self.source_revision,
-            "content_digest": self.content_digest,
-            "concept_ids": list(self.concept_ids),
-            "lifecycle_state": status,
-            "status": retrieval_status,
-            "current": self.current,
-            "deprecated": self.deprecated,
-            "archived": self.archived,
-            "valid_from": self.valid_from,
-            "recorded_at": self.recorded_at,
-            "documentation_schema_version": DOCUMENTATION_SCHEMA_VERSION,
-            "ontology_mapping_version": DOCUMENTATION_MAPPING_VERSION,
-            "acl_verified": True,
-            "acl_before_retrieval": True,
-        }
-        if self.superseded_by:
-            payload["superseded_by"] = self.superseded_by
-        if self.snapshot_digest:
-            payload["snapshot_digest"] = self.snapshot_digest
-        if self.tombstone_reason:
-            payload["tombstone_reason"] = self.tombstone_reason
-        return payload
+        return documentation_primary_payload(
+            self.model_dump(mode="python"),
+            schema_version=DOCUMENTATION_SCHEMA_VERSION,
+            mapping_version=DOCUMENTATION_MAPPING_VERSION,
+        )
 
     def _auxiliary_nodes(self) -> list[dict[str, Any]]:
-        nodes: list[dict[str, Any]] = [
-            {
-                "id": self.revision_id,
-                "node_type": "DocumentationRevision",
-                "document_id": self.document_id,
-                "repository_id": self.repository_id,
-                "source_path": self.source_path,
-                "source_revision": self.source_revision,
-                "content_digest": self.content_digest,
-                "concept_ids": list(self.concept_ids),
-                "lifecycle_state": self.lifecycle.value,
-                "current": self.current,
-                "valid_from": self.valid_from,
-                "recorded_at": self.recorded_at,
-            }
-        ]
-        if self.previous_revision:
-            previous_digest = self.previous_digest or ""
-            if not _DIGEST_RE.fullmatch(previous_digest):
-                raise DocumentationProjectionError(
-                    "previous_digest is required when previous_revision is supplied"
-                )
-            nodes.append(
-                {
-                    "id": _stable_id(
-                        "doc-revision",
-                        self.document_id,
-                        self.previous_revision,
-                        previous_digest,
-                    ),
-                    "node_type": "DocumentationRevision",
-                    "document_id": self.document_id,
-                    "repository_id": self.repository_id,
-                    "source_path": self.source_path,
-                    "source_revision": self.previous_revision,
-                    "content_digest": previous_digest,
-                    "lifecycle_state": DocumentationLifecycle.SUPERSEDED.value,
-                    "current": False,
-                    "archived": True,
-                    "valid_until": self.valid_from,
-                    "recorded_at": self.recorded_at,
-                }
-            )
-        return nodes
+        try:
+            return documentation_revision_nodes(self.model_dump(mode="python"))
+        except ValueError as exc:
+            raise DocumentationProjectionError(str(exc)) from exc
 
     def _evidence(self) -> DocumentationEvidence:
         return DocumentationEvidence(
