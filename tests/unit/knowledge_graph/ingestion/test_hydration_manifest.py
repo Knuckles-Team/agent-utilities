@@ -10,6 +10,7 @@ import base64
 import secrets
 
 import pytest
+from epistemic_graph.ingestion.hydration_verdict import fuse_hydration_verdict
 
 from agent_utilities.knowledge_graph.ingestion import hydration_manifest as hm
 
@@ -156,7 +157,7 @@ def test_verdict_hidden_not_absent_when_service_authority_diverges():
     """THE required contract: expected>0, 0 under the serving principal, >0
     under service authority -> ``blocked`` (an RLS visibility gap), never
     ``not_started`` (which would falsely claim the class was never ingested)."""
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=0, actual_service=62, service_attempted=True
     )
     assert verdict == "blocked"
@@ -165,7 +166,7 @@ def test_verdict_hidden_not_absent_when_service_authority_diverges():
 
 @pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
 def test_verdict_not_started_when_both_readers_agree_on_zero():
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=0, actual_service=0, service_attempted=True
     )
     assert verdict == "not_started"
@@ -177,7 +178,7 @@ def test_verdict_blocked_when_service_authority_unavailable_and_actual_zero():
     """Without a service-authority read, a real gap and an RLS hide are
     indistinguishable — the verdict must stay honest (``blocked``), not
     default to the more comfortable ``not_started``."""
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=0, actual_service=None, service_attempted=False
     )
     assert verdict == "blocked"
@@ -186,7 +187,7 @@ def test_verdict_blocked_when_service_authority_unavailable_and_actual_zero():
 
 @pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
 def test_verdict_complete_when_actual_meets_expected():
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=62, actual_service=62, service_attempted=True
     )
     assert verdict == "complete"
@@ -194,7 +195,7 @@ def test_verdict_complete_when_actual_meets_expected():
 
 @pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
 def test_verdict_partial_when_some_but_not_all_present():
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=30, actual_service=30, service_attempted=True
     )
     assert verdict == "partial"
@@ -203,7 +204,7 @@ def test_verdict_partial_when_some_but_not_all_present():
 
 @pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
 def test_verdict_not_started_with_no_declared_universe_and_no_service_read():
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=None, actual_serving=0, actual_service=None, service_attempted=False
     )
     assert verdict == "not_started"
@@ -211,7 +212,7 @@ def test_verdict_not_started_with_no_declared_universe_and_no_service_read():
 
 @pytest.mark.concept("AU-KG.audit.hydration-absent-vs-hidden")
 def test_verdict_blocked_when_serving_read_itself_fails():
-    verdict, reason = hm._fuse_verdict(
+    verdict, reason = fuse_hydration_verdict(
         expected=62, actual_serving=None, actual_service=None, service_attempted=False
     )
     assert verdict == "blocked"
