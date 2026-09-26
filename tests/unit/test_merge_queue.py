@@ -1533,7 +1533,7 @@ def _with_fake_generators(canonical: Path) -> None:
         "scripts/build_concepts_yaml.py",
         "from pathlib import Path\n"
         "Path('docs').mkdir(exist_ok=True)\n"
-        "Path('docs/concepts.yaml').write_text('regenerated: true\\n')\n",
+        "Path('registry/concepts.yaml').write_text('regenerated: true\\n')\n",
     )
     _write(
         canonical,
@@ -1549,7 +1549,7 @@ def _with_fake_generators(canonical: Path) -> None:
         "Path('AGENTS.md').write_text('REGENERATED AGENTS\\n')\n"
         "Path('docs/project_structure.md').write_text('REGENERATED STRUCTURE\\n')\n",
     )
-    _write(canonical, "docs/concepts.yaml", "concepts: stale\n")
+    _write(canonical, "registry/concepts.yaml", "concepts: stale\n")
     _write(canonical, "README.md", "stale readme\n")
     _write(canonical, "AGENTS.md", "stale agents\n")
     _write(canonical, "docs/project_structure.md", "stale structure\n")
@@ -1596,7 +1596,7 @@ def test_conflict_confined_to_generated_files_is_regenerated_not_rejected(
     with mq.materialized(canonical, head, scope=scope) as tree:
         # Regenerated from the (fake) generator, not either lane's stale copy.
         assert (tree / "README.md").read_text() == "REGENERATED README\n"
-        assert (tree / "docs" / "concepts.yaml").read_text() == "regenerated: true\n"
+        assert (tree / "registry" / "concepts.yaml").read_text() == "regenerated: true\n"
         assert (tree / "AGENTS.md").read_text() == "REGENERATED AGENTS\n"
         assert (
             tree / "docs" / "project_structure.md"

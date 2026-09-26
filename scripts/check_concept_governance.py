@@ -9,7 +9,7 @@ The CI workflow scans the PR diff (``git diff origin/main...HEAD``) for newly
 introduced ``CONCEPT:<ID>`` markers and FAILS unless each one:
 
   1. is referenced by a design document under ``.specify/design/**.md``; and
-  2. uses a pillar prefix that is registered in ``docs/concepts.yaml``.
+  2. uses a pillar prefix that is registered in ``registry/concepts.yaml``.
 
 This script reproduces that intent. Two deliberate refinements over the raw CI
 bash make it correct on the canonical dev box (and identical to CI on GitHub):
@@ -49,17 +49,17 @@ before merge and goes silent after guarantees a permanent, growing backlog.
 against the design-doc corpus. So it sees debt regardless of whether it
 landed yesterday or two years ago, and regardless of merge status.
 
-This deliberately does NOT reuse ``docs/concepts.yaml`` as the concept
+This deliberately does NOT reuse ``registry/concepts.yaml`` as the concept
 universe, even though that is the single generated source of truth for the
 *registered* concept catalog and is what the CI workflow doc / D-RG2-3's
-"suggested shape" both point at. ``docs/concepts.yaml`` is built by
+"suggested shape" both point at. ``registry/concepts.yaml`` is built by
 ``build_concepts_yaml.py``, which scans only ``agent_utilities/**`` — but a
 ``CONCEPT:`` marker is legitimately written in ``scripts/``, ``tests/``, a
 sibling package outside ``agent_utilities/`` (formerly ``mcp_v2_gateway/``,
 retired under BUG-069 — see ``docs/architecture/mcp-2026-protocol-surface.md``),
 and prose docs (``AGENTS.md``, ``docs/architecture/*.md``). Five of the 39
 concepts this exact gate gap produced (D-RG2-2) live ONLY in such files —
-using ``docs/concepts.yaml`` as the universe would have silently exempted
+using ``registry/concepts.yaml`` as the universe would have silently exempted
 them from the audit this mode exists to provide, defeating its own purpose.
 So this mode re-scans the tree directly with the same marker grammar
 (``OKF_MARKER_RE``), the same way the diff-based mode's own
@@ -320,7 +320,7 @@ def all_registered_concepts(root: Path = ROOT) -> list[str]:
     repo tree — the honest, complete "what concepts exist today" universe.
 
     See the module docstring ("Merged-but-undocumented mode") for why this
-    deliberately re-scans the tree instead of reading ``docs/concepts.yaml``:
+    deliberately re-scans the tree instead of reading ``registry/concepts.yaml``:
     that registry is generated from ``agent_utilities/**`` only, and misses
     markers legitimately written in ``scripts/``, ``tests/``, or prose docs.
     """

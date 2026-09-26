@@ -64,7 +64,7 @@ is its one AU-side caller.
 
 ## Ontology (DE0 schema, DE1 mirror-on-write)
 
-Reserved concept block (`docs/concept_reservations.d/w6-de0-contracts.yaml`,
+Reserved concept block (`registry/concept_reservations.d/w6-de0-contracts.yaml`,
 OKF-CIS): `AU-KG.storage.durable-execution-unit`,
 `AU-KG.storage.statechart-instance-mirror`,
 `AU-KG.txn.saga-coordination-mirror`,

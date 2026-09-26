@@ -14,8 +14,8 @@ from agent_utilities.governance import concept_allocator as ca
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / "agent_utilities").mkdir()
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "concepts.yaml").write_text(
+    (tmp_path / "registry").mkdir()
+    (tmp_path / "registry" / "concepts.yaml").write_text(
         yaml.safe_dump(
             {
                 "concepts": [

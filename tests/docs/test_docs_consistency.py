@@ -1,7 +1,7 @@
 """Documentation consistency tests.
 
 Asserts that the generated documentation stays in lock-step with the
-single source of truth (``docs/concepts.yaml``) and that the bloat in
+single source of truth (``registry/concepts.yaml``) and that the bloat in
 AGENTS.md has been eliminated.
 """
 
@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
-CONCEPTS = ROOT / "docs" / "concepts.yaml"
+CONCEPTS = ROOT / "registry" / "concepts.yaml"
 
 AGENTS_MAX_LINES = 240
 AGENTS_HEADINGS = (

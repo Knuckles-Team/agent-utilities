@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Regenerate the README.md concept summary from docs/concepts.yaml.
+"""Regenerate the README.md concept summary from registry/concepts.yaml.
 
-The authoritative concept count lives in ``docs/concepts.yaml`` (produced by
+The authoritative concept count lives in ``registry/concepts.yaml`` (produced by
 ``scripts/build_concepts_yaml.py``). This script renders that data into
 README.md between the markers::
 
@@ -10,7 +10,7 @@ README.md between the markers::
     <!-- END GENERATED: concepts -->
 
 The README deliberately does not reproduce the large pillar inventory. The full
-per-concept breakdown and release status stay in ``docs/concepts.yaml`` and
+per-concept breakdown and release status stay in ``registry/concepts.yaml`` and
 ``status/status.md``.
 
 Modes:
@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
+CONCEPTS_PATH = ROOT / "registry" / "concepts.yaml"
 README_PATH = ROOT / "README.md"
 
 # Single source of the concept-total computation — shared with
@@ -70,7 +70,7 @@ def render_block(data: dict) -> str:
     )
     lines.append("")
     lines.append(
-        "> Generated from [`docs/concepts.yaml`](docs/concepts.yaml); "
+        "> Generated from [`registry/concepts.yaml`](registry/concepts.yaml); "
         "see [`status/status.md`](status/status.md) for the release-aware breakdown "
         "and [`docs/pillars/`](docs/pillars/) for the architecture map."
     )
@@ -114,7 +114,7 @@ def main() -> int:
     # --check
     if updated != current:
         print(
-            "README.md is OUT OF DATE with docs/concepts.yaml. "
+            "README.md is OUT OF DATE with registry/concepts.yaml. "
             "Run `python scripts/gen_docs.py --write`.",
             file=sys.stderr,
         )

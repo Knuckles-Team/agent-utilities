@@ -30,7 +30,7 @@ from typing import Any
 from .ingest import ingest_concepts, ingest_documents
 
 # Canonical semantic ``CONCEPT:<ID>`` markers declared in source/docs — the
-# fallback concept source for repos that ship no ``docs/concepts.yaml`` registry.
+# fallback concept source for repos that ship no ``registry/concepts.yaml`` registry.
 _CONCEPT_MARKER = re.compile(
     r"CONCEPT:([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)\."
     r"[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9_-])"
@@ -233,7 +233,7 @@ def _scan_concept_markers(root: Path, *, max_files: int = 4000) -> set[str]:
 
 
 def _load_concept_registry(registry: Path) -> dict[str, dict[str, Any]]:
-    """Parse one repo's ``docs/concepts.yaml`` registry into id -> concept entry."""
+    """Parse one repo's ``registry/concepts.yaml`` registry into id -> concept entry."""
     import yaml
 
     try:
@@ -263,7 +263,7 @@ def _marker_fallback_concepts(rp: Path) -> dict[str, dict[str, Any]]:
 def discover_concepts(roots: list[str], *, max_depth: int = 3) -> list[dict[str, Any]]:
     """Collect ecosystem capability concepts under ``roots`` for :func:`ingest_concepts`.
 
-    Authoritative source is each repo's ``docs/concepts.yaml`` registry (id + name +
+    Authoritative source is each repo's ``registry/concepts.yaml`` registry (id + name +
     pillar + status); repos that ship none fall back to a bounded ``CONCEPT:<ID>``
     marker scan (id only). Registry entries win on id collisions. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     """
@@ -272,7 +272,7 @@ def discover_concepts(roots: list[str], *, max_depth: int = 3) -> list[dict[str,
         rp = Path(root)
         if not rp.is_dir():
             continue
-        registry = rp / "docs" / "concepts.yaml"
+        registry = rp / "registry" / "concepts.yaml"
         registry_entries = (
             _load_concept_registry(registry) if registry.is_file() else {}
         )

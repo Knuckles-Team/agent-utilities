@@ -3,7 +3,7 @@
 CONCEPT:AU-OS.governance.cross-host-concept-reservation-authority
 
 The repository-local allocator remains the compatibility projection for
-``docs/concept_reservations.d``.  It is deliberately *not* the authority for
+``registry/concept_reservations.d``.  It is deliberately *not* the authority for
 separate hosts: a git common directory and a filesystem lock stop being shared
 at that boundary.  This module defines the graph-os boundary that owns global
 concept uniqueness and supplies a fail-closed adapter over the engine's existing

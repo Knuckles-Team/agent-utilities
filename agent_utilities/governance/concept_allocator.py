@@ -8,11 +8,11 @@ The claim is made **atomic and self-correcting** by three mechanisms, each an
 application of a lane-arbitration class (``agent_utilities.governance.lanes``):
 
 * **APPEND-ONLY writes.** A lane appends immutable records to *its own* fragment,
-  ``docs/concept_reservations.d/<lane>.yaml``. It never rewrites a file another
+  ``registry/concept_reservations.d/<lane>.yaml``. It never rewrites a file another
   lane writes, so two lanes reserving at once produce two files that git merges
   without a conflict and neither can clobber. Status changes (landed / expired /
   released) are *new appended records*, not edits — the ledger is event-sourced.
-* **A single generated view.** ``docs/concept_reservations.yaml`` is the folded
+* **A single generated view.** ``registry/concept_reservations.yaml`` is the folded
   union of every fragment: one record per id, deterministically ordered. Readers
   consult that one file exactly as before; only writers know fragments exist.
 * **Host-shared arbitration.** The uniqueness check is serialized by a lock in
@@ -127,7 +127,7 @@ _STATUS_RANK = {
 
 _VIEW_HEADER = [
     "# Concept-ID reservation ledger — GENERATED, do not edit by hand.",
-    "# Truth is docs/concept_reservations.d/<lane>.yaml — one append-only fragment",
+    "# Truth is registry/concept_reservations.d/<lane>.yaml — one append-only fragment",
     "# per writing lane. Regenerated on reserve/release/reconcile; rebuild with",
     "# `agent-utilities concept reconcile`. See docs/concept_coordination.md.",
 ]
@@ -146,8 +146,8 @@ def default_repo_root() -> Path:
     """
     tree = current_tree()
     if tree is not None and (
-        (tree / "docs" / LEDGER_FILENAME).exists()
-        or (tree / "docs" / FRAGMENT_DIRNAME).is_dir()
+        (tree / "registry" / LEDGER_FILENAME).exists()
+        or (tree / "registry" / FRAGMENT_DIRNAME).is_dir()
     ):
         return tree
     return PACKAGE_ROOT
@@ -214,12 +214,12 @@ def registry_ids(concepts_yaml: Path) -> set[str]:
 # ---------------------------------------------------------------------------
 def ledger_path(repo_root: Path | None = None) -> Path:
     """The single generated view every reader consults."""
-    return _root(repo_root) / "docs" / LEDGER_FILENAME
+    return _root(repo_root) / "registry" / LEDGER_FILENAME
 
 
 def fragment_dir(repo_root: Path | None = None) -> Path:
     """The directory of per-lane append-only fragments (what writers touch)."""
-    return _root(repo_root) / "docs" / FRAGMENT_DIRNAME
+    return _root(repo_root) / "registry" / FRAGMENT_DIRNAME
 
 
 def _store(repo_root: Path) -> FragmentStore:
@@ -456,7 +456,7 @@ def _taken_union(
     """Every id that is spoken for: in code, in the registry, or claimed in flight."""
     roots = scan_roots if scan_roots is not None else _default_scan_roots(repo_root)
     code = set(scan_code_markers(roots))
-    reg = registry_ids(repo_root / "docs" / "concepts.yaml")
+    reg = registry_ids(repo_root / "registry" / "concepts.yaml")
     open_res = _open_reservation_ids(records, now=now)
     in_flight = _claimed_elsewhere(repo_root, now=now)
     return code | reg | open_res | in_flight

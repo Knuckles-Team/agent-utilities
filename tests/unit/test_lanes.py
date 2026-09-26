@@ -56,11 +56,11 @@ def _init_repo(root: Path) -> Path:
     (root / "pyproject.toml").write_text(
         '[project]\nname = "agent-utilities"\n', encoding="utf-8"
     )
-    (root / "docs").mkdir(exist_ok=True)
-    (root / "docs" / "concepts.yaml").write_text(
+    (root / "registry").mkdir(exist_ok=True)
+    (root / "registry" / "concepts.yaml").write_text(
         yaml.safe_dump({"concepts": []}), encoding="utf-8"
     )
-    (root / "docs" / "concept_reservations.yaml").write_text("", encoding="utf-8")
+    (root / "registry" / "concept_reservations.yaml").write_text("", encoding="utf-8")
     _run(["git", "add", "-A"], root)
     _run(["git", "commit", "-qm", "base"], root)
     return root
@@ -615,7 +615,7 @@ def test_configured_lane_root_refuses_a_file(
 def test_park_gives_a_clean_tree_without_touching_refs_stash(canonical: Path) -> None:
     """The affordance that makes `git stash` unnecessary rather than merely banned."""
     lane = _add_worktree(canonical, "lane-park")
-    tracked = lane / "docs" / "concepts.yaml"
+    tracked = lane / "registry" / "concepts.yaml"
     tracked.write_text("concepts: [{id: AU-KG.compute.wip}]\n", encoding="utf-8")
     assert lanes.tree_has_uncommitted_work(lane) is True
 
@@ -644,17 +644,17 @@ def test_two_lanes_park_independently(canonical: Path) -> None:
     one = _add_worktree(canonical, "lane-park-a")
     two = _add_worktree(canonical, "lane-park-b")
     for tree, marker in ((one, "alpha"), (two, "beta")):
-        (tree / "docs" / "concepts.yaml").write_text(
+        (tree / "registry" / "concepts.yaml").write_text(
             f"concepts: []  # {marker}\n", encoding="utf-8"
         )
         lanes.park_worktree(tree)
     for tree, marker in ((one, "alpha"), (two, "beta")):
         lanes.unpark_worktree(tree)
-        assert marker in (tree / "docs" / "concepts.yaml").read_text(encoding="utf-8")
+        assert marker in (tree / "registry" / "concepts.yaml").read_text(encoding="utf-8")
 
 
 def test_park_refuses_the_canonical_checkout(canonical: Path) -> None:
-    (canonical / "docs" / "concepts.yaml").write_text(
+    (canonical / "registry" / "concepts.yaml").write_text(
         "concepts: []\n", encoding="utf-8"
     )
     with pytest.raises(lanes.CanonicalCheckoutError):
@@ -699,7 +699,7 @@ def test_orphan_detector_discriminates_orphaned_from_restored(
     discriminate on the second; this proves it does not.
     """
     lane = _add_worktree(canonical, "lane-orphan")
-    target = lane / "docs" / "concepts.yaml"
+    target = lane / "registry" / "concepts.yaml"
     target.write_text(
         "concepts: [{id: AU-KG.compute.orphan-proof}]\n", encoding="utf-8"
     )
@@ -898,14 +898,14 @@ def test_reserving_from_a_worktree_never_writes_the_canonical_tree(
     canonical: Path,
 ) -> None:
     lane = _add_worktree(canonical, "lane-m")
-    before = (canonical / "docs" / "concept_reservations.yaml").read_text(
+    before = (canonical / "registry" / "concept_reservations.yaml").read_text(
         encoding="utf-8"
     )
     ca.reserve_concept_id("AU-KG.compute.isolated", session_id="lane", repo_root=lane)
-    assert (canonical / "docs" / "concept_reservations.yaml").read_text(
+    assert (canonical / "registry" / "concept_reservations.yaml").read_text(
         encoding="utf-8"
     ) == before
-    assert not (canonical / "docs" / "concept_reservations.d").exists()
+    assert not (canonical / "registry" / "concept_reservations.d").exists()
 
 
 def test_reconcile_sees_a_marker_that_landed_in_the_worktree(canonical: Path) -> None:
@@ -1568,12 +1568,12 @@ def test_gate_refuses_a_hand_edited_generated_ledger_view(canonical: Path) -> No
     guard = _guard_module()
     lane = _add_worktree(canonical, "lane-s")
     ca.reserve_concept_id("AU-KG.compute.gated", session_id="lane", repo_root=lane)
-    view = lane / "docs" / "concept_reservations.yaml"
-    assert guard._check_generated_view(lane, ["docs/concept_reservations.yaml"]) is None
+    view = lane / "registry" / "concept_reservations.yaml"
+    assert guard._check_generated_view(lane, ["registry/concept_reservations.yaml"]) is None
     view.write_text(
         view.read_text(encoding="utf-8") + "- {id: hand-edited}\n", encoding="utf-8"
     )
-    refusal = guard._check_generated_view(lane, ["docs/concept_reservations.yaml"])
+    refusal = guard._check_generated_view(lane, ["registry/concept_reservations.yaml"])
     assert refusal is not None and "GENERATED" in refusal
 
 
@@ -1586,10 +1586,10 @@ def test_gate_allows_webui_to_stage_its_canonical_reservation_ledger(
     _run(["git", "add", "package.json"], webui)
     _run(["git", "commit", "-qm", "identify WebUI"], webui)
     lane = _add_worktree(webui, "webui-ledger-lane")
-    ledger = lane / "docs" / "concept_reservations.yaml"
+    ledger = lane / "registry" / "concept_reservations.yaml"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("# WebUI's canonical reservation records\n", encoding="utf-8")
-    _run(["git", "add", "docs/concept_reservations.yaml"], lane)
+    _run(["git", "add", "registry/concept_reservations.yaml"], lane)
 
     env = dict(os.environ)
     env.pop("CARGO_TARGET_DIR", None)

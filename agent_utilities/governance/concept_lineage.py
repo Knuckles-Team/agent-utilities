@@ -41,7 +41,7 @@ vocabulary (``agent_utilities/governance/domain_vocab.yaml``,
 ``scripts/check_domain_vocab.py``). ``AU-KG.trace.canonical-id-non-idempotence``
 was moved to ``AU-KG.identity.canonical-id-non-idempotence`` this way — before
 this registry supported it as a first-class disposition, a sibling lane did it
-by hand (source-edit + full ``docs/concepts.yaml`` regen) because ``trace`` was
+by hand (source-edit + full ``registry/concepts.yaml`` regen) because ``trace`` was
 never a registered ``KG`` domain. Unlike ``retire``, a rename is not "this named
 nothing" — the decision survives under the new id, and ``renamed`` records the
 old-to-new mapping so:

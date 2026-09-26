@@ -303,7 +303,7 @@ repos:
     name: Lane guard — canonical checkout is read-only; generated views stay generated
     # Two rules that were documented and violated anyway, now mechanical:
     # (1) no non-merge, non-bump commit authored in the canonical checkout, and
-    # (2) no hand-edited docs/concept_reservations.yaml (it is the fold of the
+    # (2) no hand-edited registry/concept_reservations.yaml (it is the fold of the
     #     per-lane append-only fragments). See docs/architecture/lane-concurrency.md.
     entry: python3 scripts/check_lane_guard.py
     language: system
@@ -1241,7 +1241,7 @@ repos:
     always_run: true
     stages: [manual]
   # docs-consistency gate (tests/docs) — README concept block in sync with
-  # docs/concepts.yaml, AGENTS.md regenerated + under its size ceiling, no cache
+  # registry/concepts.yaml, AGENTS.md regenerated + under its size ceiling, no cache
   # dirs leaked into the project tree. NOT run by the unit-pytest scope (tests/unit)
   # NOR by CI, yet it catches real doc drift on every concept change — so mirror it
   # here (fast, ~7s). Manual-only locally because its uv-managed runner may

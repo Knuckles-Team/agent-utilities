@@ -995,7 +995,7 @@ exclusions = [
     "genesis.yaml",
     "docs/project_structure.md",
     "docs/status.md",
-    "docs/concepts.yaml",
+    "registry/concepts.yaml",
     "contract/capabilities-power.md",
     "contract/capabilities-power.json",
     "contract/_vendor_eg_capability_ledger.json",

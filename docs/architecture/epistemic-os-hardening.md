@@ -41,7 +41,7 @@ repeats it rather than silently dropping it.
 
 Every capability is presented as: **what it is** → **code anchor** (file +
 class/function, not just a directory) → **CONCEPT id** (the registry key in
-`docs/concepts.yaml`) → **default posture** (on by default vs. opt-in, and the exact
+`registry/concepts.yaml`) → **default posture** (on by default vs. opt-in, and the exact
 env var if one gates it) → **the two surfaces** (MCP tool + action, REST route) →
 **honest limitations**. Where a capability has **no** second surface, that is stated
 plainly, not implied by omission — per AGENTS.md's *"Two surfaces by default... there

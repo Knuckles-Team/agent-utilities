@@ -33,8 +33,8 @@ from agent_utilities.governance.concept_reservation import (
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / "agent_utilities").mkdir()
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "concepts.yaml").write_text(
+    (tmp_path / "registry").mkdir()
+    (tmp_path / "registry" / "concepts.yaml").write_text(
         yaml.safe_dump({"concepts": []}), encoding="utf-8"
     )
     return tmp_path
@@ -569,7 +569,7 @@ def test_native_restart_between_reserve_and_projection_is_reconciled_once(
         owner_ref=reserved.owner_ref,
         expected_fence=reserved.fence,
     )
-    before = (repo / "docs" / "concept_reservations.yaml").read_bytes()
+    before = (repo / "registry" / "concept_reservations.yaml").read_bytes()
     retried = restarted_service.materialize(
         materialized.reservation_id,
         tenant_ref=materialized.tenant_ref,
@@ -577,7 +577,7 @@ def test_native_restart_between_reserve_and_projection_is_reconciled_once(
         expected_fence=reserved.fence,
     )
     assert retried == materialized
-    assert (repo / "docs" / "concept_reservations.yaml").read_bytes() == before
+    assert (repo / "registry" / "concept_reservations.yaml").read_bytes() == before
     report = reconcile_projection(
         native_authority(store), tenant_ref=reserved.tenant_ref, repo_root=repo
     )
@@ -617,8 +617,8 @@ def test_expiry_requires_time_and_records_expiry_timestamp() -> None:
 def test_reconciliation_is_bounded_and_rejects_stuck_cursor(tmp_path: Path) -> None:
     repo_root = tmp_path
     (repo_root / "agent_utilities").mkdir()
-    (repo_root / "docs").mkdir()
-    (repo_root / "docs" / "concepts.yaml").write_text(
+    (repo_root / "registry").mkdir()
+    (repo_root / "registry" / "concepts.yaml").write_text(
         yaml.safe_dump({"concepts": []}), encoding="utf-8"
     )
 
@@ -651,7 +651,7 @@ def test_materialization_is_retryable_and_reconciliation_is_read_only(
         owner_ref=reserved.owner_ref,
         expected_fence=reserved.fence,
     )
-    before = (repo / "docs" / "concept_reservations.yaml").read_bytes()
+    before = (repo / "registry" / "concept_reservations.yaml").read_bytes()
     retried = service.materialize(
         materialized.reservation_id,
         tenant_ref=materialized.tenant_ref,
@@ -659,7 +659,7 @@ def test_materialization_is_retryable_and_reconciliation_is_read_only(
         expected_fence=reserved.fence,
     )
     assert retried == materialized
-    assert (repo / "docs" / "concept_reservations.yaml").read_bytes() == before
+    assert (repo / "registry" / "concept_reservations.yaml").read_bytes() == before
     result = reconcile_projection(
         authority, tenant_ref=reserved.tenant_ref, repo_root=repo
     )
@@ -672,4 +672,4 @@ def test_materialization_is_retryable_and_reconciliation_is_read_only(
         authority, tenant_ref=reserved.tenant_ref, repo_root=repo
     )
     assert after_marker.state_mismatch == (reserved.concept_id,)
-    assert (repo / "docs" / "concept_reservations.yaml").read_bytes() == before
+    assert (repo / "registry" / "concept_reservations.yaml").read_bytes() == before

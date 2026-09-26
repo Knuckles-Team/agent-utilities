@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Mechanically derive docs/concepts.yaml from CONCEPT:<ID> markers in code.
+"""Mechanically derive registry/concepts.yaml from CONCEPT:<ID> markers in code.
 
 This is the *reproducible generator* for the single source of truth
-``docs/concepts.yaml``. It walks ``agent_utilities/`` for ``*.py`` and ``*.rs``
+``registry/concepts.yaml``. It walks ``agent_utilities/`` for ``*.py`` and ``*.rs``
 files, extracts every canonical OKF-CIS marker, and emits one entry
 per unique concept id:
 
@@ -12,7 +12,7 @@ The pillar is derived mechanically from ``<SLUG>-<PILLAR>``. ``doc`` is a
 best-effort one-liner taken from the nearest descriptive text attached to a
 marker.
 
-It then merges ``docs/external_concepts.yaml`` — a small, hand-curated overlay
+It then merges ``registry/external_concepts.yaml`` — a small, hand-curated overlay
 for concepts that are genuinely realized only in a sibling repository's own
 source (e.g. epistemic-graph's Rust crates), which this generator does not
 recursively scan (that would pull in that repo's entire concept surface, not
@@ -33,8 +33,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
-OUT_PATH = ROOT / "docs" / "concepts.yaml"
-EXTERNAL_PATH = ROOT / "docs" / "external_concepts.yaml"
+OUT_PATH = ROOT / "registry" / "concepts.yaml"
+EXTERNAL_PATH = ROOT / "registry" / "external_concepts.yaml"
 
 # Import the canonical marker grammar from the governance package so the
 # generator, the validator (check_concepts.py), and the allocator never drift.

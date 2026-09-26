@@ -53,7 +53,7 @@ All synthesis and extraction tasks overlap, bounded by 4 concurrent LLM slots.
 
 ### Vector Discovery (0 LLM calls)
 - Pure cosine similarity between concept embeddings and ingested content
-- Cross-references the canonical concepts (see `docs/concepts.yaml`) against all nodes
+- Cross-references the canonical concepts (see `registry/concepts.yaml`) against all nodes
 - Produces ranked match lists with similarity scores
 - **Cost:** Zero LLM calls — embedding-only
 - **Script:** `concept_cross_reference.py` (shipped in the `comparative-analysis` skill under `universal-skills`)

@@ -5,7 +5,7 @@
 # cited from agent-utilities' own architecture docs (AGENTS.md) and therefore
 # belongs in the canonical registry for completeness.
 #
-# scripts/build_concepts_yaml.py merges this file into docs/concepts.yaml on
+# scripts/build_concepts_yaml.py merges this file into registry/concepts.yaml on
 # every regeneration, so entries here survive a regen (non-drifting) without
 # requiring the generator to recursively scan another repo's entire source tree
 # (which would pull in that repo's full concept surface, not just the ones

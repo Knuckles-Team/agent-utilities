@@ -117,9 +117,9 @@ resources:
 
   - name: concept-reservations
     class: append-only
-    mechanism: FragmentStore(docs/concept_reservations.d) folded to docs/concept_reservations.yaml
+    mechanism: FragmentStore(registry/concept_reservations.d) folded to registry/concept_reservations.yaml
     evidence: >-
-      docs/concept_reservations.yaml was a mutable shared ledger many sessions
+      registry/concept_reservations.yaml was a mutable shared ledger many sessions
       rewrote whole-file; it needed repair via a verified line-union and several
       lanes declined to commit it at all rather than clobber it.
 
@@ -170,7 +170,7 @@ resources:
     evidence: >-
       Hundreds of lanes offer candidates concurrently; a single mutable queue
       file would be the shared ledger this workspace has already had to repair
-      once (docs/concept_reservations.yaml). One fragment per lane, appended
+      once (registry/concept_reservations.yaml). One fragment per lane, appended
       never rewritten, and a terminal record supersedes rather than edits — so
       enqueue is lock-free and no lane can drop another's candidate. It lives in
       the shared git dir, so it is identical from every worktree and no

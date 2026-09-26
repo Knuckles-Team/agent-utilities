@@ -1,7 +1,7 @@
 # agent-utilities — Ubiquitous Language (CONTEXT)
 
 > Domain glossary (ubiquitous language) for agent-utilities, complementing the machine-generated
-> concept registry (`docs/concepts.yaml`). Records domain language only — single source of truth per
+> concept registry (`registry/concepts.yaml`). Records domain language only — single source of truth per
 > term, with `Avoid:` guidance to prevent terminology drift across code, PRs, and docs.
 > CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle — self-documenting. Assimilated from open-design's `CONTEXT.md` discipline.
 

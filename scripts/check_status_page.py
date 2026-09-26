@@ -3,7 +3,7 @@
 
 Lightweight CI gate (wired into .github/workflows/advisory.yml, report-only)
 for the new Codex/status page: fails when `status/status.md` is stale relative
-to `docs/concepts.yaml` / `docs/concept_reservations.yaml`. Reuses
+to `registry/concepts.yaml` / `registry/concept_reservations.yaml`. Reuses
 `scripts/build_status_page.py`'s own render function rather than
 re-implementing the parsing/rendering logic — a second independent
 implementation is exactly how the 1216/1203/1196 concept-count drift this
@@ -36,7 +36,7 @@ def main() -> int:
     if current != rendered:
         print(
             "check_status_page: FAIL: status/status.md is stale relative to "
-            "docs/concepts.yaml / docs/concept_reservations.yaml. "
+            "registry/concepts.yaml / registry/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )

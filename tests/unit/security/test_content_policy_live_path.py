@@ -11,7 +11,7 @@ Replaces ``test_policy_engine_live_path.py``, which proved
   ``Orchestrator.__init__``/``_scan_task`` as its live-path fix for that same
   dead code.
 
-Only ``docs/concepts.yaml`` overlapped textually, so git merged both cleanly and
+Only ``registry/concepts.yaml`` overlapped textually, so git merged both cleanly and
 produced a tree that raised ``ImportError`` on
 ``agent_utilities.orchestration.manager``. The reconciliation gate resolved it on
 evidence rather than by merge order:

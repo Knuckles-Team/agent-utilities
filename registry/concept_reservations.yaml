@@ -1,5 +1,5 @@
 # Concept-ID reservation ledger — GENERATED, do not edit by hand.
-# Truth is docs/concept_reservations.d/<lane>.yaml — one append-only fragment
+# Truth is registry/concept_reservations.d/<lane>.yaml — one append-only fragment
 # per writing lane. Regenerated on reserve/release/reconcile; rebuild with
 # `agent-utilities concept reconcile`. See docs/concept_coordination.md.
 - {id: AU-AHE.evaluation.debug-swallow-justification, slug: AU, pillar: AHE, domain: evaluation, session_ref: pref_concept_session_712d062c9483c32955aee4bc3a64c3f08a265002e3ceabd1313d228bff5797ea, reserved_at: '2026-07-31T04:46:18.397268+00:00', expires_at: '2026-08-01T04:46:18.397268+00:00', status: landed, design_ref: pref_design_doc_4a02afbd0ca979db31531e7ad9cd3ec709513974f8d60ba4335543b28af6dfb8, landed_at: '2026-07-31T14:31:38.062473+00:00'}

@@ -3029,7 +3029,7 @@ def prune_landed(
 #: ``checkout --theirs``, which silently drops whichever side lost.
 GENERATED_FILES = frozenset(
     {
-        "docs/concepts.yaml",
+        "registry/concepts.yaml",
         "README.md",
         "AGENTS.md",
         "docs/project_structure.md",
@@ -3037,7 +3037,7 @@ GENERATED_FILES = frozenset(
 )
 
 #: Regeneration order matters: ``gen_docs.py --write`` reads
-#: ``docs/concepts.yaml`` (must be fresh first); ``gen_agents_md.py`` writes
+#: ``registry/concepts.yaml`` (must be fresh first); ``gen_agents_md.py`` writes
 #: both ``AGENTS.md`` and ``docs/project_structure.md`` last.
 _REGENERATE_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("scripts/build_concepts_yaml.py",),

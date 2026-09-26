@@ -15,7 +15,7 @@ enforces:
    ``.bumpversion.cfg``. Neither carve-out is a flag an agent can set. **Generic
    over any repo** — see ``current_tree()`` below.
 
-2. **A generated view stays generated.** ``docs/concept_reservations.yaml`` is the
+2. **A generated view stays generated.** ``registry/concept_reservations.yaml`` is the
    fold of the per-lane append-only fragments (agent-utilities only — a no-op
    check everywhere else, since no other repo stages that path). Staging a
    hand-edited view is how the shared ledger got clobbered in the first place, so
@@ -55,7 +55,7 @@ sys.path.insert(0, str(REPO))
 
 from agent_utilities.governance import lanes  # noqa: E402
 
-LEDGER_VIEW = "docs/concept_reservations.yaml"
+LEDGER_VIEW = "registry/concept_reservations.yaml"
 
 
 def _is_agent_utilities_tree(tree: Path) -> bool:
@@ -171,7 +171,7 @@ def _check_generated_view(tree: Path, staged: list[str]) -> str | None:
     return (
         f"REFUSED: {LEDGER_VIEW} is GENERATED and was hand-edited.\n"
         "  Reservations are append-only: write to your own fragment under\n"
-        "  docs/concept_reservations.d/<lane>.yaml (the CLI does this for you),\n"
+        "  registry/concept_reservations.d/<lane>.yaml (the CLI does this for you),\n"
         "  then regenerate the view:\n\n"
         "      agent-utilities concept reserve --id <ID>\n"
         "      agent-utilities concept reconcile"

@@ -32,7 +32,7 @@ generated from source markers, not edited by hand.
 5. Run `python scripts/check_concepts.py` and
    `python scripts/check_domain_vocab.py`.
 6. Rebuild RDF with `python scripts/build_concept_rdf.py --registry
-   docs/concepts.yaml --out
+   registry/concepts.yaml --out
    agent_utilities/knowledge_graph/ontology_concepts.ttl`.
 
 `agent-utilities concept resolve --id <ID>` returns the parsed slug, pillar,
@@ -46,7 +46,7 @@ form.
 | `agent_utilities/governance/concept_hierarchy.py` | Grammar and projections |
 | `agent_utilities/governance/domain_vocab.yaml` | Closed domain vocabulary |
 | `agent_utilities/governance/slug_registry.yaml` | Unique repository slugs |
-| `docs/concepts.yaml` | Generated exact-ID registry |
-| `docs/concept_reservations.yaml` | Generated compatibility projection of exact-ID claims |
+| `registry/concepts.yaml` | Generated exact-ID registry |
+| `registry/concept_reservations.yaml` | Generated compatibility projection of exact-ID claims |
 | `agent_utilities/governance/concept_reservation.py` | Cross-host authority port, native adapter, lifecycle, and read-only reconciliation |
 | `agent_utilities/knowledge_graph/ontology_concepts.ttl` | Generated concept RDF |
