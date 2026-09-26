@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import msgpack
 import pytest
 
 from agent_utilities.knowledge_graph.core.session import (
@@ -318,19 +319,22 @@ def test_retire_fact_tombstones_without_deleting_and_links_evidence() -> None:
     assert retired["archived"] is True
     assert retired["name"] == "svc-1 is a payments service"
     assert retired["externalToolId"] == "svc-1"
-    # The evidence that retired it is a durable, traversable edge.
-    assert engine.edges == [
-        (
-            "claim:ingest:new-version",
-            "svc-1",
-            "supersedes",
-            {
-                "_rel": "SUPERSEDES",
-                "reason": "corrected by a later, higher-confidence source",
-                "concept": "AU-KG.ingest.fact-supersession",
-            },
-        )
-    ]
+    # The tombstone and evidence edge share one native mutation, not a second
+    # best-effort engine.link_nodes call.
+    assert engine.edges == []
+    assert result["tombstone"]["write_result"]["edges"] == 1
+    mutation = engine.client.changes.applied[-1]["mutation"]
+    operations = mutation["operations"]
+    assert [op["method"]["method"] for op in operations] == ["AddNode", "AddEdge"]
+    edge = operations[1]["method"]["params"]
+    assert edge["source_id"] == "claim:ingest:new-version"
+    assert edge["target_id"] == "svc-1"
+    assert msgpack.unpackb(edge["properties_msgpack"], raw=False) == {
+        "relationship": "supersedes",
+        "_rel": "SUPERSEDES",
+        "reason": "corrected by a later, higher-confidence source",
+        "concept": "AU-KG.ingest.fact-supersession",
+    }
 
 
 def test_retire_fact_does_not_link_evidence_when_tombstone_fails(
@@ -358,6 +362,25 @@ def test_retire_fact_does_not_link_evidence_when_tombstone_fails(
     assert engine.edges == []
 
 
+def test_delete_sidecar_rejects_extra_payload_before_native_commit() -> None:
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_envelope,
+    )
+
+    engine = _PromotionEngine()
+    envelope = ChangeEnvelope(
+        connector="fixture-ingest",
+        operation="delete",
+        source_object_id="svc-1",
+        typed_payload={"_links": [], "extra": "untrusted"},
+    )
+
+    result = ingest_envelope(engine, envelope)
+
+    assert result["status"] == "rejected"
+    assert engine.client.changes.applied == []
+
+
 def test_retract_and_supersede_retires_a_materialized_claims_fact() -> None:
     engine = _PromotionEngine()
     claim = _claim()
@@ -373,7 +396,10 @@ def test_retract_and_supersede_retires_a_materialized_claims_fact() -> None:
     assert outcome["superseded_fact"]["tombstone"]["status"] == "success"
     assert engine.client.nodes.values["svc-1"]["archived"] is True
     # The claim's own lifecycle audit trail is untouched history, not deleted.
-    assert engine.edges[-1][:2] == (claim.claim_id, "svc-1")
+    operations = engine.client.changes.applied[-1]["mutation"]["operations"]
+    edge = operations[-1]["method"]["params"]
+    assert edge["source_id"] == claim.claim_id
+    assert edge["target_id"] == "svc-1"
 
 
 # ---------------------------------------------------------------------------
