@@ -25,6 +25,11 @@ def test_tenant_role_name_matches_the_engine_convention() -> None:
     # `crates/eg-core/src/isolation.rs::provision_tenant_graph_access` — a drift
     # here would silently admit principals into a role no grant covers.
     assert tra.tenant_role_name("homelab") == "tenant:homelab"
+    assert tra.tenant_role_name("Team:East") == "tenant:team_east"
+    assert tra.tenant_role_name("Acme.IO") == "tenant:acme.io"
+    from agent_utilities.knowledge_graph.core.shard_topology import tenant_graph_name
+
+    assert tenant_graph_name("Team:East", "default") == "tenant__team_east__default"
 
 
 def test_tenant_role_name_rejects_empty_slug() -> None:

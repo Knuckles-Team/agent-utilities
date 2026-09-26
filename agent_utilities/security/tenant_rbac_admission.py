@@ -48,10 +48,12 @@ def tenant_role_name(tenant_slug: str) -> str:
     """The durable RBAC role name the engine's own
     ``IsolationLayer::provision_tenant_graph_access`` provisions for
     ``tenant_slug`` (``crates/eg-core/src/isolation.rs``) — ``tenant:<slug>``.
-    Kept as one named function (never re-derived inline) so this module and
-    the engine's naming convention can never independently drift."""
+    Derive that slug through the same helper that names the tenant graph, so a
+    raw JWT tenant such as ``Team:East`` maps to its provisioned role."""
 
-    slug = tenant_slug.strip()
+    from ..knowledge_graph.core.shard_topology import tenant_graph_slug
+
+    slug = tenant_graph_slug(tenant_slug)
     if not slug:
         raise ValueError("tenant_slug must be a non-empty opaque identifier")
     return f"tenant:{slug}"

@@ -41,6 +41,7 @@ __all__ = [
     "resolve_routing_graph",
     "shard_topology_status",
     "sharding_active",
+    "tenant_graph_slug",
     "tenant_graph_name",
 ]
 
@@ -205,6 +206,13 @@ def is_local_endpoint(endpoint: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def tenant_graph_slug(tenant: str | None) -> str:
+    """Return the canonical slug used in tenant graph and RBAC role names."""
+    if not tenant:
+        return ""
+    return _TENANT_SLUG_RE.sub("_", tenant.strip()).strip("_").lower()
+
+
 def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
     """Map a tenant id onto its per-tenant named graph: ``tenant__<t>__<base>``.
 
@@ -214,9 +222,7 @@ def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
     or unset tenant returns ``base`` unchanged — single-tenant deployments are
     byte-for-byte unaffected.
     """
-    if not tenant:
-        return base
-    slug = _TENANT_SLUG_RE.sub("_", tenant.strip()).strip("_").lower()
+    slug = tenant_graph_slug(tenant)
     if not slug:
         return base
     return f"tenant__{slug}__{base}"
