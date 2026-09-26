@@ -333,6 +333,31 @@ def test_retire_fact_tombstones_without_deleting_and_links_evidence() -> None:
     ]
 
 
+def test_retire_fact_does_not_link_evidence_when_tombstone_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _PromotionEngine()
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    monkeypatch.setattr(
+        envelope_ingest,
+        "ingest_envelope",
+        lambda _engine, _envelope: {"status": "failed", "error": "native unavailable"},
+    )
+
+    result = supersession.retire_fact(
+        engine,
+        entity_id="svc-1",
+        connector="fixture-ingest",
+        reason="incorrect",
+        retracted_by_claim="claim:ingest:new-version",
+    )
+
+    assert result["tombstone"]["status"] == "failed"
+    assert result["evidence_linked"] is False
+    assert engine.edges == []
+
+
 def test_retract_and_supersede_retires_a_materialized_claims_fact() -> None:
     engine = _PromotionEngine()
     claim = _claim()
