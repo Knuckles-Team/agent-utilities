@@ -34,7 +34,6 @@ import hashlib
 import json
 import logging
 import os
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -42,14 +41,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from epistemic_graph.ingestion.graph_slice import GraphSliceCapture
 from pydantic import BaseModel, Field
 
 from agent_utilities.core.config import setting
-from agent_utilities.models.knowledge_graph import (
-    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
-    retired_edge_relationship_property_error,
-    retired_node_type_property_error,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -320,84 +315,9 @@ class _EnrichContext:
     source_type: str
     title: str
     windows: list[str]
-    write_slice: _NativeGraphSliceCapture
+    write_slice: GraphSliceCapture
     sem: Any
 
-
-class _NativeGraphSliceCapture:
-    """Thread-safe write buffer for one native enrichment graph slice.
-
-    Extractors keep their small ``add_node``/``add_edge`` protocol, but none of
-    those calls reaches a durable backend. The completed slice is handed to
-    ``ingest_graph_slice`` once, preserving ChangeEnvelope atomicity even when
-    concept windows are extracted concurrently.
-    """
-
-    def __init__(self, read_backend: Any) -> None:
-        self._read_backend = read_backend
-        self._nodes: dict[str, dict[str, Any]] = {}
-        self._edges: list[dict[str, Any]] = []
-        self._edge_keys: set[str] = set()
-        self._lock = threading.RLock()
-
-    def add_node(
-        self,
-        node_id: str,
-        label: str = "",
-        **properties: Any,
-    ) -> None:
-        row = dict(properties)
-        if "type" in row:
-            raise retired_node_type_property_error()
-        node_type = str(row.pop("node_type", "") or label or "Entity")
-        row["id"] = str(node_id)
-        row["node_type"] = node_type
-        with self._lock:
-            current = self._nodes.setdefault(str(node_id), {"id": str(node_id)})
-            current.update(row)
-
-    def add_edge(
-        self,
-        source: str,
-        target: str,
-        rel_type: str = "",
-        **properties: Any,
-    ) -> None:
-        row = dict(properties)
-        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
-        if aliases:
-            raise retired_edge_relationship_property_error(aliases)
-        edge_type = str(row.pop("relationship", "") or rel_type or "RELATED_TO")
-        edge = {
-            "source": str(source),
-            "target": str(target),
-            "relationship": edge_type,
-            **row,
-        }
-        key = json.dumps(edge, sort_keys=True, separators=(",", ":"), default=str)
-        with self._lock:
-            if key not in self._edge_keys:
-                self._edge_keys.add(key)
-                self._edges.append(edge)
-
-    def semantic_search(self, *args: Any, **kwargs: Any) -> Any:
-        search = getattr(self._read_backend, "semantic_search", None)
-        return search(*args, **kwargs) if callable(search) else []
-
-    def snapshot(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        with self._lock:
-            return (
-                [dict(self._nodes[node_id]) for node_id in sorted(self._nodes)],
-                [
-                    dict(row)
-                    for row in sorted(
-                        self._edges,
-                        key=lambda item: json.dumps(
-                            item, sort_keys=True, separators=(",", ":"), default=str
-                        ),
-                    )
-                ],
-            )
 
 
 def _now() -> str:
@@ -1903,7 +1823,7 @@ class IngestionEngine:
             source_type=source_type,
             title=title,
             windows=self._enrichment_windows(text),
-            write_slice=_NativeGraphSliceCapture(self.backend),
+            write_slice=GraphSliceCapture(self.backend),
             sem=self._enrichment_semaphore(),
         )
         counts = await self._run_enrichment_passes(
