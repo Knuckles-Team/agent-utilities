@@ -3642,8 +3642,9 @@ def register_query_tools(mcp):
     def _graph_document_tree_spine_resolve(
         engine: Any, action: str, text: str, artifact_id: str, document_id: str
     ) -> tuple[Sequence[Any], str, str | None]:
+        from epistemic_graph.ingestion.evidence_address import artifact_id_for
+
         from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-            artifact_id_for,
             fragment_markdown,
             load_fragments,
         )
@@ -3679,9 +3680,7 @@ def register_query_tools(mcp):
         fragment_id: str,
         content_hash: str,
     ) -> str:
-        from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
-            citation_status,
-        )
+        from epistemic_graph.ingestion.citation import citation_status
 
         if not (fragment_id or content_hash):
             return json.dumps(

@@ -13,6 +13,7 @@ import dataclasses
 import _fixtures
 import pytest
 import yaml
+from epistemic_graph.ingestion.evidence_model import Fragment
 
 from agent_utilities.knowledge_graph.domain_packs.domain_pack import (
     ColumnMapping,
@@ -27,7 +28,6 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
     load_pack,
     reset_default_registry,
 )
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 
 
 def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):

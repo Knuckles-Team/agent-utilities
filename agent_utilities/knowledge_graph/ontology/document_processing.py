@@ -763,7 +763,9 @@ class DocumentProcessor:
         )
         spans = chunk_text(verbatim, self.chunking)
 
-        from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
+        from epistemic_graph.ingestion.evidence_address import artifact_id_for
+
+        from ..ingestion.evidence_spine import fragment_markdown
 
         # The artifact is the SOURCE OBJECT, so it is keyed to the source label
         # (the path/URL), NOT to ``doc_id`` — which is derived from the content
@@ -1421,9 +1423,10 @@ class DocumentProcessor:
         """Commit the complete document/chunk/section/evidence-spine slice atomically."""
         from dataclasses import replace as _replace
 
+        from epistemic_graph.ingestion.evidence_model import Artifact
+
         from ..ingestion.change_envelope import ChangeEnvelope
         from ..ingestion.envelope_ingest import ingest_envelope
-        from ..ingestion.evidence_spine import Artifact
 
         record = dict(result.document_node)
         auxiliary = [

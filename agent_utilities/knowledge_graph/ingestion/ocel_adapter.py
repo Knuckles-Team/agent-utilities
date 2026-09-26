@@ -44,6 +44,41 @@ from epistemic_graph.ingestion.semantic_event_model import (
 )
 from pydantic import ValidationError
 
+from .change_envelope import ChangeEnvelope
+
+
+def to_change_envelope(
+    source: ObjectCentricGraphSlice,
+    *,
+    tenant: str,
+    provenance: dict[str, Any],
+) -> ChangeEnvelope:
+    """Render an EG semantic slice for AU's existing governed write adapter.
+
+    EG owns the deterministic slice; the AU adapter owns its current
+    ``ChangeEnvelope`` transport shape until the SourceIngest cutover.
+    """
+    scoped_tenant = tenant.strip()
+    if not scoped_tenant:
+        raise ValueError("tenant is required for OCEL materialization")
+    entities, links = source.to_graph_slice()
+    for entity in entities:
+        entity["tenant_id"] = scoped_tenant
+        entity["ocel_provenance"] = provenance
+    for link in links:
+        link["tenant_id"] = scoped_tenant
+    return ChangeEnvelope(
+        connector="ocel",
+        tenant=scoped_tenant,
+        source_instance=source.log_id,
+        source_object_id=source.log_id,
+        source_version=source.canonical_digest(),
+        schema_version="2.0",
+        ontology_mapping_version=source.mapping_version,
+        typed_payload={"entities": entities, "relationships": links},
+        provenance={"format": "OCEL 2.0", **provenance},
+    )
+
 OCEL_VERSION = "2.0"
 OCEL_MAPPING_VERSION = "ocel-json-2.0"
 _ATTRIBUTE_TYPES = frozenset({"string", "time", "integer", "float", "boolean"})

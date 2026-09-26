@@ -7,17 +7,15 @@ Content-typed adaptors handle codebase, document, social, SPARQL,
 skill, MCP server, policy, event stream, and prompt ingestion.
 """
 
-from .change_envelope import OPERATIONS, ChangeEnvelope, Operation
-from .engine import ContentType, IngestionEngine, IngestionManifest, IngestionResult
-from .evidence_spine import (
+
+from epistemic_graph.ingestion.evidence_model import (
     Artifact,
     Fragment,
     FragmentKind,
-    artifact_id_for,
-    content_digest,
-    fragment_id_for,
-    resolve_fragment,
 )
+
+from .change_envelope import OPERATIONS, ChangeEnvelope, Operation
+from .engine import ContentType, IngestionEngine, IngestionManifest, IngestionResult
 from .governed_documentation import (
     DOCUMENTATION_MAPPING_VERSION,
     DOCUMENTATION_SCHEMA_VERSION,
@@ -44,10 +42,6 @@ __all__ = [
     "Artifact",
     "Fragment",
     "FragmentKind",
-    "artifact_id_for",
-    "content_digest",
-    "fragment_id_for",
-    "resolve_fragment",
     "DOCUMENTATION_MAPPING_VERSION",
     "DOCUMENTATION_SCHEMA_VERSION",
     "DocumentationEvidence",

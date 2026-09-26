@@ -48,13 +48,8 @@ import re
 from pathlib import Path
 
 import yaml
-
-from ..ingestion.evidence_spine import (
-    Artifact,
-    Fragment,
-    artifact_id_for,
-    content_digest,
-)
+from epistemic_graph.ingestion.evidence_address import artifact_id_for, content_digest
+from epistemic_graph.ingestion.evidence_model import Artifact, Fragment
 
 __all__ = ["fragment_markdown_text", "fragment_markdown_file"]
 

@@ -1469,10 +1469,12 @@ class LoopController:
             return {"emitted": 0}
 
         from ..ingestion.envelope_ingest import ingest_graph_slice
+        from ..ingestion.ocel_adapter import to_change_envelope
 
         try:
             slice_, predictions = self._prediction_slice(above_floor, node_label)
-            envelope = slice_.to_change_envelope(
+            envelope = to_change_envelope(
+                slice_,
                 tenant=self._mining_tenant(),
                 provenance={
                     "source": "loop_controller._mine_predicted_edges",

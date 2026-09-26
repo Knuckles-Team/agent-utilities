@@ -31,11 +31,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from agent_utilities.knowledge_graph.ingestion.evidence_spine import (
+from epistemic_graph.ingestion.evidence_model import (
     ARTIFACT_NODE_TYPE,
     FRAGMENT_NODE_TYPE,
 )
+
 from agent_utilities.knowledge_graph.ontology.document_processing import (
     ChunkingConfig,
     DocumentProcessor,

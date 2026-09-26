@@ -1018,7 +1018,7 @@ RETRIEVAL_ACL_ENFORCEMENT = _counter(
 RETRIEVAL_CITATION_RESOLUTION = _counter(
     "agent_utilities_retrieval_citation_resolution_total",
     "Evidence-citation resolution outcomes (CONCEPT:AU-KG.retrieval.mandatory-evidence-citation) "
-    "by status (current|moved|stale|lost) — see evidence_spine.citation_status. A retrieval "
+    "by status (current|moved|stale|lost) — see epistemic_graph.ingestion.citation.citation_status. A retrieval "
     "result whose citation cannot be resolved to real evidence ('lost') is a defect, not a "
     "degraded result; sustained 'stale'/'lost' indicates the source drifted since the citing "
     "chunk was indexed and the affected artifact needs reprocessing.",
