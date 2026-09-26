@@ -166,7 +166,11 @@ class TopologicalAnalysisEngine:
         if self._spectral_navigator is None:
             from .spectral_navigator import SpectralClusterNavigator
 
-            self._spectral_navigator = SpectralClusterNavigator()
+            compute = getattr(self._graph, "graph_compute", self._graph)
+            native = getattr(compute, "spectral_cluster", None)
+            self._spectral_navigator = SpectralClusterNavigator(
+                native_cluster=native if callable(native) else None
+            )
 
         return self._spectral_navigator.cluster(vectors, max_k=max_k, domain=domain)
 

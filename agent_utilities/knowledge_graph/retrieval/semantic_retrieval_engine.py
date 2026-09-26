@@ -273,7 +273,11 @@ class KGNativeRetrievalRetriever:
         self.config = config or KGNativeRetrievalConfig()
 
         # Initialize sub-components
-        self._spectral_nav = SpectralClusterNavigator()
+        compute = getattr(engine, "graph_compute", None)
+        native = getattr(compute, "spectral_cluster", None)
+        self._spectral_nav = SpectralClusterNavigator(
+            native_cluster=native if callable(native) else None
+        )
         self._similarity_linker = AutoSimilarityLinker()
         self._hybrid_scorer = HybridSearchScorer()
 
