@@ -37,7 +37,6 @@ AGENT_ONLY: frozenset[str] = frozenset(
         "MODEL_ID",
         "LLM_BASE_URL",
         "LLM_API_KEY",
-        "ENABLE_WEB_UI",
     }
 )
 # Companion tool-suite toggles (``SYSTEM_TOOLS_ENABLE``, ``BROWSER_TOOLS_ENABLE`` …) bundle

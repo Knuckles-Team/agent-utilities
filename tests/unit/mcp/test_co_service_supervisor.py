@@ -32,6 +32,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.mcp import co_service_supervisor as cosvc
 from agent_utilities.security.actor_identity import ActorType
@@ -89,6 +91,18 @@ def test_detect_composition_nothing_configured(monkeypatch):
     )
     plan = cosvc.detect_composition(messaging_intake_enabled=False)
     assert plan.co_service_names() == ()
+
+
+def test_legacy_supervisor_rejects_a_second_webui_host(monkeypatch):
+    monkeypatch.setattr(
+        cosvc,
+        "detect_composition",
+        lambda *args, **kwargs: cosvc.CompositionPlan(web_ui_enabled=True),
+    )
+    supervisor = cosvc.CoServiceSupervisor()
+    with pytest.raises(PermissionError, match="GraphOS composition"):
+        cosvc.start_co_services(_verified_session(), object(), supervisor=supervisor)
+    assert supervisor.running() == ()
 
 
 # ── Supervision: bounded restart + clean shutdown ──────────────────────────

@@ -19,7 +19,7 @@ pip install "agent-utilities[agent-runtime]"
 # Protocol adapters & UI
 pip install "agent-utilities[acp]"      # Harness ACP for editors (stdio)
 # Then configure the editor to launch: agent-utilities-acp
-pip install agent-utilities[ag-ui]      # Agent WebUI streaming
+pip install "graph-os[webui]"            # GraphOS-hosted Agent WebUI
 pip install agent-utilities[terminal]   # Terminal UI
 
 # Browser & Web Automation

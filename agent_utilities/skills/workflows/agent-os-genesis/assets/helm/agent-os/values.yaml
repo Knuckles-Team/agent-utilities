@@ -73,7 +73,7 @@ graphos:
     ENABLE_WEB_UI: "true"
   # Port the in-process dashboard binds. Only meaningful with ENABLE_WEB_UI.
   webUiPort: 8080
-  # Requires the `ag-ui` extra in the image (`agent-utilities[ag-ui]`), which
+  # Requires GraphOS's `webui` extra in the image (`graph-os[webui]`), which
   # supplies the dashboard package. A graph-os image built without it refuses
   # loudly at startup rather than serving a blank dashboard.
   resources:

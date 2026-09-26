@@ -18,17 +18,8 @@ Detection signals
   and composition reporting; it does not authorize a listener.
 * **messaging intake** — GraphOS alone owns the inbound poller and its native
   lease. AU's supervisor refuses intake intent so a second writer cannot start.
-* **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
-  ``ENABLE_WEB_UI`` field), and started IN-PROCESS via
-  :func:`agent_utilities.server.webui_co_service.run_web_ui`. It ships a FastAPI
-  application factory and serves its built Vite bundle as SPA static files, so
-  it is an ASGI app like any other; ``agent-utilities[ag-ui]`` already declares
-  the dependency and :func:`agent_utilities.server.app.build_agent_app` already
-  mounts it beside the gateway routers it is the frontend facade for. Running it
-  here also lets it sign engine admission as graph-os, the principal the
-  engine's signer registry trusts. Absent the ``ag-ui`` extra this logs an error
-  and the rest of the composition still starts; the multi-backend deployment
-  planners may still run it as its own service instead.
+* **agent-webui** — served only by GraphOS composition. This legacy supervisor
+  refuses a WebUI request so it cannot start a second public listener.
 
 STDIO safety
 ------------
@@ -304,62 +295,7 @@ def start_co_services(
         raise PermissionError("messaging intake must start through GraphOS composition")
     supervisor = supervisor or CoServiceSupervisor()
 
-    # Resolve optional code before starting any service.  If a real startup
-    # failure occurs after one service has started, the pre-owned supervisor
-    # remains the single rollback owner and can truthfully report live handles.
-    web_ui_runner = _resolve_web_ui_runner(plan)
-
-    try:
-        _start_web_ui_service(web_ui_runner, session, supervisor)
-    except BaseException:
-        _rollback_co_service_startup(supervisor)
-        raise
+    if plan.web_ui_enabled:
+        raise PermissionError("agent-webui must start through GraphOS composition")
 
     return supervisor
-
-
-def _resolve_web_ui_runner(
-    plan: CompositionPlan,
-) -> Callable[[threading.Event], None] | None:
-    """Resolve the optional AU WebUI co-service before acquiring any service."""
-    if not plan.web_ui_enabled:
-        return None
-    try:
-        from agent_utilities.server.webui_co_service import run_web_ui
-    except ImportError:
-        logger.error(
-            "agent-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
-            "is not installed, so it cannot be served in-process. Install "
-            "`agent-utilities[ag-ui]`, or run agent-webui as its own "
-            "deployment."
-        )
-        return None
-    return run_web_ui
-
-
-def _start_web_ui_service(
-    runner: Callable[[threading.Event], None] | None,
-    session: Any,
-    supervisor: CoServiceSupervisor,
-) -> None:
-    """Start the optional WebUI after all preceding service setup succeeds."""
-    if runner is not None:
-        supervisor.start_service("agent-webui", runner, session)
-
-
-def _rollback_co_service_startup(supervisor: CoServiceSupervisor) -> None:
-    """Rollback a partial composition while retaining any live handles."""
-    try:
-        stopped = supervisor.stop_all()
-    except BaseException as cleanup_exc:
-        logger.critical(
-            "co-service startup rollback raised %s: %s; live services remain owned",
-            type(cleanup_exc).__name__,
-            cleanup_exc,
-        )
-    else:
-        if not stopped:
-            logger.critical(
-                "co-service startup rollback incomplete; live services remain owned: %s",
-                supervisor.running(),
-            )

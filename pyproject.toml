@@ -255,7 +255,7 @@ mcp = [
     "pydantic-ai-slim[openai]==2.29.0"
 ]
 agent-runtime = [
-    "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
+    "agent-utilities[mcp,terminal,sandbox]>=1.0.0",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=1.2.0",
@@ -272,12 +272,9 @@ agent-runtime = [
     # — those extras' heavier deps (pydantic-monty, agent-client-protocol) stay opt-in.
     "pydantic-ai-harness>=0.14.0,<0.15.0",
 ]
-# Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
-# pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
-# process never renders — and agent-webui depends on the FULL `pydantic-ai`
-# meta-package, dragging temporalio/botocore/google-genai/grpc/mistralai onto the
-# serving image (~140 MB). `agent-headless` is the same skill/runtime stack the
-# agent actually needs at serve time, minus those two frontend libs. Used by
+# Server-side agent runtime without frontend component libraries. `agent-runtime`
+# includes the terminal client; `agent-headless` is the same skill/runtime stack
+# the agent needs at serve time without that client. Used by
 # `[serving]`. See AGENTS.md "Dependency discipline".
 agent-headless = [
     "agent-utilities[mcp,sandbox]>=1.0.0",
@@ -313,13 +310,6 @@ dynamic-workflow = [
     # never grants the upstream sandbox a second GraphOS execution plane.
     "pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0",
 ]
-ag-ui = [
-    # 1.1.0's server.py called `Agent.to_web(builtin_tools=...)`; pydantic-ai's
-    # `to_web()` dropped that kwarg in favor of `capabilities=[NativeTool(...)]`
-    # on the Agent constructor, so 1.1.0 raised
-    # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
-    # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
-    "agent-webui>=2.4.0"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
@@ -536,10 +526,9 @@ serving = [
     #   - finance: scipy + pandas + statsmodels (~360 MB). The only serving consumer was the
     #     `quant` MCP tool's boot-time registration; that registration is now guarded
     #     (mcp/tools/ontology_tools.py) so kg_server boots cleanly without it.
-    #   - agent-runtime (→ ag-ui/terminal): agent-webui + agent-terminal-ui are FRONTEND component
-    #     libs a server never renders, and agent-webui pulls the full pydantic-ai meta
-    #     (temporalio/botocore/google-genai/grpc/mistralai, ~140 MB). Replaced by the
-    #     `agent-headless` extra (same skill/runtime stack, no frontends).
+    #   - agent-runtime includes the terminal client, which a server never
+    #     renders. The `agent-headless` extra has the same runtime stack
+    #     without a frontend client.
     #   - documents: a no-op alias (D2 — document loading is native, no extra
     #     package needed); PDF extraction uses the bounded pypdf path (now a
     #     base dependency).

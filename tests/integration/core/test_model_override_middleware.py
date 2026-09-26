@@ -138,8 +138,7 @@ def _build_client(agent, **kwargs) -> TestClient:
     kwargs.setdefault("host", "127.0.0.1")
     with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
-            enable_web_ui=False,
-            enable_acp=False,
+                enable_acp=False,
             enable_otel=False,
             graph_bundle=("graph", {"valid_domains": []}),
             **kwargs,
@@ -164,8 +163,7 @@ def _probe_app(
     # non-loopback listener guard for this in-process-only TestClient.
     with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
-            enable_web_ui=False,
-            enable_acp=False,
+                enable_acp=False,
             enable_otel=False,
             graph_bundle=("graph", {"valid_domains": []}),
             model_registry=registry,

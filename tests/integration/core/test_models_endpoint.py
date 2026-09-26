@@ -125,8 +125,7 @@ def _build_client(monkeypatch, **kwargs):
         kwargs.setdefault("provider", "test-provider")
         kwargs.setdefault("model_id", "test-model")
         app = build_agent_app(
-            enable_web_ui=False,
-            enable_acp=False,
+                enable_acp=False,
             enable_otel=False,
             graph_bundle=("graph", {"valid_domains": []}),
             **kwargs,
@@ -349,8 +348,7 @@ def test_models_endpoint_app_state_attached(mock_agent, monkeypatch):
         app = build_agent_app(
             provider="openai",
             model_id="gpt-4o-mini",
-            enable_web_ui=False,
-            enable_acp=False,
+                enable_acp=False,
             enable_otel=False,
             graph_bundle=("graph", {"valid_domains": []}),
         )

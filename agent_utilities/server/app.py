@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from collections.abc import Callable, Mapping
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -33,7 +33,6 @@ from agent_utilities.core.config import (
     DEFAULT_DEBUG,
     DEFAULT_ENABLE_ACP,
     DEFAULT_ENABLE_OTEL,
-    DEFAULT_ENABLE_WEB_UI,
     DEFAULT_HOST,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -199,66 +198,6 @@ def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
     hosts = _resolve_http_hosts(loopback)
     _validate_http_hosts(hosts)
     return origins, hosts
-
-
-def _graph_native_list_skills() -> list[dict[str, Any]]:
-    """List KG-native prompts/tools as webui ``list_skills`` chat-command data.
-
-    Extracted from a nested closure inside ``build_agent_app``'s
-    ``enable_web_ui`` branch to a module-level function so it is directly
-    unit-testable — the ``description``/``description_text`` alias fix here
-    (FIX LANE collapse-tool-endpoints) had no test coverage before this
-    because the closure form was unreachable without constructing the whole
-    agent app. Behavior is unchanged; only the definition site moved.
-
-    CONSUMER EVIDENCE for the ``description_text`` alias (fixed from a
-    mangled ``descriptionription_text`` produced by a botched find/replace):
-    both ``p.get(...)`` and ``t.get(...)`` calls immediately below each
-    query read the row back under ``"description_text"``. The mangled alias
-    meant the real description was returned under a key nothing read, so
-    ``desc_text``/``description`` always fell back to the ``""`` default —
-    which is exactly what agent-webui's ``/skills`` chat command
-    (``api_extensions.py``'s ``cmd_name == 'skills'`` branch) renders
-    verbatim into its response markdown.
-    """
-    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    backend = IntelligenceGraphEngine.get_or_create().backend
-    if backend is None:
-        return []
-
-    skills: list[dict[str, Any]] = []
-    with suppress(Exception):
-        prompts = backend.execute(
-            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS description_text"
-        )
-        for p in prompts:
-            skills.append(
-                {
-                    "id": p.get("id"),
-                    "name": p.get("name"),
-                    "description": p.get("description_text", ""),
-                    "enabled": True,
-                    "type": "prompt",
-                }
-            )
-    with suppress(Exception):
-        tools = backend.execute(
-            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description_text, t.mcp_server AS server"
-        )
-        for t in tools:
-            server_label = t.get("server", "mcp")
-            desc_text = t.get("description_text", "")
-            skills.append(
-                {
-                    "id": t.get("id"),
-                    "name": t.get("name"),
-                    "description": f"[{server_label}] {desc_text}",
-                    "enabled": True,
-                    "type": "tool",
-                }
-            )
-    return sorted(skills, key=lambda x: x.get("name", "").lower())
 
 
 def _configure_observability(
@@ -714,109 +653,6 @@ def _include_gateway_routers(app: FastAPI) -> None:
     app.include_router(git_router.router)
 
 
-def _mount_web_ui(
-    app: FastAPI,
-    *,
-    enable_web_ui: bool | None,
-    custom_web_app: Callable[[Any], Any] | None,
-    custom_web_mount_path: str,
-    agent_instance: Any,
-    identity_meta: dict[str, Any],
-    name: str,
-    html_source: str | Path | None,
-    resolved_registry: Any,
-    reload_callback: Callable[[], Any],
-) -> bool:
-    """Mount a custom UI or the governed standalone agent-web UI.
-
-    The WebUI dispatches every fleet MCP tool through a host-injected
-    delegation seam and refuses (501) without one.
-    CONCEPT:AU-ECO.mcp.webui-governed-mcp-delegation
-    The voice endpoint follows the same rule.
-    CONCEPT:AU-ECO.mcp.webui-voice-transcription-delegation
-    """
-    if enable_web_ui is None:
-        enable_web_ui = to_boolean(setting("ENABLE_WEB_UI", "False"))
-
-    if custom_web_app is not None:
-        app.mount(custom_web_mount_path, custom_web_app(agent_instance))
-        logger.info("Mounted custom web UI")
-    elif enable_web_ui:
-        try:
-            from .routers import enhanced
-
-            app.include_router(enhanced.router)
-            from agent_webui.server import create_agent_web_app
-
-            from agent_utilities.core.chat_persistence import (
-                delete_chat_from_disk,
-                get_chat_from_disk,
-                list_chats_from_disk,
-                save_chat_to_disk,
-            )
-            from agent_utilities.core.scheduler import get_cron_logs, get_cron_tasks
-            from agent_utilities.core.workspace import (
-                get_agent_icon_path,
-                get_workspace_path,
-                initialize_workspace,
-                list_workspace_files,
-                load_workspace_file,
-                write_md_file,
-                write_workspace_file,
-            )
-
-            helpers: dict[str, Any] = {
-                "agent_name": name,
-                "agent_description": identity_meta.get(
-                    "description", DEFAULT_AGENT_DESCRIPTION
-                ),
-                "agent_emoji": identity_meta.get("emoji", "🤖"),
-                "get_workspace_path": get_workspace_path,
-                "load_workspace_file": load_workspace_file,
-                "write_workspace_file": write_workspace_file,
-                "write_md_file": write_md_file,
-                "list_workspace_files": list_workspace_files,
-                "initialize_workspace": initialize_workspace,
-                "list_skills": _graph_native_list_skills,
-                "get_cron_calendar": get_cron_tasks,
-                "get_cron_logs": get_cron_logs,
-                "get_agent_icon_path": get_agent_icon_path,
-                "save_chat": save_chat_to_disk,
-                "list_chats": list_chats_from_disk,
-                "get_chat": get_chat_from_disk,
-                "delete_chat": delete_chat_from_disk,
-                "reload_callback": reload_callback,
-            }
-            from .webui_mcp_delegation import webui_mcp_delegation_helpers
-
-            helpers.update(webui_mcp_delegation_helpers())
-            from .webui_voice_delegation import webui_voice_delegation_helpers
-
-            helpers.update(webui_voice_delegation_helpers())
-            from agent_webui.api_extensions import _invoke_governed_helper
-
-            from .webui_contact_governance import contact_delivery_factory_kwargs
-
-            contact_kwargs = contact_delivery_factory_kwargs(
-                create_agent_web_app,
-                lambda operation: _invoke_governed_helper(operation, deadline=10.0),
-            )
-
-            web_app = create_agent_web_app(
-                agent_instance,
-                workspace_helpers=helpers,
-                html_source=html_source,
-                **contact_kwargs,
-            )
-            web_app.state.reload_app = None
-            web_app.state.model_registry = resolved_registry
-            app.mount("/", web_app)
-            logger.debug("Mounted new standalone agent-web UI dashboard at /")
-        except ImportError:
-            logger.error("agent-web package not found. Enhanced UI dashboard disabled.")
-    return enable_web_ui
-
-
 def _add_http_middleware(
     app: FastAPI,
     *,
@@ -993,7 +829,6 @@ def _assemble_app(
     debug: bool | None,
     name: str,
     agent_description: str | None,
-    identity_meta: dict[str, Any],
     agent_emoji: str,
     lifespan: Callable[..., Any],
     agent_instance: Any,
@@ -1005,14 +840,10 @@ def _assemble_app(
     model_id: str | None,
     base_url: str | None,
     a2a_app: Any,
-    enable_web_ui: bool | None,
-    on_enable_web_ui: Callable[[bool], None],
     custom_web_app: Callable[[Any], Any] | None,
     custom_web_mount_path: str,
-    html_source: str | Path | None,
-    reload_callback: Callable[[], Any],
-) -> tuple[FastAPI, bool]:
-    """Assemble routes, UI, and middleware around one configured agent."""
+) -> FastAPI:
+    """Assemble headless routes and middleware around one configured agent."""
     _origins, _hosts = _http_listener_settings(host, port, debug)
     app = _create_fastapi_app(
         origins=_origins,
@@ -1030,7 +861,7 @@ def _assemble_app(
         else (50.0 if not _is_loopback_listener(host) else 0.0)
     )
 
-    _resolved_registry = _configure_app_state(
+    _configure_app_state(
         app,
         agent_instance=agent_instance,
         initialized_mcp_toolsets=initialized_mcp_toolsets,
@@ -1045,19 +876,8 @@ def _assemble_app(
 
     _include_gateway_routers(app)
     app.mount("/a2a", a2a_app)
-    enable_web_ui = _mount_web_ui(
-        app,
-        enable_web_ui=enable_web_ui,
-        custom_web_app=custom_web_app,
-        custom_web_mount_path=custom_web_mount_path,
-        agent_instance=agent_instance,
-        identity_meta=identity_meta,
-        name=name,
-        html_source=html_source,
-        resolved_registry=_resolved_registry,
-        reload_callback=reload_callback,
-    )
-    on_enable_web_ui(enable_web_ui)
+    if custom_web_app is not None:
+        app.mount(custom_web_mount_path, custom_web_app(agent_instance))
 
     _add_http_middleware(
         app,
@@ -1066,7 +886,7 @@ def _assemble_app(
         effective_rate=effective_rate,
     )
 
-    return app, enable_web_ui
+    return app
 
 
 def _build_app(
@@ -1081,10 +901,8 @@ def _build_app(
     debug: bool | None,
     host: str | None,
     port: int | None,
-    enable_web_ui: bool | None,
     custom_web_app: Callable[[Any], Any] | None,
     custom_web_mount_path: str,
-    html_source: str | Path | None,
     name: str,
     system_prompt: str | None,
     enable_otel: bool | None,
@@ -1105,9 +923,7 @@ def _build_app(
     model_registry: Any | None,
     a2a_config: str | None,
     on_enable_otel: Callable[[bool], None],
-    on_enable_web_ui: Callable[[bool], None],
-    reload_callback: Callable[[], Any],
-) -> tuple[FastAPI, bool, bool]:
+) -> tuple[FastAPI, bool]:
     """Build one FastAPI instance and return the resolved feature flags."""
     _name = name
 
@@ -1168,14 +984,13 @@ def _build_app(
         a2a_config=a2a_config,
         workspace=workspace,
     )
-    app, enable_web_ui = _assemble_app(
+    app = _assemble_app(
         host=host,
         port=port,
         debug=debug,
         name=_name,
         agent_description=_agent_description,
         agent_emoji=_agent_emoji,
-        identity_meta=identity_meta,
         lifespan=lifespan,
         agent_instance=_agent_instance,
         initialized_mcp_toolsets=_initialized_mcp_toolsets,
@@ -1186,15 +1001,11 @@ def _build_app(
         model_id=model_id,
         base_url=base_url,
         a2a_app=a2a_app,
-        enable_web_ui=enable_web_ui,
-        on_enable_web_ui=on_enable_web_ui,
         custom_web_app=custom_web_app,
         custom_web_mount_path=custom_web_mount_path,
-        html_source=html_source,
-        reload_callback=reload_callback,
     )
 
-    return app, enable_otel, enable_web_ui
+    return app, enable_otel
 
 
 def build_agent_app(
@@ -1208,11 +1019,8 @@ def build_agent_app(
     debug: bool | None = DEFAULT_DEBUG,
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
-    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
     custom_web_app: Callable[[Any], Any] | None = None,
     custom_web_mount_path: str = "/",
-    web_ui_instructions: str | None = None,
-    html_source: str | Path | None = None,
     name: str | None = None,
     system_prompt: str | None = None,
     enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
@@ -1253,17 +1061,13 @@ def build_agent_app(
     reloadable: ReloadableApp | None = None
 
     def app_factory() -> FastAPI:
-        nonlocal enable_otel, enable_web_ui
+        nonlocal enable_otel
 
         def _set_enable_otel(value: bool) -> None:
             nonlocal enable_otel
             enable_otel = value
 
-        def _set_enable_web_ui(value: bool) -> None:
-            nonlocal enable_web_ui
-            enable_web_ui = value
-
-        app, enable_otel, enable_web_ui = _build_app(
+        app, enable_otel = _build_app(
             provider=provider,
             model_id=model_id,
             base_url=base_url,
@@ -1274,10 +1078,8 @@ def build_agent_app(
             debug=debug,
             host=host,
             port=port,
-            enable_web_ui=enable_web_ui,
             custom_web_app=custom_web_app,
             custom_web_mount_path=custom_web_mount_path,
-            html_source=html_source,
             name=_name,
             system_prompt=system_prompt,
             enable_otel=enable_otel,
@@ -1298,8 +1100,6 @@ def build_agent_app(
             model_registry=model_registry,
             a2a_config=a2a_config,
             on_enable_otel=_set_enable_otel,
-            on_enable_web_ui=_set_enable_web_ui,
-            reload_callback=lambda: reloadable.reload() if reloadable else None,
         )
         return app
 

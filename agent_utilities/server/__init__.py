@@ -4,7 +4,6 @@ import os
 import signal
 import sys
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import (
@@ -19,7 +18,6 @@ from agent_utilities.core.config import (
     DEFAULT_ENABLE_OTEL,
     DEFAULT_ENABLE_TERMINAL_UI,
     DEFAULT_ENABLE_WEB_LOGS,
-    DEFAULT_ENABLE_WEB_UI,
     DEFAULT_HOST,
     DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
@@ -200,10 +198,7 @@ _PICKLABLE_WORKER_KWARGS = frozenset(
         "debug",
         "host",
         "port",
-        "enable_web_ui",
         "custom_web_mount_path",
-        "web_ui_instructions",
-        "html_source",
         "name",
         "system_prompt",
         "enable_otel",
@@ -386,7 +381,6 @@ def _run_agent_server(
         exclude=("enable_terminal_ui", "enable_acp", "acp_session_root"),
         defaults={"mcp_config": DEFAULT_MCP_CONFIG},
     )
-    enable_web_ui = factory_kwargs["enable_web_ui"]
     workspace = factory_kwargs["workspace"]
 
     # Force disable terminal UI in tests or non-interactive environments to prevent hangs
@@ -497,10 +491,6 @@ def _run_agent_server(
 
     reloadable = app.state.reload_app
 
-    logger.info(
-        "Enabled (Dashboard)" if enable_web_ui else "Disabled",
-    )
-
     log_file_path = None
     if enable_terminal_ui and enable_web_logs:
         log_file_path = setup_server_file_logging(workspace)
@@ -609,11 +599,8 @@ def create_agent_server(
     debug: bool | None = DEFAULT_DEBUG,
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
-    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
     custom_web_app: Callable[[Any], Any] | None = None,
     custom_web_mount_path: str = "/",
-    web_ui_instructions: str | None = None,
-    html_source: str | Path | None = None,
     name: str | None = None,
     system_prompt: str | None = None,
     enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
@@ -859,13 +846,10 @@ def create_agent_server(
             debug=debug,
             host=host,
             port=port,
-            enable_web_ui=enable_web_ui,
             enable_terminal_ui=enable_terminal_ui,
             enable_web_logs=enable_web_logs,
             custom_web_app=custom_web_app,
             custom_web_mount_path=custom_web_mount_path,
-            web_ui_instructions=web_ui_instructions,
-            html_source=html_source,
             name=name,
             system_prompt=graph_prompt,
             enable_otel=enable_otel,

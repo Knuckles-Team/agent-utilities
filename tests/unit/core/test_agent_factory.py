@@ -98,13 +98,12 @@ def test_parser_rejects_unimplemented_runtime_flags(retired_flag) -> None:
         parser.parse_args([retired_flag])
 
 
-def test_parser_web_flag() -> None:
-    """--web BooleanOptionalAction."""
+@pytest.mark.parametrize("retired_flag", ["--web", "--no-web"])
+def test_parser_rejects_web_host_flags(retired_flag: str) -> None:
+    """GraphOS owns WebUI hosting and AU cannot start a second listener."""
     parser = agent_factory.create_agent_parser()
-    args = parser.parse_args(["--web"])
-    assert args.web is True
-    args = parser.parse_args(["--no-web"])
-    assert args.web is False
+    with pytest.raises(SystemExit):
+        parser.parse_args([retired_flag])
 
 
 def test_parser_terminal_aliases() -> None:

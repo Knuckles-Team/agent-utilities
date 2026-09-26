@@ -3357,7 +3357,6 @@ class AgentConfig(BaseSettings):
     airgap_mode: bool = Field(default=False, alias="AIRGAP_MODE")
     """When true, block outbound HTTP requests to non-local hosts (see
     :mod:`agent_utilities.core.http_client`'s ``airgap_guard_transport``)."""
-    enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
     enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
     enable_web_logs: bool = Field(default=False, alias="ENABLE_WEB_LOGS")
     # Deprecated compatibility flag. ACP is a dedicated stdio subprocess
@@ -6420,7 +6419,6 @@ _LAZY_PASSTHROUGH_FIELDS: tuple[tuple[str, str], ...] = (
     ("DEFAULT_MCP_CONFIG", "mcp_config"),
     ("DEFAULT_CUSTOM_SKILLS_DIRECTORY", "custom_skills_directory"),
     ("DEFAULT_SKILL_TYPES", "skill_types"),
-    ("DEFAULT_ENABLE_WEB_UI", "enable_web_ui"),
     ("DEFAULT_ENABLE_TERMINAL_UI", "enable_terminal_ui"),
     ("DEFAULT_ENABLE_WEB_LOGS", "enable_web_logs"),
     ("DEFAULT_ENABLE_OTEL", "enable_otel"),
@@ -6715,7 +6713,6 @@ def __dir__() -> list[str]:
             "DEFAULT_MCP_CONFIG",
             "DEFAULT_CUSTOM_SKILLS_DIRECTORY",
             "DEFAULT_SKILL_TYPES",
-            "DEFAULT_ENABLE_WEB_UI",
             "DEFAULT_ENABLE_TERMINAL_UI",
             "DEFAULT_ENABLE_WEB_LOGS",
             "DEFAULT_ENABLE_OTEL",

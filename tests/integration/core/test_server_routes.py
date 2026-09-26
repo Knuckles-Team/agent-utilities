@@ -8,10 +8,9 @@ These tests are the pytest migration of the ad-hoc Phase 1 smoke tests
 (``p1_smoke_test.py`` and ``p1_smoke_test_webui.py``) plus the Phase 6
 Scenario 5 ("cross-module imports") check.
 
-They boot ``build_agent_app`` in-process twice (with and without
-``enable_web_ui=True``), probe the documented HTTP surface using
-``TestClient``, and assert that the enhanced ``/api/enhanced/*`` router
-is only mounted when the web UI is enabled.
+They boot ``build_agent_app`` in-process, probe its headless HTTP surface
+using ``TestClient``, and assert that the former WebUI enhanced routes are
+absent from AU.
 
 No external network, no subprocesses, no live LLM required — everything
 runs against a fake "dummy-model" provider and a tempfile-backed Ladybug
@@ -37,7 +36,7 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-def _build_app(workspace: Path, db_path: Path, *, enable_web_ui: bool) -> FastAPI:
+def _build_app(workspace: Path, db_path: Path) -> FastAPI:
     """Construct a ``build_agent_app`` instance isolated to ``workspace``.
 
     All dummy LLM credentials and a tempfile-backed LadybugDB path are set
@@ -67,7 +66,6 @@ def _build_app(workspace: Path, db_path: Path, *, enable_web_ui: bool) -> FastAP
             mcp_config=None,
             custom_skills_directory=None,
             debug=False,
-            enable_web_ui=enable_web_ui,
             enable_acp=False,
             workspace=str(workspace),
         )
@@ -102,53 +100,38 @@ def _registered_route_paths(app: FastAPI) -> set[str]:
 
 
 @pytest.fixture(scope="module")
-def app_with_web_ui(tmp_path_factory: pytest.TempPathFactory) -> FastAPI:
-    """A ``build_agent_app`` instance with ``enable_web_ui=True``."""
-    ws = tmp_path_factory.mktemp("server_routes_webui_ws")
-    db = tmp_path_factory.mktemp("server_routes_webui_db") / "kg.db"
-    return _build_app(ws, db, enable_web_ui=True)
+def app_headless(tmp_path_factory: pytest.TempPathFactory) -> FastAPI:
+    """A headless ``build_agent_app`` instance."""
+    ws = tmp_path_factory.mktemp("server_routes_headless_ws")
+    db = tmp_path_factory.mktemp("server_routes_headless_db") / "kg.db"
+    return _build_app(ws, db)
 
 
 @pytest.fixture(scope="module")
-def app_no_web_ui(tmp_path_factory: pytest.TempPathFactory) -> FastAPI:
-    """A ``build_agent_app`` instance with ``enable_web_ui=False``."""
-    ws = tmp_path_factory.mktemp("server_routes_bare_ws")
-    db = tmp_path_factory.mktemp("server_routes_bare_db") / "kg.db"
-    return _build_app(ws, db, enable_web_ui=False)
-
-
-@pytest.fixture(scope="module")
-def client_with_web_ui(app_with_web_ui: FastAPI) -> Iterator[TestClient]:
-    """TestClient bound to the web-UI-enabled app."""
-    with TestClient(app_with_web_ui, raise_server_exceptions=False) as client:
-        yield client
-
-
-@pytest.fixture(scope="module")
-def client_no_web_ui(app_no_web_ui: FastAPI) -> Iterator[TestClient]:
-    """TestClient bound to the bare (no web UI) app."""
-    with TestClient(app_no_web_ui, raise_server_exceptions=False) as client:
+def client_headless(app_headless: FastAPI) -> Iterator[TestClient]:
+    """TestClient bound to the headless app."""
+    with TestClient(app_headless, raise_server_exceptions=False) as client:
         yield client
 
 
 # ---------------------------------------------------------------------------
-# Core routes (always present, web UI or not)
+# Core routes
 # ---------------------------------------------------------------------------
 
 
-def test_health(client_with_web_ui: TestClient) -> None:
+def test_health(client_headless: TestClient) -> None:
     """``/health`` is dependency-free and non-fingerprinting."""
-    resp = client_with_web_ui.get("/health")
+    resp = client_headless.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
     assert resp.headers["cache-control"] == "no-store"
 
 
 def test_health_ready_reflects_the_same_report_in_its_status_code(
-    client_with_web_ui: TestClient,
+    client_headless: TestClient,
 ) -> None:
     """``/health/ready`` exposes only the readiness decision."""
-    resp = client_with_web_ui.get("/health/ready")
+    resp = client_headless.get("/health/ready")
     body = resp.json()
     assert body["status"] in {"ready", "not_ready"}
     assert set(body) == {"status"}
@@ -193,49 +176,23 @@ def test_rest_health_routes_share_the_reserved_async_collector() -> None:
     ["/api/chat", "/api/configure"],
 )
 def test_current_pydantic_web_routes_are_registered_but_not_anonymous(
-    app_with_web_ui: FastAPI,
-    client_with_web_ui: TestClient,
+    app_headless: FastAPI,
+    client_headless: TestClient,
     path: str,
 ) -> None:
     """Current Pydantic AI web routes exist behind verified identity."""
 
-    assert path in _registered_route_paths(app_with_web_ui)
-    resp = client_with_web_ui.get(path)
+    assert path in _registered_route_paths(app_headless)
+    resp = client_headless.get(path)
     assert resp.status_code == 401
     assert resp.json() == {"error": "Verified Bearer identity required"}
 
 
-def test_webui_tool_catalog_is_registered_but_not_anonymous(
-    app_with_web_ui: FastAPI,
-    client_with_web_ui: TestClient,
-) -> None:
-    """The WebUI tool catalog exists behind the verified-identity boundary."""
-
-    path = "/api/enhanced/tools"
-    assert path in _registered_route_paths(app_with_web_ui)
-    resp = client_with_web_ui.get(path)
-    assert resp.status_code == 401
-    assert resp.json() == {"error": "Verified Bearer identity required"}
-
-
-def test_webui_chats_are_registered_but_not_anonymous(
-    app_with_web_ui: FastAPI,
-    client_with_web_ui: TestClient,
-) -> None:
-    """The chat-history route exists behind the verified-identity boundary."""
-
-    path = "/api/enhanced/chats"
-    assert path in _registered_route_paths(app_with_web_ui)
-    resp = client_with_web_ui.get(path)
-    assert resp.status_code == 401
-    assert resp.json() == {"error": "Verified Bearer identity required"}
-
-
-def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
+def test_a2a_mount_present(app_headless: FastAPI) -> None:
     """The ``/a2a`` ``Mount`` route is always registered on the app."""
     mounts = [
         r
-        for r in app_with_web_ui.routes
+        for r in app_headless.routes
         if isinstance(r, Mount) and getattr(r, "path", None) == "/a2a"
     ]
     assert len(mounts) == 1, (
@@ -252,21 +209,23 @@ def test_acp_available_when_acp_installed() -> None:
     assert is_acp_available() is True
 
 
-def test_acp_is_not_a_fake_http_mount(app_with_web_ui: FastAPI) -> None:
+def test_acp_is_not_a_fake_http_mount(app_headless: FastAPI) -> None:
     """Agent Client Protocol is stdio JSON-RPC, not a Starlette mount."""
     mounts = [
         route
-        for route in app_with_web_ui.routes
+        for route in app_headless.routes
         if isinstance(route, Mount) and getattr(route, "path", None) == "/acp"
     ]
     assert mounts == []
 
 
 # ---------------------------------------------------------------------------
-# Enhanced routes (Phase 1 finding: only mounted with enable_web_ui=True)
+# WebUI enhanced routes are absent from AU
 # ---------------------------------------------------------------------------
 
 ENHANCED_ROUTES: list[str] = [
+    "/api/enhanced/tools",
+    "/api/enhanced/chats",
     "/api/enhanced/info",
     "/api/enhanced/graph/stats",
     "/api/enhanced/kb/list",
@@ -280,34 +239,17 @@ ENHANCED_ROUTES: list[str] = [
 
 
 @pytest.mark.parametrize("path", ENHANCED_ROUTES)
-def test_enhanced_routes_available_with_web_ui(
-    app_with_web_ui: FastAPI,
-    client_with_web_ui: TestClient,
-    path: str,
-) -> None:
-    """Enhanced routes are mounted and anonymous callers cannot inspect them."""
-
-    assert path in _registered_route_paths(app_with_web_ui)
-    resp = client_with_web_ui.get(path)
-    assert resp.status_code == 401, (
-        f"Expected 401 at {path} with web UI enabled, got {resp.status_code}: "
-        f"{resp.text[:200]}"
-    )
-    assert resp.json() == {"error": "Verified Bearer identity required"}
-
-
-@pytest.mark.parametrize("path", ENHANCED_ROUTES)
-def test_enhanced_routes_absent_without_web_ui(
-    app_no_web_ui: FastAPI,
-    client_no_web_ui: TestClient,
+def test_enhanced_routes_absent_from_au(
+    app_headless: FastAPI,
+    client_headless: TestClient,
     path: str,
 ) -> None:
     """Absent routes remain non-fingerprinting behind the same auth boundary."""
 
-    assert path not in _registered_route_paths(app_no_web_ui)
-    resp = client_no_web_ui.get(path)
+    assert path not in _registered_route_paths(app_headless)
+    resp = client_headless.get(path)
     assert resp.status_code == 401, (
-        f"Expected 401 at {path} without web UI, got {resp.status_code}: "
+        f"Expected 401 at {path} in headless AU, got {resp.status_code}: "
         f"{resp.text[:200]}"
     )
     assert resp.json() == {"error": "Verified Bearer identity required"}

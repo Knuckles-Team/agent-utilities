@@ -50,8 +50,8 @@ Every admission bridge — tenant (`tenant_admission_cli`), Tier-2
 
 **graph-os.** It is the process that talks to the engine on the platform's behalf, and
 it serves the agent-webui dashboard in-process as a supervised co-service
-(`agent_utilities.server.webui_co_service`, wired by
-`agent_utilities.mcp.co_service_supervisor`, enabled by `ENABLE_WEB_UI`). A co-service
+(`graph_os.webui_host.webui_co_service`, wired by
+`graph_os.mcp_server.composition`, enabled by `ENABLE_WEB_UI`). A co-service
 runs on `_authorized_background_thread`, inheriting graph-os's verified actor and
 `GraphSession` for its whole lifetime — so a browser sign-in that must enrol a new user
 principal in `tenant:<slug>` is admitted by graph-os, signing as graph-os.

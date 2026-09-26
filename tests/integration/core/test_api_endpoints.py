@@ -116,7 +116,6 @@ def client(mock_agent):
             app = build_agent_app(
                 provider="test-provider",
                 model_id="test-model",
-                enable_web_ui=False,
                 enable_acp=False,
                 enable_otel=False,
             )

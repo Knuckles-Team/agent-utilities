@@ -85,7 +85,6 @@ INHERITED_ENV: dict[str, tuple[str, str]] = {
     ),
     "PROVIDER": ("", "Operator-configured LLM provider for the agent"),
     "MODEL_ID": ("", "Operator-configured model id for the agent"),
-    "ENABLE_WEB_UI": ("True", "Serve the AG-UI web interface"),
 }
 
 

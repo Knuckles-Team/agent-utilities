@@ -138,7 +138,6 @@ FRAMEWORK_EXTRA: frozenset[str] = frozenset(
         "LLM_API_KEY",
         "PROVIDER",
         "MODEL_ID",
-        "ENABLE_WEB_UI",
         "MCP_URL",
     }
 )

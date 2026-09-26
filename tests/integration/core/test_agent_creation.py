@@ -72,7 +72,6 @@ def test_create_agent_bootstrap_pattern(mock_run, temp_workspace):
         system_prompt=system_prompt,
         mcp_config="mcp_config.json",
         workspace=str(temp_workspace),
-        enable_web_ui=False,
     )
 
     # 4. Verify uvicorn.run was called

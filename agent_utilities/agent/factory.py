@@ -107,7 +107,9 @@ def create_agent_parser() -> argparse.ArgumentParser:
 
     """
     parser = argparse.ArgumentParser(
-        add_help=False, description=f"Run the {DEFAULT_AGENT_NAME} A2A + AG-UI Server"
+        add_help=False,
+        allow_abbrev=False,
+        description=f"Run the {DEFAULT_AGENT_NAME} A2A + AG-UI Server",
     )
     parser.add_argument(
         "--host", default=DEFAULT_HOST, help="Host to bind the server to"
@@ -155,13 +157,6 @@ def create_agent_parser() -> argparse.ArgumentParser:
             "(contains main_agent.json, mcp_config.json, etc.)"
         ),
     )
-    parser.add_argument(
-        "--web",
-        action=argparse.BooleanOptionalAction,
-        default=to_boolean(setting("ENABLE_WEB_UI", "False")),
-        help="Enable/Disable Agent Web UI",
-    )
-
     parser.add_argument(
         "--terminal",
         "--tui",
