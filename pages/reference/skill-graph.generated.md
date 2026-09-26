@@ -9,23 +9,23 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## AU-AHE
 
-120 concepts in the generated [`AU-AHE` component page](../components/au-ahe.md).
+118 concepts in the generated [`AU-AHE` component page](../components/au-ahe.md).
 
 ## AU-ECO
 
-141 concepts in the generated [`AU-ECO` component page](../components/au-eco.md).
+136 concepts in the generated [`AU-ECO` component page](../components/au-eco.md).
 
 ## AU-KG
 
-526 concepts in the generated [`AU-KG` component page](../components/au-kg.md).
+493 concepts in the generated [`AU-KG` component page](../components/au-kg.md).
 
 ## AU-ORCH
 
-218 concepts in the generated [`AU-ORCH` component page](../components/au-orch.md).
+217 concepts in the generated [`AU-ORCH` component page](../components/au-orch.md).
 
 ## AU-OS
 
-187 concepts in the generated [`AU-OS` component page](../components/au-os.md).
+168 concepts in the generated [`AU-OS` component page](../components/au-os.md).
 
 ## Architecture
 

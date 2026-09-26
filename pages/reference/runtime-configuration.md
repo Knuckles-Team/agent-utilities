@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 371 runtime-only call-site inputs.
+572 typed fields · 345 runtime-only call-site inputs.
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Generation and drift-gate flow</p>
@@ -372,10 +372,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `AGENT_DISPATCH_RENEW_INTERVAL_S` | `float` | `30.0` |
 | `AGENT_BUS_LOG_BACKEND` | `str` | `engine` |
 | `AGENT_BUS_PARTITIONS` | `int` | `6` |
-| `AGENT_BUS_MAX_CONSUMERS` | `int` | `32` |
 | `AGENT_BUS_MAX_DEPTH` | `int` | `100000` |
 | `AGENT_BUS_MAX_TOPIC_SUBSCRIBERS` | `int` | `1024` |
-| `AGENT_BUS_DELIVERY_LEASE_SECONDS` | `int` | `300` |
 | `STATE_DB_URI` | `Union` | `unset` |
 | `STATE_DB_POOL_SIZE` | `int` | `8` |
 | `KG_BREADTH_LIBRARY_ROOTS` | `str` | `` |
@@ -831,8 +829,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `GIT_TOOLS` | 1 |
 | `GLPI_TOKEN` | 1 |
 | `GLPI_URL` | 1 |
-| `GOOGLE_CHAT_SERVICE_ACCOUNT` | 1 |
-| `GOOGLE_MEET_SERVICE_ACCOUNT` | 1 |
 | `GPU_CONCURRENCY_BUDGETS` | 1 |
 | `GPU_RESERVED_ROLES` | 1 |
 | `GRAFANA_URL` | 1 |
@@ -860,9 +856,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `INCIDENT_NOTIFY_URL` | 1 |
 | `INCIDENT_TICKET_BACKEND` | 1 |
 | `INCIDENT_TICKET_ENABLE` | 1 |
-| `IRC_NICKNAME` | 1 |
-| `IRC_PORT` | 1 |
-| `IRC_SERVER` | 1 |
 | `JINA_API_KEY` | 1 |
 | `JIRA_API_TOKEN` | 1 |
 | `JIRA_TOKEN` | 1 |
@@ -930,17 +923,12 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `LEANIX_TOKEN` | 2 |
 | `LEANIX_URL` | 2 |
 | `LGTM_URL` | 1 |
-| `LINE_CHANNEL_ACCESS_TOKEN` | 1 |
 | `LISTMONK_TOKEN` | 1 |
 | `LISTMONK_URL` | 1 |
 | `LOCALAPPDATA` | 1 |
 | `LTX_URL` | 1 |
-| `MATRIX_ACCESS_TOKEN` | 1 |
-| `MATRIX_HOMESERVER` | 1 |
-| `MATRIX_USER_ID` | 1 |
-| `MATTERMOST_BOT_USER` | 1 |
 | `MATTERMOST_TOKEN` | 1 |
-| `MATTERMOST_URL` | 2 |
+| `MATTERMOST_URL` | 1 |
 | `MAX_TOOL_CALLS_PER_SESSION` | 1 |
 | `MAX_TOOL_REPEATS` | 1 |
 | `MCP_DISABLED_TOOLS` | 1 |
@@ -953,11 +941,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_SDK_FLOOR_ENFORCE` | 1 |
 | `MEASUREMENT_LOAD_THRESHOLD` | 1 |
 | `MEDIA_TOOLS` | 1 |
-| `MESSAGING_INBOX_RETRY_S` | 1 |
-| `MESSAGING_LISTEN_BACKOFF_BASE_S` | 1 |
-| `MESSAGING_LISTEN_BACKOFF_MAX_S` | 1 |
-| `MESSAGING_LISTEN_HEALTHY_RESET_S` | 1 |
-| `MESSAGING_LOG_LEVEL` | 1 |
 | `MESSAGING_PROGRESS_STREAMING` | 1 |
 | `MESSAGING_REPLY_TIMEOUT` | 2 |
 | `MESSAGING_TRANSPARENCY_FOOTER` | 1 |
@@ -980,11 +963,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MODEL_LATENCY_GRADIENT_TARGET` | 1 |
 | `MODEL_MAX_CONCURRENCY` | 1 |
 | `MODEL_MAX_CONCURRENT_REQUESTS` | 1 |
-| `MSTEAMS_APP_PASSWORD` | 1 |
 | `NEXTCLOUD_PASSWORD` | 1 |
-| `NEXTCLOUD_TOKEN` | 1 |
-| `NEXTCLOUD_URL` | 2 |
-| `NEXTCLOUD_USER` | 1 |
+| `NEXTCLOUD_URL` | 1 |
 | `OAUTH_UPSTREAM_CLIENT_SECRET_REF` | 1 |
 | `OIDC_BASE_URL` | 1 |
 | `OPENAPI_CLIENT_ID` | 1 |
@@ -1039,12 +1019,10 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SESSION_ID` | 2 |
 | `SESSION_LATENCY_BUDGET_MS` | 1 |
 | `SESSION_TOKEN_BUDGET` | 1 |
-| `SIGNAL_PHONE_NUMBER` | 1 |
 | `SKILL_GRAPH_CRAWLER` | 1 |
 | `SKILL_GRAPH_CRAWLER_PYTHON` | 1 |
 | `SKILL_GRAPH_CRAWL_TIMEOUT` | 1 |
 | `SKILL_GRAPH_MAX_PAGES` | 1 |
-| `SLACK_APP_TOKEN` | 1 |
 | `SOURCE_CONTRACT_EVOLUTION_POLICY` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
@@ -1054,7 +1032,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `STARDOG_PASSWORD_REF` | 1 |
 | `STARDOG_USER` | 4 |
 | `SWE_TOOLS` | 1 |
-| `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |
 | `TECHNITIUM_URL` | 1 |
 | `TRANSPORT` | 1 |
@@ -1064,11 +1041,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `TWENTY_API_TOKEN` | 1 |
 | `TWENTY_TOKEN` | 1 |
 | `TWENTY_URL` | 1 |
-| `TWILIO_ACCOUNT_SID` | 1 |
-| `TWILIO_AUTH_TOKEN` | 1 |
-| `TWILIO_FROM_NUMBER` | 1 |
-| `TWITCH_CHANNELS` | 1 |
-| `TWITCH_OAUTH_TOKEN` | 1 |
 | `UPTIME_KUMA_URL` | 1 |
 | `USAGE_DB_PATH` | 1 |
 | `USAGE_DUCKDB_PATH` | 1 |
