@@ -65,3 +65,38 @@ def test_align_node_to_ontology_fail(owl_classes):
     alignment = engine.align_node_to_ontology(node, threshold=0.85)
 
     assert alignment is None
+
+
+def test_align_node_to_ontology_keeps_first_tie_and_threshold_boundary():
+    classes = {"ClassA": [1.0, 0.0], "ClassB": [1.0, 0.0]}
+    engine = SemanticSubsumptionEngine(classes)
+    node = RegistryNode(
+        id="tie",
+        name="Tie",
+        type=RegistryNodeType.TOOL_METADATA,
+        embedding=[1.0, 0.0],
+    )
+
+    alignment = engine.align_node_to_ontology(node, threshold=1.0)
+
+    assert alignment is not None
+    assert alignment.inferred_parent_class == "ClassA"
+    assert alignment.confidence == 1.0
+
+
+def test_align_node_to_ontology_zero_and_empty_prototypes():
+    node = RegistryNode(
+        id="zero",
+        name="Zero",
+        type=RegistryNodeType.TOOL_METADATA,
+        embedding=[1.0, 0.0],
+    )
+    assert SemanticSubsumptionEngine({}).align_node_to_ontology(node) is None
+    engine = SemanticSubsumptionEngine(
+        {"Empty": [], "Zero": [0.0], "Valid": [1.0, 0.0]}
+    )
+
+    alignment = engine.align_node_to_ontology(node)
+
+    assert alignment is not None
+    assert alignment.inferred_parent_class == "Valid"

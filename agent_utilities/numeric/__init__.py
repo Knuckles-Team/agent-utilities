@@ -346,6 +346,7 @@ _ROOT_OPERATIONS = frozenset(
         "where_",
         "norm",
         "norm_ord",
+        "best_cosine_prototype",
         "dot",
         "matmul",
         "solve",

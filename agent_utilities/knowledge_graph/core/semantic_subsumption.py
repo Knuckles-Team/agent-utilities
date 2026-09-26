@@ -33,24 +33,6 @@ class SemanticSubsumptionEngine:
         self.owl_classes = owl_classes
         self.owl_hierarchy = owl_hierarchy or {}
 
-    def _compute_cosine_similarity(
-        self, vec_a: list[float] | None, vec_b: list[float] | None
-    ) -> float:
-        """Computes cosine similarity between two vectors."""
-        if not vec_a or not vec_b:
-            return 0.0
-
-        a = [float(value) for value in vec_a]
-        b = [float(value) for value in vec_b]
-
-        norm_a = xp.linalg.norm(a)
-        norm_b = xp.linalg.norm(b)
-
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-
-        return float(xp.dot(a, b) / (norm_a * norm_b))
-
     def _get_lineage(self, class_name: str) -> list[str]:
         """Recursively builds the subsumption lineage for a class."""
         lineage = [class_name]
@@ -89,17 +71,20 @@ class SemanticSubsumptionEngine:
         if not node.embedding:
             return None
 
-        best_class = None
-        best_score = 0.0
-
-        for owl_class, prototype_embedding in self.owl_classes.items():
-            similarity = self._compute_cosine_similarity(
-                node.embedding, prototype_embedding
-            )
-
-            if similarity > best_score:
-                best_score = similarity
-                best_class = owl_class
+        classes = list(self.owl_classes)
+        if not classes:
+            return None
+        best = xp.best_cosine_prototype(
+            [float(value) for value in node.embedding],
+            [
+                [float(value) for value in self.owl_classes[owl_class]]
+                for owl_class in classes
+            ],
+        )
+        if best is None:
+            return None
+        best_index, best_score = best
+        best_class = classes[best_index]
 
         if best_class and best_score >= threshold:
             lineage = self._get_lineage(best_class)
