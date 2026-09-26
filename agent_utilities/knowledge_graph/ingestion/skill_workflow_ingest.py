@@ -72,7 +72,6 @@ already have, through the same existing seam — see its call site in
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -80,6 +79,19 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from epistemic_graph.ingestion.runnable_skill_derivation import (
+    classify_skill_type as classify_skill_type,
+)
+from epistemic_graph.ingestion.runnable_skill_derivation import (
+    runnable_skill_digest as runnable_skill_digest,
+)
+from epistemic_graph.ingestion.runnable_skill_derivation import (
+    runnable_skill_projection,
+    skill_reference,
+)
+from epistemic_graph.ingestion.runnable_skill_derivation import (
+    skill_slug as _slug,
+)
 from epistemic_graph.ingestion.workflow_derivation import (
     workflow_content_hash as _content_hash,
 )
@@ -112,49 +124,6 @@ _TOOLS_RE = re.compile(r"\*\*Tools\*\*:\s*`?([^`\n]+)`?")
 _KIND_RE = re.compile(r"\*\*Kind\*\*:\s*`?(gate|approval|task)`?", re.IGNORECASE)
 _CONDITION_RE = re.compile(r"\*\*Condition\*\*:\s*`?([^`\n]+)`?")
 _ON_REJECT_RE = re.compile(r"\*\*OnReject\*\*:\s*`?([^`\n]+)`?")
-
-
-def _slug(text: str) -> str:
-    """Stable id-safe slug (matches the workflow corpus' depends_on dialect)."""
-    return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_") or "step"
-
-
-def skill_reference(name: str) -> str:
-    """Return a stable, repository-independent reference for a skill.
-
-    Filesystem locations are runtime discovery details and must never be written
-    to graph nodes, reports, logs, traces, or delegated context.
-    """
-    return f"skill://{_slug(name).replace('_', '-')}"
-
-
-def runnable_skill_digest(instructions: str) -> str:
-    """Return the stable digest used to prove which skill instructions ran."""
-    return hashlib.sha256(instructions.strip().encode("utf-8")).hexdigest()
-
-
-# EG's ``SkillType`` (crates/eg-types/src/fleet_catalog/vocabulary.rs) is this
-# exact closed set; anything outside it is undeclared, not an error.
-_KNOWN_SKILL_TYPES = frozenset({"skill", "workflow", "graph", "mcp_skill"})
-
-
-def classify_skill_type(skill_type: str | None) -> tuple[str, str]:
-    """Normalize a raw ``skill_type`` declaration to EG's closed vocabulary.
-
-    EH-345: replaces the deleted ``fleet_catalog_tables.classify_skill_type``.
-    That version also computed a display ``classification`` label for AU's
-    own SQL row; EG now computes that label server-side
-    (``SkillType::label``, ``FleetSkillRow.classification``) from the typed
-    value alone, so this returns the type unchanged as the second element —
-    kept as a 2-tuple only so existing ``_normalized, _label = ...`` call
-    sites need no shape change. Never returns a blank type: an absent/blank/
-    undeclared value defaults to ``"skill"`` (an ordinary atomic skill),
-    matching the deleted function's own documented default.
-    """
-    normalized = str(skill_type or "").strip().lower()
-    if normalized not in _KNOWN_SKILL_TYPES:
-        normalized = "skill"
-    return normalized, normalized
 
 
 def ingest_runnable_skill(
@@ -210,67 +179,34 @@ def ingest_runnable_skill(
         raise ValueError("skill identity failed the persistence privacy policy")
     if not normalized_name or not body:
         raise ValueError("runnable skills require a name and instruction body")
-    source_ref = skill_reference(normalized_name)
-    slug = source_ref.removeprefix("skill://")
-    digest = runnable_skill_digest(body)
-    provider_ref = f"provider://{_slug(safe_provider)}"
-    skill_id = f"skill:{slug}"
-    resource_id = f"resource:{skill_id}"
-    provenance_id = f"provenance:skill:{digest}"
-    normalized_skill_type, _classification = classify_skill_type(skill_type)
     governance = {
         "tenant_id": session.tenant,
         "classification": DataClassification.PUBLIC.value,
         "external_access": ExternalAccess(is_public=True).model_dump(mode="json"),
     }
-    common = {
-        **governance,
-        "name": normalized_name,
-        "description": safe_description,
-        "source_ref": source_ref,
-        "provider_ref": provider_ref,
-        "instruction_digest": digest,
-        "disabled": bool(disabled),
-        "skill_type": normalized_skill_type,
-        "privacy_redactions": description_privacy.redactions + body_privacy.redactions,
-    }
+    safe_server = ""
     if str(mcp_server).strip():
         safe_server, server_privacy = guard.sanitize_text(str(mcp_server).strip())
         if server_privacy.changed:
             raise ValueError(
                 "skill server identity failed the persistence privacy policy"
             )
-        common["mcp_server"] = safe_server
+    projection = runnable_skill_projection(
+        name=normalized_name,
+        description=safe_description,
+        body=body,
+        provider=safe_provider,
+        disabled=disabled,
+        mcp_server=safe_server,
+        skill_type=skill_type,
+        privacy_redactions=description_privacy.redactions + body_privacy.redactions,
+        governance=governance,
+    )
     with use_actor(session.actor):
-        engine._upsert_node(
-            "Skill",
-            skill_id,
-            {**common, "body": body, "instruction": body},
-        )
-        engine._upsert_node(
-            "CallableResource",
-            resource_id,
-            {
-                **common,
-                "resource_type": "AGENT_SKILL",
-                "system_prompt": body,
-                "runnable_bound": True,
-            },
-        )
-        engine._upsert_node(
-            "Provenance",
-            provenance_id,
-            {
-                **governance,
-                "kind": "installed-skill-provider",
-                "source_ref": source_ref,
-                "provider_ref": provider_ref,
-                "content_digest": digest,
-            },
-        )
-        engine.link_nodes(skill_id, resource_id, "BINDS_RUNNABLE", session=session)
-        engine.link_nodes(skill_id, provenance_id, "DERIVED_FROM", session=session)
-        engine.link_nodes(resource_id, provenance_id, "DERIVED_FROM", session=session)
+        for label, node_id, properties in projection.nodes:
+            engine._upsert_node(label, node_id, properties)
+        for source_id, target_id, relation in projection.edges:
+            engine.link_nodes(source_id, target_id, relation, session=session)
 
     # EH-345: the relational ``skills`` row write (``write_skill_row``) is
     # deleted, not replaced here. A locally-installed skill becomes visible
@@ -279,7 +215,7 @@ def ingest_runnable_skill(
     # ``FleetCatalogClient.record_discovery`` call — that is source-sync/
     # eg-pack-lane territory (AU-CUTOVER.md §2.6), not this KG-write helper.
     # The KG ``Skill``/``CallableResource`` upserts above are unaffected.
-    return resource_id
+    return projection.resource_id
 
 
 def _error_kind(exc: BaseException) -> str:
