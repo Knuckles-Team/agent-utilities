@@ -74,7 +74,7 @@ def test_failed_inbox_commit_replays_same_record() -> None:
 def test_poison_is_digest_only_in_dlq_before_cursor_commit() -> None:
     tenant = current_bus_tenant()
     backend, broker = _backend()
-    backend._log.append(tenant, "route", b"secret invalid bytes", now_ms=1)
+    backend._delivery.append(tenant, "route", b"secret invalid bytes", now_ms=1)
     assert backend.receive(tenant=tenant, agent_id="recipient", topics=[]) == []
     rows = backend.read_dlq(tenant=tenant)
     assert len(rows) == 1

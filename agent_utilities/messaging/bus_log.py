@@ -7,14 +7,11 @@ AU has committed every recipient's inbox and WorkItem.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 from typing import Any
 
 from agent_utilities.messaging.bus_privacy import bus_reference, sanitize_bus_content
 
-logger = logging.getLogger(__name__)
 BUS_LOG_BACKENDS = ("engine",)
 _MATERIALIZER_GROUP = "agent-bus-inbox-v1"
 
@@ -100,12 +97,12 @@ def decode_envelope(raw: bytes) -> dict[str, Any] | None:
 
 
 class EngineStreamBusLog:
-    """Thin synchronous AU adapter; EG implements partition/cursor semantics."""
+    """AU envelope and tenant guard over EG's sole delivery log."""
 
     name = "engine"
 
     def __init__(self, client: Any, *, partitions: int = 6) -> None:
-        from epistemic_graph.partitioned_stream import SyncPartitionedStreamLog
+        from epistemic_graph.partitioned_stream import SyncMessageDeliveryLog
 
         broker = getattr(client, "broker", None)
         if broker is None or not all(
@@ -120,14 +117,10 @@ class EngineStreamBusLog:
             raise BusLogUnavailable(
                 "connected EG client has no synchronous stream broker"
             )
-        self._log = SyncPartitionedStreamLog(
+        self._delivery = SyncMessageDeliveryLog(
             broker,
             namespace="agent_bus",
-            partitions=partitions,
-        )
-        self._dlq = SyncPartitionedStreamLog(
-            broker,
-            namespace="agent_bus_dlq",
+            group=_MATERIALIZER_GROUP,
             partitions=partitions,
         )
         self.partitions = partitions
@@ -137,7 +130,7 @@ class EngineStreamBusLog:
         wire = json.dumps(
             envelope, allow_nan=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
-        self._log.append(
+        self._delivery.append(
             tenant, route, wire, now_ms=int(float(envelope["created"]) * 1000)
         )
         return True
@@ -197,50 +190,14 @@ class EngineStreamBusLog:
         max_messages: int = 200,
     ) -> list[dict[str, Any]]:
         _verified_tenant(tenant)
-        del agent_id, topics  # one bounded materializer scans fixed tenant partitions
+        del agent_id, topics  # EG materializer scans bounded tenant partitions
         messages: list[dict[str, Any]] = []
-        remaining = max(
-            0, min(int(max_messages), self.partitions * self._log.max_batch)
-        )
-        for partition in range(self.partitions):
-            if remaining == 0:
-                break
-            quota = min(
-                self._log.max_batch,
-                max(
-                    1,
-                    (remaining + self.partitions - partition - 1)
-                    // (self.partitions - partition),
-                ),
-            )
-            for record in self._log.read(
-                tenant, partition, _MATERIALIZER_GROUP, limit=quota
-            ):
-                envelope = decode_envelope(record.payload)
-                if envelope is None:
-                    self._dead_letter(tenant, record, "decode_error")
-                    self._log.commit(tenant, _MATERIALIZER_GROUP, record)
-                    continue
-                envelope["_receipt"] = {"tenant": tenant, "record": record}
-                messages.append(envelope)
-                remaining -= 1
-        # Preserve each partition's offset order. Sorting globally by message
-        # timestamp would permit committing a later offset before an earlier one.
+        for envelope, record in self._delivery.receive(
+            tenant, decode_envelope, max_messages=max_messages
+        ):
+            envelope["_receipt"] = {"tenant": tenant, "record": record}
+            messages.append(envelope)
         return messages
-
-    def _dead_letter(self, tenant: str, record: Any, reason: str) -> None:
-        diagnostic = json.dumps(
-            {
-                "stream": record.stream,
-                "offset": record.offset,
-                "sha256": hashlib.sha256(record.payload).hexdigest(),
-                "bytes": len(record.payload),
-                "reason": reason,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        self._dlq.append(tenant, "poison", diagnostic, now_ms=0)
 
     def _receipt(self, message: dict[str, Any]) -> tuple[str, Any] | None:
         receipt = message.get("_receipt")
@@ -258,33 +215,20 @@ class EngineStreamBusLog:
         if receipt is None:
             return False
         tenant, record = receipt
-        self._log.commit(tenant, _MATERIALIZER_GROUP, record)
+        self._delivery.ack(tenant, record)
         return True
 
     def nack(self, message: dict[str, Any], *, requeue: bool = True) -> bool:
         receipt = self._receipt(message)
         if receipt is None:
             return False
-        if not requeue:
-            tenant, record = receipt
-            self._dead_letter(tenant, record, "rejected_envelope")
-            self._log.commit(tenant, _MATERIALIZER_GROUP, record)
+        tenant, record = receipt
+        self._delivery.nack(tenant, record, requeue=requeue)
         return True
 
     def read_dlq(self, *, tenant: str, max_messages: int = 50) -> list[dict[str, Any]]:
         _verified_tenant(tenant)
-        rows: list[dict[str, Any]] = []
-        for partition in range(self.partitions):
-            for record in self._dlq.read(
-                tenant,
-                partition,
-                "agent-bus-dlq-inspection",
-                limit=min(max_messages, self._dlq.max_batch),
-            ):
-                rows.append(json.loads(record.payload))
-                if len(rows) >= max_messages:
-                    return rows
-        return rows
+        return self._delivery.read_dlq(tenant, max_messages=max_messages)
 
     def stats(self) -> dict[str, Any]:
         return {"backend": self.name, "partitions": self.partitions}
