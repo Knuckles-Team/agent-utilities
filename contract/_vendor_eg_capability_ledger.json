@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-08-28T03:46:12Z",
-  "row_count": 407,
+  "cached_at": "2026-09-26T15:24:55Z",
+  "row_count": 436,
   "rows": {
     "AcquireCapacity": {
       "audited": "true",
@@ -66,6 +66,61 @@
       "method": "AddTriples",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "AgentAssemble": {
+      "audited": "false",
+      "authz_action": "agent:assemble-read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AgentAssemble",
+      "mutates": "false",
+      "note": "RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit",
+      "txn_participation": "Snapshot"
+    },
+    "AgentComponent": {
+      "audited": "false",
+      "authz_action": "agent:component-write",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AgentComponent",
+      "mutates": "true",
+      "note": "RF-ADR-008 layer 1. Runtime-conditional like AgentLibrary/AgentGraph: Current/History/Status/Search are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native component revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner",
+      "txn_participation": "Atomic"
+    },
+    "AgentGraph": {
+      "audited": "false",
+      "authz_action": "agent:graph-write",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AgentGraph",
+      "mutates": "true",
+      "note": "RF-ADR-008. Runtime-conditional exactly like AgentLibrary: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native graph revisions, action provenance, replay receipts, and outbox through ControlRedb into the SAME agent_library.redb owner",
+      "txn_participation": "Atomic"
+    },
+    "AgentLibrary": {
+      "audited": "false",
+      "authz_action": "agent:library-write",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AgentLibrary",
+      "mutates": "~true",
+      "note": "runtime-conditional: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native revisions, action provenance, replay receipts, and outbox through ControlRedb",
+      "txn_participation": "Atomic"
+    },
+    "AgentTemplate": {
+      "audited": "false",
+      "authz_action": "agent:template-write",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AgentTemplate",
+      "mutates": "true",
+      "note": "RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing); Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one",
       "txn_participation": "Atomic"
     },
     "AnalyticsJob": {
@@ -144,6 +199,17 @@
       "mutates": "true",
       "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
+    },
+    "Asr": {
+      "audited": "false",
+      "authz_action": "asr:transcribe",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "Asr",
+      "mutates": "false",
+      "note": "self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)",
+      "txn_participation": "None"
     },
     "AuditProveInclusion": {
       "audited": "false",
@@ -326,10 +392,10 @@
       "authz_action": "blob:write",
       "durability": "BlobRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "BlobRef",
       "mutates": "true",
-      "note": "refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb",
+      "note": "X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
       "txn_participation": "Atomic"
     },
     "BlobUnref": {
@@ -337,10 +403,10 @@
       "authz_action": "blob:write",
       "durability": "BlobRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "BlobUnref",
       "mutates": "true",
-      "note": "durable via blob.redb",
+      "note": "X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
       "txn_participation": "Atomic"
     },
     "BrokerAck": {
@@ -761,6 +827,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "ConnectorPack": {
+      "audited": "false",
+      "authz_action": "agent:pack-control",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ConnectorPack",
+      "mutates": "~true",
+      "note": "RF-ADR-009 A2 plus RF-021 durable catalog reconciliation; runtime-conditional: status is an authenticated tenant-bound read snapshot exposing the exact MCP catalog generation/digest binding; import atomically commits resources/templates, component revisions, CAS body holders, provenance, receipt and outbox. Bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack; local-only authority, refused in clustered mode",
+      "txn_participation": "Atomic"
+    },
     "Consolidate": {
       "audited": "true",
       "authz_action": "memory:write",
@@ -869,6 +946,50 @@
       "method": "DecaySweep",
       "mutates": "true",
       "note": "state-backed MutationBatch commits the resulting authoritative image",
+      "txn_participation": "Atomic"
+    },
+    "Decide": {
+      "audited": "false",
+      "authz_action": "query:decide",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "Decide",
+      "mutates": "false",
+      "note": "RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land",
+      "txn_participation": "Snapshot"
+    },
+    "DecisionCommit": {
+      "audited": "false",
+      "authz_action": "agent:decision-write",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "DecisionCommit",
+      "mutates": "true",
+      "note": "native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode",
+      "txn_participation": "Atomic"
+    },
+    "DecisionEval": {
+      "audited": "false",
+      "authz_action": "admin:decision-eval",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "DecisionEval",
+      "mutates": "~true",
+      "note": "RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction; a DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode",
+      "txn_participation": "Atomic"
+    },
+    "DecisionFit": {
+      "audited": "false",
+      "authz_action": "admin:decision-fit",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "DecisionFit",
+      "mutates": "~true",
+      "note": "RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode",
       "txn_participation": "Atomic"
     },
     "DeclareExchange": {
@@ -2092,6 +2213,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "FleetCatalog": {
+      "audited": "true",
+      "authz_action": "registry:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "FleetCatalog",
+      "mutates": "~true",
+      "note": "EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents; record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)",
+      "txn_participation": "Atomic"
+    },
     "Fork": {
       "audited": "false",
       "authz_action": "graph:read",
@@ -2189,6 +2321,17 @@
       "method": "GetContextView",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "GetControlLease": {
+      "audited": "false",
+      "authz_action": "lease:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetControlLease",
+      "mutates": "false",
+      "note": "tenant-bound native control-lease view",
       "txn_participation": "Snapshot"
     },
     "GetEdgeProperties": {
@@ -2389,6 +2532,28 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "GetWorkItem": {
+      "audited": "false",
+      "authz_action": "work:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetWorkItem",
+      "mutates": "false",
+      "note": "tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected",
+      "txn_participation": "Snapshot"
+    },
+    "GetWorkItemOutcome": {
+      "audited": "false",
+      "authz_action": "work:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetWorkItemOutcome",
+      "mutates": "false",
+      "note": "tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified",
+      "txn_participation": "Snapshot"
+    },
     "GraphColoring": {
       "audited": "false",
       "authz_action": "compute:graph-algo",
@@ -2432,6 +2597,28 @@
       "mutates": "~true",
       "note": "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox",
       "txn_participation": "Atomic"
+    },
+    "GraphSchema": {
+      "audited": "true",
+      "authz_action": "security:admin",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "GraphSchema",
+      "mutates": "true",
+      "note": "X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited, emits CDC, and is recorded in the native Raft GraphState catalog",
+      "txn_participation": "Atomic"
+    },
+    "GraphSchemaList": {
+      "audited": "false",
+      "authz_action": "security:admin",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GraphSchemaList",
+      "mutates": "false",
+      "note": "X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan",
+      "txn_participation": "Snapshot"
     },
     "HasEdge": {
       "audited": "false",
@@ -2532,6 +2719,17 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "IssueControlLease": {
+      "audited": "true",
+      "authz_action": "lease:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "IssueControlLease",
+      "mutates": "true",
+      "note": "tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite",
+      "txn_participation": "Atomic"
+    },
     "JoinChannel": {
       "audited": "false",
       "authz_action": "channel:admin",
@@ -2542,6 +2740,17 @@
       "mutates": "true",
       "note": "opaque prepared/committed session-control MutationBatch",
       "txn_participation": "Saga"
+    },
+    "KgDelegate": {
+      "audited": "true",
+      "authz_action": "work:delegate",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "KgDelegate",
+      "mutates": "true",
+      "note": "authenticated Agent Library pinned delegation lowered to native WorkItem admission",
+      "txn_participation": "Atomic"
     },
     "KnowledgeStream": {
       "audited": "false",
@@ -2642,6 +2851,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "ListRegisteredServers": {
+      "audited": "false",
+      "authz_action": "registry:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ListRegisteredServers",
+      "mutates": "false",
+      "note": "typed, RLS-projected live :Server snapshot forced to __commons__; revision+digest-fenced keyset pages; authoritative on the single-node/full route (no cluster read barrier is claimed)",
+      "txn_participation": "Snapshot"
+    },
     "ListTriggers": {
       "audited": "false",
       "authz_action": "cdc:read",
@@ -2651,6 +2871,17 @@
       "method": "ListTriggers",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "ListWorkItems": {
+      "audited": "false",
+      "authz_action": "work:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ListWorkItems",
+      "mutates": "false",
+      "note": "bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor",
       "txn_participation": "Snapshot"
     },
     "Maintain": {
@@ -2983,6 +3214,17 @@
       "note": "durable parent coordinator with per-graph MutationBatch children",
       "txn_participation": "Saga"
     },
+    "MutationOutbox": {
+      "audited": "false",
+      "authz_action": "admin:outbox",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "MutationOutbox",
+      "mutates": "~true",
+      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
+      "txn_participation": "Saga"
+    },
     "NlQuery": {
       "audited": "false",
       "authz_action": "query:nl",
@@ -3015,17 +3257,6 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
-    },
-    "NodeInfoUpsert": {
-      "audited": "false",
-      "authz_action": "admin:cluster",
-      "durability": "ControlRedb",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "NodeInfoUpsert",
-      "mutates": "true",
-      "note": "ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson)",
-      "txn_participation": "Saga"
     },
     "ObserveDevelopmentLane": {
       "audited": "true",
@@ -3269,6 +3500,17 @@
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
     },
+    "Quantum": {
+      "audited": "false",
+      "authz_action": "quantum:run",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "Quantum",
+      "mutates": "false",
+      "note": "self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance",
+      "txn_participation": "None"
+    },
     "QueryDevelopmentLane": {
       "audited": "false",
       "authz_action": "lane:read",
@@ -3475,7 +3717,7 @@
       "idempotent": "true",
       "method": "RegisterServer",
       "mutates": "true",
-      "note": "W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node -- unlike NodeInfoUpsert above, this one IS a KG entity the fleet queries",
+      "note": "W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node, unlike the internal non-graph topology rows",
       "txn_participation": "Atomic"
     },
     "RegisterTrigger": {
@@ -3676,17 +3918,6 @@
       "note": "bounded linearizable reconciliation read",
       "txn_participation": "Snapshot"
     },
-    "ResourceStats": {
-      "audited": "false",
-      "authz_action": "service:control",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "ResourceStats",
-      "mutates": "false",
-      "note": "",
-      "txn_participation": "None"
-    },
     "ResourceStatsPage": {
       "audited": "false",
       "authz_action": "service:control",
@@ -3725,10 +3956,10 @@
       "authz_action": "reasoning:write",
       "durability": "GraphRedb",
       "emits_cdc": "true",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "RunDatalogReasoning",
       "mutates": "true",
-      "note": "state-backed MutationBatch commits inferred facts",
+      "note": "state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC",
       "txn_participation": "Atomic"
     },
     "RunRules": {
@@ -3763,6 +3994,17 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "SemanticIndex": {
+      "audited": "false",
+      "authz_action": "semantic:binding-write",
+      "durability": "SemanticIndexRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "SemanticIndex",
+      "mutates": "true",
+      "note": "RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg; SemanticIndexOp::authz_action is the authority for each operation",
+      "txn_participation": "Atomic"
     },
     "SemanticSearch": {
       "audited": "false",
@@ -3841,6 +4083,39 @@
       "note": "explicitly ephemeral process control; never acknowledges a user-data commit",
       "txn_participation": "None"
     },
+    "Solve": {
+      "audited": "false",
+      "authz_action": "compute:solve",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "Solve",
+      "mutates": "false",
+      "note": "pure compute: a bounded 0-1 integer programme with an independently verifiable certificate. Reads no store, no clock and no float, so it participates in no transaction",
+      "txn_participation": "None"
+    },
+    "SourceIngest": {
+      "audited": "true",
+      "authz_action": "source:ingest",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "SourceIngest",
+      "mutates": "true",
+      "note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe",
+      "txn_participation": "Saga"
+    },
+    "SourceIngestStatus": {
+      "audited": "false",
+      "authz_action": "source:ingest",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "SourceIngestStatus",
+      "mutates": "false",
+      "note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority",
+      "txn_participation": "Snapshot"
+    },
     "Sparql": {
       "audited": "false",
       "authz_action": "sparql:read",
@@ -3872,6 +4147,17 @@
       "method": "Sql",
       "mutates": "~true",
       "note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox",
+      "txn_participation": "Atomic"
+    },
+    "SqlSourceBatch": {
+      "audited": "true",
+      "authz_action": "query:sql",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "SqlSourceBatch",
+      "mutates": "true",
+      "note": "native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX; self-routes before graph dispatch; local-only authority, refused in clustered mode",
       "txn_participation": "Atomic"
     },
     "StaleMaterializations": {
@@ -4081,6 +4367,17 @@
       "method": "TouchNodes",
       "mutates": "true",
       "note": "state-backed MutationBatch commits the resulting authoritative image",
+      "txn_participation": "Atomic"
+    },
+    "TransitionControlLease": {
+      "audited": "true",
+      "authz_action": "lease:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "TransitionControlLease",
+      "mutates": "true",
+      "note": "one-way active to revoked/expired, CAS on the read revision",
       "txn_participation": "Atomic"
     },
     "TsAppend": {
@@ -4446,6 +4743,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "Viz": {
+      "audited": "false",
+      "authz_action": "viz:render",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "Viz",
+      "mutates": "false",
+      "note": "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)",
+      "txn_participation": "None"
+    },
     "Watch": {
       "audited": "false",
       "authz_action": "cdc:read",
@@ -4478,7 +4786,18 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "WriteBack": {
+      "audited": "true",
+      "authz_action": "connector:write-back",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "WriteBack",
+      "mutates": "~true",
+      "note": "RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs",
+      "txn_participation": "Atomic"
     }
   },
-  "source_path": "repo://epistemic-graph/docs/capabilities.generated.md"
+  "source_path": "repo://epistemic-graph/contract/capabilities.generated.md"
 }

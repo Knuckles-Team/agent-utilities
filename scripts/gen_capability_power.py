@@ -91,10 +91,10 @@ CACHE_PATH = ROOT / "contract" / "_vendor_eg_capability_ledger.json"
 # fallback so this script (and its --check gate) stays runnable in an AU-only
 # checkout.
 _CANDIDATE_LEDGER_PATHS = (
-    "../epistemic-graph/docs/capabilities.generated.md",
-    "../../epistemic-graph/docs/capabilities.generated.md",
+    "../epistemic-graph/contract/capabilities.generated.md",
+    "../../epistemic-graph/contract/capabilities.generated.md",
 )
-_LEDGER_SOURCE_LABEL = "repo://epistemic-graph/docs/capabilities.generated.md"
+_LEDGER_SOURCE_LABEL = "repo://epistemic-graph/contract/capabilities.generated.md"
 
 
 def generation_timestamp() -> str:

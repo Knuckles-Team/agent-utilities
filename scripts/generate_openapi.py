@@ -42,7 +42,7 @@ from typing import Any
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = ROOT / "docs"
+DOCS = ROOT / "pages"
 SPEC_PATH = DOCS / "reference" / "openapi.json"
 PAGE_PATH = DOCS / "reference" / "api.md"
 

@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 
-DOCS_DIR = Path("docs")
+DOCS_DIR = Path("pages")
 CONCEPT_MAP = DOCS_DIR / "concept_map.md"
 
 

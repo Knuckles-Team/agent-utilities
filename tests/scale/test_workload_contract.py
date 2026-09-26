@@ -20,7 +20,7 @@ import pytest
 from scripts.scale import workload_contract as wc
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CAPACITY_MODEL_PATH = _REPO_ROOT / "docs" / "scaling" / "capacity_model.py"
+_CAPACITY_MODEL_PATH = _REPO_ROOT / "pages" / "scaling" / "capacity_model.py"
 _CONTRACT_YAML_PATH = _REPO_ROOT / "scripts" / "scale" / "workload_contract.yml"
 
 

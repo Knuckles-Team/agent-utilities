@@ -72,7 +72,7 @@ def render_block(data: dict) -> str:
     lines.append(
         "> Generated from [`registry/concepts.yaml`](registry/concepts.yaml); "
         "see [`status/status.md`](status/status.md) for the release-aware breakdown "
-        "and [`docs/pillars/`](docs/pillars/) for the architecture map."
+        "and [`pages/pillars/`](pages/pillars/) for the architecture map."
     )
     lines.append("")
     lines.append(END)

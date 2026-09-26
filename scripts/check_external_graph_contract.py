@@ -27,7 +27,7 @@ NATIVE_MANIFEST = (
     / "agent_utilities/knowledge_graph/ontology/connector_manifests"
     / "native-source-connectors/connector_manifest.yml"
 )
-EXAMPLE_CONFIG = ROOT / "docs/examples/config.json"
+EXAMPLE_CONFIG = ROOT / "pages/examples/config.json"
 # The universal/privacy-safe external-graph architecture docs relocated to
 # agent-connector-sdk (RF-ADR-009: SDK owns connectors/transport) and no
 # longer live in this checkout, so this gate can no longer verify their

@@ -1,6 +1,6 @@
 # Pillar Reference
 
-The 5-pillar architecture (see the table on [the homepage](../index.md)) each has a summary document plus a folder of numbered concept docs (`ORCH-1.x`, `KG-2.x`, `AHE-3.x`, `ECO-4.x`, `OS-5.x`) — one file per concept, cross-referenced to code via `CONCEPT:` markers and to [`registry/concepts.yaml`](../concepts.yaml) (the single source of truth for the concept registry; see [Concept Registry](../concept_map.md)). Start with a pillar's summary page, then drop into its concept docs for implementation detail — parallel in structure to how [architecture/index.md](../architecture/index.md) organizes the cross-cutting subsystem docs.
+The 5-pillar architecture (see the table on [the homepage](../index.md)) each has a summary document plus a folder of numbered concept docs (`ORCH-1.x`, `KG-2.x`, `AHE-3.x`, `ECO-4.x`, `OS-5.x`) — one file per concept, cross-referenced to code via `CONCEPT:` markers and to [`registry/concepts.yaml`](https://github.com/Knuckles-Team/agent-utilities/blob/main/registry/concepts.yaml) (the single source of truth for the concept registry; see [Concept Registry](../concept_map.md)). Start with a pillar's summary page, then drop into its concept docs for implementation detail — parallel in structure to how [architecture/index.md](../architecture/index.md) organizes the cross-cutting subsystem docs.
 
 ## Cross-pillar overviews
 

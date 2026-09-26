@@ -67,7 +67,7 @@ SCAN_ROOTS = (
     ROOT / "agent_utilities",
     ROOT / "scripts",
     ROOT / "tests",
-    ROOT / "docs",
+    ROOT / "pages",
     ROOT / "deploy",
     ROOT / ".github",
 )
@@ -358,11 +358,11 @@ PATH_RETIRED_IDENTIFIERS: tuple[tuple[str, str], ...] = (
         "# Fallback: if zero matches " + "found",
     ),
     (
-        "docs/guides/dynamic-tool-selection.md",
+        "pages/guides/dynamic-tool-selection.md",
         "falls back to exposing the " + "complete set",
     ),
     (
-        "docs/examples/graph-os-mcp-examples.md",
+        "pages/examples/graph-os-mcp-examples.md",
         "exhaustive examples of every possible tool " + "configuration",
     ),
     (
@@ -573,7 +573,7 @@ def _is_dated_historical_record(relative: str, lines: list[str]) -> bool:
     -- not the path, not the filename -- decides, so this covers any current
     or future file of the same kind without naming one."""
 
-    if not relative.startswith("docs/"):
+    if not relative.startswith("pages/"):
         return False
     return any(DATED_HISTORICAL_RECORD_MARKER in line for line in lines[:10])
 

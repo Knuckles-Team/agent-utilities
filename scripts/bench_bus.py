@@ -142,7 +142,7 @@ def _modeled(args: argparse.Namespace, measured_rate: float) -> dict:
     from pathlib import Path
 
     path = (
-        Path(__file__).resolve().parents[1] / "docs" / "scaling" / "capacity_model.py"
+        Path(__file__).resolve().parents[1] / "pages" / "scaling" / "capacity_model.py"
     )
     spec = importlib.util.spec_from_file_location("capacity_model", path)
     assert spec and spec.loader

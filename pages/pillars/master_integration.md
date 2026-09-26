@@ -106,7 +106,7 @@ which feeds Telemetry & Observability.
 ## 3. Consolidation Key (v2.0)
 
 > **Note:** The canonical, machine-checked concept registry now lives in
-> [`registry/concepts.yaml`](../concepts.yaml) (single source of truth, regenerated via
+> [`registry/concepts.yaml`](https://github.com/Knuckles-Team/agent-utilities/blob/main/registry/concepts.yaml) (single source of truth, regenerated via
 > `scripts/build_concepts_yaml.py` and enforced by `scripts/check_concepts.py`).
 > The current registry tracks **70 concepts across 12 pillars**; the historical
 > merge log below records how the earlier sprawling layout was first pruned and

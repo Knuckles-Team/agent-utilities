@@ -36,7 +36,7 @@ on:
       - 'agent_utilities/**'
       - 'scripts/**'
       - 'tests/**'
-      - 'docs/**'
+      - 'pages/**'
       - 'deploy/**'
       - 'mkdocs.yml'
       - 'pyproject.toml'
@@ -447,7 +447,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 444b232c7975e125a24b17d53ff615f5ad26a4cd
+          ref: fe4d11323d0b94c044c38f5257a15576c076500e
           path: .pipeline-theme
           persist-credentials: false
 
@@ -476,7 +476,8 @@ jobs:
         env:
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
-          python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
+          python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source pages
+          python3 scripts/sync_pages_public_files.py --check
           policy="$RUNNER_TEMP/prohibited-identities.json"
           if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then
             printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"

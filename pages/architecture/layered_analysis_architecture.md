@@ -103,5 +103,5 @@ All edges created by Layers 2 and 3 include Graphiti-inspired temporal metadata:
 
 ## Related Concepts
 
-- [concepts.yaml](../concepts.yaml) — canonical concept registry (single source of truth) used as cross-reference seeds
+- [concepts.yaml](https://github.com/Knuckles-Team/agent-utilities/blob/main/registry/concepts.yaml) — canonical concept registry (single source of truth) used as cross-reference seeds
 - [overview.md](../overview.md) — Architecture overview of agent-utilities

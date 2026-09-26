@@ -752,13 +752,19 @@ repos:
     entry: python3 scripts/docs_contract.py --check
     language: system
     pass_filenames: false
-    # Scoped: nav/link/catalog checks target docs/, mkdocs.yml, and README.md
+    # Scoped: nav/link/catalog checks target pages/, mkdocs.yml, and README.md
     # directly; the "generated inventories" leg (capabilities-power.md/json,
     # rehomed to contract/ by D6) is derived from the live agent_utilities/
     # surface, so source changes there are included too -- a commit touching
     # neither docs/config, contract/, nor agent_utilities/ source cannot move
     # any side of this contract. ~18s standalone.
-    files: ^(docs/.*|contract/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
+    files: ^(pages/.*|contract/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
+  - id: guardrail-pages-public-files
+    name: Guardrail — Pages downloads match their source authorities
+    entry: python3 scripts/sync_pages_public_files.py --check
+    language: system
+    pass_filenames: false
+    files: ^(pages/(install\.(sh|ps1)|genesis\.yaml)|scripts/(install\.(sh|ps1)|sync_pages_public_files\.py)|genesis\.yaml)$
   - id: guardrail-tracked-privacy
     name: Guardrail — tracked public artifacts contain no host-specific data or local identities
     entry: python3 scripts/check_tracked_privacy.py

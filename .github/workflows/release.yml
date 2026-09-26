@@ -57,7 +57,7 @@ on:
       - 'MANIFEST.in'
       - 'build_backend.py'
       - '.github/workflows/release.yml'
-      - 'docs/**'
+      - 'pages/**'
       - '**/*.md'
       - '**/*.json'
       - '**/*.toml'

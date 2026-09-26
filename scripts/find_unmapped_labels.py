@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 
-DOCS_DIR = Path("docs")
+DOCS_DIR = Path("pages")
 
 
 def parse_mermaid_nodes(content):

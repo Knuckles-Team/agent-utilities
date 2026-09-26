@@ -196,9 +196,9 @@ def validate(root: Path = ROOT) -> list[str]:
         "CHANGELOG.md": f"## [{version}] - ",
         "scripts/install.sh": f"AGENT_UTILITIES_VERSION:-{version}",
         "scripts/install.ps1": f"AGENT_UTILITIES_VERSION) {{ $env:AGENT_UTILITIES_VERSION }} else {{ '{version}' }}",
-        "docs/ecosystem.md": f"agent-utilities>={version},<{next_major}",
-        "docs/guides/creating-an-agent.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
-        "docs/guides/building-mcp-servers.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
+        "pages/ecosystem.md": f"agent-utilities>={version},<{next_major}",
+        "pages/guides/creating-an-agent.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
+        "pages/guides/building-mcp-servers.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
     }
     for relative_path, marker in expected_text.items():
         try:
