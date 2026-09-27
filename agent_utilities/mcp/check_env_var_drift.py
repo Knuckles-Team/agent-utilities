@@ -88,6 +88,10 @@ from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 # regular expression so multiline calls resolve correctly and lookalike snippets embedded in
 # string literals are excluded; ``_ENV_NAME`` validates each literal candidate name.
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# Every reader recognized by ``_env_names_from_tree`` needs one of these
+# spellings in its own module. Same-module forwarding helpers still contain
+# their eventual reader, so files without any marker cannot yield a read.
+_ENV_READER_MARKERS = ("setting", "getenv", "environ", "Field", "enable_flag")
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
 # The leading lookbehind keeps a PRIVATE helper out of the tag set. A name such as
 # ``_register_<tag>_tools`` contains the public spelling as a substring, and ``_``
@@ -726,6 +730,17 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
     return found
 
 
+def _parse_env_source(path: Path) -> ast.AST | None:
+    """Parse only modules that can contain a recognized environment reader."""
+    try:
+        source = path.read_text(encoding="utf-8")
+        if not any(marker in source for marker in _ENV_READER_MARKERS):
+            return None
+        return ast.parse(source, filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+
+
 def _scan_setting_calls(root: Path) -> set[str]:
     """Every env-var literal read (``setting`` or bare ``os.getenv``/``os.environ``) in
     ``*.py`` under ``root``. Skips assignment writes and reads nested inside a string
@@ -740,11 +755,8 @@ def _scan_setting_calls(root: Path) -> set[str]:
             continue
         if py.name in _SELF_DOC_FILES:
             continue
-        if py.name in _SELF_DOC_FILES:
-            continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
-        except (OSError, SyntaxError, UnicodeDecodeError):
+        tree = _parse_env_source(py)
+        if tree is None:
             continue
         found.update(_env_names_from_tree(tree))
     found.discard("")

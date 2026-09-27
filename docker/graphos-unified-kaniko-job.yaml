@@ -16,6 +16,8 @@
 #   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
 #   export GRAPH_OS_DIR=<agent-packages/graph-os checkout>
 #   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
+#   export SDK_WHEEL_DIR=<dir holding exactly one Train 4 agent_connector_sdk-*.whl>
+#   export SDK_WHEEL_SHA256=<exact SDK wheel SHA-256 from the Train 4 artifact manifest>
 #   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
 #   export REGISTRY_CA_CONFIGMAP=<ConfigMap holding the registry's CA, see below>
 #   export IMAGE_REPO=<registry/repository to push to — default the LAN registry>
@@ -57,7 +59,7 @@
 #
 # ── Context composition ──
 # kaniko takes exactly ONE --context directory, but the build needs the au checkout
-# (Dockerfile + au source) AND two artifacts that live outside it. Those are MOUNTED at
+# (Dockerfile + au source) AND pinned artifacts that live outside it. Those are MOUNTED at
 # paths inside the context rather than copied in. Both land at the context ROOT under
 # build-artifacts/, never under docker/: this repo's .dockerignore excludes `docker/*`
 # wholesale, so anything staged there is silently dropped from the build context (a
@@ -109,6 +111,7 @@ spec:
             - --destination=${IMAGE_REPO}:${IMAGE_TAG}
             - --build-arg=SOURCE_REVISION=${SOURCE_REVISION}
             - --build-arg=GRAPH_OS_REVISION=${GRAPH_OS_REVISION}
+            - --build-arg=SDK_WHEEL_SHA256=${SDK_WHEEL_SHA256}
             - --cache=true
             - --cache-repo=${CACHE_REPO}
             - --verbosity=info
@@ -126,6 +129,8 @@ spec:
               mountPath: /workspace
             - name: eg-wheel
               mountPath: /workspace/build-artifacts/eg-wheel
+            - name: sdk-wheel
+              mountPath: /workspace/build-artifacts/sdk-wheel
             - name: graph-os-src
               mountPath: /workspace/build-artifacts/graph-os-src
             - name: langfuse-agent-src
@@ -151,6 +156,10 @@ spec:
         - name: eg-wheel
           hostPath:
             path: ${EG_WHEEL_DIR}
+            type: Directory
+        - name: sdk-wheel
+          hostPath:
+            path: ${SDK_WHEEL_DIR}
             type: Directory
         - name: graph-os-src
           hostPath:
