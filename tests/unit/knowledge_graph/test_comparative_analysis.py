@@ -389,6 +389,35 @@ class TestHybridSearchScorer:
         results = scorer.score_documents("alpha", [0.5, 0.5], docs)
         assert len(results) <= 1  # top_k=1
 
+    def test_scoring_is_delegated_to_eg(self, monkeypatch):
+        from agent_utilities.knowledge_graph.retrieval import (
+            semantic_retrieval_engine as module,
+        )
+        from agent_utilities.models.knowledge_graph import HybridSearchConfig
+
+        observed = {}
+
+        def fake_score(query, embedding, documents, config):
+            observed.update(
+                query=query,
+                embedding=embedding,
+                documents=documents,
+                top_k=config.top_k,
+            )
+            return [{"id": "eg-ranked"}]
+
+        monkeypatch.setattr(module, "_score_documents", fake_score)
+        scorer = module.HybridSearchScorer(HybridSearchConfig(top_k=3))
+        assert scorer.score_documents("alpha", [1.0], [{"id": "candidate"}]) == [
+            {"id": "eg-ranked"}
+        ]
+        assert observed == {
+            "query": "alpha",
+            "embedding": [1.0],
+            "documents": [{"id": "candidate"}],
+            "top_k": 3,
+        }
+
 
 # ── KG-2.33: Research Subagent ──────────────────────────────────────
 
