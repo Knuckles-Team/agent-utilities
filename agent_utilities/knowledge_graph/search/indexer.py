@@ -50,6 +50,9 @@ OpenSearch read/write exception — cluster down, timeout, ...) does NOT
 commit; :meth:`EgCdcKafkaConsumer.drain_once` stops at the first ``failed``
 record in a batch, leaving it and everything after it uncommitted so a
 restart re-delivers from exactly there.
+The Kafka topic must agree with the envelope's graph before any write; a
+misrouted record cannot index into another tenant's projection. Unknown-type
+tombstones require a complete exact-id lookup; truncated results stop replay.
 
 **Idempotency/ordering — ``(node_id, seq)``, checked against the index
 itself, not local process state.** Before writing, the target document is
@@ -80,6 +83,7 @@ __all__ = [
     "DrainResult",
     "resolve_object_type",
     "derive_content",
+    "envelope_matches_type",
     "apply_envelope",
     "EgCdcKafkaConsumer",
 ]
@@ -146,8 +150,22 @@ def derive_content(row: dict[str, Any] | None) -> str:
     return " ".join(parts)[:5000]
 
 
+def envelope_matches_type(envelope: dict[str, Any], object_type: str) -> bool:
+    """Keep unknown-type tombstones so they can remove the scoped index."""
+    row = (
+        envelope.get("after")
+        if envelope.get("op") == "upsert"
+        else envelope.get("before")
+    )
+    actual_type = resolve_object_type(row)
+    return actual_type is None or actual_type == object_type
+
+
 def apply_envelope(
-    opensearch: OpenSearchClient, envelope: dict[str, Any]
+    opensearch: OpenSearchClient,
+    envelope: dict[str, Any],
+    *,
+    target_object_type: str | None = None,
 ) -> ApplyResult:
     """Apply one decoded ``eg.cdc.<graph>`` envelope. Returns
     ``{"status": "applied"|"rejected_stale"|"quarantined"|"failed", ...}``.
@@ -183,7 +201,12 @@ def apply_envelope(
             opensearch, envelope, tenant=tenant, node_id=node_id, seq=seq_int
         )
     return _apply_tombstone(
-        opensearch, envelope, tenant=tenant, node_id=node_id, seq=seq_int
+        opensearch,
+        envelope,
+        tenant=tenant,
+        node_id=node_id,
+        seq=seq_int,
+        target_object_type=target_object_type,
     )
 
 
@@ -274,10 +297,11 @@ def _apply_tombstone(
     tenant: str,
     node_id: str,
     seq: int,
+    target_object_type: str | None = None,
 ) -> ApplyResult:
     before = envelope.get("before")
     row = before if isinstance(before, dict) else {}
-    object_type = resolve_object_type(row)
+    object_type = target_object_type or resolve_object_type(row)
 
     if object_type:
         index = doc_shape.index_name(tenant, object_type)
@@ -317,12 +341,29 @@ def _apply_tombstone(
     try:
         pattern = doc_shape.tenant_wildcard(tenant)
         response = opensearch.search(
-            pattern, {"query": {"term": {"node_id": node_id}}, "size": 25}
+            pattern,
+            {
+                "query": {"term": {"node_id": node_id}},
+                "size": 25,
+                "track_total_hits": True,
+            },
         )
     except Exception as exc:  # noqa: BLE001
         return {"status": "failed", "reason": f"OpenSearch tenant lookup failed: {exc}"}
 
     hits = response.get("hits", {}).get("hits", [])
+    total = response.get("hits", {}).get("total")
+    total_value = total.get("value") if isinstance(total, dict) else total
+    total_relation = total.get("relation") if isinstance(total, dict) else "eq"
+    if (
+        not isinstance(total_value, int)
+        or total_relation not in (None, "eq")
+        or total_value > len(hits)
+    ):
+        return {
+            "status": "failed",
+            "reason": "OpenSearch tenant lookup was incomplete; tombstone not applied",
+        }
     if not hits:
         return {
             "status": "applied",
@@ -447,7 +488,12 @@ class EgCdcKafkaConsumer(KafkaStreamAdapter):
         return value
 
     async def drain_once(
-        self, opensearch: OpenSearchClient, *, batch_size: int = 500
+        self,
+        opensearch: OpenSearchClient,
+        *,
+        batch_size: int = 500,
+        target_graph: str | None = None,
+        target_object_type: str | None = None,
     ) -> DrainResult:
         """One bounded poll + apply + commit pass. Never blocks indefinitely.
 
@@ -464,6 +510,8 @@ class EgCdcKafkaConsumer(KafkaStreamAdapter):
         partitions = raw if isinstance(raw, dict) else {}
 
         counts = {"applied": 0, "rejected_stale": 0, "quarantined": 0, "failed": 0}
+        if target_object_type is not None:
+            counts["filtered"] = 0
         stopped_early = False
         failure_detail: dict[str, Any] | None = None
         last_seq: int | None = None
@@ -481,7 +529,32 @@ class EgCdcKafkaConsumer(KafkaStreamAdapter):
                     stopped_early = True
                     break
 
-                result = apply_envelope(opensearch, value)
+                graph = value.get("graph")
+                expected_topic = f"eg.cdc.{graph}"
+                if getattr(topic_partition, "topic", None) != expected_topic or (
+                    target_graph is not None and graph != target_graph
+                ):
+                    counts["failed"] += 1
+                    failure_detail = {
+                        "status": "failed",
+                        "reason": "eg CDC graph does not match its Kafka topic or rebuild target",
+                    }
+                    stopped_early = True
+                    break
+                if target_object_type and not envelope_matches_type(
+                    value, target_object_type
+                ):
+                    counts["filtered"] += 1
+                    commit_offset = getattr(rec, "offset", commit_offset)
+                    continue
+
+                result = apply_envelope(
+                    opensearch,
+                    value,
+                    target_object_type=(
+                        target_object_type if value.get("op") == "tombstone" else None
+                    ),
+                )
                 status = result.get("status")
                 if status in ("applied", "rejected_stale", "quarantined"):
                     counts[status] += 1

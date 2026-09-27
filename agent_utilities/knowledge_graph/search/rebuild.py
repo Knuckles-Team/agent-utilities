@@ -27,7 +27,7 @@ from typing import Any, TypedDict
 
 from . import doc_shape
 from .client import OpenSearchClient, OpenSearchClientConfig
-from .indexer import apply_envelope
+from .indexer import apply_envelope, envelope_matches_type
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,11 @@ def rebuild_index(
 ) -> RebuildResult:
     """Drop and reindex ``tenant`` (optionally scoped to one ``object_type``)
     by replaying ``eg.cdc.<graph>`` from offset 0 (or ``from_seq``).
+
+    A dropping rebuild requires the full replay from seq 0; an incremental
+    replay must preserve the existing index. ``graph`` must name ``tenant``.
+    A scoped rebuild ignores other object types and applies unknown-type
+    tombstones only to the selected type. Index-drop failures stop the run.
 
     Exactly one record source:
 
@@ -111,9 +116,17 @@ def rebuild_index(
     """
     if (records is None) == (consumer is None):
         raise ValueError("rebuild_index requires exactly one of records= or consumer=")
+    if not tenant.strip():
+        raise ValueError("rebuild_index requires a non-empty tenant")
+    if from_seq < 0:
+        raise ValueError("rebuild_index requires from_seq >= 0")
+    if drop_existing and from_seq != 0:
+        raise ValueError("a dropping rebuild must replay from seq 0")
 
     client = opensearch or OpenSearchClient(OpenSearchClientConfig.from_env())
     target_graph = graph or tenant
+    if target_graph != tenant:
+        raise ValueError("rebuild_index graph must match the target tenant")
 
     if drop_existing:
         pattern = (
@@ -123,10 +136,14 @@ def rebuild_index(
         )
         try:
             client.delete_index(pattern)
-        except Exception:  # noqa: BLE001 - best-effort drop; ensure_index recreates on first write
-            logger.warning(
-                "rebuild_index: nothing to drop at %s (or drop failed)", pattern
-            )
+        except Exception as exc:  # noqa: BLE001 - a failed drop leaves stale documents
+            return {
+                "status": "failed",
+                "counts": dict(_EMPTY_COUNTS),
+                "indices": [],
+                "index_counts": {},
+                "details": {"failure": f"OpenSearch index drop failed: {exc}"},
+            }
 
     counts = dict(_EMPTY_COUNTS)
     touched_indices: set[str] = set()
@@ -141,7 +158,13 @@ def rebuild_index(
                     return True
             except (TypeError, ValueError):  # noqa: BLE001 — non-numeric seq falls through to apply_envelope's own malformed-envelope handling (quarantined, not silently skipped) below; this guard's only job is the from_seq floor
                 pass
-        result = apply_envelope(client, envelope)
+        if object_type and not envelope_matches_type(envelope, object_type):
+            return True
+        result = apply_envelope(
+            client,
+            envelope,
+            target_object_type=object_type if envelope.get("op") == "tombstone" else None,
+        )
         status = result.get("status", "failed")
         counts[status] = counts.get(status, 0) + 1
         idx = result.get("index")
@@ -162,12 +185,16 @@ def rebuild_index(
         async def _consumer_lifecycle() -> None:
             nonlocal last_failure
             consumer._topic_pattern = re.compile(  # noqa: SLF001 - see docstring: scope to exactly this graph's topic
-                re.escape(f"eg.cdc.{target_graph}")
+                f"^{re.escape(f'eg.cdc.{target_graph}')}$"
             )
             await consumer.connect()
             try:
                 while True:
-                    batch = await consumer.drain_once(client)
+                    batch = await consumer.drain_once(
+                        client,
+                        target_graph=target_graph,
+                        target_object_type=object_type,
+                    )
                     batch_counts = batch.get("counts", {})
                     for key, value in batch_counts.items():
                         counts[key] = counts.get(key, 0) + value

@@ -275,6 +275,22 @@ def test_apply_tombstone_absent_node_is_safe_noop(marking_authority) -> None:
     assert result["status"] == "applied"
 
 
+def test_unknown_tombstone_refuses_truncated_lookup(marking_authority) -> None:
+    client = make_client()
+    for number in range(26):
+        client.index_document(
+            f"kg-acme-type{number}",
+            "n1",
+            {"node_id": "n1", "updated_lsn": 1},
+        )
+    result = apply_envelope(
+        client, _envelope(seq=2, op="tombstone", after=None, before=None)
+    )
+    assert result["status"] == "failed"
+    for number in range(26):
+        assert client.get_document(f"kg-acme-type{number}", "n1") is not None
+
+
 # ── EgCdcKafkaConsumer.drain_once: fail-closed offset semantics ────────────
 
 
@@ -399,6 +415,46 @@ def test_drain_once_malformed_payload_is_failed_not_silently_skipped(
     assert result["status"] == "failed"
     assert result["counts"]["failed"] == 1
     assert consumer._consumer.commits == []
+
+
+def test_drain_once_rejects_graph_topic_mismatch_without_committing(
+    marking_authority,
+) -> None:
+    tp = _FakeTopicPartition(topic="eg.cdc.acme")
+    batch = {tp: [_FakeRecord(_wire(_envelope(graph="other")), offset=0)]}
+    consumer = EgCdcKafkaConsumer(config=None, consumer=_FakeConsumer([batch]))
+    client = make_client()
+    result = asyncio.run(consumer.drain_once(client))
+    assert result["status"] == "failed"
+    assert consumer._consumer.commits == []
+    assert client.get_document("kg-other-person", "n1") is None
+
+
+def test_scoped_drain_counts_filtered_records_and_keeps_offset(
+    marking_authority,
+) -> None:
+    tp = _FakeTopicPartition()
+    batch = {
+        tp: [
+            _FakeRecord(
+                _wire(_envelope(node_id="d1", after={"type": "Document"})), offset=0
+            ),
+            _FakeRecord(_wire(_envelope(node_id="p1")), offset=1),
+        ]
+    }
+    consumer = EgCdcKafkaConsumer(config=None, consumer=_FakeConsumer([batch]))
+    client = make_client()
+    result = asyncio.run(
+        consumer.drain_once(
+            client, target_graph="acme", target_object_type="Person"
+        )
+    )
+    assert result["status"] == "ok"
+    assert result["counts"]["filtered"] == 1
+    assert result["counts"]["applied"] == 1
+    assert consumer._consumer.commits == [{tp: 2}]
+    assert client.get_document("kg-acme-document", "d1") is None
+    assert client.get_document("kg-acme-person", "p1") is not None
 
 
 def test_eg_cdc_kafka_consumer_drain_once_requires_connection() -> None:
