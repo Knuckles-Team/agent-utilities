@@ -95,3 +95,17 @@ def test_accept_without_link_nodes_support_raises(_envelope_commit):
         review_entity_resolution_proposal(
             engine, proposal=_proposal(), decision="accepted", reviewer="alice"
         )
+    assert _envelope_commit == []
+
+
+def test_review_rejects_foreign_tenant_before_write(_envelope_commit):
+    engine = MagicMock()
+    with pytest.raises(PermissionError, match="tenant"):
+        review_entity_resolution_proposal(
+            engine,
+            proposal=_proposal(tenant="foreign"),
+            decision="accepted",
+            reviewer="alice",
+        )
+    engine.link_nodes.assert_not_called()
+    assert _envelope_commit == []

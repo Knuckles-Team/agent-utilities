@@ -41,6 +41,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from epistemic_graph.temporal_semantic_id import (
+    TemporalSemanticIdEncoder,
+)
+
 from agent_utilities.harness.explore_exploit_router import ExploreExploitRouter
 from agent_utilities.harness.graph_search_evolution import GraphSearchEvolver
 from agent_utilities.harness.self_guided_play import Guide, SelfGuidedSelfPlay
@@ -52,9 +56,6 @@ from agent_utilities.knowledge_graph.retrieval.iterative_expansion import (
     IterativeQueryExpander,
 )
 from agent_utilities.knowledge_graph.retrieval.score_gate import score_gate
-from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
-    TemporalSemanticIdEncoder,
-)
 from agent_utilities.numeric import NDArray, RandomGenerator, xp
 
 __all__ = [

@@ -6,8 +6,7 @@ import subprocess
 import sys
 
 import pytest
-
-from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
+from epistemic_graph.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
 

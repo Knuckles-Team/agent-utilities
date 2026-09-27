@@ -47,14 +47,20 @@ def mock_engine():
 
 def test_latent_topological_rag(mock_engine):
     rag = LatentTopologicalRAG(mock_engine)
-    mock_engine.backend.execute.return_value = [
-        {"id": "node1", "name": "Node 1", "score": 0.9}
-    ]
+    mock_engine.query_cypher = MagicMock(
+        return_value=[
+            {"n": {"id": "node1", "name": "Node 1", "importance_score": 0.9}}
+        ]
+    )
 
     results = rag.retrieve("test query")
     assert len(results) == 1
     assert results[0]["id"] == "node1"
-    mock_engine.backend.execute.assert_called_once()
+    assert mock_engine.query_cypher.call_count == 2
+    assert all(
+        call.kwargs == {"session": None}
+        for call in mock_engine.query_cypher.call_args_list
+    )
 
 
 def test_single_shot_sira(mock_engine):

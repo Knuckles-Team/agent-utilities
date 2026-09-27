@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
+from agent_utilities.knowledge_graph.core.session import suspend_session
 from agent_utilities.knowledge_graph.neural.candidate_generation import (
     CALIBRATION_REF,
     generate_entity_resolution_proposals,
@@ -51,7 +54,7 @@ def test_ann_escalation_only_for_residual_and_only_with_embeddings():
 
     def _search(vector, top_k):
         calls.append((tuple(vector), top_k))
-        return [("c", 0.9), ("a", 1.0), ("d", 0.5)]  # self-match + below-floor filtered
+        return [("b", 0.9), ("a", 1.0), ("foreign", 0.95)]
 
     engine.semantic_search = _search
 
@@ -96,3 +99,28 @@ def test_calibration_discounts_raw_ann_similarity():
     ann = next(p for p in proposals if p.blocking_tier == "ann")
     assert ann.raw_similarity == 0.9
     assert ann.score < ann.raw_similarity  # discounted, never inflated
+
+
+def test_foreign_ann_hit_is_not_promoted():
+    engine = MagicMock()
+    engine.semantic_search = lambda vector, top_k: [("foreign", 0.99)]
+    proposals = generate_entity_resolution_proposals(
+        engine,
+        tenant="acme",
+        items=[("a", "xyz1"), ("b", "totally different unrelated name")],
+        embeddings={"a": [0.1], "b": [0.2]},
+    )
+    assert all(p.blocking_tier != "ann" for p in proposals)
+
+
+def test_candidate_generation_requires_verified_tenant_before_ann():
+    engine = MagicMock()
+    with pytest.raises(PermissionError, match="tenant"):
+        generate_entity_resolution_proposals(
+            engine, tenant="other", items=[("a", "alice")]
+        )
+    engine.semantic_search.assert_not_called()
+    with suspend_session(), pytest.raises(Exception, match="GraphSession"):
+        generate_entity_resolution_proposals(
+            engine, tenant="acme", items=[("a", "alice")]
+        )

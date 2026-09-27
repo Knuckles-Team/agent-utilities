@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 from agent_utilities.models.knowledge_graph import RegistryEdgeType
 
+from ._authority import require_neural_tenant
 from .models import EntityResolutionProposal, ReviewOutcome
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,15 @@ def review_entity_resolution_proposal(
         The committed :class:`ReviewOutcome` — the only durable signal this
         review produces beyond the (conditional) promoted edge.
     """
+    require_neural_tenant(proposal.tenant, write=True)
     if not reviewer.strip():
         raise ValueError(
             "review_entity_resolution_proposal requires a non-empty reviewer"
+        )
+    if decision == "accepted" and not callable(getattr(engine, "link_nodes", None)):
+        raise RuntimeError(
+            "engine does not support link_nodes — cannot promote an accepted "
+            "entity-resolution proposal"
         )
     reviewed_at = datetime.now(UTC)
     outcome = ReviewOutcome(

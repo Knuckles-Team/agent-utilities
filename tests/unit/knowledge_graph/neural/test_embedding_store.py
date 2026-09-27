@@ -53,6 +53,16 @@ def test_build_tenant_embedding_indexes_in_engine_and_commits_record(_envelope_c
     assert len(_envelope_commit) == 1
 
 
+def test_embedding_rejects_foreign_tenant_before_model_or_index(_envelope_commit):
+    engine = MagicMock()
+    with pytest.raises(PermissionError, match="tenant"):
+        embedding_store.build_tenant_embedding(
+            engine, tenant="foreign", node_id="paper:1", node_type="Paper", text="secret"
+        )
+    engine.add_embedding.assert_not_called()
+    assert _envelope_commit == []
+
+
 def test_build_tenant_embedding_is_content_addressed():
     """Same text → same content_hash (the re-embed cache key), across runs."""
     engine = MagicMock()
@@ -78,7 +88,7 @@ def test_build_tenant_embedding_works_without_add_embedding_support(_envelope_co
     engine.graph = MagicMock(nodes={})
 
     rep = embedding_store.build_tenant_embedding(
-        engine, tenant="", node_id="p1", node_type="X", text="hello"
+        engine, tenant="acme", node_id="p1", node_type="X", text="hello"
     )
     assert rep.artifact_ref == "p1"
     assert len(_envelope_commit) == 1

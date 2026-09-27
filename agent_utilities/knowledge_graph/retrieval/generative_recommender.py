@@ -21,7 +21,7 @@ decoded rationale -- that bridge the language and SID spaces.
 Adaptation framing (important). We are an agentic framework; we do **not** train
 an LLM backbone here. We therefore adopt PauseRec's mechanism at *inference /
 agentic* time over the SIDs already produced by
-:class:`~agent_utilities.knowledge_graph.retrieval.temporal_semantic_id.TemporalSemanticIdEncoder`
+:class:`~epistemic_graph.temporal_semantic_id.TemporalSemanticIdEncoder`
 (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization):
 
 * **Latent-reasoning budget** -- a configurable number of ``pause_steps``
@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING, Any
 from agent_utilities.numeric import xp
 
 if TYPE_CHECKING:
-    from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
+    from epistemic_graph.temporal_semantic_id import (
         TemporalSemanticIdEncoder,
     )
 

@@ -1385,7 +1385,9 @@ def _graph_search_produce_results_extended(
             LatentTopologicalRAG,
         )
 
-        return LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
+        return LatentTopologicalRAG(engine).retrieve(
+            query, top_k=top_k, session=session
+        )
     if mode == "sira":
         # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
         from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (

@@ -1465,11 +1465,12 @@ async def _analysis_action_recommend(
     engine, action, query, top_k, node_id, depth, target
 ):
     # action(s): 'recommend'
+    from epistemic_graph.temporal_semantic_id import (
+        TemporalSemanticIdEncoder,
+    )
+
     from agent_utilities.knowledge_graph.retrieval.generative_recommender import (  # noqa: E501
         ImplicitReasoningRecommender,
-    )
-    from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (  # noqa: E501
-        TemporalSemanticIdEncoder,
     )
 
     if not query:

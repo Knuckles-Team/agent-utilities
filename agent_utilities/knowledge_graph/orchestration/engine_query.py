@@ -35,10 +35,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from epistemic_graph.temporal_semantic_id import TemporalSemanticIdEncoder
+
 from ...models.knowledge_graph import RegistryNodeType
 from ..retrieval.iterative_expansion import IterativeQueryExpander
 from ..retrieval.score_gate import score_gate
-from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
 

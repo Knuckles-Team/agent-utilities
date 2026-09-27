@@ -27,6 +27,7 @@ from pydantic import ValidationError
 
 from agent_utilities.core.resource_priority import PriorityClass, priority_scope
 
+from ._authority import require_neural_tenant
 from .models import GraphNodeRef, TenantScopedEmbedding
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,7 @@ def build_tenant_embedding(
         RuntimeError: no embedder is configured (surfaced by the lazy
             LlamaIndex factory import/call — never at module import time).
     """
+    tenant = require_neural_tenant(tenant, write=True)
     digest = content_hash(text)
     existing = _existing_record(engine, node_id, encoder_id, encoder_version)
     if existing is not None and existing.get("content_hash") == digest:

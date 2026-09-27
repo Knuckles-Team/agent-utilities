@@ -17,12 +17,14 @@ output requires :mod:`.governance` review before anything is written as fact.
 
 import hashlib
 import logging
+import math
 from typing import Any
 
 from agent_utilities.knowledge_graph.assimilation.entity_resolution import (
     resolve_entities,
 )
 
+from ._authority import require_neural_tenant
 from .models import EntityResolutionProposal, GraphNodeRef
 
 logger = logging.getLogger(__name__)
@@ -104,8 +106,14 @@ def generate_entity_resolution_proposals(
         Every proposal is ``decision_status="proposed"`` by construction
         (the model type allows nothing else) — none of these are facts yet.
     """
+    tenant = require_neural_tenant(tenant, write=False)
+    if not 1 <= ann_top_k <= 100:
+        raise ValueError("ann_top_k must be between 1 and 100")
+    if not math.isfinite(ann_floor) or not 0.0 <= ann_floor <= 1.0:
+        raise ValueError("ann_floor must be finite and within [0, 1]")
     result = resolve_entities(items)
     names = dict(items)
+    allowed_ids = set(names)
     proposals: list[EntityResolutionProposal] = []
 
     for survivor, dup, score, tier in result.merge_pairs:
@@ -135,7 +143,13 @@ def generate_entity_resolution_proposals(
                 logger.debug("ANN escalation failed for %s", rid, exc_info=True)
                 continue
             for candidate_id, similarity in hits:
-                if candidate_id == rid or similarity < ann_floor:
+                if (
+                    candidate_id == rid
+                    or candidate_id not in allowed_ids
+                    or not isinstance(similarity, (int, float))
+                    or not math.isfinite(similarity)
+                    or similarity < ann_floor
+                ):
                     continue
                 proposals.append(
                     EntityResolutionProposal(
