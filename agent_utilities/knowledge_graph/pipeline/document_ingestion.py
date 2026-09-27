@@ -53,17 +53,22 @@ class DocumentIngestionPipeline:
         self._ingested_docs: list[str] = []  # Track for rollback
 
     def build_section_tree_for(
-        self, document_id: str, content: str, *, persist: bool = True
+        self, document_id: str, content: str, *, persist: bool = False
     ) -> dict[str, Any]:
-        """Build, self-verify and (optionally) persist a document's section tree.
+        """Build and self-verify a document's section tree for preview.
 
         CONCEPT:AU-KG.retrieval.section-tree + CONCEPT:AU-KG.ingest.structure-verify.
-        The PageIndex-style reasoning tree beside the flat chunks: build from the
-        markdown headings, confirm every section title is inside its claimed char
-        range (repairing drift) *before* commit, then write the ``Section`` nodes/
-        edges through the engine. Returns the verify report + section count so the
-        caller can gate on structural integrity.
+        Preview the PageIndex-style tree and verify source ranges. This legacy
+        entry point has no verified source ACL to pass to the atomic native
+        document writer, so persistence is refused instead of writing partial,
+        unscoped ``Section`` rows. Use ``DocumentProcessor.process`` with a
+        verified GraphSession and source access descriptor for persistence.
         """
+        if persist:
+            raise PermissionError(
+                "section persistence requires governed document ingestion "
+                "with verified source access"
+            )
         from ..ontology.document_processing import (
             build_section_tree,
             section_nodes_and_edges,
@@ -72,10 +77,7 @@ class DocumentIngestionPipeline:
 
         roots = build_section_tree(content)
         report = verify_section_tree(content, roots, fix=True)
-        nodes, edges = section_nodes_and_edges(document_id, roots)
-        persisted = False
-        if persist and nodes:
-            persisted = self._persist_section_slice(nodes, edges)
+        nodes, _ = section_nodes_and_edges(document_id, roots)
         if report["mismatched"]:
             logger.warning(
                 "Section tree for %s: %d title(s) outside their range",
@@ -85,36 +87,9 @@ class DocumentIngestionPipeline:
         return {
             "document_id": document_id,
             "section_count": len(nodes),
-            "persisted": persisted,
+            "persisted": False,
             "verify": report,
         }
-
-    def _persist_section_slice(
-        self, nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
-    ) -> bool:
-        """Write section nodes/edges via the engine's convenience write API."""
-        ok = False
-        for n in nodes:
-            props = {k: v for k, v in n.items() if k not in ("id", "node_type")}
-            try:
-                self.knowledge_graph.add_node(n["id"], n["node_type"], props)
-                ok = True
-            except Exception as exc:  # noqa: BLE001 — best-effort per node
-                logger.debug("section node persist failed for %s: %s", n["id"], exc)
-        for e in edges:
-            props = {
-                k: v
-                for k, v in e.items()
-                if k not in ("source", "target", "relationship")
-            }
-            try:
-                self.knowledge_graph.add_edge(
-                    e["source"], e["target"], e["relationship"], **props
-                )
-                ok = True
-            except Exception as exc:  # noqa: BLE001 — best-effort per edge
-                logger.debug("section edge persist failed: %s", exc)
-        return ok
 
     async def ingest_document(
         self, file_path: str, content: str, metadata: dict[str, Any] | None = None
