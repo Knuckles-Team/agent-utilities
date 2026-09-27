@@ -3838,6 +3838,25 @@ class GraphComputeEngine:
         """
         return self._client.query.cypher_read(query) or []
 
+    def retrieve_document_sections(
+        self, document_id: str, query: str, *, top_k: int = 5
+    ) -> dict[str, Any]:
+        """Read current tenant-bound section citations through the native method.
+
+        The session-routed process client supplies the verified GraphSession.
+        No row-level Python fallback is permitted for persisted documents.
+        """
+        result = self._client.query.retrieve_document_sections(
+            document_id, query, top_k=top_k
+        )
+        if (
+            not isinstance(result, dict)
+            or result.get("document_id") != document_id
+            or not isinstance(result.get("citations"), list)
+        ):
+            raise ValueError("invalid native document section retrieval result")
+        return result
+
     def query_cypher_write(self, query: str) -> list[dict[str, Any]]:
         """Run one explicitly authorized native Cypher mutation.
 

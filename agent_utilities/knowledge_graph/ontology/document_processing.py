@@ -57,6 +57,7 @@ Reuses the existing fabric — nothing reinvented:
 
 import concurrent.futures
 import hashlib
+import json
 import logging
 import re
 import time
@@ -141,6 +142,37 @@ DEFAULT_SEPARATORS: tuple[str, ...] = ("\n\n", "\n", ". ", " ", "")
 
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _carrier_tenant_scope(verified_tenant: str) -> str:
+    """Match EG CarrierAuthority's opaque tenant key for a verified session.
+
+    This is the cross-language ``opaque_coordinator_key("carrier-tenant",
+    "verified", tenant)`` contract. The input comes only from GraphSession,
+    never document metadata. EG accepts an already opaque carrier tenant.
+    """
+    if re.fullmatch(r"carrier-tenant:[0-9a-f]{64}", verified_tenant):
+        return verified_tenant
+    digest = hashlib.sha256(
+        b"carrier-tenant\0verified\0" + verified_tenant.encode("utf-8")
+    ).hexdigest()
+    return f"carrier-tenant:{digest}"
+
+
+def _section_tree_version(nodes: list[dict[str, Any]]) -> str:
+    """Identify one complete tree so readers can reject stale prior sections."""
+    fields = (
+        "id",
+        "parent_id",
+        "title",
+        "summary",
+        "char_start",
+        "char_end",
+        "page_start",
+        "page_end",
+    )
+    tree = [{key: node.get(key) for key in fields} for node in nodes]
+    return _sha(json.dumps(tree, sort_keys=True, separators=(",", ":")))
 
 
 def _now() -> str:
@@ -1421,15 +1453,42 @@ class DocumentProcessor:
         """Commit the complete document/chunk/section/evidence-spine slice atomically."""
         from dataclasses import replace as _replace
 
+        from ..core.session import resolve_session
         from ..ingestion.change_envelope import ChangeEnvelope
         from ..ingestion.envelope_ingest import ingest_envelope
         from ..ingestion.evidence_spine import Artifact
 
         record = dict(result.document_node)
+        session = resolve_session(required_scope="kg:write")
+        if not session.graph:
+            raise PermissionError("document section write requires a verified graph")
+        tree_version = _section_tree_version(result.section_nodes)
+        if result.section_nodes:
+            record["section_tree_version"] = tree_version
+            # A changed extraction policy can produce a different tree from
+            # unchanged bytes. Include its version in envelope replay identity
+            # so the new tree is not silently treated as an old delivery.
+            record["section_source_version"] = (
+                f"{record['content_hash']}:{tree_version}"
+            )
+        # The served EG reader accepts only DocumentSection rows stamped with
+        # its verified carrier tenant scope. Never copy a tenant from document
+        # metadata, an inline tool argument, or an existing legacy Section row.
+        native_sections = [
+            {
+                **node,
+                "type": "DocumentSection",
+                "node_type": "DocumentSection",
+                "tenant_scope": _carrier_tenant_scope(session.tenant),
+                "section_tree_version": tree_version,
+                "parent_id": node.get("parent_id") or None,
+            }
+            for node in result.section_nodes
+        ]
         auxiliary = [
             *result.chunk_nodes,
             *result.link_nodes,
-            *result.section_nodes,
+            *native_sections,
         ]
         if auxiliary:
             record["_nodes"] = [dict(node) for node in auxiliary]
@@ -1441,7 +1500,9 @@ class DocumentProcessor:
             connector=connector,
             source_instance=source_instance,
             id_field="id",
-            version_field="content_hash",
+            version_field=(
+                "section_source_version" if result.section_nodes else "content_hash"
+            ),
             checkpoint=checkpoint,
             source_acl=access,
         )

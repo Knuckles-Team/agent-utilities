@@ -60,45 +60,6 @@ def _parse_ranges(spec: str) -> list[tuple[int, int]]:
     return out
 
 
-def _persist_sections(
-    engine: Any,
-    nodes: list[dict[str, Any]],
-    edges: list[dict[str, Any]],
-) -> bool:
-    """Write section-tree nodes/edges through the engine's own API (CONCEPT:AU-KG.retrieval.section-tree).
-
-    Uses ``engine.add_node(id, type, props)`` / ``engine.add_edge(src, tgt, rel)``
-    — the same convenience write path ``write_ingest_tools`` uses — so the tree
-    persists regardless of the backend's keyword-writer support. Best-effort.
-    """
-    ok = False
-    for n in nodes:
-        if _persist_section_node(engine, n):
-            ok = True
-    for e in edges:
-        if _persist_section_edge(engine, e):
-            ok = True
-    return ok
-
-
-def _persist_section_node(engine: Any, n: dict[str, Any]) -> bool:
-    props = {k: v for k, v in n.items() if k not in ("id", "type")}
-    try:
-        engine.add_node(n["id"], n["type"], props)
-        return True
-    except Exception:  # noqa: BLE001 — best-effort per node
-        return False
-
-
-def _persist_section_edge(engine: Any, e: dict[str, Any]) -> bool:
-    props = {k: v for k, v in e.items() if k not in ("source", "target", "type")}
-    try:
-        engine.add_edge(e["source"], e["target"], e["type"], **props)
-        return True
-    except Exception:  # noqa: BLE001 — best-effort per edge
-        return False
-
-
 def _json_default(obj: Any) -> Any:
     """``json.dumps(default=...)`` helper that dataclass-serializes an
     :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
@@ -3528,73 +3489,53 @@ def register_query_tools(mcp):
 
         if not text and not document_id:
             return json.dumps({"error": "build requires 'text' or 'document_id'"})
+        if persist and document_id and engine is not None:
+            # This tool has only caller-supplied text/document_id, not the
+            # source ACL required by the native atomic DocumentProcessor path.
+            # Partial add_node/add_edge writes would create unscoped legacy
+            # Section rows and could never be served safely by EH-509.
+            return json.dumps(
+                {
+                    "error": "persisting a section tree requires the governed "
+                    "document ingestion path with verified source access"
+                }
+            )
         cfg = SectionTreeConfig(thin=thin, summarize=summarize)
         roots = build_section_tree(text, config=cfg)
-        nodes, edges = section_nodes_and_edges(document_id or "doc:inline", roots)
-        persisted = False
-        if persist and document_id and engine is not None:
-            persisted = _persist_sections(engine, nodes, edges)
+        nodes, _ = section_nodes_and_edges(document_id or "doc:inline", roots)
         return json.dumps(
             {
                 "action": "build",
                 "document_id": document_id,
                 "section_count": len(nodes),
-                "persisted": persisted,
+                "persisted": False,
                 "structure": structure_view(roots),
             },
             default=str,
         )
 
     def _graph_document_tree_structure(document_id: str, engine: Any) -> str:
-        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
-            HierarchicalDocumentRetriever,
-            structure_view,
-        )
-
         if not document_id:
             return json.dumps({"error": "structure requires 'document_id'"})
         if engine is None:
             return json.dumps({"error": "IntelligenceGraphEngine not active"})
-        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-        if not roots:
-            return json.dumps(
-                {"error": f"no section tree for document {document_id!r}"}
-            )
         return json.dumps(
             {
-                "action": "structure",
-                "document_id": document_id,
-                "structure": structure_view(roots),
-            },
-            default=str,
+                "error": "stored document structure requires a native verified read method"
+            }
         )
 
     def _graph_document_tree_content(document_id: str, ranges: str, engine: Any) -> str:
-        from agent_utilities.knowledge_graph.retrieval.hierarchical_document_retriever import (
-            HierarchicalDocumentRetriever,
-            content_for_ranges,
-        )
-
         if not document_id:
             return json.dumps({"error": "content requires 'document_id'"})
         if engine is None:
             return json.dumps({"error": "IntelligenceGraphEngine not active"})
         try:
-            parsed = _parse_ranges(ranges)
+            _parse_ranges(ranges)
         except ValueError as e:
             return public_error_json(e)
-        roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
-        if not roots:
-            return json.dumps(
-                {"error": f"no section tree for document {document_id!r}"}
-            )
         return json.dumps(
-            {
-                "action": "content",
-                "document_id": document_id,
-                "sections": content_for_ranges(roots, parsed),
-            },
-            default=str,
+            {"error": "stored document content requires a native verified read method"}
         )
 
     def _graph_document_tree_retrieve(
@@ -3615,14 +3556,32 @@ def register_query_tools(mcp):
 
         if not query:
             return json.dumps({"error": "retrieve requires 'query'"})
-        retriever = HierarchicalDocumentRetriever(engine)
-        tree = None
-        if text:
-            tree = build_section_tree(
-                text, config=SectionTreeConfig(thin=True, summarize=True)
+        if not text:
+            if not document_id:
+                return json.dumps(
+                    {"error": "retrieve requires 'text' or 'document_id'"}
+                )
+            if engine is None:
+                return json.dumps({"error": "IntelligenceGraphEngine not active"})
+            compute = getattr(engine, "graph_compute", None)
+            if compute is None or not hasattr(compute, "retrieve_document_sections"):
+                return json.dumps(
+                    {"error": "native document section retrieval unavailable"}
+                )
+            try:
+                result = compute.retrieve_document_sections(
+                    document_id, query, top_k=top_k
+                )
+            except Exception as exc:  # noqa: BLE001 — public error boundary
+                return public_error_json(exc)
+            return json.dumps(
+                {"action": "retrieve", "query": query, "results": result["citations"]},
+                default=str,
             )
-        elif not document_id:
-            return json.dumps({"error": "retrieve requires 'text' or 'document_id'"})
+        retriever = HierarchicalDocumentRetriever(engine)
+        tree = build_section_tree(
+            text, config=SectionTreeConfig(thin=True, summarize=True)
+        )
         matches = retriever.retrieve(
             query,
             document_id=document_id,
@@ -3763,8 +3722,8 @@ def register_query_tools(mcp):
     # ══════════════════════════════════════════════════════════════════
     # graph_document_tree — CONCEPT:AU-KG.retrieval.section-tree +
     # CONCEPT:AU-KG.retrieval.tree-navigation. PageIndex-style map-then-fetch over
-    # a document's section tree: build the tree, view the text-free structure,
-    # fetch cited char/page ranges, or navigate the tree by relevance. Complements
+    # a document's section tree: preview a tree or retrieve cited ranges. Stored
+    # structure/content remain closed until native verified readers exist. Complements
     # (does not replace) graph_search's vector/community retrieval — route long
     # single-document queries here where "similar != relevant".
     # ══════════════════════════════════════════════════════════════════
@@ -3773,12 +3732,12 @@ def register_query_tools(mcp):
         description=(
             "Reasoning-tree (vectorless) document retrieval over a per-document "
             "section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; "
-            "distills PageIndex). action: 'build' (build + optionally persist the "
-            "section tree from text or a stored document), 'structure' (return the "
-            "text-free table-of-contents map = get_document_structure), 'content' "
-            "(fetch section bodies for cited char ranges like '96..208,300..420' = "
-            "get_page_content), 'retrieve' (walk the tree by relevance and return "
-            "sections with cited start..end ranges), 'fragments' (the addressable "
+            "distills PageIndex). action: 'build' (build a "
+            "section tree preview from text; governed document ingestion owns "
+            "persistence), 'structure' and 'content' (reserved until native "
+            "verified readers exist), 'retrieve' (navigate inline text or read "
+            "tenant-bound stored section citations with start..end ranges), "
+            "'fragments' (the addressable "
             "evidence spine — every citable Fragment of an artifact/document with "
             "its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), "
             "'cite' (resolve a stored citation against the current artifact and "
@@ -3793,7 +3752,7 @@ def register_query_tools(mcp):
         ),
         document_id: str = Field(
             default="",
-            description="Target Document id (structure/content, and build/retrieve when loading from the graph).",
+            description="Target Document id for stored retrieval; structure/content require native verified readers.",
         ),
         text: str = Field(
             default="",
@@ -3811,8 +3770,8 @@ def register_query_tools(mcp):
             default=5, description="action=retrieve — max sections to return."
         ),
         persist: bool = Field(
-            default=True,
-            description="action=build — write the Section nodes/edges to the graph (requires document_id).",
+            default=False,
+            description="action=build — request persistence; served writes require governed document ingestion with verified source access.",
         ),
         thin: bool = Field(
             default=True,
@@ -3824,7 +3783,7 @@ def register_query_tools(mcp):
         ),
         use_llm: bool = Field(
             default=False,
-            description="action=retrieve — try LLM tree navigation before the lexical walk.",
+            description="action=retrieve with inline text — try LLM tree navigation before the lexical walk.",
         ),
         artifact_id: str = Field(
             default="",
