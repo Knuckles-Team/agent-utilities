@@ -29,6 +29,11 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from epistemic_graph.self_model_read import (
+    read_current_self_model,
+    read_previous_self_model,
+)
+
 from ...models.knowledge_graph import (
     MemoryRetrieverNode,
     RegistryEdgeType,
@@ -38,6 +43,7 @@ from ..core.ogm import KGMapper
 if TYPE_CHECKING:
     from ...graph.state import GraphState
     from ..core.engine import IntelligenceGraphEngine
+    from ..core.session import GraphSession
 
 logger = logging.getLogger(__name__)
 
@@ -88,21 +94,24 @@ class MemoryRetriever:
                     return self.ogm._deserialize(ndata, MemoryRetrieverNode)
         return None
 
-    def get_current(self) -> MemoryRetrieverNode | None:
+    def get_current(
+        self, *, session: GraphSession | None = None
+    ) -> MemoryRetrieverNode | None:
         """Load the latest self-model version via the CURRENT pointer.
 
         Returns:
             The current ``MemoryRetrieverNode``, or ``None`` if no self-model exists.
         """
         if self.engine.backend:
-            results = self.engine.backend.execute(
-                "MATCH (anchor {id: $aid})-[:CURRENT_SELF_MODEL]->(sm:MemoryRetriever) "
-                "RETURN sm",
-                {"aid": SELF_MODEL_ANCHOR},
+            data = read_current_self_model(
+                lambda query, params: self.engine.query_cypher(
+                    query, params, session=session
+                ),
+                anchor_id=SELF_MODEL_ANCHOR,
             )
-            if results:
-                data = results[0].get("sm", results[0])
+            if data is not None:
                 return self.ogm._deserialize(data, MemoryRetrieverNode)
+            return None
 
         return self._current_from_graph_fallback()
 
@@ -435,16 +444,19 @@ class MemoryRetriever:
         compatible.sort(key=lambda x: x[1], reverse=True)
         return compatible[:top_k]
 
-    def _predecessor_via_supersedes(self, node_id: str) -> MemoryRetrieverNode | None:
+    def _predecessor_via_supersedes(
+        self, node_id: str, *, session: GraphSession | None = None
+    ) -> MemoryRetrieverNode | None:
         """The node ``node_id`` SUPERSEDES, or ``None`` at the chain head."""
         if self.engine.backend:
-            results = self.engine.backend.execute(
-                "MATCH (n {id: $nid})-[:SUPERSEDES]->(prev:MemoryRetriever) RETURN prev",
-                {"nid": node_id},
+            data = read_previous_self_model(
+                lambda query, params: self.engine.query_cypher(
+                    query, params, session=session
+                ),
+                node_id=node_id,
             )
-            if not results:
+            if data is None:
                 return None
-            data = results[0].get("prev", results[0])
             return self.ogm._deserialize(data, MemoryRetrieverNode)
 
         prev: MemoryRetrieverNode | None = None
@@ -459,7 +471,9 @@ class MemoryRetriever:
                     break
         return prev
 
-    def temporal_trend(self, domain: str, lookback: int = 5) -> list[float]:
+    def temporal_trend(
+        self, domain: str, lookback: int = 5, *, session: GraphSession | None = None
+    ) -> list[float]:
         """Traverse the SUPERSEDES chain to get historical performance.
 
         Args:
@@ -470,14 +484,14 @@ class MemoryRetriever:
             List of success rates, oldest first.
         """
         trend: list[float] = []
-        current = self.get_current()
+        current = self.get_current(session=session)
         if not current:
             return trend
 
         node = current
         for _ in range(lookback):
             trend.append(node.domain_success_rates.get(domain, 0.0))
-            prev = self._predecessor_via_supersedes(node.id)
+            prev = self._predecessor_via_supersedes(node.id, session=session)
             if prev is None:
                 break
             node = prev

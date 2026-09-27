@@ -3,9 +3,10 @@
 the hand-orchestrated hybrid retriever's vector arm is
 collapsed onto the engine. The vector neighbourhood comes from ONE cross-modal
 unified plan (`graph.query_unified`, the engine sequencing filter + vector `Rank`
-in one costed round-trip); when unified planning is unavailable it falls to the
-engine's native `semantic_search` ANN primitive — still the engine's
-vector index, still O(log N). There is NO O(N) Python `cosine_similarity` fallback
+in one costed round-trip). Only unscoped retrieval uses the engine's native
+`semantic_search` ANN primitive — still the engine's vector index, still O(log N).
+Failed or empty scoped plans cannot downgrade to an unscoped candidate set.
+There is NO O(N) Python `cosine_similarity` fallback
 and NO `backend.execute` brute-force scan. (The real-engine end-to-end proof lives
 in `test_unified_plan_retrieval.py`.)
 """
@@ -112,17 +113,29 @@ def test_vector_search_respects_target_paths() -> None:
     assert [d["id"] for d in out] == ["n1"]  # only the /a/ path survives
 
 
-def test_unified_unavailable_falls_to_native_ann_not_python_cosine() -> None:
-    """Unavailable unified planning uses native ANN, not an O(N) Python scan."""
+def test_unified_unavailable_keeps_label_scope_fail_closed() -> None:
+    """A failed label-scoped plan must not return unscoped ANN candidates."""
     graph = _UnifiedUnavailableGraph()
     r = _retriever(graph)
 
-    # Even with a label, a rejected unified plan degrades to the native ANN
-    # primitive — never a Python cosine scan.
     out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0, label="Doc")
 
-    assert [d["id"] for d in out] == ["n1", "n2"]
-    assert graph.semantic_calls == 1  # the engine ANN primitive served it
+    assert out == []
+    assert graph.semantic_calls == 0
+
+
+def test_empty_scoped_plan_does_not_fall_through_to_ann() -> None:
+    graph = _UnifiedGraph()
+    graph.query_unified = lambda _plan: []  # type: ignore[method-assign]
+    graph.semantic_search = lambda *_args: [  # type: ignore[method-assign]
+        ("wrong-label", 0.9)
+    ]
+    r = _retriever(graph)
+
+    assert (
+        r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0, label="Doc")
+        == []
+    )
 
 
 def test_old_on_python_scan_method_is_deleted() -> None:

@@ -5,9 +5,8 @@ from __future__ import annotations
 Hard rules enforced here:
 
 * A :class:`~.models.EntityResolutionProposal` never becomes a graph edge by
-  itself — :func:`review_entity_resolution_proposal` is the one function in
-  this package that writes a merge edge, and it does so ONLY on
-  ``decision="accepted"``.
+  itself — :func:`review_entity_resolution_proposal` places the accepted edge
+  and the review outcome in one native ChangeEnvelope mutation.
 * Every review — accepted OR rejected — is committed as a durable
   :class:`~.models.ReviewOutcome`. A rejection is not silently discarded: it is
   the durable "do not propose this pair again at this calibration" signal, and
@@ -51,7 +50,7 @@ def review_entity_resolution_proposal(
     Args:
         proposal: The (immutable, ``decision_status="proposed"``) candidate
             being reviewed — never mutated; the outcome is a new record.
-        decision: ``"accepted"`` writes a ``SIMILAR_TO`` edge tagged
+        decision: ``"accepted"`` commits a ``SIMILAR_TO`` edge tagged
             ``governed=True`` (distinct from ``dedup.py``'s auto-computed
             ``SIMILAR_TO`` edges, which carry no such tag) plus the
             ``review_outcome_id`` provenance link. ``"rejected"`` writes NO
@@ -68,11 +67,6 @@ def review_entity_resolution_proposal(
         raise ValueError(
             "review_entity_resolution_proposal requires a non-empty reviewer"
         )
-    if decision == "accepted" and not callable(getattr(engine, "link_nodes", None)):
-        raise RuntimeError(
-            "engine does not support link_nodes — cannot promote an accepted "
-            "entity-resolution proposal"
-        )
     reviewed_at = datetime.now(UTC)
     outcome = ReviewOutcome(
         outcome_id=_outcome_id(proposal.proposal_id, reviewer, reviewed_at),
@@ -83,13 +77,15 @@ def review_entity_resolution_proposal(
         rationale=rationale,
         reviewed_at=reviewed_at,
     )
-    _commit_outcome(engine, outcome)
-    if decision == "accepted":
-        _promote_merge(engine, proposal, outcome)
+    _commit_outcome(engine, outcome, proposal if decision == "accepted" else None)
     return outcome
 
 
-def _commit_outcome(engine: Any, outcome: ReviewOutcome) -> None:
+def _commit_outcome(
+    engine: Any,
+    outcome: ReviewOutcome,
+    accepted: EntityResolutionProposal | None = None,
+) -> None:
     from ...protocols.source_connectors.base import ExternalAccess
     from ..ingestion.change_envelope import ChangeEnvelope
     from ..ingestion.envelope_ingest import ingest_envelope
@@ -100,6 +96,23 @@ def _commit_outcome(engine: Any, outcome: ReviewOutcome) -> None:
         **outcome.model_dump(mode="json"),
         "updatedAt": outcome.reviewed_at.isoformat(),
     }
+    if accepted is not None:
+        # ApplyChangeEnvelope stages the outcome AddNode and this AddEdge in one
+        # OCC-fenced native mutation. Never commit an outcome and then call a
+        # separate link_nodes writer: that leaves a false accepted decision if
+        # the second write fails.
+        record["_links"] = [
+            {
+                "source": accepted.mention.node_id,
+                "target": accepted.candidate.node_id,
+                "relationship": RegistryEdgeType.SIMILAR_TO.value,
+                "_rel": "SIMILAR_TO",
+                "score": round(accepted.score, 6),
+                "governed": True,
+                "review_outcome_id": outcome.outcome_id,
+                "blocking_tier": accepted.blocking_tier,
+            }
+        ]
     env = ChangeEnvelope.from_connector_record(
         record,
         connector="neural-layer",
@@ -111,27 +124,3 @@ def _commit_outcome(engine: Any, outcome: ReviewOutcome) -> None:
     applied = ingest_envelope(engine, env)
     if applied.get("status") not in {"success", "skipped"}:
         raise RuntimeError("ReviewOutcome ChangeEnvelope failed")
-
-
-def _promote_merge(
-    engine: Any, proposal: EntityResolutionProposal, outcome: ReviewOutcome
-) -> None:
-    """Write the ONE edge an accepted proposal is allowed to produce."""
-    link_nodes = getattr(engine, "link_nodes", None)
-    if not callable(link_nodes):
-        raise RuntimeError(
-            "engine does not support link_nodes — cannot promote an accepted "
-            "entity-resolution proposal"
-        )
-    link_nodes(
-        proposal.mention.node_id,
-        proposal.candidate.node_id,
-        RegistryEdgeType.SIMILAR_TO,
-        properties={
-            "_rel": "SIMILAR_TO",
-            "score": round(proposal.score, 6),
-            "governed": True,
-            "review_outcome_id": outcome.outcome_id,
-            "blocking_tier": proposal.blocking_tier,
-        },
-    )

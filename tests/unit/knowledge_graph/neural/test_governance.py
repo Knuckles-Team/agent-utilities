@@ -61,12 +61,11 @@ def test_rejected_writes_outcome_but_no_edge(_envelope_commit):
     assert outcome.proposal_id == "p1"
     engine.link_nodes.assert_not_called()
     assert len(_envelope_commit) == 1  # the outcome IS committed either way
+    assert "_links" not in _envelope_commit[0].typed_payload
 
 
-def test_accepted_writes_outcome_and_promotes_edge(_envelope_commit):
+def test_accepted_commits_outcome_and_edge_in_one_envelope(_envelope_commit):
     engine = MagicMock()
-    calls = []
-    engine.link_nodes = lambda *a, **k: calls.append((a, k))
 
     outcome = review_entity_resolution_proposal(
         engine,
@@ -77,25 +76,50 @@ def test_accepted_writes_outcome_and_promotes_edge(_envelope_commit):
     )
 
     assert outcome.decision == "accepted"
-    assert len(calls) == 1
-    args, kwargs = calls[0]
-    assert args[:3] == ("a", "b", RegistryEdgeType.SIMILAR_TO)
-    props = kwargs["properties"]
-    assert props["governed"] is True
-    assert props["review_outcome_id"] == outcome.outcome_id
-    assert props["blocking_tier"] == "exact"
+    assert len(_envelope_commit) == 1
+    env = _envelope_commit[0]
+    assert env.tenant == "acme"
+    assert env.typed_payload["id"] == outcome.outcome_id
+    assert env.typed_payload["type"] == "EntityResolutionReviewOutcome"
+    edge = env.typed_payload["_links"]
+    assert edge == [
+        {
+            "source": "a",
+            "target": "b",
+            "relationship": RegistryEdgeType.SIMILAR_TO.value,
+            "_rel": "SIMILAR_TO",
+            "score": 0.9,
+            "governed": True,
+            "review_outcome_id": outcome.outcome_id,
+            "blocking_tier": "exact",
+        }
+    ]
+    engine.link_nodes.assert_not_called()
+
+
+def test_accept_uses_envelope_without_direct_link_writer(_envelope_commit):
+    engine = MagicMock(spec=[])
+    outcome = review_entity_resolution_proposal(
+        engine, proposal=_proposal(), decision="accepted", reviewer="alice"
+    )
+    assert len(_envelope_commit) == 1
     assert (
-        len(_envelope_commit) == 1
-    )  # only the outcome envelope; edge is a direct link_nodes call
+        _envelope_commit[0].typed_payload["_links"][0]["review_outcome_id"]
+        == outcome.outcome_id
+    )
 
 
-def test_accept_without_link_nodes_support_raises(_envelope_commit):
-    engine = MagicMock(spec=[])  # no link_nodes attribute at all
-    with pytest.raises(RuntimeError, match="link_nodes"):
+def test_failed_native_apply_does_not_call_direct_link(monkeypatch):
+    engine = MagicMock()
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        lambda engine, env: {"status": "error"},
+    )
+    with pytest.raises(RuntimeError, match="ChangeEnvelope failed"):
         review_entity_resolution_proposal(
             engine, proposal=_proposal(), decision="accepted", reviewer="alice"
         )
-    assert _envelope_commit == []
+    engine.link_nodes.assert_not_called()
 
 
 def test_review_rejects_foreign_tenant_before_write(_envelope_commit):

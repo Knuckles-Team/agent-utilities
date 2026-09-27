@@ -471,8 +471,8 @@ class HybridRetriever:
         * **Unseeded kNN (native ANN).** Label-agnostic retrieval — the common case
           — uses the engine's native ``semantic_search`` ANN primitive: the
           full-store kNN, O(log N), the SAME engine vector index the unified
-          ``Rank`` reads. This remains a bounded operational fallback when unified
-          planning is unavailable in the mandatory full engine artifact.
+          ``Rank`` reads. A labeled query never falls back to this unscoped
+          primitive when its native plan is unavailable or returns no rows.
 
         Both are the engine's vector index — there is NO Python cosine scan and NO
         SQLite-style fallback: with no engine ANN the arm returns ``[]`` and
@@ -576,10 +576,10 @@ class HybridRetriever:
         ``Scan(label) |> Rank(query) |> Limit`` — the engine
         composing the relational seed with the vector ``Rank`` in one costed plan.
         Otherwise it is the engine's native ``semantic_search`` ANN primitive (the
-        unseeded full-store kNN). Both read the SAME engine vector index; on any
-        engine error (e.g. a build without the ``query`` feature, or no engine
-        reachable) it degrades to the native ANN, then to ``[]`` — never a Python
-        cosine scan.
+        unseeded full-store kNN). Both read the SAME engine vector index. A
+        failed or empty label-scoped plan returns no candidates: an unscoped ANN
+        call would silently discard the requested label. Neither path falls
+        back to a Python cosine scan.
 
         The native unified rank is one costed plan; GraphCompute currently adds
         one bounded property-batch readiness fence until the engine provides a
@@ -588,8 +588,7 @@ class HybridRetriever:
         qvec = [float(x) for x in query_emb]
         if label:
             unified = self._engine_rank_unified(graph, qvec, fetch_k, label)
-            if unified is not None:
-                return unified
+            return unified if unified is not None else []
         return self._engine_rank_native_ann(graph, qvec, fetch_k)
 
     def _engine_rank_unified(
@@ -607,11 +606,10 @@ class HybridRetriever:
                 for r in (rows or [])
                 if r.get("id") is not None
             ]
-            return out or None
-        except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
+            return out
+        except Exception as e:  # noqa: BLE001 — a scoped plan cannot downgrade
             logger.debug(
-                "unified Scan+Rank plan unavailable (engine without `query`?): "
-                "%s — using native ANN",
+                "unified Scan+Rank plan unavailable (engine without `query`?): %s",
                 e,
             )
             return None
