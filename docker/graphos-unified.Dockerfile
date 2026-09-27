@@ -25,7 +25,8 @@
 # hence no build-essential / multi-stage compile split.
 #
 # Build context = this repo's worktree root. build-artifacts/eg-wheel/*.whl,
-# build-artifacts/graph-os-src/, and build-artifacts/langfuse-agent-src/ are
+# build-artifacts/sdk-wheel/*.whl, build-artifacts/graph-os-src/, and
+# build-artifacts/langfuse-agent-src/ are
 # git-ignored, build-time-only paths — each populated by its own hostPath/NFS mount at
 # build time (see the kaniko Job manifest alongside this file), never committed to git.
 # All live at the context ROOT, not under
@@ -43,6 +44,9 @@
 #   kaniko executor --context=dir:///workspace \
 #     --dockerfile=docker/graphos-unified.Dockerfile \
 #     --destination=knucklessg1/graph-os-unified:latest
+# EH-213 also requires the exact Train 4 SDK wheel and its SHA-256. The
+# digest is a release artifact manifest value; a mutable checkout or a
+# compatible but older package from PyPI is insufficient for the runner.
 #
 # The langfuse-agent restoration (step 2b below) needs a SECOND hostPath/NFS mount beyond
 # what the original job used — see docker/graphos-unified-langfuse-kaniko-job.yaml for the
@@ -72,8 +76,10 @@ ARG AUTH_TYPE="none"
 # predates the marker file entirely.
 ARG SOURCE_REVISION="unknown"
 ARG GRAPH_OS_REVISION="unknown"
+ARG SDK_WHEEL_SHA256=""
 LABEL io.knuckles.agent-utilities.revision="${SOURCE_REVISION}" \
-      io.knuckles.graph-os.revision="${GRAPH_OS_REVISION}"
+      io.knuckles.graph-os.revision="${GRAPH_OS_REVISION}" \
+      io.knuckles.agent-connector-sdk.wheel-sha256="${SDK_WHEEL_SHA256}"
 ENV DEBIAN_FRONTEND=noninteractive \
     HOST=${HOST} \
     PORT=${PORT} \
@@ -116,6 +122,7 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    staged wheel makes stale or duplicate artifacts observable to that gate instead of
 #    allowing a fixed filename to hide them.
 COPY build-artifacts/eg-wheel/*.whl /tmp/wheels/
+COPY build-artifacts/sdk-wheel/*.whl /tmp/sdk-wheels/
 COPY scripts/release/check_epistemic_graph_client_preflight.py /tmp/check_epistemic_graph_client_preflight.py
 RUN set -eu; \
     uv pip install --system --break-system-packages \
@@ -232,12 +239,17 @@ RUN uv pip install --system --break-system-packages --no-cache \
         "pydantic-ai-skills==1.2.0" \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
+    && set -- /tmp/sdk-wheels/agent_connector_sdk-*.whl \
+    && test "$#" -eq 1 \
+    && test -f "$1" \
+    && printf '%s  %s\n' "${SDK_WHEEL_SHA256}" "$1" | sha256sum -c - \
+    && uv pip install --system --break-system-packages --no-cache --no-deps --reinstall "$1" \
     && python3 /tmp/check_epistemic_graph_client_preflight.py \
         --wheel-dir /tmp/wheels --require-installed \
     && uv pip install --system --break-system-packages --no-cache --no-deps \
         -e /opt/graph-os \
     && chmod -R a+rX /opt/agent-utilities /opt/graph-os \
-    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt \
+    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/sdk-wheels /tmp/overrides.txt \
         /tmp/check_epistemic_graph_client_preflight.py
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
@@ -267,9 +279,10 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from agent_connector_sdk.runner.catalog_authority import RemotePackImportAuthorityResolver; from graph_os.connector_sync_entrypoint import main as connector_sync_main; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; runner = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os-connector-sync']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert len(runner) == 1 and runner[0].load() is connector_sync_main, runner; assert RemotePackImportAuthorityResolver; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('connector-sync authority OK:', runner[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
-    && command -v graph-os >/dev/null
+    && command -v graph-os >/dev/null \
+    && command -v graph-os-connector-sync >/dev/null
 
 # Fixed identity for least-privilege runtime (matches docker/Dockerfile's convention).
 RUN groupadd --system --gid 10001 app \

@@ -739,3 +739,37 @@ def test_collect_direct_setting_forwarder_and_resolve_call_literal() -> None:
         and node.func.id == "_configured_bool"
     )
     assert drift._direct_forwarder_call_literal(call, forwarders) == "A_TOKEN"
+
+
+def test_scan_skips_modules_without_reader_markers_without_losing_reads(
+    tmp_path: Path, monkeypatch
+) -> None:
+    plain = tmp_path / "plain.py"
+    plain.write_text('NAME = "NOT_A_READ"\n', encoding="utf-8")
+    (tmp_path / "readers.py").write_text(
+        'setting("DIRECT_TOKEN")\n'
+        'os.getenv("GETENV_TOKEN")\n'
+        'os.environ["ENVIRON_TOKEN"]\n'
+        'Field(alias="FIELD_TOKEN")\n'
+        'enable_flag = "FLAG_TOKEN"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "quoted.py").write_text(
+        'TEXT = "setting(\\"NOT_A_READ\\")"\n', encoding="utf-8"
+    )
+    parse = ast.parse
+    parsed: list[str] = []
+
+    def record_parse(source: str, *, filename: str) -> ast.AST:
+        parsed.append(filename)
+        return parse(source, filename=filename)
+
+    monkeypatch.setattr(drift.ast, "parse", record_parse)
+    assert drift._scan_setting_calls(tmp_path) == {
+        "DIRECT_TOKEN",
+        "GETENV_TOKEN",
+        "ENVIRON_TOKEN",
+        "FIELD_TOKEN",
+        "FLAG_TOKEN",
+    }
+    assert str(plain) not in parsed
