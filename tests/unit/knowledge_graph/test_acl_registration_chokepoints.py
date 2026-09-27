@@ -635,6 +635,30 @@ def test_batch_typed_mutations_relationship_scope_preserves_governance():
     assert props["classification"] == "confidential"
 
 
+def test_batch_typed_mutations_rejects_scoped_insert_before_backend_write():
+    import pytest
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+
+    with pytest.raises(ValueError, match="requires upsert=True"):
+        engine.batch_typed_mutations(
+            [
+                {
+                    "kind": "edge",
+                    "source": "a",
+                    "target": "b",
+                    "rel_type": "PART_OF_COMMUNITY",
+                }
+            ],
+            upsert=False,
+            edge_upsert_scope="relationship",
+        )
+
+    backend.apply_typed_batch.assert_not_called()
+
+
 def test_batch_typed_mutations_edge_branch_fails_closed_with_no_bound_session():
     """No ambient ``GraphSession`` at all (this method's own ``resolve_session``
     gate, independent of the stamp added here) must still raise, and the
