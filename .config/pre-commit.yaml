@@ -111,12 +111,6 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual]
-  - id: dependency-audit
-    name: audit dependencies for known CVEs (OSV)
-    entry: python3 scripts/audit_dependencies.py uv.lock
-    language: system
-    files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt)$
-    pass_filenames: false
   - id: supply-chain-source-contract
     name: enforce immutable workflow, container, and dependency sources
     entry: python3 scripts/check_fleet_supply_chain.py .

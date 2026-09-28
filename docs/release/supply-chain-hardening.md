@@ -266,50 +266,24 @@ package-name-only and hash-locked closure policy, additionally verifies installe
 `RECORD` ownership and native artifact digests, and atomically rolls `current` back
 when its bounded canary or doctor proof fails.
 
-## Dependency vulnerability audit
+## Dependency lock inventory
 
-`scripts/audit_dependencies.py` audits the local `uv.lock` in pre-commit and CI.
 `scripts/audit_fleet_dependencies.py` deduplicates exact coordinates across all
-committed `uv.lock`, `Cargo.lock`, and `pnpm-lock.yaml` files, then queries OSV in
-bounded batches. It never invokes a resolver or package manager.
-
-Lock parsing also verifies artifact identity before any vulnerability query:
-every Python registry artifact must use HTTPS with a SHA-256 digest, every Cargo
-registry package must use HTTPS with a 64-character checksum, and every pnpm
-registry package must carry a valid SHA-512 integrity value. A version-only lock
-entry is not considered release evidence.
+committed `uv.lock`, `Cargo.lock`, and `pnpm-lock.yaml` files and verifies artifact
+identity. It never invokes a resolver or package manager and makes no network
+requests: every Python registry artifact must use HTTPS with a SHA-256 digest,
+every Cargo registry package must use HTTPS with a 64-character checksum, and
+every pnpm registry package must carry a valid SHA-512 integrity value. A
+version-only lock entry is not considered release evidence.
 
 ```bash
-python3 "$AGENT_UTILITIES_ROOT/scripts/audit_fleet_dependencies.py" \
-  --inventory-only "$AGENT_PACKAGES_ROOT"
-python3 "$AGENT_UTILITIES_ROOT/scripts/audit_fleet_dependencies.py" \
-  "$AGENT_PACKAGES_ROOT"
+python3 "$AGENT_UTILITIES_ROOT/scripts/audit_fleet_dependencies.py" "$AGENT_PACKAGES_ROOT"
 ```
 
-The network audit fails closed if OSV is unavailable. A disconnected developer
-may set `SECURITY_AUDIT_OFFLINE_POLICY=warn` for a local commit only; release and
-CI environments must not set it.
-
-TLS verification is never disabled or hardcoded. Trust is supplied by the
-environment using `SSL_CERT_FILE` or `REQUESTS_CA_BUNDLE` for a complete PEM CA
-bundle, and optionally `SSL_CERT_DIR` for a hashed CA directory. This supports
-public, enterprise, and self-hosted trust chains without storing environment
-names, local paths, or certificates in source control.
-
-## Temporary risk acceptances
-
-Known vulnerabilities must be remediated. A temporary acceptance is permitted
-only for one advisory/package pair, with a justification and an expiry no more
-than 90 days away. Store it in the affected repository's
-`.security-audit-allow.txt`:
-
-```text
-ADVISORY-ID package expires=YYYY-MM-DD # justification of at least 12 characters
-ADVISORY-ID npm @scope/package expires=YYYY-MM-DD # ecosystem-specific justification
-```
-
-Expired, duplicated, malformed, overlong, and stale acceptances fail the audit.
-No package-wide or permanent suppression is supported.
+Vulnerability lookups against external advisory services are not part of any
+blocking gate: gates must run identically offline, locally, and in CI. Review
+upstream advisories when refreshing a lock, and raise the affected floor in
+`pyproject.toml` with a comment naming the advisory.
 
 ## Updating immutable references
 
@@ -330,15 +304,12 @@ same action-pinning, permission, lock, and release controls.
 
 Never edit a generated lock by hand. When a source constraint changes, refresh
 only that repository's lock, review the manifest and lock together, rerun the
-exact-coordinate audit, and complete its tests before moving to the next
+exact-coordinate lock inventory, and complete its tests before moving to the next
 repository. Keep resolver and native-build concurrency at one on constrained
 workstations. Missing locks are release blockers, not warnings.
 
 If an advisory has no fixed upstream release, do not invent a version floor.
 Disable or isolate the affected capability until a patched artifact is available.
-An OSV mapping that demonstrably targets a different product may use the exact,
-expiring advisory/package acceptance format above; document the evidence and
-revalidate it on every lock refresh.
 
 ## Secrets and release permissions
 
