@@ -206,26 +206,29 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
 
 
 def _candidate_files(root: Path) -> list[Path]:
-    """Files under ``root`` worth AST-parsing: only those referencing one of
-    the four target constructors at all — same grep-first performance
-    rationale as ``check_cypher_write_subset.py``'s ``_candidate_files``."""
+    """Tracked Python files referencing a target constructor.
+
+    Git searches working-tree contents without walking ignored build output,
+    virtual environments, or nested worktrees. A failed search remains a gate
+    error rather than an empty candidate set.
+    """
     pattern = r"|".join(rf"\b{name}\(" for name in sorted(_TARGET_CALLS))
     try:
         proc = subprocess.run(
-            ["grep", "-rlE", pattern, str(root), "--include=*.py"],
+            ["git", "-C", str(root), "grep", "-z", "-l", "-E", pattern, "--", "*.py"],
             capture_output=True,
             text=True,
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except (OSError, UnicodeDecodeError, subprocess.TimeoutExpired) as exc:
         raise HttpxDualityGateError(
             f"could not enumerate candidate files under {root}: {exc}"
         ) from exc
-    if proc.returncode not in (0, 1):  # 1 == grep found nothing, not an error
+    if proc.returncode not in (0, 1):  # 1 == git grep found nothing
         raise HttpxDualityGateError(
-            f"grep over {root} exited {proc.returncode}: {proc.stderr.strip()}"
+            f"git grep over {root} exited {proc.returncode}: {proc.stderr.strip()}"
         )
-    return sorted(Path(line) for line in proc.stdout.splitlines() if line)
+    return sorted(root / line for line in proc.stdout.split("\0") if line)
 
 
 def scan(root: Path) -> list[Violation]:
