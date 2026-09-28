@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Validate the Agent Utilities contract across the declared provider fleet.
 
-The repository-manager workspace is the source of truth for provider membership.
+The repository-manager workspace is the source of truth for provider membership:
+every provider it lists must be checked out under the providers root, and every
+provider checkout there must be listed (a derived check, never a pinned count).
 The gate validates publishable dependency bounds, rejects local sources in
 published metadata, and checks documentation language without emitting machine
 paths or matched content.  The canonical uv sibling link is an ephemeral
 development override and is not published metadata.
+
+The fleet lives outside this repository.  When the workspace manifest or the
+providers root is absent the gate cannot run: locally it prints SKIPPED and
+exits 0; under CI (``CI`` set) it fails closed with exit 2.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +29,6 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-EXPECTED_PROVIDER_COUNT = 74
 REQUIRED_SPECIFIERS = frozenset({(">=", "2.0.0"), ("<", "3.0.0")})
 _RETIRED_AGENT_UTILITIES_EXTRAS = frozenset({"agent", "engine"})
 _EPHEMERAL_AGENT_UTILITIES_SOURCE = {
@@ -375,8 +381,6 @@ def _validate_provider(provider: Path, name: str) -> tuple[list[Finding], FleetS
 def validate_fleet(
     workspace_path: Path,
     providers_root: Path,
-    *,
-    expected_provider_count: int = EXPECTED_PROVIDER_COUNT,
 ) -> tuple[list[Finding], FleetStats]:
     """Validate every provider named by the repository-manager workspace."""
 
@@ -388,10 +392,14 @@ def validate_fleet(
         ], FleetStats()
 
     findings: list[Finding] = []
-    if expected_provider_count and len(providers) != expected_provider_count:
-        findings.append(
-            Finding("workspace", "workspace.yml", 0, "provider_count_mismatch")
-        )
+    if not providers:
+        findings.append(Finding("workspace", "workspace.yml", 0, "provider_list_empty"))
+    listed = set(providers)
+    findings.extend(
+        Finding(name, "provider", 0, "provider_unlisted")
+        for name in _provider_checkouts(providers_root)
+        if name not in listed
+    )
 
     stats = FleetStats()
     for name in providers:
@@ -413,6 +421,20 @@ def validate_fleet(
             ),
         )
     return sorted(findings), stats
+
+
+def _provider_checkouts(providers_root: Path) -> list[str]:
+    """Provider checkouts present under *providers_root* (dirs with a pyproject)."""
+
+    if not providers_root.is_dir():
+        return []
+    return sorted(
+        child.name
+        for child in providers_root.iterdir()
+        if child.is_dir()
+        and not child.name.startswith(".")
+        and (child / "pyproject.toml").is_file()
+    )
 
 
 def _default_workspace() -> Path:
@@ -453,18 +475,22 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path)
     parser.add_argument("--providers-root", type=Path)
-    parser.add_argument(
-        "--expected-provider-count", type=int, default=EXPECTED_PROVIDER_COUNT
-    )
     args = parser.parse_args()
 
     workspace = args.workspace or _default_workspace()
     providers_root = args.providers_root or _default_providers_root(workspace)
-    findings, stats = validate_fleet(
-        workspace,
-        providers_root,
-        expected_provider_count=args.expected_provider_count,
-    )
+    if not workspace.is_file() or not providers_root.is_dir():
+        reason = "provider fleet checkout (workspace.yml and providers root) not found"
+        if os.environ.get("CI"):
+            print(f"provider fleet contract: cannot run: {reason}", file=sys.stderr)
+            return 2
+        print(
+            f"SKIPPED (provider-fleet-contract): {reason}; check out the "
+            "agent-packages fleet beside this repository or set "
+            "AGENT_UTILITIES_WORKSPACE_CONFIG / AGENT_UTILITIES_PROVIDERS_ROOT"
+        )
+        return 0
+    findings, stats = validate_fleet(workspace, providers_root)
     for finding in findings:
         location = f"{finding.package}/{finding.path}"
         if finding.line:

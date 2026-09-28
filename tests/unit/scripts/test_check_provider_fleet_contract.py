@@ -71,9 +71,7 @@ def test_validates_declared_provider_contract(tmp_path):
     _provider(providers_root, "beta-mcp", requirement=requirement)
     workspace = _workspace(tmp_path / "workspace.yml", ("alpha-agent", "beta-mcp"))
 
-    findings, stats = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=2
-    )
+    findings, stats = module.validate_fleet(workspace, providers_root)
 
     assert findings == []
     assert stats.providers == 2
@@ -98,9 +96,7 @@ def test_accepts_ephemeral_governed_workspace_source(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
 
     assert findings == []
 
@@ -115,9 +111,7 @@ def test_rejects_local_source_in_published_dependency_metadata(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
 
     assert any(finding.rule == "local_source_forbidden" for finding in findings)
 
@@ -143,9 +137,7 @@ def test_rejects_stale_bounds_source_and_documentation(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
     rules = {finding.rule.split(":", 1)[0] for finding in findings}
 
     assert rules >= {
@@ -170,9 +162,7 @@ def test_rejects_retired_extras_in_provider_dependency_surfaces(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
 
     rules = {finding.rule for finding in findings}
     assert any(
@@ -197,9 +187,7 @@ def test_rejects_retired_dockerfile_runtime_claims(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
 
     docker_findings = {
         finding.rule for finding in findings if finding.path == "docker/Dockerfile"
@@ -231,10 +219,46 @@ def test_rejects_misnested_license_in_author_metadata(tmp_path):
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
 
-    findings, _ = module.validate_fleet(
-        workspace, providers_root, expected_provider_count=1
-    )
+    findings, _ = module.validate_fleet(workspace, providers_root)
     rules = {finding.rule for finding in findings}
 
     assert "project_authors_invalid" in rules
     assert "project_license_invalid" in rules
+
+
+def test_membership_is_derived_from_manifest_and_checkouts(tmp_path):
+    module = _module()
+    providers_root = tmp_path / "agents"
+    requirement = "agent-utilities[mcp]>=2.0.0,<3.0.0"
+    _provider(providers_root, "listed-agent", requirement=requirement)
+    _provider(providers_root, "unlisted-agent", requirement=requirement)
+    workspace = _workspace(
+        tmp_path / "workspace.yml", ("listed-agent", "missing-agent")
+    )
+
+    findings, _ = module.validate_fleet(workspace, providers_root)
+
+    assert {(finding.package, finding.rule) for finding in findings} == {
+        ("missing-agent", "provider_checkout_missing"),
+        ("unlisted-agent", "provider_unlisted"),
+    }
+
+
+def test_absent_fleet_skips_locally_and_fails_closed_in_ci(
+    tmp_path, monkeypatch, capsys
+):
+    module = _module()
+    argv = [
+        "check_provider_fleet_contract.py",
+        "--workspace",
+        str(tmp_path / "absent.yml"),
+        "--providers-root",
+        str(tmp_path / "absent"),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.delenv("CI", raising=False)
+    assert module.main() == 0
+    assert "SKIPPED (provider-fleet-contract)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CI", "true")
+    assert module.main() == 2
