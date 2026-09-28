@@ -1,0 +1,23 @@
+# agent-utilities constitution
+
+Version: 1.0.0. Ratified: 2026-09-28. Specification index: [specs/README.md](../../specs/README.md).
+
+## I. Single owner and reusable architecture
+
+This repository owns agent orchestration and control workflows. A design must inventory existing public components and callers before adding code, name one legal owner, preserve dependency direction, and reuse the existing live wiring. Cross-repository capabilities cite the owner spec by stable ID; no second authority or dormant parallel implementation is accepted.
+
+## II. Complete specification before construction
+
+A contribution records behavior and acceptance in `spec.md`, architecture/data/security/failure design in `plan.md`, exact positive and negative proof in `test-spec.md`, and sequenced work in `tasks.md`. Unresolved choices are explicit. The checked-in spec, not a local plan draft or generated report, is the contributor-facing build contract.
+
+## III. Observable integration and evidence
+
+Acceptance follows a real entrypoint through the intended owner and effect boundary. Tests cover refusal, authorization, idempotency and recovery where applicable. Evidence names the exact revision, command, environment and result; source-only success never claims served or release acceptance.
+
+## IV. Quality and release discipline
+
+Apply this repository's CCCC, jscpd, dupehound, KISS, language-native, contract, package and release gates as relevant. Fix real complexity and duplication at the owner; do not suppress findings or split logic merely to satisfy a scanner. Update public docs and delete superseded paths after consumers move.
+
+## V. Amendment and status
+
+Amend this constitution in a reviewed change that states the reason and impact. Do not mark a spec LANDED until the owning repository revision and all required cross-repo receipts meet the accepted program ledger gates.

@@ -20,6 +20,8 @@
 # docstring for why the split.
 
 [dirs]
+".specify" = "tracked Spec Kit constitution; generated tooling files remain ignored"
+specs = "tracked repository-owned specifications and contribution templates"
 ".config" = "tracked tool configuration with explicit paths, including pre-commit and codespell"
 architecture = "owner-authored architecture component manifests consumed by the validation generator"
 agent_utilities = "the importable library package itself (kg_server.py MCP entry point, agent.py, skills/, core/, ...)"
