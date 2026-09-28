@@ -64,8 +64,8 @@ repos:
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.config/codespell.ignore"]
-    # style_lint.py's _COMMON_TYPOS dict is DATA — the misspelled forms (teh,
-    # wich, recieve, ...) are its dictionary keys by design (it's the ontology
+    # style_lint.py's _COMMON_TYPOS dict is DATA — its deliberately misspelled
+    # words are dictionary keys by design (it's the ontology
     # naming-style linter's own typo table). Whitelisting those words globally
     # in .config/codespell.ignore would blind codespell to the same real typos anywhere
     # else in the tree, so exclude this one file by path instead.
