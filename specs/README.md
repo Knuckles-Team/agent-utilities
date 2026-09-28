@@ -57,3 +57,15 @@ corresponding gates actually pass. Use the [universal-skills spec-generator](htt
 and [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
 and the [graph-os-development](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graph-os-development/SKILL.md)
 bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle) workflow.
+
+## Local specifications
+
+- [`AU-CONTEXT-001`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
+- [`agent-control-plane`](agent-control-plane/spec.md) — agent control plane and workflows.
+- [`AU-SEC-01`](agent-security-policy/spec.md) — agent security and policy boundary.
+- [`AU-BOUNDARY-001`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
+- [`AU-QUAL-01`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
+- [`AU-DEV-001`](au-developer-environment/spec.md) — developer environment and release setup.
+- [`AU-INTEGRATION-001`](au-integration-reliability/spec.md) — reliability of live integrations.
+- [`AU-SEMANTIC-001`](au-semantic-client/spec.md) — semantic client behavior.
+- [`harness-evolution`](harness-evolution/spec.md) — harness improvement and evaluation.
