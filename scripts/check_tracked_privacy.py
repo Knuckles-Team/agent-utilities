@@ -981,6 +981,23 @@ MAX = 0
 def _required_identity_catalog(path: Path) -> tuple[bytes, ...]:
     try:
         return load_identity_catalog(path)
+    except FileNotFoundError as exc:
+        # The operator-owned policy is not part of the repository, so a fresh
+        # clone has none. Locally the identity pass is skipped and every other
+        # pass still runs; CI must supply the policy and fails closed without it.
+        if os.environ.get("CI"):
+            print(
+                "Tracked artifact privacy gate: CANNOT RUN: the external identity "
+                "policy is not configured.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2) from exc
+        print(
+            "SKIPPED (tracked-privacy identity pass): no operator identity policy "
+            "is configured on this machine; host-path, credential and endpoint "
+            "passes still run."
+        )
+        return ()
     except (OSError, ValueError) as exc:
         print(
             "Tracked artifact privacy gate cannot load its external identity "

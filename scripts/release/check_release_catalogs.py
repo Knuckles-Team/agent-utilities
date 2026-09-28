@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import sys
 import tomllib
@@ -340,6 +341,15 @@ def main(argv: list[str] | None = None) -> int:
     # `--write` is gone with the resource catalog it regenerated. Nothing here
     # writes any more: this gate only reads.
     parser.parse_args(argv)
+    if not (DEFAULT_WORKSPACE.is_file() and DEFAULT_AGENTS_ROOT.is_dir()):
+        # The connector catalog is derived from the provider fleet checkout,
+        # which lives outside this repository.
+        reason = "the provider fleet checkout (workspace manifest and agents root) is not present"
+        if os.environ.get("CI"):
+            print(f"check-release-catalogs: CANNOT RUN: {reason}", file=sys.stderr)
+            return 2
+        print(f"SKIPPED (check-release-catalogs): {reason}")
+        return 0
     try:
         _validate_dependency_extras()
         matrix_digest = _validate_matrix()

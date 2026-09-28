@@ -1306,3 +1306,32 @@ def test_lock_locked_is_verification_not_mutation(
         )
         assert "--locked" in plan.execute
         assert plan.allow_worktree_lock_update is False
+
+
+def test_standalone_clone_skips_locally_and_fails_closed_in_ci(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def no_workspace() -> None:
+        raise uv_workspace.EcosystemWorkspaceUnavailable("no ecosystem manifest")
+
+    monkeypatch.setattr(uv_workspace, "main", no_workspace)
+
+    monkeypatch.delenv("CI", raising=False)
+    assert uv_workspace._cli() == 0
+    assert "SKIPPED (uv-workspace)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CI", "true")
+    assert uv_workspace._cli() == 2
+    assert "CANNOT RUN" in capsys.readouterr().err
+
+
+def test_other_launcher_refusals_still_fail(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refused() -> None:
+        raise RuntimeError("refusing to resolve a lock in the canonical checkout")
+
+    monkeypatch.setattr(uv_workspace, "main", refused)
+    monkeypatch.delenv("CI", raising=False)
+    assert uv_workspace._cli() == 2
+    assert "refusing" in capsys.readouterr().err

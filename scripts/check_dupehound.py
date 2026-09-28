@@ -35,6 +35,7 @@ from typing import Any, NoReturn
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _gate_skip import unavailable  # noqa: E402
 from _clone_scanner_config import (  # noqa: E402
     CloneScannerConfig,
     CloneScannerConfigError,
@@ -148,7 +149,8 @@ def _resolve_dupehound(config: CloneScannerConfig) -> str:
     found = shutil.which("dupehound")
     if found:
         return found
-    _die(
+    unavailable(
+        "clone-dupehound-changed-functions",
         "`dupehound` not found. Looked at $DUPEHOUND_BIN, "
         "~/.local/bin/dupehound, /usr/local/bin/dupehound and $PATH. "
         f"Install the pinned v{config.dupehound_version} binary before running "

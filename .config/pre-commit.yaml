@@ -93,7 +93,7 @@ repos:
   # installation on the automatic pre-push path.
   - id: uv-lock
     name: uv lock consistency (no install, no rewrite)
-    entry: python3 scripts/uv_workspace.py lock --locked
+    entry: scripts/hook_python.sh scripts/uv_workspace.py lock --locked
     language: system
     pass_filenames: false
     always_run: true
@@ -113,19 +113,19 @@ repos:
     stages: [manual]
   - id: supply-chain-source-contract
     name: enforce immutable workflow, container, and dependency sources
-    entry: python3 scripts/check_fleet_supply_chain.py .
+    entry: scripts/hook_python.sh scripts/check_fleet_supply_chain.py .
     language: system
     files: ^(\.github/workflows/.*\.ya?ml|.*(?:Dockerfile|\.dockerfile).*|.*(?:compose|stack).*\.ya?ml|pyproject\.toml|package\.json|Cargo\.toml|.*\.lock|pnpm-lock\.yaml)$
     pass_filenames: false
   - id: check-mermaid
     name: Check Mermaid syntax
-    entry: python3 scripts/mermaid_linter.py
+    entry: scripts/hook_python.sh scripts/mermaid_linter.py
     language: system
     files: \.md$
     pass_filenames: true
   - id: check-stubs
     name: Check for Active Stubs and TODOs
-    entry: python3 scripts/check_stubs.py
+    entry: scripts/hook_python.sh scripts/check_stubs.py
     language: system
     types: [python]
   - id: check-import-safety
@@ -219,7 +219,7 @@ repos:
     # import cleanly and needed no entry.
     entry: >-
       bash -c 'CMD="scripts/check_import_safety.py $*"; if [ -f uv.lock ]; then
-      exec python3 scripts/uv_workspace.py run --all-extras -- python3 $CMD; else
+      exec scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- python3 $CMD; else
       exec python3 $CMD; fi' --
       --package agent_utilities --simulate-windows
       --exclude agent_utilities.knowledge_graph.core.file_lock
@@ -262,7 +262,7 @@ repos:
     files: ^(agent_utilities/.*|pyproject\.toml|uv\.lock)$
   - id: check-http-transport-closure
     name: Governed HTTP transport import and dependency closure (NE-015)
-    entry: python3 scripts/check_http_transport_closure.py
+    entry: scripts/hook_python.sh scripts/check_http_transport_closure.py
     language: system
     pass_filenames: false
     # The scanner is deliberately cheap and always runs: a new direct import,
@@ -271,19 +271,19 @@ repos:
     always_run: true
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
-    entry: python3 scripts/check_no_env_sprawl.py
+    entry: scripts/hook_python.sh scripts/check_no_env_sprawl.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-no-stdout-writes
     name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
-    entry: python3 scripts/check_no_stdout_writes.py
+    entry: scripts/hook_python.sh scripts/check_no_stdout_writes.py
     language: system
     pass_filenames: false
     always_run: true
   - id: env-var-drift
     name: Env-var / config drift guard (.env.example matches the code-read surface)
-    entry: python3 -m agent_utilities.mcp.check_env_var_drift --check
+    entry: scripts/hook_python.sh -m agent_utilities.mcp.check_env_var_drift --check
     language: system
     pass_filenames: false
     # Scoped, not always_run: the script's own `_NON_RUNTIME_SOURCE_DIRS`
@@ -299,13 +299,13 @@ repos:
     # (1) no non-merge, non-bump commit authored in the canonical checkout, and
     # (2) no hand-edited docs/concept_reservations.yaml (it is the fold of the
     #     per-lane append-only fragments). See docs/architecture/lane-concurrency.md.
-    entry: python3 scripts/check_lane_guard.py
+    entry: scripts/hook_python.sh scripts/check_lane_guard.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
-    entry: python3 scripts/check_concept_gaps.py
+    entry: scripts/hook_python.sh scripts/check_concept_gaps.py
     language: system
     pass_filenames: false
     always_run: true
@@ -320,7 +320,7 @@ repos:
     # passes the centrally pinned threshold/exclusions. It returns 2 when the
     # binary/version/result cannot be trusted; no hook-time installation or
     # baseline is allowed.
-    entry: python3 scripts/check_dupehound.py
+    entry: scripts/hook_python.sh scripts/check_dupehound.py
     language: system
     pass_filenames: false
     always_run: true
@@ -350,20 +350,20 @@ repos:
   # the staged pre-commit path and expose it only at the manual tier.
   - id: clone-jscpd-census
     name: Clone census — full tree (jscpd, advisory)
-    entry: python3 scripts/check_duplication.py census
+    entry: scripts/hook_python.sh scripts/check_duplication.py census
     language: system
     pass_filenames: false
     always_run: true
     stages: [manual]
   - id: complexity-staged
     name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
-    entry: python3 scripts/check_complexity_staged.py
+    entry: scripts/hook_python.sh scripts/check_complexity_staged.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-root-hygiene
     name: Repository root hygiene (allowlisted entries only)
-    entry: python3 scripts/check_root_hygiene.py
+    entry: scripts/hook_python.sh scripts/check_root_hygiene.py
     language: system
     pass_filenames: false
     always_run: true
@@ -377,10 +377,10 @@ repos:
     # turtle serializer cannot canonicalize idempotently (blank-node relabeling),
     # so the formatter would rewrite them on every run. They remain valid turtle
     # and are parsed/validated by the SHACL gate — just not cosmetically reformatted.
-    exclude: ^agent_utilities/knowledge_graph/shapes/
+    exclude: (^|/)shapes/
   - id: check-identifier-interpolation
     name: Identifier interpolation — every label/table/rel-type f-string is validated
-    entry: python3 scripts/check_identifier_interpolation.py
+    entry: scripts/hook_python.sh scripts/check_identifier_interpolation.py
     language: system
     pass_filenames: false
     # Scoped: scans agent_utilities/**.py only (pkg_root = ROOT/"agent_utilities"
@@ -388,7 +388,7 @@ repos:
     files: ^agent_utilities/.*\.py$
   - id: check-import-cycles
     name: Import cycles — ZERO eager (load-time) cycles, absolute
-    entry: python3 scripts/check_import_cycles.py
+    entry: scripts/hook_python.sh scripts/check_import_cycles.py
     language: system
     pass_filenames: false
     files: ^agent_utilities/.*\.py$
@@ -408,7 +408,7 @@ repos:
     # and therefore useless. See the script's module docstring.
   - id: check-swallowed-errors
     name: Swallowed errors — census + no cause-dropping handler ADDED by this change
-    entry: python3 scripts/check_swallowed_errors.py
+    entry: scripts/hook_python.sh scripts/check_swallowed_errors.py
     language: system
     pass_filenames: false
     # Scoped: scans agent_utilities/**.py only (PKG = ROOT/"agent_utilities"
@@ -418,13 +418,13 @@ repos:
     files: ^agent_utilities/.*\.py$
   - id: check-event-loop-blocking
     name: Event-loop blocking heuristic (ratchet — no new candidate sites)
-    entry: python3 scripts/check_event_loop_blocking.py
+    entry: scripts/hook_python.sh scripts/check_event_loop_blocking.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-no-per-element-ingest-loop
     name: No per-element ingest loop on the agent-facing MCP surface (ratchet, B-11/GOC-68)
-    entry: python3 scripts/check_no_per_element_ingest_loop.py
+    entry: scripts/hook_python.sh scripts/check_no_per_element_ingest_loop.py
     language: system
     pass_filenames: false
     always_run: true
@@ -444,7 +444,7 @@ repos:
     # existing backlog burns down over time via
     # `--update-wire-first-baseline` after a genuine fix, never to silence a
     # regression.
-    entry: python3 scripts/check_wiring.py --wire-first-report
+    entry: scripts/hook_python.sh scripts/check_wiring.py --wire-first-report
     language: system
     pass_filenames: false
     # Scoped: cross-references agent_utilities/**.py (the reachable surface)
@@ -454,7 +454,7 @@ repos:
     files: ^(agent_utilities/.*\.py|tests/.*\.py|scripts/wire_first_baseline\.json)$
   - id: check-release-catalogs
     name: Release catalogs match the checked-in connector manifests (D-35-9)
-    entry: python3 scripts/release/check_release_catalogs.py
+    entry: scripts/hook_python.sh scripts/release/check_release_catalogs.py
     language: system
     pass_filenames: false
     # NOT scoped, despite being expensive (~42s standalone, measured
@@ -470,7 +470,7 @@ repos:
     always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
-    entry: python3 scripts/check_skill_name_collision.py
+    entry: scripts/hook_python.sh scripts/check_skill_name_collision.py
     language: system
     pass_filenames: false
     always_run: true
@@ -489,7 +489,7 @@ repos:
   # installed hides it from any command-equivalence-only check.
   - id: ci-gate-replica-consistency
     name: CI gate replica — anti-drift check (all workflow jobs classified + build-tool deps installable)
-    entry: python3 scripts/ci_gate_replica.py --consistency-check
+    entry: scripts/hook_python.sh scripts/ci_gate_replica.py --consistency-check
     language: system
     pass_filenames: false
     always_run: true
@@ -500,7 +500,7 @@ repos:
   # answer instead of an ad-hoc grep over changed files.
   - id: ci-gate-replica-skip-advisory
     name: CI gate replica — skip-safety advisory (informational; never fails the commit)
-    entry: bash -c 'python3 scripts/ci_gate_replica.py --skip-safe HEAD || true'
+    entry: bash -c 'scripts/hook_python.sh scripts/ci_gate_replica.py --skip-safe HEAD || true'
     language: system
     pass_filenames: false
     always_run: true
@@ -511,7 +511,7 @@ repos:
     # pytest.ini's own `testpaths` (tests/unit tests/integration tests/retrieval)
     # so this hook and `pytest.ini` never drift — tests/retrieval was
     # previously reachable by neither (CONCEPT:AU-KG.retrieval.context-compiler dead-coverage fix).
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ "$test_target" = "tests/unit" ]; then test_target="tests/unit tests/integration tests/retrieval"; fi; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest $test_target -q --tb=short -m "not slow" --timeout=60; else pytest $test_target -q --tb=short -m "not slow" --timeout=60; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; test_target="tests"; for d in tests/unit test/unit tests test; do if [ -d "$d" ]; then test_target="$d"; break; fi; done; if [ "$test_target" = "tests/unit" ]; then test_target="tests/unit tests/integration tests/retrieval"; fi; if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras pytest $test_target -q --tb=short -m "not slow" --timeout=60; else pytest $test_target -q --tb=short -m "not slow" --timeout=60; fi'
     language: system
     types: [python]
     pass_filenames: false
@@ -577,7 +577,7 @@ repos:
     # "environment-blocked" verdict AGENTS.md's Quality Bar section warns
     # against (measure with the instrument the target actually needs).
     entry: |-
-      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv*/*" -not -path "*/\.git/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); python3 scripts/uv_workspace.py run --all-extras python -m "$mod" --help >/dev/null || exit 1; done'
+      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv*/*" -not -path "*/\.git/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); scripts/hook_python.sh scripts/uv_workspace.py run --all-extras python -m "$mod" --help >/dev/null || exit 1; done'
     language: system
     pass_filenames: false
     always_run: true
@@ -607,9 +607,13 @@ repos:
           fi
         done
         if [ -z "$bump2version_bin" ]; then
-          echo "check-bumpversion: bump2version is not on PATH and was not found under \$HOME/.local/bin or \$HOME/.local/pipx (checked: PATH, \$HOME/.local/bin, \$HOME/.local/pipx/venvs/bump2version/bin)." >&2
-          echo "This is a MISSING TOOL, not a version-bump config defect: install it (\`pipx install bump2version\` or \`pip install --user bump2version\`), or make sure \$HOME/.local/bin is on PATH for whatever is running this hook (a systemd unit / CI runner with a minimal PATH= is the usual cause)." >&2
-          exit 127
+          reason="bump2version is not on PATH, \$HOME/.local/bin or \$HOME/.local/pipx (a MISSING TOOL, not a version-bump config defect; install it with \`pipx install bump2version\`)"
+          if [ -n "${CI:-}" ]; then
+            echo "check-bumpversion: CANNOT RUN: $reason" >&2
+            exit 2
+          fi
+          echo "SKIPPED (check-bumpversion): $reason"
+          exit 0
         fi
         "$bump2version_bin" patch --dry-run --allow-dirty
       '
@@ -668,31 +672,31 @@ repos:
   # BLOCKING ---------------------------------------------------------------
   - id: guardrail-no-stub
     name: Guardrail — no production stubs
-    entry: python3 scripts/check_no_stub.py
+    entry: scripts/hook_python.sh scripts/check_no_stub.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-concept-freshness
     name: Guardrail — concept registry freshness
-    entry: python3 scripts/check_concepts.py
+    entry: scripts/hook_python.sh scripts/check_concepts.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-concept-domain-vocab
     name: Guardrail — OKF-CIS closed domain vocab + registered slugs
-    entry: python3 scripts/check_domain_vocab.py agent_utilities
+    entry: scripts/hook_python.sh scripts/check_domain_vocab.py agent_utilities
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-prompt-schema
     name: Guardrail — canonical prompt schema (StructuredPrompt)
-    entry: python3 scripts/check_prompt_schema.py
+    entry: scripts/hook_python.sh scripts/check_prompt_schema.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-genesis-manifest
     name: Guardrail — genesis.yaml freshness
-    entry: python3 scripts/check_genesis_manifest.py
+    entry: scripts/hook_python.sh scripts/check_genesis_manifest.py
     language: system
     pass_filenames: false
     always_run: true
@@ -701,7 +705,7 @@ repos:
     # Relative path so the gate analyzes the tree being committed (its script
     # derives ROOT/baseline from its own location) instead of an unrelated
     # absolute checkout — required for the gate to see this repo's source and
-    entry: python3 scripts/check_surface_parity.py
+    entry: scripts/hook_python.sh --needs-engine guardrail-surface-parity scripts/check_surface_parity.py
     language: system
     pass_filenames: false
     # Scoped: this gate imports the live agent_utilities package and
@@ -720,7 +724,7 @@ repos:
     # /docs by construction) and documented operations missing a summary or
     # description. Fails only on regression vs the baseline; run with
     # --update-baseline after a genuine fix.
-    entry: python3 scripts/check_openapi_coverage.py
+    entry: scripts/hook_python.sh scripts/check_openapi_coverage.py
     language: system
     pass_filenames: false
     # Scoped: this gate imports the live agent_utilities package and
@@ -731,7 +735,7 @@ repos:
     files: ^(agent_utilities/server/.*\.py|agent_utilities/gateway/.*\.py|agent_utilities/mcp/kg_server\.py|scripts/check_openapi_coverage\.py|scripts/openapi_coverage_baseline\.json)$
   - id: guardrail-cpd-drift
     name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
-    entry: python3 scripts/check_cpd.py
+    entry: scripts/hook_python.sh --needs-engine guardrail-cpd-drift scripts/check_cpd.py
     language: system
     pass_filenames: false
     # Scoped: regenerates the CPD set from the live tool registry (reflection
@@ -743,7 +747,7 @@ repos:
     files: ^agent_utilities/.*
   - id: guardrail-docs-contract
     name: Guardrail — docs catalog, links, nav, and generated inventories
-    entry: python3 scripts/docs_contract.py --check
+    entry: scripts/hook_python.sh scripts/docs_contract.py --check
     language: system
     pass_filenames: false
     # Scoped: nav/link/catalog checks target docs/, mkdocs.yml, and README.md
@@ -755,7 +759,7 @@ repos:
     files: ^(docs/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
   - id: guardrail-tracked-privacy
     name: Guardrail — tracked public artifacts contain no host-specific data or local identities
-    entry: python3 scripts/check_tracked_privacy.py
+    entry: scripts/hook_python.sh scripts/check_tracked_privacy.py
     language: system
     pass_filenames: false
     # NOT scoped, despite being expensive (~19s standalone, measured
@@ -782,7 +786,7 @@ repos:
     #   pre-commit run --config .config/pre-commit.yaml guardrail-pre-commit-patch-safety --hook-stage manual --all-files
     # ALWAYS run it (or `python3 scripts/check_pre_commit_patch_safety.py`)
     # before any $PRE_COMMIT_HOME/~/.cache/pre-commit reclaim.
-    entry: python3 scripts/check_pre_commit_patch_safety.py
+    entry: scripts/hook_python.sh scripts/check_pre_commit_patch_safety.py
     language: system
     pass_filenames: false
     always_run: true
@@ -797,14 +801,14 @@ repos:
     # docs-build/wheel-build/backend-parity/guardrails-lean-parity above.
     # Manual-only because it needs a reachable Graph-OS/engine. Run it via:
     #   pre-commit run --config .config/pre-commit.yaml guardrail-kg-skill-coverage --hook-stage manual --all-files
-    entry: python3 -m agent_utilities.mcp.skill_coverage
+    entry: scripts/hook_python.sh -m agent_utilities.mcp.skill_coverage
     language: system
     pass_filenames: false
     always_run: true
     stages: [manual]
   - id: guardrail-prebundled-skills
     name: Guardrail — consolidated pre-bundled skills stay valid
-    entry: python3 scripts/check_prebundled_skills.py
+    entry: scripts/hook_python.sh scripts/check_prebundled_skills.py
     language: system
     pass_filenames: false
     always_run: true
@@ -814,13 +818,13 @@ repos:
     # projection plus a pinned epistemic-graph contract digest snapshot
     # (eg_contract_pin.json, checked into this repo) -- never a sibling
     # checkout, whose on-disk state a local commit hook cannot control.
-    entry: python3 scripts/check_epistemic_operations_protocol.py --self-only
+    entry: scripts/hook_python.sh scripts/check_epistemic_operations_protocol.py --self-only
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-version-consistency
     name: Guardrail — release version consistency
-    entry: python3 scripts/check_version_consistency.py
+    entry: scripts/hook_python.sh scripts/check_version_consistency.py
     language: system
     pass_filenames: false
     always_run: true
@@ -855,7 +859,7 @@ repos:
     verbose: true
   - id: guardrail-retrieval-quality
     name: Guardrail — retrieval quality (Recall@k / MRR floor)
-    entry: python3 scripts/check_retrieval_quality.py
+    entry: scripts/hook_python.sh scripts/check_retrieval_quality.py
     language: system
     pass_filenames: false
     always_run: true
@@ -866,7 +870,7 @@ repos:
     # AGENT_UTILITIES_ALLOW_ANY_INTERPRETER: deliberately plain system python3
     # for speed, like backend-interface-parity above — the sanctioned exception
     # to tests/conftest.py's D-CC-6 wrong-interpreter fail-fast guard.
-    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
+    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 scripts/hook_python.sh -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
     language: system
     pass_filenames: false
     always_run: true
@@ -876,7 +880,7 @@ repos:
   # botched-merge dividers, so this now runs BLOCKING.
   - id: guardrail-sprawl
     name: Guardrail — anti-sprawl
-    entry: python3 scripts/check_sprawl.py
+    entry: scripts/hook_python.sh scripts/check_sprawl.py
     language: system
     pass_filenames: false
     always_run: true
@@ -886,14 +890,14 @@ repos:
   # commits. Remove the `|| true` once the adapter seam has settled.
   - id: guardrail-coupling-advisory
     name: Guardrail — geniusbot coupling (ADVISORY, decoupling in flight)
-    entry: bash -c 'python3 scripts/check_coupling.py || true'
+    entry: bash -c 'scripts/hook_python.sh scripts/check_coupling.py || true'
     language: system
     pass_filenames: false
     always_run: true
     verbose: true
   - id: guardrail-entrypoint-engine-authority
     name: Guardrail — every entrypoint reaches the graph through ONE engine authority (D-WD-7)
-    entry: python3 scripts/check_entrypoint_engine_construction.py
+    entry: scripts/hook_python.sh scripts/check_entrypoint_engine_construction.py
     language: system
     pass_filenames: false
     always_run: true
@@ -901,25 +905,25 @@ repos:
   # a push can't fail a gate that pre-commit didn't already catch locally.
   - id: guardrail-eval-corpus
     name: Guardrail — eval corpus
-    entry: python3 scripts/check_eval_corpus.py
+    entry: scripts/hook_python.sh scripts/check_eval_corpus.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-reliability-corpus
     name: Guardrail — reliability corpus
-    entry: python3 scripts/check_reliability_corpus.py
+    entry: scripts/hook_python.sh scripts/check_reliability_corpus.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-citation-lineage
     name: Guardrail — citation lineage (mandatory evidence citation + embedding versioning)
-    entry: python3 scripts/check_citation_lineage.py
+    entry: scripts/hook_python.sh scripts/check_citation_lineage.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-liveness
     name: Guardrail — liveness ratchet
-    entry: python3 scripts/check_liveness.py
+    entry: scripts/hook_python.sh scripts/check_liveness.py
     language: system
     pass_filenames: false
     # NOT scoped, despite being the single most expensive default-stage
@@ -950,7 +954,7 @@ repos:
     # managed-venv re-exec. FAILS CLOSED (not skip) if the consumer index is
     # missing, unparseable, or older than 30 days — see the script's
     # docstring for why silently skipping was rejected.
-    entry: python3 scripts/check_removed_symbol_consumers.py
+    entry: scripts/hook_python.sh scripts/check_removed_symbol_consumers.py
     language: system
     pass_filenames: false
     always_run: true
@@ -975,7 +979,7 @@ repos:
     # committed, every time. Not a D-CC-6 exception: that escape hatch is for
     # genuinely engine-free, dependency-light checks (see backend-interface-
     # parity), not for a suite that imports the full MCP surface.
-    entry: bash -c 'if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; else AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; else AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 scripts/hook_python.sh -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -991,7 +995,7 @@ repos:
   # checkout. Fast → default (pre-commit) stage, runs on every --all-files.
   - id: check-concept-governance
     name: CI parity — concept governance (Extend-Before-Invent)
-    entry: python3 scripts/check_concept_governance.py
+    entry: scripts/hook_python.sh scripts/check_concept_governance.py
     language: system
     pass_filenames: false
     always_run: true
@@ -1003,7 +1007,7 @@ repos:
   #   pre-commit run --config .config/pre-commit.yaml check-concept-governance-merged --hook-stage manual --all-files
   - id: check-concept-governance-merged
     name: CI parity — concept governance (merged-but-undocumented audit, D-RG2-3)
-    entry: python3 scripts/check_concept_governance.py --audit-merged
+    entry: scripts/hook_python.sh scripts/check_concept_governance.py --audit-merged
     language: system
     pass_filenames: false
     always_run: true
@@ -1092,7 +1096,7 @@ repos:
   # Run it via:  pre-commit run --config .config/pre-commit.yaml check-secret-history --hook-stage manual --all-files
   - id: check-secret-history
     name: CI parity — credential-shaped content in the unpushed range (D-CIP-13)
-    entry: python3 scripts/security/check_secret_history.py --base origin/main
+    entry: scripts/hook_python.sh scripts/security/check_secret_history.py --base origin/main
     language: system
     pass_filenames: false
     always_run: true
@@ -1118,7 +1122,7 @@ repos:
   # pre-push because the checks are too expensive for the default commit stage.
   - id: contract-checks
     name: CI/queue parity — scripts/security/check_*.py fast-tier forwarders (D-ML-1)
-    entry: python3 scripts/security/run_contract_checks.py --exclude check_current_only_contract_gate.py --exclude check_sbom_licenses.py
+    entry: scripts/hook_python.sh scripts/security/run_contract_checks.py --exclude check_current_only_contract_gate.py --exclude check_sbom_licenses.py
     language: system
     pass_filenames: false
     always_run: true
@@ -1144,7 +1148,7 @@ repos:
   # want the current backlog count, same as hosted CI surfaces it.
   - id: check-current-only-contract-debt
     name: Current-only contract debt (retired-surface references) — informational, manual-only
-    entry: python3 scripts/security/check_current_only_contract_gate.py
+    entry: scripts/hook_python.sh scripts/security/check_current_only_contract_gate.py
     language: system
     pass_filenames: false
     always_run: true
@@ -1166,21 +1170,21 @@ repos:
   # CI-parity gate against a combination CI itself never proves clean.
   - id: check-security-parser-fuzz
     name: CI parity — security.yml parser-fuzz suite
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_parser_fuzz.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
     stages: [manual]
   - id: check-security-identity-isolation
     name: CI parity — security.yml identity/graphos-isolation/cli-secret-refs suite
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/core/test_request_identity.py tests/unit/mcp/test_graphos_bootstrap_isolation.py tests/unit/security/test_cli_secret_references.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
     stages: [manual]
   - id: check-security-tenant-identity
     name: CI parity — security.yml tenant-identity-contract suite
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/security/test_tenant_identity_contract.py tests/unit/test_tenant_e2e_au_p0_5.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -1196,7 +1200,7 @@ repos:
   # stays visible with its tracked root cause, rather than silently omitted.
   - id: check-guardrails-release-supply-chain
     name: CI parity — guardrails.yml promote/supply-chain suite (D-CIP-17, needs memfd_create)
-    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'export AGENT_UTILITIES_TEST_REPO_GUARD=revert; if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; else pytest tests/unit/release/test_promote_local_release.py tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -1219,7 +1223,7 @@ repos:
     # plain system `python3`, not the uv_workspace-managed `.venv` (see the
     # comment above — no extras, no engine, ~5s), so it is the one sanctioned
     # exception to tests/conftest.py's D-CC-6 wrong-interpreter fail-fast guard.
-    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/unit/test_backend_interface_parity.py -q -p no:cacheprovider -o addopts=""'
+    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 scripts/hook_python.sh -m pytest tests/unit/test_backend_interface_parity.py -q -p no:cacheprovider -o addopts=""'
     language: system
     pass_filenames: false
     always_run: true
@@ -1229,7 +1233,7 @@ repos:
   #    Run it via:  pre-commit run --config .config/pre-commit.yaml backend-parity --hook-stage manual --all-files
   - id: backend-parity
     name: CI parity — live backend conformance matrix (manual; Docker + engine)
-    entry: bash -c 'AGENT_UTILITIES_TESTING=true AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
+    entry: bash -c 'AGENT_UTILITIES_TESTING=true AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 scripts/hook_python.sh -m pytest tests/integration/backends -m live -rs --timeout=900'
     language: system
     pass_filenames: false
     always_run: true
@@ -1242,7 +1246,7 @@ repos:
   # synchronize dependencies; hosted CI remains authoritative.
   - id: docs-consistency
     name: CI parity — docs consistency (README/AGENTS vs concepts.yaml)
-    entry: bash -c 'if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else python3 -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
+    entry: bash -c 'if [ -f uv.lock ]; then scripts/hook_python.sh scripts/uv_workspace.py run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else scripts/hook_python.sh -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -1288,7 +1292,7 @@ repos:
 
   - id: check-gitignore-convergence
     name: .gitignore carries the fleet-shared REQUIRED set
-    entry: python3 scripts/check_gitignore_convergence.py
+    entry: scripts/hook_python.sh scripts/check_gitignore_convergence.py
     language: system
     pass_filenames: false
     always_run: true
@@ -1297,7 +1301,7 @@ repos:
   hooks:
   - id: check-public-specs
     name: Public specs are self-contained and locally linked
-    entry: python3 scripts/check_public_specs.py
+    entry: scripts/hook_python.sh scripts/check_public_specs.py
     language: system
     pass_filenames: false
     files: ^(specs/|scripts/check_public_specs\.py$|\.specify/memory/constitution\.md$)

@@ -50,6 +50,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _gate_skip import unavailable  # noqa: E402
+
 DEFAULT_MAX_CYCLOMATIC = 10
 DEFAULT_MAX_COGNITIVE = 15
 
@@ -81,7 +84,8 @@ def _resolve_cccc() -> str:
     found = shutil.which("cccc")
     if found:
         return found
-    _fail_env(
+    unavailable(
+        "complexity-staged",
         "`cccc` not found. Looked at $CCCC_BIN, ~/.local/bin/cccc, "
         "/usr/local/bin/cccc and $PATH. Build it with `cargo build --release` in "
         "open-source-libraries/cccc and copy the binary to ~/.local/bin/. This "

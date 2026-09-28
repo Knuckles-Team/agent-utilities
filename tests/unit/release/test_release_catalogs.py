@@ -133,6 +133,10 @@ def test_release_gate_rejects_dependency_license_catalog_drift(
     skill.write_bytes(b"skill")
     licenses.write_bytes(b"stale")
 
+    workspace = tmp_path / "workspace.yml"
+    workspace.write_text("repositories: []\n", encoding="utf-8")
+    monkeypatch.setattr(release_gate, "DEFAULT_WORKSPACE", workspace)
+    monkeypatch.setattr(release_gate, "DEFAULT_AGENTS_ROOT", tmp_path)
     monkeypatch.setattr(release_gate, "CONNECTOR_OUTPUT", connector)
     monkeypatch.setattr(release_gate, "SKILL_OUTPUT", skill)
     monkeypatch.setattr(release_gate, "DEPENDENCY_LICENSE_OUTPUT", licenses)
@@ -162,6 +166,22 @@ def test_release_gate_rejects_dependency_license_catalog_drift(
         "error": "CatalogDrift",
         "ok": False,
     }
+
+
+def test_release_catalog_gate_needs_the_provider_fleet(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(release_gate, "DEFAULT_WORKSPACE", tmp_path / "absent.yml")
+    monkeypatch.setattr(release_gate, "DEFAULT_AGENTS_ROOT", tmp_path / "absent")
+
+    monkeypatch.delenv("CI", raising=False)
+    assert release_gate.main([]) == 0
+    assert "SKIPPED (check-release-catalogs)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CI", "true")
+    assert release_gate.main([]) == 2
 
 
 def _load(name: str) -> dict[str, Any]:
