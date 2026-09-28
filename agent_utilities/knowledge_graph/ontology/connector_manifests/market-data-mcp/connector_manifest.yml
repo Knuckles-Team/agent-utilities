@@ -1,0 +1,344 @@
+connector: market-data-mcp
+ontology_source: market-data-mcp
+schema_version: '1'
+resources:
+- name: MarketDataSyncRun
+  label: Market Data Sync Run
+  id_prefix: marketdatasyncrun
+  relations:
+  - name: syncsStream
+    label: syncs stream
+    target: string
+    lpg_rel_type: ''
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
+events: []
+identity:
+  id_field:
+    market_snapshot: id
+    crypto_listing: cmc_id
+    fomc_decision: id
+    macro_series_observation: observation_id
+  title_field:
+    market_snapshot: id
+    crypto_listing: symbol
+    fomc_decision: outcome
+    macro_series_observation: series_id
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  MarketDataSyncRun:
+    ontology_class: null
+    fields: {}
+sync:
+- preset: crypto_global_metrics_cmc
+  server: market-data-mcp
+  tool: cmc_global_metrics
+  action: null
+  records_path: items
+  id_field: id
+  title_field: id
+  text_field: null
+  updated_field: null
+  pagination: none
+  doc_type: market_snapshot
+  tool_schema_sha256: b74f68e464cbf6dda3a83e761d03d7372ed88c6859dcd76ae42582570a4d2f4f
+  raw:
+    server: market-data-mcp
+    tool: cmc_global_metrics
+    records_path: items
+    id_field: id
+    title_field: id
+    doc_type: market_snapshot
+    pagination: none
+    ontology_class: MacroEvent
+    params_style: args
+- preset: crypto_listings_cmc
+  server: market-data-mcp
+  tool: cmc_listings
+  action: null
+  records_path: items
+  id_field: cmc_id
+  title_field: symbol
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: crypto_listing
+  tool_schema_sha256: 106adfcd01ebbbf8b9e3904a841faf6228b94a080aaf92c2f80cb3d5c97c5525
+  raw:
+    server: market-data-mcp
+    tool: cmc_listings
+    records_path: items
+    id_field: cmc_id
+    title_field: symbol
+    doc_type: crypto_listing
+    pagination: offset
+    page_param: start
+    page_size_param: limit
+    page_size: 100
+    ontology_class: Instrument
+    params_style: args
+- preset: fomc_calendar
+  server: market-data-mcp
+  tool: fomc_calendar_list
+  action: null
+  records_path: items
+  id_field: id
+  title_field: outcome
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: fomc_decision
+  tool_schema_sha256: 54917d43d2c8530147eb35effc430dde524fd43b8cba8737c97356b33c5541ee
+  raw:
+    server: market-data-mcp
+    tool: fomc_calendar_list
+    records_path: items
+    id_field: id
+    title_field: outcome
+    doc_type: fomc_decision
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    ontology_class: MacroEvent
+    params_style: args
+- preset: macro_series_bank_reserve_balances
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: bank_reserve_balances
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_dollar_index_broad
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: dollar_index_broad
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_fed_balance_sheet
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: fed_balance_sheet
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_m2_money_stock
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: m2_money_stock
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_reverse_repo_overnight
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: reverse_repo_overnight
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_treasury_10y_yield
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: treasury_10y_yield
+    ontology_class: EconomicIndicator
+    params_style: args
+- preset: macro_series_treasury_general_account
+  server: market-data-mcp
+  tool: fred_series_observations
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: series_id
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: macro_series_observation
+  tool_schema_sha256: 7422a834be6a13a1d19b068b8ab72a500485e54dd5e8fe574804c5be9ba583ce
+  raw:
+    server: market-data-mcp
+    tool: fred_series_observations
+    records_path: items
+    id_field: observation_id
+    title_field: series_id
+    doc_type: macro_series_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 1000
+    arguments:
+      alias: treasury_general_account
+    ontology_class: EconomicIndicator
+    params_style: args
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-09-28T00:00:00Z'
+  source_artifacts:
+  - market_data_mcp/connectors/mcp_source_presets.json
+  - market_data_mcp/connectors/tool_schema_fingerprints.json
+  - market_data_mcp/ontology/market_data.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d88b28437cd15785a273fd771cd42c6f5ed9327f3cbf3c0653f74619673e2106
+    triple_count: 11
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  source_commit: 597b56033e236e76e8b13d282dc53e75cf69a165
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.MarketDataSyncRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -122,7 +122,8 @@ def _assert_precheck_ok_or_only_unattestable_fingerprint_drift(
 
 
 def test_entire_workspace_ecosystem_is_tracked():
-    assert len(NAMED_CONNECTOR_PACKAGES) == 72
+    # 74 configured connector providers + the native-source-connectors bundle.
+    assert len(NAMED_CONNECTOR_PACKAGES) == 75
     assert len(set(NAMED_CONNECTOR_PACKAGES)) == len(NAMED_CONNECTOR_PACKAGES)
 
 

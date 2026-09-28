@@ -416,6 +416,17 @@ agents/listmonk-api/connector_manifest.yml:
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
   triple_count: 56
+agents/market-data-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  certification_file_sha256: d57bc6023f676217447807226bd1fcacf61222052c6e6c22181b8649286c37e7
+  certification_hash: 2ec574d6df8541b2522f0560f9c42d7f2abad8e2dc8c0a885b2228fa23d101e2
+  hash: d88b28437cd15785a273fd771cd42c6f5ed9327f3cbf3c0653f74619673e2106
+  manifest_hash: cefa3acc80815751f65f44d14ba04bd46b86b8a4dc89dd208a989adacbb848c8
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
+  triple_count: 11
 agents/mattermost-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
   certification_file_sha256: 87afb769458d905f328107b0114a1c2e4e9bcae343071bbad812c289433c35e4
@@ -799,3 +810,14 @@ agents/wger-agent/connector_manifest.yml:
   signer: UNSIGNED-PREVIEW
   signing_public_key: ''
   triple_count: 178
+agents/world-reference-mcp/connector_manifest.yml:
+  algorithm: urdna2015-sha256
+  certification_file_sha256: 471d79df33222f3d28c7892d03e477ff3e008c8bb870115d25b19f8fe3e4d7b4
+  certification_hash: d9ac5c9e3a88fd88a95a6a97803a5950cd042021aad89d7987131ed646ab6116
+  hash: d659f7c03cd4177e28c37f661cdb2051d57f72c320ce686d90b0f131248526aa
+  manifest_hash: 3f0c161447fba1d644619a2779a74ad1ca72294f5b0338d3ba92297353c06c5d
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
+  triple_count: 11

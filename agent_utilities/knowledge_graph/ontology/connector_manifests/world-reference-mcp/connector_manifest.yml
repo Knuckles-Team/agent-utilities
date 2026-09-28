@@ -1,0 +1,576 @@
+connector: world-reference-mcp
+ontology_source: world-reference-mcp
+schema_version: '1'
+resources:
+- name: ReferenceSyncRun
+  label: Reference Sync Run
+  id_prefix: referencesyncrun
+  relations:
+  - name: syncsStream
+    label: syncs stream
+    target: string
+    lpg_rel_type: ''
+actions:
+- id: epistemic-answer
+  name: Epistemic Answer
+  description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
+    confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
+    policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
+events:
+- name: organism_observation_gbif.updated
+  resource: organism_observation
+  description: "Watermark event for 'organism_observation_gbif' \u2014 advances on last_parsed (mcp_source_presets.json)."
+- name: organism_observation_inaturalist.updated
+  resource: organism_observation
+  description: "Watermark event for 'organism_observation_inaturalist' \u2014 advances on time_observed_at\
+    \ (mcp_source_presets.json)."
+- name: taxon_ncbi.updated
+  resource: taxon
+  description: "Watermark event for 'taxon_ncbi' \u2014 advances on modification_date (mcp_source_presets.json)."
+identity:
+  id_field:
+    food: fdc_id
+    organism_observation: observation_id
+    reference_term: iri
+    taxon: ncbi_taxon_id
+    weather_observation: observation_date
+    wikidata_alignment: wikidata_id
+  title_field:
+    food: description
+    reference_term: label
+    taxon: scientific_name
+    wikidata_alignment: label
+  text_field: {}
+  updated_field:
+    organism_observation: time_observed_at
+    taxon: modification_date
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ReferenceSyncRun:
+    ontology_class: null
+    fields: {}
+sync:
+- preset: food_fdc
+  server: world-reference-mcp
+  tool: fdc_food_search
+  action: null
+  records_path: items
+  id_field: fdc_id
+  title_field: description
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: food
+  tool_schema_sha256: 83c0d82c29ad980d34c6db92add88afd107811ba15fc11965fc24df3c2aa2d40
+  raw:
+    server: world-reference-mcp
+    tool: fdc_food_search
+    records_path: items
+    id_field: fdc_id
+    title_field: description
+    doc_type: food
+    pagination: page
+    page_param: page_number
+    page_size_param: page_size
+    page_size: 50
+    start_page: 1
+    page_kind: number
+    arguments:
+      query: '*'
+    ontology_class: FoodCompositionRecord
+    params_style: args
+- preset: organism_observation_gbif
+  server: world-reference-mcp
+  tool: gbif_occurrence_search
+  action: null
+  records_path: items
+  id_field: occurrence_id
+  title_field: null
+  text_field: null
+  updated_field: last_parsed
+  pagination: offset
+  doc_type: organism_observation
+  tool_schema_sha256: 9c54ea2056877c3f2a37d51f1f5d4774b0c6682766cabfb9812c7302e109eed5
+  raw:
+    server: world-reference-mcp
+    tool: gbif_occurrence_search
+    records_path: items
+    id_field: occurrence_id
+    updated_field: last_parsed
+    doc_type: organism_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      scientific_name: Vulpes vulpes
+    ontology_class: OrganismObservation
+    params_style: args
+- preset: organism_observation_inaturalist
+  server: world-reference-mcp
+  tool: inaturalist_observation_search
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: null
+  text_field: null
+  updated_field: time_observed_at
+  pagination: page
+  doc_type: organism_observation
+  tool_schema_sha256: 23a5befc052cf3f9755d2610887e5c970f99997496fab54cf52e204d522e6ea1
+  raw:
+    server: world-reference-mcp
+    tool: inaturalist_observation_search
+    records_path: items
+    id_field: observation_id
+    updated_field: time_observed_at
+    doc_type: organism_observation
+    pagination: page
+    page_param: page
+    page_size_param: per_page
+    page_size: 50
+    start_page: 1
+    page_kind: number
+    arguments:
+      taxon_name: Vulpes vulpes
+    ontology_class: OrganismObservation
+    params_style: args
+- preset: reference_term_chebi
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: chebi
+    ontology_class: ChemicalEntityTerm
+    params_style: args
+- preset: reference_term_envo
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: envo
+    ontology_class: EnvironmentTerm
+    params_style: args
+- preset: reference_term_foodon
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: foodon
+    ontology_class: FoodTerm
+    params_style: args
+- preset: reference_term_go
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: go
+    ontology_class: BiologicalProcessTerm
+    params_style: args
+- preset: reference_term_pato
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: pato
+    ontology_class: QualityTerm
+    params_style: args
+- preset: reference_term_uberon
+  server: world-reference-mcp
+  tool: reference_term_list
+  action: null
+  records_path: items
+  id_field: iri
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: page
+  doc_type: reference_term
+  tool_schema_sha256: 729dc3e63674d786777bbf07e64dd6ac9eef37add98fc453cccc0fa9f0a8fd64
+  raw:
+    server: world-reference-mcp
+    tool: reference_term_list
+    records_path: items
+    id_field: iri
+    title_field: label
+    doc_type: reference_term
+    pagination: page
+    page_param: page
+    page_size_param: size
+    page_size: 100
+    start_page: 0
+    page_kind: number
+    arguments:
+      ontology: uberon
+    ontology_class: AnatomyTerm
+    params_style: args
+- preset: taxon_gbif
+  server: world-reference-mcp
+  tool: taxonomy_gbif_search
+  action: null
+  records_path: items
+  id_field: gbif_taxon_key
+  title_field: scientific_name
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: taxon
+  tool_schema_sha256: 870740b96d29b0dad73f882c670a35d15e406396109ad63d885329df09ae79c3
+  raw:
+    server: world-reference-mcp
+    tool: taxonomy_gbif_search
+    records_path: items
+    id_field: gbif_taxon_key
+    title_field: scientific_name
+    doc_type: taxon
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      query: Mammalia
+      rank: SPECIES
+    ontology_class: Taxon
+    params_style: args
+- preset: taxon_ncbi
+  server: world-reference-mcp
+  tool: taxonomy_ncbi_search
+  action: null
+  records_path: items
+  id_field: ncbi_taxon_id
+  title_field: scientific_name
+  text_field: null
+  updated_field: modification_date
+  pagination: offset
+  doc_type: taxon
+  tool_schema_sha256: 3382407246611e9ac3676766f118b9481eea829d82684f6e161e0dc5b6a0bcd3
+  raw:
+    server: world-reference-mcp
+    tool: taxonomy_ncbi_search
+    records_path: items
+    id_field: ncbi_taxon_id
+    title_field: scientific_name
+    updated_field: modification_date
+    updated_since_param: modified_since
+    doc_type: taxon
+    pagination: offset
+    page_param: retstart
+    page_size_param: retmax
+    page_size: 50
+    arguments:
+      term: Mammalia[Subtree]
+    ontology_class: Taxon
+    params_style: args
+- preset: weather_observation_noaa
+  server: world-reference-mcp
+  tool: noaa_ghcnd_daily
+  action: null
+  records_path: items
+  id_field: observation_id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: weather_observation
+  tool_schema_sha256: c7a1d7bbd912dff6c7317ace24cc32c3720dcc6c9217c29917f9b5b876c9a9a2
+  raw:
+    server: world-reference-mcp
+    tool: noaa_ghcnd_daily
+    records_path: items
+    id_field: observation_id
+    doc_type: weather_observation
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 200
+    arguments:
+      station_id: GHCND:USW00023174
+      start_date: '2026-01-01'
+      end_date: '2026-01-31'
+    ontology_class: WeatherObservation
+    params_style: args
+- preset: weather_observation_open_meteo
+  server: world-reference-mcp
+  tool: open_meteo_weather_observation
+  action: null
+  records_path: items
+  id_field: observation_date
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: cursor
+  doc_type: weather_observation
+  tool_schema_sha256: a518c74f4415ba68593c39d2ea69a510a700947eaae270fd187c60f4f69f8f56
+  raw:
+    server: world-reference-mcp
+    tool: open_meteo_weather_observation
+    records_path: items
+    id_field: observation_date
+    doc_type: weather_observation
+    pagination: cursor
+    cursor_param: start_date
+    cursor_path: next_cursor
+    arguments:
+      latitude: 52.52
+      longitude: 13.405
+      window_days: 30
+    ontology_class: WeatherObservation
+    params_style: args
+- preset: wikidata_alignment_chemical_entity
+  server: world-reference-mcp
+  tool: wikidata_alignment_search
+  action: null
+  records_path: items
+  id_field: wikidata_id
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: wikidata_alignment
+  tool_schema_sha256: 7ee32add4620b05e0c735f2291ba23ef4fa6029ccec71892376749d49f676ec1
+  raw:
+    server: world-reference-mcp
+    tool: wikidata_alignment_search
+    records_path: items
+    id_field: wikidata_id
+    title_field: label
+    doc_type: wikidata_alignment
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      entity_type: chemical_entity
+    ontology_class: ChemicalEntityTerm
+    params_style: args
+- preset: wikidata_alignment_country
+  server: world-reference-mcp
+  tool: wikidata_alignment_search
+  action: null
+  records_path: items
+  id_field: wikidata_id
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: wikidata_alignment
+  tool_schema_sha256: 7ee32add4620b05e0c735f2291ba23ef4fa6029ccec71892376749d49f676ec1
+  raw:
+    server: world-reference-mcp
+    tool: wikidata_alignment_search
+    records_path: items
+    id_field: wikidata_id
+    title_field: label
+    doc_type: wikidata_alignment
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      entity_type: country
+    ontology_class: Country
+    params_style: args
+- preset: wikidata_alignment_taxon_gbif
+  server: world-reference-mcp
+  tool: wikidata_alignment_search
+  action: null
+  records_path: items
+  id_field: wikidata_id
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: wikidata_alignment
+  tool_schema_sha256: 7ee32add4620b05e0c735f2291ba23ef4fa6029ccec71892376749d49f676ec1
+  raw:
+    server: world-reference-mcp
+    tool: wikidata_alignment_search
+    records_path: items
+    id_field: wikidata_id
+    title_field: label
+    doc_type: wikidata_alignment
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      entity_type: taxon_gbif
+    ontology_class: Taxon
+    params_style: args
+- preset: wikidata_alignment_taxon_ncbi
+  server: world-reference-mcp
+  tool: wikidata_alignment_search
+  action: null
+  records_path: items
+  id_field: wikidata_id
+  title_field: label
+  text_field: null
+  updated_field: null
+  pagination: offset
+  doc_type: wikidata_alignment
+  tool_schema_sha256: 7ee32add4620b05e0c735f2291ba23ef4fa6029ccec71892376749d49f676ec1
+  raw:
+    server: world-reference-mcp
+    tool: wikidata_alignment_search
+    records_path: items
+    id_field: wikidata_id
+    title_field: label
+    doc_type: wikidata_alignment
+    pagination: offset
+    page_param: offset
+    page_size_param: limit
+    page_size: 100
+    arguments:
+      entity_type: taxon_ncbi
+    ontology_class: Taxon
+    params_style: args
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-09-28T00:00:00Z'
+  source_artifacts:
+  - world_reference_mcp/connectors/mcp_source_presets.json
+  - world_reference_mcp/connectors/tool_schema_fingerprints.json
+  - world_reference_mcp/ontology/world_reference.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d659f7c03cd4177e28c37f661cdb2051d57f72c320ce686d90b0f131248526aa
+    triple_count: 11
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  source_commit: fbf2e60349b62495a35d39743670449dc303f22e
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.ReferenceSyncRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
