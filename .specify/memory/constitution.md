@@ -1,6 +1,6 @@
 # agent-utilities constitution
 
-Version: 1.0.0. Ratified: 2026-09-28. Specification index: [specs/README.md](../../specs/README.md).
+Status: PROPOSED. Drafted: 2026-09-28. Version: 0.1.0. Specification index: [specs/README.md](../../specs/README.md).
 
 ## I. Single owner and reusable architecture
 
@@ -20,4 +20,4 @@ Apply this repository's CCCC, jscpd, dupehound, KISS, language-native, contract,
 
 ## V. Amendment and status
 
-Amend this constitution in a reviewed change that states the reason and impact. Do not mark a spec LANDED until the owning repository revision and all required cross-repo receipts meet the accepted program ledger gates.
+Amend this constitution in a reviewed change that states the reason and impact. Mark a spec `LANDED` only when its source is merged at an exact owning-repository revision. Mark it `ACCEPTED` only after the required consumer, runtime, quality and release receipts meet the program ledger gates. Record both states separately.
