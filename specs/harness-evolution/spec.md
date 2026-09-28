@@ -1,0 +1,31 @@
+# Harness evolution and governed work
+
+**Owner:** agent-utilities (AU) · **Stable ID:** `harness-evolution`
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** EH-346–EH-350, EH-348–EH-349, EH-464 (AU portions)
+
+## Outcome
+
+An operator sees one evidence-backed queue of gaps, can capture eligible open-weight policy trajectories, order safe work using the canonical decision and WorkItem contracts, and follow an approved change from proposal to Git receipt. AU contributes capture, synthesis and execution; it does not own model weights, a competing work scheduler, graph durability or repository mutation.
+
+## Stories and acceptance
+
+1. **P0: captured evidence.** A supported provider exposes attested chosen-token log probabilities, immutable behavior-policy version and tokenizer/decode identity. With `capture=true`, AU records terminal reward, masks and held data references. Unsupported/closed/unversioned providers refuse capture; train and promote remain independently off.
+2. **P0: one work market.** A signal upserts one canonical Gap and one native WorkItem atomically. AU derives a versioned WorkOffer from evidence, asks EG `Decide` to select legal work, commits the record and executes only after the native fenced claim. Missing Decide never triggers a local sort or fallback queue.
+3. **P0: governed code correction.** AU produces a bounded `ChangeProposal` tied to a Gap and a complete local spec. graph-os checks policy and sends the approved task to repository-manager; its Git/validation receipt is re-ingested before resolution. AU never runs Git as a materializer.
+4. **P1: policy experiment.** AU emits an external LoRA/new-artifact training job with immutable capture digests, receives a terminal run receipt and requests independent held-out evaluation. A separate approved compare-and-swap promotion may move the serving pointer; failure or cancellation cannot.
+
+## Requirements
+
+| ID | Requirement | Scope IDs | Acceptance proof |
+|---|---|---|---|
+| HE-01 | Attest provider capability; bind tokenizer, decode, sampler and base/adapter digests. Three independent `capture/train/promote` controls default false. | EH-346 | capability and default-off negatives |
+| HE-02 | Capture terminal trajectory, frozen `log_q`, token ids, policy-token mask, verifier/reward and live blob references. Reject incomplete or mismatched arrays as training input. | EH-346 | replay/golden/fault tests |
+| HE-03 | Extend `SubstrateTrainer` job emission to optional KLPO beside GRPO/DPO/SFT; gradients and checkpoint bytes remain external; first output is a new adapter artifact. | EH-347 | injected dispatcher and receipt tests |
+| HE-04 | Use EG Gap/WorkOffer/Decide/DecisionCommit/WorkItem contracts for selection, claim, budget, cooldown and terminal outcome. | EH-348 | served one-Gap/one-claim fixture |
+| HE-05 | Route code proposals through graph-os authorization and repository-manager materialization; remove AU direct Git, local publication/report authority and dual writes. | EH-349 | source gate and end-to-end receipt |
+| HE-06 | Train/promote only with independent held-out evaluation, bounded resource lease, immutable artifact, compare-and-swap pointer and rollback receipt. | EH-347 | negative and canary tests |
+| HE-07 | Keep in-engine generative/autograd implementation deferred until a separate evidence-backed Gap proves held-out benefit, cost and safety. | EH-350 | absence and decision record |
+
+## Success criteria
+
+The same event cannot create two schedulable WorkItems; a repeated offer cannot bypass cooldown; dispatch without approval/client/service availability has zero Git or graph side effects; missing log probabilities never become invented values. Exact merged-head CI, receipt and manual-promotion evidence are needed before marking any requirement accepted. The [agent control plane](../agent-control-plane/spec.md) supplies RunSpec, conformance and L5 trace guarantees consumed here.

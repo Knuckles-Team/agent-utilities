@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "spec_id": "agent-control-plane",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "RF-029",
+    "EH-035",
+    "EH-036",
+    "EH-037",
+    "EH-038",
+    "EH-039",
+    "EH-048",
+    "EH-206",
+    "EH-453",
+    "EH-454",
+    "EH-455",
+    "EH-456",
+    "EH-457",
+    "EH-458",
+    "EH-459",
+    "EH-460",
+    "EH-461",
+    "EH-462",
+    "EH-463",
+    "EH-464"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

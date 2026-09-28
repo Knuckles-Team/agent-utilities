@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "spec_id": "AU-CONTEXT-001",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "EH-394",
+    "EH-397",
+    "EH-398",
+    "EH-399",
+    "EH-419",
+    "EH-423",
+    "EH-513",
+    "EH-704"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

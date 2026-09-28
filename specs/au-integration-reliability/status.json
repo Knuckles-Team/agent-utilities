@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "spec_id": "AU-INTEGRATION-001",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "EH-103",
+    "EH-187",
+    "EH-202",
+    "EH-203",
+    "EH-204",
+    "EH-205",
+    "EH-207",
+    "EH-208",
+    "EH-209",
+    "EH-210",
+    "EH-321",
+    "EH-344",
+    "EH-365",
+    "EH-467",
+    "EH-651",
+    "EH-657"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

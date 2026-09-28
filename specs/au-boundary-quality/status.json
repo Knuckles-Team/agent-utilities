@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "spec_id": "AU-QUAL-01",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "EH-176",
+    "EH-380",
+    "EH-385",
+    "EH-386",
+    "EH-391"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}
