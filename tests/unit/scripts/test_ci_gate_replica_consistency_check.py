@@ -145,7 +145,7 @@ def test_advisory_job_is_now_covered():
         p["name"] for p in plan if p["job"] == "advisory" and p["mode"] == "RUN"
     }
     for expected in (
-        "No-stub gate",
+        "pre-commit (commit stage, all files)",
         "CycloneDX SBOM and license policy",
     ):
         assert expected in advisory_run_names, (
