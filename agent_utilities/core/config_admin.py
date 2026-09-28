@@ -30,6 +30,8 @@ import ast
 import json
 import logging
 import time
+import types
+import typing
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -115,6 +117,15 @@ def _attribute_docstrings() -> dict[str, str]:
 
 
 def _type_name(annotation: Any) -> str:
+    """Render *annotation* identically on every supported Python.
+
+    Python 3.14 gave unions a ``__name__`` of ``"Union"`` while earlier
+    releases have none, so unions are spelled out from their members.
+    """
+    if annotation is type(None):
+        return "None"
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        return " | ".join(_type_name(arg) for arg in typing.get_args(annotation))
     return getattr(annotation, "__name__", None) or str(annotation)
 
 
