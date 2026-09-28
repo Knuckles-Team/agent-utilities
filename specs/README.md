@@ -69,3 +69,6 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`AU-INTEGRATION-001`](au-integration-reliability/spec.md) — reliability of live integrations.
 - [`AU-SEMANTIC-001`](au-semantic-client/spec.md) — semantic client behavior.
 - [`harness-evolution`](harness-evolution/spec.md) — harness improvement and evaluation.
+- [`EH-338`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
+- [`EH-652`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
+- [`RF-001`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
