@@ -110,28 +110,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Assert the checked-in clone scanner profile
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import tomllib
-
-          with open("pyproject.toml", "rb") as handle:
-              profile = tomllib.load(handle)["tool"]["agent_utilities"]["clone_scanners"]
-          expected = {
-              "dupehound_version": "0.1.2",
-              "jscpd_version": "5.0.16",
-          }
-          drift = {
-              key: (profile.get(key), value)
-              for key, value in expected.items()
-              if profile.get(key) != value
-          }
-          if drift:
-              raise SystemExit(f"clone scanner profile drift: {drift}")
-          PY
-
       - name: Sync source-checkout wrapper environment
         run: |
           set -euo pipefail
@@ -187,24 +165,15 @@ jobs:
             echo "head_sha=$head"
           } >> "$GITHUB_OUTPUT"
 
+      # Versions come from [tool.agent_utilities.clone_scanners] in
+      # pyproject.toml; the same script provisions a local checkout.
       - name: Install exact clone scanner toolchain
         shell: bash
         run: |
           set -euo pipefail
-          dupehound_root="$RUNNER_TEMP/dupehound"
           rustup toolchain install 1.95.0 --profile minimal
           rustup default 1.95.0
-          cargo install dupehound --version 0.1.2 --locked --root "$dupehound_root"
-          npm install --global jscpd@5.0.16
-          jscpd_bin="$(npm prefix --global)/bin/jscpd"
-          {
-            echo "DUPEHOUND_BIN=$dupehound_root/bin/dupehound"
-            echo "JSCPD_BIN=$jscpd_bin"
-          } >> "$GITHUB_ENV"
-          echo "$dupehound_root/bin" >> "$GITHUB_PATH"
-          echo "$(dirname "$jscpd_bin")" >> "$GITHUB_PATH"
-          test "$("$dupehound_root/bin/dupehound" --version)" = "dupehound 0.1.2"
-          test "$("$jscpd_bin" --version)" = "cpd 5.0.16"
+          SCANNER_ROOT="$RUNNER_TEMP/scanners" bash scripts/install_scanners.sh
 
       - name: Dupehound changed-function gate
         env:

@@ -1,0 +1,16 @@
+# Pinned sibling source checkouts for `.uv-workspace-siblings/<name>`.
+#
+# uv.lock records these packages as editable path sources (see
+# [tool.uv.sources] in pyproject.toml), so a fresh clone cannot sync until they
+# exist on disk. This file is the ONE source of truth for which commit each
+# sibling is checked out at: scripts/bootstrap.sh reads it locally, and CI
+# reaches it through .github/actions/checkout-agent-connector-sdk, which runs
+# `scripts/bootstrap.sh --siblings-only`. Bump a pin by editing its commit here.
+#
+# Columns: name  repository  commit  when
+#   when = always  -> needed for every `uv sync --frozen`
+#   when = engine  -> needed only when the native engine is built from source
+#                     (`scripts/bootstrap.sh --engine`); every other sync passes
+#                     `--no-install-package epistemic-graph`.
+agent-connector-sdk  https://github.com/Knuckles-Team/agent-connector-sdk  50d0ba5360407c2f6395a39bc5e8608d42fc365b  always
+epistemic-graph      https://github.com/Knuckles-Team/epistemic-graph      6a795577dff539da06c52f467220422bf23e0b03  engine

@@ -33,6 +33,7 @@ overrides = "MkDocs Material template overrides synchronized from the pinned sha
 scripts = "gate scripts (check_*.py) and release tooling invoked by pre-commit/CI"
 tests = "the test suite"
 ".github" = "GitHub Actions workflow definitions"
+".claude" = "Claude Code project settings and the cloud-session SessionStart hook that runs scripts/bootstrap.sh"
 ".kiss" = "hand-authored `kiss` structural-rule thresholds (.kiss/kiss.toml) read by scripts/run_kiss.sh; every other entry is a regenerated analysis cache and is gitignored"
 ".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"
 

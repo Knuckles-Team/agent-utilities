@@ -7,10 +7,31 @@ out-of-process over MessagePack/UDS (no PyO3).
 
 ## Development setup
 
+From a fresh clone (locally, or automatically in a Claude Code cloud session,
+where `.claude/hooks/session-start.sh` runs it):
+
 ```bash
-pip install -e ".[all]"
-pre-commit install --config .config/pre-commit.yaml --hook-type pre-commit --hook-type pre-push
+scripts/bootstrap.sh              # pinned siblings, uv >= 0.9, pinned Python, locked .venv, git hooks
+scripts/bootstrap.sh --scanners   # also the pinned dupehound/jscpd clone scanners (needs cargo + npm)
+scripts/bootstrap.sh --engine     # also build the native epistemic-graph engine from source (slow)
 ```
+
+The bootstrap is idempotent. It checks out the sibling sources `uv.lock` needs
+at the commits pinned in `scripts/siblings.lock` (the same pins CI uses), syncs
+`.venv` with `uv sync --frozen` and installs the pre-commit and pre-push hooks
+from `.config/pre-commit.yaml`. Hooks run under the repository `.venv` through
+`scripts/hook_python.sh`, so a git hook, `uvx pre-commit run` and CI see the same
+dependencies:
+
+```bash
+uvx pre-commit run --config .config/pre-commit.yaml --all-files
+uv run --no-sync pytest tests/unit/<path> -q
+```
+
+A gate whose tool or sibling checkout is missing (a native scanner, the engine,
+the provider fleet, the ecosystem workspace) prints `SKIPPED (<gate>): <reason>`
+and passes locally; under CI (`CI` set) the same gate exits 2 (CANNOT RUN), so
+CI must provision it.
 
 The default knowledge-graph backend is zero-infra: the epistemic-graph engine is
 the one authority (compute + cache + semantic + durable persistence), so most work
@@ -19,18 +40,30 @@ needs no external services. For an optional pg-age mirror set `GRAPH_BACKEND=fan
 
 ## Branch / worktree workflow
 
-Multiple agents and people work this repo concurrently. **Do not edit the
-canonical checkout** at `agent-packages/agent-utilities` — a
-background sync can reset its working tree. Take your own git worktree on your own
-branch (one branch per worktree keeps concurrent sessions from colliding):
+Work on a topic branch and open a pull request against `main`:
+
+```bash
+git switch -c <topic> origin/main
+# edit, run the focused tests and the hooks, commit
+git push -u origin <topic>
+gh pr create --draft --base main
+```
+
+Hosted CI runs the same pre-commit configuration plus the release gates on the
+pull request; mark it ready for review once it is green.
+
+On a shared host where several agents and people use one checkout, **do not
+edit the canonical checkout** at `agent-packages/agent-utilities`: a background
+sync can reset its working tree, and the `lane-guard` hook refuses commits
+there. Take your own git worktree on your own branch:
 
 ```bash
 rm_worktree add agent-utilities <your-branch>     # repository-manager MCP, or:
 git worktree add ${XDG_STATE_HOME}/repository-worktrees/agent-utilities/<branch> -b <branch> main
 ```
 
-Commit early and often (commits survive a working-tree reset); merge to `main`
-locally when done. Push only when asked.
+Commit early and often (commits survive a working-tree reset). Push only when
+asked.
 
 ## Before you push
 

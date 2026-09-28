@@ -83,6 +83,18 @@ must call that implementation rather than copy it. A feature is complete only
 when a real entry point invokes it and the appropriate wiring or live-path test
 proves the edge.
 
+## Setup
+
+From a fresh clone (cloud sessions run it via `.claude/hooks/session-start.sh`):
+```bash
+scripts/bootstrap.sh    # pinned siblings, uv, Python, locked .venv, git hooks; --scanners, --engine
+uvx pre-commit run --config .config/pre-commit.yaml --all-files
+```
+
+Sibling pins: `scripts/siblings.lock`. A gate missing its tool or sibling prints
+`SKIPPED (<gate>): <reason>` locally and exits 2 under `CI`. Standalone clones
+open a draft pull request against `main` from a topic branch.
+
 ## Commands
 
 Run commands from a linked worktree. Outside the workspace root, use the
