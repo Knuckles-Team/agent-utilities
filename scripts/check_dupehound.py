@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -35,13 +34,13 @@ from typing import Any, NoReturn
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _gate_skip import unavailable  # noqa: E402
 from _clone_scanner_config import (  # noqa: E402
     CloneScannerConfig,
     CloneScannerConfigError,
     is_excluded_path,
     load_clone_scanner_config,
 )
+from _gate_skip import repository_setting, resolve_local_tool  # noqa: E402
 from _git_subprocess_env import (  # noqa: E402
     sanitized_git_env,
     strip_inherited_git_repository_env,
@@ -114,47 +113,22 @@ def _config() -> CloneScannerConfig:
 
 
 def _setting(name: str, default: str) -> str:
-    """Read a live process override through the repository config boundary."""
-
-    try:
-        from agent_utilities.core.config import setting
-
-        value = setting(name, default, cast=str)
-    except (
-        ImportError,
-        ModuleNotFoundError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-    ) as exc:
-        _die(f"could not read repository setting {name}: {exc}")
-    return str(value or default).strip()
+    return repository_setting(name, default, _die)
 
 
 def _resolve_dupehound(config: CloneScannerConfig) -> str:
     """Resolve an already-installed binary without package-index access."""
 
-    configured = _setting("DUPEHOUND_BIN", "")
-    if configured:
-        candidate = Path(configured).expanduser()
-        if not candidate.is_file():
-            _die(f"DUPEHOUND_BIN points to a non-file path: {candidate}")
-        return str(candidate)
-    for candidate in (
-        Path.home() / ".local/bin/dupehound",
-        Path("/usr/local/bin/dupehound"),
-    ):
-        if candidate.is_file():
-            return str(candidate)
-    found = shutil.which("dupehound")
-    if found:
-        return found
-    unavailable(
-        "clone-dupehound-changed-functions",
-        "`dupehound` not found. Looked at $DUPEHOUND_BIN, "
-        "~/.local/bin/dupehound, /usr/local/bin/dupehound and $PATH. "
-        f"Install the pinned v{config.dupehound_version} binary before running "
-        "this hook; the hook never installs dependencies."
+    return resolve_local_tool(
+        "dupehound",
+        env_name="DUPEHOUND_BIN",
+        configured=_setting("DUPEHOUND_BIN", ""),
+        gate="clone-dupehound-changed-functions",
+        install_hint=(
+            f"Install the pinned v{config.dupehound_version} binary before "
+            "running this hook; the hook never installs dependencies."
+        ),
+        die=_die,
     )
 
 

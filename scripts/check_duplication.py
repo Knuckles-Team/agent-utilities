@@ -141,7 +141,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -154,7 +153,6 @@ from typing import NoReturn
 
 _AU_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _gate_skip import unavailable  # noqa: E402
 from _clone_scanner_config import (  # noqa: E402
     CloneScannerConfig,
     CloneScannerConfigError,
@@ -162,6 +160,7 @@ from _clone_scanner_config import (  # noqa: E402
     is_jscpd_diff_path,
     load_clone_scanner_config,
 )
+from _gate_skip import repository_setting, resolve_local_tool  # noqa: E402
 from _git_subprocess_env import (  # noqa: E402
     sanitized_git_env,
     strip_inherited_git_repository_env,
@@ -273,56 +272,26 @@ def _config() -> CloneScannerConfig:
 
 
 def _setting(name: str, default: str) -> str:
-    """Read a live process override through the repository config boundary."""
-
-    try:
-        from agent_utilities.core.config import setting
-
-        value = setting(name, default, cast=str)
-    except (
-        ImportError,
-        ModuleNotFoundError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-    ) as exc:
-        _die(f"could not read repository setting {name}: {exc}")
-    return str(value or default).strip()
+    return repository_setting(name, default, _die)
 
 
 def _resolve_jscpd(config: CloneScannerConfig | None = None) -> str:
-    """Find jscpd WITHOUT consulting any package index at hook time — the
-    same discipline as scripts/check_complexity.py's `_resolve_cccc`: a hook
-    that resolves a tool from an index at hook time is how a previous fleet
-    sweep shipped a gate that could not pass anywhere (69/226 push failures).
-    """
-    configured = _configured_binary("JSCPD_BIN")
-    if configured:
-        return configured
-    for cand in (Path.home() / ".local/bin/jscpd", Path("/usr/local/bin/jscpd")):
-        if cand.is_file():
-            return str(cand)
-    found = shutil.which("jscpd")
-    if found:
-        return found
+    """Find jscpd WITHOUT consulting any package index at hook time, through
+    the same local-paths-only lookup as the other gates (`_gate_skip`)."""
+
     version = (config or _config()).jscpd_version
-    unavailable(
-        "clone-jscpd",
-        "`jscpd` not found. Looked at $JSCPD_BIN, ~/.local/bin/jscpd, "
-        "/usr/local/bin/jscpd and $PATH. Install the pinned version with "
-        f"`npm install -g jscpd@{version}` and either put it on PATH or set "
-        "JSCPD_BIN. This gate never installs anything itself."
+    return resolve_local_tool(
+        "jscpd",
+        env_name="JSCPD_BIN",
+        configured=_setting("JSCPD_BIN", ""),
+        gate="clone-jscpd",
+        install_hint=(
+            f"Install the pinned version with `npm install -g jscpd@{version}` "
+            "and either put it on PATH or set JSCPD_BIN. This gate never "
+            "installs anything itself."
+        ),
+        die=_die,
     )
-
-
-def _configured_binary(setting_name: str) -> str | None:
-    configured = _setting(setting_name, "")
-    if not configured:
-        return None
-    candidate = Path(configured).expanduser()
-    if not candidate.is_file():
-        _die(f"{setting_name} points to a non-file path: {candidate}")
-    return str(candidate)
 
 
 def _run_version(exe: str) -> subprocess.CompletedProcess[str]:

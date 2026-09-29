@@ -620,3 +620,72 @@ def test_jscpd_gate_commit_tree_succeeds_with_explicit_identity_under_empty_home
         check=True,
     )
     assert verify.stdout.strip() == "commit"
+
+
+@pytest.mark.parametrize(
+    ("script", "resolver", "tool", "gate"),
+    [
+        (
+            "check_dupehound",
+            "_resolve_dupehound",
+            "dupehound",
+            "clone-dupehound-changed-functions",
+        ),
+        ("check_duplication", "_resolve_jscpd", "jscpd", "clone-jscpd"),
+    ],
+)
+@pytest.mark.parametrize("under_ci", [False, True])
+def test_absent_scanner_skips_locally_and_cannot_run_in_ci(
+    script,
+    resolver,
+    tool,
+    gate,
+    under_ci,
+    scanner_config,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    module = _load_script(script)
+    monkeypatch.setattr(module, "_setting", lambda name, default: "")
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setenv("PATH", str(tmp_path))
+    if under_ci:
+        monkeypatch.setenv("CI", "true")
+    else:
+        monkeypatch.delenv("CI", raising=False)
+
+    with pytest.raises(SystemExit) as raised:
+        getattr(module, resolver)(scanner_config)
+
+    out = capsys.readouterr()
+    assert f"`{tool}` not found. Looked at $" in out.out + out.err
+    if under_ci:
+        assert raised.value.code == 2
+        assert f"{gate}: CANNOT RUN:" in out.err
+    else:
+        assert raised.value.code == 0
+        assert out.out.startswith(f"SKIPPED ({gate}):")
+
+
+def test_configured_scanner_path_that_is_not_a_file_is_a_hard_failure(
+    scanner_config, tmp_path, monkeypatch
+):
+    module = _load_script("check_dupehound")
+    missing = tmp_path / "nope"
+    monkeypatch.setattr(module, "_setting", lambda name, default: str(missing))
+    monkeypatch.delenv("CI", raising=False)
+
+    with pytest.raises(SystemExit) as raised:
+        module._resolve_dupehound(scanner_config)
+
+    assert raised.value.code == 2
+
+
+def test_configured_scanner_path_wins(scanner_config, tmp_path, monkeypatch):
+    module = _load_script("check_duplication")
+    exe = tmp_path / "jscpd"
+    exe.write_text("")
+    monkeypatch.setattr(module, "_setting", lambda name, default: str(exe))
+
+    assert module._resolve_jscpd(scanner_config) == str(exe)
