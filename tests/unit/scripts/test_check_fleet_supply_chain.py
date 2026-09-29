@@ -96,8 +96,6 @@ def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
 ) -> None:
     providers_root = tmp_path / "agents"
     workspace = _snapshot_tree(providers_root)
-    assert POLICY.EXPECTED_SNAPSHOT_PROVIDERS == 74
-    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     def unexpected_git(*args: object, **kwargs: object) -> None:
         raise AssertionError("source-snapshot mode invoked Git")
@@ -127,7 +125,6 @@ def test_source_snapshot_ignores_unmanifested_checkout(
     (unrelated / "stress_run.py").write_text(
         "print('test-only checkout')\n", encoding="utf-8"
     )
-    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     result = POLICY.main(
         [
@@ -148,7 +145,6 @@ def test_source_snapshot_rejects_undeclared_direct_provider(
     providers_root = tmp_path / "agents"
     workspace = _snapshot_tree(providers_root)
     (providers_root / "undeclared-agent").mkdir()
-    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     result = POLICY.main(
         [
@@ -173,7 +169,6 @@ def test_source_snapshot_rejects_symlinks_without_disclosing_host_path(
     target = tmp_path / "outside.txt"
     target.write_text("outside\n", encoding="utf-8")
     (providers_root / "alpha-agent" / "linked.txt").symlink_to(target)
-    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     result = POLICY.main(
         [
@@ -334,7 +329,6 @@ def test_source_snapshot_findings_are_repository_relative(
     (providers_root / "alpha-agent" / ".env").write_text(
         "TOKEN=example\n", encoding="utf-8"
     )
-    monkeypatch.setattr(POLICY, "EXPECTED_SNAPSHOT_PROVIDERS", 2)
 
     result = POLICY.main(
         [
@@ -349,3 +343,16 @@ def test_source_snapshot_findings_are_repository_relative(
     assert result == 1
     assert "alpha-agent/.env" in output.out
     assert str(tmp_path) not in output.out
+
+
+def test_absent_fleet_skips_locally_and_fails_closed_in_ci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--fleet-root", str(tmp_path / "absent-fleet")]
+
+    monkeypatch.delenv("CI", raising=False)
+    assert POLICY.main(argv) == 0
+    assert "SKIPPED (supply-chain fleet mode)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CI", "true")
+    assert POLICY.main(argv) == 2

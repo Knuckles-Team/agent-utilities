@@ -149,59 +149,33 @@ jobs:
             --only-binary=:all: \
             "$EG_REQUIREMENT"
 
-      # ── formerly guardrails.yml's one already-advisory gate ──────────────
-      - name: Coupling gate (geniusbot -> agent_utilities adapter seam)
+      # ── The commit-stage hooks a contributor runs locally
+      # (scripts/bootstrap.sh installs them), so local and CI share one
+      # definition instead of a hand-kept copy of each gate here. Skipped:
+      # check-import-safety (routes through the ecosystem-workspace launcher;
+      # the `windows` job runs it on a real interpreter) and
+      # check-release-catalogs (derived from the provider fleet checkout,
+      # which is not part of this repository).
+      - name: pre-commit (commit stage, all files)
         continue-on-error: true
-        run: python3 scripts/check_coupling.py
+        env:
+          PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
+          SKIP: check-import-safety,check-release-catalogs
+        run: |
+          set -euo pipefail
+          if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then
+            policy_dir="$HOME/.config/agent-utilities/governance"
+            mkdir -p "$policy_dir"
+            printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy_dir/prohibited-identities.json"
+          fi
+          uv tool install bump2version==1.0.1
+          uvx pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
 
-      # ── formerly guardrails.yml's BLOCKING gates that did not make the
-      # release-critical cut (packaging/tests only blocks now; everything
-      # else here defends real invariants but is not itself release-critical
-      # per the approved design, so it moves here to keep reporting, never
-      # blocking) ──────────────────────────────────────────────────────────
-      - name: No-stub gate
-        continue-on-error: true
-        run: python3 scripts/check_no_stub.py
-
-      - name: Concept-freshness gate
-        continue-on-error: true
-        run: python3 scripts/check_concepts.py
-
-      - name: OKF-CIS domain-vocab gate (closed vocab + registered slugs)
-        continue-on-error: true
-        run: python3 scripts/check_domain_vocab.py agent_utilities
-
-      - name: Prompt-schema gate (canonical StructuredPrompt + fresh prompt.schema.json)
-        continue-on-error: true
-        run: python3 scripts/check_prompt_schema.py
-
-      - name: Genesis-manifest freshness gate
-        continue-on-error: true
-        run: python3 scripts/check_genesis_manifest.py
-
+      # ── Gates without a commit-stage hook (manual-stage hooks route through
+      # the ecosystem-workspace launcher, so their commands run directly) ──
       - name: Ontology library gate (valid + connected, no unlinked/broken)
         continue-on-error: true
         run: python3 scripts/check_ontology.py
-
-      - name: Skill-name collision gate (fleet-wide install-all uniqueness)
-        continue-on-error: true
-        run: python3 scripts/check_skill_name_collision.py
-
-      - name: Retrieval-quality gate
-        continue-on-error: true
-        run: python3 scripts/check_retrieval_quality.py
-
-      - name: Eval-corpus gate
-        continue-on-error: true
-        run: python3 scripts/check_eval_corpus.py
-
-      - name: Reliability-corpus gate
-        continue-on-error: true
-        run: python3 scripts/check_reliability_corpus.py
-
-      - name: Citation-lineage gate (mandatory evidence citation + embedding versioning)
-        continue-on-error: true
-        run: python3 scripts/check_citation_lineage.py
 
       - name: Prod-profile guard
         continue-on-error: true
@@ -211,21 +185,9 @@ jobs:
         continue-on-error: true
         run: python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""
 
-      - name: Documentation contract gate
-        continue-on-error: true
-        run: python3 scripts/docs_contract.py --check
-
       - name: Status page freshness gate (docs/status.md vs concepts.yaml/concept_reservations.yaml)
         continue-on-error: true
         run: python3 scripts/check_status_page.py
-
-      - name: Epistemic Operations Protocol gate (catalog + Python projection)
-        continue-on-error: true
-        run: python3 scripts/check_epistemic_operations_protocol.py --self-only
-
-      - name: Release version consistency gate
-        continue-on-error: true
-        run: python3 scripts/check_version_consistency.py
 
       - name: Production cell source contract
         continue-on-error: true
@@ -282,44 +244,6 @@ jobs:
       - name: Governed HTTP egress boundary
         continue-on-error: true
         run: python3 scripts/check_http_egress_boundary.py
-
-      - name: Consolidated pre-bundled skill contract
-        continue-on-error: true
-        run: python3 scripts/check_prebundled_skills.py
-
-      - name: Tracked artifact privacy gate
-        continue-on-error: true
-        env:
-          PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
-        run: |
-          test -n "$PROHIBITED_IDENTITY_CATALOG"
-          policy="$RUNNER_TEMP/prohibited-identities.json"
-          printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
-          python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
-
-      - name: Software supply-chain source contract
-        continue-on-error: true
-        run: python3 scripts/check_fleet_supply_chain.py .
-
-      - name: Dependency vulnerability audit (OSV)
-        continue-on-error: true
-        run: python3 scripts/audit_dependencies.py uv.lock
-
-      - name: Anti-sprawl gate
-        continue-on-error: true
-        run: python3 scripts/check_sprawl.py
-
-      - name: Config-flag anti-sprawl gate
-        continue-on-error: true
-        run: python3 scripts/check_no_env_sprawl.py
-
-      - name: Stdio JSON-RPC purity gate (B-19)
-        continue-on-error: true
-        run: python3 scripts/check_no_stdout_writes.py
-
-      - name: Liveness ratchet gate
-        continue-on-error: true
-        run: python3 scripts/check_liveness.py
 
       # ── formerly security.yml (SBOM/license + auth/tenant test subsets are
       # now also exercised as part of release.yml's consolidated "Test suite"

@@ -18,7 +18,9 @@ Examples::
 
 The fleet mode discovers nested Git repositories and is intended for a checkout
 managed by repository-manager.  It does not fetch, install, build, or execute any
-project code.
+project code.  When the requested fleet directory is absent the fleet modes
+cannot run: locally they print SKIPPED and exit 0; under CI (``CI`` set) they
+fail closed with exit 2.
 """
 
 from __future__ import annotations
@@ -37,7 +39,6 @@ from dataclasses import dataclass
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_REPOSITORIES = 1_000
 MAX_DISCOVERY_DEPTH = 5
-EXPECTED_SNAPSHOT_PROVIDERS = 74
 MAX_SNAPSHOT_ENTRIES = 200_000
 MAX_SNAPSHOT_FILES = 100_000
 MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024 * 1024
@@ -291,8 +292,11 @@ def _workspace_provider_names(workspace: pathlib.Path) -> tuple[str, ...]:
             raise RuntimeError("snapshot workspace contains an invalid provider name")
         providers.append(name)
 
-    if len(providers) != EXPECTED_SNAPSHOT_PROVIDERS:
-        raise RuntimeError("snapshot workspace provider count is not exact")
+    # Membership is derived, never pinned: the workspace list must be non-empty
+    # and must match the direct provider roots on disk exactly (see
+    # ``_snapshot_membership_is_exact``).
+    if not providers:
+        raise RuntimeError("snapshot workspace declares no providers")
     if len(providers) != len(set(providers)):
         raise RuntimeError("snapshot workspace contains duplicate providers")
     return tuple(sorted(providers))
@@ -1357,6 +1361,25 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(
             "--source-snapshot-root and --snapshot-workspace must be used together"
         )
+    fleet_inputs = [
+        pathlib.Path(value)
+        for value in (
+            arguments.fleet_root,
+            arguments.source_snapshot_root,
+            arguments.snapshot_workspace,
+        )
+        if value is not None
+    ]
+    if any(not path.exists() for path in fleet_inputs):
+        reason = "the requested fleet checkout is not present"
+        if os.environ.get("CI"):
+            print(f"supply-chain: cannot run - {reason}", file=sys.stderr)
+            return 2
+        print(
+            f"SKIPPED (supply-chain fleet mode): {reason}; check out the "
+            "agent-packages fleet with repository-manager to run it"
+        )
+        return 0
     try:
         if snapshot_mode:
             fleet_root, repositories = resolve_snapshot_repositories(

@@ -369,6 +369,16 @@ def _workspace_config(root: Path) -> dict[str, Any] | None:
     return ecosystem if isinstance(ecosystem, dict) else None
 
 
+class EcosystemWorkspaceUnavailable(RuntimeError):
+    """The ecosystem sibling checkouts this launcher composes are not present.
+
+    That is the normal state of a standalone clone (a contributor's fresh
+    checkout, a cloud session, a CI runner): the gates routed through this
+    launcher cannot run there, which is reported as a skip locally and as
+    CANNOT RUN under CI rather than as a finding.
+    """
+
+
 def workspace_root(canonical: Path) -> Path:
     """Find the nearest ecosystem sibling manifest that lists the canonical
     checkout as a member (see :func:`_workspace_config` — no longer a live
@@ -383,7 +393,7 @@ def workspace_root(canonical: Path) -> Path:
             continue
         if canonical in _workspace_members(candidate, config):
             return candidate
-    raise RuntimeError(
+    raise EcosystemWorkspaceUnavailable(
         f"no ecosystem sibling manifest containing canonical repository {canonical} "
         "was found (expected a [tool.ecosystem] members table in an ancestor "
         "pyproject.toml)"
@@ -2365,6 +2375,15 @@ def _cli() -> int | None:
     """
     try:
         return main()
+    except EcosystemWorkspaceUnavailable as error:
+        if os.environ.get("CI"):
+            print(f"uv_workspace: CANNOT RUN: {error}", file=sys.stderr)
+            return 2
+        print(
+            "SKIPPED (uv-workspace): the ecosystem sibling workspace is not "
+            f"checked out; {error}"
+        )
+        return 0
     except RuntimeError as error:
         print(f"uv_workspace: {error}", file=sys.stderr)
         return 2

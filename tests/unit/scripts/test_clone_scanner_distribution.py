@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import tomllib
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[3]
+_EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
+_COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
 def _load_build_backend():
@@ -21,43 +26,79 @@ def _load_build_backend():
     return module
 
 
-def test_clone_scanner_contract_and_workflow_use_the_same_pins() -> None:
-    with (ROOT / "pyproject.toml").open("rb") as stream:
-        document = tomllib.load(stream)
-    profile = document["tool"]["agent_utilities"]["clone_scanners"]
+def _hooks() -> dict[str, dict]:
+    config = yaml.safe_load(
+        (ROOT / ".config" / "pre-commit.yaml").read_text(encoding="utf-8")
+    )
+    return {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
 
+
+def test_scanner_versions_are_pinned_once_and_installed_from_that_pin() -> None:
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        profile = tomllib.load(stream)["tool"]["agent_utilities"]["clone_scanners"]
+    installer = (ROOT / "scripts" / "install_scanners.sh").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
-    advisory = (ROOT / ".github" / "workflows" / "advisory.yml").read_text(
+
+    for key in ("dupehound_version", "jscpd_version"):
+        assert _EXACT_VERSION.fullmatch(profile[key]), key
+        assert f"pin {key}" in installer
+    # CI provisions through the same installer, never a second copy of the pins.
+    assert "scripts/install_scanners.sh" in workflow
+    for key in ("dupehound_version", "jscpd_version"):
+        assert profile[key] not in workflow
+
+
+def test_clone_gates_run_at_their_declared_stages() -> None:
+    hooks = _hooks()
+
+    dupehound = hooks["clone-dupehound-changed-functions"]
+    assert "scripts/check_dupehound.py" in dupehound["entry"]
+    assert dupehound["stages"] == ["pre-commit"]
+    jscpd = hooks["clone-jscpd-diff"]
+    assert "scripts/check_duplication.py enforce --base-ref" in jscpd["entry"]
+    assert jscpd["stages"] == ["manual"]
+
+
+def test_release_clone_range_is_the_immutable_candidate() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
-    sdk_checkout = (
-        ROOT / ".github" / "actions" / "checkout-agent-connector-sdk" / "action.yml"
-    ).read_text(encoding="utf-8")
-    pre_commit = (ROOT / ".config" / "pre-commit.yaml").read_text(encoding="utf-8")
 
-    assert profile["dupehound_version"] == "0.1.2"
-    assert profile["jscpd_version"] == "5.0.16"
-    assert "entry: python3 scripts/check_dupehound.py" in pre_commit
-    assert "stages: [pre-commit]" in pre_commit
-    assert "scripts/check_duplication.py enforce --base-ref" in pre_commit
-    assert "stages: [manual]" in pre_commit
-    assert "cargo install dupehound --version 0.1.2 --locked" in workflow
-    assert "npm install --global jscpd@5.0.16" in workflow
     assert "needs: [gates, clone-scanners]" in workflow
     assert "fetch-depth: 0" in workflow
     assert "github.event.pull_request.base.sha" in workflow
     assert "github.event.pull_request.head.sha" in workflow
     assert "github.event.before" in workflow
     assert 'git cat-file -e "$base^{commit}"' in workflow
-    assert workflow.count("Checkout pinned Agent Connector SDK source") == 1
-    assert workflow.count("- *sdk-checkout") == 2
-    assert workflow.count("uses: ./.github/actions/checkout-agent-connector-sdk") == 1
-    assert advisory.count("Checkout pinned Agent Connector SDK source") == 1
-    assert advisory.count("uses: ./.github/actions/checkout-agent-connector-sdk") == 1
-    assert "50d0ba5360407c2f6395a39bc5e8608d42fc365b" in sdk_checkout
-    assert "path: .uv-workspace-siblings/agent-connector-sdk" in sdk_checkout
+
+
+def test_every_sibling_path_source_is_pinned_in_the_siblings_lock() -> None:
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        sources = tomllib.load(stream)["tool"]["uv"]["sources"]
+    declared = {
+        name
+        for name, entry in sources.items()
+        if isinstance(entry, dict)
+        and str(entry.get("path", "")).startswith(".uv-workspace-siblings/")
+    }
+    pinned = {}
+    for line in (ROOT / "scripts" / "siblings.lock").read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        name, url, commit, when = line.split()
+        assert url.startswith("https://"), name
+        assert _COMMIT.fullmatch(commit), name
+        assert when in {"always", "engine"}, name
+        pinned[name] = when
+
+    assert declared <= set(pinned)
+    # CI materializes the same pins through the bootstrap, not a copied SHA.
+    action = (
+        ROOT / ".github" / "actions" / "checkout-agent-connector-sdk" / "action.yml"
+    ).read_text(encoding="utf-8")
+    assert "scripts/bootstrap.sh --siblings-only" in action
 
 
 def test_source_distribution_carries_the_clone_scanner_surface() -> None:
@@ -69,6 +110,7 @@ def test_source_distribution_carries_the_clone_scanner_surface() -> None:
         ".kiss/kiss.toml",
         ".github/workflows/release.yml",
         "scripts/_clone_scanner_config.py",
+        "scripts/_gate_skip.py",
         "scripts/_git_subprocess_env.py",
         "scripts/check_dupehound.py",
         "scripts/check_duplication.py",

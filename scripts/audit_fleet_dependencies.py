@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
-"""Audit every committed Python, Rust, and pnpm lock with OSV.
+"""Inventory and integrity-check every committed Python, Rust, and pnpm lock.
 
-The fleet audit reads lock files directly and never invokes a resolver, package
-manager, build backend, or project code.  OSV requests are bounded and use the
-same fail-closed, environment-configured TLS behavior as ``audit_dependencies``.
-No endpoint, credential, or absolute checkout path is included in diagnostics.
+The fleet inventory reads lock files directly and never invokes a resolver,
+package manager, build backend, or project code, and it makes no network
+requests.  Every registry artifact must carry a verifiable digest: Python
+artifacts use HTTPS with a SHA-256 hash, Cargo packages an HTTPS registry with a
+64-character checksum, and pnpm packages a SHA-512 integrity value.  No absolute
+checkout path is included in diagnostics.
 
-Risk acceptances live beside each repository lock in
-``.security-audit-allow.txt``.  Existing three-field PyPI entries remain valid::
-
-    ADVISORY-ID package expires=YYYY-MM-DD # mandatory justification
-
-For an ecosystem-specific acceptance, add the ecosystem explicitly::
-
-    ADVISORY-ID npm @scope/package expires=YYYY-MM-DD # mandatory justification
+Vulnerability lookups against external advisory services are deliberately not
+part of this gate: blocking gates must behave identically offline, locally and
+in CI.
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import os
 import pathlib
 import re
@@ -30,23 +26,19 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from audit_dependencies import (  # reuses bounded HTTPS + configurable TLS
-    ADVISORY_RE,
-    AuditError,
-    _offline_warn_allowed,
-    _request,
-)
 from check_fleet_supply_chain import resolve_snapshot_repositories
+
+
+class AuditError(RuntimeError):
+    """A lock inventory is missing, malformed, or unverifiable."""
+
 
 MAX_LOCK_BYTES = 64 * 1024 * 1024
 MAX_COORDINATES = 30_000
 MAX_REPOSITORIES = 1_000
 MAX_DISCOVERY_DEPTH = 5
-MAX_ACCEPTANCE_DAYS = 90
-SUPPORTED_ECOSYSTEMS = frozenset({"PyPI", "crates.io", "npm"})
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9@/._+-]{0,254}$")
 VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,127}$")
-EXPIRY_RE = re.compile(r"^expires=(\d{4}-\d{2}-\d{2})$")
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 CARGO_CHECKSUM_RE = re.compile(r"^[0-9a-f]{64}$")
 NPM_INTEGRITY_RE = re.compile(r"^sha512-[A-Za-z0-9+/]+={0,2}$")
@@ -74,14 +66,6 @@ class Coordinate:
     ecosystem: str
     name: str
     version: str
-
-
-@dataclass(frozen=True)
-class Acceptance:
-    advisory_id: str
-    ecosystem: str | None
-    package: str
-    expires: dt.date
 
 
 @dataclass(frozen=True)
@@ -345,126 +329,13 @@ def _single_source_snapshot(root: pathlib.Path) -> tuple[pathlib.Path, ...]:
     return (root,)
 
 
-def load_acceptances(repository: pathlib.Path) -> tuple[Acceptance, ...]:
-    path = repository / ".security-audit-allow.txt"
-    if not path.exists():
-        return ()
-    try:
-        if path.is_symlink() or path.stat().st_size > 1024 * 1024:
-            raise AuditError("security acceptance ledger is unavailable or too large")
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except AuditError:
-        raise
-    except (OSError, UnicodeError):
-        raise AuditError("security acceptance ledger is unreadable") from None
-    today = dt.date.today()
-    accepted: list[Acceptance] = []
-    seen: set[tuple[str, str | None, str]] = set()
-    for number, raw_line in enumerate(lines, 1):
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        declaration, separator, justification = stripped.partition("#")
-        fields = declaration.split()
-        if (
-            not separator
-            or len(justification.strip()) < 12
-            or len(fields) not in {3, 4}
-        ):
-            raise AuditError(f"security acceptance line {number} is not justified")
-        if len(fields) == 3:
-            advisory_id, package, expiry_field = fields
-            ecosystem = None
-        else:
-            advisory_id, ecosystem, package, expiry_field = fields
-            if ecosystem not in SUPPORTED_ECOSYSTEMS:
-                raise AuditError(
-                    f"security acceptance line {number} has an invalid ecosystem"
-                )
-        package = package.casefold()
-        expiry_match = EXPIRY_RE.fullmatch(expiry_field)
-        if (
-            not ADVISORY_RE.fullmatch(advisory_id)
-            or not PACKAGE_RE.fullmatch(package)
-            or expiry_match is None
-        ):
-            raise AuditError(f"security acceptance line {number} is invalid")
-        try:
-            expires = dt.date.fromisoformat(expiry_match.group(1))
-        except ValueError:
-            raise AuditError(f"security acceptance line {number} is invalid") from None
-        if expires < today:
-            raise AuditError(f"security acceptance line {number} has expired")
-        if expires > today + dt.timedelta(days=MAX_ACCEPTANCE_DAYS):
-            raise AuditError(
-                f"security acceptance line {number} exceeds the review horizon"
-            )
-        key = (advisory_id.casefold(), ecosystem, package)
-        if key in seen:
-            raise AuditError(f"security acceptance line {number} is duplicated")
-        seen.add(key)
-        accepted.append(Acceptance(advisory_id, ecosystem, package, expires))
-    return tuple(accepted)
-
-
-def query_osv(coordinates: tuple[Coordinate, ...]) -> dict[Coordinate, frozenset[str]]:
-    findings: dict[Coordinate, set[str]] = defaultdict(set)
-    for offset in range(0, len(coordinates), 100):
-        chunk = coordinates[offset : offset + 100]
-        response = _request(
-            "https://api.osv.dev/v1/querybatch",
-            payload={
-                "queries": [
-                    {
-                        "package": {
-                            "ecosystem": coordinate.ecosystem,
-                            "name": coordinate.name,
-                        },
-                        "version": coordinate.version,
-                    }
-                    for coordinate in chunk
-                ]
-            },
-        )
-        results = response.get("results")
-        if not isinstance(results, list) or len(results) != len(chunk):
-            raise AuditError("OSV batch response does not match the request")
-        for coordinate, result in zip(chunk, results, strict=True):
-            if not isinstance(result, dict):
-                raise AuditError("OSV batch response is invalid")
-            vulnerabilities = result.get("vulns") or []
-            if not isinstance(vulnerabilities, list):
-                raise AuditError("OSV batch response is invalid")
-            for vulnerability in vulnerabilities:
-                advisory_id = (
-                    vulnerability.get("id") if isinstance(vulnerability, dict) else None
-                )
-                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(
-                    advisory_id
-                ):
-                    raise AuditError("OSV advisory identity is invalid")
-                findings[coordinate].add(advisory_id)
-    return {coordinate: frozenset(values) for coordinate, values in findings.items()}
-
-
-def _accepted(acceptance: Acceptance, coordinate: Coordinate, advisory_id: str) -> bool:
-    if acceptance.advisory_id.casefold() != advisory_id.casefold():
-        return False
-    if (
-        acceptance.ecosystem is not None
-        and acceptance.ecosystem != coordinate.ecosystem
-    ):
-        return False
-    return acceptance.package == coordinate.name.casefold()
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", nargs="?", default=".")
     parser.add_argument(
         "--inventory-only",
         action="store_true",
-        help="parse and count lock coordinates without contacting OSV",
+        help="accepted for compatibility; inventory is the only mode",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -501,79 +372,18 @@ def main(argv: list[str] | None = None) -> int:
                 {coordinate for item in inventories for coordinate in item.coordinates}
             )
         )
-        if arguments.inventory_only:
-            by_ecosystem: dict[str, int] = defaultdict(int)
-            for coordinate in coordinates:
-                by_ecosystem[coordinate.ecosystem] += 1
-            summary = ", ".join(
-                f"{ecosystem}={count}"
-                for ecosystem, count in sorted(by_ecosystem.items())
-            )
-            print(
-                f"dependency-audit: inventory clean ({len(inventories)} repositories, "
-                f"{len(coordinates)} unique coordinates; {summary})"
-            )
-            return 0
-        vulnerabilities = query_osv(coordinates)
-        acceptances = {
-            item.repository: load_acceptances(item.repository) for item in inventories
-        }
     except AuditError as error:
-        if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
-            print(
-                "dependency-audit: WARNING - OSV unavailable under explicit local offline policy"
-            )
-            return 0
-        print(f"dependency-audit: FAILED - {error}", file=sys.stderr)
+        print(f"dependency-inventory: FAILED - {error}", file=sys.stderr)
         return 2
-
-    failures: list[str] = []
-    used: dict[pathlib.Path, set[int]] = defaultdict(set)
-    finding_count = 0
-    for item in inventories:
-        ledger = acceptances[item.repository]
-        for coordinate in sorted(item.coordinates):
-            for advisory_id in sorted(vulnerabilities.get(coordinate, ())):
-                finding_count += 1
-                match = next(
-                    (
-                        index
-                        for index, acceptance in enumerate(ledger)
-                        if _accepted(acceptance, coordinate, advisory_id)
-                    ),
-                    None,
-                )
-                if match is not None:
-                    used[item.repository].add(match)
-                    acceptance = ledger[match]
-                    print(
-                        f"  ACCEPTED {item.label} {coordinate.ecosystem} "
-                        f"{coordinate.name} {coordinate.version} {advisory_id} "
-                        f"until {acceptance.expires.isoformat()}"
-                    )
-                    continue
-                failures.append(
-                    f"{item.label} {coordinate.ecosystem} {coordinate.name} "
-                    f"{coordinate.version} {advisory_id}"
-                )
-    for item in inventories:
-        for index, acceptance in enumerate(acceptances[item.repository]):
-            if index not in used[item.repository]:
-                failures.append(
-                    f"{item.label} stale-acceptance {acceptance.advisory_id} "
-                    f"{acceptance.package}"
-                )
-    for failure in failures:
-        print(f"  FAIL {failure}")
-    if failures:
-        print(
-            f"dependency-audit: FAILED ({len(failures)} vulnerabilities or stale acceptances)",
-            file=sys.stderr,
-        )
-        return 1
+    by_ecosystem: dict[str, int] = defaultdict(int)
+    for coordinate in coordinates:
+        by_ecosystem[coordinate.ecosystem] += 1
+    summary = ", ".join(
+        f"{ecosystem}={count}" for ecosystem, count in sorted(by_ecosystem.items())
+    )
     print(
-        f"dependency-audit: clean ({len(inventories)} repositories, "
-        f"{len(coordinates)} unique coordinates, {finding_count} accepted findings)"
+        f"dependency-inventory: clean ({len(inventories)} repositories, "
+        f"{len(coordinates)} unique coordinates; {summary})"
     )
     return 0
 

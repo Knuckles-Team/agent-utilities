@@ -67,12 +67,13 @@ def _fail_env(msg: str) -> "None":
     raise SystemExit(2)
 
 
-def _resolve_cccc() -> str:
-    """Find cccc WITHOUT consulting any package index.
+def find_cccc() -> str | None:
+    """Find cccc WITHOUT consulting any package index; None when absent.
 
     A hook that resolves a tool from an index at hook time is how a previous
     fleet sweep shipped a gate that could not pass anywhere, producing 69 push
-    failures across 226 repos. Local paths only; absent means exit 2.
+    failures across 226 repos. Local paths only. Shared with
+    `check_complexity_staged.py`, which decides its own absent-tool semantics.
     """
     env = os.environ.get("CCCC_BIN")
     if env and Path(env).is_file():
@@ -80,15 +81,24 @@ def _resolve_cccc() -> str:
     for cand in (Path.home() / ".local/bin/cccc", Path("/usr/local/bin/cccc")):
         if cand.is_file():
             return str(cand)
-    found = shutil.which("cccc")
-    if found:
-        return found
-    _fail_env(
-        "`cccc` not found. Looked at $CCCC_BIN, ~/.local/bin/cccc, "
-        "/usr/local/bin/cccc and $PATH. Build it with "
-        "`cargo build --release` in open-source-libraries/cccc and copy the "
-        "binary to ~/.local/bin/. This gate never installs anything itself."
-    )
+    return shutil.which("cccc")
+
+
+#: Where find_cccc looked and how to provide the binary.
+CCCC_MISSING = (
+    "`cccc` not found. Looked at $CCCC_BIN, ~/.local/bin/cccc, "
+    "/usr/local/bin/cccc and $PATH. Build it with "
+    "`cargo build --release` in open-source-libraries/cccc and copy the "
+    "binary to ~/.local/bin/. This gate never installs anything itself."
+)
+
+
+def _resolve_cccc() -> str:
+    """The census gate: an absent cccc is exit 2 (CANNOT RUN), never a pass."""
+    found = find_cccc()
+    if found is None:
+        _fail_env(CCCC_MISSING)
+    return found
 
 
 def _walk(fn: dict, rel: str, prefix: str, out: list) -> None:

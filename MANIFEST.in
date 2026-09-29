@@ -16,6 +16,7 @@ include .cccc.toml
 include .kiss/kiss.toml
 include .github/workflows/release.yml
 include scripts/_clone_scanner_config.py
+include scripts/_gate_skip.py
 include scripts/_git_subprocess_env.py
 include scripts/check_dupehound.py
 include scripts/check_duplication.py

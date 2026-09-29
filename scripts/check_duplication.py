@@ -154,6 +154,7 @@ from typing import NoReturn
 
 _AU_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _gate_skip import unavailable  # noqa: E402
 from _clone_scanner_config import (  # noqa: E402
     CloneScannerConfig,
     CloneScannerConfigError,
@@ -305,7 +306,8 @@ def _resolve_jscpd(config: CloneScannerConfig | None = None) -> str:
     if found:
         return found
     version = (config or _config()).jscpd_version
-    _die(
+    unavailable(
+        "clone-jscpd",
         "`jscpd` not found. Looked at $JSCPD_BIN, ~/.local/bin/jscpd, "
         "/usr/local/bin/jscpd and $PATH. Install the pinned version with "
         f"`npm install -g jscpd@{version}` and either put it on PATH or set "

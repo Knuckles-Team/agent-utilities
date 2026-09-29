@@ -91,7 +91,6 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".gitattributes",  # git attributes (line endings, diff drivers, ...)
         ".gitignore",  # git exclusion patterns
         ".mergequeue.yaml",  # merge-queue config
-        ".security-audit-allow.txt",  # risk-accepted CVE ledger (OSV gate)
     }
 )
 

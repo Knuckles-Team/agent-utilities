@@ -73,6 +73,38 @@ def test_model_specific_identity_catalog_is_external_and_versioned(
     assert gate.load_identity_catalog(catalog) == (b"deny",)
 
 
+def test_absent_identity_policy_skips_that_pass_locally_and_fails_in_ci(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    gate = _gate_module()
+    absent = tmp_path / "absent.json"
+
+    monkeypatch.delenv("CI", raising=False)
+    assert gate._required_identity_catalog(absent) == ()
+    assert "SKIPPED (tracked-privacy identity pass)" in capsys.readouterr().out
+
+    monkeypatch.setenv("CI", "true")
+    try:
+        gate._required_identity_catalog(absent)
+    except SystemExit as exit_:
+        assert exit_.code == 2
+    else:
+        raise AssertionError("an absent policy must fail closed under CI")
+
+
+def test_malformed_identity_policy_still_fails_locally(tmp_path: Path, monkeypatch) -> None:
+    gate = _gate_module()
+    catalog = tmp_path / "identity-policy.json"
+    catalog.write_text("not json", encoding="utf-8")
+    monkeypatch.delenv("CI", raising=False)
+    try:
+        gate._required_identity_catalog(catalog)
+    except SystemExit as exit_:
+        assert exit_.code == 2
+    else:
+        raise AssertionError("a malformed policy must never be skipped")
+
+
 def test_model_specific_identity_rejects_embedded_case_variants(
     tmp_path: Path,
 ) -> None:

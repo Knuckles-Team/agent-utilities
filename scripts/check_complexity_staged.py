@@ -44,11 +44,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _gate_skip import unavailable  # noqa: E402
+from check_complexity import CCCC_MISSING, find_cccc  # noqa: E402
 
 DEFAULT_MAX_CYCLOMATIC = 10
 DEFAULT_MAX_COGNITIVE = 15
@@ -67,28 +70,14 @@ def _fail_env(msg: str) -> "None":
 
 
 def _resolve_cccc() -> str:
-    """Find cccc WITHOUT consulting any package index.
+    """Find cccc via the shared local-paths-only lookup in check_complexity.
 
-    A hook that resolves its tool from an index at hook time is how a previous
-    fleet sweep shipped a gate that could not pass anywhere. Local paths only.
+    Absent locally is SKIPPED (exit 0); absent under CI is CANNOT RUN (exit 2).
     """
-    env = os.environ.get("CCCC_BIN")
-    if env and Path(env).is_file():
-        return env
-    for cand in (Path.home() / ".local/bin/cccc", Path("/usr/local/bin/cccc")):
-        if cand.is_file():
-            return str(cand)
-    found = shutil.which("cccc")
-    if found:
-        return found
-    _fail_env(
-        "`cccc` not found. Looked at $CCCC_BIN, ~/.local/bin/cccc, "
-        "/usr/local/bin/cccc and $PATH. Build it with `cargo build --release` in "
-        "open-source-libraries/cccc and copy the binary to ~/.local/bin/. This "
-        "gate never installs anything itself -- resolving a gate's tool from a "
-        "package index at hook time is how a previous fleet sweep shipped a hook "
-        "that could not pass anywhere (69 push failures across 226 repos)."
-    )
+    found = find_cccc()
+    if found is None:
+        unavailable("complexity-staged", CCCC_MISSING)
+    return found
 
 
 def _git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:

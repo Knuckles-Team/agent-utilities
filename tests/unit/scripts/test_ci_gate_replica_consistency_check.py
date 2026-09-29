@@ -100,7 +100,7 @@ def test_registered_workflow_missing_from_disk_fails_consistency_check(tmp_path)
 def test_gates_and_build_run_steps_cover_the_known_release_blockers():
     """Regression guard: the RUN plan for `gates`/`build` must include the
     exact release-blocking steps release.yml documents as release-critical
-    (secret-history scan, OSV audit, the eg-PyPI-resolvable cross-repo gate,
+    (secret-history scan, the eg-PyPI-resolvable cross-repo gate,
     the test suite, and the byte-identical-wheel reproducibility check)."""
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
@@ -108,7 +108,6 @@ def test_gates_and_build_run_steps_cover_the_known_release_blockers():
     run_names = {p["name"] for p in plan if p["mode"] == "RUN"}
     for expected in (
         "Secret-history scan (D-CIP-13)",
-        "Dependency vulnerability audit (OSV)",
         "Verify required epistemic-graph release is resolvable on PyPI",
         "Test suite",
         "Require byte-identical wheels and stage the sole candidate",
@@ -146,9 +145,8 @@ def test_advisory_job_is_now_covered():
         p["name"] for p in plan if p["job"] == "advisory" and p["mode"] == "RUN"
     }
     for expected in (
-        "No-stub gate",
+        "pre-commit (commit stage, all files)",
         "CycloneDX SBOM and license policy",
-        "Dependency vulnerability audit (OSV)",
     ):
         assert expected in advisory_run_names, (
             f"missing from parsed advisory RUN plan: {expected!r}"
