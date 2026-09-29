@@ -35,9 +35,12 @@ working tree. The index is what the commit will contain, so an unstaged edit can
 neither hide a violation nor invent one, independently of whether pre-commit's
 own stash ran.
 
-Exit codes: 0 pass, 1 violation, 2 the gate could not run (an ENVIRONMENT fact,
-never reported as a clean pass -- a gate that could not run has not found
-nothing).
+EXIT CODES
+----------
+0 pass; 1 a new or worsened function; 2 CANNOT RUN (git or cccc failed, or
+cccc is absent under CI). An absent cccc outside CI prints SKIPPED and exits 0
+(the `_gate_skip` contract): a fresh clone without the native tool is not a
+finding, but CI must provision it, so there it is never a silent pass.
 """
 from __future__ import annotations
 

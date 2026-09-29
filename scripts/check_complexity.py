@@ -40,10 +40,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _gate_skip import find_local_tool  # noqa: E402
 
 # The gold standard, per the owner. Not derived from what any repo currently
 # passes -- these are cccc's own documented values.
@@ -70,18 +72,14 @@ def _fail_env(msg: str) -> "None":
 def find_cccc() -> str | None:
     """Find cccc WITHOUT consulting any package index; None when absent.
 
-    A hook that resolves a tool from an index at hook time is how a previous
-    fleet sweep shipped a gate that could not pass anywhere, producing 69 push
-    failures across 226 repos. Local paths only. Shared with
-    `check_complexity_staged.py`, which decides its own absent-tool semantics.
+    $CCCC_BIN first, then the local-paths-only lookup every gate shares
+    (`_gate_skip.find_local_tool`). Shared with `check_complexity_staged.py`,
+    which decides its own absent-tool semantics.
     """
     env = os.environ.get("CCCC_BIN")
     if env and Path(env).is_file():
         return env
-    for cand in (Path.home() / ".local/bin/cccc", Path("/usr/local/bin/cccc")):
-        if cand.is_file():
-            return str(cand)
-    return shutil.which("cccc")
+    return find_local_tool("cccc")
 
 
 #: Where find_cccc looked and how to provide the binary.
