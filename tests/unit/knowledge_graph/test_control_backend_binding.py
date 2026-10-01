@@ -85,9 +85,15 @@ def test_build_control_backend_falls_back_to_self_backend_when_no_view_factory()
     assert inst._build_control_backend() is backend
 
 
-def test_build_control_backend_falls_back_when_view_factory_raises():
-    """A view-factory failure must not block engine construction -- fall back
-    to this instance's own backend scope rather than raising."""
+def test_build_control_backend_raises_when_view_factory_fails():
+    """AU-SEC-R002: a view-factory failure is surfaced as a typed error. Falling
+    back to this instance's content scope would split WorkItem authority."""
+    import pytest
+
+    from agent_utilities.knowledge_graph.core.work_durability import (
+        ControlGraphUnavailable,
+        WorkItemBackendUnavailable,
+    )
 
     class _RaisingBackend:
         graph_name = "kf-pilot:code-ingest"
@@ -96,7 +102,9 @@ def test_build_control_backend_falls_back_when_view_factory_raises():
             raise RuntimeError("transport unavailable")
 
     inst = object.__new__(IntelligenceGraphEngine)
-    backend = _RaisingBackend()
-    inst.backend = backend
+    inst.backend = _RaisingBackend()
 
-    assert inst._build_control_backend() is backend
+    with pytest.raises(ControlGraphUnavailable, match="__control__") as raised:
+        inst._build_control_backend()
+    assert isinstance(raised.value, WorkItemBackendUnavailable)
+    assert isinstance(raised.value.__cause__, RuntimeError)

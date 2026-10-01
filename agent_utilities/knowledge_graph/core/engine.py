@@ -278,26 +278,26 @@ class IntelligenceGraphEngine(
         views -- no new transport/socket, per
         ``EpistemicGraphBackend.for_graph``'s own docstring). A backend with
         no such factory (a minimal test double, or a non-graph-scoped store)
-        falls back to ``self.backend`` unchanged -- today's behavior, and
-        correct for a backend that has only one scope to begin with.
+        has only one scope, so ``self.backend`` IS its control authority.
+
+        AU-SEC-R002: a backend that CAN scope but fails to open the ``__control__``
+        view raises :class:`~.work_durability.ControlGraphUnavailable`. It
+        used to log and fall back to this instance's content scope -- the
+        exact split-authority defect above, reintroduced silently.
         """
         view_factory = getattr(self.backend, "for_graph", None)
-        if callable(view_factory):
-            from .shard_topology import CONTROL_GRAPH_NAME
+        if not callable(view_factory):
+            return self.backend
+        from .shard_topology import CONTROL_GRAPH_NAME
+        from .work_durability import ControlGraphUnavailable
 
-            try:
-                return view_factory(CONTROL_GRAPH_NAME)
-            except Exception:  # noqa: BLE001 — a view-factory failure must not
-                # block engine construction; the pre-existing single-scope
-                # fallback keeps the engine usable (and the WorkItemBackend
-                # -Unavailable guard in engine_tasks.py still fails closed on
-                # a genuinely missing control authority downstream).
-                logger.warning(
-                    "control-graph view resolution failed; falling back to "
-                    "this instance's own backend scope",
-                    exc_info=True,
-                )
-        return self.backend
+        try:
+            return view_factory(CONTROL_GRAPH_NAME)
+        except Exception as exc:
+            raise ControlGraphUnavailable(
+                f"cannot open the {CONTROL_GRAPH_NAME!r} WorkItem authority view: "
+                f"{type(exc).__name__}"
+            ) from exc
 
     def _bind_policy_stores(self) -> None:
         """Bind mandatory policy state to the one authoritative graph backend."""
