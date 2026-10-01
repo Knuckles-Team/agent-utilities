@@ -1,1 +1,76 @@
-{"schema_version":1,"spec_id":"EH-338","owner_repo":"agent-utilities","requirement_ids":["EH-338"],"delivery_state":"SPECIFIED","acceptance_state":"NOT_AUDITED","evidence":[]}
+{
+  "schema_version": 1,
+  "spec_id": "AU-RETIRE-001",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "AU-RETIRE-R001",
+    "AU-RETIRE-R002",
+    "AU-RETIRE-R003",
+    "AU-RETIRE-R004",
+    "AU-RETIRE-R005",
+    "AU-RETIRE-R006",
+    "AU-RETIRE-R007",
+    "AU-RETIRE-R008"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-RETIRE-R001",
+      "title": "Complete inventory and retirement of duplicate graph engine code",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R002",
+      "title": "Enrichment edges carry a provenance rung and confidence",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R003",
+      "title": "OBO ontology terms ingest as typed ReferenceTerm individuals",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R004",
+      "title": "Fix doubled node_type text in embedding composition",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R005",
+      "title": "Per-stage timing instrumentation across the full ingest path",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R006",
+      "title": "Delta ingest reaps nodes for deleted files",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-RETIRE-R007",
+      "title": "Deterministic embedding admission classifier at the ingest chokepoint",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7e52410bfeada3e64d469f0762882ed8259770d2",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/7e52410bfeada3e64d469f0762882ed8259770d2",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-RETIRE-R008",
+      "title": "Sequence ingestion-economics work ahead of file relocation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
+}

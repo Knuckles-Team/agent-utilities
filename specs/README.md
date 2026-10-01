@@ -10,7 +10,11 @@ Delivery status is recorded here with exact merged revision and test evidence.
 
 Create `specs/<stable-id>/` with `spec.md` (user outcome, requirements, acceptance), `plan.md`
 (architecture, reuse, interfaces, live wiring, decisions), `test-spec.md` (positive, negative,
-integration, quality and release proof), and `tasks.md` (ordered implementation and verification), plus `status.json` (machine-readable delivery, acceptance, and public receipts).
+integration, quality and release proof), `tasks.md` (ordered implementation and verification),
+`requirements.md` (the definition of every requirement ID this spec owns, with its closing proof),
+and `status.json` (machine-readable delivery, acceptance, and public receipts, including a
+`requirements` array with one entry per requirement ID carrying its own `delivery_state` and
+evidence).
 Start from [`_template/`](_template/). Keep status and evidence explicit; a planned or tested item
 is not a landed item. Put durable evidence links in the spec directory, never local scratch output.
 This follows GitHub Spec Kit's specify/plan/tasks flow with an explicit test contract. The tracked [constitution](../.specify/memory/constitution.md) records this repository's governing principles.
@@ -61,14 +65,14 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 ## Local specifications
 
 - [`AU-CONTEXT-001`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
-- [`agent-control-plane`](agent-control-plane/spec.md) — agent control plane and workflows.
+- [`AU-CONTROL-001`](agent-control-plane/spec.md) — agent control plane and workflows.
 - [`AU-SEC-01`](agent-security-policy/spec.md) — agent security and policy boundary.
 - [`AU-BOUNDARY-001`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
 - [`AU-QUAL-01`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
 - [`AU-DEV-001`](au-developer-environment/spec.md) — developer environment and release setup.
 - [`AU-INTEGRATION-001`](au-integration-reliability/spec.md) — reliability of live integrations.
 - [`AU-SEMANTIC-001`](au-semantic-client/spec.md) — semantic client behavior.
-- [`harness-evolution`](harness-evolution/spec.md) — harness improvement and evaluation.
-- [`EH-338`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
-- [`EH-652`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
-- [`RF-001`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
+- [`AU-HARNESS-001`](harness-evolution/spec.md) — harness improvement and evaluation.
+- [`AU-RETIRE-001`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
+- [`AU-RETRIEVAL-001`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
+- [`AU-FREEZE-001`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.

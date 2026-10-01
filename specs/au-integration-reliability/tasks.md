@@ -2,13 +2,19 @@
 
 **Legend:** TODO means proof missing; IN PROGRESS means a change exists; IMPLEMENTED means source on merged main; VERIFIED means required gates passed on that exact head; ACCEPTED means owner release review is recorded; SUPERSEDED/REJECTED require their own decision evidence.
 
-| Work | IDs | State | Exit |
-|---|---|---|---|
-| Control graph and backend propagation | EH-103, EH-187 | TODO | positive/refusal tests on real entry point |
-| Dependency and generated contract | EH-203–205 | TODO audit | fresh-clone install and digest gate |
-| Baseline/liveness | EH-209–210 | TODO audit | named regression and frozen-time proof |
-| Historical dispositions | EH-202, EH-207–208, EH-321 | TODO audit | reachable main evidence or explicit superseded/rejected record |
-| Worktree preservation | EH-344 | TODO audit | unique diff/commit inventory before prune |
-| Docs/privacy/legacy | EH-365, EH-467, EH-657 | TODO | public Pages/marker parity, privacy tests, no old caller |
-| Query benchmark | EH-651 | TODO | reproducible tenant-scoped comparison and adoption decision |
-| Final composition and docs | Four named AU workstreams in `spec.md` | TODO | reviewed stable IDs, exact commit, normal CI and acceptance receipt |
+- [ ] Create the reserved `__control__` graph automatically (or return a typed error) before the first WorkItem runs on a fresh engine, and thread `messaging_intake_enabled` through to the backend that applies it; add positive and typed-refusal tests at a real entry point. Closes AU-INTEGRATION-R001, AU-INTEGRATION-R002.
+- [ ] Audit AU's previously tracked dependency, contract-generation and test-baseline fixes against the current merged head; close any duplicate pending work that the code and its tests already cover. Closes AU-INTEGRATION-R003.
+- [ ] Remove the unintended `nltk` dependency from AU's base lock, point the contract-compatibility hook at a pinned published EG artifact instead of a sibling checkout, and keep `epistemic-graph[full]` a core, always-installed dependency. Closes AU-INTEGRATION-R004, AU-INTEGRATION-R005, AU-INTEGRATION-R006.
+- [ ] Confirm gold-set generation for retrieval/evaluation stays synthetic by construction with no parallel manual-labelling pipeline. Closes AU-INTEGRATION-R007.
+- [ ] Keep the regression baseline (lazy config resolution, resource-lease fencing, session boundary, model-factory routing, gateway, deployment-backend threading) green with EG installed, and resolve every expired liveness deferral with recorded evidence. Closes AU-INTEGRATION-R008, AU-INTEGRATION-R009.
+- [ ] Run the engine-owned Kafka enqueue-only-proof contract to completion across its build, unconstrained and constrained steps, and report the result as external dependency evidence rather than AU-authored proof. Closes AU-INTEGRATION-R010.
+- [ ] Before pruning a development branch or local checkout, prove its commits and any uncommitted diff are already contained in an accepted public branch or recorded in an explicit recovery artifact. Closes AU-INTEGRATION-R011.
+- [ ] Keep the external-graph contract check covering the two relocated documents with an equivalent content-marker and environment-literal check in their new home, and make the privacy gate's author-identity scanner accept the exact canonical automation identities while still rejecting unrelated bare tokens, credentials and private endpoints. Closes AU-INTEGRATION-R012, AU-INTEGRATION-R013.
+- [ ] Benchmark any proposed AI predicate-grouping, prompt/KV reuse or GPU-fairness improvement against AU's existing typed query/model-serving path, with tenant and purpose authorization gates enforced, before adopting it as an optimization inside that path. Closes AU-INTEGRATION-R014.
+- [ ] Remove the unused legacy ontology-publisher surface (module, Fuseki/Stardog schedule token, vendor configuration, doctor/health/widget surfaces and references) once a full module and catalog inventory shows no live caller. Closes AU-INTEGRATION-R015.
+- [ ] Confirm the publicly published ontology-deletion commit's patch content matches its source change and that both the focused and expanded ontology overlay test suites pass at that commit. Closes AU-INTEGRATION-R016.
+- [ ] Confirm AU's publicly published source history is fully contained in the ancestry of local main. Closes AU-INTEGRATION-R017.
+- [ ] Bring the public documentation site to full parity with the canonical README/theme/home-page tense, zero orphan pages with full page-count parity, a strict MkDocs build, and passing current-only, privacy, accessibility, theme, workflow and version gates. Closes AU-INTEGRATION-R018.
+- [ ] Run the full test baseline, CCCC, jscpd, Dupehound, KISS review, Ruff/mypy, and the privacy/version-consistency scripts; record exact merged-head and hosted CI evidence against every requirement above before any `ACCEPTED` claim.
+
+Four additional AU workstreams (final composition, ontology/SHACL/OWL clean cut, public application control plane, public docs) are named in `spec.md` but still await stable requirement IDs through review; track them there rather than inventing a synthetic ID here.

@@ -3,25 +3,25 @@
 **ID:** AU-BOUNDARY-001
 **Owner:** agent-utilities
 **Delivery:** SPECIFIED; implementation and acceptance must be checked against an exact merged commit.
-**Program items:** EH-476–EH-516, except EH-470–EH-475 (AU-SEMANTIC-001), EH-513 (AU-CONTEXT-001). The numbered AUD-01–AUD-33 cuts map one to one to EH-476–EH-516 where present. EH-514 owns the final boundary gate.
+**Requirements:** AU-BOUNDARY-R001–AU-BOUNDARY-R041. Every requirement ID is defined in [requirements.md](requirements.md); the delivery state and evidence of each are recorded in [status.json](status.json). AU-BOUNDARY-R038 owns the final boundary gate.
 
 ## Outcome
 
-Agent Utilities exposes one agent execution application API. It no longer hosts a second graph engine, public gateway, connector transport, durable data store, or development governance service. A contributor can implement any cut using this spec and the checked-in source tree without private workspace context.
+Agent Utilities exposes one agent execution application API. It no longer hosts a second graph engine, public gateway, connector transport, durable data store, or development governance service. A contributor can implement any cut using only this spec and the checked-in source tree.
 
 ## Ownership and scope
 
-| Cut | Items | Remove from AU after replacement is wired | Authority and retained AU behavior |
+| Cut | Requirements | Remove from AU after replacement is wired | Authority and retained AU behavior |
 |---|---|---|---|
-| Served shell | EH-476–EH-479, EH-488–EH-492, EH-515 | `gateway/`, `deployment/`, legacy `mcp/kg_server.py` and `mcp/tools/`, multiplexer family, `server/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | graph-os hosts public REST/MCP/A2A, fleet, deployment, messaging; AU retains execution methods in `agent_utilities.api` |
-| Connector lifecycle | EH-480–EH-486, EH-499–EH-501 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
-| Graph and semantic state | EH-487, EH-493–EH-498, EH-502–EH-510, EH-516 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
-| Cross-cutting state | EH-511–EH-512 | AU SQLite usage facts and `governance/` merge/lane tooling | EG stores usage facts; repository-manager owns repository/lane governance; AU emits usage events |
-| Boundary certification | EH-514 | undocumented or duplicated owner paths, stale scripts and callers | `architecture/component-registry.yml` and import/script gates match actual owner decisions |
+| Served shell | AU-BOUNDARY-R001–AU-BOUNDARY-R004, AU-BOUNDARY-R013–AU-BOUNDARY-R017, AU-BOUNDARY-R039 | `gateway/`, `deployment/`, legacy `mcp/kg_server.py` and `mcp/tools/`, multiplexer family, `server/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | graph-os hosts public REST/MCP/A2A, fleet, deployment, messaging; AU retains execution methods in `agent_utilities.api` |
+| Connector lifecycle | AU-BOUNDARY-R005–AU-BOUNDARY-R011, AU-BOUNDARY-R024–AU-BOUNDARY-R026 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
+| Graph and semantic state | AU-BOUNDARY-R012, AU-BOUNDARY-R018–AU-BOUNDARY-R023, AU-BOUNDARY-R027–AU-BOUNDARY-R035, AU-BOUNDARY-R040 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
+| Cross-cutting state | AU-BOUNDARY-R036–AU-BOUNDARY-R037 | AU SQLite usage facts and `governance/` merge-queue and concept-reservation tooling | EG stores usage facts; repository-manager owns repository and worktree governance; AU emits usage events |
+| Boundary certification | AU-BOUNDARY-R038 | undocumented or duplicated owner paths, stale scripts and callers | `architecture/component-registry.yml` and import/script gates match actual owner decisions |
 
-EH-513 is a finance-specific AU cut with its own spec. Cuts may be grouped in PRs only when each ownership edge has a live caller and no dual authority remains.
+AU-BOUNDARY-R041 removes the finance modules that produced fabricated data; the remaining finance cut, AU-CONTEXT-R007, is specified in [`agent-context-and-finance`](../agent-context-and-finance/spec.md). Cuts may be grouped in PRs only when each ownership edge has a live caller and no dual authority remains.
 
-The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every EH-476–EH-516 item.
+The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every requirement, and the [deletion and relocation inventory](coverage.md#deletion-and-relocation-inventory) maps every AU package directory to the requirement that removes, relocates or keeps it.
 
 ## Requirements
 
@@ -36,3 +36,5 @@ The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, tar
 ## Acceptance
 
 All mapped cuts are individually evidenced at exact merged revisions, public entry points have served or wiring parity, the forbidden-import and owner-manifest gates pass, and whole-repository quality gates are green. A source branch marked built does not count as accepted.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

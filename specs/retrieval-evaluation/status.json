@@ -1,1 +1,27 @@
-{"schema_version":1,"spec_id":"EH-652","owner_repo":"agent-utilities","requirement_ids":["EH-652"],"delivery_state":"SPECIFIED","acceptance_state":"NOT_AUDITED","evidence":[]}
+{
+  "schema_version": 1,
+  "spec_id": "AU-RETRIEVAL-001",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "AU-RETRIEVAL-R001"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-RETRIEVAL-R001",
+      "title": "Benchmark structure-aware retrieval against served hybrid search",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "997da1a18e8d72c07eeb51732c27d23d89ed5f54",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/997da1a18e8d72c07eeb51732c27d23d89ed5f54",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    }
+  ]
+}

@@ -10,5 +10,6 @@
 | T6 | SEC-08 | Connect invalidation events to caches; test event loss and max TTL. |
 | T7 | SEC-09 | Connect drift result to orchestration and SDK checkpoint contract; quarantine/recovery tests. |
 | T8 | all | Run test matrix, CCCC/jscpd/Dupehound and privacy checks; capture exact commit, hosted result, and cross-owner acceptance. |
+| T9 | AU-SEC-R009 | Add a static/automated review confirming no learned probability, similarity score, or other model-derived confidence value grants or extends authorization in AU or epistemic-graph; every authorization decision traces to an explicit policy or approval record. |
 
 Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch; mark **ACCEPTED** only after required evidence and owner contract checks are linked.

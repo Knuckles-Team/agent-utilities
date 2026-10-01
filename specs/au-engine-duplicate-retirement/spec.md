@@ -1,10 +1,10 @@
-# EH-338 — Retire duplicate graph engine authority in AU
+# AU-RETIRE-001 — Retire duplicate graph engine authority in AU
 
 **Owner:** agent-utilities. **Status:** SPECIFIED; acceptance NOT_AUDITED. **Related public owner:** epistemic-graph owns durable graph execution and native OWL/SPARQL/compute. This AU spec owns only AU deletion, caller migration, and parity proof.
 
 ## Outcome and scope
 
-An agent can execute the same authorized graph task through a typed epistemic-graph client while AU contains no competing graph engine, OWL/SPARQL interpreter, or graph compute authority. Retain AU model-driven planning, agent workflow, context compilation and policy; move deterministic graph operations to the engine. This covers the previously unclassified long tail as well as obvious duplicates: classify every AU `knowledge_graph/` module by actual behavior before deleting it. The related [boundary cutover spec](../au-boundary-deconstruction/spec.md) owns per-module EH-487, EH-493–EH-510 cuts; EH-338 owns the cross-cutting audit and no-dual-authority verdict.
+An agent can execute the same authorized graph task through a typed epistemic-graph client while AU contains no competing graph engine, OWL/SPARQL interpreter, or graph compute authority. Retain AU model-driven planning, agent workflow, context compilation and policy; move deterministic graph operations to the engine. This covers the previously unclassified long tail as well as obvious duplicates: classify every AU `knowledge_graph/` module by actual behavior before deleting it. The related [boundary cutover spec](../au-boundary-deconstruction/spec.md) owns per-module AU-BOUNDARY-R012, AU-BOUNDARY-R018–AU-BOUNDARY-R035 cuts; AU-RETIRE-R001 owns the cross-cutting audit and no-dual-authority verdict.
 
 ## Requirements
 
@@ -19,9 +19,13 @@ An agent can execute the same authorized graph task through a typed epistemic-gr
 
 | Requirement | Design | Tests |
 |---|---|---|
-| FR-1 | [Inventory and migration](plan.md#inventory-and-migration) | E338-1 |
-| FR-2 | [Interfaces and data flow](plan.md#interfaces-and-data-flow) | E338-2, E338-3 |
-| FR-3 | [Cutover](plan.md#cutover) | E338-4 |
-| FR-4 | [Failure and security](plan.md#failure-and-security) | E338-5 |
+| FR-1 | [Inventory and migration](plan.md#inventory-and-migration) | RETIRE-1 |
+| FR-2 | [Interfaces and data flow](plan.md#interfaces-and-data-flow) | RETIRE-2, RETIRE-3 |
+| FR-3 | [Cutover](plan.md#cutover) | RETIRE-4 |
+| FR-4 | [Failure and security](plan.md#failure-and-security) | RETIRE-5 |
+
+The per-directory outcome of this audit is published as the [deletion and relocation inventory](../au-boundary-deconstruction/coverage.md#deletion-and-relocation-inventory).
 
 Success means one graph authority, no AU copy, and exact-revision parity evidence. Creating this spec alone does not establish that result.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

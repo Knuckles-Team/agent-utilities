@@ -1,7 +1,7 @@
 # Harness evolution and governed work
 
-**Owner:** agent-utilities (AU) · **Stable ID:** `harness-evolution`
-**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** EH-346–EH-350, EH-348–EH-349, EH-464 (AU portions)
+**Owner:** agent-utilities (AU) · **Stable ID:** `AU-HARNESS-001`
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R005, AU-HARNESS-R003–AU-HARNESS-R004, AU-HARNESS-R006 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome
 
@@ -18,14 +18,16 @@ An operator sees one evidence-backed queue of gaps, can capture eligible open-we
 
 | ID | Requirement | Scope IDs | Acceptance proof |
 |---|---|---|---|
-| HE-01 | Attest provider capability; bind tokenizer, decode, sampler and base/adapter digests. Three independent `capture/train/promote` controls default false. | EH-346 | capability and default-off negatives |
-| HE-02 | Capture terminal trajectory, frozen `log_q`, token ids, policy-token mask, verifier/reward and live blob references. Reject incomplete or mismatched arrays as training input. | EH-346 | replay/golden/fault tests |
-| HE-03 | Extend `SubstrateTrainer` job emission to optional KLPO beside GRPO/DPO/SFT; gradients and checkpoint bytes remain external; first output is a new adapter artifact. | EH-347 | injected dispatcher and receipt tests |
-| HE-04 | Use EG Gap/WorkOffer/Decide/DecisionCommit/WorkItem contracts for selection, claim, budget, cooldown and terminal outcome. | EH-348 | served one-Gap/one-claim fixture |
-| HE-05 | Route code proposals through graph-os authorization and repository-manager materialization; remove AU direct Git, local publication/report authority and dual writes. | EH-349 | source gate and end-to-end receipt |
-| HE-06 | Train/promote only with independent held-out evaluation, bounded resource lease, immutable artifact, compare-and-swap pointer and rollback receipt. | EH-347 | negative and canary tests |
-| HE-07 | Keep in-engine generative/autograd implementation deferred until a separate evidence-backed Gap proves held-out benefit, cost and safety. | EH-350 | absence and decision record |
+| HE-01 | Attest provider capability; bind tokenizer, decode, sampler and base/adapter digests. Three independent `capture/train/promote` controls default false. | AU-HARNESS-R001 | capability and default-off negatives |
+| HE-02 | Capture terminal trajectory, frozen `log_q`, token ids, policy-token mask, verifier/reward and live blob references. Reject incomplete or mismatched arrays as training input. | AU-HARNESS-R001 | replay/golden/fault tests |
+| HE-03 | Extend `SubstrateTrainer` job emission to optional KLPO beside GRPO/DPO/SFT; gradients and checkpoint bytes remain external; first output is a new adapter artifact. | AU-HARNESS-R002 | injected dispatcher and receipt tests |
+| HE-04 | Use EG Gap/WorkOffer/Decide/DecisionCommit/WorkItem contracts for selection, claim, budget, cooldown and terminal outcome. | AU-HARNESS-R003 | served one-Gap/one-claim fixture |
+| HE-05 | Route code proposals through graph-os authorization and repository-manager materialization; remove AU direct Git, local publication/report authority and dual writes. | AU-HARNESS-R004 | source gate and end-to-end receipt |
+| HE-06 | Train/promote only with independent held-out evaluation, bounded resource lease, immutable artifact, compare-and-swap pointer and rollback receipt. | AU-HARNESS-R002 | negative and canary tests |
+| HE-07 | Keep in-engine generative/autograd implementation deferred until a separate evidence-backed Gap proves held-out benefit, cost and safety. | AU-HARNESS-R005 | absence and decision record |
 
 ## Success criteria
 
 The same event cannot create two schedulable WorkItems; a repeated offer cannot bypass cooldown; dispatch without approval/client/service availability has zero Git or graph side effects; missing log probabilities never become invented values. Exact merged-head CI, receipt and manual-promotion evidence are needed before marking any requirement accepted. The [agent control plane](../agent-control-plane/spec.md) supplies RunSpec, conformance and L5 trace guarantees consumed here.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

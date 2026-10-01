@@ -3,13 +3,67 @@
   "spec_id": "AU-QUAL-01",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-176",
-    "EH-380",
-    "EH-385",
-    "EH-386",
-    "EH-391"
+    "AU-QUAL-R001",
+    "AU-QUAL-R002",
+    "AU-QUAL-R003",
+    "AU-QUAL-R004",
+    "AU-QUAL-R005",
+    "AU-QUAL-R006",
+    "AU-QUAL-R007"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-QUAL-R001",
+      "title": "Liveness deferrals fail visibly when they expire",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-QUAL-R002",
+      "title": "Tiny-profile RBAC and bootstrap-isolation tests cover real code",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "112f281e0ed0b5f22910e88cff6a3e55f45370f4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/112f281e0ed0b5f22910e88cff6a3e55f45370f4",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-QUAL-R003",
+      "title": "Connector validation uses EG's composed GraphSchema",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-QUAL-R004",
+      "title": "Named AU test failures are fixed, not skipped",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-QUAL-R005",
+      "title": "Test files are included in mypy with real fixes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-QUAL-R006",
+      "title": "A privacy check covers the final tree and commit history",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-QUAL-R007",
+      "title": "Liveness placeholder detector ignores documentation prose",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

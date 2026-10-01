@@ -1,7 +1,7 @@
 # Agent control plane
 
-**Owner:** agent-utilities (AU) · **Stable ID:** `agent-control-plane`
-**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** RF-029, EH-035–EH-039, EH-048, EH-206, EH-453–EH-464 (AU portions)
+**Owner:** agent-utilities (AU) · **Stable ID:** `AU-CONTROL-001`
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-CONTROL-R001, AU-CONTROL-R002–AU-CONTROL-R006, AU-CONTROL-R007, AU-CONTROL-R008, AU-CONTROL-R009–AU-CONTROL-R020 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome and actors
 
@@ -22,14 +22,16 @@ AU owns task mapping proposals, L3 agent-graph orchestration, L4 `HarnessPort`/`
 
 | ID | Requirement | Scope IDs | Proof |
 |---|---|---|---|
-| AC-01 | Preserve task IRI and evidence class; free-text mapping is a labelled claim, never a proof. | EH-206 | mapping and refusal tests |
-| AC-02 | Route model, prompt, skill, tool, harness, account mode and sandbox through one committed EG decision; bind selected component digests. | EH-035–EH-039 | client contract and served integration |
-| AC-03 | Use `AgentAssemble` for the L3 graph and `Decide` for legal-option selection; consume generated clients and no Python shadow solver. | RF-029 | deterministic fixture and source gate |
-| AC-04 | Negotiate the entire RunSpec before start; verify actual startup tool and skill exposure, strict budgets, policy, isolation and fidelity. | RF-029 | five-adapter conformance kit |
-| AC-05 | Carry topology plan, stop rule and `SubagentAllowance` into node execution; enforce narrow-only continuation and fence loss. | EH-048, EH-459, EH-462, EH-463 | topology and cancellation tests |
-| AC-06 | Emit launch, step, tool, usage, artifact, receipt and terminal events through the EG durable contract; mark gaps and uncertain outcomes explicitly. | RF-029 | replay and fault tests |
-| AC-07 | Use independently evaluated outcomes for any learned routing term; exploration defaults off and is forbidden for sensitive or irreversible work. | EH-464 | calibration and negative fixtures |
+| AC-01 | Preserve task IRI and evidence class; free-text mapping is a labelled claim, never a proof. | AU-CONTROL-R008 | mapping and refusal tests |
+| AC-02 | Route model, prompt, skill, tool, harness, account mode and sandbox through one committed EG decision; bind selected component digests. | AU-CONTROL-R002–AU-CONTROL-R006 | client contract and served integration |
+| AC-03 | Use `AgentAssemble` for the L3 graph and `Decide` for legal-option selection; consume generated clients and no Python shadow solver. | AU-CONTROL-R001 | deterministic fixture and source gate |
+| AC-04 | Negotiate the entire RunSpec before start; verify actual startup tool and skill exposure, strict budgets, policy, isolation and fidelity. | AU-CONTROL-R001 | five-adapter conformance kit |
+| AC-05 | Carry topology plan, stop rule and `SubagentAllowance` into node execution; enforce narrow-only continuation and fence loss. | AU-CONTROL-R007, AU-CONTROL-R015, AU-CONTROL-R018, AU-CONTROL-R019 | topology and cancellation tests |
+| AC-06 | Emit launch, step, tool, usage, artifact, receipt and terminal events through the EG durable contract; mark gaps and uncertain outcomes explicitly. | AU-CONTROL-R001 | replay and fault tests |
+| AC-07 | Use independently evaluated outcomes for any learned routing term; exploration defaults off and is forbidden for sensitive or irreversible work. | AU-CONTROL-R020 | calibration and negative fixtures |
 
 ## Completion measure
 
 All five supported harness families pass one shared conformance kit; a served end-to-end fixture proves `AgentAssemble → Decide → DecisionCommit → admission → run → terminal receipt`; no alternate AU topology success store or unauthorized fallback remains. Each requirement has exact merged-head CI evidence in `evidence.md`. Source presence alone is not acceptance.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
