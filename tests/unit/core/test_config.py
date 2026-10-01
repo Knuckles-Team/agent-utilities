@@ -428,7 +428,7 @@ def test_resolved_kg_embedding_dim_fails_loud_on_explicit_mismatch(monkeypatch):
     wrong with no error anywhere."""
     monkeypatch.setenv("KG_EMBEDDING_DIM", "768")
     config = AgentConfig(
-        embedding_models=[
+        EMBEDDING_MODELS=[
             EmbeddingModelConfig(
                 id="bge-m3", provider="vllm", base_url="http://embedder.invalid"
             )
@@ -444,7 +444,7 @@ def test_resolved_kg_embedding_dim_derives_from_embedder_when_unset(monkeypatch)
     (AU-SEMANTIC-R028)."""
     monkeypatch.delenv("KG_EMBEDDING_DIM", raising=False)
     config = AgentConfig(
-        embedding_models=[
+        EMBEDDING_MODELS=[
             EmbeddingModelConfig(
                 id="bge-m3", provider="vllm", base_url="http://embedder.invalid"
             )
