@@ -1,19 +1,13 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Source-partitioned named-graph routing for SPARQL triple stores.
+"""Canonical source identifiers and optional named-graph routing.
 
 CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction.
 
-A SPARQL store can hold many *named graphs*. When KG instance data lands in a
-triplestore (Stardog), partitioning it by the **source system** it came from
-(LeanIX, ServiceNow, …) keeps provenance explicit and lets an operator push,
-query, or clear one source's slice without touching the rest.
-
-This module is the single source of truth for that routing decision. It is used
-by BOTH the live write path (the Stardog backend's Cypher→SPARQL translation) and
-the explicit per-source push serializer, so the two never disagree about which
-named graph a node/edge belongs in.
+Connector ingestion uses one source-id grammar across GitLab and the general
+source-sync path. The optional named-graph helpers preserve the same identifiers
+for callers that need a graph URI.
 
 The source is read from the ``source_system`` property, which
 :meth:`IntelligenceGraphEngine.ingest_external_batch` stamps on every externally
@@ -261,7 +255,7 @@ def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None
             raise ValueError(
                 f"source-partition: node label {label!r} has no source_system and would land "
                 "in the SPARQL default graph. Stamp a source with "
-                "backends.sparql.source_partition.make_source_id(...), or add the label to "
+                "core.source_partition.make_source_id(...), or add the label to "
                 "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
             )
     return g

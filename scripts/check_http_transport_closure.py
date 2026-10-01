@@ -47,7 +47,6 @@ DIRECT_IMPORT_ALLOWLIST: dict[str, str] = {
     "agent_utilities/httpsupport/client.py": "public BaseApiClient concrete response/transport contract",
     "agent_utilities/httpsupport/httpx_adapter.py": "sanctioned httpx adapter",
     "agent_utilities/httpsupport/httpx2_adapter.py": "sanctioned httpx2 adapter",
-    "agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py": "lazy optional Fuseki dependency guard",
     "agent_utilities/knowledge_graph/pipeline/phases/embedding.py": "legacy core-factory HTTPError translation",
     "agent_utilities/kvcache/remote_backend.py": "public client injection and concrete limits/auth/error types",
     "agent_utilities/mcp/client_credentials.py": "local httpx.Auth implementation",
