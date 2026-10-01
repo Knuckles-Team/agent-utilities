@@ -19,7 +19,7 @@
     {
       "id": "AU-FREEZE-R002",
       "title": "Quarantine unresolved scanner findings from the freeze",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     }
   ]
