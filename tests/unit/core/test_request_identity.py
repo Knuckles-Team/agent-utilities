@@ -232,6 +232,28 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
+    def test_the_elevation_approval_scope_reaches_the_session_only_as_itself(self):
+        """AU-SEC-R006: an approver's realm role projects as the exact scope
+        EG requires; ``kg:admin`` never implies it."""
+        approver = actor_from_claims(
+            {
+                "sub": "principal:approver",
+                "realm_access": {"roles": ["kg:read", "rbac:approve-elevation"]},
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        admin = actor_from_claims(
+            {
+                "sub": "principal:admin",
+                "scope": "kg:admin",
+                "tenant_id": "tenant-a",
+                "exp": int(time.time()) + 300,
+            }
+        )
+        assert "rbac:approve-elevation" in _mint(approver).scopes
+        assert "rbac:approve-elevation" not in _mint(admin).scopes
+
     def test_generic_admin_role_does_not_grant_graph_administration(self):
         actor = actor_from_claims(
             {

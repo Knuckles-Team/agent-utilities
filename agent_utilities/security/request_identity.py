@@ -112,8 +112,13 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # (``CreateGraph``/``DeleteGraph``/``ClearGraph``): it lets a graph-lifecycle
 # authority provision graphs without the blanket ``kg:admin`` that EG's
 # ``allows_method`` treats as "every action" (CONCEPT:X1).
+# ``rbac:approve-elevation`` (AU-SEC-R006) is the other independent
+# capability: EG accepts an elevation approval only from a direct identity
+# holding that EXACT scope, so it must reach the session as-is. It is never
+# implied by the hierarchy (``kg:admin`` does not expand to it) and is
+# granted to people through an approvers group, never to a service.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "graph:admin"}
+    {"kg:read", "kg:write", "kg:admin", "graph:admin", "rbac:approve-elevation"}
 )
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
