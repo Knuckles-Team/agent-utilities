@@ -116,7 +116,19 @@ POINTS: dict[str, DecisionPoint] = {
             **_SAMPLED,
         ),
         _point("route-cost", "au.route.cost", "route"),
-        _point("swarm-topology", "au.swarm.topology", "route"),
+        # The statistical rung over a topology plan's legal (template, width,
+        # rounds) options; advisory until a head is calibrated, never
+        # explored or logged (AU-CONTROL-R020).
+        _point(
+            "swarm-topology",
+            "au.swarm.topology",
+            "template_choice",
+            log_mode=LogMode.NEVER,
+        ),
+        # Continue / narrow / stop between rounds over a committed topology
+        # plan; evaluate-only and sampled, options narrow-only
+        # (AU-CONTROL-R019).
+        _point("swarm-continue", "au.swarm.continue", "route", **_SAMPLED),
         _point("connector-triage", "au.connector.triage", "classify", **_SAMPLED),
         _point("connector-tool", "au.connector.tool", "route", **_SAMPLED),
         _point(
