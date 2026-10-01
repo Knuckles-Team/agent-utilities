@@ -2106,6 +2106,77 @@ def test_ops_connector_response_schema_drift_applies_no_records(monkeypatch):
     assert not engine.batches
 
 
+class _ContractBackend(FakeBackend):
+    """``FakeBackend`` + the schema-drift contract/proposal node reads."""
+
+    def __init__(self, nodes):
+        super().__init__()
+        from tests.unit.knowledge_graph.schema_drift.fakes import (
+            FakeBackend as NodeReads,
+        )
+
+        self._reads = NodeReads(nodes)
+
+    def execute(self, query, params=None):
+        if "SourceRecordContract" in query or "SchemaRepairProposal" in query:
+            return self._reads.execute(query, params)
+        return super().execute(query, params)
+
+
+class _ContractEngine(FakeEngine):
+    def __init__(self):
+        self.nodes: dict[str, dict] = {}
+        super().__init__(_ContractBackend(self.nodes))
+
+    def add_node(self, node_id, node_type, properties=None):
+        merged = dict(self.nodes.get(node_id) or {})
+        merged.update(properties or {})
+        merged["node_type"] = str(node_type)
+        self.nodes[node_id] = merged
+
+
+def test_ops_connector_schema_drift_is_quarantined_without_checkpoint_advance(
+    monkeypatch,
+):
+    """AU-SEC-R004: the first sync bootstraps the record contract; a later delta
+    that grows an undeclared field is held -- nothing applied, the watermark
+    unchanged, a SchemaDriftReport and a Gap recorded -- and re-syncing keeps
+    holding it (no ContractEvolutionPolicy declares the class)."""
+    from fastmcp import FastMCP
+
+    _install_ops_provider(monkeypatch, "systems-manager")
+    state: dict = {"extra": {}, "watermark_before": None}
+    server = FastMCP("systems-manager")
+
+    @server.tool
+    def sm_service_operations(action: str) -> dict:
+        record = {"name": "node-a", "description": "host inventory"}
+        return {"services": [{**record, **state["extra"]}]}
+
+    engine = _ContractEngine()
+    first = sync_source(engine, "systems-manager", mode="full", client=server)
+    assert first["status"] == "ok" and first["details"]["ingested"] == 1
+    assert first["details"]["schema_drift"]["contract"] == "bootstrap"
+    batches = len(engine.batches)
+    state["watermark_before"] = engine.backend.watermark
+
+    state["extra"] = {"state": "running"}
+    held = sync_source(engine, "systems-manager", mode="full", client=server)
+    assert held["status"] == "quarantined"
+    assert held["details"]["ingested"] == 0
+    assert len(engine.batches) == batches, "a quarantined delta applies nothing"
+    assert engine.backend.watermark == state["watermark_before"]
+    drift = held["details"]["schema_drift"]
+    assert drift["verdict"] == "quarantine"
+    assert [(c["kind"], c["field"]) for c in drift["changes"]] == [
+        ("additive_required", "state")
+    ]
+    labels = {props["node_type"] for props in engine.nodes.values()}
+    assert {"SourceRecordContract", "SchemaDriftReport", "Gap"} <= labels
+    again = sync_source(engine, "systems-manager", mode="full", client=server)
+    assert again["status"] == "quarantined"
+
+
 # ── W3.4 ambient epistemics: one Activity + one summary Claim per sync run ──
 # (CONCEPT:AU-KG.ingest.ambient-connector-provenance)
 
