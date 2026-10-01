@@ -887,7 +887,11 @@ class TestStdioProcessIdentity:
         assert session.actor.actor_id == "graph-os:local-process"
         assert session.actor.tenant_id == "local"
         assert session.actor.authenticated is True
-        assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
+        # CONCEPT:X1 -- least-privilege: kg:read/kg:write only, never
+        # kg:admin. See test_tiny_local_process_session_default_has_no_admin_or_control_scope
+        # and TestLocalProcessGrantChokepoint below for the mutation-proof
+        # coverage of this specific fix.
+        assert session.scopes == frozenset({"kg:read", "kg:write"})
         assert session.audience == "graph-os-local"
         assert session.policy_version == "local-ephemeral-v1"
         assert session.actor.credential_expires_at is not None
@@ -896,6 +900,77 @@ class TestStdioProcessIdentity:
             session.actor.credential_lease.expires_at
             == session.actor.credential_expires_at
         )
+
+    def test_tiny_local_process_session_default_has_no_admin_or_control_scope(self):
+        """CONCEPT:X1 (a): the default tiny-profile local process must never be
+        able to pass an admin/security/control gate. Checks both the aggregate
+        scope set directly (mutation-proof against a changed default role) and
+        that the coarse ``require_scope`` gate itself refuses ``kg:admin``."""
+        from agent_utilities.knowledge_graph.core.session import ScopeError
+        from agent_utilities.security.request_identity import (
+            mint_local_process_session,
+        )
+
+        cfg = _make_config()
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            session = mint_local_process_session()
+
+        assert "kg:admin" not in session.scopes
+        assert not any(
+            scope == "*"
+            or scope.startswith("admin:")
+            or scope.startswith("security:")
+            or scope.endswith(":control")
+            for scope in session.scopes
+        )
+        with pytest.raises(ScopeError):
+            session.require_scope("kg:admin")
+        # The narrower scopes a normal local tool call/background write needs
+        # must still be granted -- this is a least-privilege narrowing, not an
+        # outage.
+        session.require_scope("kg:read")
+        session.require_scope("kg:write")
+
+    def test_local_process_bootstrap_authority_is_a_distinct_graph_admin_mint(self):
+        """CONCEPT:X1 (c): first-run local graph provisioning gets its own
+        one-shot authority carrying exactly the engine's ``graph:admin``
+        lifecycle scope -- never ``kg:admin`` -- and it is not the ambient
+        subject used for ordinary tool calls, so it can never be mistaken for
+        one in a provenance/audit trail."""
+        from agent_utilities.knowledge_graph.core.session import ScopeError
+        from agent_utilities.security.request_identity import (
+            mint_local_process_bootstrap_authority,
+            mint_local_process_session,
+        )
+
+        cfg = _make_config()
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            ordinary = mint_local_process_session()
+            bootstrap = mint_local_process_bootstrap_authority()
+
+        assert bootstrap.scopes == frozenset({"kg:read", "graph:admin"})
+        bootstrap.require_scope("graph:admin")
+        with pytest.raises(ScopeError):
+            bootstrap.require_scope("kg:admin")
+        assert "graph:admin" not in ordinary.scopes
+        assert bootstrap.actor.actor_id != ordinary.actor.actor_id
+        assert bootstrap.actor.actor_id == "graph-os:local-process-bootstrap"
+
+    def test_no_setting_widens_the_ambient_local_process_authority(self):
+        """CONCEPT:X1: the former ``KG_LOCAL_PROCESS_ADMIN_SCOPE`` opt-in is
+        gone. Neither the field nor a truthy stand-in on a config object can
+        turn the ambient local mint into ``kg:admin``."""
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.security.request_identity import (
+            mint_local_process_session,
+        )
+
+        assert "kg_local_process_admin_scope" not in AgentConfig.model_fields
+        cfg = _make_config()
+        cfg.kg_local_process_admin_scope = True
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            session = mint_local_process_session()
+        assert "kg:admin" not in session.scopes
 
     @pytest.mark.parametrize(
         ("overrides", "expected"),
