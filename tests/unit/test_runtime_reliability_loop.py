@@ -26,6 +26,7 @@ from agent_utilities.knowledge_graph.research.runtime_reliability import (
 )
 from agent_utilities.observability import runtime_signals
 from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.graph_double_fakes import NodeEdgeStore
 from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.runtime-reliability-loop")
@@ -41,7 +42,7 @@ def _verified_session():
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-class MockEngine:
+class MockEngine(NodeEdgeStore):
     """In-memory KG double honoring exactly the surface the loop uses:
     ``add_node`` (persist :RuntimeSignal + submit_gap) and the label-scan / id-lookup /
     DETACH-DELETE cyphers ``read_recent_runtime_signals`` / ``open_gaps`` / ``get_gap`` /
@@ -49,8 +50,7 @@ class MockEngine:
     Backend-agnostic, like the real engine."""
 
     def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: list[tuple[str, str, str]] = []
+        super().__init__()
         self.market = attach_market(self)
 
     def add_node(
