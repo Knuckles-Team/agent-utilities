@@ -18,8 +18,16 @@
     {
       "id": "AU-QUAL-R001",
       "title": "Liveness deferrals fail visibly when they expire",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c15d278239d31c2028a7f501f76d709747d8ee61",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c15d278239d31c2028a7f501f76d709747d8ee61",
+          "description": "Implemented on the default branch; exercised by tests/gates/test_liveness_deferred.py::test_review_date_gate_catches_stale_and_honors_fresh"
+        }
+      ]
     },
     {
       "id": "AU-QUAL-R002",
@@ -29,8 +37,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "112f281e0ed0b5f22910e88cff6a3e55f45370f4",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/112f281e0ed0b5f22910e88cff6a3e55f45370f4",
+          "commit": "a50d12c5fc4f0955713f37ae8f7320952f781e3e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a50d12c5fc4f0955713f37ae8f7320952f781e3e",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -38,14 +46,30 @@
     {
       "id": "AU-QUAL-R003",
       "title": "Connector validation uses EG's composed GraphSchema",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "077ec5e55292a85ea167bfdc9956e675b410f5eb",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/077ec5e55292a85ea167bfdc9956e675b410f5eb",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-QUAL-R004",
       "title": "Named AU test failures are fixed, not skipped",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c7e28f433ae9516885e65694f19a371b0642f7fc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7e28f433ae9516885e65694f19a371b0642f7fc",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-QUAL-R005",
@@ -62,8 +86,16 @@
     {
       "id": "AU-QUAL-R007",
       "title": "Liveness placeholder detector ignores documentation prose",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f93efd64d0019f3f0aba0d579f3d7c00db2d0923",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f93efd64d0019f3f0aba0d579f3d7c00db2d0923",
+          "description": "Implemented on the default branch; exercised by tests/gates/test_liveness_analyzer_compat.py::test_docstring_prose_is_not_a_placeholder_finding"
+        }
+      ]
     }
   ]
 }

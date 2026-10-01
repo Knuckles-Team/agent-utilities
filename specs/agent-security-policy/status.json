@@ -20,8 +20,16 @@
     {
       "id": "AU-SEC-R001",
       "title": "Tiny profile grants scoped authority, not blanket admin",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3df5104d3dce99db4ec9a5781fe04f13ea7fd5fd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3df5104d3dce99db4ec9a5781fe04f13ea7fd5fd",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R002",
@@ -40,20 +48,44 @@
     {
       "id": "AU-SEC-R003",
       "title": "Caches subscribe to invalidation with volatility-bounded TTL",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7943207de987b7252e6244f59561d0fe5b46a083",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/7943207de987b7252e6244f59561d0fe5b46a083",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R004",
       "title": "AU treats schema drift as a fail-closed typed result",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2c92e37c39af66257e131fb32ceeb6d86998c3b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2c92e37c39af66257e131fb32ceeb6d86998c3b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R005",
       "title": "AU proposes schema-repair mappings; EG alone activates them",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "ead97a911199178a52edb107be2ef111276b6b76",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R006",
@@ -63,8 +95,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "26a25b0cc7404dc613a0502e7f54e5967ebf8a11",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26a25b0cc7404dc613a0502e7f54e5967ebf8a11",
+          "commit": "d186f69edd13390b1c78cf2c482cdc4a8f190f54",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d186f69edd13390b1c78cf2c482cdc4a8f190f54",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -77,8 +109,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "26a25b0cc7404dc613a0502e7f54e5967ebf8a11",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26a25b0cc7404dc613a0502e7f54e5967ebf8a11",
+          "commit": "d186f69edd13390b1c78cf2c482cdc4a8f190f54",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d186f69edd13390b1c78cf2c482cdc4a8f190f54",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -86,8 +118,16 @@
     {
       "id": "AU-SEC-R008",
       "title": "AU allowlist is generated from the canonical scope registry",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "479ba69d7f40e70260a17f5d8f79ed8e8f7fe230",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/479ba69d7f40e70260a17f5d8f79ed8e8f7fe230",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R009",

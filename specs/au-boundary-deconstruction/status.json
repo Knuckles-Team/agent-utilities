@@ -99,31 +99,31 @@
     {
       "id": "AU-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "AU-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "AU-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
@@ -179,13 +179,13 @@
     {
       "id": "AU-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "22729e6dbd2dbe4a79efd45148567c49127e3d67",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22729e6dbd2dbe4a79efd45148567c49127e3d67",
+          "commit": "70d2ee65661cec928683811279aca416c111d96f",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/70d2ee65661cec928683811279aca416c111d96f",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -329,13 +329,13 @@
     {
       "id": "AU-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "commit": "ea5839ad260340b0f1e741b70d25c8b2e23e3fe2",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ea5839ad260340b0f1e741b70d25c8b2e23e3fe2",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -349,7 +349,7 @@
     {
       "id": "AU-BOUNDARY-R032",
       "title": "Delete AU's legacy SPARQL backend and setup path",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
@@ -375,8 +375,16 @@
     {
       "id": "AU-BOUNDARY-R035",
       "title": "Re-home the schema-drift package before it lands",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "ead97a911199178a52edb107be2ef111276b6b76",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R036",
@@ -419,8 +427,16 @@
     {
       "id": "AU-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R042",

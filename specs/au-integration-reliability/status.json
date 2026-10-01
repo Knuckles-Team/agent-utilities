@@ -35,8 +35,17 @@
     {
       "id": "AU-INTEGRATION-R002",
       "title": "Control graph auto-creation and messaging intake propagation",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "messaging_intake_enabled threading into InProcessBackend.apply is on main, but __control__ graph auto-creation is not: graph_compute.py's _ensure_local_graph_ready still returns early (does nothing) whenever the local graph is __commons__, so a fresh packaged engine's first WorkItem still has no __c"
     },
     {
       "id": "AU-INTEGRATION-R003",
@@ -135,14 +144,30 @@
     {
       "id": "AU-INTEGRATION-R012",
       "title": "External-graph contract check follows relocated docs",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R013",
       "title": "Privacy gate accepts canonical automation author identities",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "d6208d18fb567e0c41a6599744186d37a68a968b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d6208d18fb567e0c41a6599744186d37a68a968b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R014",
@@ -158,8 +183,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "commit": "f055b24c487acd5e7782b8458df0f4f6efe82e07",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
@@ -195,7 +220,7 @@
     {
       "id": "AU-INTEGRATION-R018",
       "title": "Public docs site passes the full documentation gate suite",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     }
   ]

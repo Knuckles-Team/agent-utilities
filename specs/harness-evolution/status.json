@@ -17,25 +17,49 @@
     {
       "id": "AU-HARNESS-R001",
       "title": "Capability-gated capture of policy trajectories",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "9cf51e005f1e171806057ebb1a6b6e4e16333691",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9cf51e005f1e171806057ebb1a6b6e4e16333691",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-HARNESS-R002",
       "title": "External training path supports an optional KLPO method",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-HARNESS-R003",
       "title": "Graph-driven work market on Gap and WorkItem contracts",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f9280a3bae30df17b30e3019d338b82a4b24f59e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f9280a3bae30df17b30e3019d338b82a4b24f59e",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "AU-HARNESS-R004",
       "title": "AU proposes corrections through the graph, never writes Git directly",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
@@ -47,8 +71,16 @@
     {
       "id": "AU-HARNESS-R006",
       "title": "Statistical scoring head ranks work-market offers",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     }
   ]
 }

@@ -12,7 +12,7 @@
     {
       "id": "AU-RETRIEVAL-R001",
       "title": "Benchmark structure-aware retrieval against served hybrid search",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
