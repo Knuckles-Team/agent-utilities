@@ -8,6 +8,7 @@ uses (``add_node`` / ``query_cypher`` / ``backend.execute`` / ``submit_task``
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any
 
@@ -333,3 +334,39 @@ def write_policy(tmp_path, body: str):
     path = tmp_path / "policy.yml"
     path.write_text(body, encoding="utf-8")
     return str(path)
+
+
+def fleet_approval_session(tenant: str = "fleet-autonomy") -> Any:
+    """Build a minimal verified ``GraphSession`` for tests whose code path
+    resolves its tenant from the ambient verified session (never a
+    caller-supplied value) -- e.g. the canonical-Gap surface's ``gap_tenant``.
+    """
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.security.brain_context import ActorContext, ActorType
+
+    actor = ActorContext(
+        actor_id="principal:fleet-autonomy-test",
+        actor_type=ActorType.AI_AGENT,
+        roles=("operator",),
+        tenant_id=tenant,
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=tenant,
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph=f"tenant-{tenant}-graph",
+        policy_version="policy-v1",
+        audience="agent-services",
+    )
+
+
+@contextmanager
+def verified_fleet_session(tenant: str = "fleet-autonomy"):
+    """Scope a block of test code to a verified fleet-autonomy ``GraphSession``."""
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+
+    session = fleet_approval_session(tenant)
+    with use_actor(session.actor), use_session(session):
+        yield session

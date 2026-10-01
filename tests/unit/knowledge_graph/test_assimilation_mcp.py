@@ -11,6 +11,8 @@ import pytest
 from agent_utilities.knowledge_graph.research.loop_controller import (
     run_assimilation_pass,
 )
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
@@ -80,8 +82,15 @@ def test_run_assimilation_pass_without_synthesis():
 
 def test_run_assimilation_pass_with_synthesis():
     engine = _Engine(_nodes())
-    rep = run_assimilation_pass(engine, synthesize=True, top_n=5)
+    market = attach_market(engine)
+    with verified_fleet_session():
+        rep = run_assimilation_pass(engine, synthesize=True, top_n=5)
     assert {p["feature_id"] for p in rep["proposed_plans"]} == {"f1", "f2"}
+    # each feature became ONE canonical research Gap through EG's typed upsert
+    assert {gap_id for _, gap_id in market.gap_rows} == {
+        "gap:research:f1",
+        "gap:research:f2",
+    }
     # features flipped to proposed (idempotent next pass)
     assert dict(engine.graph.nodes(data=True))["f1"]["status"] == "proposed"
 

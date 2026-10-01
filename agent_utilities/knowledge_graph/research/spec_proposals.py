@@ -378,7 +378,8 @@ def _bind_develop_loop(engine: Any, spec: dict[str, Any]) -> dict[str, Any] | No
     )
     # Stamp the spec binding (+ the origin gap) so _advance_develop routes this Loop to
     # the spec develop pipeline (governed_publish) instead of a validation_cmd, and can
-    # close the origin gap on publish (D5).
+    # close the origin gap on publish through EG's typed GapTransition — the stamped
+    # ``gap_id`` is the whole link; there is no RESOLVES edge to walk.
     props = {"spec_id": spec_id}
     if gap_id:
         props["gap_id"] = gap_id
@@ -393,13 +394,6 @@ def _bind_develop_loop(engine: Any, spec: dict[str, Any]) -> dict[str, Any] | No
         # permanently never advancing the spec. Raised so a persistently-failing
         # backend here is diagnosable instead of invisible.
         logger.warning("_bind_develop_loop stamp failed: %s", e)
-    # D5: (develop-Loop)-[:RESOLVES]->(:Gap) — the edge that closes the loop, so a
-    # published branch flips the ORIGIN gap to resolved (a visible END).
-    if gap_id:
-        try:
-            engine.add_edge(loop_id, gap_id, "RESOLVES")
-        except Exception as e:  # noqa: BLE001 — confirmed non-load-bearing: develop_spec()'s own publish path (this file, ~line 461) independently calls mark_gap_resolved(engine, spec['gap_id']) — sourced from the spec, not this edge — documented there as 'the single chokepoint every caller funnels through, so the gap closes on both'; this RESOLVES edge is redundant graph-native provenance
-            logger.debug("RESOLVES edge %s->%s failed: %s", loop_id, gap_id, e)
     return loop
 
 

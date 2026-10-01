@@ -19,8 +19,18 @@ from typing import Any
 
 import pytest
 
+from agent_utilities.knowledge_graph.research import gaps
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools.state_tools import register_state_tools
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
+
+
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
 
 
 class _CollectingMCP:
@@ -36,42 +46,11 @@ class _CollectingMCP:
 
 
 class _GapStubEngine:
-    """Minimal engine double covering exactly what research/gaps.py needs."""
+    """Minimal engine double: the typed EG Gap surfaces research/gaps.py calls."""
 
     def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: list[tuple[str, str, str]] = []
         self.backend = object()
-
-    def add_node(
-        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
-    ) -> None:
-        self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
-
-    def add_edge(
-        self, source: str, target: str, rel_type: str = "", **properties: Any
-    ) -> None:
-        self.edges.append((source, target, rel_type))
-
-    def query_cypher(
-        self, q: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        params = params or {}
-        if "WHERE n.id = $id" in q:
-            node = self.nodes.get(params.get("id"))
-            return [{"n": node}] if node else []
-        if "MATCH (n:Gap) RETURN n LIMIT 1000" in q:
-            return [{"n": n} for n in self.nodes.values() if n.get("type") == "Gap"]
-        if "SPECIFIED_BY" in q and "RESOLVES" in q:
-            gid = params.get("id")
-            spec_id = next(
-                (t for s, t, r in self.edges if s == gid and r == "SPECIFIED_BY"), None
-            )
-            loop_id = next(
-                (s for s, t, r in self.edges if t == gid and r == "RESOLVES"), None
-            )
-            return [{"spec_id": spec_id, "loop_id": loop_id}]
-        return []
+        self.market = attach_market(self)
 
 
 def _register(monkeypatch) -> object:
@@ -119,7 +98,7 @@ async def test_submit_gap_requires_source_signature_statement(monkeypatch):
 
     out = await _call(tool, action="submit_gap", data_json=json.dumps({}))
     assert "error" in out
-    assert eng.nodes == {}
+    assert eng.market.gap_rows == {}
 
 
 @pytest.mark.asyncio
@@ -148,7 +127,7 @@ async def test_submit_gap_then_list_then_get_with_provenance(monkeypatch):
     assert submitted["gap"]["priority_bucket"] == 0  # severity 0.9 -> bucket 0
 
     # Idempotent on the canonical id -- resubmitting the same source+signature
-    # upserts the SAME node, never a duplicate.
+    # upserts the SAME Gap (EG folds the new evidence in), never a duplicate.
     resubmitted = await _call(
         tool,
         action="submit_gap",
@@ -161,7 +140,7 @@ async def test_submit_gap_then_list_then_get_with_provenance(monkeypatch):
         ),
     )
     assert resubmitted["gap"]["id"] == gap_id
-    assert len([n for n in eng.nodes.values() if n.get("type") == "Gap"]) == 1
+    assert len(eng.market.gap_rows) == 1
 
     listed = await _call(tool, action="gaps", limit=10)
     assert listed["action"] == "gaps"
@@ -172,19 +151,19 @@ async def test_submit_gap_then_list_then_get_with_provenance(monkeypatch):
     assert fetched["gap"]["id"] == gap_id
     # No provenance yet -- neither hop of the D6 chain has been written.
     assert fetched["provenance"]["specified_by_spec_id"] is None
-    assert fetched["provenance"]["resolved_by_loop_id"] is None
+    assert fetched["provenance"]["resolved_by"] is None
 
-    # Wire the D6 provenance chain by hand (what link_gap_to_spec /
-    # spec_proposals._bind_develop_loop do in the real pipeline) and confirm
-    # 'gap' surfaces both hops.
-    eng.add_edge(gap_id, "spec:widget-fix", "SPECIFIED_BY")
-    eng.add_edge("loop:develop:widget-fix", gap_id, "RESOLVES")
+    # Walk the provenance chain through the SAME typed transitions the real pipeline uses
+    # (link_gap_to_spec, then the develop-Loop's publish) and confirm 'gap'
+    # surfaces both hops from EG's own Gap record.
+    assert gaps.link_gap_to_spec(eng, gap_id, "spec:widget-fix")
+    assert gaps.mark_gap_resolved(eng, gap_id, reference="loop:develop:widget-fix")
 
     fetched_with_provenance = await _call(tool, action="gap", loop_id=gap_id)
     assert fetched_with_provenance["provenance"]["specified_by_spec_id"] == (
         "spec:widget-fix"
     )
-    assert fetched_with_provenance["provenance"]["resolved_by_loop_id"] == (
+    assert fetched_with_provenance["provenance"]["resolved_by"] == (
         "loop:develop:widget-fix"
     )
 
